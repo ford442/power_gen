@@ -15,6 +15,12 @@ class SEGVisualizer {
     this.indexBuffer = null;
     this.particleBuffer = null;
     this.depthTexture = null;
+    this.coreVertexBuffer = null;
+    this.coreIndexBuffer = null;
+    this.coreIndexCount = 0;
+    this.coilVertexBuffer = null;
+    this.coilIndexBuffer = null;
+    this.coilIndexCount = 0;
 
     this.mode = 'seg';
     this.particleCount = 10000;
@@ -22,7 +28,7 @@ class SEGVisualizer {
     this.lastFrameTime = 0;
     this.fps = 60;
     this.indexCount = 0;
-    this.camera = { distance: 18, rotation: 0, height: 2 };
+    this.camera = { distance: 20, rotation: 0, height: 3 };
 
     this.init();
   }
@@ -120,9 +126,98 @@ class SEGVisualizer {
     return { vertices: vertexData, indices: new Uint16Array(indices) };
   }
 
-  async setupGeometry() {
-    const cylinderData = this.generateCylinder(0.8, 2.5, 32);
+  generateSphere(radius, segments, rings) {
+    const vertices = [], indices = [], normals = [];
 
+    for (let ring = 0; ring <= rings; ring++) {
+      const phi = (ring / rings) * Math.PI;
+      for (let seg = 0; seg <= segments; seg++) {
+        const theta = (seg / segments) * Math.PI * 2;
+        const x = Math.sin(phi) * Math.cos(theta) * radius;
+        const y = Math.cos(phi) * radius;
+        const z = Math.sin(phi) * Math.sin(theta) * radius;
+
+        vertices.push(x, y, z);
+        const len = Math.sqrt(x*x + y*y + z*z);
+        normals.push(x/len, y/len, z/len);
+      }
+    }
+
+    for (let ring = 0; ring < rings; ring++) {
+      for (let seg = 0; seg < segments; seg++) {
+        const a = ring * (segments + 1) + seg;
+        const b = a + 1;
+        const c = a + segments + 1;
+        const d = c + 1;
+
+        indices.push(a, c, b);
+        indices.push(b, c, d);
+      }
+    }
+
+    const vertexData = new Float32Array(vertices.length / 3 * 6);
+    for (let i = 0; i < vertices.length / 3; i++) {
+      vertexData[i * 6] = vertices[i * 3];
+      vertexData[i * 6 + 1] = vertices[i * 3 + 1];
+      vertexData[i * 6 + 2] = vertices[i * 3 + 2];
+      vertexData[i * 6 + 3] = normals[i * 3];
+      vertexData[i * 6 + 4] = normals[i * 3 + 1];
+      vertexData[i * 6 + 5] = normals[i * 3 + 2];
+    }
+
+    return { vertices: vertexData, indices: new Uint16Array(indices) };
+  }
+
+  generateTorus(majorRadius, minorRadius, majorSegments, minorSegments) {
+    const vertices = [], indices = [], normals = [];
+
+    for (let major = 0; major <= majorSegments; major++) {
+      const theta = (major / majorSegments) * Math.PI * 2;
+      const cx = Math.cos(theta) * majorRadius;
+      const cz = Math.sin(theta) * majorRadius;
+
+      for (let minor = 0; minor <= minorSegments; minor++) {
+        const phi = (minor / minorSegments) * Math.PI * 2;
+        const x = cx + Math.cos(phi) * Math.cos(theta) * minorRadius;
+        const y = Math.sin(phi) * minorRadius;
+        const z = cz + Math.cos(phi) * Math.sin(theta) * minorRadius;
+
+        vertices.push(x, y, z);
+        const nx = Math.cos(phi) * Math.cos(theta);
+        const ny = Math.sin(phi);
+        const nz = Math.cos(phi) * Math.sin(theta);
+        normals.push(nx, ny, nz);
+      }
+    }
+
+    for (let major = 0; major < majorSegments; major++) {
+      for (let minor = 0; minor < minorSegments; minor++) {
+        const a = major * (minorSegments + 1) + minor;
+        const b = a + 1;
+        const c = a + minorSegments + 1;
+        const d = c + 1;
+
+        indices.push(a, c, b);
+        indices.push(b, c, d);
+      }
+    }
+
+    const vertexData = new Float32Array(vertices.length / 3 * 6);
+    for (let i = 0; i < vertices.length / 3; i++) {
+      vertexData[i * 6] = vertices[i * 3];
+      vertexData[i * 6 + 1] = vertices[i * 3 + 1];
+      vertexData[i * 6 + 2] = vertices[i * 3 + 2];
+      vertexData[i * 6 + 3] = normals[i * 3];
+      vertexData[i * 6 + 4] = normals[i * 3 + 1];
+      vertexData[i * 6 + 5] = normals[i * 3 + 2];
+    }
+
+    return { vertices: vertexData, indices: new Uint16Array(indices) };
+  }
+
+  async setupGeometry() {
+    // Roller cylinders
+    const cylinderData = this.generateCylinder(0.8, 2.5, 32);
     this.vertexBuffer = this.device.createBuffer({
       size: cylinderData.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
@@ -134,8 +229,38 @@ class SEGVisualizer {
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
     });
     this.device.queue.writeBuffer(this.indexBuffer, 0, cylinderData.indices);
-
     this.indexCount = cylinderData.indices.length;
+
+    // Core sphere
+    const coreData = this.generateSphere(1.2, 32, 24);
+    this.coreVertexBuffer = this.device.createBuffer({
+      size: coreData.vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(this.coreVertexBuffer, 0, coreData.vertices);
+
+    this.coreIndexBuffer = this.device.createBuffer({
+      size: coreData.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(this.coreIndexBuffer, 0, coreData.indices);
+    this.coreIndexCount = coreData.indices.length;
+
+    // Outer coil (torus)
+    const coilData = this.generateTorus(9.0, 0.5, 64, 16);
+    this.coilVertexBuffer = this.device.createBuffer({
+      size: coilData.vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(this.coilVertexBuffer, 0, coilData.vertices);
+
+    this.coilIndexBuffer = this.device.createBuffer({
+      size: coilData.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(this.coilIndexBuffer, 0, coilData.indices);
+    this.coilIndexCount = coilData.indices.length;
+
     this.updateParticles();
   }
 
@@ -347,12 +472,24 @@ class SEGVisualizer {
       entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }]
     });
 
+    // Render rollers (3 rings)
     renderPass.setPipeline(this.renderPipeline);
     renderPass.setBindGroup(0, renderBindGroup);
     renderPass.setVertexBuffer(0, this.vertexBuffer);
     renderPass.setIndexBuffer(this.indexBuffer, 'uint16');
-    renderPass.drawIndexed(this.indexCount, 12);
+    renderPass.drawIndexed(this.indexCount, 66);
 
+    // Render core sphere
+    renderPass.setVertexBuffer(0, this.coreVertexBuffer);
+    renderPass.setIndexBuffer(this.coreIndexBuffer, 'uint16');
+    renderPass.drawIndexed(this.coreIndexCount, 1);
+
+    // Render outer coil
+    renderPass.setVertexBuffer(0, this.coilVertexBuffer);
+    renderPass.setIndexBuffer(this.coilIndexBuffer, 'uint16');
+    renderPass.drawIndexed(this.coilIndexCount, 1);
+
+    // Render particles
     renderPass.setPipeline(this.particlePipeline);
     renderPass.setBindGroup(0, particleBindGroup);
     renderPass.setVertexBuffer(0, this.particleBuffer);

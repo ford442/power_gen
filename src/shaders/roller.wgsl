@@ -22,15 +22,40 @@ struct VertexOutput {
 ) -> VertexOutput {
   var output: VertexOutput;
 
-  let rollerCount = 12.0;
-  let ringRadius = 4.0;
+  var rollerCount: f32;
+  var ringRadius: f32;
+  var ringId: f32;
+  var localIdx: f32;
+
+  let globalIdx = f32(instanceIdx);
+
+  // Determine which ring and local index
+  if (globalIdx < 12.0) {
+    // Inner ring: 12 rollers at radius 3.5
+    ringId = 0.0;
+    rollerCount = 12.0;
+    ringRadius = 3.5;
+    localIdx = globalIdx;
+  } else if (globalIdx < 34.0) {
+    // Middle ring: 22 rollers at radius 5.5
+    ringId = 1.0;
+    rollerCount = 22.0;
+    ringRadius = 5.5;
+    localIdx = globalIdx - 12.0;
+  } else {
+    // Outer ring: 32 rollers at radius 7.5
+    ringId = 2.0;
+    rollerCount = 32.0;
+    ringRadius = 7.5;
+    localIdx = globalIdx - 34.0;
+  }
 
   // Calculate roller position around ring
-  let angle = f32(instanceIdx) * (6.28318530718 / rollerCount) + uniforms.time * 0.2;
+  let angle = localIdx * (6.28318530718 / rollerCount) + uniforms.time * 0.2;
   let center = vec3f(cos(angle) * ringRadius, 0.0, sin(angle) * ringRadius);
 
   // Spin roller
-  let spinAngle = uniforms.time * 3.0 + f32(instanceIdx) * 0.5;
+  let spinAngle = uniforms.time * 3.0 + globalIdx * 0.5;
   let c = cos(spinAngle);
   let s = sin(spinAngle);
   let rotPos = vec3f(
@@ -40,7 +65,7 @@ struct VertexOutput {
   );
 
   // Tilt roller
-  let tiltAngle = 0.1 * sin(uniforms.time + f32(instanceIdx));
+  let tiltAngle = 0.1 * sin(uniforms.time + globalIdx);
   let ct = cos(tiltAngle);
   let st = sin(tiltAngle);
   let tiltedPos = vec3f(
@@ -54,7 +79,7 @@ struct VertexOutput {
   output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
   output.normal = normal;
   output.worldPos = worldPos;
-  output.instanceId = f32(instanceIdx);
+  output.instanceId = globalIdx;
 
   return output;
 }
@@ -66,25 +91,41 @@ struct VertexOutput {
 ) -> @location(0) vec4f {
   let n = normalize(normal);
   let viewPos = vec3f(
-    cos(uniforms.time * 0.1) * 12.0,
-    3.0,
-    sin(uniforms.time * 0.1) * 12.0
+    cos(uniforms.time * 0.1) * 16.0,
+    4.0,
+    sin(uniforms.time * 0.1) * 16.0
   );
   let viewDir = normalize(viewPos - worldPos);
 
   let fieldPattern = sin(worldPos.y * 4.0 + uniforms.time * 4.0) *
                      cos(length(worldPos.xz) * 5.0 - uniforms.time * 3.0 + instanceId);
-  let baseColor = vec3f(0.7, 0.75, 0.8);
   let magneticColor = vec3f(0.0, 0.9, 1.0);
   let fresnel = pow(1.0 - abs(dot(n, viewDir)), 2.0);
+
+  var ringColor: vec3f;
+  var baseColor: vec3f;
+
+  // Ring-specific colors
+  if (instanceId < 12.0) {
+    // Inner ring: golden
+    ringColor = vec3f(1.0, 0.8, 0.2);
+    baseColor = vec3f(0.8, 0.7, 0.4);
+  } else if (instanceId < 34.0) {
+    // Middle ring: silver
+    ringColor = vec3f(0.8, 0.9, 1.0);
+    baseColor = vec3f(0.7, 0.75, 0.8);
+  } else {
+    // Outer ring: copper
+    ringColor = vec3f(1.0, 0.6, 0.2);
+    baseColor = vec3f(0.9, 0.5, 0.3);
+  }
 
   var finalColor: vec3f;
 
   if (uniforms.mode < 0.5) {
     // SEG mode
     let fieldGlow = magneticColor * (fieldPattern * 0.3 + 0.5) * fresnel * 2.0;
-    let rollerColor = baseColor + vec3f(0.0, 0.1, 0.1) * (instanceId / 12.0);
-    finalColor = rollerColor + fieldGlow;
+    finalColor = baseColor + ringColor * 0.3 + fieldGlow;
   } else if (uniforms.mode < 1.5) {
     // Heron's Fountain mode
     let waterPattern = sin(worldPos.y * 8.0 + uniforms.time * 2.0) * 0.5 + 0.5;
