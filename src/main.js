@@ -215,7 +215,8 @@ class SEGVisualizer {
           }
         }]
       },
-      primitive: { topology: 'triangle-strip' }
+      primitive: { topology: 'triangle-strip' },
+      depthStencil: { depthWriteEnabled: false, depthCompare: 'less', format: 'depth24plus' }
     });
 
     this.uniformBuffer = this.device.createBuffer({

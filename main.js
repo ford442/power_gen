@@ -1,3 +1,4 @@
+// CacheBust: v5 - Fixed depthStencil
 import RAPIER from '@dimforge/rapier3d';
 import {
   PHYSICAL_CONSTANTS,
@@ -898,6 +899,7 @@ const DEVICE_CONFIG = {
 // ============================================
 class MultiDeviceVisualizer {
   constructor() {
+    console.log('MultiDeviceVisualizer v5 starting - depthStencil fix applied');
     this.canvas = document.getElementById('gpuCanvas');
     this.device = null;
     this.context = null;
@@ -1445,6 +1447,7 @@ struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
     });
     
     // Render grid
+    console.log('Setting grid pipeline, has depthStencil:', !!this.gridPipeline);
     renderPass.setPipeline(this.gridPipeline);
     renderPass.setBindGroup(0, this.device.createBindGroup({
       layout: this.gridPipeline.getBindGroupLayout(0),
@@ -1621,6 +1624,7 @@ class DeviceInstance {
         ]
       });
       
+      console.log('Setting roller pipeline, has depthStencil:', !!this.rollerPipeline);
       renderPass.setPipeline(this.rollerPipeline);
       renderPass.setBindGroup(0, bindGroup);
       renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
@@ -1638,6 +1642,7 @@ class DeviceInstance {
       ]
     });
     
+    console.log('Setting particle pipeline, has depthStencil:', !!this.particlePipeline);
     renderPass.setPipeline(this.particlePipeline);
     renderPass.setBindGroup(0, particleBindGroup);
     renderPass.draw(4, scaledCount);
