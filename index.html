@@ -3,41 +3,204 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SEG WebGPU Visualizer</title>
+  <title>Multi-Device Physics Visualizer</title>
   <style>
     body { margin: 0; overflow: hidden; background: #050505; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #0ff; }
     canvas { display: block; width: 100vw; height: 100vh; }
-    #controls { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.8); border: 1px solid #333; border-radius: 8px; padding: 20px; max-width: 320px; backdrop-filter: blur(10px); box-shadow: 0 0 20px rgba(0,255,255,0.2); }
-    h1 { margin: 0 0 15px 0; font-size: 1.3rem; color: #0ff; text-shadow: 0 0 10px rgba(0,255,255,0.5); border-bottom: 1px solid #0ff; padding-bottom: 10px; }
-    .mode-btn { display: block; width: 100%; margin: 8px 0; padding: 12px; background: #111; border: 1px solid #0ff; color: #0ff; cursor: pointer; transition: all 0.3s; border-radius: 4px; font-weight: 600; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 1px; }
-    .mode-btn:hover { background: #0ff; color: #000; box-shadow: 0 0 15px rgba(0,255,255,0.6); transform: translateX(5px); }
-    .mode-btn.active { background: #0ff; color: #000; box-shadow: 0 0 20px rgba(0,255,255,0.8); }
-    #info { margin-top: 20px; font-size: 0.85rem; color: #aaa; line-height: 1.5; border-top: 1px solid #333; padding-top: 15px; }
-    .slider-container { margin: 15px 0; padding: 10px; background: rgba(0,20,20,0.5); border-radius: 4px; border: 1px solid #222; }
+    #controls { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.85); border: 1px solid #333; border-radius: 8px; padding: 20px; max-width: 340px; backdrop-filter: blur(10px); box-shadow: 0 0 20px rgba(0,255,255,0.2); }
+    h1 { margin: 0 0 15px 0; font-size: 1.2rem; color: #0ff; text-shadow: 0 0 10px rgba(0,255,255,0.5); border-bottom: 1px solid #0ff; padding-bottom: 10px; }
+    
+    /* View selection buttons */
+    .view-section { margin: 15px 0; }
+    .view-section label { display: block; margin-bottom: 8px; font-size: 0.85rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+    .view-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+    .view-btn { flex: 1; min-width: 70px; padding: 10px 8px; background: #111; border: 1px solid #0ff; color: #0ff; cursor: pointer; transition: all 0.3s; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+    .view-btn:hover { background: #0ff; color: #000; box-shadow: 0 0 15px rgba(0,255,255,0.6); }
+    .view-btn.active { background: #0ff; color: #000; box-shadow: 0 0 20px rgba(0,255,255,0.8); }
+    .view-btn.overview { border-color: #f0f; color: #f0f; }
+    .view-btn.overview:hover, .view-btn.overview.active { background: #f0f; color: #000; }
+    
+    /* Device toggles */
+    .device-toggles { display: flex; gap: 8px; margin: 10px 0; }
+    .toggle-btn { flex: 1; padding: 8px; background: #1a1a1a; border: 1px solid #444; color: #888; cursor: pointer; transition: all 0.3s; border-radius: 4px; font-size: 0.7rem; text-transform: uppercase; }
+    .toggle-btn:hover { border-color: #0ff; color: #0ff; }
+    .toggle-btn.active { background: #0ff; color: #000; border-color: #0ff; }
+    .toggle-btn.disabled { opacity: 0.4; background: #0a0a0a; border-color: #333; color: #555; }
+    
+    /* Sliders */
+    .slider-container { margin: 15px 0; padding: 12px; background: rgba(0,20,20,0.5); border-radius: 4px; border: 1px solid #222; }
     label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: #0ff; }
     input[type="range"] { width: 100%; accent-color: #0ff; cursor: pointer; }
     #speedVal, #particleVal { float: right; color: #0ff; font-weight: bold; }
-    .stats { margin-top: 15px; font-family: monospace; font-size: 0.8rem; color: #0aa; }
+    
+    /* Info panel */
+    #info { margin-top: 15px; font-size: 0.8rem; color: #aaa; line-height: 1.5; border-top: 1px solid #333; padding-top: 12px; }
+    .device-info { margin: 8px 0; padding-left: 12px; border-left: 2px solid #0ff; }
+    .device-info.seg { border-color: #0ff; }
+    .device-info.heron { border-color: #08f; }
+    .device-info.kelvin { border-color: #f0f; }
+    
+    /* Stats */
+    .stats { margin-top: 15px; font-family: monospace; font-size: 0.75rem; color: #0aa; display: flex; justify-content: space-between; }
+    .stat-item { text-align: center; }
+    .stat-label { color: #666; font-size: 0.65rem; }
+    .stat-value { color: #0ff; font-size: 0.9rem; }
+    
+    /* Legend */
+    .legend { margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; }
+    .legend-item { display: flex; align-items: center; margin: 4px 0; font-size: 0.75rem; color: #888; }
+    .legend-color { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+    .legend-color.seg { background: #0ff; box-shadow: 0 0 8px #0ff; }
+    .legend-color.heron { background: #08f; box-shadow: 0 0 8px #08f; }
+    .legend-color.kelvin { background: #f0f; box-shadow: 0 0 8px #f0f; }
+    .legend-color.pipe { background: linear-gradient(90deg, #0ff, #f0f); }
+    
+    /* Connection status */
+    .connection-status { display: flex; justify-content: space-around; margin: 10px 0; padding: 8px; background: rgba(0,30,30,0.5); border-radius: 4px; }
+    .connection { text-align: center; }
+    .connection-arrow { font-size: 1.2rem; color: #0ff; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+    .connection-label { font-size: 0.6rem; color: #666; }
   </style>
 </head>
 <body>
   <canvas id="gpuCanvas"></canvas>
+  
   <div id="controls">
-    <h1>🔮 SEG WebGPU Visualizer</h1>
-    <button class="mode-btn active" id="btn-seg" onclick="setMode('seg')">Searl Effect Generator</button>
-    <button class="mode-btn" id="btn-heron" onclick="setMode('heron')">Heron's Fountain</button>
-    <button class="mode-btn" id="btn-kelvin" onclick="setMode('kelvin')">Kelvin's Thunderstorm</button>
-    <div class="slider-container">
-      <label>Rotation Speed: <span id="speedVal">1.0</span></label>
-      <input type="range" id="speedSlider" min="0" max="5" step="0.1" value="1.0">
+    <h1>🔮 Multi-Device Physics Lab</h1>
+    
+    <!-- Performance Debug Toggle -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <span style="font-size: 0.75rem; color: #888;">Press F3 or Ctrl+D for Debug Panel</span>
+      <button onclick="toggleDebugPanel()" style="padding: 6px 12px; background: #111; border: 1px solid #0ff; color: #0ff; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">
+        ⚙️ Debug
+      </button>
     </div>
-    <div class="slider-container">
-      <label>Particle Count: <span id="particleVal">10000</span></label>
-      <input type="range" id="particleSlider" min="1000" max="50000" step="1000" value="10000">
+    
+    <!-- View Selection -->
+    <div class="view-section">
+      <label>Camera View</label>
+      <div class="view-buttons">
+        <button class="view-btn overview active" onclick="showOverview()">Overview</button>
+        <button class="view-btn" onclick="focusDevice('seg')">SEG</button>
+        <button class="view-btn" onclick="focusDevice('heron')">Heron</button>
+        <button class="view-btn" onclick="focusDevice('kelvin')">Kelvin</button>
+      </div>
     </div>
-    <div id="info">Simulating 12 magnetic rollers in toroidal formation with spiral energy flux patterns using WebGPU compute shaders.</div>
-    <div class="stats" id="stats">FPS: <span id="fps">60</span> | Mode: SEG</div>
+    
+    <!-- Device Toggles -->
+    <div class="view-section">
+      <label>Active Devices</label>
+      <div class="device-toggles">
+        <button class="toggle-btn active" id="toggle-seg" onclick="toggleDevice('seg')">SEG</button>
+        <button class="toggle-btn active" id="toggle-heron" onclick="toggleDevice('heron')">Heron</button>
+        <button class="toggle-btn active" id="toggle-kelvin" onclick="toggleDevice('kelvin')">Kelvin</button>
+      </div>
+    </div>
+    
+    <!-- Energy Connections -->
+    <div class="view-section">
+      <label>Energy Flow Connections</label>
+      <div class="connection-status">
+        <div class="connection">
+          <div class="connection-arrow">↙</div>
+          <div class="connection-label">SEG→Heron</div>
+        </div>
+        <div class="connection">
+          <div class="connection-arrow">→</div>
+          <div class="connection-label">Heron→Kelvin</div>
+        </div>
+        <div class="connection">
+          <div class="connection-arrow">↗</div>
+          <div class="connection-label">Kelvin→SEG</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Performance Mode Indicator -->
+    <div id="performanceMode" style="margin: 10px 0; padding: 8px; background: rgba(0,50,0,0.5); border-radius: 4px; text-align: center; font-size: 0.8rem;">
+      <span style="color: #4f4;">●</span> Auto-Quality: <span id="qualityLevel" style="color: #0ff; font-weight: bold;">100%</span>
+      <div style="font-size: 0.65rem; color: #888; margin-top: 4px;">Drops to maintain 45+ FPS</div>
+    </div>
+    
+    <!-- Controls -->
+    <div class="slider-container">
+      <label>Simulation Speed: <span id="speedVal">1.0</span></label>
+      <input type="range" id="speedSlider" min="0" max="3" step="0.1" value="1.0">
+    </div>
+    
+    <div class="slider-container">
+      <label>Particles per Device: <span id="particleVal">10K</span></label>
+      <input type="range" id="particleSlider" min="1000" max="20000" step="1000" value="10000">
+    </div>
+    
+    <!-- Device Info -->
+    <div id="info">
+      <div class="device-info seg">
+        <strong>SEG</strong> (0, 0, -8): 12 magnetic rollers in toroidal formation
+      </div>
+      <div class="device-info heron">
+        <strong>Heron's Fountain</strong> (-7, 0, 4): SPH water flow with siphon
+      </div>
+      <div class="device-info kelvin">
+        <strong>Kelvin's Thunderstorm</strong> (7, 0, 4): Electrostatic charge accumulation
+      </div>
+    </div>
+    
+    <!-- Legend -->
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-color seg"></div>
+        <span>Magnetic Flux (SEG)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color heron"></div>
+        <span>Water Particles (Heron)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color kelvin"></div>
+        <span>Charged Droplets (Kelvin)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color pipe"></div>
+        <span>Energy Transfer Pipes</span>
+      </div>
+    </div>
+    
+    <!-- Scientific Data Badge -->
+    <div style="margin-top: 12px; padding: 8px; background: rgba(0,50,100,0.3); border-radius: 4px; text-align: center; font-size: 0.7rem; color: #0aa;">
+      <span style="color: #0ff;">●</span> Wolfram Scientific Data Active
+      <div style="color: #888; margin-top: 2px;">B-field: 0.70T | Cap: 40pF | SPH: 560kPa</div>
+    </div>
+    
+    <!-- Stats -->
+    <div class="stats" id="stats">
+      <div class="stat-item">
+        <div class="stat-label">FPS</div>
+        <div class="stat-value" id="fps">60</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Particles</div>
+        <div class="stat-value" id="particleCount">30K</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">GPU</div>
+        <div class="stat-value" id="gpuTierDisplay">--</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">View</div>
+        <div class="stat-value" id="currentView">Overview</div>
+      </div>
+    </div>
   </div>
-  <script src="main.js"></script>
+  
+  <script type="importmap">
+  {
+    "imports": {
+      "@dimforge/rapier3d": "https://cdn.skypack.dev/@dimforge/rapier3d"
+    }
+  }
+  </script>
+  <script type="module" src="main.js"></script>
 </body>
 </html>
