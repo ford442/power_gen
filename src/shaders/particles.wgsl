@@ -23,15 +23,25 @@ struct Uniforms {
   );
   let corner = corners[vertIdx] * size;
 
-  let angle = atan2(pos.z, pos.x) + uniforms.time * 0.5 + phase * 6.28;
-  let radius = length(pos.xz) - uniforms.time * 0.3 * (0.5 + phase);
-  let height = pos.y + sin(uniforms.time * 3.0 + radius * 2.0) * 0.3;
+  var worldPos: vec3f;
 
-  let worldPos = vec3f(
-    cos(angle) * radius + corner.x,
-    height + corner.y,
-    sin(angle) * radius
-  );
+  if (uniforms.mode < 2.5) {
+    // Existing swirling particle behavior for seg/heron/kelvin modes
+    let angle = atan2(pos.z, pos.x) + uniforms.time * 0.5 + phase * 6.28;
+    let radius = length(pos.xz) - uniforms.time * 0.3 * (0.5 + phase);
+    let height = pos.y + sin(uniforms.time * 3.0 + radius * 2.0) * 0.3;
+
+    worldPos = vec3f(
+      cos(angle) * radius + corner.x,
+      height + corner.y,
+      sin(angle) * radius
+    );
+  } else {
+    // Solar mode: particles are photons traveling from LEDs to solar cells
+    let right = vec3f(1.0, 0.0, 0.0);
+    let up = vec3f(0.0, 1.0, 0.0);
+    worldPos = pos + right * corner.x + up * corner.y;
+  }
 
   return uniforms.viewProj * vec4f(worldPos, 1.0);
 }
@@ -45,5 +55,16 @@ struct Uniforms {
   }
 
   let alpha = 1.0 - dist;
-  return vec4f(0.0, 0.8, 1.0, alpha * 0.6);
+
+  var color = vec3f(0.0, 0.8, 1.0);
+  var outAlpha = alpha * 0.6;
+
+  if (uniforms.mode >= 2.5) {
+    // Solar mode: warm photon glow
+    let intensity = 0.5 + uniforms._pad * 0.5;
+    color = vec3f(1.0, 0.9, 0.2) * intensity;
+    outAlpha = alpha * (0.6 + uniforms._pad * 0.3);
+  }
+
+  return vec4f(color, outAlpha);
 }

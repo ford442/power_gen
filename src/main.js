@@ -28,6 +28,10 @@ class SEGVisualizer {
     this.lastFrameTime = 0;
     this.fps = 60;
     this.indexCount = 0;
+
+    // Solar mode battery simulation (0.0..1.0)
+    this.batteryCharge = 0.5;
+
     this.camera = { distance: 20, rotation: 0, height: 3 };
 
     this.init();
@@ -406,13 +410,13 @@ class SEGVisualizer {
     const view = this.lookAt([camX, this.camera.height, camZ], [0, 0, 0], [0, 1, 0]);
     const viewProj = this.multiplyMatrices(proj, view);
 
-    const modeMap = { seg: 0.0, heron: 1.0, kelvin: 2.0 };
+    const modeMap = { seg: 0.0, heron: 1.0, kelvin: 2.0, solar: 3.0 };
     const data = new Float32Array(20);
     data.set(viewProj);
     data[16] = this.time;
     data[17] = modeMap[this.mode] || 0;
     data[18] = this.particleCount;
-    data[19] = 0;
+    data[19] = this.batteryCharge;
 
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
   }
@@ -424,10 +428,27 @@ class SEGVisualizer {
     if (timestamp % 500 < 20) {
       this.fps = Math.round(1 / (deltaTime || 0.016));
       document.getElementById('fps').textContent = this.fps;
+
+      const batteryText = this.mode === 'solar'
+        ? ` | Battery: ${Math.round(this.batteryCharge * 100)}%`
+        : '';
+
+      document.getElementById('stats').innerHTML =
+        `FPS: <span id="fps">${this.fps}</span> | Mode: ${this.mode.toUpperCase()}${batteryText}`;
     }
 
     const speed = parseFloat(document.getElementById('speedSlider').value) || 1.0;
     this.time += deltaTime * speed;
+
+    if (this.mode === 'solar') {
+      const ledDrain = 0.18;
+      const solarGain = 0.3 + 0.2 * Math.sin(this.time * 2.0);
+      this.batteryCharge = Math.min(1.0, Math.max(0.0, this.batteryCharge + (solarGain - ledDrain) * deltaTime));
+    } else {
+      // Smoothly relax battery state when not in solar mode
+      this.batteryCharge += (0.5 - this.batteryCharge) * deltaTime * 0.5;
+    }
+
     this.updateUniforms();
 
     // Compute pass
@@ -571,11 +592,18 @@ window.setMode = (mode) => {
   const descriptions = {
     seg: "Searl Effect Generator: 12 magnetic rollers in toroidal formation with spiral energy flux converging toward center.",
     heron: "Heron's Fountain: Fluid dynamics with siphon-driven water jets. Particles simulate hydraulic pressure differentials.",
-    kelvin: "Kelvin's Thunderstorm: Electrostatic induction with falling water droplets charging conductors."
+    kelvin: "Kelvin's Thunderstorm: Electrostatic induction with falling water droplets charging conductors.",
+    solar: "LEDs & Solar Cells: LEDs drain a battery while shining on solar panels that recharge it. Watch the charge level change."
   };
 
   document.getElementById('info').textContent = descriptions[mode];
-  document.getElementById('stats').innerHTML = 'FPS: <span id="fps">60</span> | Mode: ' + mode.toUpperCase();
+
+  const batteryText = mode === 'solar' && window.visualizer
+    ? ` | Battery: ${Math.round(window.visualizer.batteryCharge * 100)}%`
+    : '';
+
+  document.getElementById('stats').innerHTML =
+    `FPS: <span id="fps">60</span> | Mode: ${mode.toUpperCase()}${batteryText}`;
 };
 
 window.addEventListener('load', () => {

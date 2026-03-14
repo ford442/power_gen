@@ -130,12 +130,30 @@ struct VertexOutput {
     // Heron's Fountain mode
     let waterPattern = sin(worldPos.y * 8.0 + uniforms.time * 2.0) * 0.5 + 0.5;
     finalColor = mix(vec3f(0.0, 0.2, 0.6), vec3f(0.0, 0.6, 1.0), waterPattern) + fresnel * 0.5;
-  } else {
+  } else if (uniforms.mode < 2.5) {
     // Kelvin's Thunderstorm mode
     let electric = fract(sin(dot(worldPos.xz, vec2f(12.9898, 78.233))) * 43758.5453);
     let spark = step(0.98, electric);
     finalColor = mix(vec3f(0.4, 0.0, 0.6), vec3f(1.0, 0.5, 1.0), spark) +
                  fresnel * vec3f(0.5, 0.0, 0.5);
+  } else {
+    // LEDs + Solar Cells mode
+    let charge = clamp(uniforms._pad, 0.0, 1.0);
+    let ledGlow = mix(vec3f(0.7, 0.7, 0.2), vec3f(1.0, 1.0, 0.8), charge);
+    let panelBase = vec3f(0.08, 0.12, 0.22);
+    let grid = step(0.95, fract(worldPos.x * 1.0)) * step(0.95, fract(worldPos.z * 1.0));
+    let panelColor = mix(panelBase, vec3f(0.2, 0.5, 0.9), grid);
+
+    // Use ring assignment to simulate LEDs (inner), panels (middle), and battery cells (outer)
+    if (instanceId < 12.0) {
+      finalColor = ledGlow + fresnel * vec3f(0.8, 0.7, 0.3);
+    } else if (instanceId < 34.0) {
+      finalColor = panelColor + fresnel * vec3f(0.2, 0.3, 0.4) * (0.3 + charge * 0.7);
+    } else {
+      // battery cells visualized as metallic blocks
+      let batteryColor = mix(vec3f(0.2, 0.2, 0.2), vec3f(0.2, 1.0, 0.2), charge);
+      finalColor = batteryColor + fresnel * vec3f(0.4, 0.6, 0.3);
+    }
   }
 
   let halfDir = normalize(viewDir + vec3f(0.0, 1.0, 0.0));

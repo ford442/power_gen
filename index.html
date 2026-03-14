@@ -88,6 +88,7 @@
         <button class="view-btn" onclick="focusDevice('seg')">SEG</button>
         <button class="view-btn" onclick="focusDevice('heron')">Heron</button>
         <button class="view-btn" onclick="focusDevice('kelvin')">Kelvin</button>
+        <button class="view-btn" onclick="focusDevice('solar')">Solar</button>
       </div>
     </div>
     
@@ -98,6 +99,7 @@
         <button class="toggle-btn active" id="toggle-seg" onclick="toggleDevice('seg')">SEG</button>
         <button class="toggle-btn active" id="toggle-heron" onclick="toggleDevice('heron')">Heron</button>
         <button class="toggle-btn active" id="toggle-kelvin" onclick="toggleDevice('kelvin')">Kelvin</button>
+        <button class="toggle-btn active" id="toggle-solar" onclick="toggleDevice('solar')">Solar</button>
       </div>
     </div>
     
@@ -148,6 +150,9 @@
       <div class="device-info kelvin">
         <strong>Kelvin's Thunderstorm</strong> (7, 0, 4): Electrostatic charge accumulation
       </div>
+      <div class="device-info" style="border-color: #ffb500;">
+        <strong>LEDs + Solar Cells</strong> (0, 0, 8): LEDs drain a battery while charging solar panels.
+      </div>
     </div>
     
     <!-- Legend -->
@@ -193,6 +198,10 @@
       <div class="stat-item">
         <div class="stat-label">View</div>
         <div class="stat-value" id="currentView">Overview</div>
+      </div>
+      <div class="stat-item" id="batteryStat" style="display: none;">
+        <div class="stat-label">Battery</div>
+        <div class="stat-value" id="batteryCharge">50%</div>
       </div>
     </div>
   </div>
