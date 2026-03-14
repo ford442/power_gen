@@ -956,7 +956,6 @@ class MultiDeviceVisualizer {
       
       this.context = this.canvas.getContext('webgpu');
       
-      this.resize();
       this.context.configure({
         device: this.device,
         format: navigator.gpu.getPreferredCanvasFormat(),
@@ -964,11 +963,13 @@ class MultiDeviceVisualizer {
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
       });
       
+      this.resize();
+      await this.setupDepthBuffer();
+      
       await this.setupGlobalResources();
       await this.setupDevices();
       await this.setupEnergyPipes();
       await this.setupFloorGrid();
-      await this.setupDepthBuffer();
       
       this.setupInteraction();
       
