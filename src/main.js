@@ -22,7 +22,7 @@ class SEGVisualizer {
     this.lastFrameTime = 0;
     this.fps = 60;
     this.indexCount = 0;
-    this.camera = { distance: 12, rotation: 0, height: 3 };
+    this.camera = { distance: 18, rotation: 0, height: 2 };
 
     this.init();
   }
