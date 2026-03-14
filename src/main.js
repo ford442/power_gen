@@ -336,19 +336,24 @@ class SEGVisualizer {
       }
     });
 
-    const bindGroup = this.device.createBindGroup({
+    const renderBindGroup = this.device.createBindGroup({
       layout: this.renderPipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }]
     });
 
+    const particleBindGroup = this.device.createBindGroup({
+      layout: this.particlePipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }]
+    });
+
     renderPass.setPipeline(this.renderPipeline);
-    renderPass.setBindGroup(0, bindGroup);
+    renderPass.setBindGroup(0, renderBindGroup);
     renderPass.setVertexBuffer(0, this.vertexBuffer);
     renderPass.setIndexBuffer(this.indexBuffer, 'uint16');
     renderPass.drawIndexed(this.indexCount, 12);
 
     renderPass.setPipeline(this.particlePipeline);
-    renderPass.setBindGroup(0, bindGroup);
+    renderPass.setBindGroup(0, particleBindGroup);
     renderPass.setVertexBuffer(0, this.particleBuffer);
     renderPass.draw(4, this.particleCount);
 
