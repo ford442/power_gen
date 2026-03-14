@@ -1020,11 +1020,41 @@ class MultiDeviceVisualizer {
   async setupGlobalResources() {
     const startTime = performance.now();
     
+    // Extended global uniform buffer for professional lighting system
+    // Size: 512 bytes to accommodate extended GlobalUniforms struct with lights
     this.globalUniformBuffer = this.device.createBuffer({
-      size: 256,
+      size: 512,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
-    this.profiler.trackBuffer('globalUniforms', 256, GPUBufferUsage.UNIFORM);
+    this.profiler.trackBuffer('globalUniforms', 512, GPUBufferUsage.UNIFORM);
+    
+    // Studio lighting configuration
+    this.lightingConfig = {
+      key: {
+        position: [10, 15, 10],
+        color: [1.0, 0.95, 0.9],
+        intensity: 1.2,
+        size: [2.0, 2.0]
+      },
+      fill: {
+        position: [-8, 10, 5],
+        color: [0.7, 0.8, 0.9],
+        intensity: 0.6,
+        size: [4.0, 4.0]
+      },
+      rim: {
+        position: [0, 8, -12],
+        color: [0.9, 0.95, 1.0],
+        intensity: 0.8,
+        size: [1.0, 3.0]
+      },
+      ground: {
+        position: [0, -5, 0],
+        color: [0.3, 0.35, 0.4],
+        intensity: 0.3,
+        size: [20.0, 20.0]
+      }
+    };
     
     this.cylinderBuffer = this.createCylinderBuffer(0.8, 2.5, 32);
     
@@ -1281,7 +1311,58 @@ class MultiDeviceVisualizer {
   setupCoilShaders() {
     // Pickup coil vertex shader
     this.coilVertShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - IBL + Area Lights
+// ============================================
+
+// Spherical harmonics coefficients for ambient lighting
+const SH_COEFFS_0: vec3f = vec3f(0.2, 0.25, 0.3);    // Ambient
+const SH_COEFFS_1: vec3f = vec3f(0.1, 0.12, 0.15);   // Directional X
+const SH_COEFFS_2: vec3f = vec3f(0.15, 0.18, 0.2);   // Directional Y
+const SH_COEFFS_3: vec3f = vec3f(0.3, 0.35, 0.4);    // Directional Z (sky)
+
+fn evaluateSH(normal: vec3f) -> vec3f {
+  return SH_COEFFS_0 
+       + SH_COEFFS_1 * normal.x
+       + SH_COEFFS_2 * normal.y
+       + SH_COEFFS_3 * normal.z;
+}
+
+// Specular reflection approximation (IBL)
+fn approximateSpecularIBL(viewDir: vec3f, normal: vec3f, roughness: f32) -> vec3f {
+  let R = reflect(-viewDir, normal);
+  let envColor = vec3f(0.5, 0.6, 0.7) * (1.0 - roughness * 0.5);
+  return envColor * (1.0 - roughness);
+}
+
+// Extended GlobalUniforms with lighting data
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  // Key light
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  // Fill light
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  // Rim light
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  // Ground light
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
 @binding(1) @group(0) var<uniform> device: DeviceUniforms;
@@ -1331,7 +1412,36 @@ fn quatRotate(q: vec4f, v: vec3f) -> vec3f {
 
     // Pickup coil fragment shader with copper material and energy glow
     this.coilFragShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - Extended GlobalUniforms
+// ============================================
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  // Key light (warm, main)
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  // Fill light (cool, soft)
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  // Rim light (edge highlight)
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  // Ground light (bounce)
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct CoilMaterialUniforms { 
   copperColor: vec3f, 
@@ -1341,7 +1451,97 @@ struct CoilMaterialUniforms {
 }
 @binding(3) @group(0) var<uniform> material: CoilMaterialUniforms;
 
-// Simple noise function for copper texture
+// ============================================
+// PROFESSIONAL LIGHTING FUNCTIONS - Coil Material
+// ============================================
+
+// Spherical harmonics for IBL
+const COIL_SH_0: vec3f = vec3f(0.15, 0.12, 0.10);    // Warm ambient for copper
+const COIL_SH_1: vec3f = vec3f(0.08, 0.06, 0.05);   // Directional X
+const COIL_SH_2: vec3f = vec3f(0.10, 0.08, 0.07);   // Directional Y
+const COIL_SH_3: vec3f = vec3f(0.20, 0.18, 0.15);   // Directional Z
+
+fn evaluateCoilSH(normal: vec3f) -> vec3f {
+  return COIL_SH_0 + COIL_SH_1 * normal.x + COIL_SH_2 * normal.y + COIL_SH_3 * normal.z;
+}
+
+// Area light with soft shadows for copper
+fn coilAreaLight(lightPos: vec3f, lightColor: vec3f, intensity: f32,
+                 normal: vec3f, worldPos: vec3f, viewDir: vec3f) -> vec3f {
+  let lightDir = normalize(lightPos - worldPos);
+  let dist = length(lightPos - worldPos);
+  let distAtten = 1.0 / (1.0 + dist * 0.08 + dist * dist * 0.003);
+  
+  // Soft area light sampling (4 samples)
+  var NdotL_accum = 0.0;
+  var specAccum = 0.0;
+  
+  for (var i = 0; i < 4; i = i + 1) {
+    let offset = vec3f(
+      (f32(i % 2) - 0.5) * 1.5,
+      (f32(i / 2) - 0.5) * 1.5,
+      0.0
+    );
+    let sampleDir = normalize(lightPos + offset - worldPos);
+    let NdotL = max(dot(normal, sampleDir), 0.0);
+    NdotL_accum += NdotL;
+    
+    // Copper-specific specular (softer, warmer)
+    let halfDir = normalize(viewDir + sampleDir);
+    let NdotH = max(dot(normal, halfDir), 0.0);
+    specAccum += pow(NdotH, 24.0);
+  }
+  
+  return lightColor * intensity * distAtten * (NdotL_accum / 4.0 + specAccum / 4.0 * 0.4);
+}
+
+// ============================================
+// PROCEDURAL SURFACE DETAIL FOR COILS (COPPER)
+// ============================================
+
+// 3D Hash function
+fn coilHash3(p: vec3f) -> vec3f {
+  let q = vec3f(dot(p, vec3f(127.1, 311.7, 74.7)),
+                dot(p, vec3f(269.5, 183.3, 246.1)),
+                dot(p, vec3f(113.5, 271.9, 124.6)));
+  return fract(sin(q) * 43758.5453);
+}
+
+// 3D Value noise
+fn coilValueNoise(p: vec3f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  let n = i.x + i.y * 157.0 + 113.0 * i.z;
+  return mix(mix(mix(coilHash3(vec3f(n + 0.0)).x, coilHash3(vec3f(n + 1.0)).x, f.x),
+                 mix(coilHash3(vec3f(n + 157.0)).x, coilHash3(vec3f(n + 158.0)).x, f.x), f.y),
+             mix(mix(coilHash3(vec3f(n + 113.0)).x, coilHash3(vec3f(n + 114.0)).x, f.x),
+                 mix(coilHash3(vec3f(n + 270.0)).x, coilHash3(vec3f(n + 271.0)).x, f.x), f.y), f.z);
+}
+
+// FBM for copper detail
+fn coilFbm(p: vec3f, octaves: i32) -> f32 {
+  var value = 0.0;
+  var amplitude = 0.5;
+  var frequency = 1.0;
+  for (var i = 0; i < octaves; i = i + 1) {
+    value += amplitude * coilValueNoise(p * frequency);
+    amplitude *= 0.5;
+    frequency *= 2.0;
+  }
+  return value;
+}
+
+// Normal perturbation for copper
+fn coilPerturbNormal(N: vec3f, worldPos: vec3f, strength: f32) -> vec3f {
+  let noise1 = coilFbm(worldPos * 200.0, 3);
+  let noise2 = coilFbm(worldPos * 150.0 + 100.0, 3);
+  let noise3 = coilFbm(worldPos * 180.0 + 200.0, 3);
+  let perturb = vec3f(noise1 - 0.5, noise2 - 0.5, noise3 - 0.5) * strength;
+  return normalize(N + perturb);
+}
+
+// 2D noise functions for UV-based patterns (legacy)
 fn hash(p: vec2f) -> f32 {
   return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453);
 }
@@ -1364,21 +1564,60 @@ fn noise(p: vec2f) -> f32 {
   @location(3) coilIndex: f32,
   @location(4) uv: vec2f
 ) -> @location(0) vec4f {
-  let n = normalize(normal);
+  // ============================================
+  // SURFACE DETAIL LAYERS FOR PICKUP COILS (COPPER)
+  // ============================================
+  
+  // Layer 1: Winding pattern - normal map effect using sine waves
+  let windingFreqX = 50.0;
+  let windingPattern = sin(uv.x * windingFreqX) * 0.5 + 0.5;
+  let windingBump = sin(uv.x * windingFreqX) * 0.025;
+  
+  // Layer 2: Oxidation - greenish tint (verdigris) in crevices
+  let oxidationMask = 1.0 - windingPattern;
+  let oxidationGreen = vec3f(0.4, 0.6, 0.3);
+  let oxidationAmount = oxidationMask * 0.2;
+  
+  // Layer 3: Scratch marks from winding process
+  let scratchNoise = coilFbm(worldPos * 300.0 + vec3f(coilIndex * 10.0), 3);
+  let scratches = smoothstep(0.6, 0.8, scratchNoise);
+  let scratchBrightness = 1.0 + scratches * 0.12;
+  
+  // Layer 4: Copper variation using 3D noise
+  let copperNoise3D = coilFbm(worldPos * 80.0, 3) * 0.15 + 0.92;
+  
+  // Layer 5: Coil edge wear (darker at top and bottom of coil)
+  let edgeY = abs(uv.y - 0.5) * 2.0;
+  let edgeDarkening = 1.0 - smoothstep(0.7, 1.0, edgeY) * 0.12;
+  
+  // Apply perturbed normal with winding pattern
+  let perturbedPos = worldPos + vec3f(windingBump, 0.0, 0.0);
+  let n = coilPerturbNormal(normalize(normal), perturbedPos, 0.02);
   let viewDir = normalize(globals.cameraPos - worldPos);
   
-  // Copper winding texture pattern
-  let windingFreq = vec2f(20.0, 60.0);
-  let windingPattern = sin(uv.y * windingFreq.y + uv.x * windingFreq.x * 0.5) * 0.5 + 0.5;
-  let copperNoise = noise(uv * vec2f(10.0, 30.0)) * 0.2 + 0.8;
+  // Base copper color with winding variation, oxidation, scratches, and edge wear
+  let rawCopper = material.copperColor * (0.75 + windingPattern * 0.25) * copperNoise3D * scratchBrightness * edgeDarkening;
   
-  // Base copper color with winding variation
-  let baseCopper = material.copperColor * (0.8 + windingPattern * 0.3) * copperNoise;
+  // Add oxidation tint in crevices
+  let baseCopper = mix(rawCopper, rawCopper * 0.75 + oxidationGreen * 0.25, oxidationAmount);
   
-  // Specular highlight for metallic sheen
-  let halfDir = normalize(viewDir + vec3f(0.0, 1.0, 0.0));
+  // Professional area light lighting
+  let keyLight = coilAreaLight(globals.keyLightPos, globals.keyLightColor, globals.keyLightIntensity, n, worldPos, viewDir);
+  let fillLight = coilAreaLight(globals.fillLightPos, globals.fillLightColor, globals.fillLightIntensity * 0.5, n, worldPos, viewDir);
+  let rimFresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
+  let rimLight = globals.rimLightColor * globals.rimLightIntensity * rimFresnel;
+  
+  // IBL ambient for copper
+  let ambientIBL = evaluateCoilSH(n) * 0.8;
+  
+  // Combined lighting
+  let litCopper = baseCopper * (ambientIBL + keyLight + fillLight + rimLight);
+  
+  // Specular highlight for metallic sheen (additive) - affected by winding pattern
+  let halfDir = normalize(viewDir + normalize(globals.keyLightPos - worldPos));
   let specAngle = max(dot(n, halfDir), 0.0);
-  let specular = pow(specAngle, 32.0) * 0.5;
+  let specularPower = 32.0 - windingPattern * 8.0;
+  let specular = pow(specAngle, specularPower) * (0.5 + windingPattern * 0.15) * globals.keyLightIntensity;
   
   // Fresnel effect for metallic rim lighting
   let fresnel = pow(1.0 - abs(dot(n, viewDir)), 3.0);
@@ -1395,13 +1634,44 @@ fn noise(p: vec2f) -> f32 {
   let arcPattern = sin(uv.y * 40.0 + globals.time * 5.0) * 0.5 + 0.5;
   let arcGlow = material.glowColor * arcPattern * energyPulse * 0.5 * fresnel;
   
-  // Combine all effects
-  let finalColor = baseCopper + vec3f(specular) + glow + arcGlow;
+  // Combine all effects with professional lighting
+  let finalColor = litCopper + vec3f(specular) + glow + arcGlow;
   
   // Add energy bloom when coil is highly energized
   let bloom = material.glowColor * pow(energyPulse, 2.0) * 0.3;
   
-  return vec4f(finalColor + bloom, 1.0);
+  var finalColorPP = finalColor + bloom;
+  
+  // === POST-PROCESSING PIPELINE ===
+  
+  // 1. ACES Filmic Tone Mapping
+  let a = 2.51;
+  let b = 0.03;
+  let c = 2.43;
+  let d = 0.59;
+  let e = 0.14;
+  finalColorPP = clamp((finalColorPP * (a * finalColorPP + b)) / (finalColorPP * (c * finalColorPP + d) + e), vec3f(0.0), vec3f(1.0));
+  
+  // 2. Color Grading - Contrast
+  finalColorPP = (finalColorPP - 0.5) * 1.15 + 0.5;
+  
+  // 3. Color Grading - Saturation boost
+  let luma = dot(finalColorPP, vec3f(0.299, 0.587, 0.114));
+  finalColorPP = mix(vec3f(luma), finalColorPP, 1.1);
+  
+  // 4. Color tint - Cool shadows, warm highlights
+  let shadows = smoothstep(0.0, 0.3, luma);
+  let highlights = smoothstep(0.7, 1.0, luma);
+  let shadowTint = vec3f(0.9, 0.95, 1.0);
+  let highlightTint = vec3f(1.05, 1.02, 0.98);
+  finalColorPP = mix(finalColorPP * shadowTint, finalColorPP, shadows);
+  finalColorPP = mix(finalColorPP, finalColorPP * highlightTint, highlights);
+  
+  // 5. HDR Glow boost
+  let hdrGlow = bloom * 0.5;
+  finalColorPP = finalColorPP + hdrGlow;
+  
+  return vec4f(finalColorPP, 1.0);
 }`;
 
     // Connection ring vertex shader
@@ -1434,7 +1704,32 @@ fn quatRotate(q: vec4f, v: vec3f) -> vec3f {
 
     // Connection ring fragment shader with energy pulse
     this.ringFragShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - Ring Material
+// ============================================
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct RingMaterialUniforms { 
   ringColor: vec3f, 
@@ -1443,6 +1738,16 @@ struct RingMaterialUniforms {
   pulseSpeed: f32 
 }
 @binding(3) @group(0) var<uniform> material: RingMaterialUniforms;
+
+// Ring SH (cool metallic)
+const RING_SH_0: vec3f = vec3f(0.15, 0.18, 0.22);
+const RING_SH_1: vec3f = vec3f(0.08, 0.10, 0.12);
+const RING_SH_2: vec3f = vec3f(0.12, 0.15, 0.18);
+const RING_SH_3: vec3f = vec3f(0.22, 0.28, 0.35);
+
+fn evaluateRingSH(normal: vec3f) -> vec3f {
+  return RING_SH_0 + RING_SH_1 * normal.x + RING_SH_2 * normal.y + RING_SH_3 * normal.z;
+}
 
 @fragment fn main(
   @location(0) normal: vec3f, 
@@ -1461,18 +1766,60 @@ struct RingMaterialUniforms {
   let combinedPulse = max(pulse1, pulse2 * 0.7);
   
   // Fresnel for metallic effect
-  let fresnel = pow(1.0 - abs(dot(n, viewDir)), 2.0);
+  let fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
+  
+  // IBL ambient
+  let ambient = evaluateRingSH(n) * 0.6;
+  
+  // Key light specular
+  let keyDir = normalize(globals.keyLightPos - worldPos);
+  let halfDir = normalize(viewDir + keyDir);
+  let specAngle = max(dot(n, halfDir), 0.0);
+  let specular = pow(specAngle, 32.0) * 0.5 * globals.keyLightIntensity;
+  
+  // Rim light from globals
+  let rimLight = globals.rimLightColor * globals.rimLightIntensity * fresnel;
   
   // Base ring color with pulse
   let baseColor = mix(material.ringColor, material.pulseColor, combinedPulse * 0.8);
-  let glow = material.pulseColor * pow(combinedPulse, 2.0) * 2.0;
+  let pulseGlow = material.pulseColor * pow(combinedPulse, 2.0) * 2.0;
   
-  // Specular highlight
-  let halfDir = normalize(viewDir + vec3f(0.0, 1.0, 0.0));
-  let specAngle = max(dot(n, halfDir), 0.0);
-  let specular = pow(specAngle, 16.0) * 0.3;
+  // Professional lighting combination
+  let litColor = baseColor * (ambient + globals.keyLightColor * globals.keyLightIntensity * 0.4) + 
+                 rimLight + specular + pulseGlow;
   
-  return vec4f(baseColor + glow + fresnel * 0.2 + specular, 1.0);
+  var finalColor = litColor;
+  
+  // === CINEMATIC POST-PROCESSING PIPELINE ===
+  
+  // 1. ACES Filmic Tone Mapping
+  let acesA = 2.51;
+  let acesB = 0.03;
+  let acesC = 2.43;
+  let acesD = 0.59;
+  let acesE = 0.14;
+  finalColor = clamp((finalColor * (acesA * finalColor + acesB)) / (finalColor * (acesC * finalColor + acesD) + acesE), vec3f(0.0), vec3f(1.0));
+  
+  // 2. Color Grading - Contrast (cinematic)
+  finalColor = (finalColor - 0.5) * 1.18 + 0.5;
+  
+  // 3. Color Grading - Saturation
+  let luma = dot(finalColor, vec3f(0.299, 0.587, 0.114));
+  finalColor = mix(vec3f(luma), finalColor, 1.1);
+  
+  // 4. Color tint - Cool shadows, warm highlights
+  let shadows = smoothstep(0.0, 0.3, luma);
+  let highlights = smoothstep(0.7, 1.0, luma);
+  let shadowTint = vec3f(0.92, 0.96, 1.0);
+  let highlightTint = vec3f(1.04, 1.02, 0.98);
+  finalColor = mix(finalColor * shadowTint, finalColor, shadows);
+  finalColor = mix(finalColor, finalColor * highlightTint, highlights);
+  
+  // 5. Energy pulse HDR boost
+  let hdrGlow = glow * combinedPulse * 0.25;
+  finalColor = finalColor + hdrGlow;
+  
+  return vec4f(finalColor, 1.0);
 }`;
   }
 
@@ -1508,7 +1855,58 @@ struct RingMaterialUniforms {
     
     // Shader code (abbreviated for brevity)
     this.rollerVertShader = scientificHeader + `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - IBL + Area Lights
+// ============================================
+
+// Spherical harmonics coefficients for ambient lighting
+const SH_COEFFS_0: vec3f = vec3f(0.2, 0.25, 0.3);    // Ambient
+const SH_COEFFS_1: vec3f = vec3f(0.1, 0.12, 0.15);   // Directional X
+const SH_COEFFS_2: vec3f = vec3f(0.15, 0.18, 0.2);   // Directional Y
+const SH_COEFFS_3: vec3f = vec3f(0.3, 0.35, 0.4);    // Directional Z (sky)
+
+fn evaluateSH(normal: vec3f) -> vec3f {
+  return SH_COEFFS_0 
+       + SH_COEFFS_1 * normal.x
+       + SH_COEFFS_2 * normal.y
+       + SH_COEFFS_3 * normal.z;
+}
+
+// Specular reflection approximation (IBL)
+fn approximateSpecularIBL(viewDir: vec3f, normal: vec3f, roughness: f32) -> vec3f {
+  let R = reflect(-viewDir, normal);
+  let envColor = vec3f(0.5, 0.6, 0.7) * (1.0 - roughness * 0.5);
+  return envColor * (1.0 - roughness);
+}
+
+// Extended GlobalUniforms with lighting data
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  // Key light
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  // Fill light
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  // Rim light
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  // Ground light
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
 @binding(1) @group(0) var<uniform> device: DeviceUniforms;
@@ -1539,25 +1937,239 @@ fn quatRotate(q: vec4f, v: vec3f) -> vec3f { return v + 2.0 * cross(q.xyz, cross
   return output;
 }`;
 
-    this.rollerFragShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+        this.rollerFragShader = `
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - PBR + IBL + Area Lights
+// ============================================
+const PI: f32 = 3.14159265359;
+
+// Spherical harmonics coefficients for Image-Based Lighting
+const SH_COEFFS_0: vec3f = vec3f(0.25, 0.28, 0.32);    // Ambient base
+const SH_COEFFS_1: vec3f = vec3f(0.12, 0.14, 0.16);   // Directional X
+const SH_COEFFS_2: vec3f = vec3f(0.18, 0.20, 0.22);   // Directional Y  
+const SH_COEFFS_3: vec3f = vec3f(0.35, 0.40, 0.45);   // Directional Z (sky)
+
+// Evaluate spherical harmonics for ambient lighting
+fn evaluateSH(normal: vec3f) -> vec3f {
+  return SH_COEFFS_0 
+       + SH_COEFFS_1 * normal.x
+       + SH_COEFFS_2 * normal.y
+       + SH_COEFFS_3 * normal.z;
+}
+
+// Area light with soft shadows approximation
+fn rectLight(lightPos: vec3f, lightSize: vec2f, lightColor: vec3f, intensity: f32, 
+             normal: vec3f, worldPos: vec3f, viewDir: vec3f, roughness: f32) -> vec3f {
+  let lightDir = normalize(lightPos - worldPos);
+  let dist = length(lightPos - worldPos);
+  let distAtten = 1.0 / (1.0 + dist * 0.05 + dist * dist * 0.005);
+  
+  // Multi-sample area light for soft shadows
+  var NdotL_accum = 0.0;
+  var specularAccum = 0.0;
+  
+  let right = normalize(cross(lightDir, vec3f(0.0, 1.0, 0.0)));
+  let up = normalize(cross(right, lightDir));
+  
+  for (var i = 0; i < 4; i = i + 1) {
+    let u = (f32(i % 2) - 0.5) * lightSize.x;
+    let v = (f32(i / 2) - 0.5) * lightSize.y;
+    let sampleOffset = right * u + up * v;
+    let sampleDir = normalize(lightPos + sampleOffset - worldPos);
+    
+    let NdotL = max(dot(normal, sampleDir), 0.0);
+    NdotL_accum += NdotL;
+    
+    // Specular per sample
+    let halfDir = normalize(viewDir + sampleDir);
+    let NdotH = max(dot(normal, halfDir), 0.0);
+    specularAccum += pow(NdotH, 64.0 / max(roughness, 0.01));
+  }
+  
+  let diffuse = NdotL_accum / 4.0;
+  let specular = specularAccum / 4.0;
+  
+  return lightColor * intensity * distAtten * (diffuse + specular * 0.3);
+}
+
+// Enhanced ambient occlusion with contact shadows
+fn enhancedAO(worldPos: vec3f, normal: vec3f) -> f32 {
+  // Edge darkening
+  let yPos = worldPos.y;
+  let edgeFactor = 1.0 - smoothstep(0.85, 1.2, abs(yPos));
+  
+  // Surface proximity AO (contact shadows)
+  let distFromCenter = length(worldPos.xz);
+  let contactAO = mix(0.6, 1.0, smoothstep(2.0, 4.0, distFromCenter));
+  
+  // Cavity occlusion from surface noise
+  let cavity = 0.92 + 0.16 * noise(worldPos * 4.0);
+  
+  return clamp(edgeFactor * contactAO * cavity, 0.4, 1.0);
+}
+
+// Professional studio lighting setup
+fn calculateStudioLighting(normal: vec3f, viewDir: vec3f, tangent: vec3f,
+                           albedo: vec3f, metallic: f32, roughness: f32,
+                           worldPos: vec3f, ringColor: vec3f) -> vec3f {
+  // IBL Ambient from spherical harmonics
+  let ambientIBL = evaluateSH(normal) * 0.6;
+  
+  // Area lights with soft shadows
+  let keyLight = rectLight(
+    globals.keyLightPos, vec2f(2.0, 2.0), globals.keyLightColor,
+    globals.keyLightIntensity, normal, worldPos, viewDir, roughness
+  );
+  
+  let fillLight = rectLight(
+    globals.fillLightPos, vec2f(4.0, 4.0), globals.fillLightColor,
+    globals.fillLightIntensity * 0.7, normal, worldPos, viewDir, roughness
+  );
+  
+  // Rim lighting
+  let rimFresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), 4.0);
+  let rimLight = globals.rimLightColor * globals.rimLightIntensity * rimFresnel;
+  
+  // Ground bounce
+  let groundNdotL = max(dot(normal, vec3f(0.0, -1.0, 0.0)), 0.0);
+  let groundLight = globals.groundLightColor * globals.groundLightIntensity * groundNdotL * 0.25;
+  
+  // Anisotropic highlight for brushed metal
+  let keyDir = normalize(globals.keyLightPos - worldPos);
+  let aniso = anisotropicSpecular(viewDir, keyDir, normal, tangent, roughness);
+  
+  // Combine lighting
+  var totalLight = ambientIBL + keyLight + fillLight + groundLight + rimLight;
+  totalLight += ringColor * aniso * metallic * 0.2;
+  
+  return totalLight * albedo;
+}
+
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - Extended GlobalUniforms
+// ============================================
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  // Key light (warm, main)
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  // Fill light (cool, soft)
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  // Rim light (edge highlight)
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  // Ground light (bounce)
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
+
+// Extended PBR material uniforms
 struct MaterialUniforms { 
-  baseColor: vec3f, 
-  roughness: f32, 
-  glowColor: vec3f, 
-  emission: f32,
-  ringIndex: f32,
-  metallic: f32,
+  albedo: vec3f,        // Base color
+  metallic: f32,        // 0 = dielectric, 1 = metal
+  roughness: f32,       // Surface roughness 0-1
+  ao: f32,              // Ambient occlusion
+  emission: f32,        // Emission strength
+  ringIndex: f32,       // For ring-specific material properties
   _pad: vec2f 
 }
 @binding(3) @group(0) var<uniform> material: MaterialUniforms;
+
+// ============================================
+// DISNEY-STYLE PBR FUNCTIONS
+// ============================================
 
 // Hash function for procedural noise
 fn hash3(p: vec3f) -> vec3f {
   let q = vec3f(dot(p, vec3f(127.1, 311.7, 74.7)), dot(p, vec3f(269.5, 183.3, 246.1)), dot(p, vec3f(113.5, 271.9, 124.6)));
   return fract(sin(q) * 43758.5453);
 }
+
+// ============================================
+// PROCEDURAL SURFACE DETAIL SYSTEM
+// ============================================
+
+// Hash function for pseudo-random values
+fn hash3(p: vec3f) -> vec3f {
+  let q = vec3f(dot(p, vec3f(127.1, 311.7, 74.7)),
+                dot(p, vec3f(269.5, 183.3, 246.1)),
+                dot(p, vec3f(113.5, 271.9, 124.6)));
+  return fract(sin(q) * 43758.5453);
+}
+
+// Value noise for surface variation
+fn valueNoise(p: vec3f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  let n = i.x + i.y * 157.0 + 113.0 * i.z;
+  return mix(mix(mix(hash3(vec3f(n + 0.0)).x, hash3(vec3f(n + 1.0)).x, f.x),
+                 mix(hash3(vec3f(n + 157.0)).x, hash3(vec3f(n + 158.0)).x, f.x), f.y),
+             mix(mix(hash3(vec3f(n + 113.0)).x, hash3(vec3f(n + 114.0)).x, f.x),
+                 mix(hash3(vec3f(n + 270.0)).x, hash3(vec3f(n + 271.0)).x, f.x), f.y), f.z);
+}
+
+// FBM (Fractal Brownian Motion) for complex detail
+fn fbm(p: vec3f, octaves: i32) -> f32 {
+  var value = 0.0;
+  var amplitude = 0.5;
+  var frequency = 1.0;
+  for (var i = 0; i < octaves; i = i + 1) {
+    value += amplitude * valueNoise(p * frequency);
+    amplitude *= 0.5;
+    frequency *= 2.0;
+  }
+  return value;
+}
+
+// Voronoi noise for wear patterns
+fn voronoi(p: vec3f) -> vec2f {
+  let n = floor(p);
+  let f = fract(p);
+  var mg: vec3f;
+  var mr: vec3f;
+  var md = 8.0;
+  for (var k = -1; k <= 1; k = k + 1) {
+    for (var j = -1; j <= 1; j = j + 1) {
+      for (var i = -1; i <= 1; i = i + 1) {
+        let g = vec3f(f32(i), f32(j), f32(k));
+        let o = hash3(n + g);
+        let r = g + o - f;
+        let d = dot(r, r);
+        if (d < md) {
+          md = d;
+          mr = r;
+          mg = g;
+        }
+      }
+    }
+  }
+  return vec2f(md, mr.x + mr.y + mr.z);
+}
+
+// Normal perturbation without normal maps
+fn perturbNormal(N: vec3f, worldPos: vec3f, strength: f32) -> vec3f {
+  let noise1 = fbm(worldPos * 200.0, 3);
+  let noise2 = fbm(worldPos * 150.0 + 100.0, 3);
+  let noise3 = fbm(worldPos * 180.0 + 200.0, 3);
+  let perturb = vec3f(noise1 - 0.5, noise2 - 0.5, noise3 - 0.5) * strength;
+  return normalize(N + perturb);
+}
+
 
 // Simplex noise for surface detail
 fn noise(p: vec3f) -> f32 {
@@ -1571,59 +2183,148 @@ fn noise(p: vec3f) -> f32 {
                  mix(hash3(vec3f(n + 270.0)).x, hash3(vec3f(n + 271.0)).x, f.x), f.y), f.z);
 }
 
-// Fresnel-Schlick approximation
+// Schlick's Fresnel approximation
 fn fresnelSchlick(cosTheta: f32, F0: vec3f) -> vec3f {
   return F0 + (vec3f(1.0) - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
-// Anisotropic specular highlight (for brushed metal)
+// Schlick approximation with roughness (for IBL)
+fn fresnelSchlickRoughness(cosTheta: f32, F0: vec3f, roughness: f32) -> vec3f {
+  return F0 + (max(vec3f(1.0 - roughness), F0) - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+// GGX/Trowbridge-Reitz Normal Distribution Function
+fn ndfGGX(NdotH: f32, roughness: f32) -> f32 {
+  let alpha = roughness * roughness;
+  let alpha2 = alpha * alpha;
+  let denom = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
+  return alpha2 / (PI * denom * denom);
+}
+
+// Smith Geometry function with GGX
+fn geometrySmith(NdotV: f32, NdotL: f32, roughness: f32) -> f32 {
+  let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+  let ggx1 = NdotV / (NdotV * (1.0 - k) + k);
+  let ggx2 = NdotL / (NdotL * (1.0 - k) + k);
+  return ggx1 * ggx2;
+}
+
+// Complete Cook-Torrance BRDF
+fn cookTorranceBRDF(L: vec3f, V: vec3f, N: vec3f, albedo: vec3f, metallic: f32, roughness: f32) -> vec3f {
+  let H = normalize(L + V);
+  let NdotV = max(dot(N, V), 0.0);
+  let NdotL = max(dot(N, L), 0.0);
+  let NdotH = max(dot(N, H), 0.0);
+  let HdotV = max(dot(H, V), 0.0);
+  
+  // Fresnel term (F)
+  let F0 = mix(vec3f(0.04), albedo, metallic);
+  let F = fresnelSchlick(HdotV, F0);
+  
+  // Normal distribution (D)
+  let NDF = ndfGGX(NdotH, roughness);
+  
+  // Geometry term (G)
+  let G = geometrySmith(NdotV, NdotL, roughness);
+  
+  // Cook-Torrance specular
+  let numerator = NDF * G * F;
+  let denominator = 4.0 * NdotV * NdotL + 0.001;
+  let specular = numerator / denominator;
+  
+  // Lambertian diffuse
+  let kS = F;
+  let kD = (vec3f(1.0) - kS) * (1.0 - metallic);
+  let diffuse = albedo / PI;
+  
+  return (kD * diffuse + specular) * NdotL;
+}
+
+// Environment reflection approximation (simplified IBL)
+fn getEnvironmentReflection(viewDir: vec3f, normal: vec3f, roughness: f32, metallic: f32, albedo: vec3f) -> vec3f {
+  let reflectDir = reflect(-viewDir, normal);
+  
+  // Simulated environment colors for different directions
+  let skyColor = vec3f(0.2, 0.4, 0.6);
+  let groundColor = vec3f(0.1, 0.08, 0.06);
+  let horizonColor = vec3f(0.4, 0.5, 0.55);
+  
+  let t = clamp(reflectDir.y * 0.5 + 0.5, 0.0, 1.0);
+  let envColor = mix(groundColor, mix(horizonColor, skyColor, smoothstep(0.3, 0.7, t)), smoothstep(0.0, 0.3, t));
+  
+  let blurFactor = roughness * roughness;
+  let finalEnv = mix(envColor, vec3f(0.5), blurFactor * 0.5);
+  
+  let F0 = mix(vec3f(0.04), albedo, metallic);
+  let fresnel = fresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), F0, roughness);
+  
+  return finalEnv * fresnel * metallic;
+}
+
+// Anisotropic specular highlight for brushed metal effect
 fn anisotropicSpecular(viewDir: vec3f, lightDir: vec3f, normal: vec3f, tangent: vec3f, roughness: f32) -> f32 {
   let halfDir = normalize(viewDir + lightDir);
   let NdotH = max(dot(normal, halfDir), 0.0);
   let TdotH = dot(tangent, halfDir);
-  let aniso = pow(NdotH, 128.0 / roughness) * exp(-(TdotH * TdotH) / (0.2 * roughness));
-  return aniso * 0.5;
+  let aniso = pow(NdotH, 32.0 / (roughness + 0.01)) * exp(-(TdotH * TdotH) / (0.1 + roughness));
+  return aniso;
 }
 
-// Multiple light source calculation
-fn calculateLighting(normal: vec3f, viewDir: vec3f, tangent: vec3f, roughness: f32, ringColor: vec3f) -> vec3f {
+// Calculate tangent from position for cylindrical rollers
+fn calculateTangent(worldPos: vec3f, normal: vec3f) -> vec3f {
+  let posXZ = normalize(vec2f(worldPos.x, worldPos.z));
+  let tangent = vec3f(-posXZ.y, 0.0, posXZ.x);
+  return normalize(tangent);
+}
+
+// Multiple light source PBR calculation
+fn calculatePBR(normal: vec3f, viewDir: vec3f, tangent: vec3f, albedo: vec3f, metallic: f32, roughness: f32, ringColor: vec3f) -> vec3f {
+  var totalLight = vec3f(0.0);
+  
   // Key light (warm, main illumination)
   let keyDir = normalize(vec3f(0.6, 0.8, 0.3));
-  let keyColor = vec3f(1.0, 0.95, 0.9);
-  let keyNdotL = max(dot(normal, keyDir), 0.0);
-  let keyHalf = normalize(viewDir + keyDir);
-  let keySpec = pow(max(dot(normal, keyHalf), 0.0), 32.0 / roughness);
+  let keyColor = vec3f(1.0, 0.95, 0.85);
+  totalLight += cookTorranceBRDF(keyDir, viewDir, normal, albedo, metallic, roughness) * keyColor;
   
-  // Fill light (cool, soft)
-  let fillDir = normalize(vec3f(-0.4, 0.5, -0.6));
-  let fillColor = vec3f(0.35, 0.45, 0.55);
-  let fillNdotL = max(dot(normal, fillDir), 0.0);
+  // Fill light (cool, soft from left)
+  let fillDir = normalize(vec3f(-0.5, 0.3, -0.4));
+  let fillColor = vec3f(0.4, 0.5, 0.6);
+  totalLight += cookTorranceBRDF(fillDir, viewDir, normal, albedo, metallic, roughness) * fillColor * 0.5;
   
   // Rim light (cyan accent)
-  let rimDir = normalize(vec3f(-0.3, 0.2, 0.7));
-  let rimColor = vec3f(0.15, 0.5, 0.7);
-  let fresnelRim = pow(1.0 - max(dot(normal, viewDir), 0.0), 4.0);
+  let rimDir = normalize(vec3f(-0.3, 0.2, 0.8));
+  let rimColor = vec3f(0.2, 0.6, 0.8);
+  totalLight += cookTorranceBRDF(rimDir, viewDir, normal, albedo, metallic, roughness) * rimColor * 0.4;
   
-  // Ambient with cool tint
-  let ambient = vec3f(0.08, 0.1, 0.13);
+  // Back rim light (warm)
+  let backRimDir = normalize(vec3f(0.4, 0.1, -0.7));
+  let backRimColor = vec3f(0.8, 0.6, 0.4);
+  totalLight += cookTorranceBRDF(backRimDir, viewDir, normal, albedo, metallic, roughness) * backRimColor * 0.3;
   
-  // Combine lighting components
-  let diffuse = keyColor * keyNdotL + fillColor * fillNdotL * 0.6;
-  let specular = keyColor * keySpec + rimColor * fresnelRim;
-  
-  // Anisotropic streak for brushed metal
+  // Anisotropic highlight for brushed metal
   let aniso = anisotropicSpecular(viewDir, keyDir, normal, tangent, roughness);
+  totalLight += ringColor * aniso * metallic * 0.15;
   
-  return ambient + diffuse * 0.75 + specular * 0.4 + ringColor * aniso * 0.3;
+  return totalLight;
 }
 
 // Ambient occlusion approximation
 fn calculateAO(worldPos: vec3f, normal: vec3f) -> f32 {
   let yPos = worldPos.y;
-  // Darken edges and top/bottom of cylinder
   let edgeFactor = 1.0 - smoothstep(0.9, 1.25, abs(yPos));
   let ao = 0.5 + 0.5 * edgeFactor;
   return ao;
+}
+
+// Ring-specific material properties
+fn getRingMaterial(ringIndex: f32) -> vec4f {
+  if (ringIndex < 0.5) {
+    return vec4f(0.95, 0.15, 0.9, 1.2);  // Inner: Polished NdFeB
+  } else if (ringIndex < 1.5) {
+    return vec4f(0.90, 0.25, 0.85, 1.0); // Middle: Brushed metal
+  } else {
+    return vec4f(0.85, 0.35, 0.8, 0.8);  // Outer: Industrial steel
+  }
 }
 
 @fragment fn main(@location(0) normal: vec3f, @location(1) worldPos: vec3f, @location(2) ringIndex: f32) -> @location(0) vec4f {
@@ -1631,58 +2332,142 @@ fn calculateAO(worldPos: vec3f, normal: vec3f) -> f32 {
   let viewDir = normalize(globals.cameraPos - worldPos);
   let NdotV = max(dot(n, viewDir), 0.0);
   
-  // Ring-specific colors: inner=cyan, middle=blue, outer=violet
+  // Ring-specific base colors
   var ringColor: vec3f;
   if (ringIndex < 0.5) {
-    ringColor = vec3f(0.0, 0.9, 1.0);   // Inner: cyan
+    ringColor = vec3f(0.0, 0.85, 1.0);
   } else if (ringIndex < 1.5) {
-    ringColor = vec3f(0.0, 0.5, 1.0);   // Middle: blue
+    ringColor = vec3f(0.0, 0.5, 1.0);
   } else {
-    ringColor = vec3f(0.6, 0.0, 1.0);   // Outer: violet
+    ringColor = vec3f(0.6, 0.0, 1.0);
   }
   
-  // Surface detail simulation (brushed metal texture)
-  let surfaceNoise = noise(worldPos * 6.0 + ringIndex * 15.0);
-  let surfaceDetail = 0.92 + 0.16 * surfaceNoise;
+  // Get ring-specific material properties
+  let ringMat = getRingMaterial(ringIndex);
+  let metallic = ringMat.x;
+  let roughness = ringMat.y;
+  let ao = ringMat.z;
+  let emissionScale = ringMat.w;
   
-  // Tangent for anisotropic highlights (cylinder axis is Y)
-  let tangent = vec3f(0.0, 1.0, 0.0);
+  let albedo = mix(ringColor * 0.8, ringColor, metallic * 0.5);
   
-  // Calculate complex lighting
-  let lighting = calculateLighting(n, viewDir, tangent, material.roughness, ringColor);
+  // ============================================
+  // SURFACE DETAIL LAYERS FOR ROLLERS (NdFeB MAGNETS)
+  // ============================================
   
-  // Fresnel reflection for metallic look
-  let F0 = mix(vec3f(0.04), vec3f(0.7, 0.75, 0.8), material.metallic);
-  let fresnel = fresnelSchlick(NdotV, F0);
+  // Layer 1: Micro-scratches → roughness variation
+  let microScratches = fbm(worldPos * 500.0, 4) * 0.02;
+  let roughnessVar = roughness + microScratches;
   
-  // Magnetic field pattern (animated)
+  // Layer 2: Surface pitting → albedo darkening (Voronoi)
+  let pitting = voronoi(worldPos * 100.0).x;
+  let pitDarkening = 1.0 - pitting * 0.12;
+  
+  // Layer 3: Machining marks → normal perturbation
+  let machiningMarks = sin(worldPos.y * 200.0) * 0.015;
+  
+  // Apply perturbed normal with machining marks
+  let nDetail = perturbNormal(n, worldPos + vec3f(0.0, machiningMarks, 0.0), 0.025);
+  
+  // Base surface detail with FBM
+  let surfaceNoise = fbm(worldPos * 8.0 + ringIndex * 20.0, 3);
+  let surfaceDetail = (0.95 + 0.1 * surfaceNoise * roughnessVar) * pitDarkening;
+  
+  let tangent = calculateTangent(worldPos, n);
+  
+  // Calculate professional studio lighting with area lights and IBL
+  var pbrColor = calculateStudioLighting(nDetail, viewDir, tangent, albedo * surfaceDetail, metallic, roughnessVar, worldPos, ringColor);
+  
+  // Add environment reflection (IBL)
+  let envReflection = getEnvironmentReflection(viewDir, n, roughness, metallic, albedo);
+  pbrColor += envReflection * ao;
+  
+  // Enhanced ambient occlusion
+  let aoFactor = enhancedAO(worldPos, n) * ao;
+  pbrColor *= aoFactor;
+  
+  // Magnetic field energy emission
   let fieldPattern = sin(worldPos.y * 4.0 + globals.time * 4.0) * 
                      cos(length(worldPos.xz) * 5.0 - globals.time * 3.0 + ringIndex);
-  let fieldGlow = ringColor * (fieldPattern * 0.25 + 0.5) * pow(1.0 - NdotV, 2.0) * material.emission;
-  
-  // Ambient occlusion
-  let ao = calculateAO(worldPos, n);
+  let energyPulse = 0.7 + 0.3 * sin(globals.time * 3.0 + ringIndex * 1.5);
+  let fieldGlow = ringColor * (fieldPattern * 0.2 + 0.4) * pow(1.0 - NdotV, 3.0) * material.emission * emissionScale * energyPulse;
   
   // Combine all components
-  let baseColor = ringColor * surfaceDetail;
-  let litColor = baseColor * lighting * ao;
-  let reflectColor = fresnel * 0.25;
+  let finalColor = pbrColor + fieldGlow;
   
-  // Energy pulse effect
-  let energyPulse = 0.8 + 0.2 * sin(globals.time * 3.0 + ringIndex * 1.5);
-  let emission = fieldGlow * energyPulse;
+  // HDR tone mapping (exponential)
+  let exposure = 1.2;
+  var mapped = vec3f(1.0) - exp(-finalColor * exposure);
   
-  let finalColor = litColor + reflectColor + emission;
+  // === CINEMATIC POST-PROCESSING PIPELINE ===
   
-  // HDR boost for bloom
+  // 1. ACES Filmic Tone Mapping for cinematic contrast
+  let acesA = 2.51;
+  let acesB = 0.03;
+  let acesC = 2.43;
+  let acesD = 0.59;
+  let acesE = 0.14;
+  mapped = clamp((mapped * (acesA * mapped + acesB)) / (mapped * (acesC * mapped + acesD) + acesE), vec3f(0.0), vec3f(1.0));
+  
+  // 2. Gamma correction
+  let gammaCorrected = pow(mapped, vec3f(1.0 / 2.2));
+  
+  // 3. Color Grading - Contrast (cinematic punch)
+  var finalColorPP = (gammaCorrected - 0.5) * 1.15 + 0.5;
+  
+  // 4. Color Grading - Saturation boost for metallic materials
+  let luma = dot(finalColorPP, vec3f(0.299, 0.587, 0.114));
+  finalColorPP = mix(vec3f(luma), finalColorPP, 1.08);
+  
+  // 5. Color tint - Cool shadows, warm highlights
+  let shadows = smoothstep(0.0, 0.25, luma);
+  let highlights = smoothstep(0.75, 1.0, luma);
+  let shadowTint = vec3f(0.9, 0.94, 1.0);  // Cool blue shadow tint
+  let highlightTint = vec3f(1.04, 1.02, 0.98);  // Warm highlight tint
+  finalColorPP = mix(finalColorPP * shadowTint, finalColorPP, shadows);
+  finalColorPP = mix(finalColorPP, finalColorPP * highlightTint, highlights);
+  
+  // 6. HDR Bloom boost from magnetic field glow
   let luminance = dot(finalColor, vec3f(0.299, 0.587, 0.114));
-  let hdrBoost = 1.0 + luminance * 0.25;
+  let hdrBoost = 1.0 + luminance * 0.15;
+  let bloomGlow = fieldGlow * energyPulse * 0.3;
+  finalColorPP = finalColorPP * hdrBoost + bloomGlow;
   
-  return vec4f(finalColor * hdrBoost, 1.0);
+  return vec4f(finalColorPP, 1.0);
 }`;
 
+
     this.particleVertShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - Extended GlobalUniforms
+// ============================================
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  // Key light (warm, main)
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  // Fill light (cool, soft)
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  // Rim light (edge highlight)
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  // Ground light (bounce)
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, particleType: u32 }
 @binding(1) @group(0) var<uniform> device: DeviceUniforms;
@@ -1708,7 +2493,36 @@ fn quatRotate(q: vec4f, v: vec3f) -> vec3f { return v + 2.0 * cross(q.xyz, cross
 }`;
 
     this.particleFragShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - Extended GlobalUniforms
+// ============================================
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  // Key light (warm, main)
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  // Fill light (cool, soft)
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  // Rim light (edge highlight)
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  // Ground light (bounce)
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct MaterialUniforms { baseColor: vec3f, _pad1: f32, glowColor: vec3f, emission: f32 }
 @binding(3) @group(0) var<uniform> material: MaterialUniforms;
@@ -1744,12 +2558,64 @@ fn smoothStep(edge0: f32, edge1: f32, x: f32) -> f32 {
   // Alpha with HDR-style falloff
   let alpha = radialFalloff * material.emission * pulse;
   
+  var finalColor = hdrColor * totalIntensity;
+  
+  // === CINEMATIC POST-PROCESSING PIPELINE (Particle Edition) ===
+  
+  // 1. Soft ACES-style tone mapping for particles (preserves glow)
+  let acesA = 2.51;
+  let acesB = 0.03;
+  let acesC = 2.43;
+  let acesD = 0.59;
+  let acesE = 0.14;
+  finalColor = clamp((finalColor * (acesA * finalColor + acesB)) / (finalColor * (acesC * finalColor + acesD) + acesE), vec3f(0.0), vec3f(1.0));
+  
+  // 2. Subtle contrast boost for particle definition
+  finalColor = (finalColor - 0.5) * 1.1 + 0.5;
+  
+  // 3. Enhanced saturation for glow effect
+  let luma = dot(finalColor, vec3f(0.299, 0.587, 0.114));
+  finalColor = mix(vec3f(luma), finalColor, 1.15);
+  
+  // 4. HDR bloom boost from core intensity
+  let bloomBoost = coreIntensity * material.emission * 0.3;
+  finalColor = finalColor + material.glowColor * bloomBoost;
+  
   // Output with additive-friendly alpha
-  return vec4f(hdrColor * totalIntensity, alpha);
+  return vec4f(finalColor, alpha);
 }`;
 
     this.gridVertShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - Extended GlobalUniforms
+// ============================================
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  // Key light (warm, main)
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  // Fill light (cool, soft)
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  // Rim light (edge highlight)
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  // Ground light (bounce)
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 @vertex fn main(@location(0) pos: vec2f) -> @builtin(position) vec4f {
   return globals.viewProj * vec4f(pos.x * 50.0, -3.0, pos.y * 50.0, 1.0);
@@ -1769,7 +2635,36 @@ struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: ve
     
     // Core vertex shader - supports instanced rendering with position offsets
     this.coreVertShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - Extended GlobalUniforms
+// ============================================
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  // Key light (warm, main)
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  // Fill light (cool, soft)
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  // Rim light (edge highlight)
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  // Ground light (bounce)
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
 @binding(1) @group(0) var<uniform> device: DeviceUniforms;
@@ -1789,7 +2684,36 @@ fn quatRotate(q: vec4f, v: vec3f) -> vec3f { return v + 2.0 * cross(q.xyz, cross
     
     // Core fragment shader - metallic material with glow
     this.coreFragShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - Extended GlobalUniforms
+// ============================================
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  // Key light (warm, main)
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  // Fill light (cool, soft)
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  // Rim light (edge highlight)
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  // Ground light (bounce)
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
 @binding(1) @group(0) var<uniform> device: DeviceUniforms;
@@ -1800,49 +2724,229 @@ struct CoreMaterialUniforms {
   glowIntensity: f32 
 }
 @binding(3) @group(0) var<uniform> material: CoreMaterialUniforms;
+
+// ============================================
+// PROCEDURAL SURFACE DETAIL FOR CORE (STEEL)
+// ============================================
+
+// Hash function for pseudo-random values
+fn coreHash3(p: vec3f) -> vec3f {
+  let q = vec3f(dot(p, vec3f(127.1, 311.7, 74.7)),
+                dot(p, vec3f(269.5, 183.3, 246.1)),
+                dot(p, vec3f(113.5, 271.9, 124.6)));
+  return fract(sin(q) * 43758.5453);
+}
+
+// Value noise for surface variation
+fn coreValueNoise(p: vec3f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  let n = i.x + i.y * 157.0 + 113.0 * i.z;
+  return mix(mix(mix(coreHash3(vec3f(n + 0.0)).x, coreHash3(vec3f(n + 1.0)).x, f.x),
+                 mix(coreHash3(vec3f(n + 157.0)).x, coreHash3(vec3f(n + 158.0)).x, f.x), f.y),
+             mix(mix(coreHash3(vec3f(n + 113.0)).x, coreHash3(vec3f(n + 114.0)).x, f.x),
+                 mix(coreHash3(vec3f(n + 270.0)).x, coreHash3(vec3f(n + 271.0)).x, f.x), f.y), f.z);
+}
+
+// FBM for complex detail
+fn coreFbm(p: vec3f, octaves: i32) -> f32 {
+  var value = 0.0;
+  var amplitude = 0.5;
+  var frequency = 1.0;
+  for (var i = 0; i < octaves; i = i + 1) {
+    value += amplitude * coreValueNoise(p * frequency);
+    amplitude *= 0.5;
+    frequency *= 2.0;
+  }
+  return value;
+}
+
+// Normal perturbation without normal maps
+fn corePerturbNormal(N: vec3f, worldPos: vec3f, strength: f32) -> vec3f {
+  let noise1 = coreFbm(worldPos * 200.0, 3);
+  let noise2 = coreFbm(worldPos * 150.0 + 100.0, 3);
+  let noise3 = coreFbm(worldPos * 180.0 + 200.0, 3);
+  let perturb = vec3f(noise1 - 0.5, noise2 - 0.5, noise3 - 0.5) * strength;
+  return normalize(N + perturb);
+}
+
+// ============================================
+// PROFESSIONAL LIGHTING - Core/Solid Material
+// ============================================
+
+// Core material SH (neutral industrial lighting)
+const CORE_SH_0: vec3f = vec3f(0.18, 0.20, 0.22);
+const CORE_SH_1: vec3f = vec3f(0.08, 0.09, 0.10);
+const CORE_SH_2: vec3f = vec3f(0.12, 0.13, 0.14);
+const CORE_SH_3: vec3f = vec3f(0.25, 0.28, 0.30);
+
+fn evaluateCoreSH(normal: vec3f) -> vec3f {
+  return CORE_SH_0 + CORE_SH_1 * normal.x + CORE_SH_2 * normal.y + CORE_SH_3 * normal.z;
+}
+
+// Multi-light calculation for solid materials
+fn calculateCoreLighting(normal: vec3f, viewDir: vec3f, worldPos: vec3f, 
+                         roughness: f32) -> vec3f {
+  // Key light
+  let keyDir = normalize(globals.keyLightPos - worldPos);
+  let keyNdotL = max(dot(normal, keyDir), 0.0);
+  let keyHalf = normalize(viewDir + keyDir);
+  let keySpec = pow(max(dot(normal, keyHalf), 0.0), 64.0 / roughness);
+  let keyContrib = globals.keyLightColor * globals.keyLightIntensity * 
+                   (keyNdotL * 0.7 + keySpec * 0.5);
+  
+  // Fill light
+  let fillDir = normalize(globals.fillLightPos - worldPos);
+  let fillNdotL = max(dot(normal, fillDir), 0.0);
+  let fillContrib = globals.fillLightColor * globals.fillLightIntensity * fillNdotL * 0.5;
+  
+  // Rim light
+  let rimFresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), 4.0);
+  let rimContrib = globals.rimLightColor * globals.rimLightIntensity * rimFresnel;
+  
+  // Ground bounce
+  let groundNdotL = max(dot(normal, vec3f(0.0, -1.0, 0.0)), 0.0);
+  let groundContrib = globals.groundLightColor * globals.groundLightIntensity * groundNdotL * 0.2;
+  
+  // IBL ambient
+  let ambient = evaluateCoreSH(normal) * 0.5;
+  
+  return ambient + keyContrib + fillContrib + rimContrib + groundContrib;
+}
+
+// Contact AO for solid parts
+fn calculateCoreAO(worldPos: vec3f, normal: vec3f) -> f32 {
+  let yPos = worldPos.y;
+  let edgeFactor = 1.0 - smoothstep(1.4, 2.8, abs(yPos));
+  return 0.4 + 0.6 * edgeFactor;
+}
+
 @fragment fn main(@location(0) normal: vec3f, @location(1) worldPos: vec3f, @location(2) baseNormal: vec3f) -> @location(0) vec4f {
-  let n = normalize(normal);
+  // ============================================
+  // SURFACE DETAIL LAYERS FOR CORE (STEEL)
+  // ============================================
+  
+  // Layer 1: Brushed metal streaks - directional noise along cylinder axis (Y)
+  let brushNoise = coreFbm(vec3f(worldPos.x * 50.0, worldPos.y * 2.0, worldPos.z * 50.0), 3);
+  let brushedStreaks = 0.9 + brushNoise * 0.2;
+  
+  // Layer 2: Oil stains - low-frequency color variation
+  let oilPattern = coreFbm(worldPos * 5.0 + vec3f(100.0), 3);
+  let oilStain = mix(vec3f(1.0), vec3f(0.9, 0.85, 0.75), oilPattern * 0.3);
+  
+  // Layer 3: Edge wear - increased roughness at cylinder edges (top/bottom)
+  let yPos = worldPos.y - device.devicePos.y;
+  let edgeDistance = abs(abs(yPos) - 1.5);
+  let edgeWear = smoothstep(0.5, 0.0, edgeDistance) * 0.3;
+  let wornRoughness = 0.4 + edgeWear;
+  
+  // Layer 4: Machining marks on shaft
+  let shaftRadius = sqrt(worldPos.x * worldPos.x + worldPos.z * worldPos.z);
+  let isShaft = shaftRadius < 0.6;
+  let machiningMarks = select(0.0, sin(worldPos.y * 300.0) * 0.02, isShaft);
+  
+  // Apply perturbed normal with machining marks
+  let n = corePerturbNormal(normalize(normal), worldPos + vec3f(0.0, machiningMarks, 0.0), 0.015);
   let viewDir = normalize(globals.cameraPos - worldPos);
   
-  // Light direction (main light from above and slightly forward)
-  let lightDir = normalize(vec3f(0.3, 1.0, 0.5));
+  // Professional multi-light calculation with worn roughness
+  let lighting = calculateCoreLighting(n, viewDir, worldPos, wornRoughness);
   
-  // Diffuse lighting
-  let diff = max(dot(n, lightDir), 0.0);
-  let ambient = 0.3;
-  let diffuse = diff * 0.6;
-  
-  // Specular highlights (Blinn-Phong)
-  let halfDir = normalize(lightDir + viewDir);
+  // Specular highlights (Blinn-Phong with key light) with worn roughness
+  let keyDir = normalize(globals.keyLightPos - worldPos);
+  let halfDir = normalize(keyDir + viewDir);
   let specAngle = max(dot(n, halfDir), 0.0);
-  let specular = pow(specAngle, 32.0) * 0.8;
+  let specularPower = 32.0 / (wornRoughness + 0.1);
+  let specular = pow(specAngle, specularPower) * (0.6 - edgeWear * 0.2) * globals.keyLightIntensity;
   
-  // Fresnel rim lighting for metallic edge effect
-  let fresnel = pow(1.0 - abs(dot(n, viewDir)), 3.0);
-  let rimLight = fresnel * 0.5;
+  // Fresnel rim lighting
+  let fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
+  let rimLight = fresnel * 0.4;
   
   // Time-based magnetic glow (pulsing cyan glow)
   let pulse = sin(globals.time * 3.0) * 0.3 + 0.7;
   let glow = material.coreColor * pulse * material.glowIntensity * fresnel;
   
   // Determine if this is the magnetic core (center) based on height
-  let isCore = abs(worldPos.y - device.devicePos.y) < 1.6;
+  let isCore = abs(yPos) < 1.6;
   
-  // Mix colors based on position
-  let finalBase = select(material.baseColor, material.coreColor * 0.8, isCore);
+  // Mix colors based on position with brushed metal and oil stains
+  let baseSteel = material.baseColor * brushedStreaks * oilStain;
+  let baseCore = material.coreColor * 0.8 * brushedStreaks;
+  let finalBase = select(baseSteel, baseCore, isCore);
   
-  // Combine lighting
-  let litColor = finalBase * (ambient + diffuse) + vec3f(specular) + rimLight * finalBase;
+  // Combine lighting with professional studio setup
+  let ao = calculateCoreAO(worldPos, n);
+  let litColor = finalBase * lighting * ao + vec3f(specular) + rimLight * finalBase;
   
   // Add emission glow
-  let finalColor = litColor + glow * pulse;
+  var finalColor = litColor + glow * pulse;
+  
+  // === CINEMATIC POST-PROCESSING PIPELINE ===
+  
+  // 1. ACES Filmic Tone Mapping
+  let acesA = 2.51;
+  let acesB = 0.03;
+  let acesC = 2.43;
+  let acesD = 0.59;
+  let acesE = 0.14;
+  finalColor = clamp((finalColor * (acesA * finalColor + acesB)) / (finalColor * (acesC * finalColor + acesD) + acesE), vec3f(0.0), vec3f(1.0));
+  
+  // 2. Color Grading - Contrast
+  finalColor = (finalColor - 0.5) * 1.12 + 0.5;
+  
+  // 3. Color Grading - Saturation
+  let luma = dot(finalColor, vec3f(0.299, 0.587, 0.114));
+  finalColor = mix(vec3f(luma), finalColor, 1.08);
+  
+  // 4. Color tint - Cool shadows, warm highlights for metallic core
+  let shadows = smoothstep(0.0, 0.25, luma);
+  let highlights = smoothstep(0.75, 1.0, luma);
+  let shadowTint = vec3f(0.9, 0.94, 1.0);
+  let highlightTint = vec3f(1.04, 1.02, 0.98);
+  finalColor = mix(finalColor * shadowTint, finalColor, shadows);
+  finalColor = mix(finalColor, finalColor * highlightTint, highlights);
+  
+  // 5. HDR Glow boost from magnetic emission
+  let bloomGlow = glow * pulse * 0.4;
+  finalColor = finalColor + bloomGlow;
   
   return vec4f(finalColor, 1.0);
 }`;
     
     // Field line vertex shader - flowing magnetic field lines
     this.fieldLineVertShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - Extended GlobalUniforms
+// ============================================
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  // Key light (warm, main)
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  // Fill light (cool, soft)
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  // Rim light (edge highlight)
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  // Ground light (bounce)
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
 @binding(1) @group(0) var<uniform> device: DeviceUniforms;
@@ -1897,14 +3001,61 @@ struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
   let trail = pow(radial, 0.5) * 1.5;
   
   // HDR glow
-  let hdrColor = fieldColor * (1.0 + intensity * 2.0);
+  var hdrColor = fieldColor * (1.0 + intensity * 2.0);
+  
+  // === CINEMATIC POST-PROCESSING (Field Lines) ===
+  
+  // ACES tone mapping for cinematic look
+  let acesA = 2.51;
+  let acesB = 0.03;
+  let acesC = 2.43;
+  let acesD = 0.59;
+  let acesE = 0.14;
+  hdrColor = clamp((hdrColor * (acesA * hdrColor + acesB)) / (hdrColor * (acesC * hdrColor + acesD) + acesE), vec3f(0.0), vec3f(1.0));
+  
+  // Saturation boost for magnetic field visibility
+  let luma = dot(hdrColor, vec3f(0.299, 0.587, 0.114));
+  hdrColor = mix(vec3f(luma), hdrColor, 1.2);
+  
+  // HDR boost from field intensity
+  let fieldBoost = intensity * fieldColor * 0.5;
+  hdrColor = hdrColor + fieldBoost;
   
   return vec4f(hdrColor * trail, intensity * 0.8);
 }`;
     
     // Energy arc vertex shader - electric arcs between rollers
     this.energyArcVertShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+// ============================================
+// PROFESSIONAL LIGHTING SYSTEM - Extended GlobalUniforms
+// ============================================
+struct GlobalUniforms { 
+  viewProj: mat4x4f, 
+  time: f32, 
+  _pad0: vec3f, 
+  cameraPos: vec3f, 
+  _pad1: f32,
+  // Key light (warm, main)
+  keyLightPos: vec3f,
+  keyLightIntensity: f32,
+  keyLightColor: vec3f,
+  _pad2: f32,
+  // Fill light (cool, soft)
+  fillLightPos: vec3f,
+  fillLightIntensity: f32,
+  fillLightColor: vec3f,
+  _pad3: f32,
+  // Rim light (edge highlight)
+  rimLightPos: vec3f,
+  rimLightIntensity: f32,
+  rimLightColor: vec3f,
+  _pad4: f32,
+  // Ground light (bounce)
+  groundLightPos: vec3f,
+  groundLightIntensity: f32,
+  groundLightColor: vec3f,
+  _pad5: f32
+}
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
 @binding(1) @group(0) var<uniform> device: DeviceUniforms;
@@ -1980,7 +3131,28 @@ struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
   let finalColor = mix(glowColor, coreColor, core) * totalIntensity;
   
   // HDR boost for bright arcs
-  let hdrColor = finalColor * (1.0 + totalIntensity * 2.0);
+  var hdrColor = finalColor * (1.0 + totalIntensity * 2.0);
+  
+  // === CINEMATIC POST-PROCESSING (Energy Arcs) ===
+  
+  // ACES tone mapping for cinematic electric arcs
+  let acesA = 2.51;
+  let acesB = 0.03;
+  let acesC = 2.43;
+  let acesD = 0.59;
+  let acesE = 0.14;
+  hdrColor = clamp((hdrColor * (acesA * hdrColor + acesB)) / (hdrColor * (acesC * hdrColor + acesD) + acesE), vec3f(0.0), vec3f(1.0));
+  
+  // High contrast for electric arc punch
+  hdrColor = (hdrColor - 0.5) * 1.3 + 0.5;
+  
+  // Saturation boost for cyan electric glow
+  let luma = dot(hdrColor, vec3f(0.299, 0.587, 0.114));
+  hdrColor = mix(vec3f(luma), hdrColor, 1.25);
+  
+  // Extra HDR bloom from arc intensity
+  let arcBloom = glowColor * totalIntensity * totalIntensity * 0.4;
+  hdrColor = hdrColor + arcBloom;
   
   return vec4f(hdrColor, totalIntensity * 0.9);
 }`;
@@ -2213,14 +3385,63 @@ struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
     const totalParticles = Object.values(this.devices).reduce((sum, d) => sum + (this.devicesEnabled[d.id] ? d.particleCount : 0), 0);
     this.profiler.recordFrame(deltaTime, totalParticles);
     
-    // Update global uniforms
+    // Update global uniforms with extended lighting data
     const viewProj = this.getViewProjMatrix();
-    const globalData = new Float32Array(32);
-    globalData.set(viewProj, 0);
-    globalData[16] = this.time;
-    globalData[20] = this.camera.position[0]; // cameraPos.x
-    globalData[21] = this.camera.position[1]; // cameraPos.y
-    globalData[22] = this.camera.position[2]; // cameraPos.z
+    const globalData = new Float32Array(128); // 512 bytes / 4 = 128 floats
+    
+    // Base uniforms (offset 0-23: 96 bytes)
+    globalData.set(viewProj, 0);                    // 0-15: viewProj matrix
+    globalData[16] = this.time;                     // 16: time
+    // padding at 17-19 (3 floats = 12 bytes)
+    globalData[20] = this.camera.position[0];       // 20: cameraPos.x
+    globalData[21] = this.camera.position[1];       // 21: cameraPos.y
+    globalData[22] = this.camera.position[2];       // 22: cameraPos.z
+    // padding at 23 (1 float = 4 bytes)
+    
+    // Key light (offset 24-31: 32 bytes)
+    const key = this.lightingConfig.key;
+    globalData[24] = key.position[0];
+    globalData[25] = key.position[1];
+    globalData[26] = key.position[2];
+    globalData[27] = key.intensity;
+    globalData[28] = key.color[0];
+    globalData[29] = key.color[1];
+    globalData[30] = key.color[2];
+    // padding at 31
+    
+    // Fill light (offset 32-39: 32 bytes)
+    const fill = this.lightingConfig.fill;
+    globalData[32] = fill.position[0];
+    globalData[33] = fill.position[1];
+    globalData[34] = fill.position[2];
+    globalData[35] = fill.intensity;
+    globalData[36] = fill.color[0];
+    globalData[37] = fill.color[1];
+    globalData[38] = fill.color[2];
+    // padding at 39
+    
+    // Rim light (offset 40-47: 32 bytes)
+    const rim = this.lightingConfig.rim;
+    globalData[40] = rim.position[0];
+    globalData[41] = rim.position[1];
+    globalData[42] = rim.position[2];
+    globalData[43] = rim.intensity;
+    globalData[44] = rim.color[0];
+    globalData[45] = rim.color[1];
+    globalData[46] = rim.color[2];
+    // padding at 47
+    
+    // Ground light (offset 48-55: 32 bytes)
+    const ground = this.lightingConfig.ground;
+    globalData[48] = ground.position[0];
+    globalData[49] = ground.position[1];
+    globalData[50] = ground.position[2];
+    globalData[51] = ground.intensity;
+    globalData[52] = ground.color[0];
+    globalData[53] = ground.color[1];
+    globalData[54] = ground.color[2];
+    // padding at 55
+    
     this.device.queue.writeBuffer(this.globalUniformBuffer, 0, globalData);
     
     // Update devices with quality scaling
@@ -2346,11 +3567,16 @@ class DeviceInstance {
     
     this.visualizer.profiler.trackBuffer(`device-${this.id}-uniforms`, 80, GPUBufferUsage.UNIFORM);
     
-    // MaterialUniforms: baseColor(3) + roughness(1) + glowColor(3) + emission(1) + ringIndex(1) + metallic(1) + pad(2)
+    // MaterialUniforms: albedo(3) + metallic(1) + roughness(1) + ao(1) + emission(1) + ringIndex(1) + pad(2)
+    // Total: 12 floats = 48 bytes
     const materialData = new Float32Array([
-      ...this.config.color, 0.3,        // baseColor + roughness
-      0.0, 0.9, 1.0, 2.0,               // glowColor + emission
-      0.0, 1.0, 0.0, 0.0                // ringIndex + metallic + pad(2)
+      ...this.config.color,             // albedo (3 floats)
+      0.95,                             // metallic (high for metals)
+      0.2,                              // roughness (slightly polished)
+      0.9,                              // ao (ambient occlusion)
+      2.0,                              // emission (energy glow)
+      0.0,                              // ringIndex (set per instance)
+      0.0, 0.0                          // padding
     ]);
     this.device.queue.writeBuffer(this.materialUniformBuffer, 0, materialData);
     
