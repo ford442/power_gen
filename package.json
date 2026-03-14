@@ -1,0 +1,24 @@
+{
+  "name": "seg-webgpu-visualizer",
+  "version": "1.0.0",
+  "description": "Real-time WebGPU simulation of the Searl Effect Generator with extensible architecture",
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build && python deploy.py"
+  },
+  "keywords": [
+    "webgpu",
+    "visualization",
+    "physics",
+    "searl-effect-generator"
+  ],
+  "author": "ford442",
+  "license": "MIT",
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
