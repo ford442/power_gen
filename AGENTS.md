@@ -13,7 +13,8 @@ This is a **SEG (Searl Effect Generator) WebGPU Visualizer** - a real-time 3D si
 ## Technology Stack
 
 - **WebGPU API**: Modern GPU compute and graphics API (requires Chrome/Edge 113+)
-- **Vanilla JavaScript**: No frameworks or build tools
+- **TypeScript + JavaScript**: TypeScript for physics calculations, JavaScript for core visualizer
+- **Vite**: Build tool for development and production bundling
 - **WGSL**: WebGPU Shading Language for GPU shaders
 - **Python 3 + Paramiko**: For SFTP deployment to remote servers
 - **GitHub Pages**: For static hosting and CI/CD deployment
@@ -22,16 +23,24 @@ This is a **SEG (Searl Effect Generator) WebGPU Visualizer** - a real-time 3D si
 
 ```
 /workspaces/power_gen/
-├── index.html              # Main HTML entry point with embedded CSS
-├── main.js                 # Core application logic (SEGVisualizer class)
+├── src/
+│   ├── main.js                 # Core application logic (SEGVisualizer class)
+│   ├── index.html              # Main HTML entry point with embedded CSS
+│   ├── shaders/                # WGSL shader files
+│   │   ├── roller.wgsl         # Roller geometry shader
+│   │   ├── particles.wgsl      # Particle rendering shader
+│   │   └── compute.wgsl        # GPU compute physics shader
+│   └── *.ts                    # TypeScript integration layer (see below)
 ├── shaders/
-│   └── seg-magnetic.wgsl   # WGSL utility functions for magnetic field calculations
-├── deploy.py               # Python SFTP deployment script
-├── git.sh                  # Quick git commit/push helper script
+│   └── seg-magnetic.wgsl       # WGSL utility functions for magnetic field calculations
+├── tsconfig.json               # TypeScript configuration
+├── vite.config.js              # Vite build configuration
+├── deploy.py                   # Python SFTP deployment script
+├── git.sh                      # Quick git commit/push helper script
 ├── .github/
 │   └── workflows/
-│       └── static.yml      # GitHub Actions workflow for Pages deployment
-└── README.md               # Human-readable project documentation
+│       └── static.yml          # GitHub Actions workflow for Pages deployment
+└── README.md                   # Human-readable project documentation
 ```
 
 ### Key Files Explained
@@ -43,8 +52,9 @@ The core of the application. Contains the `SEGVisualizer` class which:
 - Sets up compute pipeline for GPU particle physics
 - Handles user interaction (mouse drag, scroll zoom, sliders)
 - Runs the render loop with FPS counter
+- **Integrates TypeScript physics layer** via `SEGIntegrationManager`
 
-Shaders are embedded as strings in this file (not loaded from external files).
+Shaders are loaded from external `.wgsl` files using Vite's `?raw` imports.
 
 #### `index.html`
 Single-page HTML with embedded CSS. Contains:
@@ -56,24 +66,56 @@ Single-page HTML with embedded CSS. Contains:
 #### `shaders/seg-magnetic.wgsl`
 Utility functions for magnetic field calculations. **Note**: These functions are defined here for reference but are NOT currently used by `main.js` (which has inline shaders).
 
+#### TypeScript Integration Layer (`src/*.ts`)
+A comprehensive physics calculation and MCP integration layer:
+
+- **`types.ts`**: Core type definitions for physics vectors, Wolfram MCP types, shader configs
+- **`ValidatedConstants.ts`**: Physics constants with validation metadata and uncertainty flags
+- **`fallback-physics.ts`**: Analytical physics formulas with uncertainty estimates when MCP unavailable
+- **`mcp-manager.ts`**: Wolfram Alpha MCP client with caching, fallback chain, and exponential backoff
+- **`integration.ts`**: Main integration hub connecting physics calculations to WebGPU uniforms
+- **`index.ts`**: Module exports and initialization helper
+
+**Key Features**:
+- All MCP queries timeout after 5 seconds
+- Cache persists across page reloads (localStorage)
+- Fallback values flagged with uncertainty indicators
+- UI shows validated vs estimated values
+- Exponential backoff for transient failures
+
 #### `deploy.py`
 SFTP deployment script to upload files to `test.1ink.us/powergen`. 
 **⚠️ Security Warning**: Contains hardcoded credentials (password in plaintext).
 
 ## Build and Development
 
-### No Build Process Required
+### Vite Build Process
 
-This is a static website with no build step. Files are served directly as-is.
+The project uses **Vite** for development and production builds:
+
+```bash
+# Install dependencies
+npm install
+
+# Development server with hot reload
+npm run dev
+
+# Production build (outputs to dist/)
+npm run build
+
+# Preview production build
+npm run preview
+```
 
 ### Local Development
 
 ```bash
-# Requires HTTPS for WebGPU to work
-npx serve . --ssl
-```
+# Using Vite dev server (recommended)
+npm run dev
 
-Or use any static server with HTTPS support.
+# Or using any static server with HTTPS for WebGPU
+npx serve dist --ssl
+```
 
 ### Browser Requirements
 

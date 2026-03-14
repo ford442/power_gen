@@ -1,6 +1,8 @@
 import rollerShaderCode from './shaders/roller.wgsl?raw';
 import particleShaderCode from './shaders/particles.wgsl?raw';
 import computeShaderCode from './shaders/compute.wgsl?raw';
+import { SEGIntegrationManager } from './integration';
+import { ValidatedConstants } from './ValidatedConstants';
 
 class SEGVisualizer {
   constructor() {
@@ -34,6 +36,9 @@ class SEGVisualizer {
 
     this.camera = { distance: 20, rotation: 0, height: 3 };
 
+    // TypeScript integration layer
+    this.integration = null;
+
     this.init();
   }
 
@@ -63,6 +68,10 @@ class SEGVisualizer {
       await this.setupComputePipeline();
       await this.setupDepthBuffer();
       this.setupInteraction();
+      
+      // Initialize TypeScript integration layer
+      this.integration = new SEGIntegrationManager(this.device, this.canvas);
+      
       this.render(0);
 
       window.addEventListener('resize', () => this.resize());
@@ -349,7 +358,7 @@ class SEGVisualizer {
     });
 
     this.uniformBuffer = this.device.createBuffer({
-      size: 256,
+      size: 384,  // Increased to accommodate physics uniforms
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
   }
@@ -411,12 +420,28 @@ class SEGVisualizer {
     const viewProj = this.multiplyMatrices(proj, view);
 
     const modeMap = { seg: 0.0, heron: 1.0, kelvin: 2.0, solar: 3.0 };
-    const data = new Float32Array(20);
+    
+    // Get physics uniforms from integration layer (if available)
+    let physicsData = new Float32Array(4);
+    if (this.integration) {
+      const physicsUniforms = new Float32Array(this.integration.getPhysicsUniforms());
+      // Extract key physics values for shader
+      physicsData[0] = physicsUniforms[11] || 0.7048;  // maxFieldMagnitude
+      physicsData[1] = physicsUniforms[12] || 1.976e6; // avgEnergyDensity
+      physicsData[2] = physicsUniforms[9] || 1.0;      // middleRingTorque
+      physicsData[3] = physicsUniforms[14] || 0;       // timestamp
+    }
+    
+    const data = new Float32Array(24);
     data.set(viewProj);
     data[16] = this.time;
     data[17] = modeMap[this.mode] || 0;
     data[18] = this.particleCount;
     data[19] = this.batteryCharge;
+    data[20] = physicsData[0];  // maxFieldMagnitude
+    data[21] = physicsData[1];  // avgEnergyDensity
+    data[22] = physicsData[2];  // torque
+    data[23] = physicsData[3];  // physics timestamp
 
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
   }
@@ -424,6 +449,11 @@ class SEGVisualizer {
   render(timestamp) {
     const deltaTime = (timestamp - this.lastFrameTime) / 1000;
     this.lastFrameTime = timestamp;
+
+    // Update TypeScript integration layer
+    if (this.integration) {
+      this.integration.update(deltaTime);
+    }
 
     if (timestamp % 500 < 20) {
       this.fps = Math.round(1 / (deltaTime || 0.016));

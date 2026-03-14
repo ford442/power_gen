@@ -1,0 +1,664 @@
+/**
+ * SEG WebGPU Visualizer - Scientific UI Styles
+ * Professional dark theme with cyan/magenta accents
+ */
+
+/* ============================================
+   ROOT VARIABLES
+   ============================================ */
+:root {
+  --sci-bg-primary: #0a0a0f;
+  --sci-bg-panel: rgba(10, 10, 15, 0.92);
+  --sci-bg-gauge: rgba(5, 5, 10, 0.8);
+  --sci-border-cyan: rgba(0, 255, 255, 0.3);
+  --sci-border-magenta: rgba(255, 0, 255, 0.3);
+  --sci-cyan: #00ffff;
+  --sci-cyan-dim: rgba(0, 255, 255, 0.5);
+  --sci-magenta: #ff00ff;
+  --sci-magenta-dim: rgba(255, 0, 255, 0.5);
+  --sci-yellow: #ffff00;
+  --sci-red: #ff4444;
+  --sci-green: #44ff44;
+  --sci-orange: #ff8800;
+  --sci-text-primary: #e0e0e0;
+  --sci-text-secondary: #888888;
+  --sci-text-muted: #555555;
+  --sci-font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --sci-font-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+  --sci-shadow-cyan: 0 0 30px rgba(0, 255, 255, 0.15);
+  --sci-shadow-magenta: 0 0 30px rgba(255, 0, 255, 0.15);
+  --sci-transition-fast: 0.15s ease;
+  --sci-transition-normal: 0.3s ease;
+}
+
+/* ============================================
+   MAIN PANEL CONTAINER
+   ============================================ */
+.sci-panel {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 320px;
+  max-height: calc(100vh - 40px);
+  background: var(--sci-bg-panel);
+  border: 1px solid var(--sci-border-cyan);
+  border-radius: 8px;
+  box-shadow: var(--sci-shadow-cyan), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  font-family: var(--sci-font-ui);
+  color: var(--sci-text-primary);
+  overflow: hidden;
+  z-index: 1000;
+  transition: opacity var(--sci-transition-normal), transform var(--sci-transition-normal);
+}
+
+.sci-panel.collapsed {
+  transform: translateX(calc(100% + 30px));
+}
+
+.sci-panel.dragging {
+  opacity: 0.9;
+  cursor: grabbing;
+}
+
+/* ============================================
+   PANEL HEADER
+   ============================================ */
+.sci-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, rgba(0, 255, 255, 0.08) 0%, transparent 100%);
+  border-bottom: 1px solid var(--sci-border-cyan);
+  cursor: grab;
+  user-select: none;
+}
+
+.sci-panel-header:active {
+  cursor: grabbing;
+}
+
+.sci-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--sci-cyan);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.sci-panel-icon {
+  font-size: 1.1rem;
+}
+
+.sci-panel-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.sci-panel-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 255, 255, 0.1);
+  border: 1px solid var(--sci-border-cyan);
+  border-radius: 4px;
+  color: var(--sci-cyan);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all var(--sci-transition-fast);
+}
+
+.sci-panel-btn:hover {
+  background: var(--sci-cyan);
+  color: var(--sci-bg-primary);
+}
+
+/* ============================================
+   PANEL CONTENT
+   ============================================ */
+.sci-panel-content {
+  padding: 16px;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+  scrollbar-width: thin;
+  scrollbar-color: var(--sci-cyan-dim) transparent;
+}
+
+.sci-panel-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sci-panel-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sci-panel-content::-webkit-scrollbar-thumb {
+  background: var(--sci-cyan-dim);
+  border-radius: 3px;
+}
+
+/* ============================================
+   WOLFRAM STATUS SECTION
+   ============================================ */
+.sci-wolfram-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(0, 20, 20, 0.5);
+  border: 1px solid var(--sci-border-cyan);
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.sci-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.sci-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+.sci-status-dot.connected {
+  background: var(--sci-green);
+  color: var(--sci-green);
+}
+
+.sci-status-dot.fallback {
+  background: var(--sci-orange);
+  color: var(--sci-orange);
+  animation: statusPulse 1s ease-in-out infinite;
+}
+
+.sci-status-dot.disconnected {
+  background: var(--sci-red);
+  color: var(--sci-red);
+  animation: statusPulse 0.5s ease-in-out infinite;
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.sci-status-text {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--sci-text-primary);
+}
+
+.sci-status-detail {
+  font-size: 0.65rem;
+  color: var(--sci-text-secondary);
+  margin-top: 2px;
+}
+
+.sci-data-source {
+  padding: 4px 8px;
+  background: rgba(0, 255, 255, 0.1);
+  border: 1px solid var(--sci-border-cyan);
+  border-radius: 4px;
+  font-family: var(--sci-font-mono);
+  font-size: 0.65rem;
+  color: var(--sci-cyan);
+  text-transform: uppercase;
+}
+
+/* ============================================
+   GAUGE CONTAINERS
+   ============================================ */
+.sci-gauge-section {
+  margin-bottom: 16px;
+}
+
+.sci-gauge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.sci-gauge-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--sci-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sci-gauge-value {
+  font-family: var(--sci-font-mono);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--sci-cyan);
+}
+
+.sci-gauge-value.warning {
+  color: var(--sci-orange);
+}
+
+.sci-gauge-value.danger {
+  color: var(--sci-red);
+}
+
+.sci-gauge-container {
+  background: var(--sci-bg-gauge);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* ============================================
+   CIRCULAR GAUGE (CANVAS)
+   ============================================ */
+.sci-circular-gauge {
+  position: relative;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sci-circular-gauge canvas {
+  display: block;
+}
+
+.sci-circular-value {
+  position: absolute;
+  text-align: center;
+}
+
+.sci-circular-number {
+  font-family: var(--sci-font-mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--sci-cyan);
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+}
+
+.sci-circular-unit {
+  font-size: 0.7rem;
+  color: var(--sci-text-secondary);
+  text-transform: uppercase;
+}
+
+.sci-circular-zones {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px;
+  font-size: 0.6rem;
+  color: var(--sci-text-muted);
+}
+
+.sci-zone-marker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sci-zone-color {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.sci-zone-color.safe { background: var(--sci-green); }
+.sci-zone-color.caution { background: var(--sci-yellow); }
+.sci-zone-color.warning { background: var(--sci-red); }
+
+/* ============================================
+   BAR GAUGE
+   ============================================ */
+.sci-bar-gauge {
+  height: 24px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.sci-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width var(--sci-transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.sci-bar-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.2) 50%, transparent 100%);
+  animation: barShimmer 2s linear infinite;
+}
+
+@keyframes barShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.sci-bar-fill.safe {
+  background: linear-gradient(90deg, #004444, var(--sci-green));
+}
+
+.sci-bar-fill.caution {
+  background: linear-gradient(90deg, #444400, var(--sci-yellow));
+}
+
+.sci-bar-fill.warning {
+  background: linear-gradient(90deg, #440000, var(--sci-red));
+}
+
+.sci-bar-fill.energy {
+  background: linear-gradient(90deg, #000044, #0044ff, #ff0044);
+}
+
+.sci-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-family: var(--sci-font-mono);
+  font-size: 0.6rem;
+  color: var(--sci-text-muted);
+}
+
+/* ============================================
+   TORQUE GAUGE
+   ============================================ */
+.sci-torque-gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+.sci-torque-ring {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sci-torque-label {
+  width: 50px;
+  font-size: 0.65rem;
+  color: var(--sci-text-secondary);
+  text-transform: uppercase;
+}
+
+.sci-torque-visual {
+  flex: 1;
+  height: 28px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.sci-torque-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--sci-text-muted);
+  transform: translateX(-50%);
+  z-index: 2;
+}
+
+.sci-torque-bar {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 2px;
+  transition: all var(--sci-transition-fast);
+}
+
+.sci-torque-bar.left {
+  right: 50%;
+  background: linear-gradient(90deg, var(--sci-cyan), transparent);
+}
+
+.sci-torque-bar.right {
+  left: 50%;
+  background: linear-gradient(90deg, transparent, var(--sci-magenta));
+}
+
+.sci-torque-value {
+  width: 60px;
+  font-family: var(--sci-font-mono);
+  font-size: 0.75rem;
+  color: var(--sci-cyan);
+  text-align: right;
+}
+
+/* ============================================
+   PARTICLE FLUX GAUGE
+   ============================================ */
+.sci-flux-gauge {
+  padding: 12px;
+}
+
+.sci-flux-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.sci-flux-rate {
+  font-family: var(--sci-font-mono);
+  font-size: 1rem;
+  color: var(--sci-cyan);
+}
+
+.sci-flux-particles {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  color: var(--sci-text-secondary);
+}
+
+.sci-flux-sparkline {
+  height: 40px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sci-flux-sparkline canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ============================================
+   CACHE STATUS
+   ============================================ */
+.sci-cache-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: rgba(0, 20, 20, 0.3);
+  border-top: 1px solid var(--sci-border-cyan);
+  margin-top: 16px;
+}
+
+.sci-cache-stats {
+  font-family: var(--sci-font-mono);
+  font-size: 0.7rem;
+  color: var(--sci-text-secondary);
+}
+
+.sci-cache-stats span {
+  color: var(--sci-cyan);
+}
+
+.sci-last-update {
+  font-size: 0.65rem;
+  color: var(--sci-text-muted);
+}
+
+/* ============================================
+   QUERY LOG
+   ============================================ */
+.sci-query-log {
+  max-height: 80px;
+  overflow-y: auto;
+  margin-top: 12px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+
+.sci-query-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-family: var(--sci-font-mono);
+  font-size: 0.65rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sci-query-entry:last-child {
+  border-bottom: none;
+}
+
+.sci-query-time {
+  color: var(--sci-text-muted);
+  min-width: 45px;
+}
+
+.sci-query-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.sci-query-status.hit {
+  background: var(--sci-green);
+}
+
+.sci-query-status.miss {
+  background: var(--sci-orange);
+}
+
+.sci-query-status.error {
+  background: var(--sci-red);
+}
+
+.sci-query-text {
+  color: var(--sci-text-secondary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============================================
+   TOGGLE BUTTON
+   ============================================ */
+.sci-panel-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--sci-bg-panel);
+  border: 1px solid var(--sci-border-cyan);
+  border-radius: 8px;
+  box-shadow: var(--sci-shadow-cyan);
+  backdrop-filter: blur(10px);
+  color: var(--sci-cyan);
+  font-size: 1.2rem;
+  cursor: pointer;
+  z-index: 999;
+  transition: all var(--sci-transition-normal);
+}
+
+.sci-panel-toggle:hover {
+  background: var(--sci-cyan);
+  color: var(--sci-bg-primary);
+}
+
+.sci-panel-toggle.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ============================================
+   RESPONSIVE STYLES
+   ============================================ */
+@media (max-width: 768px) {
+  .sci-panel {
+    width: calc(100vw - 40px);
+    max-width: 320px;
+    top: 10px;
+    right: 10px;
+  }
+  
+  .sci-panel-toggle {
+    top: 10px;
+    right: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sci-panel {
+    border-radius: 0;
+    top: 0;
+    right: 0;
+    width: 100vw;
+    max-height: 50vh;
+  }
+  
+  .sci-panel-content {
+    max-height: calc(50vh - 60px);
+  }
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+@keyframes gaugeGlow {
+  0%, 100% { filter: drop-shadow(0 0 5px rgba(0, 255, 255, 0.3)); }
+  50% { filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.6)); }
+}
+
+.sci-gauge-container {
+  animation: gaugeGlow 3s ease-in-out infinite;
+}
+
+/* Value change animation */
+.sci-value-changed {
+  animation: valueFlash 0.3s ease;
+}
+
+@keyframes valueFlash {
+  0% { color: var(--sci-yellow); }
+  100% { color: var(--sci-cyan); }
+}
