@@ -1209,6 +1209,7 @@ struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
   
   async setupFloorGrid() {
     this.gridPipeline = this.device.createRenderPipeline({
+      label: 'gridPipeline',
       layout: 'auto',
       vertex: {
         module: this.device.createShaderModule({ code: this.gridVertShader }),
@@ -1522,6 +1523,7 @@ class DeviceInstance {
   
   async setupPipelines() {
     this.rollerPipeline = this.device.createRenderPipeline({
+      label: 'rollerPipeline',
       layout: 'auto',
       vertex: {
         module: this.device.createShaderModule({ code: this.visualizer.rollerVertShader }),
@@ -1538,6 +1540,7 @@ class DeviceInstance {
     });
     
     this.particlePipeline = this.device.createRenderPipeline({
+      label: 'particlePipeline',
       layout: 'auto',
       vertex: { module: this.device.createShaderModule({ code: this.visualizer.particleVertShader }), entryPoint: 'main' },
       fragment: { module: this.device.createShaderModule({ code: this.visualizer.particleFragShader }), entryPoint: 'main', targets: [{ format: navigator.gpu.getPreferredCanvasFormat(), blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } } }] },
