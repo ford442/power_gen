@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SEG WebGPU Visualizer</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #050505;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: #0ff;
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #controls {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.8);
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 20px;
+      max-width: 320px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+    }
+
+    h1 {
+      margin: 0 0 15px 0;
+      font-size: 1.3rem;
+      color: #0ff;
+      text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+      border-bottom: 1px solid #0ff;
+      padding-bottom: 10px;
+    }
+
+    .mode-btn {
+      display: block;
+      width: 100%;
+      margin: 8px 0;
+      padding: 12px;
+      background: #111;
+      border: 1px solid #0ff;
+      color: #0ff;
+      cursor: pointer;
+      transition: all 0.3s;
+      border-radius: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.85rem;
+      letter-spacing: 1px;
+    }
+
+    .mode-btn:hover {
+      background: #0ff;
+      color: #000;
+      box-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+      transform: translateX(5px);
+    }
+
+    .mode-btn.active {
+      background: #0ff;
+      color: #000;
+      box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+    }
+
+    #info {
+      margin-top: 20px;
+      font-size: 0.85rem;
+      color: #aaa;
+      line-height: 1.5;
+      border-top: 1px solid #333;
+      padding-top: 15px;
+    }
+
+    .slider-container {
+      margin: 15px 0;
+      padding: 10px;
+      background: rgba(0, 20, 20, 0.5);
+      border-radius: 4px;
+      border: 1px solid #222;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 0.9rem;
+      color: #0ff;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #0ff;
+      cursor: pointer;
+    }
+
+    #speedVal,
+    #particleVal {
+      float: right;
+      color: #0ff;
+      font-weight: bold;
+    }
+
+    .stats {
+      margin-top: 15px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #0aa;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gpuCanvas"></canvas>
+  <div id="controls">
+    <h1>🔮 SEG WebGPU Visualizer</h1>
+    <button class="mode-btn active" id="btn-seg" onclick="setMode('seg')">Searl Effect Generator</button>
+    <button class="mode-btn" id="btn-heron" onclick="setMode('heron')">Heron's Fountain</button>
+    <button class="mode-btn" id="btn-kelvin" onclick="setMode('kelvin')">Kelvin's Thunderstorm</button>
+    <div class="slider-container">
+      <label>Rotation Speed: <span id="speedVal">1.0</span></label>
+      <input type="range" id="speedSlider" min="0" max="5" step="0.1" value="1.0">
+    </div>
+    <div class="slider-container">
+      <label>Particle Count: <span id="particleVal">10000</span></label>
+      <input type="range" id="particleSlider" min="1000" max="50000" step="1000" value="10000">
+    </div>
+    <div id="info">Simulating 12 magnetic rollers in toroidal formation with spiral energy flux patterns using WebGPU compute shaders.</div>
+    <div class="stats" id="stats">FPS: <span id="fps">60</span> | Mode: SEG</div>
+  </div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
