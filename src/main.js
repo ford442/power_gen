@@ -402,13 +402,17 @@ class SEGVisualizer {
 
   multiplyMatrices(a, b) {
     const out = new Float32Array(16);
-    for (let i = 0; i < 4; i++) {
-      for (let j = 0; j < 4; j++) {
+    // col represents the column of the output matrix
+    for (let col = 0; col < 4; col++) {
+      // row represents the row of the output matrix
+      for (let row = 0; row < 4; row++) {
         let sum = 0;
         for (let k = 0; k < 4; k++) {
-          sum += a[i * 4 + k] * b[k * 4 + j];
+          // a[k * 4 + row] accesses a's row elements
+          // b[col * 4 + k] accesses b's column elements
+          sum += a[k * 4 + row] * b[col * 4 + k];
         }
-        out[i * 4 + j] = sum;
+        out[col * 4 + row] = sum;
       }
     }
     return out;
