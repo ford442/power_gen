@@ -876,7 +876,22 @@ const DEVICE_CONFIG = {
     rotation: [0, 0, 0, 1],
     cameraOffset: [0, 3, 8],
     particleCount: 10000,
-    color: [0.0, 0.9, 1.0]
+    color: [0.0, 0.9, 1.0],
+    core: {
+      shaftRadius: 0.5,
+      shaftHeight: 6.0,
+      coreRadius: 1.2,
+      coreHeight: 3.0,
+      plateRadius: 3.0,
+      plateThickness: 0.3,
+      plateY: 2.5,
+      boltCount: 24,
+      boltRadius: 0.08,
+      boltHeight: 0.25,
+      baseColor: [0.53, 0.6, 0.67], // Steel gray #8899aa
+      coreColor: [0.0, 0.8, 0.9],   // Cyan-tinted NdFeB
+      glowColor: [0.0, 0.9, 1.0]    // Magnetic glow
+    }
   },
   heron: {
     position: [-7, 0, 4],
@@ -1013,9 +1028,206 @@ class MultiDeviceVisualizer {
     
     this.cylinderBuffer = this.createCylinderBuffer(0.8, 2.5, 32);
     
+    // Create core geometry buffers for SEG device
+    this.setupCoreGeometryBuffers();
+    
+    // Create pickup coil geometry for SEG device
+    this.setupPickupCoilBuffers();
+    
     this.setupGlobalShaders();
+    this.setupCoilShaders();
     
     console.log(`Global resources setup in ${(performance.now() - startTime).toFixed(2)}ms`);
+  }
+  
+  setupPickupCoilBuffers() {
+    // Create rectangular coil bobbin geometry
+    // Dimensions: width 0.8m, depth 0.4m, height 4m
+    this.coilBuffer = this.createCoilBuffer();
+    
+    // Create connection rings (top and bottom) - torus at radius 7.0m
+    this.connectionRingBuffer = this.createTorusBuffer(7.0, 0.15, 48, 16);
+  }
+  
+  createCoilBuffer() {
+    const w = 0.4;  // half-width
+    const d = 0.2;  // half-depth
+    const h = 2.0;  // half-height
+    
+    // Interleaved vertex data: pos(3) + normal(3) + uv(2) = 8 floats per vertex = 32 bytes
+    const vertexData = [];
+    
+    // Helper to add a face (2 triangles)
+    const addFace = (v1, v2, v3, v4, n, uvBase) => {
+      // Triangle 1: v1, v2, v3
+      // Vertex 1
+      vertexData.push(...v1, ...n, uvBase[0], uvBase[1]);
+      // Vertex 2
+      vertexData.push(...v2, ...n, uvBase[2], uvBase[1]);
+      // Vertex 3
+      vertexData.push(...v3, ...n, uvBase[0], uvBase[3]);
+      
+      // Triangle 2: v3, v2, v4
+      // Vertex 3 (again)
+      vertexData.push(...v3, ...n, uvBase[0], uvBase[3]);
+      // Vertex 2 (again)
+      vertexData.push(...v2, ...n, uvBase[2], uvBase[1]);
+      // Vertex 4
+      vertexData.push(...v4, ...n, uvBase[2], uvBase[3]);
+    };
+    
+    // Front face (+Z) - outward facing
+    addFace(
+      [-w, -h, d], [w, -h, d], [-w, h, d], [w, h, d],
+      [0, 0, 1], [0, 0, 1, 1]
+    );
+    // Back face (-Z) - inward facing
+    addFace(
+      [w, -h, -d], [-w, -h, -d], [w, h, -d], [-w, h, -d],
+      [0, 0, -1], [0, 0, 1, 1]
+    );
+    // Right face (+X)
+    addFace(
+      [w, -h, d], [w, -h, -d], [w, h, d], [w, h, -d],
+      [1, 0, 0], [0, 0, 1, 1]
+    );
+    // Left face (-X)
+    addFace(
+      [-w, -h, -d], [-w, -h, d], [-w, h, -d], [-w, h, d],
+      [-1, 0, 0], [0, 0, 1, 1]
+    );
+    // Top face (+Y)
+    addFace(
+      [-w, h, d], [w, h, d], [-w, h, -d], [w, h, -d],
+      [0, 1, 0], [0, 0, 1, 1]
+    );
+    // Bottom face (-Y)
+    addFace(
+      [-w, -h, -d], [w, -h, -d], [-w, -h, d], [w, -h, d],
+      [0, -1, 0], [0, 0, 1, 1]
+    );
+    
+    const vertexArray = new Float32Array(vertexData);
+    
+    const vertexBuffer = this.device.createBuffer({
+      size: vertexArray.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    
+    this.device.queue.writeBuffer(vertexBuffer, 0, vertexArray);
+    this.profiler.trackBuffer('coilVertices', vertexBuffer.size, GPUBufferUsage.VERTEX);
+    
+    return {
+      vertexBuffer,
+      vertexCount: vertexData.length / 8  // 8 floats per vertex
+    };
+  }
+  
+  createTorusBuffer(majorRadius, minorRadius, majorSegments, minorSegments) {
+    const vertices = [];
+    const normals = [];
+    const indices = [];
+    
+    for (let i = 0; i <= majorSegments; i++) {
+      const theta = (i / majorSegments) * Math.PI * 2;
+      const cosTheta = Math.cos(theta);
+      const sinTheta = Math.sin(theta);
+      
+      for (let j = 0; j <= minorSegments; j++) {
+        const phi = (j / minorSegments) * Math.PI * 2;
+        const cosPhi = Math.cos(phi);
+        const sinPhi = Math.sin(phi);
+        
+        const x = (majorRadius + minorRadius * cosPhi) * cosTheta;
+        const y = minorRadius * sinPhi;
+        const z = (majorRadius + minorRadius * cosPhi) * sinTheta;
+        
+        const nx = cosPhi * cosTheta;
+        const ny = sinPhi;
+        const nz = cosPhi * sinTheta;
+        
+        // Interleaved: position(3) + normal(3) = 6 floats per vertex = 24 bytes
+        vertices.push(x, y, z, nx, ny, nz);
+      }
+    }
+    
+    for (let i = 0; i < majorSegments; i++) {
+      for (let j = 0; j < minorSegments; j++) {
+        const a = i * (minorSegments + 1) + j;
+        const b = a + minorSegments + 1;
+        
+        indices.push(a, b, a + 1);
+        indices.push(b, b + 1, a + 1);
+      }
+    }
+    
+    const vertexData = new Float32Array(vertices);
+    
+    const vertexBuffer = this.device.createBuffer({
+      size: vertexData.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    
+    this.device.queue.writeBuffer(vertexBuffer, 0, vertexData);
+    
+    const indexBuffer = this.device.createBuffer({
+      size: new Uint16Array(indices).byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(indexBuffer, 0, new Uint16Array(indices));
+    
+    this.profiler.trackBuffer('torusVertices', vertexBuffer.size, GPUBufferUsage.VERTEX);
+    this.profiler.trackBuffer('torusIndices', indexBuffer.size, GPUBufferUsage.INDEX);
+    
+    return {
+      vertexBuffer,
+      indexBuffer,
+      indexCount: indices.length
+    };
+  }
+  
+  setupCoreGeometryBuffers() {
+    const segConfig = DEVICE_CONFIG.seg;
+    if (!segConfig.core) return;
+    
+    const core = segConfig.core;
+    
+    // Central shaft cylinder (radius 0.5, height 6)
+    this.coreShaftBuffer = this.createCylinderBuffer(core.shaftRadius, core.shaftHeight, 24);
+    
+    // Magnetic core cylinder (radius 1.2, height 3)
+    this.coreMagnetBuffer = this.createCylinderBuffer(core.coreRadius, core.coreHeight, 32);
+    
+    // Top and bottom plates (radius 3, thickness 0.3)
+    this.corePlateBuffer = this.createCylinderBuffer(core.plateRadius, core.plateThickness, 48);
+    
+    // Bolt cylinders (small, instanced)
+    this.coreBoltBuffer = this.createCylinderBuffer(core.boltRadius, core.boltHeight, 8);
+    
+    // Bolt instance positions (24 bolts per plate, arranged in circle)
+    const boltPositions = [];
+    const boltRadius = core.plateRadius * 0.85; // Position at 85% of plate radius
+    for (let i = 0; i < core.boltCount; i++) {
+      const angle = (i / core.boltCount) * Math.PI * 2;
+      boltPositions.push(
+        Math.cos(angle) * boltRadius,
+        core.plateY + core.plateThickness / 2 + core.boltHeight / 2,
+        Math.sin(angle) * boltRadius
+      );
+      boltPositions.push(
+        Math.cos(angle) * boltRadius,
+        -(core.plateY + core.plateThickness / 2 + core.boltHeight / 2),
+        Math.sin(angle) * boltRadius
+      );
+    }
+    this.coreBoltPositions = new Float32Array(boltPositions);
+    
+    this.coreBoltInstanceBuffer = this.device.createBuffer({
+      size: this.coreBoltPositions.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(this.coreBoltInstanceBuffer, 0, this.coreBoltPositions);
+    this.profiler.trackBuffer('coreBoltInstances', this.coreBoltPositions.byteLength, GPUBufferUsage.VERTEX);
   }
   
   createCylinderBuffer(radius, height, segments) {
@@ -1066,6 +1278,204 @@ class MultiDeviceVisualizer {
     };
   }
   
+  setupCoilShaders() {
+    // Pickup coil vertex shader
+    this.coilVertShader = `
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+@binding(0) @group(0) var<uniform> globals: GlobalUniforms;
+struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
+@binding(1) @group(0) var<uniform> device: DeviceUniforms;
+// Coil data packed as: position(3), rotation(4), energy(1) - using 8 floats, last is energy
+@binding(2) @group(0) var<storage> coils: array<vec4f>;
+struct VertexOutput { 
+  @builtin(position) position: vec4f, 
+  @location(0) normal: vec3f, 
+  @location(1) worldPos: vec3f, 
+  @location(2) energy: f32,
+  @location(3) coilIndex: f32,
+  @location(4) uv: vec2f
+}
+fn quatRotate(q: vec4f, v: vec3f) -> vec3f { 
+  return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); 
+}
+@vertex fn main(
+  @location(0) position: vec3f, 
+  @location(1) normal: vec3f,
+  @location(2) uv: vec2f,
+  @builtin(instance_index) instanceIdx: u32
+) -> VertexOutput {
+  var output: VertexOutput;
+  
+  // Read coil data from storage buffer
+  // coils[instanceIdx * 2] = vec4f(position.xyz, rotation.x)
+  // coils[instanceIdx * 2 + 1] = vec4f(rotation.yzw, energy)
+  let data0 = coils[instanceIdx * 2];
+  let data1 = coils[instanceIdx * 2 + 1];
+  
+  let coilPos = data0.xyz;
+  let coilRot = vec4f(data0.w, data1.xyz);
+  let coilEnergy = data1.w;
+  
+  // Rotate coil to face center, then apply device rotation
+  let localPos = quatRotate(coilRot, position) + coilPos;
+  let worldPos = quatRotate(device.deviceRot, localPos * device.deviceScale) + device.devicePos;
+  
+  output.position = globals.viewProj * vec4f(worldPos, 1.0);
+  output.normal = quatRotate(device.deviceRot, quatRotate(coilRot, normal));
+  output.worldPos = worldPos;
+  output.energy = coilEnergy;
+  output.coilIndex = f32(instanceIdx);
+  output.uv = uv;
+  return output;
+}`;
+
+    // Pickup coil fragment shader with copper material and energy glow
+    this.coilFragShader = `
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+@binding(0) @group(0) var<uniform> globals: GlobalUniforms;
+struct CoilMaterialUniforms { 
+  copperColor: vec3f, 
+  _pad1: f32, 
+  glowColor: vec3f, 
+  emission: f32 
+}
+@binding(3) @group(0) var<uniform> material: CoilMaterialUniforms;
+
+// Simple noise function for copper texture
+fn hash(p: vec2f) -> f32 {
+  return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453);
+}
+
+fn noise(p: vec2f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let a = hash(i);
+  let b = hash(i + vec2f(1.0, 0.0));
+  let c = hash(i + vec2f(0.0, 1.0));
+  let d = hash(i + vec2f(1.0, 1.0));
+  let u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+@fragment fn main(
+  @location(0) normal: vec3f, 
+  @location(1) worldPos: vec3f, 
+  @location(2) energy: f32,
+  @location(3) coilIndex: f32,
+  @location(4) uv: vec2f
+) -> @location(0) vec4f {
+  let n = normalize(normal);
+  let viewDir = normalize(globals.cameraPos - worldPos);
+  
+  // Copper winding texture pattern
+  let windingFreq = vec2f(20.0, 60.0);
+  let windingPattern = sin(uv.y * windingFreq.y + uv.x * windingFreq.x * 0.5) * 0.5 + 0.5;
+  let copperNoise = noise(uv * vec2f(10.0, 30.0)) * 0.2 + 0.8;
+  
+  // Base copper color with winding variation
+  let baseCopper = material.copperColor * (0.8 + windingPattern * 0.3) * copperNoise;
+  
+  // Specular highlight for metallic sheen
+  let halfDir = normalize(viewDir + vec3f(0.0, 1.0, 0.0));
+  let specAngle = max(dot(n, halfDir), 0.0);
+  let specular = pow(specAngle, 32.0) * 0.5;
+  
+  // Fresnel effect for metallic rim lighting
+  let fresnel = pow(1.0 - abs(dot(n, viewDir)), 3.0);
+  
+  // Energy glow effect - time-based wave propagation
+  let wavePhase = globals.time * 3.0 + coilIndex * 0.26;
+  let waveGlow = sin(wavePhase) * 0.5 + 0.5;
+  let energyPulse = energy * (0.7 + waveGlow * 0.3);
+  
+  // Glow color with energy level
+  let glow = material.glowColor * energyPulse * material.emission;
+  
+  // Energy arcs between windings (vertical lines)
+  let arcPattern = sin(uv.y * 40.0 + globals.time * 5.0) * 0.5 + 0.5;
+  let arcGlow = material.glowColor * arcPattern * energyPulse * 0.5 * fresnel;
+  
+  // Combine all effects
+  let finalColor = baseCopper + vec3f(specular) + glow + arcGlow;
+  
+  // Add energy bloom when coil is highly energized
+  let bloom = material.glowColor * pow(energyPulse, 2.0) * 0.3;
+  
+  return vec4f(finalColor + bloom, 1.0);
+}`;
+
+    // Connection ring vertex shader
+    this.ringVertShader = `
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
+@binding(0) @group(0) var<uniform> globals: GlobalUniforms;
+struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
+@binding(1) @group(0) var<uniform> device: DeviceUniforms;
+struct VertexOutput { 
+  @builtin(position) position: vec4f, 
+  @location(0) normal: vec3f, 
+  @location(1) worldPos: vec3f,
+  @location(2) ringPos: vec3f
+}
+fn quatRotate(q: vec4f, v: vec3f) -> vec3f { 
+  return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); 
+}
+@vertex fn main(
+  @location(0) position: vec3f, 
+  @location(1) normal: vec3f
+) -> VertexOutput {
+  var output: VertexOutput;
+  let worldPos = quatRotate(device.deviceRot, position * device.deviceScale) + device.devicePos;
+  output.position = globals.viewProj * vec4f(worldPos, 1.0);
+  output.normal = quatRotate(device.deviceRot, normal);
+  output.worldPos = worldPos;
+  output.ringPos = position;
+  return output;
+}`;
+
+    // Connection ring fragment shader with energy pulse
+    this.ringFragShader = `
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
+@binding(0) @group(0) var<uniform> globals: GlobalUniforms;
+struct RingMaterialUniforms { 
+  ringColor: vec3f, 
+  _pad1: f32, 
+  pulseColor: vec3f, 
+  pulseSpeed: f32 
+}
+@binding(3) @group(0) var<uniform> material: RingMaterialUniforms;
+
+@fragment fn main(
+  @location(0) normal: vec3f, 
+  @location(1) worldPos: vec3f,
+  @location(2) ringPos: vec3f
+) -> @location(0) vec4f {
+  let n = normalize(normal);
+  let viewDir = normalize(globals.cameraPos - worldPos);
+  
+  // Calculate angle around the ring for pulse effect
+  let angle = atan2(ringPos.z, ringPos.x);
+  
+  // Multiple energy pulses traveling around the ring
+  let pulse1 = sin(angle * 3.0 + globals.time * material.pulseSpeed) * 0.5 + 0.5;
+  let pulse2 = sin(angle * 3.0 + globals.time * material.pulseSpeed * 1.5 + 2.0) * 0.5 + 0.5;
+  let combinedPulse = max(pulse1, pulse2 * 0.7);
+  
+  // Fresnel for metallic effect
+  let fresnel = pow(1.0 - abs(dot(n, viewDir)), 2.0);
+  
+  // Base ring color with pulse
+  let baseColor = mix(material.ringColor, material.pulseColor, combinedPulse * 0.8);
+  let glow = material.pulseColor * pow(combinedPulse, 2.0) * 2.0;
+  
+  // Specular highlight
+  let halfDir = normalize(viewDir + vec3f(0.0, 1.0, 0.0));
+  let specAngle = max(dot(n, halfDir), 0.0);
+  let specular = pow(specAngle, 16.0) * 0.3;
+  
+  return vec4f(baseColor + glow + fresnel * 0.2 + specular, 1.0);
+}`;
+  }
+
   setupGlobalShaders() {
     // Use scientific constants from Wolfram data
     const scientificHeader = `
@@ -1098,71 +1508,248 @@ class MultiDeviceVisualizer {
     
     // Shader code (abbreviated for brevity)
     this.rollerVertShader = scientificHeader + `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
 @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-struct InstanceData { position: vec3f, rotation: vec4f }
+struct InstanceData { position: vec3f, ringIndex: f32, rotation: vec4f }
 @binding(2) @group(0) var<storage> instances: array<InstanceData>;
 struct VertexOutput { @builtin(position) position: vec4f, @location(0) normal: vec3f, @location(1) worldPos: vec3f, @location(2) instanceId: f32 }
 fn quatRotate(q: vec4f, v: vec3f) -> vec3f { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
 @vertex fn main(@location(0) position: vec3f, @location(1) normal: vec3f, @builtin(instance_index) instanceIdx: u32) -> VertexOutput {
   var output: VertexOutput;
   let inst = instances[instanceIdx];
-  let localPos = quatRotate(inst.rotation, position * device.deviceScale) + inst.position;
+  
+  // Ring-specific scale: inner=0.6, middle=0.8, outer=1.0
+  var ringScale: f32 = 1.0;
+  if (inst.ringIndex < 0.5) {
+    ringScale = 0.6;  // Inner ring
+  } else if (inst.ringIndex < 1.5) {
+    ringScale = 0.8;  // Middle ring
+  } else {
+    ringScale = 1.0;  // Outer ring
+  }
+  
+  let localPos = quatRotate(inst.rotation, position * device.deviceScale * ringScale) + inst.position;
   let worldPos = quatRotate(device.deviceRot, localPos) + device.devicePos;
   output.position = globals.viewProj * vec4f(worldPos, 1.0);
   output.normal = quatRotate(device.deviceRot, quatRotate(inst.rotation, normal));
   output.worldPos = worldPos;
-  output.instanceId = f32(instanceIdx);
+  output.instanceId = inst.ringIndex;  // Pass ring index for color
   return output;
 }`;
 
     this.rollerFragShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
-struct MaterialUniforms { baseColor: vec3f, _pad1: f32, glowColor: vec3f, emission: f32 }
+struct MaterialUniforms { 
+  baseColor: vec3f, 
+  roughness: f32, 
+  glowColor: vec3f, 
+  emission: f32,
+  ringIndex: f32,
+  metallic: f32,
+  _pad: vec2f 
+}
 @binding(3) @group(0) var<uniform> material: MaterialUniforms;
-@fragment fn main(@location(0) normal: vec3f, @location(1) worldPos: vec3f, @location(2) instanceId: f32) -> @location(0) vec4f {
+
+// Hash function for procedural noise
+fn hash3(p: vec3f) -> vec3f {
+  let q = vec3f(dot(p, vec3f(127.1, 311.7, 74.7)), dot(p, vec3f(269.5, 183.3, 246.1)), dot(p, vec3f(113.5, 271.9, 124.6)));
+  return fract(sin(q) * 43758.5453);
+}
+
+// Simplex noise for surface detail
+fn noise(p: vec3f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  let n = i.x + i.y * 157.0 + 113.0 * i.z;
+  return mix(mix(mix(hash3(vec3f(n + 0.0)).x, hash3(vec3f(n + 1.0)).x, f.x),
+                 mix(hash3(vec3f(n + 157.0)).x, hash3(vec3f(n + 158.0)).x, f.x), f.y),
+             mix(mix(hash3(vec3f(n + 113.0)).x, hash3(vec3f(n + 114.0)).x, f.x),
+                 mix(hash3(vec3f(n + 270.0)).x, hash3(vec3f(n + 271.0)).x, f.x), f.y), f.z);
+}
+
+// Fresnel-Schlick approximation
+fn fresnelSchlick(cosTheta: f32, F0: vec3f) -> vec3f {
+  return F0 + (vec3f(1.0) - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+// Anisotropic specular highlight (for brushed metal)
+fn anisotropicSpecular(viewDir: vec3f, lightDir: vec3f, normal: vec3f, tangent: vec3f, roughness: f32) -> f32 {
+  let halfDir = normalize(viewDir + lightDir);
+  let NdotH = max(dot(normal, halfDir), 0.0);
+  let TdotH = dot(tangent, halfDir);
+  let aniso = pow(NdotH, 128.0 / roughness) * exp(-(TdotH * TdotH) / (0.2 * roughness));
+  return aniso * 0.5;
+}
+
+// Multiple light source calculation
+fn calculateLighting(normal: vec3f, viewDir: vec3f, tangent: vec3f, roughness: f32, ringColor: vec3f) -> vec3f {
+  // Key light (warm, main illumination)
+  let keyDir = normalize(vec3f(0.6, 0.8, 0.3));
+  let keyColor = vec3f(1.0, 0.95, 0.9);
+  let keyNdotL = max(dot(normal, keyDir), 0.0);
+  let keyHalf = normalize(viewDir + keyDir);
+  let keySpec = pow(max(dot(normal, keyHalf), 0.0), 32.0 / roughness);
+  
+  // Fill light (cool, soft)
+  let fillDir = normalize(vec3f(-0.4, 0.5, -0.6));
+  let fillColor = vec3f(0.35, 0.45, 0.55);
+  let fillNdotL = max(dot(normal, fillDir), 0.0);
+  
+  // Rim light (cyan accent)
+  let rimDir = normalize(vec3f(-0.3, 0.2, 0.7));
+  let rimColor = vec3f(0.15, 0.5, 0.7);
+  let fresnelRim = pow(1.0 - max(dot(normal, viewDir), 0.0), 4.0);
+  
+  // Ambient with cool tint
+  let ambient = vec3f(0.08, 0.1, 0.13);
+  
+  // Combine lighting components
+  let diffuse = keyColor * keyNdotL + fillColor * fillNdotL * 0.6;
+  let specular = keyColor * keySpec + rimColor * fresnelRim;
+  
+  // Anisotropic streak for brushed metal
+  let aniso = anisotropicSpecular(viewDir, keyDir, normal, tangent, roughness);
+  
+  return ambient + diffuse * 0.75 + specular * 0.4 + ringColor * aniso * 0.3;
+}
+
+// Ambient occlusion approximation
+fn calculateAO(worldPos: vec3f, normal: vec3f) -> f32 {
+  let yPos = worldPos.y;
+  // Darken edges and top/bottom of cylinder
+  let edgeFactor = 1.0 - smoothstep(0.9, 1.25, abs(yPos));
+  let ao = 0.5 + 0.5 * edgeFactor;
+  return ao;
+}
+
+@fragment fn main(@location(0) normal: vec3f, @location(1) worldPos: vec3f, @location(2) ringIndex: f32) -> @location(0) vec4f {
   let n = normalize(normal);
-  let viewDir = normalize(vec3f(0.0, 8.0, 18.0) - worldPos);
-  let fresnel = pow(1.0 - abs(dot(n, viewDir)), 2.0);
-  let fieldPattern = sin(worldPos.y * 4.0 + globals.time * 4.0) * cos(length(worldPos.xz) * 5.0 - globals.time * 3.0 + instanceId);
-  let fieldGlow = material.glowColor * (fieldPattern * 0.3 + 0.5) * fresnel * material.emission;
-  return vec4f(material.baseColor + fieldGlow, 1.0);
+  let viewDir = normalize(globals.cameraPos - worldPos);
+  let NdotV = max(dot(n, viewDir), 0.0);
+  
+  // Ring-specific colors: inner=cyan, middle=blue, outer=violet
+  var ringColor: vec3f;
+  if (ringIndex < 0.5) {
+    ringColor = vec3f(0.0, 0.9, 1.0);   // Inner: cyan
+  } else if (ringIndex < 1.5) {
+    ringColor = vec3f(0.0, 0.5, 1.0);   // Middle: blue
+  } else {
+    ringColor = vec3f(0.6, 0.0, 1.0);   // Outer: violet
+  }
+  
+  // Surface detail simulation (brushed metal texture)
+  let surfaceNoise = noise(worldPos * 6.0 + ringIndex * 15.0);
+  let surfaceDetail = 0.92 + 0.16 * surfaceNoise;
+  
+  // Tangent for anisotropic highlights (cylinder axis is Y)
+  let tangent = vec3f(0.0, 1.0, 0.0);
+  
+  // Calculate complex lighting
+  let lighting = calculateLighting(n, viewDir, tangent, material.roughness, ringColor);
+  
+  // Fresnel reflection for metallic look
+  let F0 = mix(vec3f(0.04), vec3f(0.7, 0.75, 0.8), material.metallic);
+  let fresnel = fresnelSchlick(NdotV, F0);
+  
+  // Magnetic field pattern (animated)
+  let fieldPattern = sin(worldPos.y * 4.0 + globals.time * 4.0) * 
+                     cos(length(worldPos.xz) * 5.0 - globals.time * 3.0 + ringIndex);
+  let fieldGlow = ringColor * (fieldPattern * 0.25 + 0.5) * pow(1.0 - NdotV, 2.0) * material.emission;
+  
+  // Ambient occlusion
+  let ao = calculateAO(worldPos, n);
+  
+  // Combine all components
+  let baseColor = ringColor * surfaceDetail;
+  let litColor = baseColor * lighting * ao;
+  let reflectColor = fresnel * 0.25;
+  
+  // Energy pulse effect
+  let energyPulse = 0.8 + 0.2 * sin(globals.time * 3.0 + ringIndex * 1.5);
+  let emission = fieldGlow * energyPulse;
+  
+  let finalColor = litColor + reflectColor + emission;
+  
+  // HDR boost for bloom
+  let luminance = dot(finalColor, vec3f(0.299, 0.587, 0.114));
+  let hdrBoost = 1.0 + luminance * 0.25;
+  
+  return vec4f(finalColor * hdrBoost, 1.0);
 }`;
 
     this.particleVertShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, particleType: u32 }
 @binding(1) @group(0) var<uniform> device: DeviceUniforms;
 struct Particle { position: vec3f, velocity: vec3f, density: f32, pressure: f32, charge: f32, life: f32 }
 @binding(4) @group(0) var<storage> particles: array<Particle>;
+struct VertexOutput { 
+  @builtin(position) position: vec4f, 
+  @location(0) uv: vec2f,
+  @location(1) worldPos: vec3f 
+}
 fn quatRotate(q: vec4f, v: vec3f) -> vec3f { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
-@vertex fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instanceIdx: u32) -> @builtin(position) vec4f {
+@vertex fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instanceIdx: u32) -> VertexOutput {
+  var output: VertexOutput;
   let p = particles[instanceIdx];
   let size = select(0.05, 0.08, device.particleType == 1u);
   let corners = array<vec2f, 4>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(1.0, 1.0));
+  output.uv = corners[vertIdx];
   let corner = corners[vertIdx] * size;
   let localPos = p.position * device.deviceScale;
-  let worldPos = quatRotate(device.deviceRot, localPos) + device.devicePos;
-  return globals.viewProj * vec4f(worldPos + vec3f(corner, 0.0), 1.0);
+  output.worldPos = quatRotate(device.deviceRot, localPos) + device.devicePos;
+  output.position = globals.viewProj * vec4f(output.worldPos + vec3f(corner, 0.0), 1.0);
+  return output;
 }`;
 
     this.particleFragShader = `
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+@binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 struct MaterialUniforms { baseColor: vec3f, _pad1: f32, glowColor: vec3f, emission: f32 }
 @binding(3) @group(0) var<uniform> material: MaterialUniforms;
-@fragment fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-  let coord = pos.xy % 2.0 - vec2f(1.0);
-  let dist = length(coord);
+
+// Smoothstep for soft edges
+fn smoothStep(edge0: f32, edge1: f32, x: f32) -> f32 {
+  let t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+  return t * t * (3.0 - 2.0 * t);
+}
+
+@fragment fn main(@builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) worldPos: vec3f) -> @location(0) vec4f {
+  let dist = length(uv);
   if (dist > 1.0) { discard; }
-  let alpha = (1.0 - dist) * 0.8;
-  return vec4f(material.glowColor, alpha);
+  
+  // Soft radial gradient
+  let radialFalloff = 1.0 - smoothStep(0.0, 1.0, dist);
+  
+  // Inner bright core
+  let coreIntensity = 1.0 - smoothStep(0.0, 0.4, dist);
+  
+  // Outer glow halo
+  let glowIntensity = smoothStep(0.3, 1.0, dist) * 0.5;
+  
+  // Time-based pulse
+  let pulse = 0.85 + 0.15 * sin(globals.time * 4.0);
+  
+  // Combine core and glow
+  let totalIntensity = (coreIntensity * 1.5 + radialFalloff * 0.5 + glowIntensity * 0.3) * pulse;
+  
+  // HDR boost for bloom effect
+  let hdrColor = material.glowColor * (1.0 + material.emission * 0.5);
+  
+  // Alpha with HDR-style falloff
+  let alpha = radialFalloff * material.emission * pulse;
+  
+  // Output with additive-friendly alpha
+  return vec4f(hdrColor * totalIntensity, alpha);
 }`;
 
     this.gridVertShader = `
-struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
 @binding(0) @group(0) var<uniform> globals: GlobalUniforms;
 @vertex fn main(@location(0) pos: vec2f) -> @builtin(position) vec4f {
   return globals.viewProj * vec4f(pos.x * 50.0, -3.0, pos.y * 50.0, 1.0);
@@ -1178,6 +1765,224 @@ struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
   let centerDist = length(pos.xy - vec2f(0.5)) * 2.0;
   let fade = 1.0 - smoothstep(0.3, 1.0, centerDist);
   return vec4f(vec3f(0.0, 0.4, 0.5), gridIntensity * fade * 0.3);
+}`;
+    
+    // Core vertex shader - supports instanced rendering with position offsets
+    this.coreVertShader = `
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+@binding(0) @group(0) var<uniform> globals: GlobalUniforms;
+struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
+@binding(1) @group(0) var<uniform> device: DeviceUniforms;
+struct VertexOutput { @builtin(position) position: vec4f, @location(0) normal: vec3f, @location(1) worldPos: vec3f, @location(2) baseNormal: vec3f }
+fn quatRotate(q: vec4f, v: vec3f) -> vec3f { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
+@vertex fn main(@location(0) position: vec3f, @location(1) normal: vec3f, @location(2) instancePos: vec3f) -> VertexOutput {
+  var output: VertexOutput;
+  // Apply instance offset if provided (for bolts), otherwise use origin
+  let localPos = position + instancePos;
+  let worldPos = quatRotate(device.deviceRot, localPos * device.deviceScale) + device.devicePos;
+  output.position = globals.viewProj * vec4f(worldPos, 1.0);
+  output.normal = quatRotate(device.deviceRot, normal);
+  output.worldPos = worldPos;
+  output.baseNormal = normal;
+  return output;
+}`;
+    
+    // Core fragment shader - metallic material with glow
+    this.coreFragShader = `
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+@binding(0) @group(0) var<uniform> globals: GlobalUniforms;
+struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
+@binding(1) @group(0) var<uniform> device: DeviceUniforms;
+struct CoreMaterialUniforms { 
+  baseColor: vec3f, 
+  emission: f32, 
+  coreColor: vec3f, 
+  glowIntensity: f32 
+}
+@binding(3) @group(0) var<uniform> material: CoreMaterialUniforms;
+@fragment fn main(@location(0) normal: vec3f, @location(1) worldPos: vec3f, @location(2) baseNormal: vec3f) -> @location(0) vec4f {
+  let n = normalize(normal);
+  let viewDir = normalize(globals.cameraPos - worldPos);
+  
+  // Light direction (main light from above and slightly forward)
+  let lightDir = normalize(vec3f(0.3, 1.0, 0.5));
+  
+  // Diffuse lighting
+  let diff = max(dot(n, lightDir), 0.0);
+  let ambient = 0.3;
+  let diffuse = diff * 0.6;
+  
+  // Specular highlights (Blinn-Phong)
+  let halfDir = normalize(lightDir + viewDir);
+  let specAngle = max(dot(n, halfDir), 0.0);
+  let specular = pow(specAngle, 32.0) * 0.8;
+  
+  // Fresnel rim lighting for metallic edge effect
+  let fresnel = pow(1.0 - abs(dot(n, viewDir)), 3.0);
+  let rimLight = fresnel * 0.5;
+  
+  // Time-based magnetic glow (pulsing cyan glow)
+  let pulse = sin(globals.time * 3.0) * 0.3 + 0.7;
+  let glow = material.coreColor * pulse * material.glowIntensity * fresnel;
+  
+  // Determine if this is the magnetic core (center) based on height
+  let isCore = abs(worldPos.y - device.devicePos.y) < 1.6;
+  
+  // Mix colors based on position
+  let finalBase = select(material.baseColor, material.coreColor * 0.8, isCore);
+  
+  // Combine lighting
+  let litColor = finalBase * (ambient + diffuse) + vec3f(specular) + rimLight * finalBase;
+  
+  // Add emission glow
+  let finalColor = litColor + glow * pulse;
+  
+  return vec4f(finalColor, 1.0);
+}`;
+    
+    // Field line vertex shader - flowing magnetic field lines
+    this.fieldLineVertShader = `
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+@binding(0) @group(0) var<uniform> globals: GlobalUniforms;
+struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
+@binding(1) @group(0) var<uniform> device: DeviceUniforms;
+struct FieldParticle { position: vec3f, velocity: vec3f, life: f32, strength: f32 }
+@binding(4) @group(0) var<storage> fieldParticles: array<FieldParticle>;
+struct VertexOutput { 
+  @builtin(position) position: vec4f, 
+  @location(0) uv: vec2f,
+  @location(1) worldPos: vec3f,
+  @location(2) life: f32,
+  @location(3) strength: f32
+}
+fn quatRotate(q: vec4f, v: vec3f) -> vec3f { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
+@vertex fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instanceIdx: u32) -> VertexOutput {
+  var output: VertexOutput;
+  let fp = fieldParticles[instanceIdx];
+  let size = 0.02 * fp.strength;
+  let corners = array<vec2f, 4>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(1.0, 1.0));
+  output.uv = corners[vertIdx];
+  let corner = corners[vertIdx] * size;
+  let localPos = fp.position * device.deviceScale;
+  output.worldPos = quatRotate(device.deviceRot, localPos) + device.devicePos;
+  output.position = globals.viewProj * vec4f(output.worldPos + vec3f(corner, 0.0), 1.0);
+  output.life = fp.life;
+  output.strength = fp.strength;
+  return output;
+}`;
+    
+    // Field line fragment shader - glowing flowing particles
+    this.fieldLineFragShader = `
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
+@binding(0) @group(0) var<uniform> globals: GlobalUniforms;
+@fragment fn main(@location(0) uv: vec2f, @location(1) worldPos: vec3f, @location(2) life: f32, @location(3) strength: f32) -> @location(0) vec4f {
+  let dist = length(uv);
+  if (dist > 1.0) { discard; }
+  
+  // Radial falloff
+  let radial = 1.0 - smoothstep(0.0, 1.0, dist);
+  
+  // Life-based fade in/out
+  let lifeFade = sin(life * 3.14159);
+  
+  // Strength-based intensity
+  let intensity = strength * radial * lifeFade;
+  
+  // North pole color (cyan) to South pole color (red)
+  let northColor = vec3f(0.0, 0.9, 1.0);
+  let southColor = vec3f(1.0, 0.2, 0.1);
+  let fieldColor = mix(northColor, southColor, smoothstep(-1.0, 1.0, worldPos.y));
+  
+  // Trail effect - elongate along velocity
+  let trail = pow(radial, 0.5) * 1.5;
+  
+  // HDR glow
+  let hdrColor = fieldColor * (1.0 + intensity * 2.0);
+  
+  return vec4f(hdrColor * trail, intensity * 0.8);
+}`;
+    
+    // Energy arc vertex shader - electric arcs between rollers
+    this.energyArcVertShader = `
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f, cameraPos: vec3f, _pad2: f32 }
+@binding(0) @group(0) var<uniform> globals: GlobalUniforms;
+struct DeviceUniforms { devicePos: vec3f, deviceRot: vec4f, deviceScale: f32, _pad: f32 }
+@binding(1) @group(0) var<uniform> device: DeviceUniforms;
+struct ArcSegment { startPos: vec3f, endPos: vec3f, intensity: f32, width: f32 }
+@binding(4) @group(0) var<storage> arcSegments: array<ArcSegment>;
+struct VertexOutput { 
+  @builtin(position) position: vec4f, 
+  @location(0) t: f32,
+  @location(1) offset: f32,
+  @location(2) intensity: f32,
+  @location(3) worldPos: vec3f
+}
+fn quatRotate(q: vec4f, v: vec3f) -> vec3f { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
+fn noise(p: f32) -> f32 { return fract(sin(p * 12.9898) * 43758.5453); }
+@vertex fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instanceIdx: u32) -> VertexOutput {
+  var output: VertexOutput;
+  let arc = arcSegments[instanceIdx / 2];
+  let isTop = (instanceIdx % 2u) == 0u;
+  
+  // Arc parameter t along the line
+  let t = select(0.0, 1.0, (vertIdx % 2u) == 1u);
+  output.t = t;
+  
+  // Jitter for electric arc effect
+  let jitter1 = noise(t * 10.0 + globals.time * 20.0 + f32(instanceIdx)) * 0.3;
+  let jitter2 = noise(t * 15.0 + globals.time * 25.0 + f32(instanceIdx) * 1.5) * 0.2;
+  
+  // Base position along arc
+  let basePos = mix(arc.startPos, arc.endPos, t);
+  
+  // Add perpendicular jitter
+  let dir = normalize(arc.endPos - arc.startPos);
+  let up = vec3f(0.0, 1.0, 0.0);
+  let right = normalize(cross(dir, up));
+  let perp = normalize(cross(dir, right));
+  
+  let jitterOffset = (jitter1 * right + jitter2 * perp) * arc.width;
+  let arcPos = basePos + jitterOffset;
+  
+  // Width offset
+  let widthOffset = select(-1.0, 1.0, isTop) * arc.width * 0.5;
+  let finalPos = arcPos + perp * widthOffset;
+  
+  let localPos = finalPos * device.deviceScale;
+  output.worldPos = quatRotate(device.deviceRot, localPos) + device.devicePos;
+  output.position = globals.viewProj * vec4f(output.worldPos, 1.0);
+  output.offset = widthOffset;
+  output.intensity = arc.intensity;
+  
+  return output;
+}`;
+    
+    // Energy arc fragment shader - electric spark effect
+    this.energyArcFragShader = `
+struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
+@binding(0) @group(0) var<uniform> globals: GlobalUniforms;
+@fragment fn main(@location(0) t: f32, @location(1) offset: f32, @location(2) intensity: f32, @location(3) worldPos: vec3f) -> @location(0) vec4f {
+  // Electric arc colors (white core, cyan glow)
+  let coreColor = vec3f(1.0, 1.0, 1.0);
+  let glowColor = vec3f(0.2, 0.8, 1.0);
+  
+  // Intensity flicker
+  let flicker = 0.7 + 0.3 * sin(globals.time * 30.0 + t * 50.0);
+  let totalIntensity = intensity * flicker;
+  
+  // Core brightness
+  let core = smoothstep(0.0, 0.1, totalIntensity);
+  
+  // Glow falloff
+  let glow = totalIntensity * 0.5;
+  
+  // Combine
+  let finalColor = mix(glowColor, coreColor, core) * totalIntensity;
+  
+  // HDR boost for bright arcs
+  let hdrColor = finalColor * (1.0 + totalIntensity * 2.0);
+  
+  return vec4f(hdrColor, totalIntensity * 0.9);
 }`;
   }
   
@@ -1413,6 +2218,9 @@ struct GlobalUniforms { viewProj: mat4x4f, time: f32, _pad: vec3f }
     const globalData = new Float32Array(32);
     globalData.set(viewProj, 0);
     globalData[16] = this.time;
+    globalData[20] = this.camera.position[0]; // cameraPos.x
+    globalData[21] = this.camera.position[1]; // cameraPos.y
+    globalData[22] = this.camera.position[2]; // cameraPos.z
     this.device.queue.writeBuffer(this.globalUniformBuffer, 0, globalData);
     
     // Update devices with quality scaling
@@ -1500,8 +2308,23 @@ class DeviceInstance {
     this.rollerInstances = null;
     this.deviceUniformBuffer = null;
     this.materialUniformBuffer = null;
+    this.coreMaterialBuffer = null;
     this.rollerPipeline = null;
     this.particlePipeline = null;
+    this.corePipeline = null;
+    
+    // Field line visualization (SEG only)
+    this.fieldLineCount = 1000;
+    this.fieldLineParticles = null;
+    this.fieldLinePipeline = null;
+    this.fieldLineEnabled = true;
+    
+    // Energy arc visualization (SEG only)
+    this.arcSegmentCount = 20;
+    this.arcSegments = null;
+    this.energyArcPipeline = null;
+    this.energyArcEnabled = true;
+    this.lastArcTime = 0;
   }
   
   async init() {
@@ -1511,17 +2334,42 @@ class DeviceInstance {
     
     if (this.id === 'seg') {
       await this.setupRollers();
+      await this.setupCore();
+      await this.setupFieldLines();
+      await this.setupEnergyArcs();
     }
   }
   
   async setupUniforms() {
     this.deviceUniformBuffer = this.device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.materialUniformBuffer = this.device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.materialUniformBuffer = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-uniforms`, 64, GPUBufferUsage.UNIFORM);
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-uniforms`, 80, GPUBufferUsage.UNIFORM);
     
-    const materialData = new Float32Array([...this.config.color, 0.0, 0.0, 0.9, 1.0, 0.0, 2.0, 0.0, 0.0, 0.0]);
+    // MaterialUniforms: baseColor(3) + roughness(1) + glowColor(3) + emission(1) + ringIndex(1) + metallic(1) + pad(2)
+    const materialData = new Float32Array([
+      ...this.config.color, 0.3,        // baseColor + roughness
+      0.0, 0.9, 1.0, 2.0,               // glowColor + emission
+      0.0, 1.0, 0.0, 0.0                // ringIndex + metallic + pad(2)
+    ]);
     this.device.queue.writeBuffer(this.materialUniformBuffer, 0, materialData);
+    
+    // Setup core material buffer for SEG
+    if (this.id === 'seg' && this.config.core) {
+      this.coreMaterialBuffer = this.device.createBuffer({ 
+        size: 32, 
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST 
+      });
+      this.visualizer.profiler.trackBuffer(`device-${this.id}-core-material`, 32, GPUBufferUsage.UNIFORM);
+      
+      const core = this.config.core;
+      // baseColor (3) + emission (1) + coreColor (3) + glowIntensity (1)
+      const coreMaterialData = new Float32Array([
+        ...core.baseColor, 0.0,  // baseColor + padding
+        ...core.coreColor, 1.5   // coreColor + glowIntensity
+      ]);
+      this.device.queue.writeBuffer(this.coreMaterialBuffer, 0, coreMaterialData);
+    }
   }
   
   async setupPipelines() {
@@ -1550,6 +2398,195 @@ class DeviceInstance {
       primitive: { topology: 'triangle-strip' },
       depthStencil: { depthWriteEnabled: false, depthCompare: 'less', format: 'depth24plus' }
     });
+    
+    // Setup core pipeline for SEG
+    if (this.id === 'seg') {
+      this.corePipeline = this.device.createRenderPipeline({
+        label: 'corePipeline',
+        layout: 'auto',
+        vertex: {
+          module: this.device.createShaderModule({ code: this.visualizer.coreVertShader }),
+          entryPoint: 'main',
+          buffers: [
+            // Position and normal
+            { arrayStride: 24, attributes: [
+              { shaderLocation: 0, offset: 0, format: 'float32x3' }, 
+              { shaderLocation: 1, offset: 12, format: 'float32x3' }
+            ]},
+            // Instance position (for bolts)
+            { arrayStride: 12, stepMode: 'instance', attributes: [
+              { shaderLocation: 2, offset: 0, format: 'float32x3' }
+            ]}
+          ]
+        },
+        fragment: {
+          module: this.device.createShaderModule({ code: this.visualizer.coreFragShader }),
+          entryPoint: 'main',
+          targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }]
+        },
+        primitive: { topology: 'triangle-list', cullMode: 'back' },
+        depthStencil: { depthWriteEnabled: true, depthCompare: 'less', format: 'depth24plus' }
+      });
+      
+      // Field line pipeline
+      this.fieldLinePipeline = this.device.createRenderPipeline({
+        label: 'fieldLinePipeline',
+        layout: 'auto',
+        vertex: { 
+          module: this.device.createShaderModule({ code: this.visualizer.fieldLineVertShader }), 
+          entryPoint: 'main' 
+        },
+        fragment: { 
+          module: this.device.createShaderModule({ code: this.visualizer.fieldLineFragShader }), 
+          entryPoint: 'main', 
+          targets: [{ 
+            format: navigator.gpu.getPreferredCanvasFormat(), 
+            blend: { 
+              color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' }, 
+              alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } 
+            } 
+          }] 
+        },
+        primitive: { topology: 'triangle-strip' },
+        depthStencil: { depthWriteEnabled: false, depthCompare: 'less', format: 'depth24plus' }
+      });
+      
+      // Energy arc pipeline
+      this.energyArcPipeline = this.device.createRenderPipeline({
+        label: 'energyArcPipeline',
+        layout: 'auto',
+        vertex: { 
+          module: this.device.createShaderModule({ code: this.visualizer.energyArcVertShader }), 
+          entryPoint: 'main' 
+        },
+        fragment: { 
+          module: this.device.createShaderModule({ code: this.visualizer.energyArcFragShader }), 
+          entryPoint: 'main', 
+          targets: [{ 
+            format: navigator.gpu.getPreferredCanvasFormat(), 
+            blend: { 
+              color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' }, 
+              alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } 
+            } 
+          }] 
+        },
+        primitive: { topology: 'triangle-strip' },
+        depthStencil: { depthWriteEnabled: false, depthCompare: 'always', format: 'depth24plus' }
+      });
+    }
+  }
+  
+  async setupCore() {
+    // Core geometry is already set up in MultiDeviceVisualizer.setupCoreGeometryBuffers()
+    // This method ensures proper initialization order
+    if (!this.config.core) return;
+    
+    console.log(`SEG Core initialized with:
+    - Shaft: radius ${this.config.core.shaftRadius}m, height ${this.config.core.shaftHeight}m
+    - Magnetic Core: radius ${this.config.core.coreRadius}m, height ${this.config.core.coreHeight}m
+    - Plates: radius ${this.config.core.plateRadius}m, at y = ±${this.config.core.plateY}m
+    - Bolts: ${this.config.core.boltCount} per plate`);
+  }
+  
+  async setupPickupCoils() {
+    // 24 pickup coils arranged in a circle at radius 7.0m
+    const numCoils = 24;
+    const coilRadius = 7.0;
+    
+    // Coil instance buffer: position (3), rotation (4), energy (1), coilIndex (1) = 9 floats per coil
+    // Using 32 bytes per coil for alignment (8 floats, but we store extra data)
+    this.coilInstances = this.device.createBuffer({
+      size: numCoils * 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-coils`, numCoils * 32, GPUBufferUsage.STORAGE);
+    
+    // Coil material buffer (copper color + glow color + emission)
+    this.coilMaterialBuffer = this.device.createBuffer({
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-coil-material`, 32, GPUBufferUsage.UNIFORM);
+    
+    // Copper base color: #8B4513 = (0.55, 0.27, 0.07)
+    // Glow color: #00CCFF = (0.0, 0.8, 1.0)
+    const coilMaterialData = new Float32Array([
+      0.55, 0.27, 0.07, 0.0,  // copperColor + padding
+      0.0, 0.8, 1.0, 2.0       // glowColor + emission
+    ]);
+    this.device.queue.writeBuffer(this.coilMaterialBuffer, 0, coilMaterialData);
+    
+    // Ring material buffer
+    this.ringMaterialBuffer = this.device.createBuffer({
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-ring-material`, 32, GPUBufferUsage.UNIFORM);
+    
+    // Ring color (copper) + pulse color (cyan-blue)
+    const ringMaterialData = new Float32Array([
+      0.55, 0.27, 0.07, 0.0,  // ringColor + padding
+      0.0, 0.8, 1.0, 3.0      // pulseColor + pulseSpeed
+    ]);
+    this.device.queue.writeBuffer(this.ringMaterialBuffer, 0, ringMaterialData);
+    
+    // Create coil pipeline
+    this.coilPipeline = this.device.createRenderPipeline({
+      label: 'coilPipeline',
+      layout: 'auto',
+      vertex: {
+        module: this.device.createShaderModule({ code: this.visualizer.coilVertShader }),
+        entryPoint: 'main',
+        buffers: [
+          { 
+            arrayStride: 32, // 8 floats: pos(3) + normal(3) + uv(2)
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: 'float32x3' },
+              { shaderLocation: 1, offset: 12, format: 'float32x3' },
+              { shaderLocation: 2, offset: 24, format: 'float32x2' }
+            ]
+          }
+        ]
+      },
+      fragment: {
+        module: this.device.createShaderModule({ code: this.visualizer.coilFragShader }),
+        entryPoint: 'main',
+        targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }]
+      },
+      primitive: { topology: 'triangle-list', cullMode: 'back' },
+      depthStencil: { depthWriteEnabled: true, depthCompare: 'less', format: 'depth24plus' }
+    });
+    
+    // Create ring pipeline
+    this.ringPipeline = this.device.createRenderPipeline({
+      label: 'ringPipeline',
+      layout: 'auto',
+      vertex: {
+        module: this.device.createShaderModule({ code: this.visualizer.ringVertShader }),
+        entryPoint: 'main',
+        buffers: [
+          { 
+            arrayStride: 24, // 6 floats: pos(3) + normal(3)
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: 'float32x3' },
+              { shaderLocation: 1, offset: 12, format: 'float32x3' }
+            ]
+          }
+        ]
+      },
+      fragment: {
+        module: this.device.createShaderModule({ code: this.visualizer.ringFragShader }),
+        entryPoint: 'main',
+        targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }]
+      },
+      primitive: { topology: 'triangle-list', cullMode: 'back' },
+      depthStencil: { depthWriteEnabled: true, depthCompare: 'less', format: 'depth24plus' }
+    });
+    
+    // Initialize coil energy levels
+    this.coilEnergies = new Float32Array(numCoils);
+    
+    console.log(`SEG Pickup Coils initialized: ${numCoils} coils at radius ${coilRadius}m`);
   }
   
   async setupParticles() {
@@ -1578,11 +2615,118 @@ class DeviceInstance {
   }
   
   async setupRollers() {
+    // 3-ring SEG system: 8 inner + 12 middle + 16 outer = 36 rollers total
+    const totalRollers = 36;
     this.rollerInstances = this.device.createBuffer({
-      size: 12 * 32,
+      size: totalRollers * 32,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-rollers`, 12 * 32, GPUBufferUsage.STORAGE);
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-rollers`, totalRollers * 32, GPUBufferUsage.STORAGE);
+  }
+  
+  async setupFieldLines() {
+    // Field particles: position(3) + velocity(3) + life(1) + strength(1) = 8 floats = 32 bytes
+    this.fieldLineParticles = this.device.createBuffer({
+      size: this.fieldLineCount * 32,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-fieldlines`, this.fieldLineCount * 32, GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
+    
+    // Initialize field line particles flowing between rollers
+    const fieldData = new Float32Array(this.fieldLineCount * 8);
+    for (let i = 0; i < this.fieldLineCount; i++) {
+      const idx = i * 8;
+      // Distribute particles in arcs between rollers
+      const ringIdx = Math.floor(Math.random() * 3);
+      const ringRadii = [2.5, 4.0, 5.5];
+      const ringRadius = ringRadii[ringIdx];
+      
+      const angle = Math.random() * Math.PI * 2;
+      const height = (Math.random() - 0.5) * 2.0;
+      
+      // Position along magnetic field line
+      fieldData[idx] = Math.cos(angle) * ringRadius;
+      fieldData[idx + 1] = height;
+      fieldData[idx + 2] = Math.sin(angle) * ringRadius;
+      
+      // Velocity tangent to ring (magnetic field direction)
+      const speed = 0.5 + Math.random() * 1.0;
+      fieldData[idx + 3] = -Math.sin(angle) * speed;
+      fieldData[idx + 4] = (Math.random() - 0.5) * 0.2;
+      fieldData[idx + 5] = Math.cos(angle) * speed;
+      
+      // Life and strength
+      fieldData[idx + 6] = Math.random(); // life 0-1
+      fieldData[idx + 7] = 0.5 + Math.random() * 0.5; // strength
+    }
+    this.device.queue.writeBuffer(this.fieldLineParticles, 0, fieldData);
+  }
+  
+  async setupEnergyArcs() {
+    // Arc segments: startPos(3) + endPos(3) + intensity(1) + width(1) = 8 floats = 32 bytes
+    this.arcSegments = this.device.createBuffer({
+      size: this.arcSegmentCount * 32,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-arcs`, this.arcSegmentCount * 32, GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
+    
+    // Initialize arc segments between nearby rollers
+    this.updateEnergyArcs(true);
+  }
+  
+  updateEnergyArcs(initial = false) {
+    if (!this.arcSegments) return;
+    
+    const arcData = new Float32Array(this.arcSegmentCount * 8);
+    const time = this.visualizer.time;
+    
+    // Only update arcs periodically for performance
+    if (!initial && time - this.lastArcTime < 0.1) return;
+    this.lastArcTime = time;
+    
+    // Ring configurations
+    const rings = [
+      { count: 8, radius: 2.5 },
+      { count: 12, radius: 4.0 },
+      { count: 16, radius: 5.5 }
+    ];
+    
+    let arcIdx = 0;
+    for (const ring of rings) {
+      if (arcIdx >= this.arcSegmentCount) break;
+      
+      // Create arcs between adjacent rollers
+      for (let i = 0; i < ring.count && arcIdx < this.arcSegmentCount; i++) {
+        const angle1 = (i / ring.count) * Math.PI * 2 + time * 0.5;
+        const angle2 = ((i + 1) / ring.count) * Math.PI * 2 + time * 0.5;
+        
+        // Random chance to show arc based on proximity
+        const arcChance = Math.random();
+        if (arcChance > 0.3) continue; // 30% chance of arc
+        
+        const idx = arcIdx * 8;
+        
+        // Start position
+        arcData[idx] = Math.cos(angle1) * ring.radius;
+        arcData[idx + 1] = (Math.random() - 0.5) * 1.5;
+        arcData[idx + 2] = Math.sin(angle1) * ring.radius;
+        
+        // End position
+        arcData[idx + 3] = Math.cos(angle2) * ring.radius;
+        arcData[idx + 4] = arcData[idx + 1] + (Math.random() - 0.5) * 0.5;
+        arcData[idx + 5] = Math.sin(angle2) * ring.radius;
+        
+        // Intensity with flicker
+        arcData[idx + 6] = (0.5 + Math.random() * 0.5) * (Math.sin(time * 20 + i) * 0.3 + 0.7);
+        
+        // Width
+        arcData[idx + 7] = 0.02 + Math.random() * 0.03;
+        
+        arcIdx++;
+      }
+    }
+    
+    this.device.queue.writeBuffer(this.arcSegments, 0, arcData);
   }
   
   update(deltaTime, qualityScale) {
@@ -1593,25 +2737,199 @@ class DeviceInstance {
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
     
     if (this.id === 'seg' && this.rollerInstances) {
-      const instanceData = new Float32Array(12 * 8);
-      const ringRadius = 4.0;
+      // 3-ring SEG system based on John Searl's design
+      const instanceData = new Float32Array(36 * 8);
       const time = this.visualizer.time;
       
-      for (let i = 0; i < 12; i++) {
-        const angle = (i / 12) * Math.PI * 2 + time * 0.5;
-        instanceData[i * 8] = Math.cos(angle) * ringRadius;
-        instanceData[i * 8 + 1] = 0;
-        instanceData[i * 8 + 2] = Math.sin(angle) * ringRadius;
-        const rotAngle = angle + time * 2.0;
-        instanceData[i * 8 + 4] = Math.sin(rotAngle / 2);
-        instanceData[i * 8 + 6] = Math.cos(rotAngle / 2);
+      // Ring specifications
+      const rings = [
+        { count: 8, radius: 2.5, scale: 0.6, speed: 2.0, index: 0 },   // Inner ring - fastest
+        { count: 12, radius: 4.0, scale: 0.8, speed: 1.0, index: 1 },  // Middle ring - current
+        { count: 16, radius: 5.5, scale: 1.0, speed: 0.5, index: 2 }   // Outer ring - slowest
+      ];
+      
+      let rollerOffset = 0;
+      
+      for (const ring of rings) {
+        for (let i = 0; i < ring.count; i++) {
+          // Orbital position around the central axis
+          const angle = (i / ring.count) * Math.PI * 2 + time * 0.5 * ring.speed;
+          
+          // Position in toroidal ring
+          instanceData[rollerOffset * 8] = Math.cos(angle) * ring.radius;     // x
+          instanceData[rollerOffset * 8 + 1] = 0;                              // y
+          instanceData[rollerOffset * 8 + 2] = Math.sin(angle) * ring.radius;  // z
+          
+          // Roller self-rotation (gear-like rolling motion)
+          // Self-rotation = orbital_angle * (ring_radius / roller_radius)
+          // roller_radius is proportional to scale, so gear ratio = ring_radius / scale
+          const gearRatio = ring.radius / ring.scale;
+          const selfRotAngle = angle * gearRatio * 0.5;
+          
+          // Quaternion for self-rotation (around Y axis)
+          instanceData[rollerOffset * 8 + 3] = ring.index;                     // ringIndex (stored in position.w or use separate field)
+          instanceData[rollerOffset * 8 + 4] = Math.sin(selfRotAngle / 2);     // rotation.x
+          instanceData[rollerOffset * 8 + 5] = 0;                              // rotation.y
+          instanceData[rollerOffset * 8 + 6] = Math.sin(selfRotAngle / 2);     // rotation.z (roll around tangent)
+          instanceData[rollerOffset * 8 + 7] = Math.cos(selfRotAngle / 2);     // rotation.w
+          
+          // Calculate proper rotation quaternion for rolling motion
+          // The roller should roll around its own axis tangent to the ring
+          const tangentAngle = angle + Math.PI / 2; // tangent to the ring
+          const rollAxisX = Math.cos(tangentAngle);
+          const rollAxisZ = Math.sin(tangentAngle);
+          
+          // Update rotation: around tangent axis for rolling
+          instanceData[rollerOffset * 8 + 3] = ring.index;                     // ringIndex
+          instanceData[rollerOffset * 8 + 4] = rollAxisX * Math.sin(selfRotAngle / 2);
+          instanceData[rollerOffset * 8 + 5] = 0;
+          instanceData[rollerOffset * 8 + 6] = rollAxisZ * Math.sin(selfRotAngle / 2);
+          instanceData[rollerOffset * 8 + 7] = Math.cos(selfRotAngle / 2);
+          
+          rollerOffset++;
+        }
       }
       this.device.queue.writeBuffer(this.rollerInstances, 0, instanceData);
+      
+      // Update pickup coil energy levels based on roller positions
+      this.updatePickupCoilEnergies(instanceData);
     }
+  }
+  
+  updatePickupCoilEnergies(rollerData) {
+    if (!this.coilInstances) return;
+    
+    const numCoils = 24;
+    const coilRadius = 7.0;
+    
+    // Initialize coil energies array if needed
+    if (!this.coilEnergies) {
+      this.coilEnergies = new Float32Array(numCoils);
+    }
+    
+    // Coil data packed as vec4f pairs for the shader:
+    // vec4f[0] = (position.xyz, rotation.x)
+    // vec4f[1] = (rotation.yzw, energy)
+    // Total: 2 vec4f = 8 floats per coil = 32 bytes per coil
+    const coilInstanceData = new Float32Array(numCoils * 8);
+    
+    for (let i = 0; i < numCoils; i++) {
+      const coilAngle = (i / numCoils) * Math.PI * 2;
+      const coilX = Math.cos(coilAngle) * coilRadius;
+      const coilZ = Math.sin(coilAngle) * coilRadius;
+      
+      // Find nearest roller and calculate energy
+      let minDistance = Infinity;
+      let nearestRollerSpeed = 0;
+      
+      // Check all 36 rollers (3 rings: 8 + 12 + 16)
+      for (let r = 0; r < 36; r++) {
+        const rollerX = rollerData[r * 8];
+        const rollerZ = rollerData[r * 8 + 2];
+        
+        const dx = coilX - rollerX;
+        const dz = coilZ - rollerZ;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        
+        if (dist < minDistance) {
+          minDistance = dist;
+          // Ring speed factors: inner=2.0, middle=1.0, outer=0.5
+          if (r < 8) nearestRollerSpeed = 2.0;
+          else if (r < 20) nearestRollerSpeed = 1.0;
+          else nearestRollerSpeed = 0.5;
+        }
+      }
+      
+      // Calculate energy: higher when rollers are closer, modulated by roller speed
+      // Energy falls off with distance
+      const energy = Math.max(0, 1 - minDistance / 3.0) * nearestRollerSpeed * 0.5;
+      
+      // Smooth energy transition
+      this.coilEnergies[i] = this.coilEnergies[i] * 0.9 + energy * 0.1;
+      
+      // Rotation: face inward (toward center)
+      // For a rotation around Y axis by angle = coilAngle + PI (180 degrees to face inward)
+      const rotAngle = coilAngle + Math.PI;
+      const rotY = Math.sin(rotAngle / 2);  // sin of half angle for Y component
+      const rotW = Math.cos(rotAngle / 2);  // cos of half angle for W component
+      
+      // Pack data into two vec4f:
+      // data0: position.xyz, rotation.x
+      coilInstanceData[i * 8] = coilX;           // position.x
+      coilInstanceData[i * 8 + 1] = 0;           // position.y
+      coilInstanceData[i * 8 + 2] = coilZ;       // position.z
+      coilInstanceData[i * 8 + 3] = 0;           // rotation.x (not used for Y-axis rotation)
+      
+      // data1: rotation.yzw, energy
+      coilInstanceData[i * 8 + 4] = rotY;        // rotation.y
+      coilInstanceData[i * 8 + 5] = 0;           // rotation.z
+      coilInstanceData[i * 8 + 6] = rotW;        // rotation.w
+      coilInstanceData[i * 8 + 7] = this.coilEnergies[i]; // energy
+    }
+    
+    this.device.queue.writeBuffer(this.coilInstances, 0, coilInstanceData);
+    
+    // Update field line particles
+    if (this.fieldLineParticles && this.fieldLineEnabled) {
+      this.updateFieldLines(0.016);
+    }
+    
+    // Update energy arcs
+    if (this.arcSegments && this.energyArcEnabled) {
+      this.updateEnergyArcs();
+    }
+  }
+  
+  updateFieldLines(deltaTime) {
+    // Animate field line particles flowing along magnetic field lines
+    const fieldData = new Float32Array(this.fieldLineCount * 8);
+    const time = this.visualizer.time;
+    
+    for (let i = 0; i < this.fieldLineCount; i++) {
+      const idx = i * 8;
+      
+      // Get ring for this particle
+      const ringIdx = i % 3;
+      const ringRadii = [2.5, 4.0, 5.5];
+      const ringRadius = ringRadii[ringIdx];
+      
+      // Flow along circular magnetic field line
+      const baseAngle = (i / this.fieldLineCount) * Math.PI * 20 + time * (0.5 + ringIdx * 0.3);
+      const heightOffset = Math.sin(time * 0.5 + i * 0.1) * 0.8;
+      
+      // Position along magnetic field line
+      fieldData[idx] = Math.cos(baseAngle) * ringRadius;
+      fieldData[idx + 1] = heightOffset + (Math.random() - 0.5) * 0.2;
+      fieldData[idx + 2] = Math.sin(baseAngle) * ringRadius;
+      
+      // Velocity tangent to field line
+      const speed = 1.0 + ringIdx * 0.5;
+      fieldData[idx + 3] = -Math.sin(baseAngle) * speed;
+      fieldData[idx + 4] = Math.cos(time * 2 + i * 0.05) * 0.1;
+      fieldData[idx + 5] = Math.cos(baseAngle) * speed;
+      
+      // Life cycles through 0-1
+      fieldData[idx + 6] = (Math.sin(time * 2 + i * 0.5) * 0.5 + 0.5);
+      
+      // Strength varies by position
+      fieldData[idx + 7] = 0.3 + 0.7 * Math.sin(baseAngle * 3 + time);
+    }
+    
+    this.device.queue.writeBuffer(this.fieldLineParticles, 0, fieldData);
   }
   
   render(renderPass, globalUniformBuffer, skipEffects = false) {
     const scaledCount = Math.floor(this.particleCount * this.visualizer.profiler.qualityLevel);
+    
+    // Render core first (before rollers so rollers appear in front)
+    if (this.id === 'seg' && !skipEffects) {
+      this.renderCore(renderPass, globalUniformBuffer);
+    }
+    
+    // Render pickup coils (outside the roller ring)
+    if (this.id === 'seg' && !skipEffects) {
+      this.renderPickupCoils(renderPass, globalUniformBuffer);
+    }
     
     if (this.id === 'seg' && this.rollerInstances && !skipEffects) {
       const bindGroup = this.device.createBindGroup({
@@ -1624,12 +2942,51 @@ class DeviceInstance {
         ]
       });
       
-      console.log('Setting roller pipeline, has depthStencil:', !!this.rollerPipeline);
       renderPass.setPipeline(this.rollerPipeline);
       renderPass.setBindGroup(0, bindGroup);
       renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
       renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
-      renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 12);
+      renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 36); // 3 rings: 8 + 12 + 16 = 36 rollers
+    }
+    
+    // Render field lines (before particles for proper blending)
+    if (this.id === 'seg' && this.fieldLineParticles && this.fieldLineEnabled && !skipEffects) {
+      const qualityScale = this.visualizer.profiler.qualityLevel;
+      const fieldLineCount = Math.floor(this.fieldLineCount * qualityScale);
+      
+      const fieldLineBindGroup = this.device.createBindGroup({
+        layout: this.fieldLinePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: globalUniformBuffer } },
+          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+          { binding: 4, resource: { buffer: this.fieldLineParticles } }
+        ]
+      });
+      
+      renderPass.setPipeline(this.fieldLinePipeline);
+      renderPass.setBindGroup(0, fieldLineBindGroup);
+      renderPass.draw(4, fieldLineCount);
+    }
+    
+    // Render energy arcs (between nearby rollers)
+    if (this.id === 'seg' && this.arcSegments && this.energyArcEnabled && !skipEffects) {
+      const qualityScale = this.visualizer.profiler.qualityLevel;
+      if (qualityScale > 0.5) {
+        const arcCount = Math.floor(this.arcSegmentCount * qualityScale);
+        
+        const arcBindGroup = this.device.createBindGroup({
+          layout: this.energyArcPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: globalUniformBuffer } },
+            { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+            { binding: 4, resource: { buffer: this.arcSegments } }
+          ]
+        });
+        
+        renderPass.setPipeline(this.energyArcPipeline);
+        renderPass.setBindGroup(0, arcBindGroup);
+        renderPass.draw(4, arcCount * 2); // Each arc uses 2 triangles
+      }
     }
     
     const particleBindGroup = this.device.createBindGroup({
@@ -1642,10 +2999,147 @@ class DeviceInstance {
       ]
     });
     
-    console.log('Setting particle pipeline, has depthStencil:', !!this.particlePipeline);
     renderPass.setPipeline(this.particlePipeline);
     renderPass.setBindGroup(0, particleBindGroup);
     renderPass.draw(4, scaledCount);
+  }
+  
+  renderCore(renderPass, globalUniformBuffer) {
+    if (!this.corePipeline || !this.config.core) return;
+    
+    const coreBindGroup = this.device.createBindGroup({
+      layout: this.corePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 3, resource: { buffer: this.coreMaterialBuffer } }
+      ]
+    });
+    
+    renderPass.setPipeline(this.corePipeline);
+    renderPass.setBindGroup(0, coreBindGroup);
+    
+    const v = this.visualizer;
+    
+    // Render central shaft
+    renderPass.setVertexBuffer(0, v.coreShaftBuffer.vertexBuffer);
+    renderPass.setVertexBuffer(1, v.coreBoltInstanceBuffer); // Dummy, won't be used
+    renderPass.setIndexBuffer(v.coreShaftBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(v.coreShaftBuffer.indexCount, 1);
+    
+    // Render magnetic core (central cylinder)
+    renderPass.setVertexBuffer(0, v.coreMagnetBuffer.vertexBuffer);
+    renderPass.setIndexBuffer(v.coreMagnetBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(v.coreMagnetBuffer.indexCount, 1);
+    
+    // Render top plate
+    const plateOffsetTop = new Float32Array([0, this.config.core.plateY, 0]);
+    const plateOffsetBottom = new Float32Array([0, -this.config.core.plateY, 0]);
+    
+    // Top plate - create temp buffer for offset
+    const topPlateBuffer = this.device.createBuffer({
+      size: 12,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(topPlateBuffer, 0, plateOffsetTop);
+    
+    renderPass.setVertexBuffer(0, v.corePlateBuffer.vertexBuffer);
+    renderPass.setVertexBuffer(1, topPlateBuffer);
+    renderPass.setIndexBuffer(v.corePlateBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(v.corePlateBuffer.indexCount, 1);
+    topPlateBuffer.destroy();
+    
+    // Bottom plate
+    const bottomPlateBuffer = this.device.createBuffer({
+      size: 12,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(bottomPlateBuffer, 0, plateOffsetBottom);
+    
+    renderPass.setVertexBuffer(1, bottomPlateBuffer);
+    renderPass.drawIndexed(v.corePlateBuffer.indexCount, 1);
+    bottomPlateBuffer.destroy();
+    
+    // Render bolts (instanced)
+    renderPass.setVertexBuffer(0, v.coreBoltBuffer.vertexBuffer);
+    renderPass.setVertexBuffer(1, v.coreBoltInstanceBuffer);
+    renderPass.setIndexBuffer(v.coreBoltBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(v.coreBoltBuffer.indexCount, v.coreBoltPositions.length / 3);
+  }
+  
+  renderPickupCoils(renderPass, globalUniformBuffer) {
+    if (!this.coilInstances || !this.coilPipeline) return;
+    
+    const numCoils = 24;
+    
+    // Render top connection ring (at y = +2.0)
+    const topRingDeviceData = new Float32Array(8);
+    topRingDeviceData.set([
+      this.position[0], this.position[1] + 2.0, this.position[2],
+      Math.sin(this.rotation[1] / 2), 0, Math.cos(this.rotation[1] / 2), 1.0,
+      0, 0
+    ]);
+    const topRingDeviceBuffer = this.device.createBuffer({
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(topRingDeviceBuffer, 0, topRingDeviceData);
+    
+    const topRingBindGroup = this.device.createBindGroup({
+      layout: this.ringPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: topRingDeviceBuffer } },
+        { binding: 3, resource: { buffer: this.ringMaterialBuffer } }
+      ]
+    });
+    
+    renderPass.setPipeline(this.ringPipeline);
+    renderPass.setBindGroup(0, topRingBindGroup);
+    renderPass.setVertexBuffer(0, this.visualizer.connectionRingBuffer.vertexBuffer);
+    renderPass.setIndexBuffer(this.visualizer.connectionRingBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(this.visualizer.connectionRingBuffer.indexCount);
+    
+    // Render bottom connection ring (at y = -2.0)
+    const bottomRingDeviceData = new Float32Array(8);
+    bottomRingDeviceData.set([
+      this.position[0], this.position[1] - 2.0, this.position[2],
+      Math.sin(this.rotation[1] / 2), 0, Math.cos(this.rotation[1] / 2), 1.0,
+      0, 0
+    ]);
+    const bottomRingDeviceBuffer = this.device.createBuffer({
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(bottomRingDeviceBuffer, 0, bottomRingDeviceData);
+    
+    const bottomRingBindGroup = this.device.createBindGroup({
+      layout: this.ringPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: bottomRingDeviceBuffer } },
+        { binding: 3, resource: { buffer: this.ringMaterialBuffer } }
+      ]
+    });
+    
+    renderPass.setBindGroup(0, bottomRingBindGroup);
+    renderPass.drawIndexed(this.visualizer.connectionRingBuffer.indexCount);
+    
+    // Render coils
+    const coilBindGroup = this.device.createBindGroup({
+      layout: this.coilPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: this.coilInstances } },
+        { binding: 3, resource: { buffer: this.coilMaterialBuffer } }
+      ]
+    });
+    
+    renderPass.setPipeline(this.coilPipeline);
+    renderPass.setBindGroup(0, coilBindGroup);
+    renderPass.setVertexBuffer(0, this.visualizer.coilBuffer.vertexBuffer);
+    renderPass.draw(this.visualizer.coilBuffer.vertexCount, numCoils);
   }
 }
 
