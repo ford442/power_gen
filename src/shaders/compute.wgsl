@@ -525,7 +525,8 @@ fn mainSimple(@builtin(global_invocation_id) id: vec3u) {
         // Move along field line
         if (Bmag > 1.0e-6) {
             let speed = VELOCITY_SCALE * sqrt(Bmag);
-            p.xyz += (B / Bmag) * speed * dt;
+            let newPos = p.xyz + (B / Bmag) * speed * dt;
+            p = vec4f(newPos, p.w);
         }
         
         // Reset if too far
