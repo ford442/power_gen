@@ -576,7 +576,7 @@ fn mainSimple(@builtin(global_invocation_id) id: vec3u) {
         );
         let progress = fract(time * 0.5 + p.w * 10.0);
         let t = clamp(progress * uniforms.speedMultiplier, 0.0, 1.0);
-        p.xyz = mix(ledPos, targetPos, t);
+        p = vec4f(mix(ledPos, targetPos, t), p.w);
         if (progress > 0.98) {
             p.w = fract(p.w * 1.618 + 0.33);
         }
