@@ -180,6 +180,7 @@
     <div style="margin-top: 12px; padding: 8px; background: rgba(0,50,100,0.3); border-radius: 4px; text-align: center; font-size: 0.7rem; color: #0aa;">
       <span style="color: #0ff;">●</span> Wolfram Scientific Data Active
       <div style="color: #888; margin-top: 2px;">B-field: 0.70T | Cap: 40pF | SPH: 560kPa</div>
+      <div style="color: #888; margin-top: 2px;">🔋 75% | ☀️ 850 W/m² | 💡 4.2W</div>
     </div>
     
     <!-- Stats -->
@@ -200,9 +201,13 @@
         <div class="stat-label">View</div>
         <div class="stat-value" id="currentView">Overview</div>
       </div>
-      <div class="stat-item" id="batteryStat" style="display: none;">
+      <div class="stat-item" id="batteryStat">
         <div class="stat-label">Battery</div>
-        <div class="stat-value" id="batteryCharge">50%</div>
+        <div class="stat-value" id="batteryCharge">75%</div>
+      </div>
+      <div class="stat-item" id="solarStat">
+        <div class="stat-label">Solar</div>
+        <div class="stat-value" id="solarPower">43W</div>
       </div>
     </div>
   </div>
@@ -247,6 +252,63 @@
     window.updateWolframStatus = (status) => {
       window.sciUI.updateWolframStatus(status);
     };
+    
+    // LED + Solar monitoring methods
+    window.updateBatteryState = (state) => {
+      window.sciUI.updateBatteryState(state);
+    };
+    
+    window.updateSolarOutput = (output) => {
+      window.sciUI.updateSolarOutput(output);
+    };
+    
+    window.updateLEDStatus = (leds) => {
+      window.sciUI.updateLEDStatus(leds);
+    };
+    
+    window.updateEnergyBalance = (flows) => {
+      window.sciUI.updateEnergyBalance(flows);
+    };
+    
+    // Demo: Initialize with sample data for LED/Solar system
+    window.addEventListener('load', () => {
+      // Battery at 75% charge, discharging at 240mA
+      window.sciUI.updateBatteryState({
+        chargePercent: 75,
+        voltage: 3.95,
+        current: -240,
+        temperature: 28
+      });
+      
+      // Solar panel receiving 850 W/m², producing 42W
+      window.sciUI.updateSolarOutput({
+        irradiance: 850,
+        voltage: 18.5,
+        current: 2.3,
+        power: 42.5,
+        efficiency: 21.2
+      });
+      
+      // 4 LEDs on (Red, Green, Blue, White)
+      window.sciUI.updateLEDStatus([
+        { id: 0, on: true, color: 'red', power: 0.7, vf: 2.0 },
+        { id: 1, on: true, color: 'green', power: 1.12, vf: 3.2 },
+        { id: 2, on: true, color: 'blue', power: 1.16, vf: 3.3 },
+        { id: 3, on: true, color: 'white', power: 1.23, vf: 3.5 },
+        { id: 4, on: false, color: 'yellow', power: 0, vf: 2.1 },
+        { id: 5, on: false, color: 'red', power: 0, vf: 2.0 }
+      ]);
+      
+      // Energy balance with 100W battery output
+      window.sciUI.updateEnergyBalance({
+        batteryOut: 100,
+        ledOptical: 30,
+        panelReceived: 25.5,
+        panelElectrical: 5.6,
+        batteryIn: 5.3,
+        roundTripEff: 5.3
+      });
+    });
   </script>
 </body>
 </html>

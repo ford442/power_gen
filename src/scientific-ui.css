@@ -1,6 +1,7 @@
 /**
  * SEG WebGPU Visualizer - Scientific UI Styles
  * Professional dark theme with cyan/magenta accents
+ * Enhanced with LED + Solar Cell monitoring styles
  */
 
 /* ============================================
@@ -29,6 +30,14 @@
   --sci-shadow-magenta: 0 0 30px rgba(255, 0, 255, 0.15);
   --sci-transition-fast: 0.15s ease;
   --sci-transition-normal: 0.3s ease;
+  
+  /* LED + Solar specific variables */
+  --charge-low: #ff4444;
+  --charge-med: #ffaa00;
+  --charge-high: #44ff44;
+  --irradiance-low: #4444ff;
+  --irradiance-std: #44ff44;
+  --irradiance-high: #ffff44;
 }
 
 /* ============================================
@@ -611,6 +620,460 @@
 }
 
 /* ============================================
+   BATTERY GAUGE
+   ============================================ */
+.battery-gauge {
+  --charge-low: #ff4444;
+  --charge-med: #ffaa00;
+  --charge-high: #44ff44;
+}
+
+.battery-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+}
+
+.battery-circular {
+  position: relative;
+  width: 80px;
+  height: 80px;
+}
+
+.battery-circular canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.battery-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 48px;
+  border: 2px solid #666;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.battery-icon::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 4px;
+  background: #666;
+  border-radius: 2px 2px 0 0;
+}
+
+.battery-level {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  right: 3px;
+  top: 3px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.battery-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--charge-high);
+  transition: height 0.3s ease, background 0.3s ease;
+}
+
+.battery-readout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.battery-percentage {
+  font-family: var(--sci-font-mono);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--sci-cyan);
+}
+
+.battery-voltage {
+  font-family: var(--sci-font-mono);
+  font-size: 0.9rem;
+  color: var(--sci-text-secondary);
+}
+
+.battery-current {
+  font-family: var(--sci-font-mono);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.battery-current.charging {
+  color: var(--sci-green);
+}
+
+.battery-current.discharging {
+  color: var(--sci-orange);
+}
+
+.battery-details {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.battery-temp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--sci-text-secondary);
+}
+
+.temp-icon {
+  font-size: 0.9rem;
+}
+
+.temp-value {
+  font-family: var(--sci-font-mono);
+  font-weight: 500;
+}
+
+.battery-sparkline {
+  width: 100px;
+  height: 30px;
+}
+
+.battery-sparkline canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ============================================
+   SOLAR PANEL GAUGE
+   ============================================ */
+.solar-gauge {
+  --irradiance-low: #4444ff;
+  --irradiance-std: #44ff44;
+  --irradiance-high: #ffff44;
+}
+
+.solar-main {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+}
+
+.solar-sun-container {
+  position: relative;
+  width: 60px;
+  height: 60px;
+}
+
+.solar-sun-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.sun-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.5rem;
+  pointer-events: none;
+}
+
+.solar-metrics {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.solar-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metric-label {
+  font-size: 0.65rem;
+  color: var(--sci-text-muted);
+  text-transform: uppercase;
+}
+
+.metric-value {
+  font-family: var(--sci-font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.am15g-ref {
+  font-size: 0.6rem;
+  color: var(--sci-yellow);
+  opacity: 0.8;
+}
+
+.solar-power-bar {
+  margin-top: 4px;
+}
+
+.power-bar-bg {
+  height: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.power-bar-fill {
+  height: 100%;
+  background: var(--sci-green);
+  border-radius: 4px;
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+.power-label {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--sci-font-mono);
+  font-size: 0.65rem;
+  color: var(--sci-text-secondary);
+  text-align: right;
+}
+
+.solar-iv-curve {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.iv-label {
+  font-size: 0.65rem;
+  color: var(--sci-text-muted);
+  text-transform: uppercase;
+}
+
+.solar-iv-curve canvas {
+  width: 50px;
+  height: 30px;
+}
+
+.operating-point {
+  font-size: 0.7rem;
+  color: var(--sci-magenta);
+}
+
+/* ============================================
+   LED ARRAY GAUGE
+   ============================================ */
+.led-gauge {
+  padding: 12px;
+}
+
+.led-grid {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  margin: 0 auto 12px;
+}
+
+.led-wrapper {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.led-wrapper:hover {
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.led-indicator {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+  transition: all 0.2s;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.led-indicator.on {
+  opacity: 1;
+  box-shadow: 0 0 12px currentColor, 0 0 20px currentColor;
+}
+
+.led-indicator.off {
+  opacity: 0.2;
+  box-shadow: none;
+}
+
+.led-indicator.red { background: #ff3333; }
+.led-indicator.green { background: #33ff33; }
+.led-indicator.blue { background: #3333ff; }
+.led-indicator.white { background: #ffffff; }
+.led-indicator.yellow { background: #ffff33; }
+
+.led-label {
+  font-size: 0.55rem;
+  color: var(--sci-text-muted);
+  font-family: var(--sci-font-mono);
+}
+
+.led-vf {
+  font-size: 0.5rem;
+  color: var(--sci-text-secondary);
+  font-family: var(--sci-font-mono);
+}
+
+.led-stats {
+  display: flex;
+  justify-content: space-around;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.led-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.led-stat .stat-label {
+  font-size: 0.6rem;
+  color: var(--sci-text-muted);
+  text-transform: uppercase;
+}
+
+.led-stat .stat-value {
+  font-family: var(--sci-font-mono);
+  font-size: 0.8rem;
+  color: var(--sci-cyan);
+  font-weight: 600;
+}
+
+/* ============================================
+   ENERGY BALANCE DISPLAY
+   ============================================ */
+.energy-balance {
+  padding: 12px;
+}
+
+.energy-sankey {
+  width: 100%;
+  height: 160px;
+}
+
+.sankey-node {
+  cursor: pointer;
+}
+
+.node-rect {
+  fill: rgba(0, 255, 255, 0.2);
+  stroke: var(--sci-cyan);
+  stroke-width: 1;
+}
+
+.node-rect:hover {
+  fill: rgba(0, 255, 255, 0.4);
+}
+
+.node-label {
+  font-size: 8px;
+  fill: var(--sci-text-secondary);
+  text-anchor: middle;
+  font-family: var(--sci-font-ui);
+}
+
+.node-value {
+  font-size: 9px;
+  fill: var(--sci-cyan);
+  text-anchor: middle;
+  font-family: var(--sci-font-mono);
+  font-weight: 600;
+}
+
+.energy-flow-arrow {
+  stroke: var(--sci-cyan);
+  fill: none;
+  opacity: 0.7;
+  transition: stroke-width 0.3s ease;
+}
+
+.eff-label {
+  font-size: 7px;
+  fill: var(--sci-green);
+  font-family: var(--sci-font-mono);
+  text-anchor: middle;
+}
+
+.loss-label {
+  font-size: 6px;
+  fill: var(--sci-red);
+  font-family: var(--sci-font-mono);
+  text-anchor: middle;
+  opacity: 0.8;
+}
+
+.energy-summary {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summary-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+}
+
+.summary-item.highlight {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.summary-label {
+  color: var(--sci-text-secondary);
+}
+
+.summary-value {
+  font-family: var(--sci-font-mono);
+  color: var(--sci-cyan);
+  font-weight: 600;
+}
+
+.summary-item.highlight .summary-value {
+  color: var(--sci-green);
+  font-size: 0.9rem;
+}
+
+/* ============================================
    RESPONSIVE STYLES
    ============================================ */
 @media (max-width: 768px) {
@@ -661,4 +1124,44 @@
 @keyframes valueFlash {
   0% { color: var(--sci-yellow); }
   100% { color: var(--sci-cyan); }
+}
+
+/* LED blink animation for on state */
+@keyframes ledPulse {
+  0%, 100% { box-shadow: 0 0 8px currentColor, 0 0 20px currentColor; }
+  50% { box-shadow: 0 0 12px currentColor, 0 0 30px currentColor; }
+}
+
+.led-indicator.on {
+  animation: ledPulse 2s ease-in-out infinite;
+}
+
+/* Battery charging animation */
+@keyframes chargingPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.battery-current.charging {
+  animation: chargingPulse 1s ease-in-out infinite;
+}
+
+/* Sun ray rotation animation */
+@keyframes sunRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.solar-canvas {
+  animation: sunRotate 20s linear infinite;
+}
+
+/* Energy flow animation */
+@keyframes flowPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.energy-flow-arrow {
+  animation: flowPulse 2s ease-in-out infinite;
 }

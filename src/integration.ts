@@ -18,6 +18,7 @@ import type {
 import { WolframMCPManager } from './mcp-manager';
 import { ValidatedConstants, formatUncertainValue } from './ValidatedConstants';
 import { FallbackPhysics, validatePhysics, UNCERTAINTY_LEVELS } from './fallback-physics';
+import { LEDSolarSimulation, LEDSolarSystemState, DEFAULT_BATTERY_CAPACITY } from './led-solar-integration';
 
 // ============================================
 // Physics Uniform Buffer Layout (matches WGSL)
@@ -203,6 +204,10 @@ export class SEGIntegrationManager {
   private lastUpdateTime: number = 0;
   private updateInterval: number = 100; // Update every 100ms
   private pendingQueries: Set<string> = new Set();
+  
+  // LED/Solar mode support
+  private ledSolarSimulation: LEDSolarSimulation | null = null;
+  private mode: 'seg' | 'ledsolar' | 'heron' | 'kelvin' = 'seg';
 
   constructor(device: GPUDevice, canvas: HTMLCanvasElement) {
     this.device = device;
@@ -445,11 +450,220 @@ export class SEGIntegrationManager {
     };
   }
 
+  // ============================================
+  // LED/Solar Mode Support
+  // ============================================
+  
+  /**
+   * Initialize LED/Solar simulation mode
+   * @param batteryCapacityAh - Battery capacity in Ah (default: 2.6 for 18650 cell)
+   */
+  initializeLEDSolarMode(batteryCapacityAh: number = DEFAULT_BATTERY_CAPACITY): void {
+    this.ledSolarSimulation = new LEDSolarSimulation(batteryCapacityAh);
+    this.mode = 'ledsolar';
+    console.log(`[SEGIntegration] LED/Solar mode initialized with ${batteryCapacityAh}Ah battery`);
+  }
+  
+  /**
+   * Update LED/Solar simulation (call every frame when in LED/Solar mode)
+   * @param deltaTime - Time since last frame in milliseconds
+   * @returns Current LED/Solar system state
+   */
+  updateLEDSolar(deltaTime: number): LEDSolarSystemState | null {
+    if (!this.ledSolarSimulation) {
+      console.warn('[SEGIntegration] LED/Solar mode not initialized');
+      return null;
+    }
+    
+    const state = this.ledSolarSimulation.update(deltaTime);
+    
+    // Update UI with LED/Solar specific data
+    this.updateLEDSolarUI(state);
+    
+    // Update shader uniforms for LED/Solar visualization
+    this.updateLEDSolarUniforms(state);
+    
+    return state;
+  }
+  
+  /**
+   * Update UI gauges for LED/Solar mode
+   */
+  private updateLEDSolarUI(state: LEDSolarSystemState): void {
+    // Update battery gauge
+    this.ui.updateGauge('Battery SOC', state.battery.chargePercent, 0, true);
+    this.ui.updateGauge('Battery Voltage', state.battery.voltage, 0.01, true);
+    this.ui.updateGauge('Battery Current', state.battery.current, 0.05, true);
+    
+    // Update solar panel gauge
+    this.ui.updateGauge('Solar Power', state.solarPanel.power, 0.05, true);
+    this.ui.updateGauge('Solar Irradiance', state.solarPanel.irradiance, 0.1, false);
+    
+    // Update LED power consumption
+    this.ui.updateGauge('LED Power', state.energyFlow.batteryToLEDs, 0.05, true);
+    
+    // Update round-trip efficiency
+    this.ui.updateGauge('Round-Trip Eff', state.energyFlow.roundTripEfficiency * 100, 0.1, false);
+  }
+  
+  /**
+   * Update shader uniforms for LED/Solar visualization
+   * Layout matches WGSL shader expectations
+   */
+  private updateLEDSolarUniforms(state: LEDSolarSystemState): void {
+    if (!this.uniformBuffer) {
+      // Create uniform buffer if not exists
+      this.uniformBuffer = this.device.createBuffer({
+        size: 144, // 36 floats
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+    }
+    
+    // Pack data for WGSL shader
+    const uniforms = new Float32Array(36);
+    
+    // Battery data (4 floats)
+    uniforms[0] = state.battery.chargePercent / 100; // Normalized 0-1
+    uniforms[1] = state.battery.voltage;
+    uniforms[2] = state.battery.current;
+    uniforms[3] = state.battery.temperature;
+    
+    // LED data (6 LEDs × 4 floats each)
+    for (let i = 0; i < 6; i++) {
+      const led = state.leds[i];
+      const base = 4 + i * 4;
+      uniforms[base + 0] = led.on ? 1.0 : 0.0;
+      uniforms[base + 1] = led.power;
+      uniforms[base + 2] = led.temperature;
+      uniforms[base + 3] = this.encodeLEDColor(led.color);
+    }
+    
+    // Solar panel data (4 floats)
+    uniforms[28] = state.solarPanel.irradiance;
+    uniforms[29] = state.solarPanel.power;
+    uniforms[30] = state.solarPanel.temperature;
+    uniforms[31] = state.solarPanel.efficiency;
+    
+    // Energy flow data (4 floats)
+    uniforms[32] = state.energyFlow.batteryToLEDs;
+    uniforms[33] = state.energyFlow.panelToBattery;
+    uniforms[34] = state.energyFlow.roundTripEfficiency;
+    uniforms[35] = state.energyFlow.netPowerBalance;
+    
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
+  }
+  
+  /**
+   * Encode LED color for shader
+   */
+  private encodeLEDColor(color: string): number {
+    switch (color) {
+      case 'red': return 0.0;
+      case 'green': return 1.0;
+      case 'blue': return 2.0;
+      case 'white': return 3.0;
+      case 'yellow': return 4.0;
+      default: return 0.0;
+    }
+  }
+  
+  /**
+   * Toggle LED on/off
+   * @param id - LED ID (0-5)
+   */
+  toggleLED(id: number): void {
+    if (this.ledSolarSimulation) {
+      this.ledSolarSimulation.toggleLED(id);
+    }
+  }
+  
+  /**
+   * Set LED current
+   * @param id - LED ID (0-5)
+   * @param currentMa - Current in mA (0-1000)
+   */
+  setLEDCurrent(id: number, currentMa: number): void {
+    if (this.ledSolarSimulation) {
+      this.ledSolarSimulation.setLEDCurrent(id, currentMa);
+    }
+  }
+  
+  /**
+   * Set LED color
+   * @param id - LED ID (0-5)
+   * @param color - LED color
+   */
+  setLEDColor(id: number, color: LEDSolarSystemState['leds'][0]['color']): void {
+    if (this.ledSolarSimulation) {
+      this.ledSolarSimulation.setLEDColor(id, color);
+    }
+  }
+  
+  /**
+   * Set all LEDs on/off
+   * @param on - True to turn on, false to turn off
+   */
+  setAllLEDs(on: boolean): void {
+    if (this.ledSolarSimulation) {
+      this.ledSolarSimulation.setAllLEDs(on);
+    }
+  }
+  
+  /**
+   * Get current LED/Solar system state
+   */
+  getLEDSolarState(): LEDSolarSystemState | null {
+    return this.ledSolarSimulation?.getState() ?? null;
+  }
+  
+  /**
+   * Get LED/Solar system history
+   */
+  getLEDSolarHistory(): LEDSolarSystemState[] {
+    return this.ledSolarSimulation?.getHistory() ?? [];
+  }
+  
+  /**
+   * Get LED/Solar uniform buffer for binding to shaders
+   */
+  getLEDSolarUniformBuffer(): GPUBuffer | null {
+    return this.uniformBuffer;
+  }
+  
+  /**
+   * Switch simulation mode
+   * @param mode - Mode to switch to
+   */
+  setMode(mode: 'seg' | 'ledsolar' | 'heron' | 'kelvin'): void {
+    this.mode = mode;
+    if (mode === 'ledsolar' && !this.ledSolarSimulation) {
+      this.initializeLEDSolarMode();
+    }
+  }
+  
+  /**
+   * Get current simulation mode
+   */
+  getMode(): string {
+    return this.mode;
+  }
+  
+  /**
+   * Reset LED/Solar simulation
+   */
+  resetLEDSolar(): void {
+    this.ledSolarSimulation?.reset();
+  }
+  
   /**
    * Clean up resources
    */
   destroy(): void {
     this.ui.destroy();
+    if (this.uniformBuffer) {
+      this.uniformBuffer.destroy();
+      this.uniformBuffer = null;
+    }
   }
 }
 

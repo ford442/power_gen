@@ -88,6 +88,28 @@ export {
 export { SEGIntegrationManager } from './integration';
 
 // ============================================
+// LED/Solar Integration
+// ============================================
+
+export {
+  LEDSolarSimulation,
+  LEDSolarIntegration,
+  DEFAULT_BATTERY_CAPACITY,
+} from './led-solar-integration';
+
+export type { LEDSolarSystemState } from './led-solar-integration';
+
+export {
+  LEDSolarConstants,
+  LED_CONSTANTS,
+  SOLAR_CONSTANTS,
+  BATTERY_CONSTANTS,
+  ENERGY_FLOW_CONSTANTS,
+  LEDSolarPhysics,
+  IVCurveCalculator,
+} from './led-solar-constants';
+
+// ============================================
 // Re-export all as default namespace
 // ============================================
 
@@ -95,6 +117,8 @@ import { ValidatedConstants } from './ValidatedConstants';
 import { FallbackPhysics } from './fallback-physics';
 import { WolframMCPManager, getWolframMCPManager } from './mcp-manager';
 import { SEGIntegrationManager } from './integration';
+import { LEDSolarIntegration, LEDSolarSimulation, DEFAULT_BATTERY_CAPACITY } from './led-solar-integration';
+import { LEDSolarConstants, LEDSolarPhysics, IVCurveCalculator } from './led-solar-constants';
 
 /**
  * Default export with all major components
@@ -105,6 +129,12 @@ export default {
   WolframMCPManager,
   getWolframMCPManager,
   SEGIntegrationManager,
+  LEDSolarIntegration,
+  LEDSolarSimulation,
+  LEDSolarConstants,
+  LEDSolarPhysics,
+  IVCurveCalculator,
+  DEFAULT_BATTERY_CAPACITY,
 };
 
 // ============================================
