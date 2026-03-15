@@ -431,7 +431,7 @@ fn updateSolarMode(particle: ptr<function, Particle>, idx: u32, time: f32, dt: f
     let ledAngle = f32(ledIdx) * 6.28318530718 / f32(ledCount);
     let ledPos = vec3f(cos(ledAngle) * 3.0, 3.5, sin(ledAngle) * 3.0);
     
-    let target = vec3f(
+    let targetPos = vec3f(
         (fract(f32(idx) * 0.618) - 0.5) * 6.0,
         0.0,
         (fract(f32(idx) * 0.314) - 0.5) * 4.0
@@ -440,7 +440,7 @@ fn updateSolarMode(particle: ptr<function, Particle>, idx: u32, time: f32, dt: f
     let progress = fract(time * 0.5 + phase * 10.0);
     let t = clamp(progress * uniforms.speedMultiplier, 0.0, 1.0);
     
-    let newPos = mix(ledPos, target, t);
+    let newPos = mix(ledPos, targetPos, t);
     
     if (progress > 0.98) {
         (*particle).position.w = fract(phase * 1.618 + 0.33);
@@ -568,14 +568,14 @@ fn mainSimple(@builtin(global_invocation_id) id: vec3u) {
         let ledIdx = u32(fract(p.w) * f32(ledCount));
         let ledAngle = f32(ledIdx) * 6.28318530718 / f32(ledCount);
         let ledPos = vec3f(cos(ledAngle) * 3.0, 3.5, sin(ledAngle) * 3.0);
-        let target = vec3f(
+        let targetPos = vec3f(
             (fract(f32(idx) * 0.618) - 0.5) * 6.0,
             0.0,
             (fract(f32(idx) * 0.314) - 0.5) * 4.0
         );
         let progress = fract(time * 0.5 + p.w * 10.0);
         let t = clamp(progress * uniforms.speedMultiplier, 0.0, 1.0);
-        p.xyz = mix(ledPos, target, t);
+        p.xyz = mix(ledPos, targetPos, t);
         if (progress > 0.98) {
             p.w = fract(p.w * 1.618 + 0.33);
         }
