@@ -36,6 +36,14 @@ class SEGVisualizer {
 
     this.camera = { distance: 20, rotation: 0, height: 3 };
 
+    // Dashboard / device state
+    this.isRunning = false;
+    this.rotationSpeed = 0;   // current smoothed speed (0–100)
+    this.targetSpeed = 0;     // desired speed set by slider
+    this.magneticFieldStrength = 0.5;
+    this.loadResistance = 100;
+    this.totalEnergy = 0;
+
     // TypeScript integration layer
     this.integration = null;
 
@@ -82,8 +90,9 @@ class SEGVisualizer {
   }
 
   resize() {
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
+    const wrapper = document.getElementById('canvas-wrapper');
+    this.canvas.width  = wrapper ? wrapper.clientWidth  : window.innerWidth;
+    this.canvas.height = wrapper ? wrapper.clientHeight : window.innerHeight;
     if (this.device) this.setupDepthBuffer();
   }
 
@@ -376,31 +385,57 @@ class SEGVisualizer {
   setupInteraction() {
     let isDragging = false, lastX = 0, lastY = 0;
 
-    this.canvas.addEventListener('mousedown', (e) => {
-      isDragging = true;
-      lastX = e.clientX;
-      lastY = e.clientY;
-    });
-
+    // Camera controls
+    this.canvas.addEventListener('mousedown', (e) => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
     window.addEventListener('mousemove', (e) => {
       if (!isDragging) return;
       this.camera.rotation += (e.clientX - lastX) * 0.01;
       this.camera.height = Math.max(-5, Math.min(10, this.camera.height - (e.clientY - lastY) * 0.02));
-      lastX = e.clientX;
-      lastY = e.clientY;
+      lastX = e.clientX; lastY = e.clientY;
     });
-
     window.addEventListener('mouseup', () => isDragging = false);
-
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.camera.distance = Math.max(5, Math.min(20, this.camera.distance + e.deltaY * 0.01));
     });
 
-    document.getElementById('speedSlider').addEventListener('input', (e) => {
-      document.getElementById('speedVal').textContent = e.target.value;
+    // Dashboard: START button
+    document.getElementById('startBtn').addEventListener('click', () => {
+      this.isRunning = true;
+      this.targetSpeed = parseInt(document.getElementById('speedControl').value);
+      document.getElementById('status').textContent = 'OPERATIONAL';
+      document.getElementById('status').style.color = '#00ff88';
+      document.getElementById('statusDot').className = 'status-indicator status-active';
     });
 
+    // Dashboard: STOP button
+    document.getElementById('stopBtn').addEventListener('click', () => {
+      this.isRunning = false;
+      this.targetSpeed = 0;
+      document.getElementById('status').textContent = 'STOPPING';
+      document.getElementById('status').style.color = '#ffaa00';
+      document.getElementById('statusDot').className = 'status-indicator status-inactive';
+    });
+
+    // Dashboard: speed slider
+    document.getElementById('speedControl').addEventListener('input', (e) => {
+      document.getElementById('speedVal').textContent = e.target.value;
+      if (this.isRunning) this.targetSpeed = parseInt(e.target.value);
+    });
+
+    // Dashboard: magnetic field slider
+    document.getElementById('fieldControl').addEventListener('input', (e) => {
+      document.getElementById('fieldVal').textContent = e.target.value;
+      this.magneticFieldStrength = parseInt(e.target.value) / 100;
+    });
+
+    // Dashboard: load resistance slider
+    document.getElementById('loadControl').addEventListener('input', (e) => {
+      document.getElementById('loadVal').textContent = e.target.value;
+      this.loadResistance = parseInt(e.target.value);
+    });
+
+    // Particle count slider
     document.getElementById('particleSlider').addEventListener('input', (e) => {
       const count = parseInt(e.target.value);
       document.getElementById('particleVal').textContent = count;
@@ -409,6 +444,50 @@ class SEGVisualizer {
         this.updateParticles();
       }
     });
+  }
+
+  updateReadings(deltaTime) {
+    // speed 0–100 → 0–3000 RPM for the inner ring
+    const rpmBase = this.rotationSpeed * 30;
+    document.getElementById('rpm-inner').textContent = Math.round(rpmBase).toLocaleString();
+
+    // Simulated electrical output: voltage ∝ speed × field, current = V/R, power = V×I
+    const voltage = this.rotationSpeed * this.magneticFieldStrength * 2.5;
+    const current = voltage / this.loadResistance;
+    const power   = voltage * current;
+
+    document.getElementById('voltage').textContent = voltage.toFixed(3) + ' V';
+    document.getElementById('current').textContent = current.toFixed(3) + ' A';
+    document.getElementById('power').textContent   = power.toFixed(3)   + ' W';
+
+    // Field grows slightly with rotation (reluctance reduction)
+    const fieldStrength = this.magneticFieldStrength * (1 + this.rotationSpeed / 200);
+    document.getElementById('magnetic-field').textContent = fieldStrength.toFixed(3) + ' T';
+
+    // Temperature: 25 °C idle + 0.3 °C per unit speed
+    const temp = 25 + this.rotationSpeed * 0.3;
+    const tempEl = document.getElementById('temperature');
+    tempEl.textContent = temp.toFixed(1) + ' °C';
+    const isWarn = temp > 60, isCrit = temp > 80;
+    tempEl.className = 'reading-value' + (isCrit ? ' critical' : isWarn ? ' warning' : '');
+
+    // Smooth efficiency: drift toward a target with small noise, base 85–95%
+    if (this.rotationSpeed > 0) {
+      const target = 85 + (this.rotationSpeed / 100) * 10;
+      if (this._efficiency === undefined) this._efficiency = target;
+      this._efficiency += (target - this._efficiency) * deltaTime * 2 + (Math.random() - 0.5) * 0.5;
+      this._efficiency = Math.max(80, Math.min(95, this._efficiency));
+    } else {
+      this._efficiency = 0;
+    }
+    document.getElementById('efficiency').textContent = this._efficiency.toFixed(1) + '%';
+    document.getElementById('efficiency-bar').style.width = this._efficiency.toFixed(1) + '%';
+
+    // Accumulate energy: deltaTime is in seconds; divide by 3600 for Wh, by 1000 for kWh
+    if (this.isRunning && this.rotationSpeed > 0) {
+      this.totalEnergy += power * deltaTime / 3600000;
+    }
+    document.getElementById('energy').textContent = this.totalEnergy.toFixed(4) + ' kWh';
   }
 
   updateUniforms() {
@@ -458,27 +537,47 @@ class SEGVisualizer {
     if (timestamp % 500 < 20) {
       this.fps = Math.round(1 / (deltaTime || 0.016));
       document.getElementById('fps').textContent = this.fps;
-
-      const batteryText = this.mode === 'solar'
-        ? ` | Battery: ${Math.round(this.batteryCharge * 100)}%`
-        : '';
-
-      document.getElementById('stats').innerHTML =
-        `FPS: <span id="fps">${this.fps}</span> | Mode: ${this.mode.toUpperCase()}${batteryText}`;
     }
 
-    const speed = parseFloat(document.getElementById('speedSlider').value) || 1.0;
-    this.time += deltaTime * speed;
+    // Smoothly accelerate / decelerate toward targetSpeed
+    if (!this.isRunning) {
+      // Decelerate at 50 speed-units/second (full stop from 100% in ~2 s)
+      this.rotationSpeed = Math.max(0, this.rotationSpeed - deltaTime * 50);
+      if (this.rotationSpeed === 0) {
+        const statusEl = document.getElementById('status');
+        if (statusEl.textContent === 'STOPPING') {
+          statusEl.textContent = 'STANDBY';
+          statusEl.style.color = '#00d4ff';
+          document.getElementById('statusDot').className = 'status-indicator status-standby';
+        }
+      }
+    } else {
+      // Exponential ramp: close ~86% of the gap each second (factor 2)
+      const diff = this.targetSpeed - this.rotationSpeed;
+      this.rotationSpeed += diff * deltaTime * 2;
+    }
+
+    // Map 0–100 speed to 0.0–5.0 shader speed
+    const shaderSpeed = (this.rotationSpeed / 100) * 5.0;
+    this.time += deltaTime * shaderSpeed;
 
     if (this.mode === 'solar') {
       const ledDrain = 0.18;
       const solarGain = 0.3 + 0.2 * Math.sin(this.time * 2.0);
       this.batteryCharge = Math.min(1.0, Math.max(0.0, this.batteryCharge + (solarGain - ledDrain) * deltaTime));
     } else {
-      // Smoothly relax battery state when not in solar mode
       this.batteryCharge += (0.5 - this.batteryCharge) * deltaTime * 0.5;
     }
 
+    // Update footer battery display
+    const batteryEl = document.getElementById('batteryFooter');
+    if (this.mode === 'solar') {
+      batteryEl.textContent = Math.round(this.batteryCharge * 100) + '%';
+    } else {
+      batteryEl.textContent = '--';
+    }
+
+    this.updateReadings(deltaTime);
     this.updateUniforms();
 
     // Compute pass
@@ -620,20 +719,19 @@ window.setMode = (mode) => {
   document.getElementById('btn-' + mode).classList.add('active');
 
   const descriptions = {
-    seg: "Searl Effect Generator: 12 magnetic rollers in toroidal formation with spiral energy flux converging toward center.",
-    heron: "Heron's Fountain: Fluid dynamics with siphon-driven water jets. Particles simulate hydraulic pressure differentials.",
+    seg:    "Searl Effect Generator: 12 magnetic rollers in toroidal formation with spiral energy flux converging toward centre.",
+    heron:  "Heron's Fountain: Fluid dynamics with siphon-driven water jets. Particles simulate hydraulic pressure differentials.",
     kelvin: "Kelvin's Thunderstorm: Electrostatic induction with falling water droplets charging conductors.",
-    solar: "LEDs & Solar Cells: LEDs drain a battery while shining on solar panels that recharge it. Watch the charge level change."
+    solar:  "LEDs & Solar Cells: LEDs drain a battery while shining on solar panels that recharge it. Watch the charge level change."
   };
 
   document.getElementById('info').textContent = descriptions[mode];
 
-  const batteryText = mode === 'solar' && window.visualizer
-    ? ` | Battery: ${Math.round(window.visualizer.batteryCharge * 100)}%`
-    : '';
-
-  document.getElementById('stats').innerHTML =
-    `FPS: <span id="fps">60</span> | Mode: ${mode.toUpperCase()}${batteryText}`;
+  const modeLabel = mode.toUpperCase();
+  const modeLabelEl = document.getElementById('modeLabel');
+  if (modeLabelEl) modeLabelEl.textContent = modeLabel;
+  const modeFooterEl = document.getElementById('modeFooter');
+  if (modeFooterEl) modeFooterEl.textContent = modeLabel;
 };
 
 window.addEventListener('load', () => {

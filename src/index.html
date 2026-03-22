@@ -3,138 +3,444 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SEG WebGPU Visualizer</title>
+  <title>SEG WebGPU Dashboard</title>
   <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
     body {
       margin: 0;
       overflow: hidden;
-      background: #050505;
+      background: #050a0f;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       color: #0ff;
-    }
-
-    canvas {
-      display: block;
-      width: 100vw;
+      display: flex;
+      flex-direction: column;
       height: 100vh;
     }
 
-    #controls {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      background: rgba(0, 0, 0, 0.8);
-      border: 1px solid #333;
-      border-radius: 8px;
-      padding: 20px;
-      max-width: 320px;
-      backdrop-filter: blur(10px);
-      box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+    /* ── Top header bar ────────────────────────────────── */
+    #header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 16px;
+      background: rgba(0,10,20,0.95);
+      border-bottom: 1px solid #0ff3;
+      flex-shrink: 0;
+      height: 44px;
     }
-
-    h1 {
-      margin: 0 0 15px 0;
-      font-size: 1.3rem;
+    #header h1 {
+      margin: 0;
+      font-size: 1rem;
       color: #0ff;
-      text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
-      border-bottom: 1px solid #0ff;
-      padding-bottom: 10px;
+      text-shadow: 0 0 8px #0ff8;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.75rem;
+      color: #0aa;
+    }
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border: 1px solid #0ff4;
+      border-radius: 12px;
+      font-size: 0.75rem;
+    }
+    .status-indicator {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+    }
+    .status-standby  { background: #00d4ff; box-shadow: 0 0 6px #00d4ff; }
+    .status-active   { background: #00ff88; box-shadow: 0 0 6px #00ff88; animation: blink 1.5s infinite; }
+    .status-inactive { background: #ff6600; box-shadow: 0 0 6px #ff6600; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ── Main layout: left panel | canvas | right panel ── */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
     }
 
+    /* ── Left sidebar ─────────────────────────────────── */
+    #left-panel {
+      width: 220px;
+      flex-shrink: 0;
+      background: rgba(0,8,16,0.97);
+      border-right: 1px solid #0ff2;
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .panel-section {
+      border: 1px solid #0ff2;
+      border-radius: 6px;
+      padding: 10px;
+      background: rgba(0,20,30,0.6);
+    }
+    .panel-section h3 {
+      margin: 0 0 8px 0;
+      font-size: 0.65rem;
+      color: #0aa;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      border-bottom: 1px solid #0ff1;
+      padding-bottom: 5px;
+    }
+
+    /* Mode buttons */
     .mode-btn {
       display: block;
       width: 100%;
-      margin: 8px 0;
-      padding: 12px;
-      background: #111;
-      border: 1px solid #0ff;
-      color: #0ff;
+      margin: 5px 0;
+      padding: 8px 10px;
+      background: #07101a;
+      border: 1px solid #0ff4;
+      color: #0cc;
       cursor: pointer;
-      transition: all 0.3s;
+      transition: all 0.25s;
       border-radius: 4px;
+      font-size: 0.78rem;
       font-weight: 600;
       text-transform: uppercase;
-      font-size: 0.85rem;
+      letter-spacing: 0.5px;
+      text-align: left;
+    }
+    .mode-btn:hover  { background: #0ff2; color: #0ff; border-color: #0ff; box-shadow: 0 0 8px #0ff4; }
+    .mode-btn.active { background: #00d4ff22; color: #0ff; border-color: #0ff; box-shadow: 0 0 10px #0ff5; }
+
+    /* Control buttons */
+    .ctrl-row {
+      display: flex;
+      gap: 6px;
+    }
+    .ctrl-btn {
+      flex: 1;
+      padding: 9px 6px;
+      border-radius: 5px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+      text-transform: uppercase;
       letter-spacing: 1px;
     }
-
-    .mode-btn:hover {
-      background: #0ff;
-      color: #000;
-      box-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
-      transform: translateX(5px);
+    #startBtn {
+      background: linear-gradient(135deg,#004d2a,#006b3a);
+      color: #00ff88;
+      border: 1px solid #00ff88;
+      box-shadow: 0 0 8px #00ff8844;
     }
-
-    .mode-btn.active {
-      background: #0ff;
-      color: #000;
-      box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+    #startBtn:hover { background: linear-gradient(135deg,#006b3a,#009955); box-shadow: 0 0 14px #00ff8877; }
+    #stopBtn {
+      background: linear-gradient(135deg,#4d1a00,#6b2500);
+      color: #ff6600;
+      border: 1px solid #ff6600;
+      box-shadow: 0 0 8px #ff660044;
     }
+    #stopBtn:hover { background: linear-gradient(135deg,#7a2e00,#993800); box-shadow: 0 0 14px #ff660077; }
 
-    #info {
-      margin-top: 20px;
-      font-size: 0.85rem;
-      color: #aaa;
-      line-height: 1.5;
-      border-top: 1px solid #333;
-      padding-top: 15px;
+    /* Sliders */
+    .slider-row {
+      margin: 6px 0;
     }
-
-    .slider-container {
-      margin: 15px 0;
-      padding: 10px;
-      background: rgba(0, 20, 20, 0.5);
-      border-radius: 4px;
-      border: 1px solid #222;
+    .slider-row label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      color: #0aa;
+      margin-bottom: 4px;
     }
-
-    label {
-      display: block;
-      margin-bottom: 8px;
-      font-size: 0.9rem;
-      color: #0ff;
-    }
-
+    .slider-row label span { color: #0ff; font-weight: bold; }
     input[type="range"] {
       width: 100%;
       accent-color: #0ff;
       cursor: pointer;
+      height: 4px;
     }
 
-    #speedVal,
-    #particleVal {
-      float: right;
+    /* Particle slider row */
+    #particleSlider { accent-color: #f0f; }
+
+    /* ── Canvas area ───────────────────────────────────── */
+    #canvas-wrapper {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Corner overlays */
+    .corner-label {
+      position: absolute;
+      font-size: 0.65rem;
+      color: #0ff6;
+      font-family: monospace;
+      pointer-events: none;
+    }
+    #corner-tl { top: 8px; left: 8px; }
+    #corner-tr { top: 8px; right: 8px; text-align: right; }
+    #corner-bl { bottom: 8px; left: 8px; }
+
+    /* ── Right telemetry panel ─────────────────────────── */
+    #right-panel {
+      width: 200px;
+      flex-shrink: 0;
+      background: rgba(0,8,16,0.97);
+      border-left: 1px solid #0ff2;
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .reading-card {
+      background: rgba(0,20,30,0.7);
+      border: 1px solid #0ff2;
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+    .reading-label {
+      font-size: 0.6rem;
+      color: #0777;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 3px;
+    }
+    .reading-value {
+      font-size: 1.05rem;
+      font-family: 'Courier New', monospace;
       color: #0ff;
       font-weight: bold;
+      text-shadow: 0 0 6px #0ff6;
+    }
+    .reading-value.warning  { color: #ffaa00; text-shadow: 0 0 6px #ffaa0066; }
+    .reading-value.critical { color: #ff3300; text-shadow: 0 0 8px #ff330088; }
+
+    /* RPM gauge ring */
+    .rpm-ring {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 8px;
+      background: radial-gradient(circle,rgba(0,255,255,0.05),transparent 70%);
+    }
+    .rpm-value {
+      font-size: 1.4rem;
+      font-family: 'Courier New', monospace;
+      color: #0ff;
+      font-weight: bold;
+      text-shadow: 0 0 12px #0ffa;
+    }
+    .rpm-unit {
+      font-size: 0.65rem;
+      color: #0aa;
+      text-transform: uppercase;
     }
 
-    .stats {
-      margin-top: 15px;
-      font-family: monospace;
-      font-size: 0.8rem;
-      color: #0aa;
+    /* Mini bar chart for efficiency */
+    .mini-bar {
+      height: 4px;
+      background: #0ff1;
+      border-radius: 2px;
+      margin-top: 4px;
+      overflow: hidden;
     }
+    .mini-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0ff, #0f8);
+      border-radius: 2px;
+      transition: width 0.5s;
+    }
+
+    /* ── Bottom status bar ─────────────────────────────── */
+    #footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 16px;
+      background: rgba(0,10,20,0.95);
+      border-top: 1px solid #0ff2;
+      flex-shrink: 0;
+      height: 30px;
+      font-size: 0.68rem;
+      color: #0aa;
+      font-family: monospace;
+    }
+    #footer span { color: #0ff; }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #050a0f; }
+    ::-webkit-scrollbar-thumb { background: #0ff3; border-radius: 2px; }
   </style>
 </head>
 <body>
-  <canvas id="gpuCanvas"></canvas>
-  <div id="controls">
-    <h1>🔮 SEG WebGPU Visualizer</h1>
-    <button class="mode-btn active" id="btn-seg" onclick="setMode('seg')">Searl Effect Generator</button>
-    <button class="mode-btn" id="btn-heron" onclick="setMode('heron')">Heron's Fountain</button>
-    <button class="mode-btn" id="btn-kelvin" onclick="setMode('kelvin')">Kelvin's Thunderstorm</button>
-    <button class="mode-btn" id="btn-solar" onclick="setMode('solar')">LEDs + Solar Cells</button>
-    <div class="slider-container">
-      <label>Rotation Speed: <span id="speedVal">1.0</span></label>
-      <input type="range" id="speedSlider" min="0" max="5" step="0.1" value="1.0">
+
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <div id="header">
+    <h1>⚡ SEG WebGPU Dashboard</h1>
+    <div class="header-right">
+      <div class="status-badge">
+        <div class="status-indicator status-standby" id="statusDot"></div>
+        <span id="status">STANDBY</span>
+      </div>
+      <span>FPS: <span id="fps">--</span></span>
     </div>
-    <div class="slider-container">
-      <label>Particle Count: <span id="particleVal">10000</span></label>
-      <input type="range" id="particleSlider" min="1000" max="50000" step="1000" value="10000">
-    </div>
-    <div id="info">Simulating 12 magnetic rollers in toroidal formation with spiral energy flux patterns using WebGPU compute shaders.</div>
-    <div class="stats" id="stats">FPS: <span id="fps">60</span> | Mode: SEG</div>
   </div>
+
+  <!-- ── Main ───────────────────────────────────────────── -->
+  <div id="main">
+
+    <!-- Left sidebar -->
+    <div id="left-panel">
+
+      <!-- Power controls -->
+      <div class="panel-section">
+        <h3>Power Control</h3>
+        <div class="ctrl-row">
+          <button class="ctrl-btn" id="startBtn">▶ Start</button>
+          <button class="ctrl-btn" id="stopBtn">■ Stop</button>
+        </div>
+      </div>
+
+      <!-- Drive parameters -->
+      <div class="panel-section">
+        <h3>Drive Parameters</h3>
+        <div class="slider-row">
+          <label>Speed <span id="speedVal">0</span>%</label>
+          <input type="range" id="speedControl" min="0" max="100" step="1" value="50">
+        </div>
+        <div class="slider-row">
+          <label>Mag. Field <span id="fieldVal">50</span>%</label>
+          <input type="range" id="fieldControl" min="0" max="100" step="1" value="50">
+        </div>
+        <div class="slider-row">
+          <label>Load <span id="loadVal">100</span>Ω</label>
+          <input type="range" id="loadControl" min="10" max="1000" step="10" value="100">
+        </div>
+      </div>
+
+      <!-- Simulation mode -->
+      <div class="panel-section">
+        <h3>Simulation Mode</h3>
+        <button class="mode-btn active" id="btn-seg"    onclick="setMode('seg')">🔮 SEG Generator</button>
+        <button class="mode-btn"        id="btn-heron"  onclick="setMode('heron')">💧 Heron's Fountain</button>
+        <button class="mode-btn"        id="btn-kelvin" onclick="setMode('kelvin')">⚡ Kelvin Thunderstorm</button>
+        <button class="mode-btn"        id="btn-solar"  onclick="setMode('solar')">☀️ LEDs + Solar</button>
+      </div>
+
+      <!-- Particle count -->
+      <div class="panel-section">
+        <h3>Rendering</h3>
+        <div class="slider-row">
+          <label>Particles <span id="particleVal">10000</span></label>
+          <input type="range" id="particleSlider" min="1000" max="50000" step="1000" value="10000">
+        </div>
+      </div>
+
+      <!-- Info -->
+      <div class="panel-section">
+        <h3>Info</h3>
+        <div id="info" style="font-size:0.72rem;color:#0aa;line-height:1.5;">
+          12 magnetic rollers in toroidal formation with spiral energy flux converging toward centre.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 3D Canvas -->
+    <div id="canvas-wrapper">
+      <canvas id="gpuCanvas"></canvas>
+      <div class="corner-label" id="corner-tl">SEG WebGPU v2.0</div>
+      <div class="corner-label" id="corner-tr">Drag to orbit · Scroll to zoom</div>
+      <div class="corner-label" id="corner-bl">Mode: <span id="modeLabel">SEG</span></div>
+    </div>
+
+    <!-- Right telemetry panel -->
+    <div id="right-panel">
+
+      <!-- RPM -->
+      <div class="reading-card">
+        <div class="reading-label">Inner Ring RPM</div>
+        <div class="rpm-ring">
+          <div>
+            <div class="rpm-value" id="rpm-inner">0</div>
+            <div class="rpm-unit">RPM</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Voltage -->
+      <div class="reading-card">
+        <div class="reading-label">Output Voltage</div>
+        <div class="reading-value" id="voltage">0.000 V</div>
+      </div>
+
+      <!-- Current -->
+      <div class="reading-card">
+        <div class="reading-label">Output Current</div>
+        <div class="reading-value" id="current">0.000 A</div>
+      </div>
+
+      <!-- Power -->
+      <div class="reading-card">
+        <div class="reading-label">Output Power</div>
+        <div class="reading-value" id="power">0.000 W</div>
+      </div>
+
+      <!-- Magnetic field -->
+      <div class="reading-card">
+        <div class="reading-label">Magnetic Field</div>
+        <div class="reading-value" id="magnetic-field">0.000 T</div>
+      </div>
+
+      <!-- Temperature -->
+      <div class="reading-card">
+        <div class="reading-label">Temperature</div>
+        <div class="reading-value" id="temperature">25.0 °C</div>
+      </div>
+
+      <!-- Efficiency -->
+      <div class="reading-card">
+        <div class="reading-label">Efficiency</div>
+        <div class="reading-value" id="efficiency">0.0%</div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="efficiency-bar" style="width:0%"></div></div>
+      </div>
+
+      <!-- Energy -->
+      <div class="reading-card">
+        <div class="reading-label">Total Energy</div>
+        <div class="reading-value" id="energy">0.0000 kWh</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Footer ─────────────────────────────────────────── -->
+  <div id="footer">
+    <span id="stats">Mode: <span id="modeFooter">SEG</span></span>
+    <span>WebGPU Compute Shader Physics</span>
+    <span>Battery: <span id="batteryFooter">--</span></span>
+  </div>
+
   <script type="module" src="main.js"></script>
 </body>
 </html>
