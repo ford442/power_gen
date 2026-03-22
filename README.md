@@ -8,7 +8,10 @@ Real-time WebGPU simulation of the Searl Effect Generator (SEG) with extensible 
 - 12 instanced magnetic rollers in toroidal formation (ready to upgrade to three ringed SEG or other configuration)
 - 10,000-50,000 GPU compute shader particles
 - Interactive orbital camera (drag to rotate, scroll to zoom)
-- Three visualization modes: SEG, (Heron's Fountain + Kelvin's Thunderstorm)
+- Three visualization modes: SEG, Heron's Fountain, Kelvin's Thunderstorm
+
+## Future Plans
+- Add Quanta Magnetics devices to the visualization suite
 
 ## Browser Support
 Chrome/Edge 113+ with WebGPU enabled. Requires HTTPS or localhost.
