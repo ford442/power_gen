@@ -123,19 +123,20 @@ struct VertexOutput {
   var finalColor: vec3f;
 
   if (uniforms.mode < 0.5) {
-    // SEG mode
-    let fieldGlow = magneticColor * (fieldPattern * 0.3 + 0.5) * fresnel * 2.0;
-    finalColor = baseColor + ringColor * 0.3 + fieldGlow;
+    // SEG mode: enhanced magnetic field glow
+    let fieldGlow = magneticColor * (fieldPattern * 0.5 + 0.5) * fresnel * 3.0;
+    finalColor = baseColor + ringColor * 0.2 + fieldGlow;
   } else if (uniforms.mode < 1.5) {
-    // Heron's Fountain mode
-    let waterPattern = sin(worldPos.y * 8.0 + uniforms.time * 2.0) * 0.5 + 0.5;
-    finalColor = mix(vec3f(0.0, 0.2, 0.6), vec3f(0.0, 0.6, 1.0), waterPattern) + fresnel * 0.5;
+    // Heron's Fountain mode: water surface with ripples
+    let waterPattern = sin(worldPos.y * 10.0 + uniforms.time * 3.0) * 0.5 + 0.5;
+    let waterColor = mix(vec3f(0.0, 0.1, 0.5), vec3f(0.0, 0.7, 1.0), waterPattern);
+    finalColor = waterColor + fresnel * 0.8;
   } else if (uniforms.mode < 2.5) {
-    // Kelvin's Thunderstorm mode
-    let electric = fract(sin(dot(worldPos.xz, vec2f(12.9898, 78.233))) * 43758.5453);
-    let spark = step(0.98, electric);
-    finalColor = mix(vec3f(0.4, 0.0, 0.6), vec3f(1.0, 0.5, 1.0), spark) +
-                 fresnel * vec3f(0.5, 0.0, 0.5);
+    // Kelvin's Thunderstorm mode: electric sparks and charge buildup
+    let electric = fract(sin(dot(worldPos.xz, vec2f(15.0, 20.0))) * 50000.0 + uniforms.time * 10.0);
+    let spark = step(0.95, electric);
+    let chargeColor = mix(vec3f(0.3, 0.0, 0.5), vec3f(1.0, 0.2, 1.0), spark);
+    finalColor = chargeColor + fresnel * vec3f(0.6, 0.0, 0.6);
   } else {
     // LEDs + Solar Cells mode
     let charge = clamp(uniforms._pad, 0.0, 1.0);
