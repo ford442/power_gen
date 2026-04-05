@@ -24,6 +24,21 @@ class SEGVisualizer {
     this.coilIndexBuffer = null;
     this.coilIndexCount = 0;
 
+    // SEG ring-separator plates (4 flat annuli)
+    this.segPlateVertexBuffers = [];
+    this.segPlateIndexBuffers  = [];
+    this.segPlateIndexCounts   = [];
+
+    // Kelvin induction-ring toruses (small, positioned via firstInstance offset)
+    this.kelvinRingVertexBuffer = null;
+    this.kelvinRingIndexBuffer  = null;
+    this.kelvinRingIndexCount   = 0;
+
+    // Solar panel flat disc
+    this.solarPanelVertexBuffer = null;
+    this.solarPanelIndexBuffer  = null;
+    this.solarPanelIndexCount   = 0;
+
     this.mode = 'seg';
     this.particleCount = 10000;
     this.time = 0;
@@ -237,15 +252,68 @@ class SEGVisualizer {
     return { vertices: vertexData, indices: new Uint16Array(indices) };
   }
 
+  // Flat horizontal ring disc (annulus) with top + bottom faces + inner/outer sides.
+  // innerRadius == 0 gives a full disc with a tiny centre hole (degenerate-safe).
+  generateRingDisc(innerRadius, outerRadius, segments = 64, thickness = 0.10) {
+    const verts = [];
+    const inds  = [];
+    const h = thickness / 2;
+    const inner = Math.max(innerRadius, 0.01);
+
+    for (let i = 0; i <= segments; i++) {
+      const theta = (i / segments) * Math.PI * 2;
+      const c = Math.cos(theta), s = Math.sin(theta);
+      // top face (normal up)
+      verts.push(c * inner,  h, s * inner,  0, 1, 0);
+      verts.push(c * outerRadius, h, s * outerRadius, 0, 1, 0);
+      // bottom face (normal down)
+      verts.push(c * inner, -h, s * inner,  0, -1, 0);
+      verts.push(c * outerRadius, -h, s * outerRadius, 0, -1, 0);
+      // outer side (normal outward)
+      verts.push(c * outerRadius,  h, s * outerRadius, c, 0, s);
+      verts.push(c * outerRadius, -h, s * outerRadius, c, 0, s);
+      // inner side (normal inward)
+      verts.push(c * inner,  h, s * inner, -c, 0, -s);
+      verts.push(c * inner, -h, s * inner, -c, 0, -s);
+    }
+    // 8 vertices per angular step
+    for (let i = 0; i < segments; i++) {
+      const b = i * 8, n = (i + 1) * 8;
+      // top quad
+      inds.push(b,     n,     b + 1, b + 1, n,     n + 1);
+      // bottom quad (reversed winding)
+      inds.push(b + 2, b + 3, n + 2, n + 2, b + 3, n + 3);
+      // outer side
+      inds.push(b + 4, b + 5, n + 4, n + 4, b + 5, n + 5);
+      // inner side (reversed)
+      inds.push(b + 6, n + 6, b + 7, b + 7, n + 6, n + 7);
+    }
+    return { vertices: new Float32Array(verts), indices: new Uint16Array(inds) };
+  }
+
+  // Helper: create a GPU vertex+index buffer pair and return { vb, ib, count }
+  _makeGeomBuffers(data) {
+    const vb = this.device.createBuffer({
+      size: data.vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(vb, 0, data.vertices);
+    const ib = this.device.createBuffer({
+      size: data.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(ib, 0, data.indices);
+    return { vb, ib, count: data.indices.length };
+  }
+
   async setupGeometry() {
-    // Roller cylinders
+    // ── Roller cylinders (shared for Heron / Kelvin / Solar structural objects) ─
     const cylinderData = this.generateCylinder(0.8, 2.5, 32);
     this.vertexBuffer = this.device.createBuffer({
       size: cylinderData.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
     });
     this.device.queue.writeBuffer(this.vertexBuffer, 0, cylinderData.vertices);
-
     this.indexBuffer = this.device.createBuffer({
       size: cylinderData.indices.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
@@ -253,35 +321,63 @@ class SEGVisualizer {
     this.device.queue.writeBuffer(this.indexBuffer, 0, cylinderData.indices);
     this.indexCount = cylinderData.indices.length;
 
-    // Core sphere
+    // ── SEG: core iron hub (sphere) ──────────────────────────────────────────
     const coreData = this.generateSphere(1.2, 32, 24);
     this.coreVertexBuffer = this.device.createBuffer({
-      size: coreData.vertices.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+      size: coreData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
     });
     this.device.queue.writeBuffer(this.coreVertexBuffer, 0, coreData.vertices);
-
     this.coreIndexBuffer = this.device.createBuffer({
-      size: coreData.indices.byteLength,
-      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+      size: coreData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
     });
     this.device.queue.writeBuffer(this.coreIndexBuffer, 0, coreData.indices);
     this.coreIndexCount = coreData.indices.length;
 
-    // Outer coil (torus)
+    // ── SEG: outer electromagnetic coil (large torus) ────────────────────────
     const coilData = this.generateTorus(9.0, 0.5, 64, 16);
     this.coilVertexBuffer = this.device.createBuffer({
-      size: coilData.vertices.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+      size: coilData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
     });
     this.device.queue.writeBuffer(this.coilVertexBuffer, 0, coilData.vertices);
-
     this.coilIndexBuffer = this.device.createBuffer({
-      size: coilData.indices.byteLength,
-      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+      size: coilData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
     });
     this.device.queue.writeBuffer(this.coilIndexBuffer, 0, coilData.indices);
     this.coilIndexCount = coilData.indices.length;
+
+    // ── SEG: 4 ring-separator plates (flat annuli between roller rings) ───────
+    // Rollers sit at radii 3.5, 5.5, 7.5 with radius 0.8.
+    // Plates fill the gaps: centre hub, and separators between each ring pair.
+    const plateSpecs = [
+      { inner: 0.2,  outer: 2.55 },   // centre hub plate
+      { inner: 4.35, outer: 4.65 },   // separator between inner & middle rings
+      { inner: 6.35, outer: 6.65 },   // separator between middle & outer rings
+      { inner: 8.15, outer: 9.10 },   // outer pickup-coil backing plate
+    ];
+    this.segPlateVertexBuffers = [];
+    this.segPlateIndexBuffers  = [];
+    this.segPlateIndexCounts   = [];
+    for (const spec of plateSpecs) {
+      const d = this.generateRingDisc(spec.inner, spec.outer, 64, 0.12);
+      const { vb, ib, count } = this._makeGeomBuffers(d);
+      this.segPlateVertexBuffers.push(vb);
+      this.segPlateIndexBuffers.push(ib);
+      this.segPlateIndexCounts.push(count);
+    }
+
+    // ── Kelvin: small induction-ring toruses (radius 1.0, minor 0.14) ────────
+    const kelvinRingData = this.generateTorus(1.0, 0.14, 48, 14);
+    const kr = this._makeGeomBuffers(kelvinRingData);
+    this.kelvinRingVertexBuffer = kr.vb;
+    this.kelvinRingIndexBuffer  = kr.ib;
+    this.kelvinRingIndexCount   = kr.count;
+
+    // ── Solar: flat panel disc (radius 5.5, thin) ─────────────────────────────
+    const solarPanelData = this.generateRingDisc(0.05, 5.5, 64, 0.06);
+    const sp = this._makeGeomBuffers(solarPanelData);
+    this.solarPanelVertexBuffer = sp.vb;
+    this.solarPanelIndexBuffer  = sp.ib;
+    this.solarPanelIndexCount   = sp.count;
 
     this.updateParticles();
   }
@@ -345,9 +441,10 @@ class SEGVisualizer {
         entryPoint: 'vertexMain',
         buffers: [{
           arrayStride: 16,
+          stepMode: 'instance',   // one particle record (xyz + phase) per instance
           attributes: [
-            { shaderLocation: 0, offset: 0, format: 'float32x3' },
-            { shaderLocation: 1, offset: 12, format: 'float32' }
+            { shaderLocation: 0, offset: 0,  format: 'float32x3' },
+            { shaderLocation: 1, offset: 12, format: 'float32'   }
           ]
         }]
       },
@@ -622,24 +719,59 @@ class SEGVisualizer {
       entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }]
     });
 
-    // Render rollers (3 rings)
     renderPass.setPipeline(this.renderPipeline);
     renderPass.setBindGroup(0, renderBindGroup);
-    renderPass.setVertexBuffer(0, this.vertexBuffer);
-    renderPass.setIndexBuffer(this.indexBuffer, 'uint16');
-    renderPass.drawIndexed(this.indexCount, 66);
 
-    // Render core sphere
-    renderPass.setVertexBuffer(0, this.coreVertexBuffer);
-    renderPass.setIndexBuffer(this.coreIndexBuffer, 'uint16');
-    renderPass.drawIndexed(this.coreIndexCount, 1);
+    if (this.mode === 'seg') {
+      // ── SEG: ring plates → rollers → core hub → outer coil ──────────────
+      // Ring plates use firstInstance offsets 68–71 (pass-through in shader)
+      for (let p = 0; p < 4; p++) {
+        renderPass.setVertexBuffer(0, this.segPlateVertexBuffers[p]);
+        renderPass.setIndexBuffer(this.segPlateIndexBuffers[p], 'uint16');
+        renderPass.drawIndexed(this.segPlateIndexCounts[p], 1, 0, 0, 68 + p);
+      }
+      // 66 rollers (instances 0–65)
+      renderPass.setVertexBuffer(0, this.vertexBuffer);
+      renderPass.setIndexBuffer(this.indexBuffer, 'uint16');
+      renderPass.drawIndexed(this.indexCount, 66);
+      // Core sphere (firstInstance 66 → pass-through)
+      renderPass.setVertexBuffer(0, this.coreVertexBuffer);
+      renderPass.setIndexBuffer(this.coreIndexBuffer, 'uint16');
+      renderPass.drawIndexed(this.coreIndexCount, 1, 0, 0, 66);
+      // Outer electromagnetic coil (firstInstance 67 → pass-through)
+      renderPass.setVertexBuffer(0, this.coilVertexBuffer);
+      renderPass.setIndexBuffer(this.coilIndexBuffer, 'uint16');
+      renderPass.drawIndexed(this.coilIndexCount, 1, 0, 0, 67);
 
-    // Render outer coil
-    renderPass.setVertexBuffer(0, this.coilVertexBuffer);
-    renderPass.setIndexBuffer(this.coilIndexBuffer, 'uint16');
-    renderPass.drawIndexed(this.coilIndexCount, 1);
+    } else if (this.mode === 'heron') {
+      // ── Heron's Fountain: 6 vessel/tube cylinder instances ───────────────
+      renderPass.setVertexBuffer(0, this.vertexBuffer);
+      renderPass.setIndexBuffer(this.indexBuffer, 'uint16');
+      renderPass.drawIndexed(this.indexCount, 6);
 
-    // Render particles
+    } else if (this.mode === 'kelvin') {
+      // ── Kelvin's Thunderstorm: 6 cylinder instances + 2 induction rings ──
+      renderPass.setVertexBuffer(0, this.vertexBuffer);
+      renderPass.setIndexBuffer(this.indexBuffer, 'uint16');
+      renderPass.drawIndexed(this.indexCount, 6);
+      // Induction rings (firstInstance 100–101 → translate in shader)
+      renderPass.setVertexBuffer(0, this.kelvinRingVertexBuffer);
+      renderPass.setIndexBuffer(this.kelvinRingIndexBuffer, 'uint16');
+      renderPass.drawIndexed(this.kelvinRingIndexCount, 2, 0, 0, 100);
+
+    } else {
+      // ── Solar / LED: panel disc + 7 cylinder instances ────────────────────
+      // Solar panel (firstInstance 200 → pass-through)
+      renderPass.setVertexBuffer(0, this.solarPanelVertexBuffer);
+      renderPass.setIndexBuffer(this.solarPanelIndexBuffer, 'uint16');
+      renderPass.drawIndexed(this.solarPanelIndexCount, 1, 0, 0, 200);
+      // 6 LEDs + battery (instances 0–6)
+      renderPass.setVertexBuffer(0, this.vertexBuffer);
+      renderPass.setIndexBuffer(this.indexBuffer, 'uint16');
+      renderPass.drawIndexed(this.indexCount, 7);
+    }
+
+    // Render particles (all modes)
     renderPass.setPipeline(this.particlePipeline);
     renderPass.setBindGroup(0, particleBindGroup);
     renderPass.setVertexBuffer(0, this.particleBuffer);
