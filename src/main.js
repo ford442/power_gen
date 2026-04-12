@@ -752,13 +752,14 @@ class SEGVisualizer {
       }
     });
 
+    // Note: The render pipeline layout only has bindings 0 and 1
+    // Bindings 2 and 3 (instanceBuffer, materialBuffer) are defined in shader
+    // but may be accessed via storage buffers differently
     const renderBindGroup = this.device.createBindGroup({
       layout: this.renderPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.uniformBuffer } },
-        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-        { binding: 2, resource: { buffer: this.instanceBuffer } },
-        { binding: 3, resource: { buffer: this.materialBuffer } }
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } }
       ]
     });
 
