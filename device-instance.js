@@ -32,7 +32,7 @@ class DeviceInstance {
     this.corePipeline = null;
 
     // Field line visualization (SEG only)
-    this.fieldLineCount = 1000;
+    this.fieldLineCount = 1200;
     this.fieldLineParticles = null;
     this.fieldLinePipeline = null;
     this.fieldLineEnabled = true;
@@ -51,13 +51,15 @@ class DeviceInstance {
     await this.geometry.setupParticles();
 
     if (this.id === 'seg') {
-      await this.geometry.setupRollers();
-      await this.geometry.setupCore();
-      await this.geometry.setupFieldLines();
-      await this.geometry.setupEnergyArcs();
+      // Use the new unified initialization for SEG
+      await this.geometry.initializeSEG();
+    }
+  }
+
   async setupUniforms() {
-    this.deviceUniformBuffer = this.device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.deviceUniformBuffer = this.device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.materialUniformBuffer = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.renderMode = 0;  // 0=rollers, 1=base, 2=stator, 3=wiring
 
     this.visualizer.profiler.trackBuffer(`device-${this.id}-uniforms`, 80, GPUBufferUsage.UNIFORM);
 
@@ -78,7 +80,12 @@ class DeviceInstance {
     let emission = 2.0;
     let pad = 0.0;
 
-    if (this.id === 'solar') {
+    if (this.id === 'seg') {
+      // SEG uses copper base with green energy glow
+      baseColor = [0.85, 0.48, 0.25]; // Copper
+      glowColor = [0.0, 1.2, 0.6];    // Green energy
+      emission = 1.8;
+    } else if (this.id === 'solar') {
       // Solar device uses a warm glow color and will modulate emission based on battery charge.
       baseColor = this.config.color;
       glowColor = [1.0, 0.9, 0.4];
@@ -111,10 +118,6 @@ class DeviceInstance {
       ]);
       this.device.queue.writeBuffer(this.coreMaterialBuffer, 0, coreMaterialData);
     }
-  }
-
-    }
-
   }
 
   update(deltaTime, qualityScale) {
@@ -151,15 +154,16 @@ class DeviceInstance {
     }
 
     const deviceData = new Float32Array([
-      ...this.position,
-      Math.sin(this.rotation[1] / 2),
-      0,
-      Math.cos(this.rotation[1] / 2),
-      1.0,
-      1.0,
-      ringIndex,
-      this.id === 'solar' ? this.batteryCharge : 0,
-      this.id === 'solar' ? 1 : 0
+      this.renderMode,                     // renderMode [0]
+      ...this.position,                    // position [1, 2, 3]
+      Math.sin(this.rotation[1] / 2),      // [4]
+      0,                                   // [5]
+      Math.cos(this.rotation[1] / 2),      // [6]
+      1.0,                                 // [7]
+      1.0,                                 // [8]
+      ringIndex,                           // [9]
+      this.id === 'solar' ? this.batteryCharge : 0,  // [10]
+      this.id === 'solar' ? 1 : 0          // [11]
     ]);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
@@ -179,7 +183,7 @@ class DeviceInstance {
 
     if (this.id === 'seg' && this.rollerInstances) {
       // 3-ring SEG system based on John Searl's design
-      const instanceData = new Float32Array(36 * 8);
+      const instanceData = new Float32Array(36 * 12);
       const time = this.visualizer.time;
 
       // Ring specifications
@@ -193,39 +197,36 @@ class DeviceInstance {
 
       for (const ring of rings) {
         for (let i = 0; i < ring.count; i++) {
+          const idx = rollerOffset * 12;
           // Orbital position around the central axis
           const angle = (i / ring.count) * Math.PI * 2 + time * 0.5 * ring.speed;
 
           // Position in toroidal ring
-          instanceData[rollerOffset * 8] = Math.cos(angle) * ring.radius;     // x
-          instanceData[rollerOffset * 8 + 1] = 0;                              // y
-          instanceData[rollerOffset * 8 + 2] = Math.sin(angle) * ring.radius;  // z
+          instanceData[idx] = Math.cos(angle) * ring.radius;     // x
+          instanceData[idx + 1] = 0;                              // y
+          instanceData[idx + 2] = Math.sin(angle) * ring.radius;  // z
 
           // Roller self-rotation (gear-like rolling motion)
-          // Self-rotation = orbital_angle * (ring_radius / roller_radius)
-          // roller_radius is proportional to scale, so gear ratio = ring_radius / scale
           const gearRatio = ring.radius / ring.scale;
           const selfRotAngle = angle * gearRatio * 0.5;
 
-          // Quaternion for self-rotation (around Y axis)
-          instanceData[rollerOffset * 8 + 3] = ring.index;                     // ringIndex (stored in position.w or use separate field)
-          instanceData[rollerOffset * 8 + 4] = Math.sin(selfRotAngle / 2);     // rotation.x
-          instanceData[rollerOffset * 8 + 5] = 0;                              // rotation.y
-          instanceData[rollerOffset * 8 + 6] = Math.sin(selfRotAngle / 2);     // rotation.z (roll around tangent)
-          instanceData[rollerOffset * 8 + 7] = Math.cos(selfRotAngle / 2);     // rotation.w
-
           // Calculate proper rotation quaternion for rolling motion
-          // The roller should roll around its own axis tangent to the ring
-          const tangentAngle = angle + Math.PI / 2; // tangent to the ring
+          const tangentAngle = angle + Math.PI / 2;
           const rollAxisX = Math.cos(tangentAngle);
           const rollAxisZ = Math.sin(tangentAngle);
 
-          // Update rotation: around tangent axis for rolling
-          instanceData[rollerOffset * 8 + 3] = ring.index;                     // ringIndex
-          instanceData[rollerOffset * 8 + 4] = rollAxisX * Math.sin(selfRotAngle / 2);
-          instanceData[rollerOffset * 8 + 5] = 0;
-          instanceData[rollerOffset * 8 + 6] = rollAxisZ * Math.sin(selfRotAngle / 2);
-          instanceData[rollerOffset * 8 + 7] = Math.cos(selfRotAngle / 2);
+          // Store ring index and rotation
+          instanceData[idx + 3] = ring.index;                     // ringIndex
+          instanceData[idx + 4] = rollAxisX * Math.sin(selfRotAngle / 2);
+          instanceData[idx + 5] = 0;
+          instanceData[idx + 6] = rollAxisZ * Math.sin(selfRotAngle / 2);
+          instanceData[idx + 7] = Math.cos(selfRotAngle / 2);
+
+          // Copper color + green emissive flag
+          instanceData[idx + 8] = 0.85;   // copper R
+          instanceData[idx + 9] = 0.48;   // copper G
+          instanceData[idx + 10] = 0.25;  // copper B
+          instanceData[idx + 11] = 1.0;   // green emissive enabled
 
           rollerOffset++;
         }
@@ -248,10 +249,7 @@ class DeviceInstance {
       this.coilEnergies = new Float32Array(numCoils);
     }
 
-    // Coil data packed as vec4f pairs for the shader:
-    // vec4f[0] = (position.xyz, rotation.x)
-    // vec4f[1] = (rotation.yzw, energy)
-    // Total: 2 vec4f = 8 floats per coil = 32 bytes per coil
+    // Coil data packed as vec4f pairs for the shader
     const coilInstanceData = new Float32Array(numCoils * 8);
 
     for (let i = 0; i < numCoils; i++) {
@@ -265,8 +263,8 @@ class DeviceInstance {
 
       // Check all 36 rollers (3 rings: 8 + 12 + 16)
       for (let r = 0; r < 36; r++) {
-        const rollerX = rollerData[r * 8];
-        const rollerZ = rollerData[r * 8 + 2];
+        const rollerX = rollerData[r * 12];
+        const rollerZ = rollerData[r * 12 + 2];
 
         const dx = coilX - rollerX;
         const dz = coilZ - rollerZ;
@@ -282,30 +280,26 @@ class DeviceInstance {
       }
 
       // Calculate energy: higher when rollers are closer, modulated by roller speed
-      // Energy falls off with distance
       const energy = Math.max(0, 1 - minDistance / 3.0) * nearestRollerSpeed * 0.5;
 
       // Smooth energy transition
       this.coilEnergies[i] = this.coilEnergies[i] * 0.9 + energy * 0.1;
 
       // Rotation: face inward (toward center)
-      // For a rotation around Y axis by angle = coilAngle + PI (180 degrees to face inward)
       const rotAngle = coilAngle + Math.PI;
-      const rotY = Math.sin(rotAngle / 2);  // sin of half angle for Y component
-      const rotW = Math.cos(rotAngle / 2);  // cos of half angle for W component
+      const rotY = Math.sin(rotAngle / 2);
+      const rotW = Math.cos(rotAngle / 2);
 
-      // Pack data into two vec4f:
-      // data0: position.xyz, rotation.x
-      coilInstanceData[i * 8] = coilX;           // position.x
-      coilInstanceData[i * 8 + 1] = 0;           // position.y
-      coilInstanceData[i * 8 + 2] = coilZ;       // position.z
-      coilInstanceData[i * 8 + 3] = 0;           // rotation.x (not used for Y-axis rotation)
+      // Pack data into two vec4f
+      coilInstanceData[i * 8] = coilX;
+      coilInstanceData[i * 8 + 1] = 0;
+      coilInstanceData[i * 8 + 2] = coilZ;
+      coilInstanceData[i * 8 + 3] = 0;
 
-      // data1: rotation.yzw, energy
-      coilInstanceData[i * 8 + 4] = rotY;        // rotation.y
-      coilInstanceData[i * 8 + 5] = 0;           // rotation.z
-      coilInstanceData[i * 8 + 6] = rotW;        // rotation.w
-      coilInstanceData[i * 8 + 7] = this.coilEnergies[i]; // energy
+      coilInstanceData[i * 8 + 4] = rotY;
+      coilInstanceData[i * 8 + 5] = 0;
+      coilInstanceData[i * 8 + 6] = rotW;
+      coilInstanceData[i * 8 + 7] = this.coilEnergies[i];
     }
 
     this.device.queue.writeBuffer(this.coilInstances, 0, coilInstanceData);
@@ -362,7 +356,22 @@ class DeviceInstance {
   render(renderPass, globalUniformBuffer, skipEffects = false) {
     const scaledCount = Math.floor(this.particleCount * this.visualizer.profiler.qualityLevel);
 
-    // Render core first (before rollers so rollers appear in front)
+    // Render base first (for SEG)
+    if (this.id === 'seg' && this.geometry.baseBuffer && !skipEffects) {
+      this.renderBase(renderPass, globalUniformBuffer);
+    }
+
+    // Render stator rings (for SEG)
+    if (this.id === 'seg' && this.geometry.statorRingBuffer && !skipEffects) {
+      this.renderStatorRings(renderPass, globalUniformBuffer);
+    }
+
+    // Render wiring (for SEG)
+    if (this.id === 'seg' && this.geometry.wiringBuffer && !skipEffects) {
+      this.renderWiring(renderPass, globalUniformBuffer);
+    }
+
+    // Render core (before rollers so rollers appear in front)
     if (this.id === 'seg' && !skipEffects) {
       this.renderCore(renderPass, globalUniformBuffer);
     }
@@ -373,6 +382,22 @@ class DeviceInstance {
     }
 
     if (this.id === 'seg' && this.rollerInstances && !skipEffects) {
+      // Reset renderMode to 0 (rollers)
+      this.renderMode = 0;
+      const deviceData = new Float32Array([
+        this.renderMode,
+        ...this.position,
+        Math.sin(this.rotation[1] / 2),
+        0,
+        Math.cos(this.rotation[1] / 2),
+        1.0,
+        1.0,
+        0,
+        this.id === 'solar' ? this.batteryCharge : 0,
+        this.id === 'solar' ? 1 : 0
+      ]);
+      this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
+      
       const bindGroup = this.device.createBindGroup({
         layout: this.rollerPipeline.getBindGroupLayout(0),
         entries: [
@@ -387,7 +412,7 @@ class DeviceInstance {
       renderPass.setBindGroup(0, bindGroup);
       renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
       renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
-      renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 36); // 3 rings: 8 + 12 + 16 = 36 rollers
+      renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 36);
     }
 
     // Render battery gauge (solar device only)
@@ -445,7 +470,7 @@ class DeviceInstance {
 
         renderPass.setPipeline(this.energyArcPipeline);
         renderPass.setBindGroup(0, arcBindGroup);
-        renderPass.draw(4, arcCount * 2); // Each arc uses 2 triangles
+        renderPass.draw(4, arcCount * 2);
       }
     }
 
@@ -462,6 +487,115 @@ class DeviceInstance {
     renderPass.setPipeline(this.particlePipeline);
     renderPass.setBindGroup(0, particleBindGroup);
     renderPass.draw(4, scaledCount);
+  }
+
+  renderBase(renderPass, globalUniformBuffer) {
+    if (!this.geometry.baseBuffer) return;
+    
+    // Set renderMode to 1 (base)
+    this.renderMode = 1;
+    const deviceData = new Float32Array([
+      this.renderMode,
+      ...this.position,
+      Math.sin(this.rotation[1] / 2),
+      0,
+      Math.cos(this.rotation[1] / 2),
+      1.0,
+      1.0,
+      0,
+      this.id === 'solar' ? this.batteryCharge : 0,
+      this.id === 'solar' ? 1 : 0
+    ]);
+    this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
+    
+    const bindGroup = this.device.createBindGroup({
+      layout: this.rollerPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: this.geometry.baseBuffer } },
+        { binding: 3, resource: { buffer: this.materialUniformBuffer } }
+      ]
+    });
+
+    renderPass.setPipeline(this.rollerPipeline);
+    renderPass.setBindGroup(0, bindGroup);
+    // Draw base as a cube/quad
+    renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
+    renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 1);
+  }
+
+  renderStatorRings(renderPass, globalUniformBuffer) {
+    if (!this.geometry.statorRingBuffer) return;
+    
+    // Set renderMode to 2 (stator)
+    this.renderMode = 2;
+    const deviceData = new Float32Array([
+      this.renderMode,
+      ...this.position,
+      Math.sin(this.rotation[1] / 2),
+      0,
+      Math.cos(this.rotation[1] / 2),
+      1.0,
+      1.0,
+      0,
+      this.id === 'solar' ? this.batteryCharge : 0,
+      this.id === 'solar' ? 1 : 0
+    ]);
+    this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
+    
+    const bindGroup = this.device.createBindGroup({
+      layout: this.rollerPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
+        { binding: 3, resource: { buffer: this.materialUniformBuffer } }
+      ]
+    });
+
+    renderPass.setPipeline(this.rollerPipeline);
+    renderPass.setBindGroup(0, bindGroup);
+    renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
+    renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 3); // 3 rings
+  }
+
+  renderWiring(renderPass, globalUniformBuffer) {
+    if (!this.geometry.wiringBuffer) return;
+    
+    // Set renderMode to 3 (wiring)
+    this.renderMode = 3;
+    const deviceData = new Float32Array([
+      this.renderMode,
+      ...this.position,
+      Math.sin(this.rotation[1] / 2),
+      0,
+      Math.cos(this.rotation[1] / 2),
+      1.0,
+      1.0,
+      0,
+      this.id === 'solar' ? this.batteryCharge : 0,
+      this.id === 'solar' ? 1 : 0
+    ]);
+    this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
+    
+    const bindGroup = this.device.createBindGroup({
+      layout: this.rollerPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
+        { binding: 3, resource: { buffer: this.materialUniformBuffer } }
+      ]
+    });
+
+    renderPass.setPipeline(this.rollerPipeline);
+    renderPass.setBindGroup(0, bindGroup);
+    renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
+    renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 8); // 8 wires
   }
 
   renderCore(renderPass, globalUniformBuffer) {
@@ -483,7 +617,7 @@ class DeviceInstance {
 
     // Render central shaft
     renderPass.setVertexBuffer(0, v.coreShaftBuffer.vertexBuffer);
-    renderPass.setVertexBuffer(1, v.coreBoltInstanceBuffer); // Dummy, won't be used
+    renderPass.setVertexBuffer(1, v.coreBoltInstanceBuffer);
     renderPass.setIndexBuffer(v.coreShaftBuffer.indexBuffer, 'uint16');
     renderPass.drawIndexed(v.coreShaftBuffer.indexCount, 1);
 
@@ -496,7 +630,6 @@ class DeviceInstance {
     const plateOffsetTop = new Float32Array([0, this.config.core.plateY, 0]);
     const plateOffsetBottom = new Float32Array([0, -this.config.core.plateY, 0]);
 
-    // Top plate - create temp buffer for offset
     const topPlateBuffer = this.device.createBuffer({
       size: 12,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST

@@ -6,7 +6,25 @@ struct Uniforms {
   _pad: f32,   // batteryCharge (solar) / 0.5 (other modes)
 }
 
+struct DeviceUniforms {
+  renderMode: f32,  // 0=rollers, 1=base, 2=stator, 3=wiring
+  _pad: vec3f,
+}
+
+struct InstanceData {
+  position: vec3f,
+  data0: f32,
+}
+
+struct MaterialData {
+  color: vec3f,
+  emissive: f32,
+}
+
 @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+@binding(1) @group(0) var<uniform> deviceUniforms: DeviceUniforms;
+@binding(2) @group(0) var<storage, read> instanceBuffer: array<InstanceData>;
+@binding(3) @group(0) var<storage, read> materialBuffer: array<MaterialData>;
 
 struct VertexOutput {
   @builtin(position) position: vec4f,
@@ -37,6 +55,7 @@ struct VertexOutput {
   let mode = uniforms.mode;
   var worldPos: vec3f;
   var worldNormal: vec3f = normal;
+  let renderMode = u32(deviceUniforms.renderMode);
 
   // ── Special / pass-through geometry (high instance-index offsets) ──────────
   if (instanceIdx == 100u) {
@@ -48,6 +67,37 @@ struct VertexOutput {
   } else if (instanceIdx >= 66u) {
     // Core sphere (66), outer coil (67), ring plates (68-71), solar disc (200+)
     worldPos = position;
+
+  // ── SEG Special Geometry: Base, Stator Rings, Wiring ────────────────────
+  } else if (mode < 0.5 && renderMode > 0u) {
+    if (renderMode == 1u) {
+      // Base: flat square plate
+      let scale = vec3f(8.2 * 0.5, 0.22 * 0.5, 8.2 * 0.5);
+      let trans = vec3f(0.0, -0.35, 0.0);
+      worldPos = position * scale + trans;
+      worldNormal = normalize(normal / max(scale, vec3f(0.001)));
+    } else if (renderMode == 2u) {
+      // Stator rings: flat concentric copper rings
+      let radii = array<f32, 3>(2.4, 4.1, 5.8);
+      let radius = radii[instanceIdx];
+      let thickness = 0.22 * 0.5;
+      let height = 0.12 * f32(instanceIdx);
+      // Scale cylinder to create ring geometry
+      let scale = vec3f(radius, 0.05, radius);
+      let trans = vec3f(0.0, height, 0.0);
+      worldPos = position * scale + trans;
+      worldNormal = normalize(normal / max(scale, vec3f(0.001)));
+    } else if (renderMode == 3u) {
+      // Wiring: vertical copper cables from base
+      let wireAngle = f32(instanceIdx) / 8.0 * 6.28318530718;
+      let wireRadius = 6.5;
+      let wirePosX = cos(wireAngle) * wireRadius;
+      let wirePosZ = sin(wireAngle) * wireRadius;
+      let scale = vec3f(0.15 * 0.5, 2.0 * 0.5, 0.15 * 0.5);
+      let trans = vec3f(wirePosX, 0.0, wirePosZ);
+      worldPos = position * scale + trans;
+      worldNormal = normalize(normal / max(scale, vec3f(0.001)));
+    }
 
   // ── SEG Mode: 3 concentric rings of spinning magnetic rollers ─────────────
   } else if (mode < 0.5) {
@@ -156,10 +206,26 @@ struct VertexOutput {
   let mode     = uniforms.mode;
   let iId      = u32(instanceId);
   let charge   = clamp(uniforms._pad, 0.0, 1.0);
+  let renderMode = u32(deviceUniforms.renderMode);
   var finalColor: vec3f;
 
+  // ── SEG Special Geometry Materials ─────────────────────────────────────────
+  if (mode < 0.5 && renderMode > 0u) {
+    if (renderMode == 1u) {
+      // Base: dark industrial matte black
+      finalColor = vec3f(0.08, 0.08, 0.12) + vec3f(spec * 0.15);
+    } else if (renderMode == 2u) {
+      // Stator rings: brushed copper with specular highlights
+      let copper = vec3f(0.85, 0.48, 0.25);
+      let winding = sin(worldPos.x * 15.0) * 0.15 + sin(worldPos.z * 15.0) * 0.1;
+      finalColor = copper * (0.8 + winding) + vec3f(spec * 0.5);
+    } else if (renderMode == 3u) {
+      // Wiring: copper cables
+      finalColor = vec3f(0.75, 0.45, 0.25) + vec3f(spec * 0.35);
+    }
+
   // ── Special high-index geometry ────────────────────────────────────────────
-  if (iId == 66u) {
+  } else if (iId == 66u) {
     // SEG core hub: dark iron/steel
     finalColor = vec3f(0.22, 0.22, 0.28) + vec3f(spec * 0.4);
 
@@ -200,7 +266,7 @@ struct VertexOutput {
     if (instanceId < 12.0)       { rc = vec3f(1.0, 0.80, 0.20); bc = vec3f(0.80, 0.70, 0.40); }
     else if (instanceId < 34.0)  { rc = vec3f(0.85, 0.92, 1.0); bc = vec3f(0.70, 0.75, 0.82); }
     else                         { rc = vec3f(1.0, 0.58, 0.20); bc = vec3f(0.90, 0.52, 0.30); }
-    let fglow = vec3f(0.0, 0.9, 1.0) * (fp * 0.5 + 0.5) * fresnel * 3.0;
+    let fglow = vec3f(0.1, 1.0, 0.2) * (fp * 0.5 + 0.5) * fresnel * 3.0;
     finalColor = bc + rc * 0.2 + fglow;
 
   } else if (mode < 1.5) {

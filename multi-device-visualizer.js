@@ -442,4 +442,528 @@ class MultiDeviceVisualizer {
     
     requestAnimationFrame((t) => this.render(t));
   }
+
+  // ============================================
+  // SHADER DEFINITIONS
+  // ============================================
+  
+  // Roller vertex shader with instance transforms
+  get rollerVertShader() {
+    return /* wgsl */ `
+      struct Uniforms {
+        viewProj: mat4x4f,
+        time: f32,
+        cameraPos: vec3f
+      }
+      
+      struct DeviceUniforms {
+        position: vec3f,
+        rotation: vec4f,
+        scale: vec2f,
+        ringIndex: f32,
+        batteryCharge: f32,
+        isSolar: f32
+      }
+      
+      struct InstanceData {
+        position: vec3f,
+        ringIndex: f32,
+        rotation: vec4f,
+        copperColor: vec3f,
+        greenEmissive: f32
+      }
+      
+      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
+      @binding(2) @group(0) var<storage> instances: array<InstanceData>;
+      
+      struct VertexInput {
+        @location(0) position: vec3f,
+        @location(1) normal: vec3f
+      }
+      
+      struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) worldPos: vec3f,
+        @location(1) normal: vec3f,
+        @location(2) copperColor: vec3f,
+        @location(3) greenEmissive: f32,
+        @location(4) ringIndex: f32
+      }
+      
+      fn quatMul(q: vec4f, v: vec3f) -> vec3f {
+        let t = 2.0 * cross(q.xyz, v);
+        return v + q.w * t + cross(q.xyz, t);
+      }
+      
+      @vertex
+      fn main(input: VertexInput, @builtin(instance_index) instanceIdx: u32) -> VertexOutput {
+        let instance = instances[instanceIdx];
+        
+        // Apply self-rotation
+        let rotatedPos = quatMul(instance.rotation, input.position);
+        let rotatedNormal = quatMul(instance.rotation, input.normal);
+        
+        // Apply orbital position
+        let worldPos = rotatedPos + instance.position + device.position;
+        
+        var output: VertexOutput;
+        output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
+        output.worldPos = worldPos;
+        output.normal = rotatedNormal;
+        output.copperColor = instance.copperColor;
+        output.greenEmissive = instance.greenEmissive;
+        output.ringIndex = instance.ringIndex;
+        
+        return output;
+      }
+    `;
+  }
+  
+  // Roller fragment shader with copper material + green underglow
+  get rollerFragShader() {
+    return /* wgsl */ `
+      struct MaterialUniforms {
+        baseColor: vec3f,
+        pad1: f32,
+        glowColor: vec3f,
+        emission: f32
+      }
+      
+      @binding(3) @group(0) var<uniform> material: MaterialUniforms;
+      
+      struct FragmentInput {
+        @location(0) worldPos: vec3f,
+        @location(1) normal: vec3f,
+        @location(2) copperColor: vec3f,
+        @location(3) greenEmissive: f32,
+        @location(4) ringIndex: f32
+      }
+      
+      @fragment
+      fn main(input: FragmentInput) -> @location(0) vec4f {
+        let normal = normalize(input.normal);
+        
+        // View direction
+        let viewDir = normalize(vec3f(0.0, 5.0, 10.0) - input.worldPos);
+        
+        // Basic lighting
+        let lightDir = normalize(vec3f(1.0, 1.0, 1.0));
+        let diff = max(dot(normal, lightDir), 0.0);
+        let ambient = 0.3;
+        
+        // Copper material color
+        let copper = input.copperColor;
+        
+        // Specular highlight for metallic look
+        let halfDir = normalize(lightDir + viewDir);
+        let spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
+        
+        // Base copper color with lighting
+        var color = copper * (ambient + diff * 0.7) + vec3f(1.0) * spec * 0.5;
+        
+        // GREEN EMISSIVE GLOW on bottom half of roller (LED underglow effect)
+        // worldNormal.y < 0 means bottom half
+        let bottomGlow = max(0.0, -normal.y) * input.greenEmissive * 1.8;
+        let greenGlow = vec3f(0.0, 1.2, 0.6) * bottomGlow;
+        
+        // Add material emission
+        color = color + material.glowColor * material.emission * 0.3;
+        
+        // Add the green LED underglow
+        color = color + greenGlow;
+        
+        return vec4f(color, 1.0);
+      }
+    `;
+  }
+  
+  // Particle vertex shader
+  get particleVertShader() {
+    return /* wgsl */ `
+      struct Uniforms {
+        viewProj: mat4x4f,
+        time: f32,
+        cameraPos: vec3f
+      }
+      
+      struct DeviceUniforms {
+        position: vec3f,
+        rotation: vec4f,
+        scale: vec2f,
+        ringIndex: f32,
+        batteryCharge: f32,
+        isSolar: f32
+      }
+      
+      struct ParticleData {
+        position: vec3f,
+        velocity: vec3f,
+        life: f32,
+        colorR: f32,
+        colorG: f32,
+        colorB: f32,
+        energy: f32
+      }
+      
+      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
+      @binding(4) @group(0) var<storage> particles: array<ParticleData>;
+      
+      struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) color: vec3f,
+        @location(1) alpha: f32,
+        @location(2) uv: vec2f
+      }
+      
+      const quadVerts = array<vec2f, 4>(
+        vec2f(-1.0, -1.0),
+        vec2f( 1.0, -1.0),
+        vec2f(-1.0,  1.0),
+        vec2f( 1.0,  1.0)
+      );
+      
+      @vertex
+      fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instIdx: u32) -> VertexOutput {
+        let particle = particles[instIdx];
+        let quadPos = quadVerts[vertIdx];
+        
+        // Billboard calculation
+        let toCamera = normalize(uniforms.cameraPos - particle.position - device.position);
+        let up = vec3f(0.0, 1.0, 0.0);
+        let right = normalize(cross(up, toCamera));
+        let billboardUp = cross(toCamera, right);
+        
+        let worldPos = particle.position + device.position + 
+                       right * quadPos.x * 0.05 + 
+                       billboardUp * quadPos.y * 0.05;
+        
+        var output: VertexOutput;
+        output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
+        
+        // Copper + green energy color based on particle data
+        let copperColor = vec3f(particle.colorR, particle.colorG, particle.colorB);
+        let greenEnergy = vec3f(0.0, 1.2, 0.6);
+        
+        // Mix based on energy level
+        output.color = mix(copperColor, greenEnergy, particle.energy * 0.5);
+        output.alpha = particle.life * 0.8;
+        output.uv = quadPos * 0.5 + 0.5;
+        
+        return output;
+      }
+    `;
+  }
+  
+  // Particle fragment shader
+  get particleFragShader() {
+    return /* wgsl */ `
+      struct MaterialUniforms {
+        baseColor: vec3f,
+        pad1: f32,
+        glowColor: vec3f,
+        emission: f32
+      }
+      
+      @binding(3) @group(0) var<uniform> material: MaterialUniforms;
+      
+      struct FragmentInput {
+        @location(0) color: vec3f,
+        @location(1) alpha: f32,
+        @location(2) uv: vec2f
+      }
+      
+      @fragment
+      fn main(input: FragmentInput) -> @location(0) vec4f {
+        // Circular particle
+        let dist = length(input.uv - vec2f(0.5));
+        if (dist > 0.5) {
+          discard;
+        }
+        
+        // Soft edge
+        let edge = 1.0 - smoothstep(0.3, 0.5, dist);
+        
+        // Add glow
+        let glow = material.glowColor * material.emission * 0.5;
+        let finalColor = input.color + glow;
+        
+        return vec4f(finalColor, input.alpha * edge);
+      }
+    `;
+  }
+  
+  // Core vertex shader
+  get coreVertShader() {
+    return /* wgsl */ `
+      struct Uniforms {
+        viewProj: mat4x4f,
+        time: f32,
+        cameraPos: vec3f
+      }
+      
+      struct DeviceUniforms {
+        position: vec3f,
+        rotation: vec4f,
+        scale: vec2f,
+        ringIndex: f32,
+        batteryCharge: f32,
+        isSolar: f32
+      }
+      
+      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
+      
+      struct VertexInput {
+        @location(0) position: vec3f,
+        @location(1) normal: vec3f
+      }
+      
+      struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) worldPos: vec3f,
+        @location(1) normal: vec3f
+      }
+      
+      @vertex
+      fn main(input: VertexInput) -> VertexOutput {
+        let worldPos = input.position + device.position;
+        
+        var output: VertexOutput;
+        output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
+        output.worldPos = worldPos;
+        output.normal = input.normal;
+        
+        return output;
+      }
+    `;
+  }
+  
+  // Core fragment shader
+  get coreFragShader() {
+    return /* wgsl */ `
+      struct CoreMaterialUniforms {
+        baseColor: vec3f,
+        emission: f32,
+        coreColor: vec3f,
+        glowIntensity: f32
+      }
+      
+      @binding(3) @group(0) var<uniform> material: CoreMaterialUniforms;
+      
+      struct FragmentInput {
+        @location(0) worldPos: vec3f,
+        @location(1) normal: vec3f
+      }
+      
+      @fragment
+      fn main(input: FragmentInput) -> @location(0) vec4f {
+        let normal = normalize(input.normal);
+        let lightDir = normalize(vec3f(1.0, 1.0, 1.0));
+        let diff = max(dot(normal, lightDir), 0.0);
+        
+        // Central core with green glow
+        let baseColor = material.baseColor;
+        let glowColor = material.coreColor * material.glowIntensity;
+        
+        let color = baseColor * (0.3 + diff * 0.7) + glowColor;
+        
+        return vec4f(color, 1.0);
+      }
+    `;
+  }
+  
+  // Field line vertex shader
+  get fieldLineVertShader() {
+    return /* wgsl */ `
+      struct Uniforms {
+        viewProj: mat4x4f,
+        time: f32,
+        cameraPos: vec3f
+      }
+      
+      struct DeviceUniforms {
+        position: vec3f,
+        rotation: vec4f,
+        scale: vec2f,
+        ringIndex: f32,
+        batteryCharge: f32,
+        isSolar: f32
+      }
+      
+      struct FieldParticle {
+        position: vec3f,
+        velocity: vec3f,
+        life: f32,
+        strength: f32
+      }
+      
+      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
+      @binding(4) @group(0) var<storage> particles: array<FieldParticle>;
+      
+      struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) color: vec3f,
+        @location(1) alpha: f32
+      }
+      
+      @vertex
+      fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instIdx: u32) -> VertexOutput {
+        let particle = particles[instIdx];
+        
+        let worldPos = particle.position + device.position;
+        
+        var output: VertexOutput;
+        output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
+        
+        // Green energy field lines
+        let copper = vec3f(0.85, 0.48, 0.25);
+        let greenEnergy = vec3f(0.2, 1.0, 0.5);
+        output.color = mix(copper, greenEnergy, particle.strength);
+        output.alpha = particle.life * particle.strength;
+        
+        return output;
+      }
+    `;
+  }
+  
+  // Field line fragment shader
+  get fieldLineFragShader() {
+    return /* wgsl */ `
+      struct FragmentInput {
+        @location(0) color: vec3f,
+        @location(1) alpha: f32
+      }
+      
+      @fragment
+      fn main(input: FragmentInput) -> @location(0) vec4f {
+        return vec4f(input.color, input.alpha * 0.6);
+      }
+    `;
+  }
+  
+  // Energy arc vertex shader
+  get energyArcVertShader() {
+    return /* wgsl */ `
+      struct Uniforms {
+        viewProj: mat4x4f,
+        time: f32,
+        cameraPos: vec3f
+      }
+      
+      struct DeviceUniforms {
+        position: vec3f,
+        rotation: vec4f,
+        scale: vec2f,
+        ringIndex: f32,
+        batteryCharge: f32,
+        isSolar: f32
+      }
+      
+      struct ArcParticle {
+        position: vec3f,
+        velocity: vec3f,
+        life: f32,
+        intensity: f32
+      }
+      
+      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
+      @binding(4) @group(0) var<storage> particles: array<ArcParticle>;
+      
+      struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) color: vec3f,
+        @location(1) intensity: f32
+      }
+      
+      @vertex
+      fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instIdx: u32) -> VertexOutput {
+        let particle = particles[instIdx];
+        let worldPos = particle.position + device.position;
+        
+        var output: VertexOutput;
+        output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
+        
+        // Electric arc colors - cyan/blue energy
+        output.color = vec3f(0.3, 0.8, 1.0);
+        output.intensity = particle.intensity;
+        
+        return output;
+      }
+    `;
+  }
+  
+  // Energy arc fragment shader
+  get energyArcFragShader() {
+    return /* wgsl */ `
+      struct FragmentInput {
+        @location(0) color: vec3f,
+        @location(1) intensity: f32
+      }
+      
+      @fragment
+      fn main(input: FragmentInput) -> @location(0) vec4f {
+        let glow = input.color * input.intensity * 2.0;
+        return vec4f(glow, input.intensity);
+      }
+    `;
+  }
+  
+  // Grid vertex shader
+  get gridVertShader() {
+    return /* wgsl */ `
+      struct Uniforms {
+        viewProj: mat4x4f,
+        time: f32,
+        cameraPos: vec3f
+      }
+      
+      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+      
+      struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) uv: vec2f
+      }
+      
+      @vertex
+      fn main(@location(0) pos: vec2f) -> VertexOutput {
+        var output: VertexOutput;
+        output.position = vec4f(pos, 0.0, 1.0);
+        output.uv = pos * 0.5 + 0.5;
+        return output;
+      }
+    `;
+  }
+  
+  // Grid fragment shader
+  get gridFragShader() {
+    return /* wgsl */ `
+      struct FragmentInput {
+        @location(0) uv: vec2f
+      }
+      
+      @fragment
+      fn main(input: FragmentInput) -> @location(0) vec4f {
+        // Simple grid pattern on floor
+        let gridSize = 20.0;
+        let worldPos = input.uv * gridSize - gridSize * 0.5;
+        
+        let lineWidth = 0.05;
+        let gridX = abs(fract(worldPos.x) - 0.5);
+        let gridY = abs(fract(worldPos.y) - 0.5);
+        
+        let isLine = step(gridX, lineWidth) + step(gridY, lineWidth);
+        
+        let gridColor = vec3f(0.1, 0.15, 0.2);
+        let lineColor = vec3f(0.2, 0.3, 0.4);
+        
+        let color = mix(gridColor, lineColor, isLine);
+        
+        return vec4f(color, 0.3);
+      }
+    `;
+  }
 }
