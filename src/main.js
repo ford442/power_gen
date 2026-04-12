@@ -475,12 +475,13 @@ class SEGVisualizer {
 
     // Create additional buffers required by roller.wgsl shader
     // Binding 1: DeviceUniforms (renderMode + padding)
+    // Must be at least 32 bytes (WebGPU minimum uniform buffer binding size)
     this.deviceUniformBuffer = this.device.createBuffer({
-      size: 16,  // f32 renderMode + vec3f padding
+      size: 32,  // 8 floats = 32 bytes (f32 renderMode + 7 floats padding)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     // Initialize with renderMode = 0 (rollers)
-    this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, new Float32Array([0, 0, 0, 0]));
+    this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, new Float32Array([0, 0, 0, 0, 0, 0, 0, 0]));
 
     // Binding 2: InstanceData storage buffer (position + data0 for each instance)
     // Max 256 instances (rollers + special geometry)
