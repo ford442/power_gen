@@ -456,13 +456,18 @@ class MultiDeviceVisualizer {
         cameraPos: vec3f
       }
       
+      // Canonical 48-byte DeviceUniforms struct (12 x f32)
+      // Memory layout matches CPU write order exactly
       struct DeviceUniforms {
-        position: vec3f,
-        rotation: vec4f,
-        scale: vec2f,
-        ringIndex: f32,
-        batteryCharge: f32,
-        isSolar: f32
+        renderMode: f32,              // [0]
+        posX: f32,                    // [1]
+        posY: f32,                    // [2]
+        posZ: f32,                    // [3]
+        rotation: vec4f,              // [4-7]
+        timeScale: f32,               // [8]
+        ringIndex: f32,               // [9]
+        batteryCharge: f32,           // [10]
+        isSolar: f32                  // [11]
       }
       
       struct InstanceData {
@@ -504,8 +509,10 @@ class MultiDeviceVisualizer {
         let rotatedPos = quatMul(instance.rotation, input.position);
         let rotatedNormal = quatMul(instance.rotation, input.normal);
         
+        // Reconstruct device position from individual fields
+        let devicePos = vec3f(device.posX, device.posY, device.posZ);
         // Apply orbital position
-        let worldPos = rotatedPos + instance.position + device.position;
+        let worldPos = rotatedPos + instance.position + devicePos;
         
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
@@ -587,13 +594,17 @@ class MultiDeviceVisualizer {
         cameraPos: vec3f
       }
       
+      // Canonical 48-byte DeviceUniforms struct (12 x f32)
       struct DeviceUniforms {
-        position: vec3f,
-        rotation: vec4f,
-        scale: vec2f,
-        ringIndex: f32,
-        batteryCharge: f32,
-        isSolar: f32
+        renderMode: f32,              // [0]
+        posX: f32,                    // [1]
+        posY: f32,                    // [2]
+        posZ: f32,                    // [3]
+        rotation: vec4f,              // [4-7]
+        timeScale: f32,               // [8]
+        ringIndex: f32,               // [9]
+        batteryCharge: f32,           // [10]
+        isSolar: f32                  // [11]
       }
       
       struct ParticleData {
@@ -629,13 +640,15 @@ class MultiDeviceVisualizer {
         let particle = particles[instIdx];
         let quadPos = quadVerts[vertIdx];
         
+        // Reconstruct device position from individual fields
+        let devicePos = vec3f(device.posX, device.posY, device.posZ);
         // Billboard calculation
-        let toCamera = normalize(uniforms.cameraPos - particle.position - device.position);
+        let toCamera = normalize(uniforms.cameraPos - particle.position - devicePos);
         let up = vec3f(0.0, 1.0, 0.0);
         let right = normalize(cross(up, toCamera));
         let billboardUp = cross(toCamera, right);
         
-        let worldPos = particle.position + device.position + 
+        let worldPos = particle.position + devicePos + 
                        right * quadPos.x * 0.05 + 
                        billboardUp * quadPos.y * 0.05;
         
@@ -703,13 +716,17 @@ class MultiDeviceVisualizer {
         cameraPos: vec3f
       }
       
+      // Canonical 48-byte DeviceUniforms struct (12 x f32)
       struct DeviceUniforms {
-        position: vec3f,
-        rotation: vec4f,
-        scale: vec2f,
-        ringIndex: f32,
-        batteryCharge: f32,
-        isSolar: f32
+        renderMode: f32,              // [0]
+        posX: f32,                    // [1]
+        posY: f32,                    // [2]
+        posZ: f32,                    // [3]
+        rotation: vec4f,              // [4-7]
+        timeScale: f32,               // [8]
+        ringIndex: f32,               // [9]
+        batteryCharge: f32,           // [10]
+        isSolar: f32                  // [11]
       }
       
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -728,7 +745,9 @@ class MultiDeviceVisualizer {
       
       @vertex
       fn main(input: VertexInput) -> VertexOutput {
-        let worldPos = input.position + device.position;
+        // Reconstruct device position from individual fields
+        let devicePos = vec3f(device.posX, device.posY, device.posZ);
+        let worldPos = input.position + devicePos;
         
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
@@ -783,13 +802,17 @@ class MultiDeviceVisualizer {
         cameraPos: vec3f
       }
       
+      // Canonical 48-byte DeviceUniforms struct (12 x f32)
       struct DeviceUniforms {
-        position: vec3f,
-        rotation: vec4f,
-        scale: vec2f,
-        ringIndex: f32,
-        batteryCharge: f32,
-        isSolar: f32
+        renderMode: f32,              // [0]
+        posX: f32,                    // [1]
+        posY: f32,                    // [2]
+        posZ: f32,                    // [3]
+        rotation: vec4f,              // [4-7]
+        timeScale: f32,               // [8]
+        ringIndex: f32,               // [9]
+        batteryCharge: f32,           // [10]
+        isSolar: f32                  // [11]
       }
       
       struct FieldParticle {
@@ -813,7 +836,9 @@ class MultiDeviceVisualizer {
       fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instIdx: u32) -> VertexOutput {
         let particle = particles[instIdx];
         
-        let worldPos = particle.position + device.position;
+        // Reconstruct device position from individual fields
+        let devicePos = vec3f(device.posX, device.posY, device.posZ);
+        let worldPos = particle.position + devicePos;
         
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
@@ -853,13 +878,17 @@ class MultiDeviceVisualizer {
         cameraPos: vec3f
       }
       
+      // Canonical 48-byte DeviceUniforms struct (12 x f32)
       struct DeviceUniforms {
-        position: vec3f,
-        rotation: vec4f,
-        scale: vec2f,
-        ringIndex: f32,
-        batteryCharge: f32,
-        isSolar: f32
+        renderMode: f32,              // [0]
+        posX: f32,                    // [1]
+        posY: f32,                    // [2]
+        posZ: f32,                    // [3]
+        rotation: vec4f,              // [4-7]
+        timeScale: f32,               // [8]
+        ringIndex: f32,               // [9]
+        batteryCharge: f32,           // [10]
+        isSolar: f32                  // [11]
       }
       
       struct ArcParticle {
@@ -882,7 +911,9 @@ class MultiDeviceVisualizer {
       @vertex
       fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instIdx: u32) -> VertexOutput {
         let particle = particles[instIdx];
-        let worldPos = particle.position + device.position;
+        // Reconstruct device position from individual fields
+        let devicePos = vec3f(device.posX, device.posY, device.posZ);
+        let worldPos = particle.position + devicePos;
         
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);

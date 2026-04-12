@@ -57,7 +57,9 @@ class DeviceInstance {
   }
 
   async setupUniforms() {
-    this.deviceUniformBuffer = this.device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    // DeviceUniforms: 48 bytes (12 x f32) - canonical unified struct
+    // [0] renderMode, [1-3] position, [4-7] rotation, [8] timeScale, [9] ringIndex, [10] batteryCharge, [11] isSolar
+    this.deviceUniformBuffer = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.materialUniformBuffer = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.renderMode = 0;  // 0=rollers, 1=base, 2=stator, 3=wiring
 
@@ -154,16 +156,18 @@ class DeviceInstance {
     }
 
     const deviceData = new Float32Array([
-      this.renderMode,                     // renderMode [0]
-      ...this.position,                    // position [1, 2, 3]
-      Math.sin(this.rotation[1] / 2),      // [4]
-      0,                                   // [5]
-      Math.cos(this.rotation[1] / 2),      // [6]
-      1.0,                                 // [7]
-      1.0,                                 // [8]
-      ringIndex,                           // [9]
-      this.id === 'solar' ? this.batteryCharge : 0,  // [10]
-      this.id === 'solar' ? 1 : 0          // [11]
+      this.renderMode,                     // [0] renderMode
+      this.position[0],                    // [1] posX  
+      this.position[1],                    // [2] posY
+      this.position[2],                    // [3] posZ
+      Math.sin(this.rotation[1] / 2),      // [4] rotation.x (quaternion)
+      0,                                   // [5] rotation.y
+      Math.cos(this.rotation[1] / 2),      // [6] rotation.z
+      1.0,                                 // [7] rotation.w
+      1.0,                                 // [8] timeScale
+      ringIndex,                           // [9] ringIndex
+      this.id === 'solar' ? this.batteryCharge : 0,  // [10] batteryCharge
+      this.id === 'solar' ? 1 : 0          // [11] isSolar
     ]);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
@@ -386,7 +390,9 @@ class DeviceInstance {
       this.renderMode = 0;
       const deviceData = new Float32Array([
         this.renderMode,
-        ...this.position,
+        this.position[0],
+        this.position[1],
+        this.position[2],
         Math.sin(this.rotation[1] / 2),
         0,
         Math.cos(this.rotation[1] / 2),
@@ -496,7 +502,9 @@ class DeviceInstance {
     this.renderMode = 1;
     const deviceData = new Float32Array([
       this.renderMode,
-      ...this.position,
+      this.position[0],
+      this.position[1],
+      this.position[2],
       Math.sin(this.rotation[1] / 2),
       0,
       Math.cos(this.rotation[1] / 2),
@@ -533,7 +541,9 @@ class DeviceInstance {
     this.renderMode = 2;
     const deviceData = new Float32Array([
       this.renderMode,
-      ...this.position,
+      this.position[0],
+      this.position[1],
+      this.position[2],
       Math.sin(this.rotation[1] / 2),
       0,
       Math.cos(this.rotation[1] / 2),
@@ -569,7 +579,9 @@ class DeviceInstance {
     this.renderMode = 3;
     const deviceData = new Float32Array([
       this.renderMode,
-      ...this.position,
+      this.position[0],
+      this.position[1],
+      this.position[2],
       Math.sin(this.rotation[1] / 2),
       0,
       Math.cos(this.rotation[1] / 2),
