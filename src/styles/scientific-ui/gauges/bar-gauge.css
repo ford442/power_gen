@@ -1,0 +1,56 @@
+/**
+ * Scientific UI - Bar Gauge Styles
+ * Linear progress bar gauge component
+ */
+
+.sci-bar-gauge {
+  height: 24px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.sci-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width var(--sci-transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.sci-bar-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.2) 50%, transparent 100%);
+  animation: barShimmer 2s linear infinite;
+}
+
+.sci-bar-fill.safe {
+  background: linear-gradient(90deg, #004444, var(--sci-green));
+}
+
+.sci-bar-fill.caution {
+  background: linear-gradient(90deg, #444400, var(--sci-yellow));
+}
+
+.sci-bar-fill.warning {
+  background: linear-gradient(90deg, #440000, var(--sci-red));
+}
+
+.sci-bar-fill.energy {
+  background: linear-gradient(90deg, #000044, #0044ff, #ff0044);
+}
+
+.sci-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-family: var(--sci-font-mono);
+  font-size: 0.6rem;
+  color: var(--sci-text-muted);
+}

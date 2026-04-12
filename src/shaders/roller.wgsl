@@ -267,7 +267,12 @@ struct VertexOutput {
     else if (instanceId < 34.0)  { rc = vec3f(0.85, 0.92, 1.0); bc = vec3f(0.70, 0.75, 0.82); }
     else                         { rc = vec3f(1.0, 0.58, 0.20); bc = vec3f(0.90, 0.52, 0.30); }
     let fglow = vec3f(0.1, 1.0, 0.2) * (fp * 0.5 + 0.5) * fresnel * 3.0;
-    finalColor = bc + rc * 0.2 + fglow;
+    
+    // GREEN LED UNDERGLOW: visible on bottom half of rollers (LEDs under the rollers)
+    let bottomGlow = max(0.0, -n.y) * 1.8;
+    let greenGlow = vec3f(0.0, 1.2, 0.6) * bottomGlow;
+    
+    finalColor = bc + rc * 0.2 + fglow + greenGlow;
 
   } else if (mode < 1.5) {
     // Heron's Fountain structural elements

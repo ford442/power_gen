@@ -1,0 +1,46 @@
+/**
+ * Scientific UI - Base Gauge Styles
+ * Shared styles for all gauge types
+ */
+
+/* Gauge Section Container */
+.sci-gauge-section {
+  margin-bottom: 16px;
+}
+
+.sci-gauge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.sci-gauge-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--sci-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sci-gauge-value {
+  font-family: var(--sci-font-mono);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--sci-cyan);
+}
+
+.sci-gauge-value.warning {
+  color: var(--sci-orange);
+}
+
+.sci-gauge-value.danger {
+  color: var(--sci-red);
+}
+
+.sci-gauge-container {
+  background: var(--sci-bg-gauge);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+}

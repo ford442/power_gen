@@ -1739,8 +1739,9 @@ class ScientificUIManager {
     this.gauges.led = new LEDArrayGauge('sci-led-gauge');
     this.gauges.energyFlow = new EnergyBalanceDisplay('sci-energy-flow-gauge');
     
-    this.wolframPanel = new WolframStatusPanel('sci-wolfram-status');
-    this.wolframPanel.startUpdateLoop();
+    // NOTE: Wolfram MCP panel disabled - using pre-calculated physics values
+    // Physics constants were validated during development using Wolfram Alpha
+    this.wolframPanel = null;
   }
   
   show() {

@@ -1,0 +1,71 @@
+/**
+ * Scientific UI - Status Indicator Styles
+ * Wolfram MCP status, data source badges
+ */
+
+/* Wolfram Status Section */
+.sci-wolfram-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(0, 20, 20, 0.5);
+  border: 1px solid var(--sci-border-cyan);
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.sci-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.sci-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+.sci-status-dot.connected {
+  background: var(--sci-green);
+  color: var(--sci-green);
+}
+
+.sci-status-dot.fallback {
+  background: var(--sci-orange);
+  color: var(--sci-orange);
+  animation: statusPulse 1s ease-in-out infinite;
+}
+
+.sci-status-dot.disconnected {
+  background: var(--sci-red);
+  color: var(--sci-red);
+  animation: statusPulse 0.5s ease-in-out infinite;
+}
+
+.sci-status-text {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--sci-text-primary);
+}
+
+.sci-status-detail {
+  font-size: 0.65rem;
+  color: var(--sci-text-secondary);
+  margin-top: 2px;
+}
+
+.sci-data-source {
+  padding: 4px 8px;
+  background: rgba(0, 255, 255, 0.1);
+  border: 1px solid var(--sci-border-cyan);
+  border-radius: 4px;
+  font-family: var(--sci-font-mono);
+  font-size: 0.65rem;
+  color: var(--sci-cyan);
+  text-transform: uppercase;
+}

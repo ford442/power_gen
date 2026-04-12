@@ -1,0 +1,77 @@
+/**
+ * Scientific UI - Animation Keyframes
+ * All CSS animations for the scientific UI
+ */
+
+/* Status dot pulse animation */
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Bar shimmer animation */
+@keyframes barShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Gauge glow pulse animation */
+@keyframes gaugeGlow {
+  0%, 100% { filter: drop-shadow(0 0 5px rgba(0, 255, 255, 0.3)); }
+  50% { filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.6)); }
+}
+
+/* Value flash animation */
+@keyframes valueFlash {
+  0% { color: var(--sci-yellow); }
+  100% { color: var(--sci-cyan); }
+}
+
+/* LED blink animation for on state */
+@keyframes ledPulse {
+  0%, 100% { box-shadow: 0 0 8px currentColor, 0 0 20px currentColor; }
+  50% { box-shadow: 0 0 12px currentColor, 0 0 30px currentColor; }
+}
+
+/* Battery charging animation */
+@keyframes chargingPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Sun ray rotation animation */
+@keyframes sunRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Energy flow animation */
+@keyframes flowPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Animation utility classes */
+.sci-value-changed {
+  animation: valueFlash 0.3s ease;
+}
+
+.led-indicator.on {
+  animation: ledPulse 2s ease-in-out infinite;
+}
+
+.battery-current.charging {
+  animation: chargingPulse 1s ease-in-out infinite;
+}
+
+.solar-canvas {
+  animation: sunRotate 20s linear infinite;
+}
+
+.energy-flow-arrow {
+  animation: flowPulse 2s ease-in-out infinite;
+}
+
+.sci-gauge-container {
+  animation: gaugeGlow 3s ease-in-out infinite;
+}

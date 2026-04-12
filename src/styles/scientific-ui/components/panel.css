@@ -1,0 +1,111 @@
+/**
+ * Scientific UI - Main Panel Styles
+ * Panel container, header, and content areas
+ */
+
+/* Main Panel Container */
+.sci-panel {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 320px;
+  max-height: calc(100vh - 40px);
+  background: var(--sci-bg-panel);
+  border: 1px solid var(--sci-border-cyan);
+  border-radius: 8px;
+  box-shadow: var(--sci-shadow-cyan), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  font-family: var(--sci-font-ui);
+  color: var(--sci-text-primary);
+  overflow: hidden;
+  z-index: 1000;
+  transition: opacity var(--sci-transition-normal), transform var(--sci-transition-normal);
+}
+
+.sci-panel.collapsed {
+  transform: translateX(calc(100% + 30px));
+}
+
+.sci-panel.dragging {
+  opacity: 0.9;
+  cursor: grabbing;
+}
+
+/* Panel Header */
+.sci-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, rgba(0, 255, 255, 0.08) 0%, transparent 100%);
+  border-bottom: 1px solid var(--sci-border-cyan);
+  cursor: grab;
+  user-select: none;
+}
+
+.sci-panel-header:active {
+  cursor: grabbing;
+}
+
+.sci-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--sci-cyan);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.sci-panel-icon {
+  font-size: 1.1rem;
+}
+
+.sci-panel-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.sci-panel-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 255, 255, 0.1);
+  border: 1px solid var(--sci-border-cyan);
+  border-radius: 4px;
+  color: var(--sci-cyan);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all var(--sci-transition-fast);
+}
+
+.sci-panel-btn:hover {
+  background: var(--sci-cyan);
+  color: var(--sci-bg-primary);
+}
+
+/* Panel Content */
+.sci-panel-content {
+  padding: 16px;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+  scrollbar-width: thin;
+  scrollbar-color: var(--sci-cyan-dim) transparent;
+}
+
+.sci-panel-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sci-panel-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sci-panel-content::-webkit-scrollbar-thumb {
+  background: var(--sci-cyan-dim);
+  border-radius: 3px;
+}

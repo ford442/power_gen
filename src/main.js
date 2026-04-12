@@ -39,6 +39,11 @@ class SEGVisualizer {
     this.solarPanelIndexBuffer  = null;
     this.solarPanelIndexCount   = 0;
 
+    // Additional buffers for roller.wgsl shader (bindings 1, 2, 3)
+    this.deviceUniformBuffer = null;
+    this.instanceBuffer = null;
+    this.materialBuffer = null;
+
     this.mode = 'seg';
     this.particleCount = 10000;
     this.time = 0;
@@ -467,6 +472,43 @@ class SEGVisualizer {
       size: 384,  // Increased to accommodate physics uniforms
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
+
+    // Create additional buffers required by roller.wgsl shader
+    // Binding 1: DeviceUniforms (renderMode + padding)
+    this.deviceUniformBuffer = this.device.createBuffer({
+      size: 16,  // f32 renderMode + vec3f padding
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    // Initialize with renderMode = 0 (rollers)
+    this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, new Float32Array([0, 0, 0, 0]));
+
+    // Binding 2: InstanceData storage buffer (position + data0 for each instance)
+    // Max 256 instances (rollers + special geometry)
+    this.instanceBuffer = this.device.createBuffer({
+      size: 256 * 16,  // 256 instances * (vec3f position + f32 data0)
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    // Initialize with zeroes
+    this.device.queue.writeBuffer(this.instanceBuffer, 0, new Float32Array(256 * 4));
+
+    // Binding 3: MaterialData storage buffer (color + emissive for each material)
+    // 8 materials should be enough
+    this.materialBuffer = this.device.createBuffer({
+      size: 8 * 16,  // 8 materials * (vec3f color + f32 emissive)
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    // Initialize with default copper color
+    const defaultMaterial = new Float32Array([
+      0.85, 0.48, 0.25, 0.0,  // copper color, no emissive
+      0.75, 0.45, 0.25, 0.0,  // wiring copper
+      0.08, 0.08, 0.12, 0.0,  // base black
+      0.85, 0.48, 0.25, 1.0,  // copper with emissive
+      0.22, 0.22, 0.28, 0.0,  // core iron
+      0.55, 0.30, 0.08, 1.0,  // coil
+      0.62, 0.68, 0.76, 0.0,  // silver
+      0.05, 0.09, 0.25, 0.0   // solar cell
+    ]);
+    this.device.queue.writeBuffer(this.materialBuffer, 0, defaultMaterial);
   }
 
   async setupComputePipeline() {
@@ -711,7 +753,12 @@ class SEGVisualizer {
 
     const renderBindGroup = this.device.createBindGroup({
       layout: this.renderPipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }]
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: this.instanceBuffer } },
+        { binding: 3, resource: { buffer: this.materialBuffer } }
+      ]
     });
 
     const particleBindGroup = this.device.createBindGroup({

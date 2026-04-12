@@ -1,0 +1,60 @@
+/**
+ * Scientific UI - Circular Gauge Styles
+ * Canvas-based circular gauge component
+ */
+
+.sci-circular-gauge {
+  position: relative;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sci-circular-gauge canvas {
+  display: block;
+}
+
+.sci-circular-value {
+  position: absolute;
+  text-align: center;
+}
+
+.sci-circular-number {
+  font-family: var(--sci-font-mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--sci-cyan);
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+}
+
+.sci-circular-unit {
+  font-size: 0.7rem;
+  color: var(--sci-text-secondary);
+  text-transform: uppercase;
+}
+
+.sci-circular-zones {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px;
+  font-size: 0.6rem;
+  color: var(--sci-text-muted);
+}
+
+.sci-zone-marker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sci-zone-color {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.sci-zone-color.safe { background: var(--sci-green); }
+.sci-zone-color.caution { background: var(--sci-yellow); }
+.sci-zone-color.warning { background: var(--sci-red); }

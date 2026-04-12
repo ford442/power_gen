@@ -237,26 +237,17 @@ export class SEGIntegrationManager {
   }
 
   private async initialize(): Promise<void> {
-    // Connect to MCP
-    const connected = await this.wolfram.connect();
-    this.ui.updateMCPStatus(connected ? 'connected' : 'fallback');
-
-    // Initialize physics cache
-    await this.wolfram.initializePhysicsCache();
-
-    // Set up MCP status change listener
-    if (!connected) {
-      // Retry connection after delay
-      setTimeout(() => this.retryConnection(), 5000);
-    }
+    // NOTE: Wolfram MCP is disabled at runtime - using pre-calculated fallback values
+    // The physics constants were validated during development using Wolfram
+    this.ui.updateMCPStatus('disconnected');
+    
+    // Skip all MCP connection attempts - use fallback physics only
+    console.log('[SEGIntegration] Wolfram MCP disabled - using pre-validated fallback physics');
   }
 
   private async retryConnection(): Promise<void> {
-    const connected = await this.wolfram.connect();
-    if (connected) {
-      this.ui.updateMCPStatus('connected');
-      this.onMCPStatusChange('connected');
-    }
+    // Disabled - no runtime Wolfram MCP calls
+    console.log('[SEGIntegration] MCP retry skipped - using fallback physics');
   }
 
   /**
@@ -315,22 +306,10 @@ export class SEGIntegrationManager {
   }
 
   private queryUpdatedValues(): void {
-    // Query for updated torque values periodically
-    const torqueKey = 'ring_torque';
-    if (!this.pendingQueries.has(torqueKey) && this.wolfram.getStatus() === 'connected') {
-      this.pendingQueries.add(torqueKey);
-      
-      this.wolfram.query<number>(
-        'torque on magnetic dipole ring',
-        this.physicsState.middleRingTorque,
-        { ttl: 60000 }  // 1 minute TTL for torque
-      ).then(entry => {
-        this.physicsState.middleRingTorque = entry.result as number;
-        this.pendingQueries.delete(torqueKey);
-      }).catch(() => {
-        this.pendingQueries.delete(torqueKey);
-      });
-    }
+    // DISABLED: No runtime Wolfram MCP queries
+    // Physics values use pre-calculated fallback constants from ValidatedConstants
+    // These were validated during development using Wolfram Alpha
+    return;
   }
 
   private updateUIGauges(): void {

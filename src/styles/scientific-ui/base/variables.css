@@ -1,0 +1,37 @@
+/**
+ * Scientific UI - CSS Variables
+ * Theme colors, fonts, and design tokens
+ */
+
+:root {
+  --sci-bg-primary: #0a0a0f;
+  --sci-bg-panel: rgba(10, 10, 15, 0.92);
+  --sci-bg-gauge: rgba(5, 5, 10, 0.8);
+  --sci-border-cyan: rgba(0, 255, 255, 0.3);
+  --sci-border-magenta: rgba(255, 0, 255, 0.3);
+  --sci-cyan: #00ffff;
+  --sci-cyan-dim: rgba(0, 255, 255, 0.5);
+  --sci-magenta: #ff00ff;
+  --sci-magenta-dim: rgba(255, 0, 255, 0.5);
+  --sci-yellow: #ffff00;
+  --sci-red: #ff4444;
+  --sci-green: #44ff44;
+  --sci-orange: #ff8800;
+  --sci-text-primary: #e0e0e0;
+  --sci-text-secondary: #888888;
+  --sci-text-muted: #555555;
+  --sci-font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --sci-font-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+  --sci-shadow-cyan: 0 0 30px rgba(0, 255, 255, 0.15);
+  --sci-shadow-magenta: 0 0 30px rgba(255, 0, 255, 0.15);
+  --sci-transition-fast: 0.15s ease;
+  --sci-transition-normal: 0.3s ease;
+  
+  /* LED + Solar specific variables */
+  --charge-low: #ff4444;
+  --charge-med: #ffaa00;
+  --charge-high: #44ff44;
+  --irradiance-low: #4444ff;
+  --irradiance-std: #44ff44;
+  --irradiance-high: #ffff44;
+}
