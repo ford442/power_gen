@@ -14,7 +14,7 @@ class MultiDeviceVisualizer {
     Object.defineProperty(this, 'context', { get: () => this.webgpu.context });
 
     this.currentView = 'overview';
-    this.devicesEnabled = { seg: true, heron: true, kelvin: true, solar: true };
+    this.devicesEnabled = { seg: true, heron: true, kelvin: true, solar: true, peltier: true };
     this.devices = {};
     this.energyPipes = [];
 
@@ -92,7 +92,9 @@ class MultiDeviceVisualizer {
     const pipeConfigs = [
       { from: 'seg', to: 'heron', speed: 2.0 },
       { from: 'heron', to: 'kelvin', speed: 1.5 },
-      { from: 'kelvin', to: 'seg', speed: 2.5 }
+      { from: 'kelvin', to: 'seg', speed: 2.5 },
+      { from: 'kelvin', to: 'peltier', speed: 1.8 },
+      { from: 'peltier', to: 'solar', speed: 2.2 }
     ];
     
     for (const config of pipeConfigs) {
@@ -383,8 +385,30 @@ class MultiDeviceVisualizer {
       }
     }
     
-    // Begin render pass with timestamp queries
+    // Begin command encoding
     const encoder = this.device.createCommandEncoder();
+    
+    // ─── COMPUTE PASS: animate particles on GPU ───
+    const computePass = encoder.beginComputePass({ label: 'particle-compute' });
+    for (const device of Object.values(this.devices)) {
+      if (this.devicesEnabled[device.id] && device.computePipeline && device.computeBindGroup) {
+        // Write compute uniforms: time, mode, particleCount, speedMult
+        const modeIndex = device.id === 'heron' ? 1.0 : (device.id === 'kelvin' ? 2.0 : (device.id === 'solar' ? 3.0 : (device.id === 'peltier' ? 4.0 : 0.0)));
+        const computeUniforms = new Float32Array([
+          this.time,
+          modeIndex,
+          device.scaledParticleCount || device.particleCount,
+          device.speedMult || 1.0
+        ]);
+        this.device.queue.writeBuffer(device.computeUniformBuffer, 0, computeUniforms);
+        
+        computePass.setPipeline(device.computePipeline);
+        computePass.setBindGroup(0, device.computeBindGroup);
+        const workgroups = Math.ceil((device.scaledParticleCount || device.particleCount) / 64);
+        computePass.dispatchWorkgroups(workgroups);
+      }
+    }
+    computePass.end();
     
     // Write start timestamp if enabled
     if (this.profiler.timingEnabled) {
@@ -594,38 +618,25 @@ class MultiDeviceVisualizer {
         cameraPos: vec3f
       }
       
-      // Canonical 48-byte DeviceUniforms struct (12 x f32)
       struct DeviceUniforms {
-        renderMode: f32,              // [0]
-        posX: f32,                    // [1]
-        posY: f32,                    // [2]
-        posZ: f32,                    // [3]
-        rotation: vec4f,              // [4-7]
-        timeScale: f32,               // [8]
-        ringIndex: f32,               // [9]
-        batteryCharge: f32,           // [10]
-        isSolar: f32                  // [11]
-      }
-      
-      struct ParticleData {
-        position: vec3f,
-        velocity: vec3f,
-        life: f32,
-        colorR: f32,
-        colorG: f32,
-        colorB: f32,
-        energy: f32
+        renderMode: f32,
+        posX: f32,
+        posY: f32,
+        posZ: f32,
+        rotation: vec4f,
+        timeScale: f32,
+        ringIndex: f32,
+        batteryCharge: f32,
+        isSolar: f32
       }
       
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(4) @group(0) var<storage> particles: array<ParticleData>;
       
       struct VertexOutput {
         @builtin(position) position: vec4f,
-        @location(0) color: vec3f,
-        @location(1) alpha: f32,
-        @location(2) uv: vec2f
+        @location(0) particlePhase: f32,
+        @location(1) uv: vec2f
       }
       
       const quadVerts = array<vec2f, 4>(
@@ -636,32 +647,37 @@ class MultiDeviceVisualizer {
       );
       
       @vertex
-      fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instIdx: u32) -> VertexOutput {
-        let particle = particles[instIdx];
+      fn main(
+        @location(0) pos: vec3f,
+        @location(1) phase: f32,
+        @builtin(vertex_index) vertIdx: u32,
+        @builtin(instance_index) instIdx: u32
+      ) -> VertexOutput {
         let quadPos = quadVerts[vertIdx];
         
-        // Reconstruct device position from individual fields
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
-        // Billboard calculation
-        let toCamera = normalize(uniforms.cameraPos - particle.position - devicePos);
+        let toCamera = normalize(uniforms.cameraPos - pos - devicePos);
         let up = vec3f(0.0, 1.0, 0.0);
         let right = normalize(cross(up, toCamera));
         let billboardUp = cross(toCamera, right);
         
-        let worldPos = particle.position + devicePos + 
-                       right * quadPos.x * 0.05 + 
-                       billboardUp * quadPos.y * 0.05;
+        // Particle size varies by mode
+        var size: f32 = 0.07;
+        if (device.ringIndex > 0.5 && device.ringIndex < 1.5) {
+          size = 0.11;   // larger water droplets for Heron
+        } else if (device.ringIndex >= 3.5) {
+          size = 0.08;   // Peltier particles
+        } else if (device.ringIndex >= 2.5) {
+          size = 0.05;   // small photon dots for Solar
+        }
+        
+        let worldPos = pos + devicePos + 
+                       right * quadPos.x * size + 
+                       billboardUp * quadPos.y * size;
         
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
-        
-        // Copper + green energy color based on particle data
-        let copperColor = vec3f(particle.colorR, particle.colorG, particle.colorB);
-        let greenEnergy = vec3f(0.0, 1.2, 0.6);
-        
-        // Mix based on energy level
-        output.color = mix(copperColor, greenEnergy, particle.energy * 0.5);
-        output.alpha = particle.life * 0.8;
+        output.particlePhase = phase;
         output.uv = quadPos * 0.5 + 0.5;
         
         return output;
@@ -682,27 +698,63 @@ class MultiDeviceVisualizer {
       @binding(3) @group(0) var<uniform> material: MaterialUniforms;
       
       struct FragmentInput {
-        @location(0) color: vec3f,
-        @location(1) alpha: f32,
-        @location(2) uv: vec2f
+        @location(0) particlePhase: f32,
+        @location(1) uv: vec2f
       }
       
       @fragment
       fn main(input: FragmentInput) -> @location(0) vec4f {
-        // Circular particle
         let dist = length(input.uv - vec2f(0.5));
         if (dist > 0.5) {
           discard;
         }
         
-        // Soft edge
         let edge = 1.0 - smoothstep(0.3, 0.5, dist);
+        let alpha = edge * 0.85;
+        
+        let mode = device.ringIndex;
+        let t = uniforms.time;
+        let phase = input.particlePhase;
+        var color: vec3f;
+        
+        if (mode < 0.5) {
+          // SEG: cyan / electric-blue magnetic field lines
+          let pulse = 0.6 + 0.4 * sin(t * 5.0 + phase * 6.28);
+          color = mix(vec3f(0.0, 0.65, 1.0), vec3f(0.3, 1.0, 0.85), pulse);
+        } else if (mode < 1.5) {
+          // Heron: blue water droplets with slight white specular centre
+          let h = clamp(input.uv.y * 0.5 + 0.5, 0.0, 1.0);
+          let d = dist;
+          color = mix(vec3f(0.0, 0.22, 0.70), vec3f(0.55, 0.82, 1.0), h * (1.0 - d));
+        } else if (mode < 2.5) {
+          // Kelvin: translucent water drops; rare bright spark particles
+          let spark = step(0.97, fract(sin(f32(input.uv.x * 100.0)
+                    + phase * 3137.1) * 43758.5453));
+          color = mix(vec3f(0.72, 0.82, 0.96), vec3f(0.85, 0.15, 1.0), spark);
+        } else if (mode < 3.5) {
+          // Solar: warm yellow photons
+          let intensity = 0.55 + 0.45 * device.batteryCharge;
+          color = vec3f(1.0, 0.88, 0.28) * intensity;
+        } else {
+          // Peltier TEG: Colors based on thermal regions
+          if (phase < 0.4) {
+            // Hot particles: Red/Orange
+            color = vec3f(1.0, 0.25 + 0.1 * sin(t * 3.0 + phase * 10.0), 0.0);
+          } else if (phase < 0.8) {
+            // Cold particles: Blue/Cyan
+            color = vec3f(0.0, 0.5 + 0.2 * sin(t * 2.0 + phase * 8.0), 1.0);
+          } else {
+            // Electricity particles: Flashing Yellow/Green
+            let spark = step(0.82, fract(sin(t * 18.0 + phase * 127.3) * 43758.5453));
+            color = mix(vec3f(0.4, 0.95, 0.2), vec3f(1.0, 1.0, 0.6), spark * 0.7);
+          }
+        }
         
         // Add glow
         let glow = material.glowColor * material.emission * 0.5;
-        let finalColor = input.color + glow;
+        color = color + glow;
         
-        return vec4f(finalColor, input.alpha * edge);
+        return vec4f(color, alpha);
       }
     `;
   }
@@ -943,6 +995,138 @@ class MultiDeviceVisualizer {
     `;
   }
   
+  // Compute shader — GPU particle physics
+  get computeShader() {
+    return /* wgsl */ `
+      struct ComputeUniforms {
+        time: f32,
+        mode: f32,
+        particleCount: f32,
+        speedMult: f32,
+      }
+
+      @binding(0) @group(0) var<storage, read_write> particles: array<vec4f>;
+      @binding(1) @group(0) var<uniform> uniforms: ComputeUniforms;
+
+      const PI: f32 = 3.14159265359;
+
+      fn posSEG(phase: f32, t: f32, idx: u32) -> vec3f {
+        let cycleT  = fract(t * 0.12 + phase);
+        let radius  = 8.5 - cycleT * 8.0;
+        let angle   = phase * 6.28318 + cycleT * 18.84956;
+        let height  = sin(cycleT * 6.28318 * 2.0 + phase * 6.28318) * 2.8;
+        return vec3f(cos(angle) * radius, height, sin(angle) * radius);
+      }
+
+      fn posHeron(phase: f32, t: f32, idx: u32) -> vec3f {
+        let cycleT  = fract(t * 0.22 + phase);
+        let spread  = phase * 6.28318;
+        let spreadR = fract(f32(idx) * 0.618034) * 0.55;
+        var pos: vec3f;
+        if (cycleT < 0.35) {
+          let k = cycleT / 0.35;
+          pos = vec3f(sin(spread) * spreadR * k * 1.4,
+                      5.6 + k * 3.1 - k * k * 1.2,
+                      cos(spread) * spreadR * k * 1.4);
+        } else if (cycleT < 0.72) {
+          let k = (cycleT - 0.35) / 0.37;
+          pos = vec3f(sin(spread) * spreadR * (1.4 - k * 0.9),
+                      8.5 - k * 4.2,
+                      cos(spread) * spreadR * (1.4 - k * 0.9));
+        } else {
+          let k = (cycleT - 0.72) / 0.28;
+          pos = vec3f(sin(spread) * spreadR * (0.5 - k * 0.5),
+                      4.5 - k * 6.5,
+                      cos(spread) * spreadR * (0.5 - k * 0.5));
+        }
+        return pos;
+      }
+
+      fn posKelvin(phase: f32, t: f32, idx: u32) -> vec3f {
+        let cycleT = fract(t * 0.32 + phase);
+        let side   = select(-1.0, 1.0, (idx & 1u) == 1u);
+        let wobble = sin(t * 4.0 + phase * 20.0) * 0.09;
+        var pos: vec3f;
+        if (cycleT < 0.82) {
+          let k = cycleT / 0.82;
+          pos = vec3f(side * 2.5 + wobble, 5.5 - k * 8.8, wobble * 0.4);
+        } else {
+          let k = (cycleT - 0.82) / 0.18;
+          pos = vec3f(side * 2.5 * (1.0 - k * 1.9), -3.2 + k * 1.4, 0.0);
+        }
+        return pos;
+      }
+
+      fn posSolar(phase: f32, t: f32, idx: u32, speedMult: f32) -> vec3f {
+        let ledIdx = idx % 6u;
+        let ledX   = (f32(ledIdx) - 2.5) * 1.6;
+        let ledPos = vec3f(ledX, 3.5, 1.5);
+        let panelX = (fract(f32(idx) * 0.61803) - 0.5) * 9.0;
+        let panelZ = (fract(f32(idx) * 0.38490) - 0.5) * 9.0;
+        let panelPos = vec3f(panelX, 0.05, panelZ);
+        let speed = 1.0 + speedMult * 1.5;
+        let life  = fract(t * speed * 0.18 + phase);
+        return mix(ledPos, panelPos, min(life * 1.05, 1.0));
+      }
+
+      fn posPeltier(phase: f32, t: f32, idx: u32) -> vec3f {
+        let isSetupA = (idx % 2u) == 0u;
+        let xOffset = select(3.5, -3.5, isSetupA);
+        let cycleT = fract(t * 0.4 + phase);
+        var pos: vec3f;
+        if (phase < 0.4) {
+          let isBottom = isSetupA;
+          let yStart = select(4.0, -4.0, isBottom);
+          let currentY = mix(yStart, 0.0, cycleT);
+          let px = xOffset + sin(phase * 123.45) * 1.5;
+          let pz = cos(f32(idx) * 0.123) * 1.5;
+          pos = vec3f(px, currentY, pz);
+        } else if (phase < 0.8) {
+          let isTop = isSetupA;
+          let yStart = select(-4.0, 4.0, isTop);
+          let currentY = mix(yStart, 0.0, cycleT);
+          let px = xOffset + sin(phase * 123.45) * 1.5;
+          let pz = cos(f32(idx) * 0.123) * 1.5;
+          pos = vec3f(px, currentY, pz);
+        } else {
+          let angle = phase * 62.83 + f32(idx) * 0.1;
+          let radius = 1.0 + cycleT * 3.0;
+          let px = xOffset + cos(angle) * radius;
+          let pz = sin(angle) * radius;
+          let py = sin(t * 5.0 + phase * 20.0) * 0.15;
+          pos = vec3f(px, py, pz);
+        }
+        return pos;
+      }
+
+      @compute @workgroup_size(64)
+      fn main(@builtin(global_invocation_id) id: vec3u) {
+        let idx = id.x;
+        if (idx >= u32(uniforms.particleCount)) { return; }
+
+        let p = particles[idx];
+        let phase = p.w;
+        let t = uniforms.time;
+        let mode = uniforms.mode;
+
+        var newPos: vec3f;
+        if (mode < 0.5) {
+          newPos = posSEG(phase, t, idx);
+        } else if (mode < 1.5) {
+          newPos = posHeron(phase, t, idx);
+        } else if (mode < 2.5) {
+          newPos = posKelvin(phase, t, idx);
+        } else if (mode < 3.5) {
+          newPos = posSolar(phase, t, idx, uniforms.speedMult);
+        } else {
+          newPos = posPeltier(phase, t, idx);
+        }
+
+        particles[idx] = vec4f(newPos, phase);
+      }
+    `;
+  }
+
   // Grid vertex shader
   get gridVertShader() {
     return /* wgsl */ `

@@ -486,5 +486,12 @@ export const DEVICE_CONFIG = {
     cameraOffset: [0, 4, 10],
     particleCount: 10000,
     color: [1.0, 0.9, 0.2]
+  },
+  peltier: {
+    position: [15, 0, -15],
+    rotation: [0, Math.PI / 4, 0],
+    cameraOffset: [0, 4, 15],
+    particleCount: 20000,
+    color: [0.2, 0.9, 0.4]
   }
 };

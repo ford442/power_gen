@@ -516,6 +516,76 @@ export const MICROVOLT_DATA = {
 };
 
 // ============================================
+// PELTIER TEG - THERMOELECTRIC DATA
+// ============================================
+export const PELTIER_DATA = {
+  // Seebeck Coefficient (Bismuth Telluride Bi₂Te₃ typical)
+  SEEBECK: {
+    nType: -2.1e-4,            // V/K
+    pType: 2.3e-4,             // V/K
+    couple: 4.4e-4,            // V/K (combined couple)
+  },
+  
+  // Thermal Properties
+  THERMAL: {
+    hotSideTemp: 353,          // K (80°C)
+    coldSideTemp: 293,         // K (20°C)
+    typicalDeltaT: 80,         // K
+    thermalConductance: 0.5,   // W/K
+  },
+  
+  // Electrical Properties
+  ELECTRICAL: {
+    internalResistance: 2.5,   // Ω
+    maxVoltage: 0.176,         // V (at ΔT=80K)
+    maxCurrent: 0.07,          // A
+  },
+  
+  // Performance
+  PERFORMANCE: {
+    maxEfficiency: 0.08,       // ~8% of Carnot
+    maxPowerDensity: 2.5e4,    // W/m³
+    typicalCOP: 0.5,           // Coefficient of Performance
+  },
+  
+  // Power Formula: P = S²ΔT² / (4R)  (matched load)
+  calculatePower: function(deltaT) {
+    const S = this.SEEBECK.couple;
+    const R = this.ELECTRICAL.internalResistance;
+    return (S * S * deltaT * deltaT) / (4 * R);
+  },
+  
+  // Voltage Formula: V = S × ΔT
+  calculateVoltage: function(deltaT) {
+    return this.SEEBECK.couple * deltaT;
+  },
+  
+  // Efficiency: η = (ΔT/T_hot) × (√(1+ZT) - 1) / (√(1+ZT) + T_cold/T_hot)
+  calculateEfficiency: function(deltaT) {
+    const T_hot = this.THERMAL.hotSideTemp;
+    const ZT = 1.0; // Typical figure of merit
+    const ratio = Math.sqrt(1 + ZT);
+    return (deltaT / T_hot) * (ratio - 1) / (ratio + (T_hot - deltaT) / T_hot);
+  },
+  
+  // WGSL Shader Constants
+  WGSL_CONSTANTS: `
+    const PELTIER_SEEBECK: f32 = 4.4e-4;
+    const PELTIER_R_INT: f32 = 2.5;
+    const PELTIER_HOT_T: f32 = 353.0;
+    const PELTIER_COLD_T: f32 = 293.0;
+    
+    fn peltier_power(deltaT: f32) -> f32 {
+      return (PELTIER_SEEBECK * PELTIER_SEEBECK * deltaT * deltaT) / (4.0 * PELTIER_R_INT);
+    }
+    
+    fn peltier_voltage(deltaT: f32) -> f32 {
+      return PELTIER_SEEBECK * deltaT;
+    }
+  `
+};
+
+// ============================================
 // UNIFIED PHYSICS SHADER LIBRARY
 // ============================================
 export const UNIFIED_PHYSICS_WGSL = `
@@ -632,5 +702,6 @@ export default {
   KELVIN_DATA,
   HERON_DATA,
   MICROVOLT_DATA,
+  PELTIER_DATA,
   UNIFIED_PHYSICS_WGSL
 };

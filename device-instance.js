@@ -31,6 +31,13 @@ class DeviceInstance {
     this.particlePipeline = null;
     this.corePipeline = null;
 
+    // Compute pipeline resources
+    this.computePipeline = null;
+    this.computeBindGroup = null;
+    this.computeUniformBuffer = null;
+    this.scaledParticleCount = 0;
+    this.speedMult = 1.0;
+
     // Field line visualization (SEG only)
     this.fieldLineCount = 1200;
     this.fieldLineParticles = null;
@@ -49,11 +56,33 @@ class DeviceInstance {
     await this.setupUniforms();
     await this.pipelineManager.setupPipelines();
     await this.geometry.setupParticles();
+    await this.setupComputeResources();
 
     if (this.id === 'seg') {
       // Use the new unified initialization for SEG
       await this.geometry.initializeSEG();
     }
+  }
+
+  async setupComputeResources() {
+    this.computePipeline = this.pipelineManager.computePipeline;
+    if (!this.computePipeline) return;
+
+    // Compute uniform buffer: time, mode, particleCount, speedMult (16 bytes)
+    this.computeUniformBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-compute-uniforms`, 16, GPUBufferUsage.UNIFORM);
+
+    // Compute bind group: binding 0 = particles storage, binding 1 = uniforms
+    this.computeBindGroup = this.device.createBindGroup({
+      layout: this.computePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.geometry.particles } },
+        { binding: 1, resource: { buffer: this.computeUniformBuffer } }
+      ]
+    });
   }
 
   async setupUniforms() {
@@ -126,8 +155,9 @@ class DeviceInstance {
     // Scale particle count by quality
     const scaledParticleCount = Math.floor(this.particleCount * qualityScale);
 
-    // Determine ring index for shaders: 0=SEG, 1=Heron, 2=Kelvin, 3=Solar
-    const ringIndex = this.id === 'heron' ? 1 : (this.id === 'kelvin' ? 2 : (this.id === 'solar' ? 3 : 0));
+    // Determine ring index for shaders: 0=SEG, 1=Heron, 2=Kelvin, 3=Solar, 4=Peltier
+    const ringIndex = this.id === 'heron' ? 1 : (this.id === 'kelvin' ? 2 : (this.id === 'solar' ? 3 : (this.id === 'peltier' ? 4 : 0)));
+    this.scaledParticleCount = scaledParticleCount;
 
     // Battery charge for solar device (0..1) passed via the padding slot
     if (this.id === 'solar' && this.batteryCharge === undefined) {

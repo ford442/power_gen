@@ -146,30 +146,26 @@ export class DeviceGeometry {
   }
 
   async setupParticles() {
-    const particleSize = 40;
+    // New unified layout: 16 bytes per particle = vec4f (xyz + phase)
+    const particleSize = 16;
     this.particles = this.device.createBuffer({
       size: this.particleCount * particleSize,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     this.visualizer.profiler.trackBuffer(`device-${this.id}-particles`, this.particleCount * particleSize, GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
 
-    const particleData = new Float32Array(this.particleCount * 10);
+    const particleData = new Float32Array(this.particleCount * 4);
     for (let i = 0; i < this.particleCount; i++) {
-      const idx = i * 10;
+      const idx = i * 4;
+      // Phase is the only persistent data; position is computed each frame by GPU
+      particleData[idx + 3] = Math.random(); // phase (w component)
+      
       if (this.id === 'seg') {
         const theta = Math.random() * Math.PI * 2;
         const r = 2 + Math.random() * 4;
         particleData[idx] = r * Math.cos(theta);
         particleData[idx + 1] = (Math.random() - 0.5) * 6;
         particleData[idx + 2] = r * Math.sin(theta);
-        // Copper + green energy particles
-        particleData[idx + 3] = 0.0; // velocity x
-        particleData[idx + 4] = 0.0; // velocity y  
-        particleData[idx + 5] = 0.0; // velocity z
-        particleData[idx + 6] = 0.85; // copper R
-        particleData[idx + 7] = 0.48; // copper G
-        particleData[idx + 8] = 0.25; // copper B
-        particleData[idx + 9] = Math.random(); // life/energy
       } else if (this.id === 'solar') {
         const ledCount = 6;
         const ledIdx = Math.floor(Math.random() * ledCount);
@@ -178,7 +174,12 @@ export class DeviceGeometry {
         particleData[idx] = Math.cos(ledAngle) * ledRadius;
         particleData[idx + 1] = 3.0 + Math.random() * 0.5;
         particleData[idx + 2] = Math.sin(ledAngle) * ledRadius;
-        particleData[idx + 9] = Math.random();
+      } else if (this.id === 'peltier') {
+        // Phase regions: 0.0-0.4 = hot, 0.4-0.8 = cold, 0.8-1.0 = electricity
+        // Position is fully compute-driven; seed only matters for randomness
+        particleData[idx] = 0.0;
+        particleData[idx + 1] = 0.0;
+        particleData[idx + 2] = 0.0;
       } else {
         particleData[idx + 1] = (Math.random() - 0.5) * 6;
       }

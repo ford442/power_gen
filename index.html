@@ -90,6 +90,7 @@
         <button class="view-btn" onclick="focusDevice('heron')">Heron</button>
         <button class="view-btn" onclick="focusDevice('kelvin')">Kelvin</button>
         <button class="view-btn" onclick="focusDevice('solar')">Solar</button>
+        <button class="view-btn" onclick="focusDevice('peltier')">Peltier</button>
       </div>
     </div>
     
@@ -101,6 +102,7 @@
         <button class="toggle-btn active" id="toggle-heron" onclick="toggleDevice('heron')">Heron</button>
         <button class="toggle-btn active" id="toggle-kelvin" onclick="toggleDevice('kelvin')">Kelvin</button>
         <button class="toggle-btn active" id="toggle-solar" onclick="toggleDevice('solar')">Solar</button>
+        <button class="toggle-btn active" id="toggle-peltier" onclick="toggleDevice('peltier')">Peltier</button>
       </div>
     </div>
     
@@ -119,6 +121,14 @@
         <div class="connection">
           <div class="connection-arrow">↗</div>
           <div class="connection-label">Kelvin→SEG</div>
+        </div>
+        <div class="connection">
+          <div class="connection-arrow">↘</div>
+          <div class="connection-label">Kelvin→Peltier</div>
+        </div>
+        <div class="connection">
+          <div class="connection-arrow">↗</div>
+          <div class="connection-label">Peltier→Solar</div>
         </div>
       </div>
     </div>
@@ -154,6 +164,9 @@
       <div class="device-info" style="border-color: #ffb500;">
         <strong>LEDs + Solar Cells</strong> (0, 0, 8): LEDs drain a battery while charging solar panels.
       </div>
+      <div class="device-info" style="border-color: #2f4;">
+        <strong>Peltier TEG</strong> (15, 0, -15): Dual thermoelectric generators with opposing thermal gradients.
+      </div>
     </div>
     
     <!-- Legend -->
@@ -173,6 +186,10 @@
       <div class="legend-item">
         <div class="legend-color pipe"></div>
         <span>Energy Transfer Pipes</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: #2f4; box-shadow: 0 0 8px #2f4;"></div>
+        <span>Thermal/Electric (Peltier)</span>
       </div>
     </div>
     
