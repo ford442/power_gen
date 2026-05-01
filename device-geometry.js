@@ -17,6 +17,7 @@ export class DeviceGeometry {
     await this.setupFieldLines();
     await this.setupEnergyArcs();
     await this.setupWiring();
+    await this.setupElectromagnets();
   }
 
   async setupBase() {
@@ -249,5 +250,48 @@ export class DeviceGeometry {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     this.visualizer.profiler.trackBuffer(`device-${this.id}-core`, 100 * 32, GPUBufferUsage.STORAGE);
+  }
+
+  async setupElectromagnets() {
+    // Electromagnet coils arranged in a circle around the SEG rollers
+    // Instance format: position(3) + angle(1) + activeIntensity(1) + coilIndex(1) + pad(2) = 8 floats = 32 bytes
+    const maxCoils = 24;
+    this.electromagnetInstances = this.device.createBuffer({
+      size: maxCoils * 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-electromagnets`, maxCoils * 32, GPUBufferUsage.STORAGE);
+
+    // Initialize with default 8-coil layout at radius 7.0
+    this.updateElectromagnetLayout(8, 0);
+  }
+
+  updateElectromagnetLayout(numCoils, offsetAngleDeg) {
+    if (!this.electromagnetInstances) return;
+    const maxCoils = 24;
+    const instanceData = new Float32Array(maxCoils * 8);
+    const radius = 7.2; // Just outside outer roller ring (5.5)
+    const offsetRad = (offsetAngleDeg * Math.PI) / 180;
+
+    for (let i = 0; i < maxCoils; i++) {
+      const idx = i * 8;
+      if (i < numCoils) {
+        const angle = (i / numCoils) * Math.PI * 2 + offsetRad;
+        instanceData[idx] = Math.cos(angle) * radius;     // x
+        instanceData[idx + 1] = 0.0;                       // y
+        instanceData[idx + 2] = Math.sin(angle) * radius; // z
+        instanceData[idx + 3] = angle;                     // orientation angle
+        instanceData[idx + 4] = 0.0;                       // activeIntensity
+        instanceData[idx + 5] = i;                         // coilIndex
+        instanceData[idx + 6] = 0.0;                       // pad
+        instanceData[idx + 7] = 0.0;                       // pad
+      } else {
+        // Hide unused coils
+        instanceData[idx] = 0; instanceData[idx + 1] = -1000; instanceData[idx + 2] = 0;
+        instanceData[idx + 3] = 0; instanceData[idx + 4] = 0; instanceData[idx + 5] = i;
+        instanceData[idx + 6] = 0; instanceData[idx + 7] = 0;
+      }
+    }
+    this.device.queue.writeBuffer(this.electromagnetInstances, 0, instanceData);
   }
 }

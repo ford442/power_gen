@@ -22,6 +22,8 @@ class DeviceInstance {
     Object.defineProperty(this, 'corePipeline', { get: () => this.pipelineManager.corePipeline });
     Object.defineProperty(this, 'fieldLinePipeline', { get: () => this.pipelineManager.fieldLinePipeline });
     Object.defineProperty(this, 'energyArcPipeline', { get: () => this.pipelineManager.energyArcPipeline });
+    Object.defineProperty(this, 'electromagnetInstances', { get: () => this.geometry.electromagnetInstances });
+    Object.defineProperty(this, 'coilPipeline', { get: () => this.pipelineManager.coilPipeline });
     this.position = config.position;
     this.rotation = config.rotation;
     this.deviceUniformBuffer = null;
@@ -227,13 +229,24 @@ class DeviceInstance {
         { count: 16, radius: 5.5, scale: 1.0, speed: 0.5, index: 2 }   // Outer ring - slowest
       ];
 
+      // Check if we should mirror real hardware phase
+      const hw = this.visualizer.hardwareBridge;
+      const useHardware = hw?.isConnected && hw?.mirrorEnabled;
+      const hardwarePhaseRad = useHardware ? (hw.actualPhase * Math.PI / 180) : null;
+
       let rollerOffset = 0;
 
       for (const ring of rings) {
         for (let i = 0; i < ring.count; i++) {
           const idx = rollerOffset * 12;
           // Orbital position around the central axis
-          const angle = (i / ring.count) * Math.PI * 2 + time * 0.5 * ring.speed;
+          let angle;
+          if (useHardware) {
+            // Map hardware phase to this roller's position in the ring
+            angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad * ring.speed;
+          } else {
+            angle = (i / ring.count) * Math.PI * 2 + time * 0.5 * ring.speed;
+          }
 
           // Position in toroidal ring
           instanceData[idx] = Math.cos(angle) * ring.radius;     // x
@@ -269,7 +282,90 @@ class DeviceInstance {
 
       // Update pickup coil energy levels based on roller positions
       this.updatePickupCoilEnergies(instanceData);
+
+      // Update electromagnet coil activation visualization
+      this.updateElectromagnetCoils();
     }
+  }
+
+  updateElectromagnetCoils() {
+    if (!this.electromagnetInstances) return;
+
+    const hw = this.visualizer.hardwareBridge;
+    const em = this.visualizer.emController;
+    const useHardware = hw?.isConnected && hw?.mirrorEnabled;
+
+    let numCoils = em?.numCoils || 8;
+    let coilMask = 0;
+    let pwmValues = null;
+
+    // Determine phase to use for commutation
+    let phaseDeg;
+    if (useHardware) {
+      phaseDeg = hw.actualPhase;
+      numCoils = hw.config.numCoils;
+      // Use hardware-reported coil mask if available, otherwise compute
+      coilMask = hw.coilMask || 0;
+    } else if (em) {
+      // Simulated: compute from visualizer time
+      const simulatedSpeed = 30; // RPM for demo visualization
+      phaseDeg = (this.visualizer.time * simulatedSpeed * 6) % 360;
+      if (phaseDeg < 0) phaseDeg += 360;
+      coilMask = em.computeCoilMask(phaseDeg, 1);
+      pwmValues = em.computePwmValues(phaseDeg, 1);
+    } else {
+      return;
+    }
+
+    // If hardware is connected but coil mask is stale/empty, fall back to computed
+    if (useHardware && coilMask === 0 && em) {
+      coilMask = em.computeCoilMask(phaseDeg, 1);
+    }
+
+    // Update layout if coil count changed
+    if (this._lastCoilCount !== numCoils) {
+      this.geometry.updateElectromagnetLayout(numCoils, em?.offsetAngle || 0);
+      this._lastCoilCount = numCoils;
+    }
+
+    // Read current instance data, update only the activeIntensity field
+    // Format per instance: position(3) + angle(1) + activeIntensity(1) + coilIndex(1) + pad(2)
+    const maxCoils = 24;
+    const instanceData = new Float32Array(maxCoils * 8);
+    const radius = 7.2;
+    const offsetRad = ((em?.offsetAngle || 0) * Math.PI) / 180;
+
+    for (let i = 0; i < maxCoils; i++) {
+      const idx = i * 8;
+      if (i < numCoils) {
+        const angle = (i / numCoils) * Math.PI * 2 + offsetRad;
+        instanceData[idx] = Math.cos(angle) * radius;
+        instanceData[idx + 1] = 0.0;
+        instanceData[idx + 2] = Math.sin(angle) * radius;
+        instanceData[idx + 3] = angle;
+
+        // Determine active intensity
+        let intensity = 0;
+        if (coilMask & (1 << i)) {
+          intensity = pwmValues ? (pwmValues[i] / 255) : 1.0;
+        }
+        instanceData[idx + 4] = intensity;
+        instanceData[idx + 5] = i;
+        instanceData[idx + 6] = 0;
+        instanceData[idx + 7] = 0;
+      } else {
+        instanceData[idx] = 0;
+        instanceData[idx + 1] = -1000;
+        instanceData[idx + 2] = 0;
+        instanceData[idx + 3] = 0;
+        instanceData[idx + 4] = 0;
+        instanceData[idx + 5] = i;
+        instanceData[idx + 6] = 0;
+        instanceData[idx + 7] = 0;
+      }
+    }
+
+    this.device.queue.writeBuffer(this.electromagnetInstances, 0, instanceData);
   }
 
   updatePickupCoilEnergies(rollerData) {
@@ -449,6 +545,55 @@ class DeviceInstance {
       renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
       renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
       renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 36);
+    }
+
+    // Render electromagnet coils (SEG only)
+    if (this.id === 'seg' && this.electromagnetInstances && this.coilPipeline && !skipEffects) {
+      const deviceData = new Float32Array([
+        this.renderMode,
+        this.position[0],
+        this.position[1],
+        this.position[2],
+        Math.sin(this.rotation[1] / 2),
+        0,
+        Math.cos(this.rotation[1] / 2),
+        1.0,
+        1.0,
+        0,
+        this.id === 'solar' ? this.batteryCharge : 0,
+        this.id === 'solar' ? 1 : 0
+      ]);
+      this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
+
+      // Coil material: copper base with orange glow potential
+      const coilMaterialData = new Float32Array([
+        0.75, 0.45, 0.25, 0,    // baseColor + pad
+        1.0, 0.55, 0.0, 2.5      // glowColor (orange) + emission
+      ]);
+      const coilMaterialBuffer = this.device.createBuffer({
+        size: 32,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      });
+      this.device.queue.writeBuffer(coilMaterialBuffer, 0, coilMaterialData);
+
+      const coilBindGroup = this.device.createBindGroup({
+        layout: this.coilPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: globalUniformBuffer } },
+          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+          { binding: 2, resource: { buffer: this.electromagnetInstances } },
+          { binding: 3, resource: { buffer: coilMaterialBuffer } }
+        ]
+      });
+
+      renderPass.setPipeline(this.coilPipeline);
+      renderPass.setBindGroup(0, coilBindGroup);
+      renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
+      renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
+      const numCoils = this.visualizer.emController?.numCoils || 8;
+      renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, numCoils);
+
+      coilMaterialBuffer.destroy();
     }
 
     // Render battery gauge (solar device only)

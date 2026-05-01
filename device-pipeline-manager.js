@@ -103,6 +103,26 @@ export class DevicePipelineManager {
         depthStencil: { depthWriteEnabled: false, depthCompare: 'less' }
       });
     }
+
+    // Electromagnet coil pipeline (SEG only)
+    if (this.id === 'seg') {
+      this.coilPipeline = this.device.createRenderPipeline({
+        label: 'coilPipeline',
+        layout: 'auto',
+        vertex: {
+          module: this.device.createShaderModule({ code: this.visualizer.coilVertShader }),
+          entryPoint: 'main',
+          buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
+        },
+        fragment: {
+          module: this.device.createShaderModule({ code: this.visualizer.coilFragShader }),
+          entryPoint: 'main',
+          targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
+        },
+        primitive: { topology: 'triangle-list' },
+        depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
+      });
+    }
   }
 
   async setupComputePipeline() {

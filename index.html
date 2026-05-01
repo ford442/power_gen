@@ -142,12 +142,77 @@
     <!-- Controls -->
     <div class="slider-container">
       <label>Simulation Speed: <span id="speedVal">1.0</span></label>
-      <input type="range" id="speedSlider" min="0" max="3" step="0.1" value="1.0">
+      <input type="range" id="speedSlider" min="0" max="50" step="0.5" value="1.0">
+      <div style="font-size: 0.65rem; color: #666; margin-top: 4px;">
+        SEG inner ring: <span id="segRpmVal" style="color: #0aa;">~10</span> RPM
+      </div>
     </div>
     
     <div class="slider-container">
       <label>Particles per Device: <span id="particleVal">10K</span></label>
       <input type="range" id="particleSlider" min="1000" max="20000" step="1000" value="10000">
+    </div>
+    
+    <!-- Hardware Connection Panel -->
+    <div class="slider-container" style="border-color: #f80;">
+      <label style="color: #f80;">⚡ Hardware Control</label>
+      
+      <!-- Connection -->
+      <div style="display: flex; gap: 8px; margin: 10px 0; align-items: center;">
+        <button id="hwConnectBtn" onclick="window.hardwareBridge?.connect()" style="flex:1; padding: 8px; background: #1a1a1a; border: 1px solid #f80; color: #f80; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
+          Connect Arduino
+        </button>
+        <button id="hwDisconnectBtn" onclick="window.hardwareBridge?.disconnect()" style="padding: 8px 12px; background: #1a1a1a; border: 1px solid #f80; color: #f80; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">
+          ✕
+        </button>
+      </div>
+      <div id="hwStatus" style="font-size: 0.75rem; color: #888; text-align: center; margin-bottom: 8px;">
+        Status: <span id="hwStatusText" style="color: #f80;">Disconnected</span>
+      </div>
+      
+      <!-- Coil Config -->
+      <div style="display: flex; gap: 8px; margin: 8px 0; align-items: center;">
+        <label style="font-size: 0.75rem; color: #aaa; margin: 0; white-space: nowrap;">Coils:</label>
+        <input type="number" id="hwNumCoils" min="2" max="24" value="8" style="width: 50px; background: #111; border: 1px solid #444; color: #f80; border-radius: 4px; padding: 4px; font-size: 0.75rem;">
+        <button onclick="window.applyCoilConfig?.()" style="padding: 4px 10px; background: #1a1a1a; border: 1px solid #f80; color: #f80; border-radius: 4px; cursor: pointer; font-size: 0.7rem;">Apply</button>
+      </div>
+      
+      <div style="margin: 8px 0;">
+        <label style="font-size: 0.7rem; color: #888;">Dwell: <span id="hwDwellVal">67.5</span>°</label>
+        <input type="range" id="hwDwellSlider" min="10" max="180" step="1" value="67.5" style="width: 100%; accent-color: #f80;">
+      </div>
+      
+      <div style="margin: 8px 0;">
+        <label style="font-size: 0.7rem; color: #888;">Advance: <span id="hwAdvanceVal">0</span>°</label>
+        <input type="range" id="hwAdvanceSlider" min="-45" max="45" step="1" value="0" style="width: 100%; accent-color: #f80;">
+      </div>
+      
+      <!-- Speed Control -->
+      <div style="margin: 10px 0; padding-top: 10px; border-top: 1px solid #333;">
+        <label style="font-size: 0.75rem; color: #f80;">Target Speed: <span id="hwSpeedVal">0</span> RPM</label>
+        <input type="range" id="hwSpeedSlider" min="-300" max="300" step="5" value="0" style="width: 100%; accent-color: #f80;">
+      </div>
+      
+      <div style="display: flex; gap: 8px; margin: 8px 0;">
+        <button id="hwRunBtn" onclick="window.setHardwareMode?.('run')" style="flex:1; padding: 6px; background: #0a2a0a; border: 1px solid #2f2; color: #2f2; border-radius: 4px; cursor: pointer; font-size: 0.7rem;">Run</button>
+        <button id="hwBrakeBtn" onclick="window.setHardwareMode?.('brake')" style="flex:1; padding: 6px; background: #2a0a0a; border: 1px solid #f22; color: #f22; border-radius: 4px; cursor: pointer; font-size: 0.7rem;">Brake</button>
+        <button id="hwCoastBtn" onclick="window.setHardwareMode?.('coast')" style="flex:1; padding: 6px; background: #1a1a1a; border: 1px solid #888; color: #888; border-radius: 4px; cursor: pointer; font-size: 0.7rem;">Coast</button>
+      </div>
+      
+      <!-- Mirror Toggle -->
+      <div style="display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 0.75rem; color: #aaa;">
+        <input type="checkbox" id="hwMirrorToggle" style="accent-color: #f80;">
+        <label for="hwMirrorToggle" style="margin: 0; color: #aaa;">Mirror hardware in 3D view</label>
+      </div>
+      
+      <!-- Telemetry -->
+      <div id="hwTelemetry" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333; font-family: monospace; font-size: 0.7rem; color: #aaa;">
+        <div>Phase: <span id="hwPhase" style="color: #f80;">--</span>°</div>
+        <div>RPM: <span id="hwRpm" style="color: #f80;">--</span></div>
+        <div>Mag: <span id="hwMagX">--</span> / <span id="hwMagY">--</span> / <span id="hwMagZ">--</span> µT</div>
+        <div>Hall: <span id="hwHallMask" style="color: #f80;">00000000</span></div>
+        <div>Coils: <span id="hwCoilMask" style="color: #f80;">00000000</span></div>
+      </div>
     </div>
     
     <!-- Device Info -->

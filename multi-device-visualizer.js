@@ -18,6 +18,12 @@ class MultiDeviceVisualizer {
     this.devices = {};
     this.energyPipes = [];
 
+    // Hardware integration hooks
+    this.hardwareBridge = null;
+    this.emController = null;
+    this.hardwareTargetPhase = 0;
+    this.hardwareTargetSpeed = 0;
+
     this.time = 0;
     this.lastFrameTime = 0;
     this.fps = 60;
@@ -38,6 +44,7 @@ class MultiDeviceVisualizer {
 
       this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
 
+      await this.setupSharedGeometry();
       await this.setupDevices();
       await this.setupEnergyPipes();
       await this.setupFloorGrid();
@@ -104,6 +111,72 @@ class MultiDeviceVisualizer {
     }
   }
   
+  generateCylinder(radius, height, segments) {
+    const vertices = [], indices = [], normals = [];
+
+    for (let i = 0; i <= segments; i++) {
+      const theta = (i / segments) * Math.PI * 2;
+      const x = Math.cos(theta) * radius;
+      const z = Math.sin(theta) * radius;
+
+      vertices.push(x, height / 2, z);
+      normals.push(0, 1, 0);
+
+      vertices.push(x, -height / 2, z);
+      normals.push(0, -1, 0);
+
+      vertices.push(x, height / 2, z);
+      normals.push(Math.cos(theta), 0, Math.sin(theta));
+
+      vertices.push(x, -height / 2, z);
+      normals.push(Math.cos(theta), 0, Math.sin(theta));
+    }
+
+    for (let i = 0; i < segments; i++) {
+      const base = i * 4;
+      const next = ((i + 1) % (segments + 1)) * 4;
+
+      indices.push(base, next, base + 2, base + 2, next, next + 2);
+      indices.push(base + 1, base + 3, next + 1, next + 1, base + 3, next + 3);
+      indices.push(base + 2, next + 2, base + 3, base + 3, next + 2, next + 3);
+    }
+
+    const vertexData = new Float32Array(vertices.length / 3 * 6);
+    for (let i = 0; i < vertices.length / 3; i++) {
+      vertexData[i * 6] = vertices[i * 3];
+      vertexData[i * 6 + 1] = vertices[i * 3 + 1];
+      vertexData[i * 6 + 2] = vertices[i * 3 + 2];
+      vertexData[i * 6 + 3] = normals[i * 3];
+      vertexData[i * 6 + 4] = normals[i * 3 + 1];
+      vertexData[i * 6 + 5] = normals[i * 3 + 2];
+    }
+
+    return { vertices: vertexData, indices: new Uint16Array(indices) };
+  }
+
+  async setupSharedGeometry() {
+    // Shared cylinder geometry used by rollers, coils, base, stator rings, wiring
+    const cylinderData = this.generateCylinder(0.8, 2.5, 32);
+    const cylinderVertexBuffer = this.device.createBuffer({
+      size: cylinderData.vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(cylinderVertexBuffer, 0, cylinderData.vertices);
+    const cylinderIndexBuffer = this.device.createBuffer({
+      size: cylinderData.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(cylinderIndexBuffer, 0, cylinderData.indices);
+
+    this.cylinderBuffer = {
+      vertexBuffer: cylinderVertexBuffer,
+      indexBuffer: cylinderIndexBuffer,
+      indexCount: cylinderData.indices.length
+    };
+    this.profiler.trackBuffer('shared-cylinder-vertices', cylinderData.vertices.byteLength, GPUBufferUsage.VERTEX);
+    this.profiler.trackBuffer('shared-cylinder-indices', cylinderData.indices.byteLength, GPUBufferUsage.INDEX);
+  }
+
   async setupFloorGrid() {
     this.gridPipeline = this.device.createRenderPipeline({
       label: 'gridPipeline',
@@ -299,7 +372,17 @@ class MultiDeviceVisualizer {
     
     const speed = parseFloat(document.getElementById('speedSlider')?.value) || 1.0;
     this.time += deltaTime * speed;
-    
+
+    // Update hardware bridge comms (send phase commands, parse sensor data)
+    if (this.hardwareBridge?.isConnected) {
+      this.hardwareBridge.update();
+      // If running in auto mode, integrate target phase from speed
+      if (!this.hardwareBridge.manualMode && this.hardwareBridge.controlMode === 0) {
+        this.hardwareTargetPhase += this.hardwareBridge.targetSpeed * 6.0 * deltaTime; // RPM -> deg/s
+      }
+      this.hardwareBridge.targetPhase = this.hardwareTargetPhase;
+    }
+
     // Update camera
     this.updateCamera(deltaTime);
     
@@ -991,6 +1074,139 @@ class MultiDeviceVisualizer {
       fn main(input: FragmentInput) -> @location(0) vec4f {
         let glow = input.color * input.intensity * 2.0;
         return vec4f(glow, input.intensity);
+      }
+    `;
+  }
+  
+  // ============================================
+  // Electromagnet coil shaders
+  // ============================================
+  
+  get coilVertShader() {
+    return /* wgsl */ `
+      struct Uniforms {
+        viewProj: mat4x4f,
+        time: f32,
+        cameraPos: vec3f
+      }
+      
+      struct DeviceUniforms {
+        renderMode: f32,
+        posX: f32,
+        posY: f32,
+        posZ: f32,
+        rotation: vec4f,
+        timeScale: f32,
+        ringIndex: f32,
+        batteryCharge: f32,
+        isSolar: f32
+      }
+      
+      struct CoilInstance {
+        position: vec3f,
+        angle: f32,
+        activeIntensity: f32,
+        coilIndex: f32,
+        pad1: f32,
+        pad2: f32
+      }
+      
+      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
+      @binding(2) @group(0) var<storage> instances: array<CoilInstance>;
+      
+      struct VertexInput {
+        @location(0) position: vec3f,
+        @location(1) normal: vec3f
+      }
+      
+      struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) worldPos: vec3f,
+        @location(1) normal: vec3f,
+        @location(2) activeIntensity: f32,
+        @location(3) coilIndex: f32
+      }
+      
+      @vertex
+      fn main(input: VertexInput, @builtin(instance_index) instanceIdx: u32) -> VertexOutput {
+        let instance = instances[instanceIdx];
+        
+        // Rotate cylinder to face tangent to the ring
+        let ca = cos(instance.angle);
+        let sa = sin(instance.angle);
+        // Rotate around Y axis to align with ring tangent
+        let rotPos = vec3f(
+          input.position.x * ca + input.position.z * sa,
+          input.position.y,
+          -input.position.x * sa + input.position.z * ca
+        );
+        let rotNormal = vec3f(
+          input.normal.x * ca + input.normal.z * sa,
+          input.normal.y,
+          -input.normal.x * sa + input.normal.z * ca
+        );
+        
+        let devicePos = vec3f(device.posX, device.posY, device.posZ);
+        let worldPos = rotPos + instance.position + devicePos;
+        
+        var output: VertexOutput;
+        output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
+        output.worldPos = worldPos;
+        output.normal = rotNormal;
+        output.activeIntensity = instance.activeIntensity;
+        output.coilIndex = instance.coilIndex;
+        
+        return output;
+      }
+    `;
+  }
+  
+  get coilFragShader() {
+    return /* wgsl */ `
+      struct CoilMaterialUniforms {
+        baseColor: vec3f,
+        pad1: f32,
+        glowColor: vec3f,
+        emission: f32
+      }
+      
+      @binding(3) @group(0) var<uniform> material: CoilMaterialUniforms;
+      
+      struct FragmentInput {
+        @location(0) worldPos: vec3f,
+        @location(1) normal: vec3f,
+        @location(2) activeIntensity: f32,
+        @location(3) coilIndex: f32
+      }
+      
+      @fragment
+      fn main(input: FragmentInput) -> @location(0) vec4f {
+        let normal = normalize(input.normal);
+        let lightDir = normalize(vec3f(1.0, 1.0, 1.0));
+        let diff = max(dot(normal, lightDir), 0.0);
+        let ambient = 0.3;
+        
+        // Copper base color
+        var color = material.baseColor * (ambient + diff * 0.7);
+        
+        // Add specular for metallic look
+        let viewDir = normalize(vec3f(0.0, 5.0, 10.0) - input.worldPos);
+        let halfDir = normalize(lightDir + viewDir);
+        let spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
+        color = color + vec3f(1.0) * spec * 0.5;
+        
+        // Orange emissive glow when active
+        let active = input.activeIntensity;
+        let orangeGlow = vec3f(1.0, 0.55, 0.0) * active * 2.5;
+        let whiteCore = vec3f(1.0, 0.9, 0.7) * active * 0.8;
+        color = color + orangeGlow + whiteCore;
+        
+        // Subtle pulsing when active
+        let pulse = 1.0 + 0.15 * sin(input.coilIndex * 2.0) * active;
+        color = color * pulse;
+        
+        return vec4f(color, 1.0);
       }
     `;
   }
