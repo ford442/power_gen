@@ -250,6 +250,69 @@ export class DeviceGeometry {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     this.visualizer.profiler.trackBuffer(`device-${this.id}-core`, 100 * 32, GPUBufferUsage.STORAGE);
+
+    const core = this.config.core || {};
+    const plateY = core.plateY || 2.5;
+
+    // Instance buffer for bearing shaft (ringIndex = -1 signals steel to shader)
+    this.shaftInstanceBuffer = this.device.createBuffer({
+      size: 48,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    const shaftInstanceData = new Float32Array([
+      0, 0, 0,       // position
+      -1.0,          // ringIndex (shaft hack)
+      0, 0, 0, 1,    // rotation quaternion
+      0.65, 0.67, 0.70, // steel color
+      0.0            // emissive
+    ]);
+    this.device.queue.writeBuffer(this.shaftInstanceBuffer, 0, shaftInstanceData);
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-shaft-instance`, 48, GPUBufferUsage.STORAGE);
+
+    // Instance buffer for magnet core (default copper look)
+    this.magnetInstanceBuffer = this.device.createBuffer({
+      size: 48,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    const magnetInstanceData = new Float32Array([
+      0, 0, 0,       // position
+      0.0,           // ringIndex (default)
+      0, 0, 0, 1,    // rotation quaternion
+      0.85, 0.48, 0.25, // copper color
+      0.0            // emissive
+    ]);
+    this.device.queue.writeBuffer(this.magnetInstanceBuffer, 0, magnetInstanceData);
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-magnet-instance`, 48, GPUBufferUsage.STORAGE);
+
+    // Instance buffer for top plate (ringIndex = 11 signals brass/structural to shader)
+    this.topPlateInstanceBuffer = this.device.createBuffer({
+      size: 48,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    const topPlateData = new Float32Array([
+      0, plateY, 0,  // position
+      11.0,          // ringIndex (plate hack)
+      0, 0, 0, 1,    // rotation quaternion
+      0.78, 0.58, 0.22, // brass color
+      0.0            // emissive
+    ]);
+    this.device.queue.writeBuffer(this.topPlateInstanceBuffer, 0, topPlateData);
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-top-plate-instance`, 48, GPUBufferUsage.STORAGE);
+
+    // Instance buffer for bottom plate
+    this.bottomPlateInstanceBuffer = this.device.createBuffer({
+      size: 48,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    const bottomPlateData = new Float32Array([
+      0, -plateY, 0, // position
+      11.0,          // ringIndex (plate hack)
+      0, 0, 0, 1,    // rotation quaternion
+      0.78, 0.58, 0.22, // brass color
+      0.0            // emissive
+    ]);
+    this.device.queue.writeBuffer(this.bottomPlateInstanceBuffer, 0, bottomPlateData);
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-bottom-plate-instance`, 48, GPUBufferUsage.STORAGE);
   }
 
   async setupElectromagnets() {

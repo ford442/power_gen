@@ -123,6 +123,50 @@ export class DevicePipelineManager {
         depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
       });
     }
+
+    // Enhanced SEG pipeline with UV support and PBR (SEG only)
+    if (this.id === 'seg') {
+      this.segEnhancedPipeline = this.device.createRenderPipeline({
+        label: 'segEnhancedPipeline',
+        layout: 'auto',
+        vertex: {
+          module: this.device.createShaderModule({ code: this.visualizer.segEnhancedVertShader }),
+          entryPoint: 'main',
+          buffers: [{ arrayStride: 32, attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+            { shaderLocation: 2, offset: 24, format: 'float32x2' }
+          ] }]
+        },
+        fragment: {
+          module: this.device.createShaderModule({ code: this.visualizer.segEnhancedFragShader }),
+          entryPoint: 'main',
+          targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
+        },
+        primitive: { topology: 'triangle-list', cullMode: 'back' },
+        depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
+      });
+    }
+
+    // Ring pipeline for connection rings (SEG only)
+    if (this.id === 'seg') {
+      this.ringPipeline = this.device.createRenderPipeline({
+        label: 'ringPipeline',
+        layout: 'auto',
+        vertex: {
+          module: this.device.createShaderModule({ code: this.visualizer.coreVertShader }),
+          entryPoint: 'main',
+          buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
+        },
+        fragment: {
+          module: this.device.createShaderModule({ code: this.visualizer.coreFragShader }),
+          entryPoint: 'main',
+          targets: [{ format: this.visualizer.context.getCurrentTexture().format }]
+        },
+        primitive: { topology: 'triangle-list' },
+        depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
+      });
+    }
   }
 
   async setupComputePipeline() {
