@@ -1088,4 +1088,30 @@ export class MultiDeviceShaders {
   
   // Grid fragment shader
   get gridFragShader() {
+    return /* wgsl */ `
+      struct FragmentInput {
+        @location(0) uv: vec2f
+      }
+      
+      @fragment
+      fn main(input: FragmentInput) -> @location(0) vec4f {
+        // Simple grid pattern on floor
+        let gridSize = 20.0;
+        let worldPos = input.uv * gridSize - gridSize * 0.5;
+        
+        let lineWidth = 0.05;
+        let gridX = abs(fract(worldPos.x) - 0.5);
+        let gridY = abs(fract(worldPos.y) - 0.5);
+        
+        let isLine = step(gridX, lineWidth) + step(gridY, lineWidth);
+        
+        let gridColor = vec3f(0.1, 0.15, 0.2);
+        let lineColor = vec3f(0.2, 0.3, 0.4);
+        
+        let color = mix(gridColor, lineColor, isLine);
+        
+        return vec4f(color, 0.3);
+      }
+    `;
+  }
 }
