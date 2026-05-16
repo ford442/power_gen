@@ -13,12 +13,12 @@ export class DevicePipelineManager {
       label: 'rollerPipeline',
       layout: 'auto',
       vertex: {
-        module: this.device.createShaderModule({ code: this.visualizer.rollerVertShader }),
+        module: this.device.createShaderModule({ code: this.visualizer.shaders.rollerVertShader }),
         entryPoint: 'main',
         buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
       },
       fragment: {
-        module: this.device.createShaderModule({ code: this.visualizer.rollerFragShader }),
+        module: this.device.createShaderModule({ code: this.visualizer.shaders.rollerFragShader }),
         entryPoint: 'main',
         targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
       },
@@ -31,12 +31,12 @@ export class DevicePipelineManager {
       label: 'particlePipeline',
       layout: 'auto',
       vertex: {
-        module: this.device.createShaderModule({ code: this.visualizer.particleVertShader }),
+        module: this.device.createShaderModule({ code: this.visualizer.shaders.particleVertShader }),
         entryPoint: 'main',
         buffers: [{ arrayStride: 16, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32' }] }]
       },
       fragment: {
-        module: this.device.createShaderModule({ code: this.visualizer.particleFragShader }),
+        module: this.device.createShaderModule({ code: this.visualizer.shaders.particleFragShader }),
         entryPoint: 'main',
         targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
       },
@@ -50,12 +50,12 @@ export class DevicePipelineManager {
         label: 'corePipeline',
         layout: 'auto',
         vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.coreVertShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreVertShader }),
           entryPoint: 'main',
           buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
         },
         fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.coreFragShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreFragShader }),
           entryPoint: 'main',
           targets: [{ format: this.visualizer.context.getCurrentTexture().format }]
         },
@@ -70,12 +70,12 @@ export class DevicePipelineManager {
         label: 'fieldLinePipeline',
         layout: 'auto',
         vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.fieldLineVertShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.fieldLineVertShader }),
           entryPoint: 'main',
           buffers: [{ arrayStride: 32, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }, { shaderLocation: 2, offset: 24, format: 'float32' }, { shaderLocation: 3, offset: 28, format: 'float32' }] }]
         },
         fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.fieldLineFragShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.fieldLineFragShader }),
           entryPoint: 'main',
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
@@ -90,12 +90,12 @@ export class DevicePipelineManager {
         label: 'energyArcPipeline',
         layout: 'auto',
         vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.energyArcVertShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.energyArcVertShader }),
           entryPoint: 'main',
           buffers: [{ arrayStride: 32, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }, { shaderLocation: 2, offset: 24, format: 'float32' }, { shaderLocation: 3, offset: 28, format: 'float32' }] }]
         },
         fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.energyArcFragShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.energyArcFragShader }),
           entryPoint: 'main',
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
@@ -110,12 +110,12 @@ export class DevicePipelineManager {
         label: 'coilPipeline',
         layout: 'auto',
         vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.coilVertShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.coilVertShader }),
           entryPoint: 'main',
           buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
         },
         fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.coilFragShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.coilFragShader }),
           entryPoint: 'main',
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
@@ -130,7 +130,7 @@ export class DevicePipelineManager {
         label: 'segEnhancedPipeline',
         layout: 'auto',
         vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.segEnhancedVertShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.segEnhancedVertShader }),
           entryPoint: 'main',
           buffers: [{ arrayStride: 32, attributes: [
             { shaderLocation: 0, offset: 0, format: 'float32x3' },
@@ -139,7 +139,7 @@ export class DevicePipelineManager {
           ] }]
         },
         fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.segEnhancedFragShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.segEnhancedFragShader }),
           entryPoint: 'main',
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
@@ -154,12 +154,12 @@ export class DevicePipelineManager {
         label: 'ringPipeline',
         layout: 'auto',
         vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.coreVertShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreVertShader }),
           entryPoint: 'main',
           buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
         },
         fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.coreFragShader }),
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreFragShader }),
           entryPoint: 'main',
           targets: [{ format: this.visualizer.context.getCurrentTexture().format }]
         },
@@ -170,7 +170,7 @@ export class DevicePipelineManager {
   }
 
   async setupComputePipeline() {
-    const computeShader = this.visualizer.computeShader;
+    const computeShader = this.visualizer.shaders.computeShader;
     const cacheKey = `compute_${this.hashString(computeShader)}`;
     if (this.pipelines.has(cacheKey)) {
       this.computePipeline = this.pipelines.get(cacheKey);
