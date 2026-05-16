@@ -1,5 +1,7 @@
 import { DeviceGeometry } from './device-geometry.js';
 import { DevicePipelineManager } from './device-pipeline-manager.js';
+import { DeviceUniformManager } from './device-uniforms.js';
+import { DeviceComputeManager } from './device-compute.js';
 
 class DeviceInstance {
   constructor(device, id, config, visualizer) {
@@ -10,6 +12,8 @@ class DeviceInstance {
     this.particleCount = config.particleCount;
     this.geometry = new DeviceGeometry(device, id, config, visualizer);
     this.pipelineManager = new DevicePipelineManager(device, id, visualizer);
+    this.uniformManager = new DeviceUniformManager(device, id, config, visualizer);
+    this.computeManager = new DeviceComputeManager(device, id, config, this.pipelineManager, this.geometry);
     
     // Delegate properties
     Object.defineProperty(this, 'particles', { get: () => this.geometry.particles });
@@ -30,21 +34,66 @@ class DeviceInstance {
     Object.defineProperty(this, 'coilPipeline', { get: () => this.pipelineManager.coilPipeline });
     Object.defineProperty(this, 'segEnhancedPipeline', { get: () => this.pipelineManager.segEnhancedPipeline });
     Object.defineProperty(this, 'ringPipeline', { get: () => this.pipelineManager.ringPipeline });
+    
+    // Delegate uniform buffers to uniform manager for backward compatibility
+    Object.defineProperty(this, 'deviceUniformBuffer', { 
+      get: () => this.uniformManager.deviceUniformBuffer,
+      set: (v) => { this.uniformManager.deviceUniformBuffer = v; }
+    });
+    Object.defineProperty(this, 'materialUniformBuffer', { 
+      get: () => this.uniformManager.materialUniformBuffer,
+      set: (v) => { this.uniformManager.materialUniformBuffer = v; }
+    });
+    Object.defineProperty(this, 'coreMaterialBuffer', { 
+      get: () => this.uniformManager.coreMaterialBuffer,
+      set: (v) => { this.uniformManager.coreMaterialBuffer = v; }
+    });
+    Object.defineProperty(this, 'gaugeInstanceBuffer', { 
+      get: () => this.uniformManager.gaugeInstanceBuffer,
+      set: (v) => { this.uniformManager.gaugeInstanceBuffer = v; }
+    });
+    Object.defineProperty(this, 'coilMaterialBuffer', { 
+      get: () => this.uniformManager.coilMaterialBuffer,
+      set: (v) => { this.uniformManager.coilMaterialBuffer = v; }
+    });
+    Object.defineProperty(this, 'ringMaterialBuffer', { 
+      get: () => this.uniformManager.ringMaterialBuffer,
+      set: (v) => { this.uniformManager.ringMaterialBuffer = v; }
+    });
+    Object.defineProperty(this, 'coilInstances', { 
+      get: () => this.uniformManager.coilInstances,
+      set: (v) => { this.uniformManager.coilInstances = v; }
+    });
+    Object.defineProperty(this, 'batteryCharge', { 
+      get: () => this.uniformManager.batteryCharge,
+      set: (v) => { this.uniformManager.batteryCharge = v; }
+    });
+    
+    // Delegate compute buffers to compute manager for backward compatibility
+    Object.defineProperty(this, 'computePipeline', { 
+      get: () => this.computeManager.computePipeline,
+      set: (v) => { this.computeManager.computePipeline = v; }
+    });
+    Object.defineProperty(this, 'computeBindGroup', { 
+      get: () => this.computeManager.computeBindGroup,
+      set: (v) => { this.computeManager.computeBindGroup = v; }
+    });
+    Object.defineProperty(this, 'computeUniformBuffer', { 
+      get: () => this.computeManager.computeUniformBuffer,
+      set: (v) => { this.computeManager.computeUniformBuffer = v; }
+    });
+    Object.defineProperty(this, 'scaledParticleCount', { 
+      get: () => this.computeManager.scaledParticleCount,
+      set: (v) => { this.computeManager.scaledParticleCount = v; }
+    });
+    Object.defineProperty(this, 'speedMult', { 
+      get: () => this.computeManager.speedMult,
+      set: (v) => { this.computeManager.speedMult = v; }
+    });
+    
     this.position = config.position;
     this.rotation = config.rotation;
-    this.deviceUniformBuffer = null;
-    this.materialUniformBuffer = null;
-    this.coreMaterialBuffer = null;
-    this.rollerPipeline = null;
-    this.particlePipeline = null;
-    this.corePipeline = null;
-
-    // Compute pipeline resources
-    this.computePipeline = null;
-    this.computeBindGroup = null;
-    this.computeUniformBuffer = null;
-    this.scaledParticleCount = 0;
-    this.speedMult = 1.0;
+    this.renderMode = 0;  // 0=rollers, 1=base, 2=stator, 3=wiring
 
     // Field line visualization (SEG only)
     this.fieldLineCount = 1200;
@@ -58,129 +107,21 @@ class DeviceInstance {
     this.energyArcPipeline = null;
     this.energyArcEnabled = true;
     this.lastArcTime = 0;
+    
+    // Additional state for rendering
+    this.coilEnergies = null;
+    this._lastCoilCount = null;
   }
 
   async init() {
-    await this.setupUniforms();
+    await this.uniformManager.setupUniforms();
     await this.pipelineManager.setupPipelines();
     await this.geometry.setupParticles();
-    await this.setupComputeResources();
+    await this.computeManager.setupComputeResources();
 
     if (this.id === 'seg') {
       // Use the new unified initialization for SEG
       await this.geometry.initializeSEG();
-    }
-  }
-
-  async setupComputeResources() {
-    this.computePipeline = this.pipelineManager.computePipeline;
-    if (!this.computePipeline) return;
-
-    // Compute uniform buffer: time, mode, particleCount, speedMult (16 bytes)
-    this.computeUniformBuffer = this.device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-    });
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-compute-uniforms`, 16, GPUBufferUsage.UNIFORM);
-
-    // Compute bind group: binding 0 = particles storage, binding 1 = uniforms
-    this.computeBindGroup = this.device.createBindGroup({
-      layout: this.computePipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.geometry.particles } },
-        { binding: 1, resource: { buffer: this.computeUniformBuffer } }
-      ]
-    });
-  }
-
-  async setupUniforms() {
-    // DeviceUniforms: 48 bytes (12 x f32) - canonical unified struct
-    // [0] renderMode, [1-3] position, [4-7] rotation, [8] timeScale, [9] ringIndex, [10] batteryCharge, [11] isSolar
-    this.deviceUniformBuffer = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.materialUniformBuffer = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.renderMode = 0;  // 0=rollers, 1=base, 2=stator, 3=wiring
-
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-uniforms`, 80, GPUBufferUsage.UNIFORM);
-
-    // Battery gauge instance buffer used by solar device
-    if (this.id === 'solar') {
-      this.gaugeInstanceBuffer = this.device.createBuffer({
-        size: 32,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-      });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-gauge-instance`, 32, GPUBufferUsage.STORAGE);
-    }
-
-    // MaterialUniforms: albedo(3) + metallic(1) + roughness(1) + ao(1) + emission(1) + ringIndex(1) + pad(2)
-    // Total: 12 floats = 48 bytes
-    // Material uniform setup (may be updated per-frame for dynamic effects)
-    let baseColor = this.config.color;
-    let glowColor = [0.0, 0.9, 1.0];
-    let emission = 2.0;
-    let pad = 0.0;
-
-    if (this.id === 'seg') {
-      // SEG uses copper base with green energy glow
-      baseColor = [0.85, 0.48, 0.25]; // Copper
-      glowColor = [0.0, 1.2, 0.6];    // Green energy
-      emission = 1.8;
-    } else if (this.id === 'solar') {
-      // Solar device uses a warm glow color and will modulate emission based on battery charge.
-      baseColor = this.config.color;
-      glowColor = [1.0, 0.9, 0.4];
-      emission = 1.2;
-      this.batteryCharge = 0.5;
-      pad = this.batteryCharge;
-    }
-
-    const materialData = new Float32Array([
-      ...baseColor,        // baseColor
-      pad,                 // _pad1 (battery / extra param)
-      ...glowColor,        // glowColor
-      emission             // emission
-    ]);
-    this.device.queue.writeBuffer(this.materialUniformBuffer, 0, materialData);
-
-    // Setup core material buffer for SEG
-    if (this.id === 'seg' && this.config.core) {
-      this.coreMaterialBuffer = this.device.createBuffer({
-        size: 32,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-      });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-core-material`, 32, GPUBufferUsage.UNIFORM);
-
-      const core = this.config.core;
-      // baseColor (3) + emission (1) + coreColor (3) + glowIntensity (1)
-      const coreMaterialData = new Float32Array([
-        ...core.baseColor, 0.0,  // baseColor + padding
-        ...core.coreColor, 1.5   // coreColor + glowIntensity
-      ]);
-      this.device.queue.writeBuffer(this.coreMaterialBuffer, 0, coreMaterialData);
-    }
-
-    // Setup coil and ring material buffers for SEG pickup coils
-    if (this.id === 'seg') {
-      this.coilInstances = this.device.createBuffer({
-        size: 24 * 8 * 4, // 24 coils * 8 floats * 4 bytes
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-      });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-coil-instances`, 24 * 32, GPUBufferUsage.STORAGE);
-
-      this.coilMaterialBuffer = this.device.createBuffer({
-        size: 32,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-      });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-coil-material`, 32, GPUBufferUsage.UNIFORM);
-      const coilMatData = new Float32Array([0.75, 0.45, 0.25, 0, 1.0, 0.55, 0.0, 2.5]);
-      this.device.queue.writeBuffer(this.coilMaterialBuffer, 0, coilMatData);
-
-      this.ringMaterialBuffer = this.device.createBuffer({
-        size: 32,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-      });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-ring-material`, 32, GPUBufferUsage.UNIFORM);
-      const ringMatData = new Float32Array([0.85, 0.48, 0.25, 0, 0.0, 1.2, 0.6, 1.8]);
-      this.device.queue.writeBuffer(this.ringMaterialBuffer, 0, ringMatData);
     }
   }
 
@@ -192,61 +133,18 @@ class DeviceInstance {
     const ringIndex = this.id === 'heron' ? 1 : (this.id === 'kelvin' ? 2 : (this.id === 'solar' ? 3 : (this.id === 'peltier' ? 4 : 0)));
     this.scaledParticleCount = scaledParticleCount;
 
-    // Battery charge for solar device (0..1) passed via the padding slot
-    if (this.id === 'solar' && this.batteryCharge === undefined) {
-      this.batteryCharge = 0.5;
-    }
-
+    // Update battery charge for solar device (0..1)
     if (this.id === 'solar') {
-      const drain = 0.18;
-      const gain = 0.3 + 0.2 * Math.sin(this.visualizer.time * 2.0);
-      this.batteryCharge = Math.min(1.0, Math.max(0.0, this.batteryCharge + (gain - drain) * deltaTime));
-
-      // Update battery gauge mesh (height)
+      this.uniformManager.updateBatteryCharge(deltaTime);
       this.visualizer.updateBatteryGaugeMesh(this.batteryCharge);
-
-      // Update gauge instance transform (position + ringIndex)
-      if (this.gaugeInstanceBuffer) {
-        const offset = 1.5;
-        const position = [this.position[0] + offset, this.position[1] + 0.5, this.position[2]];
-        const rotation = [0, 0, 0, 1];
-        const instanceData = new Float32Array([
-          position[0], position[1], position[2], ringIndex,
-          rotation[0], rotation[1], rotation[2], rotation[3]
-        ]);
-        this.device.queue.writeBuffer(this.gaugeInstanceBuffer, 0, instanceData);
-      }
+      this.uniformManager.updateGaugeBuffer(this.position, ringIndex);
     }
 
-    const deviceData = new Float32Array([
-      this.renderMode,                     // [0] renderMode
-      this.position[0],                    // [1] posX  
-      this.position[1],                    // [2] posY
-      this.position[2],                    // [3] posZ
-      Math.sin(this.rotation[1] / 2),      // [4] rotation.x (quaternion)
-      0,                                   // [5] rotation.y
-      Math.cos(this.rotation[1] / 2),      // [6] rotation.z
-      1.0,                                 // [7] rotation.w
-      1.0,                                 // [8] timeScale
-      ringIndex,                           // [9] ringIndex
-      this.id === 'solar' ? this.batteryCharge : 0,  // [10] batteryCharge
-      this.id === 'solar' ? 1 : 0          // [11] isSolar
-    ]);
-    this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
+    // Update device and material uniforms
+    this.uniformManager.updateUniforms(this.position, this.rotation, this.renderMode);
 
-    if (this.id === 'solar') {
-      // Update material buffer to reflect battery charge
-      const baseColor = this.config.color;
-      const glowColor = [1.0, 0.9, 0.4];
-      const emission = 1.2;
-      const materialData = new Float32Array([
-        ...baseColor,
-        this.batteryCharge,
-        ...glowColor,
-        emission
-      ]);
-      this.device.queue.writeBuffer(this.materialUniformBuffer, 0, materialData);
-    }
+    // Update compute uniforms for shader
+    this.computeManager.updateComputeUniforms(this.visualizer.time, ringIndex, scaledParticleCount, this.speedMult);
 
     if (this.id === 'seg' && this.rollerInstances) {
       // 3-ring SEG system based on John Searl's design
