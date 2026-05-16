@@ -58,6 +58,8 @@ class MultiDeviceVisualizer {
       this.debugPanel = new DebugPanel(this.profiler);
       
       // Initialize multi-device camera controller (for view transitions and matrix operations)
+      // Note: setupInteraction() is not called here as it was dead code in the original implementation.
+      // CameraController handles all input setup, mode switching, and basic camera controls below.
       this.cameraController = new MultiDeviceCamera(this.canvas, this.camera, this);
 
       this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
