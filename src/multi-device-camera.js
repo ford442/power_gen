@@ -12,61 +12,6 @@ export class MultiDeviceCamera {
     this.visualizer = visualizer;
   }
 
-  setupInteraction() {
-    let isDragging = false;
-    let lastX = 0, lastY = 0;
-    
-    this.canvas.addEventListener('mousedown', (e) => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
-    
-    window.addEventListener('mousemove', (e) => {
-      if (!isDragging) return;
-      const deltaX = (e.clientX - lastX) * 0.01;
-      const deltaY = (e.clientY - lastY) * 0.01;
-      
-      if (this.visualizer.currentView === 'overview') {
-        const dist = Math.sqrt(this.camera.position[0]**2 + this.camera.position[2]**2);
-        const angle = Math.atan2(this.camera.position[2], this.camera.position[0]) + deltaX;
-        this.camera.position[0] = Math.cos(angle) * dist;
-        this.camera.position[2] = Math.sin(angle) * dist;
-        this.camera.position[1] = Math.max(2, Math.min(15, this.camera.position[1] - deltaY));
-      }
-      
-      lastX = e.clientX;
-      lastY = e.clientY;
-    });
-    
-    window.addEventListener('mouseup', () => isDragging = false);
-    
-    this.canvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const zoomSpeed = 0.001;
-      const forward = [this.camera.target[0] - this.camera.position[0], this.camera.target[1] - this.camera.position[1], this.camera.target[2] - this.camera.position[2]];
-      const len = Math.sqrt(forward[0]**2 + forward[1]**2 + forward[2]**2);
-      const dir = [forward[0]/len, forward[1]/len, forward[2]/len];
-      const move = e.deltaY * zoomSpeed * len;
-      this.camera.position[0] += dir[0] * move;
-      this.camera.position[1] += dir[1] * move;
-      this.camera.position[2] += dir[2] * move;
-    });
-    
-    window.focusDevice = (deviceId) => { this.focusOnDevice(deviceId); };
-    window.showOverview = () => { this.showOverview(); };
-    window.toggleDevice = (deviceId) => {
-      this.visualizer.devicesEnabled[deviceId] = !this.visualizer.devicesEnabled[deviceId];
-      const btn = document.getElementById(`toggle-${deviceId}`);
-      if (btn) btn.classList.toggle('active', this.visualizer.devicesEnabled[deviceId]);
-    };
-    window.toggleDebugPanel = () => { this.visualizer.debugPanel.toggle(); };
-    
-    // Keyboard shortcut for debug panel
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'F3' || (e.key === 'd' && e.ctrlKey)) {
-        e.preventDefault();
-        this.visualizer.debugPanel.toggle();
-      }
-    });
-  }
-  
   focusOnDevice(deviceId) {
     const config = DEVICE_CONFIG[deviceId];
     if (!config) return;
