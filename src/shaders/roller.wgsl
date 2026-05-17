@@ -31,17 +31,19 @@ struct VertexOutput {
   @location(0) normal: vec3f,
   @location(1) worldPos: vec3f,
   @location(2) instanceId: f32,
+  @location(3) localY: f32,   // pre-transform local Y for pole banding
 }
 
 // ─── Vertex shader ────────────────────────────────────────────────────────────
 // Instance-index conventions (firstInstance offsets used in render loop):
-//   0–65   : SEG rollers (3 rings)
+//   0–65   : SEG rollers (3 rings: 12+22+32)
 //   0–5    : Heron vessels + tubes      (mode 1)
 //   0–5    : Kelvin containers + rods   (mode 2)
 //   0–6    : Solar LEDs + battery       (mode 3)
-//   66     : SEG core sphere            (pass-through)
+//   66     : SEG central stator hub disc (pass-through)
 //   67     : SEG outer coil             (pass-through)
 //   68–71  : SEG ring-separator plates  (pass-through)
+//   72–74  : SEG orbital stator rings   (pass-through)
 //   100    : Kelvin left  induction ring (translate only)
 //   101    : Kelvin right induction ring (translate only)
 //   200    : Solar panel disc           (pass-through)
@@ -56,6 +58,7 @@ struct VertexOutput {
   var worldPos: vec3f;
   var worldNormal: vec3f = normal;
   let renderMode = u32(deviceUniforms.renderMode);
+  output.localY = 0.0;  // default; overridden in SEG roller branch
 
   // ── Special / pass-through geometry (high instance-index offsets) ──────────
   if (instanceIdx == 100u) {
@@ -65,7 +68,8 @@ struct VertexOutput {
     // Kelvin: right induction torus
     worldPos = position + vec3f(2.5, 1.5, 0.0);
   } else if (instanceIdx >= 66u) {
-    // Core sphere (66), outer coil (67), ring plates (68-71), solar disc (200+)
+    // Core stator hub (66), outer coil (67), ring plates (68-71),
+    // orbital stator rings (72-74), solar disc (200+)
     worldPos = position;
 
   // ── SEG Special Geometry: Base, Stator Rings, Wiring ────────────────────
@@ -104,20 +108,27 @@ struct VertexOutput {
     var rollerCount: f32;
     var ringRadius: f32;
     var localIdx: f32;
+    var orbitSpeed: f32;
+    var selfSpinSpeed: f32;
     if (globalIdx < 12.0) {
       rollerCount = 12.0; ringRadius = 3.5; localIdx = globalIdx;
+      orbitSpeed = 0.38; selfSpinSpeed = 4.5;   // inner ring: fastest orbit
     } else if (globalIdx < 34.0) {
       rollerCount = 22.0; ringRadius = 5.5; localIdx = globalIdx - 12.0;
+      orbitSpeed = 0.22; selfSpinSpeed = 3.0;   // middle ring
     } else {
       rollerCount = 32.0; ringRadius = 7.5; localIdx = globalIdx - 34.0;
+      orbitSpeed = 0.13; selfSpinSpeed = 2.0;   // outer ring: slowest
     }
-    let angle = localIdx * (6.28318530718 / rollerCount) + uniforms.time * 0.2;
+    let angle = localIdx * (6.28318530718 / rollerCount) + uniforms.time * orbitSpeed;
     let center = vec3f(cos(angle) * ringRadius, 0.0, sin(angle) * ringRadius);
-    let spinAngle = uniforms.time * 3.0 + globalIdx * 0.5;
+    let spinAngle = uniforms.time * selfSpinSpeed + globalIdx * 0.5;
     let cs = cos(spinAngle); let ss = sin(spinAngle);
     let rotPos = vec3f(position.x * cs - position.z * ss, position.y,
                        position.x * ss + position.z * cs);
-    let ta = 0.1 * sin(uniforms.time + globalIdx);
+    // Capture local Y before tilt for pole banding in fragment shader
+    output.localY = position.y;
+    let ta = 0.08 * sin(uniforms.time * 0.7 + globalIdx);
     let ct = cos(ta); let st = sin(ta);
     let tiltedPos = vec3f(rotPos.x, rotPos.y * ct - rotPos.z * st,
                           rotPos.y * st + rotPos.z * ct);
@@ -194,7 +205,8 @@ struct VertexOutput {
 @fragment fn fragmentMain(
   @location(0) normal: vec3f,
   @location(1) worldPos: vec3f,
-  @location(2) instanceId: f32
+  @location(2) instanceId: f32,
+  @location(3) localY: f32
 ) -> @location(0) vec4f {
   let n = normalize(normal);
   let camPos = vec3f(cos(uniforms.time * 0.1) * 16.0, 4.0,
@@ -226,8 +238,11 @@ struct VertexOutput {
 
   // ── Special high-index geometry ────────────────────────────────────────────
   } else if (iId == 66u) {
-    // SEG core hub: dark iron/steel
-    finalColor = vec3f(0.22, 0.22, 0.28) + vec3f(spec * 0.4);
+    // SEG central stator hub disc: brushed steel with magnetic pulse glow
+    let pulse = 0.35 + 0.35 * sin(uniforms.time * 1.8);
+    let steel = vec3f(0.52, 0.56, 0.65);
+    let magGlow = vec3f(0.0, 0.55, 1.0) * pulse * fresnel * 1.1;
+    finalColor = steel * 0.85 + magGlow + vec3f(spec * 0.65);
 
   } else if (iId == 67u) {
     // SEG outer electromagnetic coil: glowing copper
@@ -239,6 +254,16 @@ struct VertexOutput {
     // SEG ring-separator plates: brushed silver with cyan edge glow
     let metallic = vec3f(0.62, 0.68, 0.76);
     finalColor = metallic + vec3f(0.0, 0.55, 0.85) * fresnel * 0.9 + vec3f(spec * 0.55);
+
+  } else if (iId >= 72u && iId < 75u) {
+    // SEG orbital stator rings: brass-copper glow at the three roller ring radii
+    let ringIdx = f32(iId - 72u);
+    let pulse = 0.45 + 0.45 * sin(uniforms.time * 2.2 + ringIdx * 1.8);
+    let brass = vec3f(0.78, 0.56, 0.22);
+    // ringIdx / 2.0: normalise 0-2 range to 0-1 for the colour lerp (3 rings total)
+    let energyGlow = mix(vec3f(0.0, 0.7, 1.0), vec3f(0.2, 1.0, 0.6), ringIdx / 2.0)
+                   * pulse * fresnel * 1.6;
+    finalColor = brass * (0.45 + pulse * 0.35) + energyGlow + vec3f(spec * 0.55);
 
   } else if (iId == 100u || iId == 101u) {
     // Kelvin induction rings: polished silver with electrostatic shimmer
@@ -259,20 +284,45 @@ struct VertexOutput {
 
   // ── Mode-specific roller / structural geometry ─────────────────────────────
   } else if (mode < 0.5) {
-    // SEG rollers: ring-coded metallic colour + magnetic field glow
-    let fp = sin(worldPos.y * 4.0 + uniforms.time * 4.0) *
-             cos(length(worldPos.xz) * 5.0 - uniforms.time * 3.0 + instanceId);
-    var rc: vec3f; var bc: vec3f;
-    if (instanceId < 12.0)       { rc = vec3f(1.0, 0.80, 0.20); bc = vec3f(0.80, 0.70, 0.40); }
-    else if (instanceId < 34.0)  { rc = vec3f(0.85, 0.92, 1.0); bc = vec3f(0.70, 0.75, 0.82); }
-    else                         { rc = vec3f(1.0, 0.58, 0.20); bc = vec3f(0.90, 0.52, 0.30); }
-    let fglow = vec3f(0.1, 1.0, 0.2) * (fp * 0.5 + 0.5) * fresnel * 3.0;
-    
-    // GREEN LED UNDERGLOW: visible on bottom half of rollers (LEDs under the rollers)
-    let bottomGlow = max(0.0, -n.y) * 1.8;
-    let greenGlow = vec3f(0.0, 1.2, 0.6) * bottomGlow;
-    
-    finalColor = bc + rc * 0.2 + fglow + greenGlow;
+    // SEG rollers: alternating magnetic pole bands (copper + neodymium layers)
+    // Cylinder is generated with height 2.5 → half-height 1.25.
+    // localY ranges from -1.25 to +1.25 (captured before orbital transform).
+    const ROLLER_HALF_HEIGHT: f32 = 1.25;
+    const ROLLER_HEIGHT: f32 = 2.5;
+    let bandCount = 6.0;
+    let normalizedV = clamp((localY + ROLLER_HALF_HEIGHT) / ROLLER_HEIGHT, 0.0, 1.0);
+    let bandIdx = floor(normalizedV * bandCount);
+    let isCopper = (i32(bandIdx) % 2) == 0;
+
+    // Copper band: warm reddish-gold metallic
+    let copperBase  = vec3f(0.88, 0.50, 0.22);
+    // Neodymium band: cool silver-steel
+    let neoBase     = vec3f(0.70, 0.73, 0.78);
+    let bandColor   = select(neoBase, copperBase, isCopper);
+
+    // Diffuse shading with key light
+    let lightDir = normalize(vec3f(0.8, 2.0, 0.6));
+    let diffuse  = max(dot(n, lightDir), 0.08);
+
+    // Per-ring primary tint (subtle colour coding of rings)
+    var ringTint: vec3f;
+    if (instanceId < 12.0)      { ringTint = vec3f(1.00, 0.96, 0.80); }  // inner: gold
+    else if (instanceId < 34.0) { ringTint = vec3f(0.88, 0.94, 1.00); }  // middle: cool silver
+    else                        { ringTint = vec3f(1.00, 0.88, 0.72); }  // outer: warm copper
+
+    let metallic   = bandColor * ringTint * (0.28 + diffuse * 0.72);
+
+    // Fresnel cyan edge glow (magnetic field visible on roller edges)
+    let fieldGlow  = vec3f(0.1, 0.85, 1.0) * fresnel * 1.0;
+
+    // GREEN LED underglow: bottom-facing normals catch floor lighting
+    let bottomGlow = max(0.0, -n.y) * 1.6;
+    let greenGlow  = vec3f(0.0, 1.1, 0.55) * bottomGlow;
+
+    // Specular highlight — strong metallic sheen
+    let specHigh   = vec3f(spec * 0.9);
+
+    finalColor = metallic + fieldGlow * 0.5 + greenGlow + specHigh;
 
   } else if (mode < 1.5) {
     // Heron's Fountain structural elements
