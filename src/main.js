@@ -29,6 +29,11 @@ class SEGVisualizer {
     this.segPlateIndexBuffers  = [];
     this.segPlateIndexCounts   = [];
 
+    // SEG orbital stator rings (3 toruses at the 3 roller radii, instances 72–74)
+    this.statorRingVertexBuffers = [];
+    this.statorRingIndexBuffers  = [];
+    this.statorRingIndexCounts   = [];
+
     // Kelvin induction-ring toruses (small, positioned via firstInstance offset)
     this.kelvinRingVertexBuffer = null;
     this.kelvinRingIndexBuffer  = null;
@@ -326,8 +331,10 @@ class SEGVisualizer {
     this.device.queue.writeBuffer(this.indexBuffer, 0, cylinderData.indices);
     this.indexCount = cylinderData.indices.length;
 
-    // ── SEG: core iron hub (sphere) ──────────────────────────────────────────
-    const coreData = this.generateSphere(1.2, 32, 24);
+    // ── SEG: central stator hub ring disc (replaces sphere) ─────────────────
+    // A flat annular disc represents the central stationary ring of the SEG.
+    // generateRingDisc(innerRadius, outerRadius, segments, thickness)
+    const coreData = this.generateRingDisc(0.35, 2.1, 64, 0.38);
     this.coreVertexBuffer = this.device.createBuffer({
       size: coreData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
     });
@@ -368,6 +375,21 @@ class SEGVisualizer {
       this.segPlateVertexBuffers.push(vb);
       this.segPlateIndexBuffers.push(ib);
       this.segPlateIndexCounts.push(count);
+    }
+
+    // ── SEG: 3 orbital stator rings (thin toruses at the 3 roller radii) ─────
+    // Instances 72, 73, 74 – pass-through in vertex shader (>= 66), fragment
+    // shader colours them as glowing brass/energy rings.
+    // generateTorus(majorRadius, minorRadius=0.14, majorSegments=80, minorSegments=14)
+    this.statorRingVertexBuffers = [];
+    this.statorRingIndexBuffers  = [];
+    this.statorRingIndexCounts   = [];
+    for (const r of [3.5, 5.5, 7.5]) {
+      const d = this.generateTorus(r, 0.14, 80, 14);
+      const { vb, ib, count } = this._makeGeomBuffers(d);
+      this.statorRingVertexBuffers.push(vb);
+      this.statorRingIndexBuffers.push(ib);
+      this.statorRingIndexCounts.push(count);
     }
 
     // ── Kelvin: small induction-ring toruses (radius 1.0, minor 0.14) ────────
@@ -772,18 +794,24 @@ class SEGVisualizer {
     renderPass.setBindGroup(0, renderBindGroup);
 
     if (this.mode === 'seg') {
-      // ── SEG: ring plates → rollers → core hub → outer coil ──────────────
+      // ── SEG: ring plates → stator rings → rollers → central stator → outer coil ──
       // Ring plates use firstInstance offsets 68–71 (pass-through in shader)
       for (let p = 0; p < 4; p++) {
         renderPass.setVertexBuffer(0, this.segPlateVertexBuffers[p]);
         renderPass.setIndexBuffer(this.segPlateIndexBuffers[p], 'uint16');
         renderPass.drawIndexed(this.segPlateIndexCounts[p], 1, 0, 0, 68 + p);
       }
+      // 3 orbital stator rings (firstInstance 72, 73, 74 → pass-through)
+      for (let r = 0; r < 3; r++) {
+        renderPass.setVertexBuffer(0, this.statorRingVertexBuffers[r]);
+        renderPass.setIndexBuffer(this.statorRingIndexBuffers[r], 'uint16');
+        renderPass.drawIndexed(this.statorRingIndexCounts[r], 1, 0, 0, 72 + r);
+      }
       // 66 rollers (instances 0–65)
       renderPass.setVertexBuffer(0, this.vertexBuffer);
       renderPass.setIndexBuffer(this.indexBuffer, 'uint16');
       renderPass.drawIndexed(this.indexCount, 66);
-      // Core sphere (firstInstance 66 → pass-through)
+      // Central stator hub disc (firstInstance 66 → pass-through)
       renderPass.setVertexBuffer(0, this.coreVertexBuffer);
       renderPass.setIndexBuffer(this.coreIndexBuffer, 'uint16');
       renderPass.drawIndexed(this.coreIndexCount, 1, 0, 0, 66);
@@ -900,7 +928,7 @@ window.setMode = (mode) => {
   document.getElementById('btn-' + mode).classList.add('active');
 
   const descriptions = {
-    seg:    "Searl Effect Generator: 12 magnetic rollers in toroidal formation with spiral energy flux converging toward centre.",
+    seg:    "Searl Effect Generator: 3 concentric rings of 12/22/32 rollers with alternating copper/neodymium magnetic pole bands. Rollers orbit at ring-specific speeds around glowing stator rings.",
     heron:  "Heron's Fountain: Fluid dynamics with siphon-driven water jets. Particles simulate hydraulic pressure differentials.",
     kelvin: "Kelvin's Thunderstorm: Electrostatic induction with falling water droplets charging conductors.",
     solar:  "LEDs & Solar Cells: LEDs drain a battery while shining on solar panels that recharge it. Watch the charge level change."

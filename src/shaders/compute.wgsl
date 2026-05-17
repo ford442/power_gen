@@ -18,16 +18,24 @@ struct ComputeUniforms {
 const PI: f32 = 3.14159265359;
 
 // ─── SEG Mode ──────────────────────────────────────────────────────────────────
-// Particles spiral inward toward the centre, sweeping through the magnetic field
-// topology. Each particle traces a unique helical path keyed by its phase seed.
+// Particles are distributed across the three roller ring zones, spiraling
+// around each ring's orbital radius to represent the toroidal magnetic field.
 fn posSEG(phase: f32, t: f32, idx: u32) -> vec3f {
-  // Cycle period driven by time; each particle offset by its phase
-  let cycleT  = fract(t * 0.12 + phase);
-  // Start at outer ring, spiral in
-  let radius  = 8.5 - cycleT * 8.0;
-  // Angle wraps around multiple times per cycle for a tight helix
-  let angle   = phase * 6.28318 + cycleT * 18.84956;  // 3 full turns
-  let height  = sin(cycleT * 6.28318 * 2.0 + phase * 6.28318) * 2.8;
+  // Assign each particle to one of the three ring zones
+  let ringZone = idx % 3u;
+  var baseRadius: f32;
+  if (ringZone == 0u)      { baseRadius = 3.5; }
+  else if (ringZone == 1u) { baseRadius = 5.5; }
+  else                     { baseRadius = 7.5; }
+
+  let cycleT = fract(t * 0.13 + phase);
+  // Small radial oscillation around the ring's base radius (+/- 1.1 units)
+  let radialSwing = sin(cycleT * 6.28318 + phase * 9.42478) * 1.1;
+  let radius = baseRadius + radialSwing;
+  // Angular travel: ~2.5 turns per cycle; per-particle phase offsets spread them out
+  let angle  = phase * 6.28318 + cycleT * 15.70796;
+  // Helical height oscillation
+  let height = sin(cycleT * 6.28318 * 2.0 + phase * 6.28318) * 2.4;
   return vec3f(cos(angle) * radius, height, sin(angle) * radius);
 }
 
