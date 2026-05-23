@@ -345,6 +345,7 @@
         <button class="mode-btn"        id="btn-heron"  onclick="setMode('heron')">💧 Heron's Fountain</button>
         <button class="mode-btn"        id="btn-kelvin" onclick="setMode('kelvin')">⚡ Kelvin Thunderstorm</button>
         <button class="mode-btn"        id="btn-solar"  onclick="setMode('solar')">☀️ LEDs + Solar</button>
+        <button class="mode-btn"        id="btn-mhd"    onclick="setMode('mhd')">🌊 MHD Generator</button>
       </div>
 
       <!-- Particle count -->
@@ -442,5 +443,25 @@
   </div>
 
   <script type="module" src="main.js"></script>
+  <script>
+    // Multi-device camera focus: snap view to a specific device
+    window.focusDevice = (deviceId) => {
+      if (window.multiVisualizer && window.multiVisualizer.cameraController) {
+        window.multiVisualizer.cameraController.focusDevice(deviceId);
+      }
+    };
+
+    // Multi-device toggle: show/hide a device in the overview
+    window.toggleDevice = (deviceId) => {
+      if (window.multiVisualizer) {
+        const enabled = window.multiVisualizer.devicesEnabled;
+        if (enabled && deviceId in enabled) {
+          enabled[deviceId] = !enabled[deviceId];
+          const btn = document.getElementById('toggle-' + deviceId);
+          if (btn) btn.classList.toggle('active', enabled[deviceId]);
+        }
+      }
+    };
+  </script>
 </body>
 </html>

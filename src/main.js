@@ -660,7 +660,7 @@ class SEGVisualizer {
     const view = this.lookAt([camX, this.camera.height, camZ], [0, 0, 0], [0, 1, 0]);
     const viewProj = this.multiplyMatrices(proj, view);
 
-    const modeMap = { seg: 0.0, heron: 1.0, kelvin: 2.0, solar: 3.0 };
+    const modeMap = { seg: 0.0, heron: 1.0, kelvin: 2.0, solar: 3.0, mhd: 5.0 };
     
     // Get physics uniforms from integration layer (if available)
     let physicsData = new Float32Array(4);
@@ -836,6 +836,11 @@ class SEGVisualizer {
       renderPass.setIndexBuffer(this.kelvinRingIndexBuffer, 'uint16');
       renderPass.drawIndexed(this.kelvinRingIndexCount, 2, 0, 0, 100);
 
+    } else if (this.mode === 'mhd') {
+      // ── MHD Generator: particles-only visualization (molten bismuth channel) ──
+      // The bismuth flow and Lorentz deflection are fully represented by particles;
+      // no additional geometry is needed.
+
     } else {
       // ── Solar / LED: panel disc + 7 cylinder instances ────────────────────
       // Solar panel (firstInstance 200 → pass-through)
@@ -931,7 +936,8 @@ window.setMode = (mode) => {
     seg:    "Searl Effect Generator: 3 concentric rings of 12/22/32 rollers with alternating copper/neodymium magnetic pole bands. Rollers orbit at ring-specific speeds around glowing stator rings.",
     heron:  "Heron's Fountain: Fluid dynamics with siphon-driven water jets. Particles simulate hydraulic pressure differentials.",
     kelvin: "Kelvin's Thunderstorm: Electrostatic induction with falling water droplets charging conductors.",
-    solar:  "LEDs & Solar Cells: LEDs drain a battery while shining on solar panels that recharge it. Watch the charge level change."
+    solar:  "LEDs & Solar Cells: LEDs drain a battery while shining on solar panels that recharge it. Watch the charge level change.",
+    mhd:    "MHD Generator: Molten bismuth (Bi, Tm=271°C) flows through a transverse magnetic field. The Lorentz force F=q(v×B) separates positive ions (red) from electrons (blue), generating direct current without moving parts."
   };
 
   document.getElementById('info').textContent = descriptions[mode];

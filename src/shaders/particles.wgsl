@@ -35,8 +35,10 @@ struct ParticleVert {
   var size: f32 = 0.07;
   if (uniforms.mode > 0.5 && uniforms.mode < 1.5) {
     size = 0.11;   // larger water droplets for Heron
-  } else if (uniforms.mode >= 2.5) {
-    size = 0.05;   // small photon dots for Solar
+  } else if (uniforms.mode >= 2.5 && uniforms.mode < 4.5) {
+    size = 0.05;   // small photon dots for Solar / Peltier
+  } else if (uniforms.mode >= 4.5) {
+    size = 0.09;   // medium metallic globs for MHD molten bismuth
   }
 
   // Screen-aligned billboard: offset in view-space X and Y directions.
@@ -75,10 +77,22 @@ struct ParticleVert {
     let spark = step(0.97, fract(sin(f32(input.uv.x * 100.0)
                   + input.particlePhase * 3137.1) * 43758.5453));
     color = mix(vec3f(0.72, 0.82, 0.96), vec3f(0.85, 0.15, 1.0), spark);
-  } else {
-    // Solar: warm yellow photons, brightness proportional to charge
+  } else if (mode < 4.5) {
+    // Solar / Peltier: warm yellow photons, brightness proportional to charge
     let intensity = 0.55 + 0.45 * charge;
     color = vec3f(1.0, 0.88, 0.28) * intensity;
+  } else {
+    // MHD Generator: molten bismuth with Lorentz charge separation
+    // Undivided stream has the silver-pink sheen of liquid bismuth
+    let bismuthSilver = mix(vec3f(0.6, 0.6, 0.65), vec3f(0.8, 0.7, 0.8), input.uv.y * 0.5 + 0.5);
+    let pulse = 0.6 + 0.4 * sin(uniforms.time * 4.0 + input.particlePhase * 10.0);
+    if (input.particlePhase < 0.5) {
+      // Positive ions deflected toward +X electrode: hot plasma red
+      color = mix(bismuthSilver, vec3f(1.0, 0.2, 0.1), pulse);
+    } else {
+      // Electrons deflected toward -X electrode: electric blue
+      color = mix(bismuthSilver, vec3f(0.1, 0.4, 1.0), pulse);
+    }
   }
 
   return vec4f(color, alpha);
