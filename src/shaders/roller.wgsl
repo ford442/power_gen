@@ -223,28 +223,43 @@ struct VertexOutput {
 // ─── Procedural environment map ───────────────────────────────────────────────
 // Cheap fake cubemap: dark industrial workshop with a cyan-tinted sky dome and
 // a warm key-light specular hotspot.  No texture required — pure ALU math.
+
+// Environment colour constants
+const ENV_HORIZON_COLOR: vec3f = vec3f(0.03, 0.05, 0.09);   // near-horizon: dark blue
+const ENV_ZENITH_COLOR:  vec3f = vec3f(0.04, 0.14, 0.22);   // zenith: soft cyan glow
+const ENV_GROUND_COLOR:  vec3f = vec3f(0.01, 0.02, 0.025);  // below horizon: near-black
+const KEY_LIGHT_COLOR:   vec3f = vec3f(0.35, 0.52, 0.72);   // warm-blue key hotspot
+const FILL_LIGHT_COLOR:  vec3f = vec3f(0.12, 0.20, 0.36);   // cool blue fill hotspot
+
+// Contact shadow constants (orbit radii and shadow properties)
+const HUB_SHADOW_INTENSITY:    f32 = 0.38;   // central stator hub shadow strength
+const HUB_SHADOW_RADIUS:       f32 = 1.80;   // hub shadow falloff radius
+const INNER_RING_SHADOW:       f32 = 0.32;   // inner-ring shadow strength
+const INNER_RING_RADIUS:       f32 = 3.50;   // inner roller orbit radius
+const INNER_RING_WIDTH:        f32 = 0.90;   // inner-ring shadow Gaussian width
+const MIDDLE_RING_SHADOW:      f32 = 0.22;   // middle-ring shadow strength
+const MIDDLE_RING_RADIUS:      f32 = 5.50;   // middle roller orbit radius
+const MIDDLE_RING_WIDTH:       f32 = 1.00;   // middle-ring shadow Gaussian width
+const OUTER_RING_SHADOW:       f32 = 0.16;   // outer-ring shadow strength
+const OUTER_RING_RADIUS:       f32 = 7.50;   // outer roller orbit radius
+const OUTER_RING_WIDTH:        f32 = 1.10;   // outer-ring shadow Gaussian width
+
 fn sampleEnvMap(dir: vec3f) -> vec3f {
   let upDot = dot(dir, vec3f(0.0, 1.0, 0.0));
 
   // Sky hemisphere: very dark blue fading to subtle cyan overhead
-  let sky = mix(
-    vec3f(0.03, 0.05, 0.09),   // near-horizon: dark blue
-    vec3f(0.04, 0.14, 0.22),   // zenith: soft cyan glow
-    max(upDot, 0.0)
-  );
-  // Ground hemisphere: near-black
-  let ground = vec3f(0.01, 0.02, 0.025);
-  var env = mix(ground, sky, smoothstep(-0.25, 0.25, upDot));
+  let sky = mix(ENV_HORIZON_COLOR, ENV_ZENITH_COLOR, max(upDot, 0.0));
+  var env = mix(ENV_GROUND_COLOR, sky, smoothstep(-0.25, 0.25, upDot));
 
   // Primary key-light specular hotspot (warm white, upper-right)
   let keyDir  = normalize(vec3f(0.8, 2.0, 0.6));
   let keyDot  = max(dot(dir, keyDir), 0.0);
-  env += vec3f(0.35, 0.52, 0.72) * pow(keyDot, 10.0) * 0.55;
+  env += KEY_LIGHT_COLOR * pow(keyDot, 10.0) * 0.55;
 
   // Secondary fill hotspot (cool blue, left side)
   let fillDir = normalize(vec3f(-1.2, 1.0, -0.5));
   let fillDot = max(dot(dir, fillDir), 0.0);
-  env += vec3f(0.12, 0.20, 0.36) * pow(fillDot, 6.0) * 0.25;
+  env += FILL_LIGHT_COLOR * pow(fillDot, 6.0) * 0.25;
 
   return env;
 }
@@ -277,10 +292,10 @@ fn sampleEnvMap(dir: vec3f) -> vec3f {
       // Contact shadows: soft Gaussian rings where rollers cast shadows onto the plate.
       // Rings are at the three orbit radii (3.5 / 5.5 / 7.5) plus a central hub shadow.
       let shadowDist = length(vec2f(worldPos.x, worldPos.z));
-      let sh0 = 0.38 * exp(-pow(shadowDist / 1.8, 2.0));                          // hub
-      let sh1 = 0.32 * exp(-pow((shadowDist - 3.5) / 0.90, 2.0));                 // inner ring
-      let sh2 = 0.22 * exp(-pow((shadowDist - 5.5) / 1.00, 2.0));                 // middle ring
-      let sh3 = 0.16 * exp(-pow((shadowDist - 7.5) / 1.10, 2.0));                 // outer ring
+      let sh0 = HUB_SHADOW_INTENSITY    * exp(-pow(shadowDist / HUB_SHADOW_RADIUS, 2.0));
+      let sh1 = INNER_RING_SHADOW       * exp(-pow((shadowDist - INNER_RING_RADIUS)  / INNER_RING_WIDTH,  2.0));
+      let sh2 = MIDDLE_RING_SHADOW      * exp(-pow((shadowDist - MIDDLE_RING_RADIUS) / MIDDLE_RING_WIDTH, 2.0));
+      let sh3 = OUTER_RING_SHADOW       * exp(-pow((shadowDist - OUTER_RING_RADIUS)  / OUTER_RING_WIDTH,  2.0));
       let contactShadow = clamp(sh0 + sh1 + sh2 + sh3, 0.0, 0.72);
       finalColor = baseColor * (1.0 - contactShadow);
     } else if (renderMode == 2u) {
