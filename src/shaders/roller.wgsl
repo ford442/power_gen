@@ -1,9 +1,21 @@
 struct Uniforms {
-  viewProj: mat4x4f,
-  time: f32,
-  mode: f32,
-  particleCount: f32,
-  _pad: f32,   // batteryCharge (solar) / 0.5 (other modes)
+  viewProj:       mat4x4f,
+  time:           f32,
+  mode:           f32,
+  particleCount:  f32,
+  battery:        f32,
+  dt:             f32,
+  segOmega:       f32,
+  fieldStrength:  f32,
+  heronVExit:     f32,
+  heronHead:      f32,
+  kelvinE:        f32,
+  kelvinVoltageN: f32,
+  kelvinSpark:    f32,
+  solarN2:        f32,
+  corona:         f32,
+  simClock:       f32,
+  spare:          f32,
 }
 
 struct DeviceUniforms {
@@ -217,7 +229,7 @@ struct VertexOutput {
   let fresnel  = pow(1.0 - abs(dot(n, viewDir)), 2.0);
   let mode     = uniforms.mode;
   let iId      = u32(instanceId);
-  let charge   = clamp(uniforms._pad, 0.0, 1.0);
+  let charge   = clamp(uniforms.battery, 0.0, 1.0);
   let renderMode = u32(deviceUniforms.renderMode);
   var finalColor: vec3f;
 
@@ -263,13 +275,18 @@ struct VertexOutput {
     // ringIdx / 2.0: normalise 0-2 range to 0-1 for the colour lerp (3 rings total)
     let energyGlow = mix(vec3f(0.0, 0.7, 1.0), vec3f(0.2, 1.0, 0.6), ringIdx / 2.0)
                    * pulse * fresnel * 1.6;
-    finalColor = brass * (0.45 + pulse * 0.35) + energyGlow + vec3f(spec * 0.55);
+    // Coronal discharge: plasma halo that intensifies as the SEG approaches
+    // terminal velocity (corona driven by angular velocity + voltage on CPU).
+    let coronaGlow = vec3f(0.55, 0.85, 1.0) * uniforms.corona * (0.6 + 0.4 * pulse) * (0.5 + fresnel);
+    finalColor = brass * (0.45 + pulse * 0.35) + energyGlow + coronaGlow + vec3f(spec * 0.55);
 
   } else if (iId == 100u || iId == 101u) {
-    // Kelvin induction rings: polished silver with electrostatic shimmer
+    // Kelvin induction rings: polished silver with electrostatic shimmer that
+    // brightens with bucket voltage and flashes white on discharge.
     let elec = 0.5 + 0.5 * sin(uniforms.time * 6.0 + f32(iId) * 3.14);
     finalColor = vec3f(0.75, 0.78, 0.85)
-               + vec3f(0.35, 0.0, 0.80) * elec * fresnel * 1.2
+               + vec3f(0.35, 0.0, 0.80) * elec * fresnel * (0.6 + 1.6 * uniforms.kelvinVoltageN)
+               + vec3f(0.90, 0.95, 1.0) * uniforms.kelvinSpark
                + vec3f(spec * 0.72);
 
   } else if (iId >= 200u) {
@@ -312,8 +329,9 @@ struct VertexOutput {
 
     let metallic   = bandColor * ringTint * (0.28 + diffuse * 0.72);
 
-    // Fresnel cyan edge glow (magnetic field visible on roller edges)
-    let fieldGlow  = vec3f(0.1, 0.85, 1.0) * fresnel * 1.0;
+    // Fresnel cyan edge glow (magnetic field visible on roller edges),
+    // amplified by the coronal discharge at high spin.
+    let fieldGlow  = vec3f(0.1, 0.85, 1.0) * fresnel * (1.0 + 2.0 * uniforms.corona);
 
     // GREEN LED underglow: bottom-facing normals catch floor lighting
     let bottomGlow = max(0.0, -n.y) * 1.6;
@@ -353,9 +371,11 @@ struct VertexOutput {
       // Upper drip cans: silver
       finalColor = vec3f(0.58, 0.63, 0.70) + vec3f(spec * 0.55);
     } else if (iId < 4u) {
-      // Collectors: copper-bronze with electrostatic charge glow
+      // Collectors: copper-bronze whose charge glow tracks bucket voltage,
+      // with a white flash at the moment of dielectric breakdown.
       let cop = vec3f(0.62, 0.36, 0.16);
-      finalColor = cop + vec3f(0.45, 0.0, 0.82) * elec * fresnel * 0.9
+      finalColor = cop + vec3f(0.45, 0.0, 0.82) * elec * fresnel * (0.5 + 1.5 * uniforms.kelvinVoltageN)
+                 + vec3f(0.90, 0.95, 1.0) * uniforms.kelvinSpark * 0.6
                  + vec3f(spec * 0.50);
     } else {
       // Support rods: brushed dark steel

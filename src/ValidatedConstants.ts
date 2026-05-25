@@ -92,6 +92,46 @@ export const SEG_CONFIG = {
 } as const;
 
 // ============================================
+// SEG Roller Layer Composition (4 concentric shells)
+// ============================================
+// Core → exterior. Densities in kg/m³ (CRC/standard references).
+// rInner/rOuter are fractions of the roller radius, so the composite
+// scales with SEG_CONFIG.rollerRadius.
+export const SEG_ROLLER_LAYERS = [
+  { name: 'Neodymium', density: 7500, rInner: 0.00, rOuter: 0.30 },
+  { name: 'Nylon66',   density: 1150, rInner: 0.30, rOuter: 0.45 },
+  { name: 'Iron',      density: 7870, rInner: 0.45, rOuter: 0.62 },
+  { name: 'Copper',    density: 8960, rInner: 0.62, rOuter: 1.00 },
+] as const;
+
+/**
+ * Composite roller mass and moment of inertia about its longitudinal axis,
+ * summed over the four cylindrical shells:
+ *   m_i = π h ρ_i (r_out² − r_in²)
+ *   I_i = ½ m_i (r_out² + r_in²)
+ * The total inertia is the "heft" that resists the SEG drive torque.
+ */
+export function computeRollerInertia(
+  radius: number = SEG_CONFIG.rollerRadius,
+  height: number = SEG_CONFIG.rollerHeight,
+): { mass: number; inertia: number } {
+  let mass = 0;
+  let inertia = 0;
+  for (const layer of SEG_ROLLER_LAYERS) {
+    const rIn = layer.rInner * radius;
+    const rOut = layer.rOuter * radius;
+    const m = Math.PI * height * layer.density * (rOut * rOut - rIn * rIn);
+    mass += m;
+    inertia += 0.5 * m * (rOut * rOut + rIn * rIn);
+  }
+  return { mass, inertia };
+}
+
+// Refractive index of the photonic substrata (anti-reflective monocrystalline
+// silicon, visible-band effective value) used for the Snell/Fresnel optics.
+export const SILICON_REFRACTIVE_INDEX = 3.96;
+
+// ============================================
 // Pre-calculated SEG Physics Values
 // ============================================
 
@@ -220,6 +260,9 @@ export const ValidatedConstants = {
   PHYSICAL_CONSTANTS,
   SEG_MAGNET,
   SEG_CONFIG,
+  SEG_ROLLER_LAYERS,
+  computeRollerInertia,
+  SILICON_REFRACTIVE_INDEX,
   SEG_PHYSICS,
   KELVIN_CONSTANTS,
   HERON_CONSTANTS,

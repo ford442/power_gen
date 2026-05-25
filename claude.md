@@ -83,11 +83,17 @@ Vertex and fragment shaders for:
 - Mode-dependent particle animations
 
 ### src/shaders/compute.wgsl
-GPU compute shader for:
-- Particle physics updates each frame
-- SEG mode: spiral inward toward center with reset at boundary
-- Heron's Fountain mode: upward flow with spread
-- Kelvin's Thunderstorm mode: discharge and fall physics
+GPU compute shader implementing **stateful kinematic integration** (semi-implicit
+Euler). Each particle is a persistent 32-byte record (position, phase seed, velocity,
+aux scalar) advanced each frame by real forces, then recycled at a mode-specific spawn:
+- SEG: tangential Lorentz drive toward ω·R with radial/vertical confinement to the rings
+- Heron's Fountain: gravity + aerodynamic drag; spawn velocity = Bernoulli/Swamee–Jain exit speed
+- Kelvin's Thunderstorm: gravity − Stokes drag + Coulomb qE; charge (`aux`) set at pinch-off
+- Solar/LED: ballistic photons; Snell + Fresnel decide specular reflection vs absorption
+
+Global per-device state (roller ω, reservoir head, bucket voltage, battery) is integrated
+on the CPU in `main.js` (`stepPhysics`) and passed to the shaders via the shared uniform
+buffer. `src/shaders/lightning.wgsl` renders the Kelvin discharge bolt.
 
 ### src/index.html
 HTML template containing:
@@ -183,12 +189,11 @@ The simulation uses:
 
 ### Particle System
 - Configurable count: 1k-50k particles
-- Storage buffer shared between compute and vertex stages
-- Real-time physics without CPU involvement
-- Mode-dependent behavior:
-  - **SEG**: Spiral inward, reset at boundary
-  - **Heron**: Upward fountain flow with spread
-  - **Kelvin**: Discharge-fall cycle
+- Storage buffer (32 bytes/particle: position, phase, velocity, aux) shared between the
+  compute and vertex stages; state persists across frames
+- Stateful per-particle integration on the GPU; small per-device ODEs (ω, head, voltage,
+  battery) integrated on the CPU and fed in via uniforms
+- Switching mode re-seeds the particle buffer (`onModeChange`) since velocity/aux differ
 
 ### Camera System
 - Orbital controls: mouse drag to rotate, scroll to zoom
