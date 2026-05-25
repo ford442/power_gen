@@ -1,11 +1,15 @@
 // Bloom pass 1: extract bright areas above a soft-knee threshold, then apply
 // a 9-tap Gaussian blur.  The result is written to the bloom accumulation texture.
+//
+// NOTE: BloomParams layout is shared with bloom-composite.wgsl so both passes
+// can use the same 16-byte uniform buffer.  Fields unused here must not be
+// removed — they are written by the host and consumed by the composite pass.
 
 struct BloomParams {
   texelSizeX : f32,   // 1.0 / canvas width
   texelSizeY : f32,   // 1.0 / canvas height
   threshold  : f32,   // luminance threshold for bloom (0.55–0.75 typical)
-  strength   : f32,   // unused in this pass; reserved for alignment
+  strength   : f32,   // unused here (consumed by composite pass); layout padding
 }
 
 @group(0) @binding(0) var sceneTex    : texture_2d<f32>;

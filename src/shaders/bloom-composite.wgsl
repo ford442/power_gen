@@ -1,10 +1,14 @@
 // Bloom pass 2: composite the original scene with the bloom layer, apply
 // ACES tone-mapping, and add a smooth screen-space vignette.
+//
+// NOTE: BloomParams layout is shared with bloom-extract.wgsl so both passes
+// can use the same 16-byte uniform buffer.  Fields unused here must not be
+// removed — they are written by the host and consumed by the extract pass.
 
 struct BloomParams {
-  texelSizeX : f32,   // unused in this pass; reserved for alignment
-  texelSizeY : f32,   // unused in this pass; reserved for alignment
-  threshold  : f32,   // unused in this pass; reserved for alignment
+  texelSizeX : f32,   // unused here (consumed by extract pass); layout padding
+  texelSizeY : f32,   // unused here (consumed by extract pass); layout padding
+  threshold  : f32,   // unused here (consumed by extract pass); layout padding
   strength   : f32,   // bloom additive strength multiplier (1.0–2.0 typical)
 }
 

@@ -133,8 +133,8 @@ struct VertexOutput {
       orbitSpeed = 0.13; selfSpinSpeed = 2.0;   // outer ring: slowest
     }
     // Per-roller speed jitter: subtle variation so motion feels organic, not perfectly mechanical
-    let jitterHash = fract(sin(globalIdx * 127.3 + 53.7) * 43758.5453);
-    let speedJitter = 1.0 + 0.04 * sin(uniforms.time * 1.3 + jitterHash * 12.7);
+    let jitterNoise = fract(sin(globalIdx * 127.3 + 53.7) * 43758.5453);
+    let speedJitter = 1.0 + 0.04 * sin(uniforms.time * 1.3 + jitterNoise * 12.7);
     // Startup ramp: animate from zero over the first ~3 s so rollers appear to spin up
     let startupRamp = min(uniforms.time * 0.33, 1.0);
     // Slight per-ring phase offset gives each ring a distinct "feel"

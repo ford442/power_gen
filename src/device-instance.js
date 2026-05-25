@@ -173,8 +173,8 @@ class DeviceInstance {
           const idx = rollerOffset * 12;
 
           // Per-roller speed jitter: subtle variation so motion feels organic, not mechanical
-          const jitterSeed = Math.sin((rollerOffset * 127.3 + ring.index * 53.7));
-          const speedJitter = 1.0 + 0.04 * Math.sin(time * 1.3 + jitterSeed * 12.7);
+          const jitterNoise = Math.sin((rollerOffset * 127.3 + ring.index * 53.7));
+          const speedJitter = 1.0 + 0.04 * Math.sin(time * 1.3 + jitterNoise * 12.7);
 
           // Orbital position around the central axis
           let angle;
