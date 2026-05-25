@@ -166,15 +166,26 @@ class DeviceInstance {
       let rollerOffset = 0;
 
       for (const ring of rings) {
+        // Per-ring startup ramp: inner ring spins up fastest
+        const startupRamp = Math.min(time * (0.25 + ring.index * 0.1), 1.0);
+
         for (let i = 0; i < ring.count; i++) {
           const idx = rollerOffset * 12;
+
+          // Per-roller speed jitter: subtle variation so motion feels organic, not mechanical
+          const jitterNoise = Math.sin((rollerOffset * 127.3 + ring.index * 53.7));
+          const speedJitter = 1.0 + 0.04 * Math.sin(time * 1.3 + jitterNoise * 12.7);
+
           // Orbital position around the central axis
           let angle;
           if (useHardware) {
             // Map hardware phase to this roller's position in the ring
             angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad * ring.speed;
           } else {
-            angle = (i / ring.count) * Math.PI * 2 + time * 0.5 * ring.speed;
+            // Apply speed jitter and startup ramp for organic feel
+            angle = (i / ring.count) * Math.PI * 2
+                  + time * 0.5 * ring.speed * speedJitter * startupRamp
+                  + ring.index * 0.22;   // slight per-ring phase offset
           }
 
           // Position in toroidal ring

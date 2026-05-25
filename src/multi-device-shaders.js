@@ -925,10 +925,12 @@ export class MultiDeviceShaders {
         let energyArc = smoothstep(0.7, 1.0, input.greenEmissive) * 0.3;
         color += vec3f(0.3, 0.8, 1.0) * energyArc * NdotV;
 
-        color = color * (2.51 * color + 0.03) / (color * (2.43 * color + 0.59) + 0.14);
+        // Contact shadow / ambient-occlusion hint: darken surfaces near Y = 0
+        // (where rollers meet the base), giving a grounded sense of depth.
+        let contactAO = 0.55 + 0.45 * smoothstep(0.0, 2.2, abs(input.worldPos.y));
+        color *= contactAO;
 
-        let vignette = 1.0 - dot(input.uv - 0.5, input.uv - 0.5) * 0.3;
-        color *= vignette;
+        color = color * (2.51 * color + 0.03) / (color * (2.43 * color + 0.59) + 0.14);
 
         return vec4f(color, 1.0);
       }
@@ -957,7 +959,16 @@ export class MultiDeviceShaders {
         let radius  = 8.5 - cycleT * 8.0;
         let angle   = phase * 6.28318 + cycleT * 18.84956;
         let height  = sin(cycleT * 6.28318 * 2.0 + phase * 6.28318) * 2.8;
-        return vec3f(cos(angle) * radius, height, sin(angle) * radius);
+
+        // Harmonic turbulence: high-frequency jitter gives electrified, organic motion
+        let jitter1    = sin(t * 7.3  + phase * 31.4) * 0.12;
+        let jitter2    = cos(t * 11.7 + phase * 17.8) * 0.08;
+        let jitter3    = sin(t * 5.1  + phase * 43.2) * 0.06;
+        let turbAngle  = angle  + jitter2;
+        let turbRadius = radius + sin(t * 3.7 + phase * 23.5) * (radius * 0.04);
+        let turbHeight = height + jitter1 + jitter3;
+
+        return vec3f(cos(turbAngle) * turbRadius, turbHeight, sin(turbAngle) * turbRadius);
       }
 
       fn posHeron(phase: f32, t: f32, idx: u32) -> vec3f {
@@ -1189,6 +1200,132 @@ export class MultiDeviceShaders {
         let alpha = 0.40 * distFade * nearFade * isLine;
 
         return vec4f(lineColor, alpha);
+      }
+    `;
+  }
+
+  // ============================================
+  // Bloom post-processing shaders
+  // ============================================
+
+  // Shared fullscreen-triangle vertex shader for bloom passes
+  get bloomVertShader() {
+    return /* wgsl */ `
+      struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) uv: vec2f
+      }
+
+      @vertex
+      fn main(@builtin(vertex_index) vi: u32) -> VertexOutput {
+        var pos = array<vec2f, 3>(
+          vec2f(-1.0, -1.0),
+          vec2f( 3.0, -1.0),
+          vec2f(-1.0,  3.0)
+        );
+        var o: VertexOutput;
+        o.position = vec4f(pos[vi], 0.0, 1.0);
+        o.uv = pos[vi] * 0.5 + 0.5;
+        return o;
+      }
+    `;
+  }
+
+  // Pass 1: extract bright areas from scene + 9-tap Gaussian blur → bloomTexture
+  get bloomExtractShader() {
+    return /* wgsl */ `
+      struct BloomParams {
+        texelSizeX: f32,
+        texelSizeY: f32,
+        threshold:  f32,
+        strength:   f32,
+      }
+
+      @group(0) @binding(0) var sceneTex    : texture_2d<f32>;
+      @group(0) @binding(1) var bloomSampler: sampler;
+      @group(0) @binding(2) var<uniform> params: BloomParams;
+
+      struct FragInput {
+        @location(0) uv: vec2f,
+      }
+
+      fn luminance(c: vec3f) -> f32 {
+        return dot(c, vec3f(0.2126, 0.7152, 0.0722));
+      }
+
+      fn extractBright(c: vec3f, threshold: f32) -> vec3f {
+        let knee = threshold * 0.18;
+        let lum  = luminance(c);
+        let w    = clamp((lum - threshold + knee) / max(knee, 0.001), 0.0, 1.0);
+        return c * w;
+      }
+
+      @fragment
+      fn main(input: FragInput) -> @location(0) vec4f {
+        let tx = params.texelSizeX;
+        let ty = params.texelSizeY;
+        let t  = params.threshold;
+
+        let offsets = array<vec2f, 9>(
+          vec2f(-tx, -ty), vec2f(0.0, -ty), vec2f(tx, -ty),
+          vec2f(-tx,  0.0), vec2f(0.0, 0.0), vec2f(tx,  0.0),
+          vec2f(-tx,  ty),  vec2f(0.0, ty),  vec2f(tx,  ty)
+        );
+        let weights = array<f32, 9>(
+          0.0625, 0.125, 0.0625,
+          0.125,  0.25,  0.125,
+          0.0625, 0.125, 0.0625
+        );
+
+        var bloom = vec3f(0.0);
+        for (var i = 0; i < 9; i++) {
+          let s = textureSample(sceneTex, bloomSampler, input.uv + offsets[i]).rgb;
+          bloom += extractBright(s, t) * weights[i];
+        }
+
+        return vec4f(bloom, 1.0);
+      }
+    `;
+  }
+
+  // Pass 2: composite scene + bloom, ACES tonemap, screen-space vignette → canvas
+  get bloomCompositeShader() {
+    return /* wgsl */ `
+      struct BloomParams {
+        texelSizeX: f32,
+        texelSizeY: f32,
+        threshold:  f32,
+        strength:   f32,
+      }
+
+      @group(0) @binding(0) var sceneTexC  : texture_2d<f32>;
+      @group(0) @binding(1) var bloomTexC  : texture_2d<f32>;
+      @group(0) @binding(2) var compSampler: sampler;
+      @group(0) @binding(3) var<uniform> params: BloomParams;
+
+      struct FragInput {
+        @location(0) uv: vec2f,
+      }
+
+      fn acesTonemap(x: vec3f) -> vec3f {
+        let a = 2.51; let b = 0.03; let c = 2.43; let d = 0.59; let e = 0.14;
+        return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3f(0.0), vec3f(1.0));
+      }
+
+      @fragment
+      fn main(input: FragInput) -> @location(0) vec4f {
+        let scene = textureSample(sceneTexC,  compSampler, input.uv).rgb;
+        let bloom = textureSample(bloomTexC, compSampler, input.uv).rgb;
+
+        let combined = scene + bloom * params.strength;
+        let tm = acesTonemap(combined);
+
+        // Screen-space vignette
+        let vCoord  = input.uv * 2.0 - 1.0;
+        let vigDist = dot(vCoord * vec2f(0.45, 0.55), vCoord * vec2f(0.45, 0.55));
+        let vignette = 1.0 - smoothstep(0.55, 1.1, vigDist);
+
+        return vec4f(tm * mix(0.25, 1.0, vignette), 1.0);
       }
     `;
   }

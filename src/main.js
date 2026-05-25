@@ -2,6 +2,9 @@ import rollerShaderCode from './shaders/roller.wgsl?raw';
 import particleShaderCode from './shaders/particles.wgsl?raw';
 import computeShaderCode from './shaders/compute.wgsl?raw';
 import lightningShaderCode from './shaders/lightning.wgsl?raw';
+import bloomVertCode from './shaders/bloom.wgsl?raw';
+import bloomExtractCode from './shaders/bloom-extract.wgsl?raw';
+import bloomCompositeCode from './shaders/bloom-composite.wgsl?raw';
 import { SEGIntegrationManager } from './integration';
 import { ValidatedConstants } from './ValidatedConstants';
 
@@ -18,6 +21,13 @@ class SEGVisualizer {
     this.indexBuffer = null;
     this.particleBuffer = null;
     this.depthTexture = null;
+    // Bloom post-processing
+    this.sceneTexture = null;
+    this.bloomTexture = null;
+    this.bloomSampler = null;
+    this.bloomParamsBuffer = null;
+    this.bloomExtractPipeline = null;
+    this.bloomCompositePipeline = null;
     this.coreVertexBuffer = null;
     this.coreIndexBuffer = null;
     this.coreIndexCount = 0;
@@ -139,6 +149,7 @@ class SEGVisualizer {
       await this.setupShaders();
       await this.setupComputePipeline();
       await this.setupDepthBuffer();
+      await this.setupBloomPipeline();
       this.setupInteraction();
       
       // Initialize TypeScript integration layer
@@ -167,6 +178,75 @@ class SEGVisualizer {
       format: 'depth24plus',
       usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
+    // Recreate HDR/bloom textures whenever the depth buffer is recreated
+    this.setupBloomTextures();
+  }
+
+  setupBloomTextures() {
+    const w = this.canvas.width  || 1;
+    const h = this.canvas.height || 1;
+    const fmt = navigator.gpu.getPreferredCanvasFormat();
+
+    if (this.sceneTexture) this.sceneTexture.destroy();
+    if (this.bloomTexture) this.bloomTexture.destroy();
+
+    this.sceneTexture = this.device.createTexture({
+      size: [w, h],
+      format: fmt,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
+    this.bloomTexture = this.device.createTexture({
+      size: [w, h],
+      format: fmt,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
+
+    // Update bloom params with new texel sizes
+    if (this.bloomParamsBuffer) {
+      this.device.queue.writeBuffer(
+        this.bloomParamsBuffer, 0,
+        new Float32Array([1.0 / w, 1.0 / h, 0.60, 1.4])
+      );
+    }
+  }
+
+  async setupBloomPipeline() {
+    const fmt = navigator.gpu.getPreferredCanvasFormat();
+    const vertModule    = this.device.createShaderModule({ code: bloomVertCode });
+    const extractModule = this.device.createShaderModule({ code: bloomExtractCode });
+    const compModule    = this.device.createShaderModule({ code: bloomCompositeCode });
+
+    this.bloomSampler = this.device.createSampler({
+      magFilter: 'linear',
+      minFilter: 'linear',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge'
+    });
+
+    this.bloomParamsBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+
+    // Extract pipeline: sceneTex → bloomTex
+    this.bloomExtractPipeline = this.device.createRenderPipeline({
+      layout: 'auto',
+      vertex:   { module: vertModule,    entryPoint: 'bloomVertMain' },
+      fragment: { module: extractModule, entryPoint: 'bloomExtractFrag',
+                  targets: [{ format: fmt }] },
+      primitive: { topology: 'triangle-list' }
+    });
+
+    // Composite pipeline: (sceneTex + bloomTex) → canvas
+    this.bloomCompositePipeline = this.device.createRenderPipeline({
+      layout: 'auto',
+      vertex:   { module: vertModule, entryPoint: 'bloomVertMain' },
+      fragment: { module: compModule,  entryPoint: 'bloomCompositeFrag',
+                  targets: [{ format: fmt }] },
+      primitive: { topology: 'triangle-list' }
+    });
+
+    this.setupBloomTextures();
   }
 
   generateCylinder(radius, height, segments) {
@@ -357,7 +437,7 @@ class SEGVisualizer {
 
   async setupGeometry() {
     // ── Roller cylinders (shared for Heron / Kelvin / Solar structural objects) ─
-    const cylinderData = this.generateCylinder(0.8, 2.5, 32);
+    const cylinderData = this.generateCylinder(0.8, 2.5, 64);
     this.vertexBuffer = this.device.createBuffer({
       size: cylinderData.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
@@ -980,11 +1060,13 @@ class SEGVisualizer {
     computePass.end();
     this.device.queue.submit([computeEncoder.finish()]);
 
-    // Render pass
+    // Render pass — render scene to intermediate sceneTexture (for bloom)
     const encoder = this.device.createCommandEncoder();
+    const sceneView = this.sceneTexture ? this.sceneTexture.createView()
+                                        : this.context.getCurrentTexture().createView();
     const renderPass = encoder.beginRenderPass({
       colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
+        view: sceneView,
         clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
         loadOp: 'clear',
         storeOp: 'store'
@@ -1089,6 +1171,51 @@ class SEGVisualizer {
     }
 
     renderPass.end();
+
+    // ── Bloom post-processing ─────────────────────────────────────────────
+    if (this.bloomExtractPipeline && this.sceneTexture && this.bloomTexture) {
+      // Pass 1: extract bright areas from scene → bloomTexture
+      const extractPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: this.bloomTexture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: 'clear', storeOp: 'store'
+        }]
+      });
+      extractPass.setPipeline(this.bloomExtractPipeline);
+      extractPass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.bloomExtractPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.sceneTexture.createView() },
+          { binding: 1, resource: this.bloomSampler },
+          { binding: 2, resource: { buffer: this.bloomParamsBuffer } }
+        ]
+      }));
+      extractPass.draw(3);
+      extractPass.end();
+
+      // Pass 2: composite scene + bloom → canvas with tonemap & vignette
+      const compositePass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: this.context.getCurrentTexture().createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: 'clear', storeOp: 'store'
+        }]
+      });
+      compositePass.setPipeline(this.bloomCompositePipeline);
+      compositePass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.bloomCompositePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.sceneTexture.createView() },
+          { binding: 1, resource: this.bloomTexture.createView() },
+          { binding: 2, resource: this.bloomSampler },
+          { binding: 3, resource: { buffer: this.bloomParamsBuffer } }
+        ]
+      }));
+      compositePass.draw(3);
+      compositePass.end();
+    }
+
     this.device.queue.submit([encoder.finish()]);
 
     requestAnimationFrame((t) => this.render(t));

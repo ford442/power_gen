@@ -167,7 +167,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let aXZ  = tangent * aTan + radial * aRad;
     let accel = vec3f(aXZ.x, aY, aXZ.y);
 
-    p.vel = p.vel + accel * dt;
+    // Harmonic turbulence: high-frequency jitter gives an electrified, organic feel
+    let turb1 = sin(u.simClock * 7.3  + p.phase * 31.4) * 0.045;
+    let turb2 = cos(u.simClock * 11.7 + p.phase * 17.8) * 0.032;
+    let turb3 = sin(u.simClock * 5.1  + p.phase * 43.2) * 0.028;
+    let turbAccel = vec3f(turb1 + turb2 * radial.x,
+                          turb3,
+                          turb1 * radial.y - turb2);
+
+    p.vel = p.vel + (accel + turbAccel * u.corona) * dt;
     p.pos = p.pos + p.vel * dt;
 
     if (r < 1.0 || r > 11.0 || abs(p.pos.y) > 5.0) { p = spawnSEG(idx); }
