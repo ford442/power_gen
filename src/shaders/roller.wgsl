@@ -220,6 +220,35 @@ struct VertexOutput {
   return output;
 }
 
+// ─── Procedural environment map ───────────────────────────────────────────────
+// Cheap fake cubemap: dark industrial workshop with a cyan-tinted sky dome and
+// a warm key-light specular hotspot.  No texture required — pure ALU math.
+fn sampleEnvMap(dir: vec3f) -> vec3f {
+  let upDot = dot(dir, vec3f(0.0, 1.0, 0.0));
+
+  // Sky hemisphere: very dark blue fading to subtle cyan overhead
+  let sky = mix(
+    vec3f(0.03, 0.05, 0.09),   // near-horizon: dark blue
+    vec3f(0.04, 0.14, 0.22),   // zenith: soft cyan glow
+    max(upDot, 0.0)
+  );
+  // Ground hemisphere: near-black
+  let ground = vec3f(0.01, 0.02, 0.025);
+  var env = mix(ground, sky, smoothstep(-0.25, 0.25, upDot));
+
+  // Primary key-light specular hotspot (warm white, upper-right)
+  let keyDir  = normalize(vec3f(0.8, 2.0, 0.6));
+  let keyDot  = max(dot(dir, keyDir), 0.0);
+  env += vec3f(0.35, 0.52, 0.72) * pow(keyDot, 10.0) * 0.55;
+
+  // Secondary fill hotspot (cool blue, left side)
+  let fillDir = normalize(vec3f(-1.2, 1.0, -0.5));
+  let fillDot = max(dot(dir, fillDir), 0.0);
+  env += vec3f(0.12, 0.20, 0.36) * pow(fillDot, 6.0) * 0.25;
+
+  return env;
+}
+
 // ─── Fragment shader ──────────────────────────────────────────────────────────
 @fragment fn fragmentMain(
   @location(0) normal: vec3f,
@@ -244,7 +273,16 @@ struct VertexOutput {
   if (mode < 0.5 && renderMode > 0u) {
     if (renderMode == 1u) {
       // Base: dark industrial matte black
-      finalColor = vec3f(0.08, 0.08, 0.12) + vec3f(spec * 0.15);
+      var baseColor = vec3f(0.08, 0.08, 0.12) + vec3f(spec * 0.15);
+      // Contact shadows: soft Gaussian rings where rollers cast shadows onto the plate.
+      // Rings are at the three orbit radii (3.5 / 5.5 / 7.5) plus a central hub shadow.
+      let shadowDist = length(vec2f(worldPos.x, worldPos.z));
+      let sh0 = 0.38 * exp(-pow(shadowDist / 1.8, 2.0));                          // hub
+      let sh1 = 0.32 * exp(-pow((shadowDist - 3.5) / 0.90, 2.0));                 // inner ring
+      let sh2 = 0.22 * exp(-pow((shadowDist - 5.5) / 1.00, 2.0));                 // middle ring
+      let sh3 = 0.16 * exp(-pow((shadowDist - 7.5) / 1.10, 2.0));                 // outer ring
+      let contactShadow = clamp(sh0 + sh1 + sh2 + sh3, 0.0, 0.72);
+      finalColor = baseColor * (1.0 - contactShadow);
     } else if (renderMode == 2u) {
       // Stator rings: brushed copper with specular highlights
       let copper = vec3f(0.85, 0.48, 0.25);
@@ -261,18 +299,24 @@ struct VertexOutput {
     let pulse = 0.35 + 0.35 * sin(uniforms.time * 1.8);
     let steel = vec3f(0.52, 0.56, 0.65);
     let magGlow = vec3f(0.0, 0.55, 1.0) * pulse * fresnel * 1.1;
-    finalColor = steel * 0.85 + magGlow + vec3f(spec * 0.65);
+    let reflDir66 = reflect(-viewDir, n);
+    let envRefl66 = sampleEnvMap(reflDir66) * (0.22 + fresnel * 0.40);
+    finalColor = steel * 0.85 + magGlow + vec3f(spec * 0.65) + envRefl66;
 
   } else if (iId == 67u) {
     // SEG outer electromagnetic coil: glowing copper
     let pulse = 0.5 + 0.5 * sin(uniforms.time * 3.5);
     let coil  = mix(vec3f(0.55, 0.30, 0.08), vec3f(1.0, 0.72, 0.25), pulse);
-    finalColor = coil + vec3f(0.0, 0.5, 0.7) * pulse * fresnel + vec3f(spec * 0.65);
+    let reflDir67 = reflect(-viewDir, n);
+    let envRefl67 = sampleEnvMap(reflDir67) * (0.15 + fresnel * 0.30);
+    finalColor = coil + vec3f(0.0, 0.5, 0.7) * pulse * fresnel + vec3f(spec * 0.65) + envRefl67;
 
   } else if (iId >= 68u && iId < 72u) {
     // SEG ring-separator plates: brushed silver with cyan edge glow
-    let metallic = vec3f(0.62, 0.68, 0.76);
-    finalColor = metallic + vec3f(0.0, 0.55, 0.85) * fresnel * 0.9 + vec3f(spec * 0.55);
+    let metallic68 = vec3f(0.62, 0.68, 0.76);
+    let reflDir68 = reflect(-viewDir, n);
+    let envRefl68 = sampleEnvMap(reflDir68) * (0.25 + fresnel * 0.50);
+    finalColor = metallic68 + vec3f(0.0, 0.55, 0.85) * fresnel * 0.9 + vec3f(spec * 0.55) + envRefl68;
 
   } else if (iId >= 72u && iId < 75u) {
     // SEG orbital stator rings: brass-copper glow at the three roller ring radii
@@ -285,7 +329,9 @@ struct VertexOutput {
     // Coronal discharge: plasma halo that intensifies as the SEG approaches
     // terminal velocity (corona driven by angular velocity + voltage on CPU).
     let coronaGlow = vec3f(0.55, 0.85, 1.0) * uniforms.corona * (0.6 + 0.4 * pulse) * (0.5 + fresnel);
-    finalColor = brass * (0.45 + pulse * 0.35) + energyGlow + coronaGlow + vec3f(spec * 0.55);
+    let reflDir72 = reflect(-viewDir, n);
+    let envRefl72 = sampleEnvMap(reflDir72) * (0.18 + fresnel * 0.35);
+    finalColor = brass * (0.45 + pulse * 0.35) + energyGlow + coronaGlow + vec3f(spec * 0.55) + envRefl72;
 
   } else if (iId == 100u || iId == 101u) {
     // Kelvin induction rings: polished silver with electrostatic shimmer that
@@ -347,7 +393,13 @@ struct VertexOutput {
     // Specular highlight — strong metallic sheen
     let specHigh   = vec3f(spec * 0.9);
 
-    finalColor = metallic + fieldGlow * 0.5 + greenGlow + specHigh;
+    // Procedural environment reflection: reflect view off the roller surface
+    let reflDir    = reflect(-viewDir, n);
+    let envColor   = sampleEnvMap(reflDir);
+    // Weight by fresnel so glancing angles get more reflection (physically accurate)
+    let envRefl    = envColor * (0.30 + fresnel * 0.55);
+
+    finalColor = metallic + fieldGlow * 0.5 + greenGlow + specHigh + envRefl;
 
   } else if (mode < 1.5) {
     // Heron's Fountain structural elements
