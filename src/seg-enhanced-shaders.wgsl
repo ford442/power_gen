@@ -297,9 +297,9 @@ fn enhancedRollerFragment(input: EnhancedFragmentInput) -> @location(0) vec4f {
   // ACES filmic tonemapping for metallic highlights
   color = color * (2.51 * color + 0.03) / (color * (2.43 * color + 0.59) + 0.14);
 
-  // Slight vignette (subtle)
-  let vignette = 1.0 - dot(input.uv - 0.5, input.uv - 0.5) * 0.3;
-  color *= vignette;
+  // NOTE: Screen-space vignette is applied globally in the bloom composite pass
+  // (bloom-composite.wgsl) so it affects all geometry, particles, and background
+  // uniformly.  Do not apply a per-fragment vignette here.
 
   return vec4f(color, 1.0);
 }

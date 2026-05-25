@@ -110,14 +110,30 @@
       cursor: pointer;
       transition: all 0.25s;
       border-radius: 4px;
-      font-size: 0.78rem;
+      font-size: 0.75rem;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.8px;
       text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mode-btn .mode-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: var(--mode-icon-size, 18px);
+      height: var(--mode-icon-size, 18px);
+      border: 1px solid currentColor;
+      border-radius: 3px;
+      font-size: 0.65rem;
+      flex-shrink: 0;
+      opacity: 0.75;
     }
     .mode-btn:hover  { background: #0ff2; color: #0ff; border-color: #0ff; box-shadow: 0 0 8px #0ff4; }
     .mode-btn.active { background: #00d4ff22; color: #0ff; border-color: #0ff; box-shadow: 0 0 10px #0ff5; }
+    .mode-btn.active .mode-icon { opacity: 1; }
 
     /* Control buttons */
     .ctrl-row {
@@ -217,14 +233,14 @@
       padding: 8px 10px;
     }
     .reading-label {
-      font-size: 0.6rem;
+      font-size: 0.58rem;
       color: #0777;
       text-transform: uppercase;
-      letter-spacing: 1.5px;
-      margin-bottom: 3px;
+      letter-spacing: 1.8px;
+      margin-bottom: 2px;
     }
     .reading-value {
-      font-size: 1.05rem;
+      font-size: 1.0rem;
       font-family: 'Courier New', monospace;
       color: #0ff;
       font-weight: bold;
@@ -232,6 +248,21 @@
     }
     .reading-value.warning  { color: #ffaa00; text-shadow: 0 0 6px #ffaa0066; }
     .reading-value.critical { color: #ff3300; text-shadow: 0 0 8px #ff330088; }
+
+    /* Right-panel section header / separator */
+    .telem-section {
+      font-size: 0.58rem;
+      color: #0ff5;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      padding: 4px 2px 2px;
+      border-top: 1px solid #0ff2;
+      margin-top: 4px;
+    }
+    .telem-section:first-child {
+      border-top: none;
+      margin-top: 0;
+    }
 
     /* RPM gauge ring */
     .rpm-ring {
@@ -296,7 +327,7 @@
 
   <!-- ── Header ─────────────────────────────────────────── -->
   <div id="header">
-    <h1>⚡ SEG WebGPU Dashboard</h1>
+    <h1>SEG WebGPU Dashboard</h1>
     <div class="header-right">
       <div class="status-badge">
         <div class="status-indicator status-standby" id="statusDot"></div>
@@ -341,10 +372,10 @@
       <!-- Simulation mode -->
       <div class="panel-section">
         <h3>Simulation Mode</h3>
-        <button class="mode-btn active" id="btn-seg"    onclick="setMode('seg')">🔮 SEG Generator</button>
-        <button class="mode-btn"        id="btn-heron"  onclick="setMode('heron')">💧 Heron's Fountain</button>
-        <button class="mode-btn"        id="btn-kelvin" onclick="setMode('kelvin')">⚡ Kelvin Thunderstorm</button>
-        <button class="mode-btn"        id="btn-solar"  onclick="setMode('solar')">☀️ LEDs + Solar</button>
+        <button class="mode-btn active" id="btn-seg"    onclick="setMode('seg')"><span class="mode-icon">◈</span>SEG Generator</button>
+        <button class="mode-btn"        id="btn-heron"  onclick="setMode('heron')"><span class="mode-icon">◉</span>Heron's Fountain</button>
+        <button class="mode-btn"        id="btn-kelvin" onclick="setMode('kelvin')"><span class="mode-icon">◆</span>Kelvin Thunderstorm</button>
+        <button class="mode-btn"        id="btn-solar"  onclick="setMode('solar')"><span class="mode-icon">◇</span>LEDs + Solar</button>
       </div>
 
       <!-- Particle count -->
@@ -377,6 +408,9 @@
     <!-- Right telemetry panel -->
     <div id="right-panel">
 
+      <!-- Performance group -->
+      <div class="telem-section">Performance</div>
+
       <!-- RPM -->
       <div class="reading-card">
         <div class="reading-label">Inner Ring RPM</div>
@@ -387,6 +421,16 @@
           </div>
         </div>
       </div>
+
+      <!-- Efficiency -->
+      <div class="reading-card">
+        <div class="reading-label">Efficiency</div>
+        <div class="reading-value" id="efficiency">0.0%</div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="efficiency-bar" style="width:0%"></div></div>
+      </div>
+
+      <!-- Electrical group -->
+      <div class="telem-section">Electrical</div>
 
       <!-- Voltage -->
       <div class="reading-card">
@@ -406,6 +450,9 @@
         <div class="reading-value" id="power">0.000 W</div>
       </div>
 
+      <!-- Physical group -->
+      <div class="telem-section">Physical</div>
+
       <!-- Magnetic field -->
       <div class="reading-card">
         <div class="reading-label">Magnetic Field</div>
@@ -418,12 +465,8 @@
         <div class="reading-value" id="temperature">25.0 °C</div>
       </div>
 
-      <!-- Efficiency -->
-      <div class="reading-card">
-        <div class="reading-label">Efficiency</div>
-        <div class="reading-value" id="efficiency">0.0%</div>
-        <div class="mini-bar"><div class="mini-bar-fill" id="efficiency-bar" style="width:0%"></div></div>
-      </div>
+      <!-- Energy group -->
+      <div class="telem-section">Energy</div>
 
       <!-- Energy -->
       <div class="reading-card">
