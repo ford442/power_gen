@@ -68,6 +68,7 @@ class MultiDeviceVisualizer {
       await this.setupDevices();
       await this.setupEnergyPipes();
       await this.setupFloorGrid();
+      await this.setupSkyGradient();
 
       // Track initial allocations
       this.profiler.trackBuffer('globalUniforms', 256, GPUBufferUsage.UNIFORM);
@@ -507,7 +508,7 @@ class MultiDeviceVisualizer {
       primitive: { topology: 'triangle-list' },
       depthStencil: { depthWriteEnabled: false, depthCompare: 'less', format: 'depth24plus' }
     });
-    
+
     const gridVertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
     this.gridVertexBuffer = this.device.createBuffer({
       size: gridVertices.byteLength,
@@ -515,6 +516,25 @@ class MultiDeviceVisualizer {
     });
     this.device.queue.writeBuffer(this.gridVertexBuffer, 0, gridVertices);
     this.profiler.trackBuffer('gridVertices', gridVertices.byteLength, GPUBufferUsage.VERTEX);
+  }
+
+  async setupSkyGradient() {
+    this.skyPipeline = this.device.createRenderPipeline({
+      label: 'skyPipeline',
+      layout: 'auto',
+      vertex: {
+        module: this.device.createShaderModule({ code: this.shaders.skyVertShader }),
+        entryPoint: 'main'
+        // No vertex buffers — uses @builtin(vertex_index) to generate a fullscreen triangle
+      },
+      fragment: {
+        module: this.device.createShaderModule({ code: this.shaders.skyFragShader }),
+        entryPoint: 'main',
+        targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }]
+      },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: { depthWriteEnabled: false, depthCompare: 'always', format: 'depth24plus' }
+    });
   }
   
   resize() {
@@ -691,7 +711,7 @@ class MultiDeviceVisualizer {
     const renderPass = encoder.beginRenderPass({
       colorAttachments: [{
         view: this.context.getCurrentTexture().createView(),
-        clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
+        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1 },
         loadOp: 'clear',
         storeOp: 'store'
       }],
@@ -702,9 +722,18 @@ class MultiDeviceVisualizer {
         depthStoreOp: 'store'
       }
     });
-    
+
+    // Render sky gradient first (fullscreen, before all geometry)
+    if (this.skyPipeline) {
+      renderPass.setPipeline(this.skyPipeline);
+      renderPass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.skyPipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: this.globalUniformBuffer } }]
+      }));
+      renderPass.draw(3);
+    }
+
     // Render grid
-    console.log('Setting grid pipeline, has depthStencil:', !!this.gridPipeline);
     renderPass.setPipeline(this.gridPipeline);
     renderPass.setBindGroup(0, this.device.createBindGroup({
       layout: this.gridPipeline.getBindGroupLayout(0),
