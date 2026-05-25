@@ -273,6 +273,10 @@ class DeviceInstance {
     const radius = 7.2;
     const offsetRad = ((em?.offsetAngle || 0) * Math.PI) / 180;
 
+    // Traveling wave parameters for electromagnet pulse animation
+    const t = this.visualizer.time;
+    const waveSpeed = 3.0;
+
     for (let i = 0; i < maxCoils; i++) {
       const idx = i * 8;
       if (i < numCoils) {
@@ -282,11 +286,23 @@ class DeviceInstance {
         instanceData[idx + 2] = Math.sin(angle) * radius;
         instanceData[idx + 3] = angle;
 
-        // Determine active intensity
+        // Determine base active intensity from commutation state
         let intensity = 0;
         if (coilMask & (1 << i)) {
           intensity = pwmValues ? (pwmValues[i] / 255) : 1.0;
         }
+
+        // Apply traveling wave pulse with per-coil phase offset
+        const phaseOffset = (i / numCoils) * Math.PI * 2;
+        const wave = 0.5 + 0.5 * Math.sin(t * waveSpeed - phaseOffset);
+        if (intensity > 0) {
+          // Active coil: strong pulse modulation
+          intensity = intensity * (0.65 + 0.35 * wave);
+        } else {
+          // Inactive coil: faint ambient traveling glow
+          intensity = wave * 0.06;
+        }
+
         instanceData[idx + 4] = intensity;
         instanceData[idx + 5] = i;
         instanceData[idx + 6] = 0;

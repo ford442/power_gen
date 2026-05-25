@@ -38,7 +38,7 @@ export class DevicePipelineManager {
       fragment: {
         module: this.device.createShaderModule({ code: this.visualizer.shaders.particleFragShader }),
         entryPoint: 'main',
-        targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
+        targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } } }]
       },
       primitive: { topology: 'triangle-strip' },
       depthStencil: { depthWriteEnabled: false, depthCompare: 'less' }
