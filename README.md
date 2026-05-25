@@ -5,10 +5,19 @@ Real-time WebGPU simulation of the Searl Effect Generator (SEG) with extensible 
 **Live Demo:** https://ford442.github.io/seg-webgpu-visualizer/
 
 ## Features
-- 12 instanced magnetic rollers in toroidal formation (ready to upgrade to three ringed SEG or other configuration)
-- 10,000-50,000 GPU compute shader particles
+- Three concentric rings of instanced magnetic rollers in toroidal formation
+- 10,000-50,000 GPU particles driven by **stateful kinematic integration** (persistent
+  per-particle position + velocity in a storage buffer, advanced each frame by real forces)
+- Four physically-modelled modes:
+  - **SEG** — roller spin-up from moment of inertia, Lorentz drive torque and Lenz
+    eddy-current braking to a self-regulating terminal velocity (with coronal glow)
+  - **Heron's Fountain** — Bernoulli exit velocity with Swamee–Jain pipe friction and
+    depleting head pressure; droplets bunch realistically at the apex
+  - **Kelvin's Thunderstorm** — charged droplets under gravity + Stokes drag + Coulomb
+    repulsion, capacitive voltage runaway, electrostatic levitation, and a fractal
+    (midpoint-displacement) discharge at dielectric breakdown
+  - **LEDs + Solar** — photons reflected/absorbed by Snell + Fresnel optics on silicon
 - Interactive orbital camera (drag to rotate, scroll to zoom)
-- Three visualization modes: SEG, Heron's Fountain, Kelvin's Thunderstorm
 
 ## Future Plans
 - Add Quanta Magnetics devices to the visualization suite
