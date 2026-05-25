@@ -132,9 +132,16 @@ struct VertexOutput {
       rollerCount = 32.0; ringRadius = 7.5; localIdx = globalIdx - 34.0;
       orbitSpeed = 0.13; selfSpinSpeed = 2.0;   // outer ring: slowest
     }
-    let angle = localIdx * (6.28318530718 / rollerCount) + uniforms.time * orbitSpeed;
+    // Per-roller speed jitter: subtle variation so motion feels organic, not perfectly mechanical
+    let jitterHash = fract(sin(globalIdx * 127.3 + 53.7) * 43758.5453);
+    let speedJitter = 1.0 + 0.04 * sin(uniforms.time * 1.3 + jitterHash * 12.7);
+    // Startup ramp: animate from zero over the first ~3 s so rollers appear to spin up
+    let startupRamp = min(uniforms.time * 0.33, 1.0);
+    // Slight per-ring phase offset gives each ring a distinct "feel"
+    let ringPhaseOffset = floor(globalIdx / 12.0) * 0.22;
+    let angle = localIdx * (6.28318530718 / rollerCount) + uniforms.time * orbitSpeed * speedJitter * startupRamp + ringPhaseOffset;
     let center = vec3f(cos(angle) * ringRadius, 0.0, sin(angle) * ringRadius);
-    let spinAngle = uniforms.time * selfSpinSpeed + globalIdx * 0.5;
+    let spinAngle = uniforms.time * selfSpinSpeed * speedJitter * startupRamp + globalIdx * 0.5;
     let cs = cos(spinAngle); let ss = sin(spinAngle);
     let rotPos = vec3f(position.x * cs - position.z * ss, position.y,
                        position.x * ss + position.z * cs);
