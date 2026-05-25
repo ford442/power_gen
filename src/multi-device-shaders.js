@@ -661,7 +661,7 @@ export class MultiDeviceShaders {
         // Orange emissive glow when active — boosted multipliers for punch
         let active = input.activeIntensity;
         let orangeGlow = vec3f(1.0, 0.55, 0.0) * active * 4.0;
-        let whiteCore  = vec3f(1.0, 0.90, 0.7) * active * 1.5;
+        let whiteCore = vec3f(1.0, 0.90, 0.7) * active * 1.5;
         color = color + orangeGlow + whiteCore;
 
         // Per-coil time-based shimmer using the traveling wave baked into active
@@ -1086,6 +1086,8 @@ export class MultiDeviceShaders {
           vec2f(-1.0,  3.0)
         );
         var output: VertexOutput;
+        // Oversized triangle that covers the entire clip-space screen;
+        // z=0.9999 places it just behind all scene geometry at the far plane
         output.position = vec4f(pos[vertexIndex], 0.9999, 1.0);
         output.uv = pos[vertexIndex] * 0.5 + 0.5;
         return output;
