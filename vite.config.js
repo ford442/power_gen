@@ -11,4 +11,7 @@ export default defineConfig({
     host: 'localhost',
     port: 5173,
   },
+  // Treat raw .wasm files as static assets so they can be imported
+  // with ?url (e.g. `import wasmUrl from './public/wasm/sim_core.wasm?url'`).
+  assetsInclude: ['**/*.wasm'],
 })

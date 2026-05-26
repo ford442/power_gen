@@ -1,0 +1,84 @@
+# =============================================================
+# build-wasm.yml  –  CI pipeline: compile sim_core to WebAssembly
+#
+# Triggers:
+#   • push / PR touching cpp/ or src/wasm/
+#   • manual workflow_dispatch
+#
+# Artefacts:
+#   • sim_core.js + sim_core.wasm  (uploaded as GitHub artefact)
+#   • Optionally committed back to src/public/wasm/ on the main branch
+# =============================================================
+
+name: Build WASM (sim_core)
+
+on:
+  push:
+    paths:
+      - 'cpp/**'
+      - 'src/wasm/**'
+      - '.github/workflows/build-wasm.yml'
+  pull_request:
+    paths:
+      - 'cpp/**'
+      - 'src/wasm/**'
+      - '.github/workflows/build-wasm.yml'
+  workflow_dispatch:
+
+jobs:
+  build-wasm:
+    name: Emscripten → WASM
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Install emsdk ─────────────────────────────────────
+      - name: Set up Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.61   # pinned for reproducibility
+          actions-cache-folder: '.emsdk-cache'
+
+      # ── 3. Verify emcc ───────────────────────────────────────
+      - name: Verify emcc
+        run: emcc --version
+
+      # ── 4. Build WASM ────────────────────────────────────────
+      - name: Build sim_core WASM
+        run: |
+          mkdir -p src/public/wasm
+          cd cpp
+          make wasm
+
+      # ── 5. Verify output ─────────────────────────────────────
+      - name: Verify artefacts
+        run: |
+          ls -lh src/public/wasm/
+          test -f src/public/wasm/sim_core.js   || (echo "sim_core.js missing" && exit 1)
+          test -f src/public/wasm/sim_core.wasm || (echo "sim_core.wasm missing" && exit 1)
+
+      # ── 6. Upload artefacts ──────────────────────────────────
+      - name: Upload WASM artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim_core-wasm
+          path: |
+            src/public/wasm/sim_core.js
+            src/public/wasm/sim_core.wasm
+          retention-days: 30
+
+      # ── 7. Commit built files back on main (optional) ────────
+      #    Enables the GitHub Pages deploy to serve the WASM without
+      #    requiring a separate download / install step.
+      - name: Commit WASM artefacts to main
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/public/wasm/sim_core.js src/public/wasm/sim_core.wasm
+          git diff --cached --quiet || \
+            git commit -m "ci: update sim_core WASM artefacts [skip ci]" && \
+            git push
