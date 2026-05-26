@@ -321,6 +321,36 @@
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: #050a0f; }
     ::-webkit-scrollbar-thumb { background: #0ff3; border-radius: 2px; }
+
+    /* ── WASM status badge ──────────────────────────────── */
+    #wasm-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border: 1px solid #0ff4;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      color: #0aa;
+    }
+    .wasm-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #444;
+    }
+    .wasm-dot.loaded  { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
+    .wasm-dot.loading { background: #ffcc00; box-shadow: 0 0 6px #ffcc00; animation: blink 1s infinite; }
+    .wasm-dot.missing { background: #ff6600; }
+
+    /* ── WASM demo panel ────────────────────────────────── */
+    #wasm-results {
+      display: none;
+      margin-top: 6px;
+      font-size: 0.70rem;
+      color: #0aa;
+      line-height: 1.6;
+    }
+    #wasm-results.visible { display: block; }
   </style>
 </head>
 <body>
@@ -329,6 +359,10 @@
   <div id="header">
     <h1>SEG WebGPU Dashboard</h1>
     <div class="header-right">
+      <div id="wasm-badge">
+        <div class="wasm-dot loading" id="wasmDot"></div>
+        <span id="wasmStatus">WASM…</span>
+      </div>
       <div class="status-badge">
         <div class="status-indicator status-standby" id="statusDot"></div>
         <span id="status">STANDBY</span>
@@ -392,6 +426,23 @@
         <h3>Info</h3>
         <div id="info" style="font-size:0.72rem;color:#0aa;line-height:1.5;">
           3 concentric rings of 12/22/32 magnetic rollers with alternating copper/neodymium pole bands orbiting around central stator rings.
+        </div>
+      </div>
+
+      <!-- WASM demo -->
+      <div class="panel-section">
+        <h3>WASM Physics Core</h3>
+        <div style="font-size:0.70rem;color:#0aa;margin-bottom:6px;" id="wasm-info">
+          C++ sim_core compiled to WebAssembly — CPU-side RK4 integrator &amp; magnetic field solver.
+        </div>
+        <div class="ctrl-row">
+          <button class="ctrl-btn" id="wasmBenchBtn" style="font-size:0.70rem;">⚡ Benchmark</button>
+        </div>
+        <div id="wasm-results">
+          <div>Version: <span id="wasm-version" style="color:#0ff;">—</span></div>
+          <div>Steps/s: <span id="wasm-sps"     style="color:#0ff;">—</span></div>
+          <div>Final RPM: <span id="wasm-rpm"   style="color:#0ff;">—</span></div>
+          <div>Ω: <span id="wasm-omega"          style="color:#0ff;">—</span> rad/s</div>
         </div>
       </div>
 

@@ -8,7 +8,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && python deploy.py"
+    "deploy": "npm run build && python deploy.py",
+    "wasm:build": "cd cpp && make wasm",
+    "wasm:build-debug": "cd cpp && make wasm-dbg",
+    "wasm:native": "cd cpp && make native"
   },
   "keywords": [
     "webgpu",

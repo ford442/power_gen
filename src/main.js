@@ -7,6 +7,7 @@ import bloomExtractCode from './shaders/bloom-extract.wgsl?raw';
 import bloomCompositeCode from './shaders/bloom-composite.wgsl?raw';
 import { SEGIntegrationManager } from './integration';
 import { ValidatedConstants } from './ValidatedConstants';
+import { SEGSim } from './wasm/sim';
 
 class SEGVisualizer {
   constructor() {
@@ -1304,6 +1305,69 @@ window.setMode = (mode) => {
   if (modeFooterEl) modeFooterEl.textContent = modeLabel;
 };
 
+// ─────────────────────────────────────────────────────────────
+// WASM sim_core initialisation
+// ─────────────────────────────────────────────────────────────
+
+/** @type {SEGSim | null} */
+let wasmSim = null;
+
+function updateWasmBadge(state, text) {
+  const dot  = document.getElementById('wasmDot');
+  const span = document.getElementById('wasmStatus');
+  if (!dot || !span) return;
+  dot.className  = `wasm-dot ${state}`;
+  span.textContent = text;
+}
+
+async function initWasm() {
+  updateWasmBadge('loading', 'WASM…');
+  try {
+    wasmSim = await SEGSim.create();
+    if (wasmSim.wasmAvailable) {
+      updateWasmBadge('loaded', 'WASM ✓');
+    } else {
+      updateWasmBadge('missing', 'WASM –');
+    }
+  } catch (err) {
+    console.warn('[main] WASM init failed:', err);
+    updateWasmBadge('missing', 'WASM –');
+  }
+
+  // Wire up benchmark button
+  const benchBtn = document.getElementById('wasmBenchBtn');
+  if (!benchBtn) return;
+
+  benchBtn.addEventListener('click', async () => {
+    if (!wasmSim) return;
+    benchBtn.disabled = true;
+    benchBtn.textContent = '⏳ Running…';
+
+    const resultsEl = document.getElementById('wasm-results');
+    if (resultsEl) resultsEl.classList.add('visible');
+
+    try {
+      const version = await SEGSim.getVersion();
+      const versionEl = document.getElementById('wasm-version');
+      if (versionEl) versionEl.textContent = version;
+
+      const result = await wasmSim.benchmark(1000, 0.01);
+      const spsEl   = document.getElementById('wasm-sps');
+      const rpmEl   = document.getElementById('wasm-rpm');
+      const omegaEl = document.getElementById('wasm-omega');
+      if (spsEl)   spsEl.textContent   = Math.round(result.stepsPerSecond).toLocaleString();
+      if (rpmEl)   rpmEl.textContent   = result.finalRPM.toFixed(1);
+      if (omegaEl) omegaEl.textContent = result.finalOmega.toFixed(4);
+    } catch (err) {
+      console.warn('[main] WASM benchmark error:', err);
+    }
+
+    benchBtn.disabled = false;
+    benchBtn.textContent = '⚡ Benchmark';
+  });
+}
+
 window.addEventListener('load', () => {
   visualizer = new SEGVisualizer();
+  initWasm();
 });
