@@ -125,7 +125,7 @@ export class SEGSim {
    * Returns steps/second and final simulation state.
    */
   async benchmark(steps = 1000, loadTorque = 0.01): Promise<SEGBenchmarkResult> {
-    const dt = 1 / 60;
+    const dt = 1 / 60; // standard 60 Hz physics time step (seconds)
     const t0 = performance.now();
     let finalOmega = 0;
     let finalRPM   = 0;

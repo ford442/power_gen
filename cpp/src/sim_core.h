@@ -75,6 +75,12 @@ struct SEGRollerState {
 
 // ─────────────────────────────────────────────────────────────
 // Physics constants (CODATA 2018 / project conventions)
+//
+// All constants are stored as single-precision float to match the GPU shader
+// uniform layout and allow direct memcpy to WebGPU buffers. The rounding error
+// relative to double-precision values is < 1 ULP for the magnitudes used here
+// (|Br| ≈ 1.48 T, |μ₀| ≈ 1.26e-6 H/m), which is well below the ±5–10%
+// uncertainty already present in the dipole-field approximation.
 // ─────────────────────────────────────────────────────────────
 struct PhysicsConstants {
     static constexpr float MU_0       = 1.2566370614e-7f; // H m⁻¹

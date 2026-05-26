@@ -59,8 +59,8 @@ export async function loadSimCore(): Promise<SimCoreModule | null> {
     await injectScript(WASM_JS_URL);
 
     // 3. The glue attaches the factory to globalThis.SimCore.
-    const factory = (globalThis as unknown as Record<string, unknown>)['SimCore'] as
-      SimCoreFactory | undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const factory = (globalThis as any)['SimCore'] as SimCoreFactory | undefined;
 
     if (typeof factory !== 'function') {
       console.error('[sim_core] SimCore factory not found after script injection.');

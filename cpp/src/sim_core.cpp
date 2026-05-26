@@ -30,7 +30,11 @@ inline float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// Simple LCG pseudo-random float in [0, 1)
+// Simple LCG pseudo-random float in [0, 1).
+// Note: this global state is intentionally module-scoped. Emscripten compiles
+// to a single-threaded WASM module by default (no pthreads), so concurrent
+// access is not possible in the browser runtime. If pthreads support is ever
+// enabled, move this to per-instance state or use thread-local storage.
 static uint32_t lcg_state = 0x12345678u;
 inline float lcg_rand() {
     lcg_state = lcg_state * 1664525u + 1013904223u;
@@ -98,9 +102,13 @@ float axialBField(float z, float radius, float height, float Br) {
 float seg_roller_torque(const SEGRollerState& r, float B_avg, int numRollers) {
     // Simplified Lorentz torque model: τ_mag = k · B · I · ω
     // where k = 2π / numRollers (spacing factor) and I ∝ r.inertia.
+    // COIL_COUPLING (0.15) is a scene-scaled lumped electromagnetic coupling
+    // coefficient that relates B-field strength, roller inertia, and angular
+    // velocity to the net drive torque. Derived empirically to give the
+    // characteristic SEG self-acceleration at Br ≈ 1.48 T (N52 NdFeB).
     // This gives a self-amplifying torque that grows with B and ω,
     // providing the classic SEG self-sustaining behaviour at high field.
-    constexpr float COIL_COUPLING = 0.15f; // scene-scaled coupling coefficient
+    constexpr float COIL_COUPLING = 0.15f; // scene-scaled electromagnetic coupling
     float spacing = PhysicsConstants::TAU / static_cast<float>(numRollers);
     return COIL_COUPLING * B_avg * r.inertia * r.omega * spacing;
 }
@@ -108,7 +116,9 @@ float seg_roller_torque(const SEGRollerState& r, float B_avg, int numRollers) {
 void seg_roller_rk4(SEGRollerState& r, float dt, float loadTorque) {
     // State: [omega, angle].  Derivative: domega/dt = (driveTorque − loadTorque) / I
     // dangle/dt = omega.
-    // B_avg is computed from the axial field at the roller's radius.
+    // B_avg: sample the on-axis field of a nominal NdFeB cylinder:
+    //   radius = ring_radius * 0.08  (roller outer radius ≈ 8% of ring radius)
+    //   height = 0.05 m              (roller axial half-height)
     float B_avg = axialBField(0.f, r.radius * 0.08f, 0.05f, PhysicsConstants::Br_DEFAULT);
     B_avg = std::max(0.f, B_avg);
 

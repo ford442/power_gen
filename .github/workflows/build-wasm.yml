@@ -25,10 +25,17 @@ on:
       - '.github/workflows/build-wasm.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-wasm:
     name: Emscripten → WASM
     runs-on: ubuntu-latest
+
+    # Allow write access only when committing artefacts back to main.
+    permissions:
+      contents: write
 
     steps:
       # ── 1. Checkout ─────────────────────────────────────────
