@@ -22,7 +22,7 @@ class MultiDeviceVisualizer {
     Object.defineProperty(this, 'globalUniformBuffer', { get: () => this.webgpu.globalUniformBuffer });
 
     this.currentView = 'overview';
-    this.devicesEnabled = { seg: true, heron: true, kelvin: true, solar: true, peltier: true };
+    this.devicesEnabled = { seg: true, heron: true, kelvin: true, solar: true, peltier: true, mhd: true };
     this.devices = {};
     this.energyPipes = [];
 
@@ -132,7 +132,9 @@ class MultiDeviceVisualizer {
       { from: 'heron', to: 'kelvin', speed: 1.5 },
       { from: 'kelvin', to: 'seg', speed: 2.5 },
       { from: 'kelvin', to: 'peltier', speed: 1.8 },
-      { from: 'peltier', to: 'solar', speed: 2.2 }
+      { from: 'peltier', to: 'solar', speed: 2.2 },
+      { from: 'seg', to: 'mhd', speed: 1.6 },
+      { from: 'mhd', to: 'peltier', speed: 2.0 }
     ];
     
     for (const config of pipeConfigs) {
@@ -751,7 +753,7 @@ class MultiDeviceVisualizer {
     for (const device of Object.values(this.devices)) {
       if (this.devicesEnabled[device.id] && device.computePipeline && device.computeBindGroup) {
         // Write compute uniforms: time, mode, particleCount, speedMult
-        const modeIndex = device.id === 'heron' ? 1.0 : (device.id === 'kelvin' ? 2.0 : (device.id === 'solar' ? 3.0 : (device.id === 'peltier' ? 4.0 : 0.0)));
+        const modeIndex = device.id === 'heron' ? 1.0 : (device.id === 'kelvin' ? 2.0 : (device.id === 'solar' ? 3.0 : (device.id === 'peltier' ? 4.0 : (device.id === 'mhd' ? 5.0 : 0.0))));
         const computeUniforms = new Float32Array([
           this.time,
           modeIndex,

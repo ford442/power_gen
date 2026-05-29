@@ -53,10 +53,10 @@ struct ParticleVert {
   var size: f32 = 0.07;
   if (uniforms.mode > 0.5 && uniforms.mode < 1.5) {
     size = 0.11;   // larger water droplets for Heron
-  } else if (uniforms.mode > 1.5 && uniforms.mode < 2.5) {
-    size = 0.10;   // Kelvin droplets
-  } else if (uniforms.mode >= 2.5) {
-    size = 0.05;   // small photon dots for Solar
+  } else if (uniforms.mode >= 2.5 && uniforms.mode < 4.5) {
+    size = 0.05;   // small photon dots for Solar / Peltier
+  } else if (uniforms.mode >= 4.5) {
+    size = 0.09;   // medium metallic globs for MHD molten bismuth
   }
 
   let right = vec3f(uniforms.viewProj[0][0], uniforms.viewProj[1][0], uniforms.viewProj[2][0]);
@@ -71,43 +71,58 @@ struct ParticleVert {
   output.aux           = aux;
   return output;
 }
-
 @fragment fn fragmentMain(input: ParticleVert) -> @location(0) vec4f {
   let d = length(input.uv);
   if (d > 1.0) { discard; }
 
-  var alpha  = (1.0 - d) * 0.85;
-  let mode   = uniforms.mode;
+  var alpha = (1.0 - d) * 0.85;
+  let mode = uniforms.mode;
   let charge = clamp(uniforms.battery, 0.0, 1.0);
   var color: vec3f;
 
   if (mode < 0.5) {
-    // SEG: cyan/electric-blue field tracers; brighten as the device spins up
-    // and ionises (corona).
+    // SEG: cyan/electric-blue field tracers
     let pulse = 0.6 + 0.4 * sin(uniforms.time * 5.0 + input.particlePhase * 6.28);
-    let base  = mix(vec3f(0.0, 0.65, 1.0), vec3f(0.3, 1.0, 0.85), pulse);
+    let base = mix(vec3f(0.0, 0.65, 1.0), vec3f(0.3, 1.0, 0.85), pulse);
     color = base * (0.7 + 0.6 * uniforms.corona);
+
   } else if (mode < 1.5) {
-    // Heron: blue water; fast jets spray white, slow droplets near the apex
-    // stay deep blue (and visibly bunch up because they linger there).
+    // Heron: water droplets. Fast jets are bright/white, slow droplets near apex stay deep blue.
     let sprayWhite = clamp(input.speed / 9.0, 0.0, 1.0);
-    let deep  = vec3f(0.0, 0.22, 0.70);
+    let deep = vec3f(0.0, 0.22, 0.70);
     let bright = vec3f(0.6, 0.85, 1.0);
     color = mix(deep, bright, sprayWhite * (1.0 - d * 0.4));
+
   } else if (mode < 2.5) {
-    // Kelvin: charged droplets glow violet as the field strengthens; sign of
-    // the charge tints warm (+) vs cool (−).
+    // Kelvin: charged water droplets. Glow strength follows field voltage.
+    // Sign of charge tints the droplet (warm = +, cool = -).
     let qmag = clamp(abs(input.aux), 0.0, 1.0);
     let cool = vec3f(0.72, 0.82, 0.96);
-    let glow = mix(vec3f(0.45, 0.0, 0.85), vec3f(0.95, 0.3, 0.2), step(0.0, input.aux));
+    let warm = vec3f(0.95, 0.45, 0.35);
+    let glow = mix(cool, warm, step(0.0, input.aux));
     color = mix(cool, glow, qmag * (0.35 + 0.65 * uniforms.kelvinVoltageN));
     alpha = alpha * (0.75 + 0.25 * qmag);
-  } else {
-    // Solar: warm photons; a reflected ray (aux>0.5) flashes hot-white glare.
+
+  } else if (mode < 4.5) {
+    // Solar / Peltier: warm yellow photons.
+    // Reflected rays (aux > 0.5) produce a hot white glare.
     let intensity = 0.55 + 0.45 * charge;
     let travel = vec3f(1.0, 0.88, 0.28) * intensity;
-    let glare  = vec3f(1.0, 0.98, 0.85);
+    let glare = vec3f(1.0, 0.98, 0.85);
     color = mix(travel, glare, step(0.5, input.aux));
+
+  } else {
+    // MHD Generator: molten bismuth with charge separation
+    let bismuthSilver = mix(vec3f(0.6, 0.6, 0.65), vec3f(0.8, 0.7, 0.8), input.uv.y * 0.5 + 0.5);
+    let pulse = 0.6 + 0.4 * sin(uniforms.time * 4.0 + input.particlePhase * 10.0);
+
+    if (input.particlePhase < 0.5) {
+      // Positive ions → hot plasma red
+      color = mix(bismuthSilver, vec3f(1.0, 0.25, 0.1), pulse);
+    } else {
+      // Electrons → electric blue
+      color = mix(bismuthSilver, vec3f(0.15, 0.45, 1.0), pulse);
+    }
   }
 
   return vec4f(color, alpha);

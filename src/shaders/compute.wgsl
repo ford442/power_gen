@@ -123,6 +123,49 @@ fn spawnKelvin(idx: u32) -> Particle {
   return p;
 }
 
+// ─── MHD Generator Mode (Molten Bismuth) ───────────────────────────────────────
+// Fluid flows along the Z axis. A transverse magnetic field (Y axis) generates
+// the Lorentz force F = q(v × B), separating positive ions (+X) from electrons (-X).
+fn posMHD(phase: f32, t: f32, idx: u32) -> vec3f {
+  let speed = 0.7;
+  let cycleT = fract(t * speed + fract(phase * 123.45));
+
+  // Molten bismuth flows down a pipe from z = 8.0 to z = -8.0
+  let zPos = mix(8.0, -8.0, cycleT);
+
+  // phase < 0.5 → positive ion, >= 0.5 → electron
+  let isPositive = phase < 0.5;
+  let chargeMultiplier = select(-1.0, 1.0, isPositive);
+
+  // Base spread inside the circular pipe cross-section
+  let px = sin(f32(idx) * 123.45) * 0.8;
+  let py = cos(f32(idx) * 0.123) * 0.8;
+
+  // Lorentz deflection begins at the magnetic field region (z < 2.0)
+  var xDeflection = 0.0;
+  if (zPos < 2.0) {
+    let exposure = clamp((2.0 - zPos) / 4.0, 0.0, 1.0);
+    xDeflection = chargeMultiplier * exposure * 4.0;
+  }
+
+  return vec3f(px + xDeflection, py, zPos);
+}
+
+// ─── Solar / LED Mode ──────────────────────────────────────────────────────────
+// Photons travel in straight lines from each LED down to the solar panel surface.
+fn posSolar(phase: f32, t: f32, idx: u32, speedMult: f32) -> vec3f {
+  let ledIdx  = idx % 6u;
+  let ledX    = (f32(ledIdx) - 2.5) * 1.6;
+  let ledPos  = vec3f(ledX, 3.5, 1.5);
+
+  // Each photon aims at a slightly randomised point on the panel
+  let panelX  = (fract(f32(idx) * 0.61803) - 0.5) * 9.0;
+  let panelZ  = (fract(f32(idx) * 0.38490) - 0.5) * 9.0;
+  let panelPos = vec3f(panelX, 0.05, panelZ);
+
+  let speed  = 1.0 + speedMult * 1.5;
+  let life   = fract(t * speed * 0.18 + phase);
+  return mix(ledPos, panelPos, min(life * 1.05, 1.0));
 fn spawnSolar(idx: u32) -> Particle {
   let ledIdx = idx % 6u;
   let ledX = (f32(ledIdx) - 2.5) * 1.6;
@@ -195,6 +238,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   // ── Kelvin's Thunderstorm ─────────────────────────────────────────────────
   } else if (mode < 2.5) {
+    newPos = posKelvin(phase, t, idx);
+  } else if (mode < 4.5) {
+    // Solar (3.0) and Peltier (4.0) both use photon-stream particles
+    newPos = posSolar(phase, t, idx, uniforms.speedMult);
+  } else {
+    // Mode 5: MHD Generator – molten bismuth Lorentz deflection
+    newPos = posMHD(phase, t, idx);
     let q = p.aux;
     let stokes = 2.0;                              // 6πηr / m, lumped
     // Net vertical: gravity − Stokes drag + Coulomb repulsion (qE, upward).

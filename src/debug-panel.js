@@ -493,5 +493,12 @@ export const DEVICE_CONFIG = {
     cameraOffset: [0, 4, 15],
     particleCount: 20000,
     color: [0.2, 0.9, 0.4]
+  },
+  mhd: {
+    position: [-15, 0, -15],
+    rotation: [0, -Math.PI / 4, 0],
+    cameraOffset: [0, 5, 18],
+    particleCount: 30000,
+    color: [0.7, 0.6, 0.8]
   }
 };
