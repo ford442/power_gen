@@ -244,9 +244,11 @@ export class MultiDeviceShaders {
         if (dist > 0.5) {
           discard;
         }
-        
-        let edge = 1.0 - smoothstep(0.3, 0.5, dist);
-        let alpha = edge * 0.85;
+
+        // Bright core + soft halo for additive blending
+        let core = exp(-dist * dist * 22.0);
+        let halo = exp(-dist * dist * 6.0) * 0.35;
+        let alpha = (core + halo) * 2.2;
         
         let mode = device.ringIndex;
         let t = uniforms.time;
@@ -617,48 +619,55 @@ export class MultiDeviceShaders {
   
   get coilFragShader() {
     return /* wgsl */ `
+      struct Uniforms {
+        viewProj: mat4x4f,
+        time: f32,
+        cameraPos: vec3f
+      }
+
       struct CoilMaterialUniforms {
         baseColor: vec3f,
         pad1: f32,
         glowColor: vec3f,
         emission: f32
       }
-      
+
+      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(3) @group(0) var<uniform> material: CoilMaterialUniforms;
-      
+
       struct FragmentInput {
         @location(0) worldPos: vec3f,
         @location(1) normal: vec3f,
         @location(2) activeIntensity: f32,
         @location(3) coilIndex: f32
       }
-      
+
       @fragment
       fn main(input: FragmentInput) -> @location(0) vec4f {
         let normal = normalize(input.normal);
         let lightDir = normalize(vec3f(1.0, 1.0, 1.0));
         let diff = max(dot(normal, lightDir), 0.0);
         let ambient = 0.3;
-        
+
         // Copper base color
         var color = material.baseColor * (ambient + diff * 0.7);
-        
+
         // Add specular for metallic look
         let viewDir = normalize(vec3f(0.0, 5.0, 10.0) - input.worldPos);
         let halfDir = normalize(lightDir + viewDir);
         let spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
         color = color + vec3f(1.0) * spec * 0.5;
-        
-        // Orange emissive glow when active
+
+        // Orange emissive glow when active — boosted multipliers for punch
         let active = input.activeIntensity;
-        let orangeGlow = vec3f(1.0, 0.55, 0.0) * active * 2.5;
-        let whiteCore = vec3f(1.0, 0.9, 0.7) * active * 0.8;
+        let orangeGlow = vec3f(1.0, 0.55, 0.0) * active * 4.0;
+        let whiteCore = vec3f(1.0, 0.90, 0.7) * active * 1.5;
         color = color + orangeGlow + whiteCore;
-        
-        // Subtle pulsing when active
-        let pulse = 1.0 + 0.15 * sin(input.coilIndex * 2.0) * active;
-        color = color * pulse;
-        
+
+        // Per-coil time-based shimmer using the traveling wave baked into active
+        let shimmer = 1.0 + 0.12 * sin(uniforms.time * 8.0 + input.coilIndex * 0.78);
+        color = color * (1.0 + (shimmer - 1.0) * active);
+
         return vec4f(color, 1.0);
       }
     `;
@@ -916,10 +925,12 @@ export class MultiDeviceShaders {
         let energyArc = smoothstep(0.7, 1.0, input.greenEmissive) * 0.3;
         color += vec3f(0.3, 0.8, 1.0) * energyArc * NdotV;
 
-        color = color * (2.51 * color + 0.03) / (color * (2.43 * color + 0.59) + 0.14);
+        // Contact shadow / ambient-occlusion hint: darken surfaces near Y = 0
+        // (where rollers meet the base), giving a grounded sense of depth.
+        let contactAO = 0.55 + 0.45 * smoothstep(0.0, 2.2, abs(input.worldPos.y));
+        color *= contactAO;
 
-        let vignette = 1.0 - dot(input.uv - 0.5, input.uv - 0.5) * 0.3;
-        color *= vignette;
+        color = color * (2.51 * color + 0.03) / (color * (2.43 * color + 0.59) + 0.14);
 
         return vec4f(color, 1.0);
       }
@@ -948,7 +959,16 @@ export class MultiDeviceShaders {
         let radius  = 8.5 - cycleT * 8.0;
         let angle   = phase * 6.28318 + cycleT * 18.84956;
         let height  = sin(cycleT * 6.28318 * 2.0 + phase * 6.28318) * 2.8;
-        return vec3f(cos(angle) * radius, height, sin(angle) * radius);
+
+        // Harmonic turbulence: high-frequency jitter gives electrified, organic motion
+        let jitter1    = sin(t * 7.3  + phase * 31.4) * 0.12;
+        let jitter2    = cos(t * 11.7 + phase * 17.8) * 0.08;
+        let jitter3    = sin(t * 5.1  + phase * 43.2) * 0.06;
+        let turbAngle  = angle  + jitter2;
+        let turbRadius = radius + sin(t * 3.7 + phase * 23.5) * (radius * 0.04);
+        let turbHeight = height + jitter1 + jitter3;
+
+        return vec3f(cos(turbAngle) * turbRadius, turbHeight, sin(turbAngle) * turbRadius);
       }
 
       fn posHeron(phase: f32, t: f32, idx: u32) -> vec3f {
@@ -1060,6 +1080,73 @@ export class MultiDeviceShaders {
     `;
   }
 
+  // Sky background vertex shader (fullscreen triangle, no vertex buffer needed)
+  get skyVertShader() {
+    return /* wgsl */ `
+      struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) uv: vec2f
+      }
+
+      @vertex
+      fn main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+        // Oversized triangle that covers the entire clip-space screen
+        var pos = array<vec2f, 3>(
+          vec2f(-1.0, -1.0),
+          vec2f( 3.0, -1.0),
+          vec2f(-1.0,  3.0)
+        );
+        var output: VertexOutput;
+        // Oversized triangle that covers the entire clip-space screen;
+        // z=0.9999 places it just behind all scene geometry at the far plane
+        output.position = vec4f(pos[vertexIndex], 0.9999, 1.0);
+        output.uv = pos[vertexIndex] * 0.5 + 0.5;
+        return output;
+      }
+    `;
+  }
+
+  // Sky background fragment shader: deep-space gradient + subtle nebula glow
+  get skyFragShader() {
+    return /* wgsl */ `
+      struct Uniforms {
+        viewProj: mat4x4f,
+        time: f32,
+        cameraPos: vec3f
+      }
+
+      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+
+      struct FragmentInput {
+        @location(0) uv: vec2f
+      }
+
+      @fragment
+      fn main(input: FragmentInput) -> @location(0) vec4f {
+        let y = input.uv.y;
+
+        // Vertical gradient: near-black deep space at top, dark teal/navy at horizon
+        let topColor     = vec3f(0.008, 0.008, 0.035);
+        let horizonColor = vec3f(0.025, 0.055, 0.110);
+        var color = mix(horizonColor, topColor, y);
+
+        // Subtle radial nebula bloom near screen centre
+        let center = vec2f(0.5, 0.5);
+        let dist = length(input.uv - center);
+        let nebula = exp(-dist * dist * 3.5) * 0.08;
+        color += vec3f(0.08, 0.20, 0.55) * nebula;
+
+        // Soft energy aura rising from below (device glow)
+        let lowCenter = vec2f(0.5, 0.18);
+        let lowDist = length(input.uv - lowCenter);
+        let energyGlow = exp(-lowDist * lowDist * 4.5) * 0.055;
+        color += vec3f(0.15, 0.45, 1.00) * energyGlow;
+
+        return vec4f(color, 1.0);
+      }
+    `;
+  }
+
   // Grid vertex shader
   get gridVertShader() {
     return /* wgsl */ `
@@ -1086,31 +1173,159 @@ export class MultiDeviceShaders {
     `;
   }
   
-  // Grid fragment shader
+  // Grid fragment shader with distance-based fade
   get gridFragShader() {
     return /* wgsl */ `
       struct FragmentInput {
         @location(0) uv: vec2f
       }
-      
+
       @fragment
       fn main(input: FragmentInput) -> @location(0) vec4f {
-        // Simple grid pattern on floor
         let gridSize = 20.0;
         let worldPos = input.uv * gridSize - gridSize * 0.5;
-        
+
         let lineWidth = 0.05;
         let gridX = abs(fract(worldPos.x) - 0.5);
         let gridY = abs(fract(worldPos.y) - 0.5);
-        
-        let isLine = step(gridX, lineWidth) + step(gridY, lineWidth);
-        
-        let gridColor = vec3f(0.1, 0.15, 0.2);
-        let lineColor = vec3f(0.2, 0.3, 0.4);
-        
-        let color = mix(gridColor, lineColor, isLine);
-        
-        return vec4f(color, 0.3);
+
+        let isLine = clamp(step(gridX, lineWidth) + step(gridY, lineWidth), 0.0, 1.0);
+
+        let lineColor = vec3f(0.12, 0.22, 0.38);
+
+        // Distance fade: lines vanish at the edges and near the SEG centre
+        let distFromCenter = length(worldPos);
+        let distFade = 1.0 - smoothstep(4.5, 10.5, distFromCenter);
+        let nearFade  = smoothstep(0.8, 2.5, distFromCenter);
+        let alpha = 0.40 * distFade * nearFade * isLine;
+
+        return vec4f(lineColor, alpha);
+      }
+    `;
+  }
+
+  // ============================================
+  // Bloom post-processing shaders
+  // ============================================
+
+  // Shared fullscreen-triangle vertex shader for bloom passes
+  get bloomVertShader() {
+    return /* wgsl */ `
+      struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) uv: vec2f
+      }
+
+      @vertex
+      fn main(@builtin(vertex_index) vi: u32) -> VertexOutput {
+        var pos = array<vec2f, 3>(
+          vec2f(-1.0, -1.0),
+          vec2f( 3.0, -1.0),
+          vec2f(-1.0,  3.0)
+        );
+        var o: VertexOutput;
+        o.position = vec4f(pos[vi], 0.0, 1.0);
+        o.uv = pos[vi] * 0.5 + 0.5;
+        return o;
+      }
+    `;
+  }
+
+  // Pass 1: extract bright areas from scene + 9-tap Gaussian blur → bloomTexture
+  get bloomExtractShader() {
+    return /* wgsl */ `
+      struct BloomParams {
+        texelSizeX: f32,
+        texelSizeY: f32,
+        threshold:  f32,
+        strength:   f32,
+      }
+
+      @group(0) @binding(0) var sceneTex    : texture_2d<f32>;
+      @group(0) @binding(1) var bloomSampler: sampler;
+      @group(0) @binding(2) var<uniform> params: BloomParams;
+
+      struct FragInput {
+        @location(0) uv: vec2f,
+      }
+
+      fn luminance(c: vec3f) -> f32 {
+        return dot(c, vec3f(0.2126, 0.7152, 0.0722));
+      }
+
+      fn extractBright(c: vec3f, threshold: f32) -> vec3f {
+        let knee = threshold * 0.18;
+        let lum  = luminance(c);
+        let w    = clamp((lum - threshold + knee) / max(knee, 0.001), 0.0, 1.0);
+        return c * w;
+      }
+
+      @fragment
+      fn main(input: FragInput) -> @location(0) vec4f {
+        let tx = params.texelSizeX;
+        let ty = params.texelSizeY;
+        let t  = params.threshold;
+
+        let offsets = array<vec2f, 9>(
+          vec2f(-tx, -ty), vec2f(0.0, -ty), vec2f(tx, -ty),
+          vec2f(-tx,  0.0), vec2f(0.0, 0.0), vec2f(tx,  0.0),
+          vec2f(-tx,  ty),  vec2f(0.0, ty),  vec2f(tx,  ty)
+        );
+        let weights = array<f32, 9>(
+          0.0625, 0.125, 0.0625,
+          0.125,  0.25,  0.125,
+          0.0625, 0.125, 0.0625
+        );
+
+        var bloom = vec3f(0.0);
+        for (var i = 0; i < 9; i++) {
+          let s = textureSample(sceneTex, bloomSampler, input.uv + offsets[i]).rgb;
+          bloom += extractBright(s, t) * weights[i];
+        }
+
+        return vec4f(bloom, 1.0);
+      }
+    `;
+  }
+
+  // Pass 2: composite scene + bloom, ACES tonemap, screen-space vignette → canvas
+  get bloomCompositeShader() {
+    return /* wgsl */ `
+      struct BloomParams {
+        texelSizeX: f32,
+        texelSizeY: f32,
+        threshold:  f32,
+        strength:   f32,
+      }
+
+      @group(0) @binding(0) var sceneTexC  : texture_2d<f32>;
+      @group(0) @binding(1) var bloomTexC  : texture_2d<f32>;
+      @group(0) @binding(2) var compSampler: sampler;
+      @group(0) @binding(3) var<uniform> params: BloomParams;
+
+      struct FragInput {
+        @location(0) uv: vec2f,
+      }
+
+      fn acesTonemap(x: vec3f) -> vec3f {
+        let a = 2.51; let b = 0.03; let c = 2.43; let d = 0.59; let e = 0.14;
+        return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3f(0.0), vec3f(1.0));
+      }
+
+      @fragment
+      fn main(input: FragInput) -> @location(0) vec4f {
+        let scene = textureSample(sceneTexC,  compSampler, input.uv).rgb;
+        let bloom = textureSample(bloomTexC, compSampler, input.uv).rgb;
+
+        let combined = scene + bloom * params.strength;
+        let tm = acesTonemap(combined);
+
+        // Screen-space vignette
+        let vCoord  = input.uv * 2.0 - 1.0;
+        let vigDist = dot(vCoord * vec2f(0.45, 0.55), vCoord * vec2f(0.45, 0.55));
+        let vignette = 1.0 - smoothstep(0.55, 1.1, vigDist);
+
+        return vec4f(tm * mix(0.25, 1.0, vignette), 1.0);
       }
     `;
   }

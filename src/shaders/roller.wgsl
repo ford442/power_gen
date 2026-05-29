@@ -1,9 +1,21 @@
 struct Uniforms {
-  viewProj: mat4x4f,
-  time: f32,
-  mode: f32,
-  particleCount: f32,
-  _pad: f32,   // batteryCharge (solar) / 0.5 (other modes)
+  viewProj:       mat4x4f,
+  time:           f32,
+  mode:           f32,
+  particleCount:  f32,
+  battery:        f32,
+  dt:             f32,
+  segOmega:       f32,
+  fieldStrength:  f32,
+  heronVExit:     f32,
+  heronHead:      f32,
+  kelvinE:        f32,
+  kelvinVoltageN: f32,
+  kelvinSpark:    f32,
+  solarN2:        f32,
+  corona:         f32,
+  simClock:       f32,
+  spare:          f32,
 }
 
 struct DeviceUniforms {
@@ -120,9 +132,16 @@ struct VertexOutput {
       rollerCount = 32.0; ringRadius = 7.5; localIdx = globalIdx - 34.0;
       orbitSpeed = 0.13; selfSpinSpeed = 2.0;   // outer ring: slowest
     }
-    let angle = localIdx * (6.28318530718 / rollerCount) + uniforms.time * orbitSpeed;
+    // Per-roller speed jitter: subtle variation so motion feels organic, not perfectly mechanical
+    let jitterNoise = fract(sin(globalIdx * 127.3 + 53.7) * 43758.5453);
+    let speedJitter = 1.0 + 0.04 * sin(uniforms.time * 1.3 + jitterNoise * 12.7);
+    // Startup ramp: animate from zero over the first ~3 s so rollers appear to spin up
+    let startupRamp = min(uniforms.time * 0.33, 1.0);
+    // Slight per-ring phase offset gives each ring a distinct "feel"
+    let ringPhaseOffset = floor(globalIdx / 12.0) * 0.22;
+    let angle = localIdx * (6.28318530718 / rollerCount) + uniforms.time * orbitSpeed * speedJitter * startupRamp + ringPhaseOffset;
     let center = vec3f(cos(angle) * ringRadius, 0.0, sin(angle) * ringRadius);
-    let spinAngle = uniforms.time * selfSpinSpeed + globalIdx * 0.5;
+    let spinAngle = uniforms.time * selfSpinSpeed * speedJitter * startupRamp + globalIdx * 0.5;
     let cs = cos(spinAngle); let ss = sin(spinAngle);
     let rotPos = vec3f(position.x * cs - position.z * ss, position.y,
                        position.x * ss + position.z * cs);
@@ -201,6 +220,50 @@ struct VertexOutput {
   return output;
 }
 
+// ─── Procedural environment map ───────────────────────────────────────────────
+// Cheap fake cubemap: dark industrial workshop with a cyan-tinted sky dome and
+// a warm key-light specular hotspot.  No texture required — pure ALU math.
+
+// Environment colour constants
+const ENV_HORIZON_COLOR: vec3f = vec3f(0.03, 0.05, 0.09);   // near-horizon: dark blue
+const ENV_ZENITH_COLOR:  vec3f = vec3f(0.04, 0.14, 0.22);   // zenith: soft cyan glow
+const ENV_GROUND_COLOR:  vec3f = vec3f(0.01, 0.02, 0.025);  // below horizon: near-black
+const KEY_LIGHT_COLOR:   vec3f = vec3f(0.35, 0.52, 0.72);   // warm-blue key hotspot
+const FILL_LIGHT_COLOR:  vec3f = vec3f(0.12, 0.20, 0.36);   // cool blue fill hotspot
+
+// Contact shadow constants (orbit radii and shadow properties)
+const HUB_SHADOW_INTENSITY:    f32 = 0.38;   // central stator hub shadow strength
+const HUB_SHADOW_RADIUS:       f32 = 1.80;   // hub shadow falloff radius
+const INNER_RING_SHADOW:       f32 = 0.32;   // inner-ring shadow strength
+const INNER_RING_RADIUS:       f32 = 3.50;   // inner roller orbit radius
+const INNER_RING_WIDTH:        f32 = 0.90;   // inner-ring shadow Gaussian width
+const MIDDLE_RING_SHADOW:      f32 = 0.22;   // middle-ring shadow strength
+const MIDDLE_RING_RADIUS:      f32 = 5.50;   // middle roller orbit radius
+const MIDDLE_RING_WIDTH:       f32 = 1.00;   // middle-ring shadow Gaussian width
+const OUTER_RING_SHADOW:       f32 = 0.16;   // outer-ring shadow strength
+const OUTER_RING_RADIUS:       f32 = 7.50;   // outer roller orbit radius
+const OUTER_RING_WIDTH:        f32 = 1.10;   // outer-ring shadow Gaussian width
+
+fn sampleEnvMap(dir: vec3f) -> vec3f {
+  let upDot = dot(dir, vec3f(0.0, 1.0, 0.0));
+
+  // Sky hemisphere: very dark blue fading to subtle cyan overhead
+  let sky = mix(ENV_HORIZON_COLOR, ENV_ZENITH_COLOR, max(upDot, 0.0));
+  var env = mix(ENV_GROUND_COLOR, sky, smoothstep(-0.25, 0.25, upDot));
+
+  // Primary key-light specular hotspot (warm white, upper-right)
+  let keyDir  = normalize(vec3f(0.8, 2.0, 0.6));
+  let keyDot  = max(dot(dir, keyDir), 0.0);
+  env += KEY_LIGHT_COLOR * pow(keyDot, 10.0) * 0.55;
+
+  // Secondary fill hotspot (cool blue, left side)
+  let fillDir = normalize(vec3f(-1.2, 1.0, -0.5));
+  let fillDot = max(dot(dir, fillDir), 0.0);
+  env += FILL_LIGHT_COLOR * pow(fillDot, 6.0) * 0.25;
+
+  return env;
+}
+
 // ─── Fragment shader ──────────────────────────────────────────────────────────
 @fragment fn fragmentMain(
   @location(0) normal: vec3f,
@@ -217,7 +280,7 @@ struct VertexOutput {
   let fresnel  = pow(1.0 - abs(dot(n, viewDir)), 2.0);
   let mode     = uniforms.mode;
   let iId      = u32(instanceId);
-  let charge   = clamp(uniforms._pad, 0.0, 1.0);
+  let charge   = clamp(uniforms.battery, 0.0, 1.0);
   let renderMode = u32(deviceUniforms.renderMode);
   var finalColor: vec3f;
 
@@ -225,7 +288,16 @@ struct VertexOutput {
   if (mode < 0.5 && renderMode > 0u) {
     if (renderMode == 1u) {
       // Base: dark industrial matte black
-      finalColor = vec3f(0.08, 0.08, 0.12) + vec3f(spec * 0.15);
+      var baseColor = vec3f(0.08, 0.08, 0.12) + vec3f(spec * 0.15);
+      // Contact shadows: soft Gaussian rings where rollers cast shadows onto the plate.
+      // Rings are at the three orbit radii (3.5 / 5.5 / 7.5) plus a central hub shadow.
+      let shadowDist = length(vec2f(worldPos.x, worldPos.z));
+      let sh0 = HUB_SHADOW_INTENSITY    * exp(-pow(shadowDist / HUB_SHADOW_RADIUS, 2.0));
+      let sh1 = INNER_RING_SHADOW       * exp(-pow((shadowDist - INNER_RING_RADIUS)  / INNER_RING_WIDTH,  2.0));
+      let sh2 = MIDDLE_RING_SHADOW      * exp(-pow((shadowDist - MIDDLE_RING_RADIUS) / MIDDLE_RING_WIDTH, 2.0));
+      let sh3 = OUTER_RING_SHADOW       * exp(-pow((shadowDist - OUTER_RING_RADIUS)  / OUTER_RING_WIDTH,  2.0));
+      let contactShadow = clamp(sh0 + sh1 + sh2 + sh3, 0.0, 0.72);
+      finalColor = baseColor * (1.0 - contactShadow);
     } else if (renderMode == 2u) {
       // Stator rings: brushed copper with specular highlights
       let copper = vec3f(0.85, 0.48, 0.25);
@@ -242,18 +314,24 @@ struct VertexOutput {
     let pulse = 0.35 + 0.35 * sin(uniforms.time * 1.8);
     let steel = vec3f(0.52, 0.56, 0.65);
     let magGlow = vec3f(0.0, 0.55, 1.0) * pulse * fresnel * 1.1;
-    finalColor = steel * 0.85 + magGlow + vec3f(spec * 0.65);
+    let reflDir66 = reflect(-viewDir, n);
+    let envRefl66 = sampleEnvMap(reflDir66) * (0.22 + fresnel * 0.40);
+    finalColor = steel * 0.85 + magGlow + vec3f(spec * 0.65) + envRefl66;
 
   } else if (iId == 67u) {
     // SEG outer electromagnetic coil: glowing copper
     let pulse = 0.5 + 0.5 * sin(uniforms.time * 3.5);
     let coil  = mix(vec3f(0.55, 0.30, 0.08), vec3f(1.0, 0.72, 0.25), pulse);
-    finalColor = coil + vec3f(0.0, 0.5, 0.7) * pulse * fresnel + vec3f(spec * 0.65);
+    let reflDir67 = reflect(-viewDir, n);
+    let envRefl67 = sampleEnvMap(reflDir67) * (0.15 + fresnel * 0.30);
+    finalColor = coil + vec3f(0.0, 0.5, 0.7) * pulse * fresnel + vec3f(spec * 0.65) + envRefl67;
 
   } else if (iId >= 68u && iId < 72u) {
     // SEG ring-separator plates: brushed silver with cyan edge glow
-    let metallic = vec3f(0.62, 0.68, 0.76);
-    finalColor = metallic + vec3f(0.0, 0.55, 0.85) * fresnel * 0.9 + vec3f(spec * 0.55);
+    let metallic68 = vec3f(0.62, 0.68, 0.76);
+    let reflDir68 = reflect(-viewDir, n);
+    let envRefl68 = sampleEnvMap(reflDir68) * (0.25 + fresnel * 0.50);
+    finalColor = metallic68 + vec3f(0.0, 0.55, 0.85) * fresnel * 0.9 + vec3f(spec * 0.55) + envRefl68;
 
   } else if (iId >= 72u && iId < 75u) {
     // SEG orbital stator rings: brass-copper glow at the three roller ring radii
@@ -263,13 +341,20 @@ struct VertexOutput {
     // ringIdx / 2.0: normalise 0-2 range to 0-1 for the colour lerp (3 rings total)
     let energyGlow = mix(vec3f(0.0, 0.7, 1.0), vec3f(0.2, 1.0, 0.6), ringIdx / 2.0)
                    * pulse * fresnel * 1.6;
-    finalColor = brass * (0.45 + pulse * 0.35) + energyGlow + vec3f(spec * 0.55);
+    // Coronal discharge: plasma halo that intensifies as the SEG approaches
+    // terminal velocity (corona driven by angular velocity + voltage on CPU).
+    let coronaGlow = vec3f(0.55, 0.85, 1.0) * uniforms.corona * (0.6 + 0.4 * pulse) * (0.5 + fresnel);
+    let reflDir72 = reflect(-viewDir, n);
+    let envRefl72 = sampleEnvMap(reflDir72) * (0.18 + fresnel * 0.35);
+    finalColor = brass * (0.45 + pulse * 0.35) + energyGlow + coronaGlow + vec3f(spec * 0.55) + envRefl72;
 
   } else if (iId == 100u || iId == 101u) {
-    // Kelvin induction rings: polished silver with electrostatic shimmer
+    // Kelvin induction rings: polished silver with electrostatic shimmer that
+    // brightens with bucket voltage and flashes white on discharge.
     let elec = 0.5 + 0.5 * sin(uniforms.time * 6.0 + f32(iId) * 3.14);
     finalColor = vec3f(0.75, 0.78, 0.85)
-               + vec3f(0.35, 0.0, 0.80) * elec * fresnel * 1.2
+               + vec3f(0.35, 0.0, 0.80) * elec * fresnel * (0.6 + 1.6 * uniforms.kelvinVoltageN)
+               + vec3f(0.90, 0.95, 1.0) * uniforms.kelvinSpark
                + vec3f(spec * 0.72);
 
   } else if (iId >= 200u) {
@@ -312,8 +397,9 @@ struct VertexOutput {
 
     let metallic   = bandColor * ringTint * (0.28 + diffuse * 0.72);
 
-    // Fresnel cyan edge glow (magnetic field visible on roller edges)
-    let fieldGlow  = vec3f(0.1, 0.85, 1.0) * fresnel * 1.0;
+    // Fresnel cyan edge glow (magnetic field visible on roller edges),
+    // amplified by the coronal discharge at high spin.
+    let fieldGlow  = vec3f(0.1, 0.85, 1.0) * fresnel * (1.0 + 2.0 * uniforms.corona);
 
     // GREEN LED underglow: bottom-facing normals catch floor lighting
     let bottomGlow = max(0.0, -n.y) * 1.6;
@@ -322,7 +408,13 @@ struct VertexOutput {
     // Specular highlight — strong metallic sheen
     let specHigh   = vec3f(spec * 0.9);
 
-    finalColor = metallic + fieldGlow * 0.5 + greenGlow + specHigh;
+    // Procedural environment reflection: reflect view off the roller surface
+    let reflDir    = reflect(-viewDir, n);
+    let envColor   = sampleEnvMap(reflDir);
+    // Weight by fresnel so glancing angles get more reflection (physically accurate)
+    let envRefl    = envColor * (0.30 + fresnel * 0.55);
+
+    finalColor = metallic + fieldGlow * 0.5 + greenGlow + specHigh + envRefl;
 
   } else if (mode < 1.5) {
     // Heron's Fountain structural elements
@@ -353,9 +445,11 @@ struct VertexOutput {
       // Upper drip cans: silver
       finalColor = vec3f(0.58, 0.63, 0.70) + vec3f(spec * 0.55);
     } else if (iId < 4u) {
-      // Collectors: copper-bronze with electrostatic charge glow
+      // Collectors: copper-bronze whose charge glow tracks bucket voltage,
+      // with a white flash at the moment of dielectric breakdown.
       let cop = vec3f(0.62, 0.36, 0.16);
-      finalColor = cop + vec3f(0.45, 0.0, 0.82) * elec * fresnel * 0.9
+      finalColor = cop + vec3f(0.45, 0.0, 0.82) * elec * fresnel * (0.5 + 1.5 * uniforms.kelvinVoltageN)
+                 + vec3f(0.90, 0.95, 1.0) * uniforms.kelvinSpark * 0.6
                  + vec3f(spec * 0.50);
     } else {
       // Support rods: brushed dark steel

@@ -60,7 +60,7 @@ class ScientificUIManager {
     this.panel.innerHTML = `
       <div class="sci-panel-header">
         <div class="sci-panel-title">
-          <span class="sci-panel-icon">🔬</span>
+          <span class="sci-panel-icon">⊙</span>
           <span>SEG Physics Monitor</span>
         </div>
         <div class="sci-panel-controls">
@@ -93,7 +93,7 @@ class ScientificUIManager {
     const toggle = document.createElement('button');
     toggle.id = 'sci-panel-toggle';
     toggle.className = 'sci-panel-toggle';
-    toggle.innerHTML = '📊';
+    toggle.innerHTML = '⊞';
     toggle.title = 'Show Scientific Panel';
     toggle.addEventListener('click', () => this.show());
     document.body.appendChild(toggle);

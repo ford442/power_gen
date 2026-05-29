@@ -1,8 +1,13 @@
 import rollerShaderCode from './shaders/roller.wgsl?raw';
 import particleShaderCode from './shaders/particles.wgsl?raw';
 import computeShaderCode from './shaders/compute.wgsl?raw';
+import lightningShaderCode from './shaders/lightning.wgsl?raw';
+import bloomVertCode from './shaders/bloom.wgsl?raw';
+import bloomExtractCode from './shaders/bloom-extract.wgsl?raw';
+import bloomCompositeCode from './shaders/bloom-composite.wgsl?raw';
 import { SEGIntegrationManager } from './integration';
 import { ValidatedConstants } from './ValidatedConstants';
+import { SEGSim } from './wasm/sim';
 
 class SEGVisualizer {
   constructor() {
@@ -17,6 +22,13 @@ class SEGVisualizer {
     this.indexBuffer = null;
     this.particleBuffer = null;
     this.depthTexture = null;
+    // Bloom post-processing
+    this.sceneTexture = null;
+    this.bloomTexture = null;
+    this.bloomSampler = null;
+    this.bloomParamsBuffer = null;
+    this.bloomExtractPipeline = null;
+    this.bloomCompositePipeline = null;
     this.coreVertexBuffer = null;
     this.coreIndexBuffer = null;
     this.coreIndexCount = 0;
@@ -49,9 +61,16 @@ class SEGVisualizer {
     this.instanceBuffer = null;
     this.materialBuffer = null;
 
+    // Lightning bolt (Kelvin discharge)
+    this.lightningPipeline = null;
+    this.lightningBuffer = null;
+    this.lightningCount = 0;
+
     this.mode = 'seg';
     this.particleCount = 10000;
-    this.time = 0;
+    this.time = 0;           // ω-scaled roller clock (advances with spin rate)
+    this.simClock = 0;       // steady wall clock for shader hashing
+    this.dt = 0;             // last clamped physics step (s)
     this.lastFrameTime = 0;
     this.fps = 60;
     this.indexCount = 0;
@@ -63,11 +82,42 @@ class SEGVisualizer {
 
     // Dashboard / device state
     this.isRunning = false;
-    this.rotationSpeed = 0;   // current smoothed speed (0–100)
-    this.targetSpeed = 0;     // desired speed set by slider
+    this.rotationSpeed = 0;   // display speed (0–100), derived from segOmega
+    this.targetSpeed = 0;     // drive setting from slider
     this.magneticFieldStrength = 0.5;
     this.loadResistance = 100;
     this.totalEnergy = 0;
+
+    // ── Stateful physics integrators ──────────────────────────────────────
+    // SEG rotational dynamics: I·ω̇ = τ_drive − τ_eddy. The composite roller's
+    // moment of inertia gives the spin-up its "heft"; eddy-current braking
+    // (Lenz) yields a self-regulating terminal velocity.
+    const roller = ValidatedConstants.computeRollerInertia();
+    const rhoCu = 8960, R = ValidatedConstants.SEG_CONFIG.rollerRadius,
+          h = ValidatedConstants.SEG_CONFIG.rollerHeight;
+    const inertiaSolidCu = 0.5 * Math.PI * rhoCu * h * R * R * R * R;
+    this.rollerInertia = roller.inertia;
+    this.rollerHeft = roller.inertia / inertiaSolidCu;  // dimensionless
+    this.segOmega = 0;        // normalised angular velocity (terminal ≈ 1)
+    this.corona = 0;          // plasma-halo intensity 0–1
+
+    // Heron: reservoir head → Bernoulli exit velocity, depleted by outflow.
+    this.heronHead = 0;       // m
+    this.heronVExit = 0;      // scene units/s
+    this.heronHeadMax = 4.5;
+
+    // Kelvin: bucket voltage runaway → dielectric breakdown spark.
+    this.kelvinV = 0;         // volts
+    this.kelvinSparkTimer = 0;
+    this.kelvinSparkDur = 0.18;
+    const gap = 0.02;         // m spark gap
+    this.kelvinVbreak = ValidatedConstants.KELVIN_CONSTANTS.E_BREAKDOWN.value * gap; // V
+    this.kelvinE = 0;         // upward qE accel coefficient
+    this.kelvinVoltageN = 0;
+
+    // Solar: Fresnel transmittance of the LED light into the silicon panel.
+    this.solarN2 = ValidatedConstants.SILICON_REFRACTIVE_INDEX;
+    this.solarTransmittance = this.computeSolarTransmittance();
 
     // TypeScript integration layer
     this.integration = null;
@@ -100,6 +150,7 @@ class SEGVisualizer {
       await this.setupShaders();
       await this.setupComputePipeline();
       await this.setupDepthBuffer();
+      await this.setupBloomPipeline();
       this.setupInteraction();
       
       // Initialize TypeScript integration layer
@@ -128,6 +179,75 @@ class SEGVisualizer {
       format: 'depth24plus',
       usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
+    // Recreate HDR/bloom textures whenever the depth buffer is recreated
+    this.setupBloomTextures();
+  }
+
+  setupBloomTextures() {
+    const w = this.canvas.width  || 1;
+    const h = this.canvas.height || 1;
+    const fmt = navigator.gpu.getPreferredCanvasFormat();
+
+    if (this.sceneTexture) this.sceneTexture.destroy();
+    if (this.bloomTexture) this.bloomTexture.destroy();
+
+    this.sceneTexture = this.device.createTexture({
+      size: [w, h],
+      format: fmt,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
+    this.bloomTexture = this.device.createTexture({
+      size: [w, h],
+      format: fmt,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
+
+    // Update bloom params with new texel sizes
+    if (this.bloomParamsBuffer) {
+      this.device.queue.writeBuffer(
+        this.bloomParamsBuffer, 0,
+        new Float32Array([1.0 / w, 1.0 / h, 0.60, 1.4])
+      );
+    }
+  }
+
+  async setupBloomPipeline() {
+    const fmt = navigator.gpu.getPreferredCanvasFormat();
+    const vertModule    = this.device.createShaderModule({ code: bloomVertCode });
+    const extractModule = this.device.createShaderModule({ code: bloomExtractCode });
+    const compModule    = this.device.createShaderModule({ code: bloomCompositeCode });
+
+    this.bloomSampler = this.device.createSampler({
+      magFilter: 'linear',
+      minFilter: 'linear',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge'
+    });
+
+    this.bloomParamsBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+
+    // Extract pipeline: sceneTex → bloomTex
+    this.bloomExtractPipeline = this.device.createRenderPipeline({
+      layout: 'auto',
+      vertex:   { module: vertModule,    entryPoint: 'bloomVertMain' },
+      fragment: { module: extractModule, entryPoint: 'bloomExtractFrag',
+                  targets: [{ format: fmt }] },
+      primitive: { topology: 'triangle-list' }
+    });
+
+    // Composite pipeline: (sceneTex + bloomTex) → canvas
+    this.bloomCompositePipeline = this.device.createRenderPipeline({
+      layout: 'auto',
+      vertex:   { module: vertModule, entryPoint: 'bloomVertMain' },
+      fragment: { module: compModule,  entryPoint: 'bloomCompositeFrag',
+                  targets: [{ format: fmt }] },
+      primitive: { topology: 'triangle-list' }
+    });
+
+    this.setupBloomTextures();
   }
 
   generateCylinder(radius, height, segments) {
@@ -318,7 +438,7 @@ class SEGVisualizer {
 
   async setupGeometry() {
     // ── Roller cylinders (shared for Heron / Kelvin / Solar structural objects) ─
-    const cylinderData = this.generateCylinder(0.8, 2.5, 32);
+    const cylinderData = this.generateCylinder(0.8, 2.5, 64);
     this.vertexBuffer = this.device.createBuffer({
       size: cylinderData.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
@@ -409,27 +529,184 @@ class SEGVisualizer {
     this.updateParticles();
   }
 
+  // Each particle is a stateful record of 8 floats:
+  //   [0..2] position   [3] phase seed   [4..6] velocity   [7] aux scalar
+  // Seeds are mode-aware so the streams look settled within a frame or two;
+  // the compute shader then carries them statefully and recycles them.
   updateParticles() {
-    const particleData = new Float32Array(this.particleCount * 4);
+    const n = this.particleCount;
+    const d = new Float32Array(n * 8);
 
-    for (let i = 0; i < this.particleCount; i++) {
-      const theta = Math.random() * Math.PI * 2;
-      const r = 2 + Math.random() * 4;
-      const y = (Math.random() - 0.5) * 6;
+    for (let i = 0; i < n; i++) {
+      const b = i * 8;
+      let px = 0, py = 0, pz = 0, vx = 0, vy = 0, vz = 0, aux = 0;
+      const phase = Math.random();
 
-      particleData[i * 4] = r * Math.cos(theta);
-      particleData[i * 4 + 1] = y;
-      particleData[i * 4 + 2] = r * Math.sin(theta);
-      particleData[i * 4 + 3] = Math.random();
+      if (this.mode === 'seg') {
+        const ring = i % 3;
+        const R = ring === 0 ? 3.5 : ring === 1 ? 5.5 : 7.5;
+        const a = Math.random() * Math.PI * 2;
+        px = Math.cos(a) * R; pz = Math.sin(a) * R;
+        py = (Math.random() - 0.5) * 1.6;
+        vx = -Math.sin(a) * 1.0; vz = Math.cos(a) * 1.0;
+      } else if (this.mode === 'heron') {
+        const a = Math.random() * Math.PI * 2;
+        const rr = Math.random() * 0.3;
+        px = Math.cos(a) * rr; pz = Math.sin(a) * rr;
+        py = 3.6 + Math.random() * 3.8;
+        vy = 2.0;
+      } else if (this.mode === 'kelvin') {
+        const side = (i & 1) ? 1 : -1;
+        px = side * 2.5 + (Math.random() - 0.5) * 0.2;
+        pz = (Math.random() - 0.5) * 0.2;
+        py = -2.0 + Math.random() * 7.0;
+        vy = -0.5;
+        aux = side * 0.3;
+      } else {
+        const ledIdx = i % 6;
+        const ledX = (ledIdx - 2.5) * 1.6;
+        const tx = (Math.random() - 0.5) * 9.0, tz = (Math.random() - 0.5) * 9.0;
+        const dx = tx - ledX, dy = 0.05 - 3.5, dz = tz - 1.5;
+        const len = Math.hypot(dx, dy, dz) || 1;
+        const prog = Math.random();
+        px = ledX + dx * prog; py = 3.5 + dy * prog; pz = 1.5 + dz * prog;
+        vx = dx / len * 6.0; vy = dy / len * 6.0; vz = dz / len * 6.0;
+      }
+
+      d[b] = px; d[b + 1] = py; d[b + 2] = pz; d[b + 3] = phase;
+      d[b + 4] = vx; d[b + 5] = vy; d[b + 6] = vz; d[b + 7] = aux;
     }
 
     if (this.particleBuffer) this.particleBuffer.destroy();
 
     this.particleBuffer = this.device.createBuffer({
-      size: particleData.byteLength,
+      size: d.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.device.queue.writeBuffer(this.particleBuffer, 0, particleData);
+    this.device.queue.writeBuffer(this.particleBuffer, 0, d);
+  }
+
+  // Fresnel reflectance (unpolarised) for an air→substrata interface.
+  fresnelR(cosI, n2) {
+    const n1 = 1.0;
+    const ci = Math.max(0, Math.min(1, cosI));
+    const sinI = Math.sqrt(Math.max(0, 1 - ci * ci));
+    const sinT = (n1 / n2) * sinI;
+    if (sinT >= 1) return 1;
+    const ct = Math.sqrt(Math.max(0, 1 - sinT * sinT));
+    const rs = (n1 * ci - n2 * ct) / (n1 * ci + n2 * ct);
+    const rp = (n1 * ct - n2 * ci) / (n1 * ct + n2 * ci);
+    return Math.max(0, Math.min(1, 0.5 * (rs * rs + rp * rp)));
+  }
+
+  // Mean transmittance of the six LEDs onto the panel (fixed geometry).
+  computeSolarTransmittance() {
+    const n2 = ValidatedConstants.SILICON_REFRACTIVE_INDEX;
+    let sum = 0;
+    for (let i = 0; i < 6; i++) {
+      const ledX = (i - 2.5) * 1.6;
+      const dx = -ledX, dy = -3.45, dz = -1.5;      // LED → panel centre
+      const len = Math.hypot(dx, dy, dz);
+      const cosI = Math.abs(dy) / len;              // vs panel normal (+Y)
+      sum += 1 - this.fresnelR(cosI, n2);
+    }
+    return sum / 6;
+  }
+
+  // Bernoulli exit velocity reduced by Darcy–Weisbach pipe friction, with the
+  // Darcy factor from the explicit Swamee–Jain correlation (no iteration).
+  heronExitVelocity(H) {
+    if (H <= 1e-3) return 0;
+    const g = 9.81, D = 0.02, L = 1.2, eps = 1.5e-6, rho = 1000, mu = 1.0e-3;
+    const vIdeal = Math.sqrt(2 * g * H);
+    const Re = Math.max(1, rho * vIdeal * D / mu);
+    let f;
+    if (Re < 2000) {
+      f = 64 / Re;                                  // Hagen–Poiseuille (laminar)
+    } else {
+      const t = Math.log10(eps / (3.7 * D) + 5.74 / Math.pow(Re, 0.9));
+      f = 0.25 / (t * t);                           // Swamee–Jain (turbulent)
+    }
+    // H = (1 + f·L/D)·v²/2g  →  v = sqrt(2gH / (1 + f·L/D))
+    return Math.sqrt(2 * g * H / (1 + f * L / D));
+  }
+
+  // Advance the global (per-device) ODE state by one clamped step.
+  stepPhysics(dt, drive) {
+    // ── SEG: rotational kinematics with eddy-current braking ──────────────
+    const field = 0.4 + 0.6 * this.magneticFieldStrength;
+    const tauDrive = drive * field;                  // Lorentz/Poynting thrust
+    const w = this.segOmega;
+    const wArm = 2.5, eddyK = 1.33, visc = 0.05, tScale = 2.5;
+    const tauEddy = eddyK * w / (1 + w / wArm) + visc * w;  // Lenz + armature rolloff
+    this.segOmega = Math.max(0, w + (tauDrive - tauEddy) / (this.rollerHeft * tScale) * dt);
+    this.rotationSpeed = Math.min(120, this.segOmega * 100);
+    this.corona = Math.max(0, Math.min(1, (this.segOmega - 0.6) / 0.4)) * field;
+
+    // ── Heron: head dynamics + Bernoulli/Swamee–Jain exit velocity ────────
+    const pump = 2.2, drain = 0.30;
+    this.heronHead = Math.max(0, Math.min(this.heronHeadMax,
+      this.heronHead + (pump * drive - drain * this.heronVExit) * dt));
+    this.heronVExit = this.heronExitVelocity(this.heronHead);
+
+    // ── Kelvin: capacitive voltage runaway → breakdown spark ──────────────
+    const chargeRate = 8000, feedback = 2.0, leak = 0.3;
+    this.kelvinV += (drive * (chargeRate + feedback * this.kelvinV) - leak * this.kelvinV) * dt;
+    this.kelvinV = Math.max(0, this.kelvinV);
+    if (this.kelvinV >= this.kelvinVbreak && this.kelvinSparkTimer <= 0) {
+      this.kelvinV *= 0.02;                          // discharge neutralises the buckets
+      this.kelvinSparkTimer = this.kelvinSparkDur;
+      this.generateLightning();
+    }
+    this.kelvinSparkTimer = Math.max(0, this.kelvinSparkTimer - dt);
+    this.kelvinVoltageN = Math.max(0, Math.min(1, this.kelvinV / this.kelvinVbreak));
+    this.kelvinE = 15.0 * this.kelvinVoltageN;        // qE coefficient (levitation near breakdown)
+
+    // ── Solar: Fresnel-gated battery loop ─────────────────────────────────
+    if (this.mode === 'solar') {
+      const ledPower = 0.3 + 0.7 * drive;
+      const gain = this.solarTransmittance * ledPower * 0.45;
+      const drainW = ledPower * 0.30;
+      this.batteryCharge = Math.max(0, Math.min(1, this.batteryCharge + (gain - drainW) * dt));
+    } else {
+      this.batteryCharge += (0.5 - this.batteryCharge) * dt * 0.5;
+    }
+  }
+
+  // Midpoint-displacement fractal bolt between the two spark-gap nodes.
+  generateLightning() {
+    let pts = [[-1.3, -2.6, 0.0], [1.3, -2.6, 0.0]];
+    let amp = 0.9;
+    const rough = 0.55;
+    for (let it = 0; it < 6; it++) {
+      const next = [pts[0]];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p = pts[i], q = pts[i + 1];
+        const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, (p[2] + q[2]) / 2];
+        mid[1] += (Math.random() - 0.5) * amp;
+        mid[2] += (Math.random() - 0.5) * amp;
+        next.push(mid, q);
+      }
+      pts = next;
+      amp *= Math.pow(2, -rough);
+    }
+    const data = new Float32Array(pts.length * 3);
+    for (let i = 0; i < pts.length; i++) {
+      data[i * 3] = pts[i][0]; data[i * 3 + 1] = pts[i][1]; data[i * 3 + 2] = pts[i][2];
+    }
+    this.device.queue.writeBuffer(this.lightningBuffer, 0, data);
+    this.lightningCount = pts.length;
+  }
+
+  // Switch device: reset the entering device's accumulators and re-seed the
+  // particle buffer (velocity/aux semantics differ per mode).
+  onModeChange(mode) {
+    this.mode = mode;
+    this.heronHead = 0; this.heronVExit = 0;
+    this.kelvinV = 0; this.kelvinSparkTimer = 0; this.kelvinVoltageN = 0; this.kelvinE = 0;
+    this.lightningCount = 0;
+    if (mode === 'solar') this.batteryCharge = 0.4;
+    if (this.device) this.updateParticles();   // buffer re-seeded once GPU is ready
   }
 
   async setupShaders() {
@@ -467,11 +744,13 @@ class SEGVisualizer {
         module: this.device.createShaderModule({ code: particleShaderCode }),
         entryPoint: 'vertexMain',
         buffers: [{
-          arrayStride: 16,
-          stepMode: 'instance',   // one particle record (xyz + phase) per instance
+          arrayStride: 32,
+          stepMode: 'instance',   // one particle record (pos, phase, vel, aux) per instance
           attributes: [
-            { shaderLocation: 0, offset: 0,  format: 'float32x3' },
-            { shaderLocation: 1, offset: 12, format: 'float32'   }
+            { shaderLocation: 0, offset: 0,  format: 'float32x3' },  // position
+            { shaderLocation: 1, offset: 12, format: 'float32'   },  // phase
+            { shaderLocation: 2, offset: 16, format: 'float32x3' },  // velocity
+            { shaderLocation: 3, offset: 28, format: 'float32'   }   // aux
           ]
         }]
       },
@@ -532,6 +811,38 @@ class SEGVisualizer {
       0.05, 0.09, 0.25, 0.0   // solar cell
     ]);
     this.device.queue.writeBuffer(this.materialBuffer, 0, defaultMaterial);
+
+    // ── Lightning bolt pipeline (Kelvin discharge) ──────────────────────────
+    const lightningModule = this.device.createShaderModule({ code: lightningShaderCode });
+    this.lightningPipeline = this.device.createRenderPipeline({
+      layout: 'auto',
+      vertex: {
+        module: lightningModule,
+        entryPoint: 'vertexMain',
+        buffers: [{
+          arrayStride: 12,
+          attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }]
+        }]
+      },
+      fragment: {
+        module: lightningModule,
+        entryPoint: 'fragmentMain',
+        targets: [{
+          format: navigator.gpu.getPreferredCanvasFormat(),
+          blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
+          }
+        }]
+      },
+      primitive: { topology: 'line-strip' },
+      depthStencil: { depthWriteEnabled: false, depthCompare: 'always', format: 'depth24plus' }
+    });
+    // Up to 2^7 + 1 points from 7 midpoint-displacement iterations
+    this.lightningBuffer = this.device.createBuffer({
+      size: 160 * 12,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
   }
 
   async setupComputePipeline() {
@@ -679,10 +990,18 @@ class SEGVisualizer {
     data[17] = modeMap[this.mode] || 0;
     data[18] = this.particleCount;
     data[19] = this.batteryCharge;
-    data[20] = physicsData[0];  // maxFieldMagnitude
-    data[21] = physicsData[1];  // avgEnergyDensity
-    data[22] = physicsData[2];  // torque
-    data[23] = physicsData[3];  // physics timestamp
+    data[20] = this.dt;
+    data[21] = this.segOmega;
+    data[22] = this.magneticFieldStrength;
+    data[23] = this.heronVExit;
+    data[24] = this.heronHead / this.heronHeadMax;
+    data[25] = this.kelvinE;
+    data[26] = this.kelvinVoltageN;
+    data[27] = this.kelvinSparkTimer > 0 ? this.kelvinSparkTimer / this.kelvinSparkDur : 0;
+    data[28] = this.solarN2;
+    data[29] = this.corona;
+    data[30] = this.simClock;
+    data[31] = 0;
 
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
   }
@@ -701,35 +1020,30 @@ class SEGVisualizer {
       document.getElementById('fps').textContent = this.fps;
     }
 
-    // Smoothly accelerate / decelerate toward targetSpeed
-    if (!this.isRunning) {
-      // Decelerate at 50 speed-units/second (full stop from 100% in ~2 s)
-      this.rotationSpeed = Math.max(0, this.rotationSpeed - deltaTime * 50);
-      if (this.rotationSpeed === 0) {
-        const statusEl = document.getElementById('status');
-        if (statusEl.textContent === 'STOPPING') {
-          statusEl.textContent = 'STANDBY';
-          statusEl.style.color = '#00d4ff';
-          document.getElementById('statusDot').className = 'status-indicator status-standby';
-        }
+    // Clamp the physics step so a backgrounded tab can't explode the sim.
+    const dt = Math.min(Math.max(deltaTime, 0), 0.033);
+    this.dt = dt;
+    this.simClock += dt;
+
+    // Drive setting (0–1) from the speed slider, gated by Start/Stop. This
+    // sets the SEG drive torque, the Heron pump, the Kelvin charging current
+    // and the LED power; the integrators do the rest.
+    const drive = (this.isRunning ? this.targetSpeed : 0) / 100;
+    this.stepPhysics(dt, drive);
+
+    // Once the rotor has coasted to rest (eddy braking + drag), settle to STANDBY.
+    if (!this.isRunning && this.rotationSpeed < 0.5) {
+      const statusEl = document.getElementById('status');
+      if (statusEl.textContent === 'STOPPING') {
+        statusEl.textContent = 'STANDBY';
+        statusEl.style.color = '#00d4ff';
+        document.getElementById('statusDot').className = 'status-indicator status-standby';
       }
-    } else {
-      // Exponential ramp: close ~86% of the gap each second (factor 2)
-      const diff = this.targetSpeed - this.rotationSpeed;
-      this.rotationSpeed += diff * deltaTime * 2;
     }
 
-    // Map 0–100 speed to 0.0–5.0 shader speed
-    const shaderSpeed = (this.rotationSpeed / 100) * 5.0;
-    this.time += deltaTime * shaderSpeed;
-
-    if (this.mode === 'solar') {
-      const ledDrain = 0.18;
-      const solarGain = 0.3 + 0.2 * Math.sin(this.time * 2.0);
-      this.batteryCharge = Math.min(1.0, Math.max(0.0, this.batteryCharge + (solarGain - ledDrain) * deltaTime));
-    } else {
-      this.batteryCharge += (0.5 - this.batteryCharge) * deltaTime * 0.5;
-    }
+    // The roller geometry spins at the integrated angular velocity, so its
+    // visual spin-up inherits the same momentum lag and terminal plateau.
+    this.time += dt * this.segOmega * 5.0;
 
     // Update footer battery display
     const batteryEl = document.getElementById('batteryFooter');
@@ -757,11 +1071,13 @@ class SEGVisualizer {
     computePass.end();
     this.device.queue.submit([computeEncoder.finish()]);
 
-    // Render pass
+    // Render pass — render scene to intermediate sceneTexture (for bloom)
     const encoder = this.device.createCommandEncoder();
+    const sceneView = this.sceneTexture ? this.sceneTexture.createView()
+                                        : this.context.getCurrentTexture().createView();
     const renderPass = encoder.beginRenderPass({
       colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
+        view: sceneView,
         clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
         loadOp: 'clear',
         storeOp: 'store'
@@ -859,7 +1175,63 @@ class SEGVisualizer {
     renderPass.setVertexBuffer(0, this.particleBuffer);
     renderPass.draw(4, this.particleCount);
 
+    // Kelvin discharge: emissive fractal bolt during the spark window
+    if (this.mode === 'kelvin' && this.kelvinSparkTimer > 0 && this.lightningCount > 1) {
+      renderPass.setPipeline(this.lightningPipeline);
+      renderPass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.lightningPipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }]
+      }));
+      renderPass.setVertexBuffer(0, this.lightningBuffer);
+      renderPass.draw(this.lightningCount);
+    }
+
     renderPass.end();
+
+    // ── Bloom post-processing ─────────────────────────────────────────────
+    if (this.bloomExtractPipeline && this.sceneTexture && this.bloomTexture) {
+      // Pass 1: extract bright areas from scene → bloomTexture
+      const extractPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: this.bloomTexture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: 'clear', storeOp: 'store'
+        }]
+      });
+      extractPass.setPipeline(this.bloomExtractPipeline);
+      extractPass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.bloomExtractPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.sceneTexture.createView() },
+          { binding: 1, resource: this.bloomSampler },
+          { binding: 2, resource: { buffer: this.bloomParamsBuffer } }
+        ]
+      }));
+      extractPass.draw(3);
+      extractPass.end();
+
+      // Pass 2: composite scene + bloom → canvas with tonemap & vignette
+      const compositePass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: this.context.getCurrentTexture().createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: 'clear', storeOp: 'store'
+        }]
+      });
+      compositePass.setPipeline(this.bloomCompositePipeline);
+      compositePass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.bloomCompositePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.sceneTexture.createView() },
+          { binding: 1, resource: this.bloomTexture.createView() },
+          { binding: 2, resource: this.bloomSampler },
+          { binding: 3, resource: { buffer: this.bloomParamsBuffer } }
+        ]
+      }));
+      compositePass.draw(3);
+      compositePass.end();
+    }
+
     this.device.queue.submit([encoder.finish()]);
 
     requestAnimationFrame((t) => this.render(t));
@@ -928,7 +1300,7 @@ class SEGVisualizer {
 let visualizer;
 
 window.setMode = (mode) => {
-  if (visualizer) visualizer.mode = mode;
+  if (visualizer) visualizer.onModeChange(mode);
   document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
   document.getElementById('btn-' + mode).classList.add('active');
 
@@ -949,6 +1321,69 @@ window.setMode = (mode) => {
   if (modeFooterEl) modeFooterEl.textContent = modeLabel;
 };
 
+// ─────────────────────────────────────────────────────────────
+// WASM sim_core initialisation
+// ─────────────────────────────────────────────────────────────
+
+/** @type {SEGSim | null} */
+let wasmSim = null;
+
+function updateWasmBadge(state, text) {
+  const dot  = document.getElementById('wasmDot');
+  const span = document.getElementById('wasmStatus');
+  if (!dot || !span) return;
+  dot.className  = `wasm-dot ${state}`;
+  span.textContent = text;
+}
+
+async function initWasm() {
+  updateWasmBadge('loading', 'WASM…');
+  try {
+    wasmSim = await SEGSim.create();
+    if (wasmSim.wasmAvailable) {
+      updateWasmBadge('loaded', 'WASM ✓');
+    } else {
+      updateWasmBadge('missing', 'WASM –');
+    }
+  } catch (err) {
+    console.warn('[main] WASM init failed:', err);
+    updateWasmBadge('missing', 'WASM –');
+  }
+
+  // Wire up benchmark button
+  const benchBtn = document.getElementById('wasmBenchBtn');
+  if (!benchBtn) return;
+
+  benchBtn.addEventListener('click', async () => {
+    if (!wasmSim) return;
+    benchBtn.disabled = true;
+    benchBtn.textContent = '⏳ Running…';
+
+    const resultsEl = document.getElementById('wasm-results');
+    if (resultsEl) resultsEl.classList.add('visible');
+
+    try {
+      const version = await SEGSim.getVersion();
+      const versionEl = document.getElementById('wasm-version');
+      if (versionEl) versionEl.textContent = version;
+
+      const result = await wasmSim.benchmark(1000, 0.01);
+      const spsEl   = document.getElementById('wasm-sps');
+      const rpmEl   = document.getElementById('wasm-rpm');
+      const omegaEl = document.getElementById('wasm-omega');
+      if (spsEl)   spsEl.textContent   = Math.round(result.stepsPerSecond).toLocaleString();
+      if (rpmEl)   rpmEl.textContent   = result.finalRPM.toFixed(1);
+      if (omegaEl) omegaEl.textContent = result.finalOmega.toFixed(4);
+    } catch (err) {
+      console.warn('[main] WASM benchmark error:', err);
+    }
+
+    benchBtn.disabled = false;
+    benchBtn.textContent = '⚡ Benchmark';
+  });
+}
+
 window.addEventListener('load', () => {
   visualizer = new SEGVisualizer();
+  initWasm();
 });

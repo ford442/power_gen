@@ -19,6 +19,7 @@ class MultiDeviceVisualizer {
     // Convenience references
     Object.defineProperty(this, 'device', { get: () => this.webgpu.device });
     Object.defineProperty(this, 'context', { get: () => this.webgpu.context });
+    Object.defineProperty(this, 'globalUniformBuffer', { get: () => this.webgpu.globalUniformBuffer });
 
     this.currentView = 'overview';
     this.devicesEnabled = { seg: true, heron: true, kelvin: true, solar: true, peltier: true, mhd: true };
@@ -68,6 +69,9 @@ class MultiDeviceVisualizer {
       await this.setupDevices();
       await this.setupEnergyPipes();
       await this.setupFloorGrid();
+      await this.setupSkyGradient();
+      await this.setupDepthBuffer();
+      await this.setupBloomPipeline();
 
       // Track initial allocations
       this.profiler.trackBuffer('globalUniforms', 256, GPUBufferUsage.UNIFORM);
@@ -355,7 +359,7 @@ class MultiDeviceVisualizer {
 
   async setupSharedGeometry() {
     // Shared cylinder geometry used by rollers, coils, base, stator rings, wiring
-    const cylinderData = this.generateCylinder(0.8, 2.5, 32);
+    const cylinderData = this.generateCylinder(0.8, 2.5, 64);
     const cylinderVertexBuffer = this.device.createBuffer({
       size: cylinderData.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
@@ -383,7 +387,7 @@ class MultiDeviceVisualizer {
 
     // Enhanced SEG roller with 6 magnetic pole bands
     this.enhancedRollerBuffer = generatePoleBandedRoller(this.device, {
-      radius: 0.75, height: 2.8, bands: 6, segments: 32
+      radius: 0.75, height: 2.8, bands: 6, segments: 64
     });
     this.profiler.trackBuffer('enhanced-roller-vertices', this.enhancedRollerBuffer.vertexBuffer.size, GPUBufferUsage.VERTEX);
     this.profiler.trackBuffer('enhanced-roller-indices', this.enhancedRollerBuffer.indexBuffer.size, GPUBufferUsage.INDEX);
@@ -396,7 +400,7 @@ class MultiDeviceVisualizer {
     this.profiler.trackBuffer('core-shaft-vertices', this.coreShaftBuffer.vertexBuffer.size, GPUBufferUsage.VERTEX);
 
     // Magnetic core (simple cylinder with UVs for enhanced pipeline)
-    const magnetData = this.generateCylinderWithUVs(0.8, 2.5, 32);
+    const magnetData = this.generateCylinderWithUVs(0.8, 2.5, 64);
     const magnetVB = this.device.createBuffer({ size: magnetData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(magnetVB, 0, magnetData.vertices);
     const magnetIB = this.device.createBuffer({ size: magnetData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -444,7 +448,7 @@ class MultiDeviceVisualizer {
     this.device.queue.writeBuffer(this.coreBoltInstanceBuffer, 0, new Float32Array(boltInstanceData));
 
     // Connection ring (torus-like using a thin cylinder)
-    const ringData = this.generateCylinder(0.15, 0.3, 32);
+    const ringData = this.generateCylinder(0.15, 0.3, 48);
     const ringVB = this.device.createBuffer({ size: ringData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(ringVB, 0, ringData.vertices);
     const ringIB = this.device.createBuffer({ size: ringData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -509,7 +513,7 @@ class MultiDeviceVisualizer {
       primitive: { topology: 'triangle-list' },
       depthStencil: { depthWriteEnabled: false, depthCompare: 'less', format: 'depth24plus' }
     });
-    
+
     const gridVertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
     this.gridVertexBuffer = this.device.createBuffer({
       size: gridVertices.byteLength,
@@ -518,11 +522,33 @@ class MultiDeviceVisualizer {
     this.device.queue.writeBuffer(this.gridVertexBuffer, 0, gridVertices);
     this.profiler.trackBuffer('gridVertices', gridVertices.byteLength, GPUBufferUsage.VERTEX);
   }
+
+  async setupSkyGradient() {
+    this.skyPipeline = this.device.createRenderPipeline({
+      label: 'skyPipeline',
+      layout: 'auto',
+      vertex: {
+        module: this.device.createShaderModule({ code: this.shaders.skyVertShader }),
+        entryPoint: 'main'
+        // No vertex buffers — uses @builtin(vertex_index) to generate a fullscreen triangle
+      },
+      fragment: {
+        module: this.device.createShaderModule({ code: this.shaders.skyFragShader }),
+        entryPoint: 'main',
+        targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }]
+      },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: { depthWriteEnabled: false, depthCompare: 'always', format: 'depth24plus' }
+    });
+  }
   
   resize() {
     this.canvas.width = window.innerWidth;
     this.canvas.height = window.innerHeight;
-    if (this.device) this.setupDepthBuffer();
+    if (this.device) {
+      this.setupDepthBuffer();
+      this.setupBloomTextures();
+    }
   }
   
   async setupDepthBuffer() {
@@ -536,6 +562,65 @@ class MultiDeviceVisualizer {
       usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
     this.profiler.trackTexture('depthBuffer', this.canvas.width, this.canvas.height, 'depth24plus');
+  }
+
+  setupBloomTextures() {
+    const w   = this.canvas.width  || 1;
+    const h   = this.canvas.height || 1;
+    const fmt = navigator.gpu.getPreferredCanvasFormat();
+
+    if (this.bloomSceneTexture) this.bloomSceneTexture.destroy();
+    if (this.bloomBlurTexture)  this.bloomBlurTexture.destroy();
+
+    this.bloomSceneTexture = this.device.createTexture({
+      size: [w, h], format: fmt,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
+    this.bloomBlurTexture = this.device.createTexture({
+      size: [w, h], format: fmt,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
+
+    if (this.bloomParamsBuffer) {
+      this.device.queue.writeBuffer(
+        this.bloomParamsBuffer, 0,
+        new Float32Array([1.0 / w, 1.0 / h, 0.60, 1.4])
+      );
+    }
+  }
+
+  async setupBloomPipeline() {
+    const fmt = navigator.gpu.getPreferredCanvasFormat();
+
+    this.bloomSampler = this.device.createSampler({
+      magFilter: 'linear', minFilter: 'linear',
+      addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge'
+    });
+
+    this.bloomParamsBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+
+    const vertModule    = this.device.createShaderModule({ code: this.shaders.bloomVertShader });
+    const extractModule = this.device.createShaderModule({ code: this.shaders.bloomExtractShader });
+    const compModule    = this.device.createShaderModule({ code: this.shaders.bloomCompositeShader });
+
+    this.bloomExtractPipeline = this.device.createRenderPipeline({
+      layout: 'auto',
+      vertex:   { module: vertModule,    entryPoint: 'main' },
+      fragment: { module: extractModule, entryPoint: 'main', targets: [{ format: fmt }] },
+      primitive: { topology: 'triangle-list' }
+    });
+
+    this.bloomCompositePipeline = this.device.createRenderPipeline({
+      layout: 'auto',
+      vertex:   { module: vertModule,  entryPoint: 'main' },
+      fragment: { module: compModule,  entryPoint: 'main', targets: [{ format: fmt }] },
+      primitive: { topology: 'triangle-list' }
+    });
+
+    this.setupBloomTextures();
   }
   
   render(timestamp) {
@@ -690,10 +775,14 @@ class MultiDeviceVisualizer {
       encoder.writeTimestamp(this.profiler.timestampQuerySet, 0);
     }
     
+    const sceneView = (this.bloomSceneTexture)
+      ? this.bloomSceneTexture.createView()
+      : this.context.getCurrentTexture().createView();
+
     const renderPass = encoder.beginRenderPass({
       colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
-        clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1 },
+        view: sceneView,
+        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1 },
         loadOp: 'clear',
         storeOp: 'store'
       }],
@@ -704,9 +793,18 @@ class MultiDeviceVisualizer {
         depthStoreOp: 'store'
       }
     });
-    
+
+    // Render sky gradient first (fullscreen, before all geometry)
+    if (this.skyPipeline) {
+      renderPass.setPipeline(this.skyPipeline);
+      renderPass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.skyPipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: this.globalUniformBuffer } }]
+      }));
+      renderPass.draw(3);
+    }
+
     // Render grid
-    console.log('Setting grid pipeline, has depthStencil:', !!this.gridPipeline);
     renderPass.setPipeline(this.gridPipeline);
     renderPass.setBindGroup(0, this.device.createBindGroup({
       layout: this.gridPipeline.getBindGroupLayout(0),
@@ -726,8 +824,50 @@ class MultiDeviceVisualizer {
     }
     
     renderPass.end();
-    
-    // Write end timestamp
+
+    // ── Bloom post-processing ─────────────────────────────────────────────
+    if (this.bloomExtractPipeline && this.bloomSceneTexture && this.bloomBlurTexture) {
+      // Pass 1: extract bright areas → bloomBlurTexture
+      const extractPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: this.bloomBlurTexture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: 'clear', storeOp: 'store'
+        }]
+      });
+      extractPass.setPipeline(this.bloomExtractPipeline);
+      extractPass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.bloomExtractPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.bloomSceneTexture.createView() },
+          { binding: 1, resource: this.bloomSampler },
+          { binding: 2, resource: { buffer: this.bloomParamsBuffer } }
+        ]
+      }));
+      extractPass.draw(3);
+      extractPass.end();
+
+      // Pass 2: composite scene + bloom → canvas with tonemap & vignette
+      const compositePass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: this.context.getCurrentTexture().createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: 'clear', storeOp: 'store'
+        }]
+      });
+      compositePass.setPipeline(this.bloomCompositePipeline);
+      compositePass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.bloomCompositePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.bloomSceneTexture.createView() },
+          { binding: 1, resource: this.bloomBlurTexture.createView() },
+          { binding: 2, resource: this.bloomSampler },
+          { binding: 3, resource: { buffer: this.bloomParamsBuffer } }
+        ]
+      }));
+      compositePass.draw(3);
+      compositePass.end();
+    }
     if (this.profiler.timingEnabled) {
       encoder.writeTimestamp(this.profiler.timestampQuerySet, 1);
     }

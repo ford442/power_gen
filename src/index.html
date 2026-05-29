@@ -110,14 +110,30 @@
       cursor: pointer;
       transition: all 0.25s;
       border-radius: 4px;
-      font-size: 0.78rem;
+      font-size: 0.75rem;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.8px;
       text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mode-btn .mode-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: var(--mode-icon-size, 18px);
+      height: var(--mode-icon-size, 18px);
+      border: 1px solid currentColor;
+      border-radius: 3px;
+      font-size: 0.65rem;
+      flex-shrink: 0;
+      opacity: 0.75;
     }
     .mode-btn:hover  { background: #0ff2; color: #0ff; border-color: #0ff; box-shadow: 0 0 8px #0ff4; }
     .mode-btn.active { background: #00d4ff22; color: #0ff; border-color: #0ff; box-shadow: 0 0 10px #0ff5; }
+    .mode-btn.active .mode-icon { opacity: 1; }
 
     /* Control buttons */
     .ctrl-row {
@@ -217,14 +233,14 @@
       padding: 8px 10px;
     }
     .reading-label {
-      font-size: 0.6rem;
+      font-size: 0.58rem;
       color: #0777;
       text-transform: uppercase;
-      letter-spacing: 1.5px;
-      margin-bottom: 3px;
+      letter-spacing: 1.8px;
+      margin-bottom: 2px;
     }
     .reading-value {
-      font-size: 1.05rem;
+      font-size: 1.0rem;
       font-family: 'Courier New', monospace;
       color: #0ff;
       font-weight: bold;
@@ -232,6 +248,21 @@
     }
     .reading-value.warning  { color: #ffaa00; text-shadow: 0 0 6px #ffaa0066; }
     .reading-value.critical { color: #ff3300; text-shadow: 0 0 8px #ff330088; }
+
+    /* Right-panel section header / separator */
+    .telem-section {
+      font-size: 0.58rem;
+      color: #0ff5;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      padding: 4px 2px 2px;
+      border-top: 1px solid #0ff2;
+      margin-top: 4px;
+    }
+    .telem-section:first-child {
+      border-top: none;
+      margin-top: 0;
+    }
 
     /* RPM gauge ring */
     .rpm-ring {
@@ -290,14 +321,48 @@
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: #050a0f; }
     ::-webkit-scrollbar-thumb { background: #0ff3; border-radius: 2px; }
+
+    /* ── WASM status badge ──────────────────────────────── */
+    #wasm-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border: 1px solid #0ff4;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      color: #0aa;
+    }
+    .wasm-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #444;
+    }
+    .wasm-dot.loaded  { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
+    .wasm-dot.loading { background: #ffcc00; box-shadow: 0 0 6px #ffcc00; animation: blink 1s infinite; }
+    .wasm-dot.missing { background: #ff6600; }
+
+    /* ── WASM demo panel ────────────────────────────────── */
+    #wasm-results {
+      display: none;
+      margin-top: 6px;
+      font-size: 0.70rem;
+      color: #0aa;
+      line-height: 1.6;
+    }
+    #wasm-results.visible { display: block; }
   </style>
 </head>
 <body>
 
   <!-- ── Header ─────────────────────────────────────────── -->
   <div id="header">
-    <h1>⚡ SEG WebGPU Dashboard</h1>
+    <h1>SEG WebGPU Dashboard</h1>
     <div class="header-right">
+      <div id="wasm-badge">
+        <div class="wasm-dot loading" id="wasmDot"></div>
+        <span id="wasmStatus">WASM…</span>
+      </div>
       <div class="status-badge">
         <div class="status-indicator status-standby" id="statusDot"></div>
         <span id="status">STANDBY</span>
@@ -365,6 +430,23 @@
         </div>
       </div>
 
+      <!-- WASM demo -->
+      <div class="panel-section">
+        <h3>WASM Physics Core</h3>
+        <div style="font-size:0.70rem;color:#0aa;margin-bottom:6px;" id="wasm-info">
+          C++ sim_core compiled to WebAssembly — CPU-side RK4 integrator &amp; magnetic field solver.
+        </div>
+        <div class="ctrl-row">
+          <button class="ctrl-btn" id="wasmBenchBtn" style="font-size:0.70rem;">⚡ Benchmark</button>
+        </div>
+        <div id="wasm-results">
+          <div>Version: <span id="wasm-version" style="color:#0ff;">—</span></div>
+          <div>Steps/s: <span id="wasm-sps"     style="color:#0ff;">—</span></div>
+          <div>Final RPM: <span id="wasm-rpm"   style="color:#0ff;">—</span></div>
+          <div>Ω: <span id="wasm-omega"          style="color:#0ff;">—</span> rad/s</div>
+        </div>
+      </div>
+
     </div>
 
     <!-- 3D Canvas -->
@@ -378,6 +460,9 @@
     <!-- Right telemetry panel -->
     <div id="right-panel">
 
+      <!-- Performance group -->
+      <div class="telem-section">Performance</div>
+
       <!-- RPM -->
       <div class="reading-card">
         <div class="reading-label">Inner Ring RPM</div>
@@ -388,6 +473,16 @@
           </div>
         </div>
       </div>
+
+      <!-- Efficiency -->
+      <div class="reading-card">
+        <div class="reading-label">Efficiency</div>
+        <div class="reading-value" id="efficiency">0.0%</div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="efficiency-bar" style="width:0%"></div></div>
+      </div>
+
+      <!-- Electrical group -->
+      <div class="telem-section">Electrical</div>
 
       <!-- Voltage -->
       <div class="reading-card">
@@ -407,6 +502,9 @@
         <div class="reading-value" id="power">0.000 W</div>
       </div>
 
+      <!-- Physical group -->
+      <div class="telem-section">Physical</div>
+
       <!-- Magnetic field -->
       <div class="reading-card">
         <div class="reading-label">Magnetic Field</div>
@@ -419,12 +517,8 @@
         <div class="reading-value" id="temperature">25.0 °C</div>
       </div>
 
-      <!-- Efficiency -->
-      <div class="reading-card">
-        <div class="reading-label">Efficiency</div>
-        <div class="reading-value" id="efficiency">0.0%</div>
-        <div class="mini-bar"><div class="mini-bar-fill" id="efficiency-bar" style="width:0%"></div></div>
-      </div>
+      <!-- Energy group -->
+      <div class="telem-section">Energy</div>
 
       <!-- Energy -->
       <div class="reading-card">

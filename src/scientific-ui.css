@@ -93,15 +93,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: 0.8rem;
+  font-weight: 700;
   color: var(--sci-cyan);
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 2px;
 }
 
 .sci-panel-icon {
-  font-size: 1.1rem;
+  font-size: 1.0rem;
+  line-height: 1;
 }
 
 .sci-panel-controls {
@@ -231,7 +232,14 @@
    GAUGE CONTAINERS
    ============================================ */
 .sci-gauge-section {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(0, 255, 255, 0.08);
+}
+
+.sci-gauge-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
 }
 
 .sci-gauge-header {
@@ -242,16 +250,16 @@
 }
 
 .sci-gauge-label {
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: 0.68rem;
+  font-weight: 600;
   color: var(--sci-text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 1.2px;
 }
 
 .sci-gauge-value {
   font-family: var(--sci-font-mono);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 600;
   color: var(--sci-cyan);
 }
@@ -592,21 +600,22 @@
   position: fixed;
   top: 20px;
   right: 20px;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--sci-bg-panel);
   border: 1px solid var(--sci-border-cyan);
-  border-radius: 8px;
+  border-radius: 6px;
   box-shadow: var(--sci-shadow-cyan);
   backdrop-filter: blur(10px);
   color: var(--sci-cyan);
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   cursor: pointer;
   z-index: 999;
   transition: all var(--sci-transition-normal);
+  letter-spacing: 0;
 }
 
 .sci-panel-toggle:hover {
