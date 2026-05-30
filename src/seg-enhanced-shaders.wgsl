@@ -130,6 +130,28 @@ fn surfaceVariation(worldPos: vec3f, scale: f32) -> f32 {
   return h.x * 0.15 + h.y * 0.1; // Subtle variation
 }
 
+// FBM noise for copper oxidation variation
+fn oxidationFBM(p: vec3f) -> f32 {
+  var value = 0.0;
+  var amplitude = 0.5;
+  var pos = p;
+  for (var i = 0; i < 4; i++) {
+    let h = hash3(floor(pos * 3.0));
+    value += (h.x * 2.0 - 1.0) * amplitude;
+    pos = pos * 2.1 + vec3f(1.7, 2.3, 0.9);
+    amplitude *= 0.5;
+  }
+  return value * 0.5 + 0.5; // Normalize to [0,1]
+}
+
+// Anisotropic GGX for brushed-metal specular
+fn distributionGGXAniso(NdotH: f32, TdotH: f32, BdotH: f32, roughX: f32, roughY: f32) -> f32 {
+  let ax = roughX * roughX;
+  let ay = roughY * roughY;
+  let d = (TdotH * TdotH) / (ax * ax) + (BdotH * BdotH) / (ay * ay) + NdotH * NdotH;
+  return 1.0 / (3.14159265 * ax * ay * d * d);
+}
+
 // Fresnel Schlick approximation for metallic reflections
 fn fresnelSchlick(cosTheta: f32, f0: vec3f) -> vec3f {
   return f0 + (vec3f(1.0) - f0) * pow(1.0 - cosTheta, 5.0);
@@ -178,12 +200,14 @@ fn enhancedRollerFragment(input: EnhancedFragmentInput) -> @location(0) vec4f {
   var metallic: f32;
   var roughness: f32;
   var emissive: f32;
+  var isCopper = false;
 
   // Determine if this is a roller (has bandIndex in valid range) or other geometry
   if (input.bandIndex >= 0.0 && input.bandIndex < 6.0) {
     // ROLLER: Use pole band coloring
     baseColor = poleBandColor(input.bandIndex, input.copperColor);
     let isNeodymium = (u32(input.bandIndex) % 4u) == 2u;
+    isCopper = (u32(input.bandIndex) % 4u) == 0u || (u32(input.bandIndex) % 4u) == 1u;
     metallic = select(0.95, 0.88, isNeodymium);
     roughness = select(0.30, 0.20, isNeodymium);
     emissive = select(0.0, 0.15, isNeodymium);
@@ -205,6 +229,15 @@ fn enhancedRollerFragment(input: EnhancedFragmentInput) -> @location(0) vec4f {
     metallic = 0.95;
     roughness = 0.30;
     emissive = input.greenEmissive;
+    isCopper = true;
+  }
+
+  // Oxidation FBM noise on copper surfaces
+  if (isCopper) {
+    let oxidation = oxidationFBM(input.worldPos * 2.5);
+    let oxidizedColor = vec3f(0.35, 0.55, 0.40); // Green patina
+    baseColor = mix(baseColor, oxidizedColor, oxidation * 0.15);
+    roughness = clamp(roughness + oxidation * 0.12, 0.05, 1.0);
   }
 
   // Add micro-surface variation so metals don't look like plastic
@@ -213,20 +246,31 @@ fn enhancedRollerFragment(input: EnhancedFragmentInput) -> @location(0) vec4f {
   roughness = clamp(roughness + variation * 0.1, 0.05, 1.0);
 
   // ============================================
-  // PBR LIGHTING (metallic workflow)
+  // PBR LIGHTING (metallic workflow + anisotropy)
   // ============================================
+
+  // Construct tangent/bitangent for anisotropic specular (brushed-metal)
+  let upRef = select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(N.y) > 0.99);
+  let T = normalize(cross(upRef, N));
+  let B = cross(N, T);
+
+  // Anisotropic roughness (brushed along tangent direction)
+  let roughX = roughness * 0.7;
+  let roughY = roughness * 1.3;
 
   // Common PBR parameters
   let f0 = mix(vec3f(0.04), baseColor, metallic);
   let albedo = mix(baseColor, vec3f(0.0), metallic);
 
-  // Key light (main directional)
+  // Key light (main directional) with anisotropic specular
   let L1 = normalize(-lighting.keyDir);
   let H1 = normalize(V + L1);
   let NdotL1 = max(dot(N, L1), 0.0);
   let NdotH1 = max(dot(N, H1), 0.0);
+  let TdotH1 = dot(T, H1);
+  let BdotH1 = dot(B, H1);
 
-  let D1 = distributionGGX(NdotH1, roughness);
+  let D1 = distributionGGXAniso(NdotH1, TdotH1, BdotH1, roughX, roughY);
   let G1 = geometrySmith(NdotV, NdotL1, roughness);
   let F1 = fresnelSchlick(max(dot(H1, V), 0.0), f0);
 
@@ -237,13 +281,15 @@ fn enhancedRollerFragment(input: EnhancedFragmentInput) -> @location(0) vec4f {
   let kS1 = F1;
   let kD1 = (vec3f(1.0) - kS1) * (1.0 - metallic);
 
-  // Fill light (softer, from opposite side)
+  // Fill light (softer, from opposite side) with anisotropic specular
   let L2 = normalize(-lighting.fillDir);
   let H2 = normalize(V + L2);
   let NdotL2 = max(dot(N, L2), 0.0);
   let NdotH2 = max(dot(N, H2), 0.0);
+  let TdotH2 = dot(T, H2);
+  let BdotH2 = dot(B, H2);
 
-  let D2 = distributionGGX(NdotH2, roughness);
+  let D2 = distributionGGXAniso(NdotH2, TdotH2, BdotH2, roughX, roughY);
   let G2 = geometrySmith(NdotV, NdotL2, roughness);
   let F2 = fresnelSchlick(max(dot(H2, V), 0.0), f0);
 
@@ -269,11 +315,14 @@ fn enhancedRollerFragment(input: EnhancedFragmentInput) -> @location(0) vec4f {
     specular2 * lighting.fillColor * lighting.fillIntensity * NdotL2 * 0.3
   );
 
+  // Cheap IBL approximation (environment reflection term)
+  let envReflect = fresnelSchlick(NdotV, f0) * lighting.envMapStrength * 0.3;
+
   // Ambient
   let ambient = albedo * lighting.ambient * vec3f(0.15, 0.18, 0.22);
 
   // Combine
-  var color = ambient + diffuse + specular + rimLight;
+  var color = ambient + diffuse + specular + rimLight + envReflect;
 
   // ============================================
   // EMISSIVE / GLOW EFFECTS

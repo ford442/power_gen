@@ -687,6 +687,7 @@ class DeviceInstance {
 
   renderStatorRings(renderPass, globalUniformBuffer) {
     if (!this.geometry.statorRingBuffer) return;
+    const v = this.visualizer;
     
     // Set renderMode to 2 (stator)
     this.renderMode = 2;
@@ -706,25 +707,47 @@ class DeviceInstance {
     ]);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
     
-    const bindGroup = this.device.createBindGroup({
-      layout: this.rollerPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: globalUniformBuffer } },
-        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-        { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
-        { binding: 3, resource: { buffer: this.materialUniformBuffer } }
-      ]
-    });
+    // Use enhanced PBR pipeline if available (with UV geometry)
+    if (this.segEnhancedPipeline && v.statorRingUVBuffer && v.lightingUniformBuffer) {
+      const bindGroup = this.device.createBindGroup({
+        layout: this.segEnhancedPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: globalUniformBuffer } },
+          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+          { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
+          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+          { binding: 5, resource: { buffer: v.lightingUniformBuffer } }
+        ]
+      });
 
-    renderPass.setPipeline(this.rollerPipeline);
-    renderPass.setBindGroup(0, bindGroup);
-    renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
-    renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
-    renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 3); // 3 rings
+      renderPass.setPipeline(this.segEnhancedPipeline);
+      renderPass.setBindGroup(0, bindGroup);
+      renderPass.setVertexBuffer(0, v.statorRingUVBuffer.vertexBuffer);
+      renderPass.setIndexBuffer(v.statorRingUVBuffer.indexBuffer, 'uint16');
+      renderPass.drawIndexed(v.statorRingUVBuffer.indexCount, 3); // 3 rings
+    } else {
+      // Fallback to basic Blinn-Phong pipeline
+      const bindGroup = this.device.createBindGroup({
+        layout: this.rollerPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: globalUniformBuffer } },
+          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+          { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
+          { binding: 3, resource: { buffer: this.materialUniformBuffer } }
+        ]
+      });
+
+      renderPass.setPipeline(this.rollerPipeline);
+      renderPass.setBindGroup(0, bindGroup);
+      renderPass.setVertexBuffer(0, v.cylinderBuffer.vertexBuffer);
+      renderPass.setIndexBuffer(v.cylinderBuffer.indexBuffer, 'uint16');
+      renderPass.drawIndexed(v.cylinderBuffer.indexCount, 3); // 3 rings
+    }
   }
 
   renderWiring(renderPass, globalUniformBuffer) {
     if (!this.geometry.wiringBuffer) return;
+    const v = this.visualizer;
     
     // Set renderMode to 3 (wiring)
     this.renderMode = 3;
@@ -744,21 +767,42 @@ class DeviceInstance {
     ]);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
     
-    const bindGroup = this.device.createBindGroup({
-      layout: this.rollerPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: globalUniformBuffer } },
-        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-        { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
-        { binding: 3, resource: { buffer: this.materialUniformBuffer } }
-      ]
-    });
+    // Use enhanced PBR pipeline if available (with UV geometry)
+    if (this.segEnhancedPipeline && v.wiringUVBuffer && v.lightingUniformBuffer) {
+      const bindGroup = this.device.createBindGroup({
+        layout: this.segEnhancedPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: globalUniformBuffer } },
+          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+          { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
+          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+          { binding: 5, resource: { buffer: v.lightingUniformBuffer } }
+        ]
+      });
 
-    renderPass.setPipeline(this.rollerPipeline);
-    renderPass.setBindGroup(0, bindGroup);
-    renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
-    renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
-    renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 8); // 8 wires
+      renderPass.setPipeline(this.segEnhancedPipeline);
+      renderPass.setBindGroup(0, bindGroup);
+      renderPass.setVertexBuffer(0, v.wiringUVBuffer.vertexBuffer);
+      renderPass.setIndexBuffer(v.wiringUVBuffer.indexBuffer, 'uint16');
+      renderPass.drawIndexed(v.wiringUVBuffer.indexCount, 8); // 8 wires
+    } else {
+      // Fallback to basic Blinn-Phong pipeline
+      const bindGroup = this.device.createBindGroup({
+        layout: this.rollerPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: globalUniformBuffer } },
+          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+          { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
+          { binding: 3, resource: { buffer: this.materialUniformBuffer } }
+        ]
+      });
+
+      renderPass.setPipeline(this.rollerPipeline);
+      renderPass.setBindGroup(0, bindGroup);
+      renderPass.setVertexBuffer(0, v.cylinderBuffer.vertexBuffer);
+      renderPass.setIndexBuffer(v.cylinderBuffer.indexBuffer, 'uint16');
+      renderPass.drawIndexed(v.cylinderBuffer.indexCount, 8); // 8 wires
+    }
   }
 
   renderCore(renderPass, globalUniformBuffer) {
