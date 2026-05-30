@@ -1,7 +1,14 @@
 import { MultiDeviceShaders } from './multi-device-shaders.js';
 import { MultiDeviceCamera } from './multi-device-camera.js';
+import { SimRateController } from './sim-rate-controller.js';
+import { WebGPUManager } from './webgpu-manager.js';
+import { CameraController } from './camera-controller.js';
+import { PerformanceProfiler } from './performance-profiler.js';
+import { DebugPanel, DEVICE_CONFIG } from './debug-panel.js';
+import { DeviceInstance } from './device-instance.js';
+import { EnergyPipe } from './energy-pipe.js';
 
-class MultiDeviceVisualizer {
+export class MultiDeviceVisualizer {
   constructor() {
     console.log('MultiDeviceVisualizer v5 starting - depthStencil fix applied');
     this.canvas = document.getElementById('gpuCanvas');
@@ -35,6 +42,10 @@ class MultiDeviceVisualizer {
     this.time = 0;
     this.lastFrameTime = 0;
     this.fps = 60;
+    this.speedMult = 1.0;
+
+    // SimRateController for speed-scaled physics and visuals
+    this.simRateController = new SimRateController();
 
     // Lighting configuration for PBR shaders
     this.lightingConfig = {
@@ -383,7 +394,7 @@ class MultiDeviceVisualizer {
     const {
       generateBearingShaft, generatePoleBandedRoller, generatePlateWithCutouts,
       generateSupportStand, generateWireHarness, generateCoilWithWindings
-    } = await import('./src/seg-enhanced-geometry.js');
+    } = await import('./seg-enhanced-geometry.js');
 
     // Enhanced SEG roller with 6 magnetic pole bands
     this.enhancedRollerBuffer = generatePoleBandedRoller(this.device, {
@@ -649,8 +660,24 @@ class MultiDeviceVisualizer {
       if (fpsEl) fpsEl.textContent = this.fps;
     }
     
-    const speed = parseFloat(document.getElementById('speedSlider')?.value) || 1.0;
+    const rawSpeed = parseFloat(document.getElementById('speedControl')?.value) ?? 50;
+    // Logarithmic mapping: 0→0.05×, 50→1.0×, 100→20× (base 400)
+    const speed = 0.05 * Math.pow(400, rawSpeed / 100);
+    this.speedMult = speed;
+    this.simRateController.tick(deltaTime, speed);
     this.time += deltaTime * speed;
+
+    // Propagate current speedMult to all devices (needed by GPU compute uniforms)
+    for (const device of Object.values(this.devices)) {
+      device.speedMult = speed;
+    }
+
+    // Update speedVal label so the UI reflects the actual multiplier
+    const speedValEl = document.getElementById('speedVal');
+    if (speedValEl) speedValEl.textContent = speed.toFixed(2) + '×';
+
+    // Update tachometer overlay
+    this._updateTachometer();
 
     // Update hardware bridge comms (send phase commands, parse sensor data)
     if (this.hardwareBridge?.isConnected) {
@@ -766,6 +793,24 @@ class MultiDeviceVisualizer {
     
     // ─── COMPUTE PASS: animate particles on GPU ───
     const computePass = encoder.beginComputePass({ label: 'particle-compute' });
+
+    // SEG-specific compute: roller kinematics + field line advection
+    // These run first so rendering reads the freshly updated buffers.
+    const segDevice = this.devices['seg'];
+    if (segDevice && this.devicesEnabled['seg']) {
+      if (segDevice.rollerComputePipeline && segDevice.rollerComputeBindGroup) {
+        computePass.setPipeline(segDevice.rollerComputePipeline);
+        computePass.setBindGroup(0, segDevice.rollerComputeBindGroup);
+        computePass.dispatchWorkgroups(1);  // 1 workgroup × 64 threads, 36 active
+      }
+      if (segDevice.fieldAdvectPipeline && segDevice.fieldAdvectBindGroup) {
+        computePass.setPipeline(segDevice.fieldAdvectPipeline);
+        computePass.setBindGroup(0, segDevice.fieldAdvectBindGroup);
+        const fieldWorkgroups = Math.ceil(segDevice.fieldLineCount / 64);
+        computePass.dispatchWorkgroups(fieldWorkgroups);  // 19 workgroups × 64 = 1216 threads
+      }
+    }
+
     for (const device of Object.values(this.devices)) {
       if (this.devicesEnabled[device.id] && device.computePipeline && device.computeBindGroup) {
         // Write compute uniforms: time, mode, particleCount, speedMult
@@ -843,6 +888,21 @@ class MultiDeviceVisualizer {
 
     // ── Bloom post-processing ─────────────────────────────────────────────
     if (this.bloomExtractPipeline && this.bloomSceneTexture && this.bloomBlurTexture) {
+      // Update bloom parameters dynamically based on current speed
+      if (this.bloomParamsBuffer) {
+        const w = this.canvas.width || 1;
+        const h = this.canvas.height || 1;
+        this.device.queue.writeBuffer(
+          this.bloomParamsBuffer, 0,
+          new Float32Array([
+            1.0 / w,
+            1.0 / h,
+            this.simRateController.bloomThreshold,
+            this.simRateController.bloomStrength
+          ])
+        );
+      }
+
       // Pass 1: extract bright areas → bloomBlurTexture
       const extractPass = encoder.beginRenderPass({
         colorAttachments: [{
@@ -896,5 +956,35 @@ class MultiDeviceVisualizer {
     }
     
     requestAnimationFrame((t) => this.render(t));
+  }
+
+  /**
+   * Handle simulation mode change (forwarded from window.setMode).
+   * Focuses the camera on the named device, matching the single-device API.
+   */
+  onModeChange(mode) {
+    if (this.cameraController) this.cameraController.focusDevice(mode);
+  }
+
+  /**
+   * Update the tachometer DOM overlay with the current simulation speed.
+   * Called once per render frame (before the GPU encode begins).
+   */
+  _updateTachometer() {
+    const el = document.getElementById('tachometer');
+    if (!el) return;
+    const src = this.simRateController;
+    const fill = el.querySelector('.tach-fill');
+    const label = el.querySelector('.tach-label');
+    if (fill) {
+      fill.style.width = `${(src.tachFill * 100).toFixed(1)}%`;
+      fill.style.background = `hsl(${src.tachHue}, 100%, 50%)`;
+      if (src.isOverdrive) fill.classList.add('overdrive');
+      else fill.classList.remove('overdrive');
+    }
+    if (label) {
+      label.textContent = `${src.speedMult.toFixed(2)}×`;
+      label.style.color = `hsl(${src.tachHue}, 100%, 65%)`;
+    }
   }
 }

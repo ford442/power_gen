@@ -478,11 +478,13 @@ export class MultiDeviceShaders {
         isSolar: f32                  // [11]
       }
       
+      // @align(4) on velocity matches the 32-byte CPU-written layout:
+      // position@0(12B), velocity@12(12B), life@24(4B), strength@28(4B)
       struct FieldParticle {
-        position: vec3f,
-        velocity: vec3f,
-        life: f32,
-        strength: f32
+        position:          vec3f,
+        @align(4) velocity: vec3f,
+        life:              f32,
+        strength:          f32
       }
       
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -554,11 +556,12 @@ export class MultiDeviceShaders {
         isSolar: f32                  // [11]
       }
       
+      // @align(4) on velocity matches the 32-byte CPU-written layout
       struct ArcParticle {
-        position: vec3f,
-        velocity: vec3f,
-        life: f32,
-        intensity: f32
+        position:          vec3f,
+        @align(4) velocity: vec3f,
+        life:              f32,
+        intensity:         f32
       }
       
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -1199,6 +1202,189 @@ export class MultiDeviceShaders {
         }
 
         particles[idx] = vec4f(newPos, phase);
+      }
+    `;
+  }
+
+  // ============================================
+  // SEG roller GPU compute shader
+  // Computes all 36 roller positions, quaternions and colors on the GPU
+  // so the CPU only needs to calculate 36 angles for coil-energy lookups.
+  // ============================================
+  get segRollerComputeShader() {
+    return /* wgsl */ `
+      struct RollerInstance {
+        position:     vec3f,
+        ringIndex:    f32,
+        rotation:     vec4f,
+        copperColor:  vec3f,
+        greenEmissive: f32,
+      }
+
+      struct RollerUniforms {
+        time:      f32,
+        speedMult: f32,
+        pad0:      f32,
+        pad1:      f32,
+      }
+
+      @group(0) @binding(0) var<storage, read_write> rollers: array<RollerInstance>;
+      @group(0) @binding(1) var<uniform>             uniforms: RollerUniforms;
+
+      const PI: f32 = 3.14159265359;
+
+      // Pole-band colours (copper / oxide / neodymium / brass)
+      const POLE_COLORS = array<vec3f, 4>(
+        vec3f(0.85, 0.48, 0.22),
+        vec3f(0.55, 0.30, 0.15),
+        vec3f(0.72, 0.74, 0.76),
+        vec3f(0.78, 0.58, 0.22),
+      );
+
+      @compute @workgroup_size(64)
+      fn main(@builtin(global_invocation_id) gid: vec3u) {
+        let idx = gid.x;
+        if (idx >= 36u) { return; }
+
+        // Map flat roller index to ring + local index
+        // Ring 0: idx  0-7  (8  rollers, r=2.5, speed=2.0)
+        // Ring 1: idx  8-19 (12 rollers, r=4.0, speed=1.0)
+        // Ring 2: idx 20-35 (16 rollers, r=5.5, speed=0.5)
+        var ringIdx: u32;
+        var localI:  u32;
+        if (idx < 8u) {
+          ringIdx = 0u;  localI = idx;
+        } else if (idx < 20u) {
+          ringIdx = 1u;  localI = idx - 8u;
+        } else {
+          ringIdx = 2u;  localI = idx - 20u;
+        }
+
+        let counts = array<u32, 3>(8u, 12u, 16u);
+        let radii  = array<f32, 3>(2.5, 4.0, 5.5);
+        let scales = array<f32, 3>(0.6, 0.8, 1.0);
+        let speeds = array<f32, 3>(2.0, 1.0, 0.5);
+
+        let count  = counts[ringIdx];
+        let radius = radii[ringIdx];
+        let scale  = scales[ringIdx];
+        let speed  = speeds[ringIdx];
+
+        // uniforms.time is already the speed-scaled visualizer time
+        let t = uniforms.time;
+
+        // Per-ring startup ramp (mirrors CPU formula)
+        let startupRamp = min(t * (0.25 + f32(ringIdx) * 0.1), 1.0);
+
+        // Per-roller speed jitter (same hash as CPU)
+        let jitterSeed  = f32(idx) * 127.3 + f32(ringIdx) * 53.7;
+        let speedJitter = 1.0 + 0.04 * sin(t * 1.3 + sin(jitterSeed) * 12.7);
+
+        let baseAngle = (f32(localI) / f32(count)) * PI * 2.0;
+        let angle = baseAngle
+                  + t * 0.5 * speed * speedJitter * startupRamp
+                  + f32(ringIdx) * 0.22;
+
+        let x = cos(angle) * radius;
+        let z = sin(angle) * radius;
+
+        // Gear-ratio self-rotation quaternion (mirrors CPU)
+        let gearRatio    = radius / scale;
+        let selfRotAngle = angle * gearRatio * 0.5;
+        let tangentAngle = angle + PI / 2.0;
+        let rollAxisX    = cos(tangentAngle);
+        let rollAxisZ    = sin(tangentAngle);
+        let halfAngle    = selfRotAngle / 2.0;
+
+        // Emissive boost proportional to speed (neodymium rollers glow brighter)
+        let colorIdx  = (localI + ringIdx * 3u) % 4u;
+        let baseEmit  = select(0.0, 0.3, colorIdx == 2u);
+        // Clamp emissive to avoid overflow at very high speeds
+        let emissive  = min(baseEmit * max(1.0, uniforms.speedMult * 0.5), 1.0);
+
+        var r: RollerInstance;
+        r.position     = vec3f(x, 0.0, z);
+        r.ringIndex    = f32(ringIdx);
+        r.rotation     = vec4f(
+          rollAxisX * sin(halfAngle),
+          0.0,
+          rollAxisZ * sin(halfAngle),
+          cos(halfAngle)
+        );
+        r.copperColor  = POLE_COLORS[colorIdx];
+        r.greenEmissive = emissive;
+
+        rollers[idx] = r;
+      }
+    `;
+  }
+
+  // ============================================
+  // SEG field-line GPU advect compute shader
+  // Replaces the 1200-particle CPU loop (sin/cos/random per frame) with a
+  // single GPU dispatch.  Uses @align(4) on velocity to match the 32-byte
+  // CPU-written FieldParticle layout (pos@0, vel@12, life@24, strength@28).
+  // ============================================
+  get segFieldAdvectShader() {
+    return /* wgsl */ `
+      struct FieldParticle {
+        position:          vec3f,
+        @align(4) velocity: vec3f,
+        life:              f32,
+        strength:          f32,
+      }
+
+      struct FieldUniforms {
+        time:          f32,
+        speedMult:     f32,
+        particleCount: u32,
+        pad:           f32,
+      }
+
+      @group(0) @binding(0) var<storage, read_write> particles: array<FieldParticle>;
+      @group(0) @binding(1) var<uniform>             uniforms:  FieldUniforms;
+
+      const PI: f32 = 3.14159265359;
+
+      @compute @workgroup_size(64)
+      fn main(@builtin(global_invocation_id) gid: vec3u) {
+        let i = gid.x;
+        if (i >= uniforms.particleCount) { return; }
+
+        // uniforms.time is already the speed-scaled visualizer time
+        let t      = uniforms.time;
+        let sm     = uniforms.speedMult;
+        let ringIdx = i % 3u;
+        let r      = array<f32, 3>(2.5, 4.0, 5.5)[ringIdx];
+
+        // Advect along the circular magnetic flux ring (mirrors CPU formula)
+        let angle       = (f32(i) / f32(uniforms.particleCount)) * PI * 20.0
+                        + t * (0.5 + f32(ringIdx) * 0.3);
+        let heightOffset = sin(t * 0.5 + f32(i) * 0.1) * 0.8;
+
+        let px = cos(angle) * r;
+        let pz = sin(angle) * r;
+        let py = heightOffset;
+
+        // Velocity tangent to the ring
+        let speed = 1.0 + f32(ringIdx) * 0.5;
+        let vx = -sin(angle) * speed;
+        let vy =  cos(t * 2.0 + f32(i) * 0.05) * 0.1;
+        let vz =  cos(angle)  * speed;
+
+        // Life and strength boosted at higher speeds for denser/brighter field lines
+        let lifePulse = sin(t * 2.0 + f32(i) * 0.5) * 0.5 + 0.5;
+        let life      = clamp(lifePulse * min(sm * 0.4 + 0.6, 1.0), 0.0, 1.0);
+        let strength  = clamp(0.3 + 0.7 * sin(angle * 3.0 + t), 0.0, 1.0)
+                      * min(1.0, 0.5 + sm * 0.15);
+
+        var p: FieldParticle;
+        p.position = vec3f(px, py, pz);
+        p.velocity = vec3f(vx, vy, vz);
+        p.life     = life;
+        p.strength = strength;
+
+        particles[i] = p;
       }
     `;
   }
