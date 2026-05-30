@@ -34,6 +34,8 @@ class DeviceInstance {
     Object.defineProperty(this, 'coilPipeline', { get: () => this.pipelineManager.coilPipeline });
     Object.defineProperty(this, 'segEnhancedPipeline', { get: () => this.pipelineManager.segEnhancedPipeline });
     Object.defineProperty(this, 'ringPipeline', { get: () => this.pipelineManager.ringPipeline });
+    Object.defineProperty(this, 'fluxSegmentBuffer', { get: () => this.geometry.fluxSegmentBuffer });
+    Object.defineProperty(this, 'fluxSegmentPipeline', { get: () => this.pipelineManager.fluxSegmentPipeline });
     
     // Delegate uniform buffers to uniform manager for backward compatibility
     Object.defineProperty(this, 'deviceUniformBuffer', { 
@@ -132,6 +134,7 @@ class DeviceInstance {
       // Set up GPU compute pipelines for rollers and field lines
       await this.setupRollerCompute();
       await this.setupFieldAdvect();
+      await this.setupFluxLineTracer();
     }
   }
 
@@ -201,6 +204,58 @@ class DeviceInstance {
     });
   }
 
+  /**
+   * Set up the RK4 magnetic flux line tracer compute pipeline.
+   * Uses `traceBidirectional` entry point from flux-lines.wgsl:
+   * 1 thread per flux line (108 lines → 2 workgroups × 64 threads).
+   * Each thread traces 50 steps forward + 50 backward via RK4 integration.
+   *
+   * Also pre-creates `fluxSegmentRenderBindGroup` so the render loop can
+   * reuse it every frame without a per-frame allocation.
+   */
+  async setupFluxLineTracer() {
+    // FluxUniforms: time, deltaTime, integrationStep, lineOpacity, seedRadius, followStrength, _pad
+    // = 7 × f32 = 28 bytes, aligned to 32 bytes
+    this.fluxTracerUniformBuffer = this.device.createBuffer({
+      label: 'flux-tracer-uniforms',
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+
+    const module = this.device.createShaderModule({
+      label: 'flux-tracer-module',
+      code: this.visualizer.shaders.fluxLineTracerShader
+    });
+
+    this.fluxTracerPipeline = await this.device.createComputePipelineAsync({
+      label: 'flux-tracer-pipeline',
+      layout: 'auto',
+      compute: { module, entryPoint: 'traceBidirectional' }
+    });
+
+    this.fluxTracerBindGroup = this.device.createBindGroup({
+      label: 'flux-tracer-bg',
+      layout: this.fluxTracerPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.geometry.fluxSegmentBuffer } },
+        { binding: 1, resource: { buffer: this.fluxTracerUniformBuffer } }
+      ]
+    });
+
+    // Pre-create the render bind group so render() can reuse it every frame.
+    // globalUniformBuffer and deviceUniformBuffer never change buffer identity
+    // (only their contents are updated via writeBuffer), so this is safe.
+    this.fluxSegmentRenderBindGroup = this.device.createBindGroup({
+      label: 'flux-segment-render-bg',
+      layout: this.pipelineManager.fluxSegmentPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.visualizer.globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: this.geometry.fluxSegmentBuffer } }
+      ]
+    });
+  }
+
   update(deltaTime, qualityScale) {
     // Scale particle count by quality
     const scaledParticleCount = Math.floor(this.particleCount * qualityScale);
@@ -239,6 +294,14 @@ class DeviceInstance {
         this.device.queue.writeBuffer(
           this.fieldAdvectUniformBuffer, 0,
           new Float32Array([time, speedMult, this.fieldLineCount, 0])
+        );
+      }
+      // Write RK4 flux tracer uniforms: time, deltaTime, integrationStep,
+      // lineOpacity, seedRadius, followStrength, _pad, _pad
+      if (this.fluxTracerUniformBuffer) {
+        this.device.queue.writeBuffer(
+          this.fluxTracerUniformBuffer, 0,
+          new Float32Array([time, deltaTime, 0.02, 1.0, 0.06, 1.0, 0.0, 0.0])
         );
       }
 
@@ -683,8 +746,18 @@ class DeviceInstance {
       renderPass.drawIndexed(this.visualizer.batteryGaugeIndexCount, 1);
     }
 
-    // Render field lines (before particles for proper blending)
-    if (this.id === 'seg' && this.fieldLineParticles && this.fieldLineEnabled && !skipEffects) {
+    // Render RK4 flux line segments (physically accurate, |B|-driven color).
+    // Replaces the legacy circular-path field line render with physically
+    // traced billboard quads.  Falls back gracefully if pipeline is absent.
+    if (this.id === 'seg' && this.fluxSegmentRenderBindGroup && this.pipelineManager.fluxSegmentPipeline && this.fieldLineEnabled && !skipEffects) {
+      const qualityScale = this.visualizer.profiler.qualityLevel;
+      const totalSegments = Math.floor(this.geometry.fluxTotalSegments * qualityScale);
+
+      renderPass.setPipeline(this.pipelineManager.fluxSegmentPipeline);
+      renderPass.setBindGroup(0, this.fluxSegmentRenderBindGroup);
+      renderPass.draw(4, totalSegments);
+    } else if (this.id === 'seg' && this.fieldLineParticles && this.fieldLineEnabled && !skipEffects) {
+      // Fallback: legacy circular-path field line particles
       const qualityScale = this.visualizer.profiler.qualityLevel;
       const fieldLineCount = Math.floor(this.fieldLineCount * qualityScale);
 

@@ -84,6 +84,34 @@ export class DevicePipelineManager {
       });
     }
 
+    // RK4 flux segment billboard render pipeline (SEG only)
+    // Reads FluxSegment data directly from storage buffer — no vertex buffer.
+    // Uses additive (src-alpha, one) blending for a cumulative glow effect.
+    if (this.id === 'seg') {
+      this.fluxSegmentPipeline = this.device.createRenderPipeline({
+        label: 'fluxSegmentPipeline',
+        layout: 'auto',
+        vertex: {
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.fluxSegmentVertShader }),
+          entryPoint: 'main',
+          buffers: []
+        },
+        fragment: {
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.fluxSegmentFragShader }),
+          entryPoint: 'main',
+          targets: [{
+            format: this.visualizer.context.getCurrentTexture().format,
+            blend: {
+              color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+              alpha: { srcFactor: 'one',       dstFactor: 'one', operation: 'add' }
+            }
+          }]
+        },
+        primitive: { topology: 'triangle-strip' },
+        depthStencil: { depthWriteEnabled: false, depthCompare: 'less' }
+      });
+    }
+
     // Energy arc pipeline (SEG only)
     if (this.id === 'seg') {
       this.energyArcPipeline = this.device.createRenderPipeline({
