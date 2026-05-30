@@ -111,6 +111,9 @@ class DeviceInstance {
     // Additional state for rendering
     this.coilEnergies = null;
     this._lastCoilCount = null;
+
+    // Pre-allocated roller position buffer (36 rollers × 2 floats) to reduce per-frame GC
+    this._rollerPositions = new Float32Array(36 * 2);
   }
 
   async init() {
@@ -120,9 +123,82 @@ class DeviceInstance {
     await this.computeManager.setupComputeResources();
 
     if (this.id === 'seg') {
-      // Use the new unified initialization for SEG
+      // Unified SEG geometry initialization
       await this.geometry.initializeSEG();
+
+      // Connect energy arc buffer (fixes arcSegments = null bug)
+      this.arcSegments = this.geometry.energyArcParticles;
+
+      // Set up GPU compute pipelines for rollers and field lines
+      await this.setupRollerCompute();
+      await this.setupFieldAdvect();
     }
+  }
+
+  /**
+   * Set up the SEG roller GPU compute pipeline.
+   * The shader computes all 36 roller positions, quaternions and colours so
+   * the CPU only needs to derive 36 (x,z) pairs for coil-energy lookups.
+   */
+  async setupRollerCompute() {
+    this.rollerComputeUniformBuffer = this.device.createBuffer({
+      label: 'seg-roller-compute-uniforms',
+      size: 16,  // [time f32, speedMult f32, pad f32, pad f32]
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+
+    const module = this.device.createShaderModule({
+      label: 'seg-roller-compute-module',
+      code: this.visualizer.shaders.segRollerComputeShader
+    });
+
+    this.rollerComputePipeline = await this.device.createComputePipelineAsync({
+      label: 'seg-roller-compute-pipeline',
+      layout: 'auto',
+      compute: { module, entryPoint: 'main' }
+    });
+
+    this.rollerComputeBindGroup = this.device.createBindGroup({
+      label: 'seg-roller-compute-bg',
+      layout: this.rollerComputePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.geometry.rollerInstances } },
+        { binding: 1, resource: { buffer: this.rollerComputeUniformBuffer } }
+      ]
+    });
+  }
+
+  /**
+   * Set up the SEG field-line GPU advect compute pipeline.
+   * Replaces the 1200-particle CPU loop (sin/cos/random per frame) with a
+   * single GPU dispatch of 19 workgroups × 64 threads.
+   */
+  async setupFieldAdvect() {
+    this.fieldAdvectUniformBuffer = this.device.createBuffer({
+      label: 'seg-field-advect-uniforms',
+      size: 16,  // [time f32, speedMult f32, particleCount u32, pad f32]
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+
+    const module = this.device.createShaderModule({
+      label: 'seg-field-advect-module',
+      code: this.visualizer.shaders.segFieldAdvectShader
+    });
+
+    this.fieldAdvectPipeline = await this.device.createComputePipelineAsync({
+      label: 'seg-field-advect-pipeline',
+      layout: 'auto',
+      compute: { module, entryPoint: 'main' }
+    });
+
+    this.fieldAdvectBindGroup = this.device.createBindGroup({
+      label: 'seg-field-advect-bg',
+      layout: this.fieldAdvectPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.geometry.fieldLineParticles } },
+        { binding: 1, resource: { buffer: this.fieldAdvectUniformBuffer } }
+      ]
+    });
   }
 
   update(deltaTime, qualityScale) {
@@ -147,90 +223,62 @@ class DeviceInstance {
     this.computeManager.updateComputeUniforms(this.visualizer.time, ringIndex, scaledParticleCount, this.speedMult);
 
     if (this.id === 'seg' && this.rollerInstances) {
-      // 3-ring SEG system based on John Searl's design
-      const instanceData = new Float32Array(36 * 12);
       const time = this.visualizer.time;
+      const speedMult = this.speedMult || 1.0;
 
-      // Ring specifications
-      const rings = [
-        { count: 8, radius: 2.5, scale: 0.6, speed: 2.0, index: 0 },   // Inner ring - fastest
-        { count: 12, radius: 4.0, scale: 0.8, speed: 1.0, index: 1 },  // Middle ring - current
-        { count: 16, radius: 5.5, scale: 1.0, speed: 0.5, index: 2 }   // Outer ring - slowest
-      ];
+      // Write GPU compute uniforms BEFORE the compute pass is dispatched.
+      // `time` is already speed-scaled by the visualizer; the shader uses it
+      // directly so there is no double-multiplication.
+      if (this.rollerComputeUniformBuffer) {
+        this.device.queue.writeBuffer(
+          this.rollerComputeUniformBuffer, 0,
+          new Float32Array([time, speedMult, 0, 0])
+        );
+      }
+      if (this.fieldAdvectUniformBuffer && this.geometry.fieldLineParticles) {
+        this.device.queue.writeBuffer(
+          this.fieldAdvectUniformBuffer, 0,
+          new Float32Array([time, speedMult, this.fieldLineCount, 0])
+        );
+      }
 
-      // Check if we should mirror real hardware phase
+      // Lightweight CPU coil-energy calculation.
+      // We only need 36 (x, z) pairs — no quaternions, no colour lookup, no
+      // buffer write — so the tight inner-loop is ~10× cheaper than before.
       const hw = this.visualizer.hardwareBridge;
       const useHardware = hw?.isConnected && hw?.mirrorEnabled;
       const hardwarePhaseRad = useHardware ? (hw.actualPhase * Math.PI / 180) : null;
 
+      const rings = [
+        { count: 8,  radius: 2.5, speed: 2.0, index: 0 },
+        { count: 12, radius: 4.0, speed: 1.0, index: 1 },
+        { count: 16, radius: 5.5, speed: 0.5, index: 2 }
+      ];
+
+      // Compact roller positions: [x0,z0, x1,z1, ..., x35,z35] — reuse pre-allocated buffer
+      const rollerPositions = this._rollerPositions;
       let rollerOffset = 0;
-
       for (const ring of rings) {
-        // Per-ring startup ramp: inner ring spins up fastest
         const startupRamp = Math.min(time * (0.25 + ring.index * 0.1), 1.0);
-
         for (let i = 0; i < ring.count; i++) {
-          const idx = rollerOffset * 12;
-
-          // Per-roller speed jitter: subtle variation so motion feels organic, not mechanical
-          const jitterNoise = Math.sin((rollerOffset * 127.3 + ring.index * 53.7));
+          const jitterNoise = Math.sin(rollerOffset * 127.3 + ring.index * 53.7);
           const speedJitter = 1.0 + 0.04 * Math.sin(time * 1.3 + jitterNoise * 12.7);
-
-          // Orbital position around the central axis
           let angle;
           if (useHardware) {
-            // Map hardware phase to this roller's position in the ring
             angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad * ring.speed;
           } else {
-            // Apply speed jitter and startup ramp for organic feel
             angle = (i / ring.count) * Math.PI * 2
                   + time * 0.5 * ring.speed * speedJitter * startupRamp
-                  + ring.index * 0.22;   // slight per-ring phase offset
+                  + ring.index * 0.22;
           }
-
-          // Position in toroidal ring
-          instanceData[idx] = Math.cos(angle) * ring.radius;     // x
-          instanceData[idx + 1] = 0;                              // y
-          instanceData[idx + 2] = Math.sin(angle) * ring.radius;  // z
-
-          // Roller self-rotation (gear-like rolling motion)
-          const gearRatio = ring.radius / ring.scale;
-          const selfRotAngle = angle * gearRatio * 0.5;
-
-          // Calculate proper rotation quaternion for rolling motion
-          const tangentAngle = angle + Math.PI / 2;
-          const rollAxisX = Math.cos(tangentAngle);
-          const rollAxisZ = Math.sin(tangentAngle);
-
-          // Store ring index and rotation
-          instanceData[idx + 3] = ring.index;                     // ringIndex
-          instanceData[idx + 4] = rollAxisX * Math.sin(selfRotAngle / 2);
-          instanceData[idx + 5] = 0;
-          instanceData[idx + 6] = rollAxisZ * Math.sin(selfRotAngle / 2);
-          instanceData[idx + 7] = Math.cos(selfRotAngle / 2);
-
-          // Alternating pole-band colors per roller (copper / oxide / neodymium / brass)
-          const colorIdx = (i + ring.index * 3) % 4;
-          const poleColors = [
-            [0.85, 0.48, 0.22], // Fresh copper (N pole)
-            [0.55, 0.30, 0.15], // Copper oxide (S pole)
-            [0.72, 0.74, 0.76], // Neodymium silver
-            [0.78, 0.58, 0.22], // Brass
-          ];
-          const color = poleColors[colorIdx];
-          instanceData[idx + 8] = color[0];
-          instanceData[idx + 9] = color[1];
-          instanceData[idx + 10] = color[2];
-          // Neodymium bands get slight emissive glow
-          instanceData[idx + 11] = colorIdx === 2 ? 0.3 : 0.0;
-
+          rollerPositions[rollerOffset * 2]     = Math.cos(angle) * ring.radius;
+          rollerPositions[rollerOffset * 2 + 1] = Math.sin(angle) * ring.radius;
           rollerOffset++;
         }
       }
-      this.device.queue.writeBuffer(this.rollerInstances, 0, instanceData);
 
-      // Update pickup coil energy levels based on roller positions
-      this.updatePickupCoilEnergies(instanceData);
+      // Update pickup coil energy levels from compact positions
+      this.updatePickupCoilEnergies(rollerPositions, true);
 
       // Update electromagnet coil activation visualization
       this.updateElectromagnetCoils();
@@ -333,7 +381,14 @@ class DeviceInstance {
     this.device.queue.writeBuffer(this.electromagnetInstances, 0, instanceData);
   }
 
-  updatePickupCoilEnergies(rollerData) {
+  /**
+   * Update pickup coil energy levels from roller positions.
+   * @param {Float32Array} rollerData  Either:
+   *   - compact=false (legacy): 36×12 floats, x at [r*12], z at [r*12+2]
+   *   - compact=true (new GPU path): 36×2 floats, [x0,z0, x1,z1, ...]
+   * @param {boolean} compact  True when using the lightweight 2-float-per-roller layout.
+   */
+  updatePickupCoilEnergies(rollerData, compact = false) {
     if (!this.coilInstances) return;
 
     const numCoils = 24;
@@ -358,8 +413,8 @@ class DeviceInstance {
 
       // Check all 36 rollers (3 rings: 8 + 12 + 16)
       for (let r = 0; r < 36; r++) {
-        const rollerX = rollerData[r * 12];
-        const rollerZ = rollerData[r * 12 + 2];
+        const rollerX = compact ? rollerData[r * 2]     : rollerData[r * 12];
+        const rollerZ = compact ? rollerData[r * 2 + 1] : rollerData[r * 12 + 2];
 
         const dx = coilX - rollerX;
         const dz = coilZ - rollerZ;
@@ -399,10 +454,8 @@ class DeviceInstance {
 
     this.device.queue.writeBuffer(this.coilInstances, 0, coilInstanceData);
 
-    // Update field line particles
-    if (this.fieldLineParticles && this.fieldLineEnabled) {
-      this.updateFieldLines(0.016);
-    }
+    // Field-line particles are now animated by the GPU field-advect compute
+    // shader dispatched in the compute pass; no CPU updateFieldLines() call needed.
 
     // Update energy arcs
     if (this.arcSegments && this.energyArcEnabled) {
@@ -410,6 +463,10 @@ class DeviceInstance {
     }
   }
 
+  /**
+   * CPU fallback for field line animation (used when GPU field-advect pipeline
+   * is not yet ready, e.g. during first frame before async pipeline creation).
+   */
   updateFieldLines(deltaTime) {
     // Animate field line particles flowing along magnetic field lines
     const fieldData = new Float32Array(this.fieldLineCount * 8);
@@ -446,6 +503,41 @@ class DeviceInstance {
     }
 
     this.device.queue.writeBuffer(this.fieldLineParticles, 0, fieldData);
+  }
+
+  /**
+   * Animate energy arc particles (called when arcSegments is non-null).
+   * Distributes short arc segments around the stator coil ring.
+   */
+  updateEnergyArcs() {
+    if (!this.arcSegments) return;
+    const arcCount = 200;
+    const arcData = new Float32Array(arcCount * 8);
+    const time = this.visualizer.time;
+    const speedMult = this.speedMult || 1.0;
+
+    for (let i = 0; i < arcCount; i++) {
+      const idx = i * 8;
+      // Spread arcs around the outer coil ring
+      const arcAngle = (i / arcCount) * Math.PI * 2 + time * 0.3 * speedMult;
+      const arcRadius = 5.5 + (Math.random() - 0.5) * 0.8;
+      const arcHeight = (Math.random() - 0.5) * 0.6;
+
+      arcData[idx]     = Math.cos(arcAngle) * arcRadius;
+      arcData[idx + 1] = arcHeight;
+      arcData[idx + 2] = Math.sin(arcAngle) * arcRadius;
+
+      // Velocity: outward radial
+      arcData[idx + 3] = Math.cos(arcAngle) * 0.5;
+      arcData[idx + 4] = 0.1;
+      arcData[idx + 5] = Math.sin(arcAngle) * 0.5;
+
+      // Life and intensity
+      arcData[idx + 6] = Math.sin(time * 5.0 * speedMult + i * 0.3) * 0.5 + 0.5;
+      arcData[idx + 7] = Math.min(1.0, 0.4 + 0.6 * speedMult * 0.2);
+    }
+
+    this.device.queue.writeBuffer(this.arcSegments, 0, arcData);
   }
 
   render(renderPass, globalUniformBuffer, skipEffects = false) {

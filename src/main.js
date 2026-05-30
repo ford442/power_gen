@@ -8,6 +8,7 @@ import bloomCompositeCode from './shaders/bloom-composite.wgsl?raw';
 import { SEGIntegrationManager } from './integration';
 import { ValidatedConstants } from './ValidatedConstants';
 import { SEGSim } from './wasm/sim';
+import { MultiDeviceVisualizer } from './multi-device-visualizer.js';
 
 class SEGVisualizer {
   constructor() {
@@ -1300,7 +1301,9 @@ class SEGVisualizer {
 let visualizer;
 
 window.setMode = (mode) => {
-  if (visualizer) visualizer.onModeChange(mode);
+  // Prefer multi-device visualizer if active, fall back to single-device
+  if (window.multiVisualizer) window.multiVisualizer.onModeChange(mode);
+  else if (visualizer) visualizer.onModeChange(mode);
   document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
   document.getElementById('btn-' + mode).classList.add('active');
 
@@ -1384,6 +1387,13 @@ async function initWasm() {
 }
 
 window.addEventListener('load', () => {
-  visualizer = new SEGVisualizer();
+  // MultiDeviceVisualizer is the primary renderer for the multi-device SEG visualization.
+  // SEGVisualizer is kept as fallback for single-device mode when multi-device init fails.
+  try {
+    window.multiVisualizer = new MultiDeviceVisualizer();
+  } catch (e) {
+    console.warn('[main] MultiDeviceVisualizer failed to construct, falling back to SEGVisualizer:', e);
+    visualizer = new SEGVisualizer();
+  }
   initWasm();
 });

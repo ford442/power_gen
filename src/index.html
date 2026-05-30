@@ -213,6 +213,58 @@
     #corner-tr { top: 8px; right: 8px; text-align: right; }
     #corner-bl { bottom: 8px; left: 8px; }
 
+    /* ── Tachometer overlay ────────────────────────────────────────────── */
+    #tachometer {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      width: 140px;
+      background: rgba(0, 8, 16, 0.78);
+      border: 1px solid #0ff3;
+      border-radius: 4px;
+      padding: 5px 8px 6px;
+      pointer-events: none;
+      font-family: monospace;
+      font-size: 0.62rem;
+      color: #0aa;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    #tachometer .tach-title {
+      font-size: 0.58rem;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #0ff8;
+    }
+    #tachometer .tach-track {
+      width: 100%;
+      height: 8px;
+      background: rgba(0, 255, 255, 0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #tachometer .tach-fill {
+      height: 100%;
+      width: 5%;
+      border-radius: 2px;
+      transition: width 0.1s ease, background 0.3s ease;
+      background: hsl(120, 100%, 50%);
+    }
+    #tachometer .tach-fill.overdrive {
+      animation: overdrivePulse 0.4s ease-in-out infinite alternate;
+    }
+    @keyframes overdrivePulse {
+      from { filter: brightness(1.0); }
+      to   { filter: brightness(2.2) drop-shadow(0 0 4px currentColor); }
+    }
+    #tachometer .tach-label {
+      font-size: 0.75rem;
+      font-weight: bold;
+      color: hsl(120, 100%, 65%);
+      text-align: right;
+    }
+
     /* ── Right telemetry panel ─────────────────────────── */
     #right-panel {
       width: 200px;
@@ -390,7 +442,7 @@
       <div class="panel-section">
         <h3>Drive Parameters</h3>
         <div class="slider-row">
-          <label>Speed <span id="speedVal">0</span>%</label>
+          <label>Speed <span id="speedVal">1.00×</span></label>
           <input type="range" id="speedControl" min="0" max="100" step="1" value="50">
         </div>
         <div class="slider-row">
@@ -455,6 +507,14 @@
       <div class="corner-label" id="corner-tl">SEG WebGPU v2.0</div>
       <div class="corner-label" id="corner-tr">Drag to orbit · Scroll to zoom</div>
       <div class="corner-label" id="corner-bl">Mode: <span id="modeLabel">SEG</span></div>
+      <!-- Tachometer: shows current simulation speed multiplier -->
+      <div id="tachometer">
+        <div class="tach-title">Sim Speed</div>
+        <div class="tach-track">
+          <div class="tach-fill"></div>
+        </div>
+        <div class="tach-label">1.00×</div>
+      </div>
     </div>
 
     <!-- Right telemetry panel -->
