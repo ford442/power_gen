@@ -87,7 +87,7 @@ export class MultiDeviceShaders {
     `;
   }
   
-  // Roller fragment shader with copper material + green underglow
+  // Roller fragment shader with PBR metallic material + green underglow
   get rollerFragShader() {
     return /* wgsl */ `
       struct MaterialUniforms {
@@ -106,32 +106,102 @@ export class MultiDeviceShaders {
         @location(3) greenEmissive: f32,
         @location(4) ringIndex: f32
       }
+
+      // PBR functions
+      fn fresnelSchlick(cosTheta: f32, f0: vec3f) -> vec3f {
+        return f0 + (vec3f(1.0) - f0) * pow(1.0 - cosTheta, 5.0);
+      }
+
+      fn distributionGGX(NdotH: f32, roughness: f32) -> f32 {
+        let a = roughness * roughness;
+        let a2 = a * a;
+        let denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+        return a2 / (3.14159265 * denom * denom);
+      }
+
+      fn geometrySmith(NdotV: f32, NdotL: f32, roughness: f32) -> f32 {
+        let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+        let ggx1 = NdotV / (NdotV * (1.0 - k) + k);
+        let ggx2 = NdotL / (NdotL * (1.0 - k) + k);
+        return ggx1 * ggx2;
+      }
+
+      fn hash3(p: vec3f) -> vec3f {
+        let q = vec3f(
+          dot(p, vec3f(127.1, 311.7, 74.7)),
+          dot(p, vec3f(269.5, 183.3, 246.1)),
+          dot(p, vec3f(113.5, 271.9, 124.6))
+        );
+        return fract(sin(q) * 43758.5453);
+      }
+
+      fn surfaceVariation(worldPos: vec3f, scale: f32) -> f32 {
+        let h = hash3(floor(worldPos * scale));
+        return h.x * 0.15 + h.y * 0.1;
+      }
       
       @fragment
       fn main(input: FragmentInput) -> @location(0) vec4f {
-        let normal = normalize(input.normal);
+        let N = normalize(input.normal);
+        let V = normalize(vec3f(0.0, 5.0, 10.0) - input.worldPos);
+        let NdotV = max(dot(N, V), 0.0);
         
-        // View direction
-        let viewDir = normalize(vec3f(0.0, 5.0, 10.0) - input.worldPos);
-        
-        // Basic lighting
-        let lightDir = normalize(vec3f(1.0, 1.0, 1.0));
-        let diff = max(dot(normal, lightDir), 0.0);
-        let ambient = 0.3;
-        
-        // Copper material color
+        // Copper material properties
         let copper = input.copperColor;
-        
-        // Specular highlight for metallic look
-        let halfDir = normalize(lightDir + viewDir);
-        let spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
-        
-        // Base copper color with lighting
-        var color = copper * (ambient + diff * 0.7) + vec3f(1.0) * spec * 0.5;
+        let metallic = 0.95;
+        let roughness = 0.30;
+
+        // Add micro-surface variation
+        let variation = surfaceVariation(input.worldPos, 8.0);
+        let baseColor = copper * (0.92 + variation);
+        let adjustedRoughness = clamp(roughness + variation * 0.1, 0.05, 1.0);
+
+        // PBR common
+        let f0 = mix(vec3f(0.04), baseColor, metallic);
+        let albedo = mix(baseColor, vec3f(0.0), metallic);
+
+        // Key light (main directional)
+        let L1 = normalize(vec3f(1.0, 1.0, 1.0));
+        let H1 = normalize(V + L1);
+        let NdotL1 = max(dot(N, L1), 0.0);
+        let NdotH1 = max(dot(N, H1), 0.0);
+        let D1 = distributionGGX(NdotH1, adjustedRoughness);
+        let G1 = geometrySmith(NdotV, NdotL1, adjustedRoughness);
+        let F1 = fresnelSchlick(max(dot(H1, V), 0.0), f0);
+        let specular1 = (D1 * G1 * F1) / (4.0 * NdotV * NdotL1 + 0.001);
+        let kD1 = (vec3f(1.0) - F1) * (1.0 - metallic);
+
+        // Fill light (softer, opposite side)
+        let L2 = normalize(vec3f(-0.5, 0.3, -0.5));
+        let H2 = normalize(V + L2);
+        let NdotL2 = max(dot(N, L2), 0.0);
+        let NdotH2 = max(dot(N, H2), 0.0);
+        let D2 = distributionGGX(NdotH2, adjustedRoughness);
+        let G2 = geometrySmith(NdotV, NdotL2, adjustedRoughness);
+        let F2 = fresnelSchlick(max(dot(H2, V), 0.0), f0);
+        let specular2 = (D2 * G2 * F2) / (4.0 * NdotV * NdotL2 + 0.001);
+        let kD2 = (vec3f(1.0) - F2) * (1.0 - metallic);
+
+        // Rim light
+        let rimFactor = pow(1.0 - NdotV, 3.0) * 0.6;
+        let rimLight = vec3f(0.4, 0.5, 0.6) * rimFactor;
+
+        // Combine
+        let diffuse = albedo * 3.14159265 * (
+          kD1 * NdotL1 * vec3f(1.0, 0.95, 0.9) * 1.2 +
+          kD2 * NdotL2 * vec3f(0.6, 0.7, 0.9) * 0.4
+        );
+
+        let specular = (
+          specular1 * vec3f(1.0, 0.95, 0.9) * 1.2 * NdotL1 +
+          specular2 * vec3f(0.6, 0.7, 0.9) * 0.4 * NdotL2
+        );
+
+        let ambient = albedo * 0.3 * vec3f(0.15, 0.18, 0.22);
+        var color = ambient + diffuse + specular + rimLight;
         
         // GREEN EMISSIVE GLOW on bottom half of roller (LED underglow effect)
-        // worldNormal.y < 0 means bottom half
-        let bottomGlow = max(0.0, -normal.y) * input.greenEmissive * 1.8;
+        let bottomGlow = max(0.0, -N.y) * input.greenEmissive * 1.8;
         let greenGlow = vec3f(0.0, 1.2, 0.6) * bottomGlow;
         
         // Add material emission
@@ -139,6 +209,9 @@ export class MultiDeviceShaders {
         
         // Add the green LED underglow
         color = color + greenGlow;
+
+        // ACES tonemapping
+        color = color * (2.51 * color + 0.03) / (color * (2.43 * color + 0.59) + 0.14);
         
         return vec4f(color, 1.0);
       }
@@ -812,6 +885,28 @@ export class MultiDeviceShaders {
         return h.x * 0.15 + h.y * 0.1;
       }
 
+      // FBM noise for copper oxidation variation
+      fn oxidationFBM(p: vec3f) -> f32 {
+        var value = 0.0;
+        var amplitude = 0.5;
+        var pos = p;
+        for (var i = 0; i < 4; i++) {
+          let h = hash3(floor(pos * 3.0));
+          value += (h.x * 2.0 - 1.0) * amplitude;
+          pos = pos * 2.1 + vec3f(1.7, 2.3, 0.9);
+          amplitude *= 0.5;
+        }
+        return value * 0.5 + 0.5; // Normalize to [0,1]
+      }
+
+      // Anisotropic GGX for brushed-metal specular
+      fn distributionGGXAniso(NdotH: f32, TdotH: f32, BdotH: f32, roughX: f32, roughY: f32) -> f32 {
+        let ax = roughX * roughX;
+        let ay = roughY * roughY;
+        let d = (TdotH * TdotH) / (ax * ax) + (BdotH * BdotH) / (ay * ay) + NdotH * NdotH;
+        return 1.0 / (3.14159265 * ax * ay * d * d);
+      }
+
       fn fresnelSchlick(cosTheta: f32, f0: vec3f) -> vec3f {
         return f0 + (vec3f(1.0) - f0) * pow(1.0 - cosTheta, 5.0);
       }
@@ -851,10 +946,12 @@ export class MultiDeviceShaders {
         var metallic: f32;
         var roughness: f32;
         var emissive: f32;
+        var isCopper = false;
 
         if (input.bandIndex >= 0.0 && input.bandIndex < 6.0) {
           baseColor = poleBandColor(input.bandIndex, input.copperColor);
           let isNeodymium = (u32(input.bandIndex) % 4u) == 2u;
+          isCopper = (u32(input.bandIndex) % 4u) == 0u || (u32(input.bandIndex) % 4u) == 1u;
           metallic = select(0.95, 0.88, isNeodymium);
           roughness = select(0.30, 0.20, isNeodymium);
           emissive = select(0.0, 0.15, isNeodymium);
@@ -873,30 +970,54 @@ export class MultiDeviceShaders {
           metallic = 0.95;
           roughness = 0.30;
           emissive = input.greenEmissive;
+          isCopper = true;
+        }
+
+        // Oxidation FBM noise on copper surfaces
+        if (isCopper) {
+          let oxidation = oxidationFBM(input.worldPos * 2.5);
+          let oxidizedColor = vec3f(0.35, 0.55, 0.40); // Green patina
+          baseColor = mix(baseColor, oxidizedColor, oxidation * 0.15);
+          roughness = clamp(roughness + oxidation * 0.12, 0.05, 1.0);
         }
 
         let variation = surfaceVariation(input.worldPos, 8.0);
         baseColor = baseColor * (0.92 + variation);
         roughness = clamp(roughness + variation * 0.1, 0.05, 1.0);
 
+        // Construct tangent/bitangent for anisotropic specular (brushed-metal)
+        let upRef = select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(N.y) > 0.99);
+        let T = normalize(cross(upRef, N));
+        let B = cross(N, T);
+
+        // Anisotropic roughness (brushed along tangent direction)
+        let roughX = roughness * 0.7; // Tighter along brush direction
+        let roughY = roughness * 1.3; // Wider perpendicular to brush
+
         let f0 = mix(vec3f(0.04), baseColor, metallic);
         let albedo = mix(baseColor, vec3f(0.0), metallic);
 
+        // Key light with anisotropic specular
         let L1 = normalize(-lighting.keyDir);
         let H1 = normalize(V + L1);
         let NdotL1 = max(dot(N, L1), 0.0);
         let NdotH1 = max(dot(N, H1), 0.0);
-        let D1 = distributionGGX(NdotH1, roughness);
+        let TdotH1 = dot(T, H1);
+        let BdotH1 = dot(B, H1);
+        let D1 = distributionGGXAniso(NdotH1, TdotH1, BdotH1, roughX, roughY);
         let G1 = geometrySmith(NdotV, NdotL1, roughness);
         let F1 = fresnelSchlick(max(dot(H1, V), 0.0), f0);
         let specular1 = (D1 * G1 * F1) / (4.0 * NdotV * NdotL1 + 0.001);
         let kD1 = (vec3f(1.0) - F1) * (1.0 - metallic);
 
+        // Fill light with anisotropic specular
         let L2 = normalize(-lighting.fillDir);
         let H2 = normalize(V + L2);
         let NdotL2 = max(dot(N, L2), 0.0);
         let NdotH2 = max(dot(N, H2), 0.0);
-        let D2 = distributionGGX(NdotH2, roughness);
+        let TdotH2 = dot(T, H2);
+        let BdotH2 = dot(B, H2);
+        let D2 = distributionGGXAniso(NdotH2, TdotH2, BdotH2, roughX, roughY);
         let G2 = geometrySmith(NdotV, NdotL2, roughness);
         let F2 = fresnelSchlick(max(dot(H2, V), 0.0), f0);
         let specular2 = (D2 * G2 * F2) / (4.0 * NdotV * NdotL2 + 0.001);
@@ -915,8 +1036,11 @@ export class MultiDeviceShaders {
           specular2 * lighting.fillColor * lighting.fillIntensity * NdotL2 * 0.3
         );
 
+        // Cheap IBL approximation (environment reflection term)
+        let envReflect = fresnelSchlick(NdotV, f0) * lighting.envMapStrength * 0.3;
+
         let ambient = albedo * lighting.ambient * vec3f(0.15, 0.18, 0.22);
-        var color = ambient + diffuse + specular + rimLight;
+        var color = ambient + diffuse + specular + rimLight + envReflect;
 
         let bottomGlow = max(0.0, -N.y) * input.greenEmissive * 1.5;
         color += vec3f(0.0, 1.0, 0.5) * bottomGlow;
@@ -926,7 +1050,6 @@ export class MultiDeviceShaders {
         color += vec3f(0.3, 0.8, 1.0) * energyArc * NdotV;
 
         // Contact shadow / ambient-occlusion hint: darken surfaces near Y = 0
-        // (where rollers meet the base), giving a grounded sense of depth.
         let contactAO = 0.55 + 0.45 * smoothstep(0.0, 2.2, abs(input.worldPos.y));
         color *= contactAO;
 

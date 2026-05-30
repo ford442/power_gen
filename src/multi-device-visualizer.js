@@ -494,6 +494,22 @@ class MultiDeviceVisualizer {
     this.coilWindingBuffer = generateCoilWithWindings(this.device, {
       majorRadius: 7.5, minorRadius: 0.6, turns: 60, majorSegments: 96
     });
+
+    // Stator ring cylinder with UVs (for enhanced PBR pipeline)
+    const statorCylData = this.generateCylinderWithUVs(1.0, 0.22, 64);
+    const statorCylVB = this.device.createBuffer({ size: statorCylData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(statorCylVB, 0, statorCylData.vertices);
+    const statorCylIB = this.device.createBuffer({ size: statorCylData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(statorCylIB, 0, statorCylData.indices);
+    this.statorRingUVBuffer = { vertexBuffer: statorCylVB, indexBuffer: statorCylIB, indexCount: statorCylData.indices.length };
+
+    // Wiring cylinder with UVs (for enhanced PBR pipeline)
+    const wireCylData = this.generateCylinderWithUVs(0.15, 2.0, 16);
+    const wireCylVB = this.device.createBuffer({ size: wireCylData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(wireCylVB, 0, wireCylData.vertices);
+    const wireCylIB = this.device.createBuffer({ size: wireCylData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(wireCylIB, 0, wireCylData.indices);
+    this.wiringUVBuffer = { vertexBuffer: wireCylVB, indexBuffer: wireCylIB, indexCount: wireCylData.indices.length };
   }
 
   async setupFloorGrid() {
