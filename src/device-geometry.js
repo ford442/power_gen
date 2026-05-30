@@ -15,9 +15,26 @@ export class DeviceGeometry {
     await this.setupCore();
     await this.setupParticles();
     await this.setupFieldLines();
+    await this.setupFluxLineBuffer();
     await this.setupEnergyArcs();
     await this.setupWiring();
     await this.setupElectromagnets();
+  }
+
+  async setupFluxLineBuffer() {
+    // 108 lines × 100 segments × 32 bytes per FluxSegment
+    // (FluxSegment: startPos vec3f + @align(4) endPos vec3f + strength f32 + age f32 = 32 B)
+    const TOTAL_SEGMENTS = 10800;
+    this.fluxSegmentBuffer = this.device.createBuffer({
+      label: 'flux-segment-buffer',
+      size: TOTAL_SEGMENTS * 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(
+      `device-${this.id}-flux-segments`,
+      TOTAL_SEGMENTS * 32,
+      GPUBufferUsage.STORAGE
+    );
   }
 
   async setupBase() {

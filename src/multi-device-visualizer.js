@@ -809,6 +809,15 @@ export class MultiDeviceVisualizer {
         const fieldWorkgroups = Math.ceil(segDevice.fieldLineCount / 64);
         computePass.dispatchWorkgroups(fieldWorkgroups);  // 19 workgroups × 64 = 1216 threads
       }
+      // RK4 flux line tracer: 2 workgroups × 64 threads = 128 threads, 108 active.
+      // Each thread traces one complete bidirectional flux line (100 RK4 steps).
+      // Skipped at low quality to preserve frame budget on weaker GPUs.
+      if (segDevice.fluxTracerPipeline && segDevice.fluxTracerBindGroup &&
+          this.profiler.qualityLevel > 0.4) {
+        computePass.setPipeline(segDevice.fluxTracerPipeline);
+        computePass.setBindGroup(0, segDevice.fluxTracerBindGroup);
+        computePass.dispatchWorkgroups(2);  // ceil(108 / 64) = 2
+      }
     }
 
     for (const device of Object.values(this.devices)) {
