@@ -1,3 +1,7 @@
+// Matches TOTAL_FLUX_LINES × SEGMENTS_PER_LINE constants in flux-lines.wgsl
+// (108 lines × 100 segments). Update both if the WGSL constants change.
+const FLUX_TOTAL_SEGMENTS = 10800;
+
 export class DeviceGeometry {
   constructor(device, id, config, visualizer) {
     this.device = device;
@@ -24,15 +28,15 @@ export class DeviceGeometry {
   async setupFluxLineBuffer() {
     // 108 lines × 100 segments × 32 bytes per FluxSegment
     // (FluxSegment: startPos vec3f + @align(4) endPos vec3f + strength f32 + age f32 = 32 B)
-    const TOTAL_SEGMENTS = 10800;
+    this.fluxTotalSegments = FLUX_TOTAL_SEGMENTS;
     this.fluxSegmentBuffer = this.device.createBuffer({
       label: 'flux-segment-buffer',
-      size: TOTAL_SEGMENTS * 32,
+      size: FLUX_TOTAL_SEGMENTS * 32,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     this.visualizer.profiler.trackBuffer(
       `device-${this.id}-flux-segments`,
-      TOTAL_SEGMENTS * 32,
+      FLUX_TOTAL_SEGMENTS * 32,
       GPUBufferUsage.STORAGE
     );
   }

@@ -209,6 +209,9 @@ class DeviceInstance {
    * Uses `traceBidirectional` entry point from flux-lines.wgsl:
    * 1 thread per flux line (108 lines → 2 workgroups × 64 threads).
    * Each thread traces 50 steps forward + 50 backward via RK4 integration.
+   *
+   * Also pre-creates `fluxSegmentRenderBindGroup` so the render loop can
+   * reuse it every frame without a per-frame allocation.
    */
   async setupFluxLineTracer() {
     // FluxUniforms: time, deltaTime, integrationStep, lineOpacity, seedRadius, followStrength, _pad
@@ -236,6 +239,19 @@ class DeviceInstance {
       entries: [
         { binding: 0, resource: { buffer: this.geometry.fluxSegmentBuffer } },
         { binding: 1, resource: { buffer: this.fluxTracerUniformBuffer } }
+      ]
+    });
+
+    // Pre-create the render bind group so render() can reuse it every frame.
+    // globalUniformBuffer and deviceUniformBuffer never change buffer identity
+    // (only their contents are updated via writeBuffer), so this is safe.
+    this.fluxSegmentRenderBindGroup = this.device.createBindGroup({
+      label: 'flux-segment-render-bg',
+      layout: this.pipelineManager.fluxSegmentPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.visualizer.globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: this.geometry.fluxSegmentBuffer } }
       ]
     });
   }
@@ -733,21 +749,12 @@ class DeviceInstance {
     // Render RK4 flux line segments (physically accurate, |B|-driven color).
     // Replaces the legacy circular-path field line render with physically
     // traced billboard quads.  Falls back gracefully if pipeline is absent.
-    if (this.id === 'seg' && this.geometry.fluxSegmentBuffer && this.pipelineManager.fluxSegmentPipeline && this.fieldLineEnabled && !skipEffects) {
+    if (this.id === 'seg' && this.fluxSegmentRenderBindGroup && this.pipelineManager.fluxSegmentPipeline && this.fieldLineEnabled && !skipEffects) {
       const qualityScale = this.visualizer.profiler.qualityLevel;
-      const totalSegments = Math.floor(10800 * qualityScale);
-
-      const fluxBindGroup = this.device.createBindGroup({
-        layout: this.pipelineManager.fluxSegmentPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 2, resource: { buffer: this.geometry.fluxSegmentBuffer } }
-        ]
-      });
+      const totalSegments = Math.floor(this.geometry.fluxTotalSegments * qualityScale);
 
       renderPass.setPipeline(this.pipelineManager.fluxSegmentPipeline);
-      renderPass.setBindGroup(0, fluxBindGroup);
+      renderPass.setBindGroup(0, this.fluxSegmentRenderBindGroup);
       renderPass.draw(4, totalSegments);
     } else if (this.id === 'seg' && this.fieldLineParticles && this.fieldLineEnabled && !skipEffects) {
       // Fallback: legacy circular-path field line particles
