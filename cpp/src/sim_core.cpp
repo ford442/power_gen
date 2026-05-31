@@ -15,6 +15,7 @@
 
 #ifdef __EMSCRIPTEN__
 #  include <emscripten/bind.h>
+#  include <string>
 using namespace emscripten;
 #endif
 
@@ -361,7 +362,11 @@ EMSCRIPTEN_BINDINGS(sim_core) {
     function("magneticDipoleField", &magneticDipoleField);
     function("magneticDipoleForce", &magneticDipoleForce);
     function("axialBField",         &axialBField);
-    function("sim_core_version",    &sim_core_version);
+    // Wrap raw `const char*` returns in std::string — embind cannot bind raw
+    // pointers implicitly (returns a JS string instead).
+    function("sim_core_version", optional_override([]() -> std::string {
+        return std::string(sim_core_version());
+    }));
 
     // ── SEGSimulator class ────────────────────────────────────
     class_<SEGSimulator>("SEGSimulator")
@@ -379,7 +384,9 @@ EMSCRIPTEN_BINDINGS(sim_core) {
         .function("estimatePower",         &SEGSimulator::estimatePower)
         .function("magneticEnergyDensity", &SEGSimulator::magneticEnergyDensity)
         .function("getParticle",           &SEGSimulator::getParticle)
-        .class_function("version",         &SEGSimulator::version);
+        .class_function("version", optional_override([]() -> std::string {
+            return std::string(SEGSimulator::version());
+        }));
 }
 
 #endif // __EMSCRIPTEN__
