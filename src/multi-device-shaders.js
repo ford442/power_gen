@@ -277,20 +277,38 @@ export class MultiDeviceShaders {
           let stamp = step(0.74, fract(cylUV.x * 14.0 + triMask * 0.5));
           decalMask += labelBand * stamp * 0.7;
           let meniscus = smoothstep(0.47, 0.50, cylUV.y) * (1.0 - smoothstep(0.50, 0.54, cylUV.y));
-          baseColor = mix(baseColor, vec3f(0.86, 0.92, 0.97), meniscus * 0.35);
+          let causticBands = 0.5 + 0.5 * sin(cylUV.x * 48.0 + uniforms.time * 2.1 + triMask * 2.0);
+          baseColor = mix(baseColor, vec3f(0.86, 0.92, 0.97), meniscus * (0.28 + energy * 0.25));
+          baseColor += vec3f(0.12, 0.22, 0.30) * causticBands * pow(energy, 1.3) * 0.32;
+          metallic = mix(metallic, 0.08, 0.7);
+          roughness = mix(roughness, 0.10, 0.55 + energy * 0.25);
         } else if (mode == 2) {
           let canBand = smoothstep(0.30, 0.34, cylUV.y) * (1.0 - smoothstep(0.66, 0.70, cylUV.y));
           let stripe = step(0.82, fract(cylUV.x * 28.0));
           decalMask += canBand * stripe * 0.65;
+          let dripTip = smoothstep(0.86, 0.90, cylUV.y) * (1.0 - smoothstep(0.95, 0.99, cylUV.y));
+          baseColor = mix(baseColor, vec3f(0.78, 0.82, 0.88), dripTip * (0.35 + energy * 0.45));
         } else if (mode == 3) {
           let lens = sin(cylUV.x * 180.0) * sin(cylUV.y * 160.0);
-          detailN = normalize(detailN + vec3f(0.0, lens * 0.10, 0.0));
+          detailN = normalize(detailN + vec3f(0.0, lens * 0.14, 0.0));
           baseColor += vec3f(0.05, 0.08, 0.11) * (lens * 0.5 + 0.5);
+          let thermalGradient = clamp(cylUV.y * 1.15 - 0.1, 0.0, 1.0);
+          baseColor = mix(baseColor, vec3f(0.35, 0.16, 0.08), thermalGradient * device.batteryCharge * 0.33);
         } else if (mode == 4) {
           let grid = fract(cylUV * vec2f(18.0, 10.0));
           let junction = step(0.92, grid.x) + step(0.92, grid.y);
           decalMask += min(junction, 1.0) * 0.55;
           baseColor = mix(baseColor, vec3f(0.70, 0.20, 0.14), junction * 0.18);
+          let traceRaw = abs(sin(localPos.x * 9.0 + localPos.y * 6.0 + uniforms.time * 4.0));
+          let traceFw = max(fwidth(traceRaw), 0.01);
+          let trace = 1.0 - smoothstep(0.20 - traceFw, 0.20 + traceFw, traceRaw);
+          baseColor += mix(vec3f(0.90, 0.32, 0.10), vec3f(0.18, 0.58, 1.0), clamp(localPos.y * 0.4 + 0.5, 0.0, 1.0))
+            * trace * pow(energy, 1.35) * 0.30;
+        } else if (mode >= 5) {
+          let channelRaw = abs(sin(localPos.x * 5.0 - localPos.z * 8.5 + uniforms.time * 3.6));
+          let channelFw = max(fwidth(channelRaw), 0.01);
+          let channel = 1.0 - smoothstep(0.26 - channelFw, 0.26 + channelFw, channelRaw);
+          baseColor += vec3f(0.18, 0.72, 1.0) * channel * pow(energy, 1.4) * 0.42;
         }
 
         baseColor = mix(baseColor, vec3f(0.93, 0.93, 0.90), decalMask * 0.35);
@@ -361,17 +379,34 @@ export class MultiDeviceShaders {
 
         if (mode == 2) {
           let coronaPulse = 0.5 + 0.5 * sin(uniforms.time * 10.0 + localPos.y * 4.0);
+          let branchRaw = abs(sin(localPos.y * 7.0 + localPos.x * 3.2 + uniforms.time * 14.0));
+          let branchFw = max(fwidth(branchRaw), 0.015);
+          let branch = 1.0 - smoothstep(0.18 - branchFw, 0.18 + branchFw, branchRaw);
           color += vec3f(0.65, 0.88, 1.2) * overdrive * coronaPulse * 1.4;
+          color += vec3f(0.80, 0.92, 1.18) * branch * pow(energy, 1.5) * 1.1;
         } else if (mode == 1) {
+          let fresnel = pow(1.0 - NdotV, 4.0);
           let shimmer = 0.5 + 0.5 * sin(uniforms.time * 2.3 + cylUV.x * 18.0);
+          let caustic = 0.5 + 0.5 * sin(cylUV.x * 56.0 + uniforms.time * 3.0 + triMask * 3.0);
           color += vec3f(0.40, 0.70, 0.95) * energy * shimmer * 0.35;
+          color += vec3f(0.72, 0.88, 1.0) * fresnel * (0.10 + pow(energy, 1.35) * 0.75);
+          color += vec3f(0.20, 0.45, 0.85) * caustic * pow(energy, 1.4) * 0.28;
         } else if (mode == 3) {
           let thermal = (localPos.y * 0.08 + 0.5) * energy;
+          let fresnel = pow(1.0 - NdotV, 5.0);
+          let lensSparkle = 0.5 + 0.5 * sin(cylUV.x * 240.0 + cylUV.y * 220.0 + uniforms.time * 4.0);
           color += vec3f(1.0, 0.78, 0.36) * clamp(thermal, 0.0, 1.0) * 0.55;
-        } else if (mode >= 4) {
+          color += vec3f(0.35, 0.58, 1.0) * fresnel * (0.12 + device.batteryCharge * 0.65);
+          color += vec3f(1.0, 0.86, 0.52) * lensSparkle * pow(max(energy, device.batteryCharge), 1.45) * 0.20;
+        } else if (mode == 4) {
           let thermoPulse = 0.5 + 0.5 * sin(uniforms.time * 3.5 + localPos.x * 5.0);
           color += mix(vec3f(1.0, 0.25, 0.08), vec3f(0.05, 0.55, 1.0), clamp(localPos.y * 0.3 + 0.5, 0.0, 1.0))
             * energy * thermoPulse * 0.45;
+        } else if (mode >= 5) {
+          let flowRaw = abs(sin(localPos.x * 4.5 - localPos.z * 7.5 + uniforms.time * 5.0));
+          let flowFw = max(fwidth(flowRaw), 0.015);
+          let flowLine = 1.0 - smoothstep(0.24 - flowFw, 0.24 + flowFw, flowRaw);
+          color += vec3f(0.15, 0.68, 1.0) * flowLine * pow(energy, 1.45) * 0.95;
         }
 
         // ACES tonemapping
@@ -477,8 +512,18 @@ export class MultiDeviceShaders {
           return vec3f(sin(t * 2.0 + phase * 9.0), cos(t * 1.5 + phase * 13.0), cos(t * 2.4 + phase * 7.0)) * 0.7;
         } else if (effectType < 3.5) {
           return vec3f(cos(t * 6.0 + phase * 12.0), sin(t * 9.0 + phase * 8.0), 0.0) * 2.5;
+        } else if (effectType < 4.5) {
+          return vec3f(sin(t * 1.3 + phase * 6.0), 0.6 * cos(t * 1.9 + phase * 4.5), cos(t * 1.1 + phase * 7.0)) * 0.5;
+        } else if (effectType < 5.5) {
+          let radial = normalize(vec3f(pos.x, 0.02, pos.z) + vec3f(1e-4, 0.0, 0.0));
+          return radial * (1.2 + phase * 2.6) + vec3f(0.0, 0.08, 0.0);
+        } else if (effectType < 6.5) {
+          let side = select(-1.0, 1.0, fract(phase * 129.0) > 0.5);
+          return vec3f(side * (2.5 + 1.6 * sin(t * 6.5 + phase * 19.0)), sin(t * 12.0 + phase * 21.0) * 1.2, cos(t * 8.0 + phase * 17.0) * 0.9);
+        } else if (effectType < 7.5) {
+          return vec3f(cos(t * 7.0 + phase * 31.0), -1.0 - 0.5 * sin(t * 4.5 + phase * 9.0), sin(t * 6.2 + phase * 27.0)) * 0.45;
         }
-        return vec3f(sin(t * 1.3 + phase * 6.0), 0.6 * cos(t * 1.9 + phase * 4.5), cos(t * 1.1 + phase * 7.0)) * 0.5;
+        return vec3f(0.0, 0.0, 0.0);
       }
       
       @vertex
@@ -524,10 +569,19 @@ export class MultiDeviceShaders {
         } else if (effectType > 1.5 && effectType < 2.5) {
           stretch = 1.2;
           size *= 2.6;
-        } else if (effectType > 3.5) {
+        } else if (effectType > 6.5 && effectType < 7.5) {
+          stretch = 1.6;
+          size *= 1.8;
+        } else if (effectType > 5.5 && effectType < 6.5) {
+          stretch = 3.1;
+          size *= 0.72;
+        } else if (effectType > 4.5 && effectType < 5.5) {
+          stretch = 0.9;
+          size *= 3.2;
+        } else if (effectType > 3.5 && effectType < 4.5) {
           stretch = 1.15;
           size *= 4.0;
-        } else if (effectType > 2.5) {
+        } else if (effectType > 2.5 && effectType < 3.5) {
           stretch = 2.6;
           size *= 0.6;
         }
@@ -606,7 +660,44 @@ export class MultiDeviceShaders {
         let phase = input.particlePhase;
         var color: vec3f;
 
-        if (effectType > 0.5 && effectType < 1.5) {
+        if (effectType > 6.5 && effectType < 7.5) {
+          // Solar refraction caustic photons at panel interface.
+          let core = exp(-dist * dist * 20.0);
+          let halo = exp(-dist * dist * 7.0) * 0.45;
+          alpha = (core + halo) * (0.55 + 0.45 * energy);
+          color = mix(vec3f(0.45, 0.72, 1.0), vec3f(1.0, 0.86, 0.40), 0.5 + 0.5 * sin(t * 5.0 + phase * 17.0));
+        } else if (effectType > 5.5 && effectType < 6.5) {
+          // Kelvin branching discharges (lightning-inspired blue-white channels).
+          let trunk = exp(-abs(uv.x) * 18.0) * exp(-abs(uv.y) * 3.8);
+          let branch = exp(-abs(uv.x + sin(t * 8.0 + phase * 12.0) * 0.35) * 10.0) * exp(-abs(uv.y) * 5.2);
+          let flare = exp(-dist * dist * 16.0) * 0.35;
+          alpha = (trunk + branch * 0.7 + flare) * (0.9 + overdrive * 1.25);
+          color = vec3f(0.75, 0.88, 1.0) * (0.7 + 0.3 * (0.5 + 0.5 * sin(t * 16.0 + phase * 22.0)));
+        } else if (effectType > 4.5 && effectType < 5.5) {
+          // Heron impact ripples: expanding annular profile at basin.
+          let ring = exp(-pow((dist - (0.35 + input.life * 0.45)) * 9.0, 2.0));
+          let center = exp(-dist * dist * 18.0) * 0.25;
+          alpha = (ring + center) * (0.35 + energy * 0.75);
+          color = mix(vec3f(0.18, 0.40, 0.78), vec3f(0.65, 0.85, 1.0), input.life);
+        } else if (effectType > 3.5 && effectType < 4.5) {
+          // Heat-haze veil: broad, low-frequency flicker around high-energy parts.
+          let shell = exp(-dist * dist * 1.8);
+          let wobble = 0.55 + 0.45 * sin(t * 2.2 + phase * 8.0 + uv.x * 6.0);
+          alpha = shell * wobble * (0.08 + energy * 0.22);
+          color = mix(vec3f(1.0, 0.45, 0.15), vec3f(0.25, 0.75, 1.0), clamp(uv.y * 0.5 + 0.5, 0.0, 1.0)) * (0.12 + energy * 0.45);
+        } else if (effectType > 2.5 && effectType < 3.5) {
+          // Filaments: tight electric strands.
+          let strand = exp(-abs(uv.x) * 22.0) * exp(-abs(uv.y) * 4.0);
+          let haze = exp(-dist * dist * 8.0) * 0.2;
+          alpha = strand + haze;
+          color = vec3f(0.7, 0.9, 1.0) + vec3f(0.25, 0.0, 0.45) * (0.5 + 0.5 * sin(t * 17.0 + phase * 29.0));
+        } else if (effectType > 1.5 && effectType < 2.5) {
+          // Corona: broad soft additive sheath.
+          let shell = exp(-dist * dist * 2.6);
+          let core = exp(-dist * dist * 10.0) * 0.35;
+          alpha = (shell + core) * (0.45 + 0.55 * (0.5 + 0.5 * sin(t * 9.0 + phase * 11.0))) * (0.75 + overdrive);
+          color = mix(vec3f(0.15, 0.7, 1.0), vec3f(0.65, 0.95, 1.0), input.life);
+        } else if (effectType > 0.5 && effectType < 1.5) {
           // Spark bursts: sharper, elongated, dangerous look.
           let line = exp(-abs(uv.x) * 8.0) * exp(-abs(uv.y) * 2.2);
           let flare = exp(-dist * dist * 30.0);
@@ -615,24 +706,6 @@ export class MultiDeviceShaders {
           if (mode < 2.5 || mode > 3.5) {
             color = mix(color, vec3f(0.7, 0.2, 1.0), 0.25);
           }
-        } else if (effectType > 1.5 && effectType < 2.5) {
-          // Corona: broad soft additive sheath.
-          let shell = exp(-dist * dist * 2.6);
-          let core = exp(-dist * dist * 10.0) * 0.35;
-          alpha = (shell + core) * (0.45 + 0.55 * (0.5 + 0.5 * sin(t * 9.0 + phase * 11.0))) * (0.75 + overdrive);
-          color = mix(vec3f(0.15, 0.7, 1.0), vec3f(0.65, 0.95, 1.0), input.life);
-        } else if (effectType > 3.5) {
-          // Heat-haze veil: broad, low-frequency flicker around high-energy parts.
-          let shell = exp(-dist * dist * 1.8);
-          let wobble = 0.55 + 0.45 * sin(t * 2.2 + phase * 8.0 + uv.x * 6.0);
-          alpha = shell * wobble * (0.08 + energy * 0.22);
-          color = mix(vec3f(1.0, 0.45, 0.15), vec3f(0.25, 0.75, 1.0), clamp(uv.y * 0.5 + 0.5, 0.0, 1.0)) * (0.12 + energy * 0.45);
-        } else if (effectType > 2.5) {
-          // Filaments: tight electric strands.
-          let strand = exp(-abs(uv.x) * 22.0) * exp(-abs(uv.y) * 4.0);
-          let haze = exp(-dist * dist * 8.0) * 0.2;
-          alpha = strand + haze;
-          color = vec3f(0.7, 0.9, 1.0) + vec3f(0.25, 0.0, 0.45) * (0.5 + 0.5 * sin(t * 17.0 + phase * 29.0));
         } else {
           // Bright core + soft halo for additive blending
           let core = exp(-dist * dist * 22.0);
@@ -673,7 +746,8 @@ export class MultiDeviceShaders {
         // Add glow
         let glow = material.glowColor * material.emission * (0.35 + energy * 0.85);
         color = color + glow;
-        
+        color = color * alpha;
+
         return vec4f(color, alpha);
       }
     `;

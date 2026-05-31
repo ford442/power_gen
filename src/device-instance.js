@@ -457,6 +457,11 @@ class DeviceInstance {
       return;
     }
 
+    const gate = (value, low, high) => {
+      if (high <= low) return value > high ? 1 : 0;
+      return Math.max(0, Math.min(1, (value - low) / (high - low)));
+    };
+
     const pushParticle = (x, y, z, phaseEncoded) => {
       if (this.effectParticleCount >= budget) return;
       const idx = this.effectParticleCount * 4;
@@ -492,7 +497,9 @@ class DeviceInstance {
       }
     } else if (this.id === 'kelvin') {
       const voltageProxy = Math.max(0.0, Math.min(1.0, this.voltageEnergyLevel * 0.7 + Math.pow(energy, 1.2) * 0.5));
-      const sparkCount = Math.floor(budget * (0.16 + 0.70 * voltageProxy));
+      const sparkGate = Math.pow(gate(voltageProxy, 0.24, 0.60), 1.4);
+      const branchGate = Math.pow(gate(voltageProxy, 0.58, 0.92), 1.8);
+      const sparkCount = Math.floor(budget * 0.58 * sparkGate);
       for (let i = 0; i < sparkCount; i++) {
         const side = i % 2 === 0 ? -1 : 1;
         const y = -2.4 + Math.random() * 8.0;
@@ -500,14 +507,24 @@ class DeviceInstance {
         pushParticle(side * (2.2 + Math.random() * 0.8), y, z, 1.0 + Math.random());
       }
 
-      const filamentCount = Math.floor(sparkCount * 0.35);
+      const filamentCount = Math.floor(budget * 0.16 * sparkGate);
       for (let i = 0; i < filamentCount; i++) {
         const y = -2.8 + (i / Math.max(1, filamentCount)) * 8.8;
         const wobble = Math.sin(i * 1.7 + t * 7.0) * 0.22;
         pushParticle(wobble, y, (Math.random() - 0.5) * 0.4, 3.0 + Math.random());
       }
+      const branchCount = Math.floor(budget * 0.24 * branchGate);
+      for (let i = 0; i < branchCount; i++) {
+        const side = i % 2 === 0 ? -1 : 1;
+        const trunk = (Math.random() - 0.5) * 0.5;
+        const y = -2.5 + Math.random() * 8.4;
+        const z = (Math.random() - 0.5) * (0.5 + branchGate * 1.2);
+        pushParticle(side * (0.6 + Math.random() * 2.0) + trunk, y, z, 6.0 + Math.random());
+      }
     } else if (this.id === 'heron') {
-      const mistCount = Math.floor(budget * (0.25 + this.flowEnergyLevel * 0.75));
+      const flowGate = Math.pow(gate(this.flowEnergyLevel, 0.18, 0.58), 1.2);
+      const impactGate = Math.pow(gate(this.flowEnergyLevel, 0.55, 0.90), 1.6);
+      const mistCount = Math.floor(budget * 0.56 * flowGate);
       const clusterA = [Math.sin(t * 0.8) * 0.25, 5.2 + Math.sin(t * 1.2) * 0.12, Math.cos(t * 0.9) * 0.25];
       const clusterB = [-clusterA[0], 5.7 + Math.cos(t * 1.1) * 0.12, -clusterA[2]];
       for (let i = 0; i < mistCount; i++) {
@@ -516,8 +533,17 @@ class DeviceInstance {
         const a = Math.random() * Math.PI * 2;
         pushParticle(c[0] + Math.cos(a) * r, c[1] + (Math.random() - 0.5) * 1.5, c[2] + Math.sin(a) * r, Math.random());
       }
+      const rippleCount = Math.floor(budget * 0.30 * impactGate);
+      for (let i = 0; i < rippleCount; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = 0.3 + Math.random() * 1.3;
+        const y = -1.9 + Math.random() * 0.35;
+        pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 5.0 + Math.random());
+      }
     } else if (this.id === 'solar') {
-      const photonCount = Math.floor(budget * (0.20 + this.batteryCharge * 0.55 + Math.pow(energy, 1.2) * 0.35));
+      const batteryGate = Math.pow(gate(this.batteryCharge * 0.75 + energy * 0.25, 0.20, 0.78), 1.3);
+      const refractGate = Math.pow(gate(this.batteryCharge * 0.6 + energy * 0.4, 0.55, 0.92), 1.8);
+      const photonCount = Math.floor(budget * 0.45 * batteryGate);
       for (let i = 0; i < photonCount; i++) {
         const led = i % 6;
         const a = (led / 6) * Math.PI * 2 + (Math.random() - 0.5) * 0.18;
@@ -525,8 +551,16 @@ class DeviceInstance {
         const y = 2.8 + Math.random() * 1.2;
         pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 1.0 + Math.random());
       }
+      const refractCount = Math.floor(budget * 0.20 * refractGate);
+      for (let i = 0; i < refractCount; i++) {
+        const x = (Math.random() - 0.5) * 5.8;
+        const z = (Math.random() - 0.5) * 5.8;
+        const y = 0.9 + Math.random() * 0.5;
+        pushParticle(x, y, z, 7.0 + Math.random());
+      }
     } else if (this.id === 'peltier') {
-      const thermalCount = Math.floor(budget * (0.10 + Math.pow(energy, 1.3) * 0.38));
+      const thermalGate = Math.pow(gate(energy, 0.24, 0.70), 1.4);
+      const thermalCount = Math.floor(budget * 0.36 * thermalGate);
       for (let i = 0; i < thermalCount; i++) {
         const x = (Math.random() - 0.5) * 3.2;
         const y = (Math.random() - 0.5) * 1.8;
@@ -534,9 +568,11 @@ class DeviceInstance {
         pushParticle(x, y, z, 3.0 + Math.random());
       }
     } else if (this.id === 'mhd') {
-      const filamentCount = Math.floor(budget * (0.10 + Math.pow(energy, 1.2) * 0.45));
+      const channelGate = Math.pow(gate(energy, 0.22, 0.68), 1.45);
+      const filamentCount = Math.floor(budget * 0.40 * channelGate);
       for (let i = 0; i < filamentCount; i++) {
-        const x = (Math.random() - 0.5) * 4.4;
+        const drift = Math.sin(t * 1.6 + i * 0.23) * 0.8;
+        const x = (Math.random() - 0.5) * 4.4 + drift;
         const y = (Math.random() - 0.5) * 2.4;
         const z = (Math.random() - 0.5) * 1.8;
         pushParticle(x, y, z, 3.0 + Math.random());
@@ -545,7 +581,7 @@ class DeviceInstance {
 
     // Subtle thermal haze billboards around hot devices.
     if ((this.id === 'seg' || this.id === 'peltier' || this.id === 'mhd') && energy > 0.35) {
-      const hazeCount = Math.floor(budget * Math.pow(energy, 1.2) * 0.12);
+      const hazeCount = Math.floor(budget * Math.pow(gate(energy, 0.35, 0.9), 1.4) * 0.18);
       for (let i = 0; i < hazeCount; i++) {
         const a = Math.random() * Math.PI * 2;
         const r = 2.4 + Math.random() * 3.0;
