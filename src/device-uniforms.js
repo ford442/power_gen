@@ -22,6 +22,15 @@ class DeviceUniformManager {
     this.batteryCharge = 0.5;
   }
 
+  getRingIndex() {
+    if (this.id === 'heron') return 1;
+    if (this.id === 'kelvin') return 2;
+    if (this.id === 'solar') return 3;
+    if (this.id === 'peltier') return 4;
+    if (this.id === 'mhd') return 5;
+    return 0;
+  }
+
   async setupUniforms() {
     // DeviceUniforms: 48 bytes (12 x f32) - canonical unified struct
     // [0] renderMode, [1-3] position, [4-7] rotation, [8] timeScale, [9] ringIndex, [10] batteryCharge, [11] isSolar
@@ -113,12 +122,12 @@ class DeviceUniformManager {
     }
   }
 
-  updateUniforms(position, rotation, renderMode = 0) {
+  updateUniforms(position, rotation, renderMode = 0, energyLevel = 0.0) {
     // Scale particle count by quality
     const scaledParticleCount = this.config.particleCount;
 
-    // Determine ring index for shaders: 0=SEG, 1=Heron, 2=Kelvin, 3=Solar, 4=Peltier
-    const ringIndex = this.id === 'heron' ? 1 : (this.id === 'kelvin' ? 2 : (this.id === 'solar' ? 3 : (this.id === 'peltier' ? 4 : 0)));
+    // Determine ring index for shaders: 0=SEG, 1=Heron, 2=Kelvin, 3=Solar, 4=Peltier, 5=MHD
+    const ringIndex = this.getRingIndex();
 
     // Battery charge for solar device (0..1) passed via the padding slot
     if (this.id === 'solar' && this.batteryCharge === undefined) {
@@ -134,7 +143,7 @@ class DeviceUniformManager {
       0,                                    // [5] rotation.y
       Math.cos(rotation[1] / 2),            // [6] rotation.z
       1.0,                                  // [7] rotation.w
-      1.0,                                  // [8] timeScale
+      energyLevel,                          // [8] energyLevel (reuses timeScale slot)
       ringIndex,                            // [9] ringIndex
       this.id === 'solar' ? this.batteryCharge : 0,  // [10] batteryCharge
       this.id === 'solar' ? 1 : 0           // [11] isSolar
@@ -145,7 +154,7 @@ class DeviceUniformManager {
       // Update material buffer to reflect battery charge
       const baseColor = this.config.color;
       const glowColor = [1.0, 0.9, 0.4];
-      const emission = 1.2;
+      const emission = 1.2 + energyLevel * 1.8;
       const materialData = new Float32Array([
         ...baseColor,
         this.batteryCharge,

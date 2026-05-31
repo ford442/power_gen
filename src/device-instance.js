@@ -116,6 +116,19 @@ class DeviceInstance {
 
     // Pre-allocated roller position buffer (36 rollers × 2 floats) to reduce per-frame GC
     this._rollerPositions = new Float32Array(36 * 2);
+
+    // Dynamic emitter effects (sparks/corona/mist/photon streaks), encoded as vec4f
+    // per particle: xyz = local position, w = encoded phase/type.
+    this.maxEffectParticles = 512;
+    this.effectParticleCount = 0;
+    this.effectsParticles = null;
+    this._effectParticleData = new Float32Array(this.maxEffectParticles * 4);
+
+    // Dynamic simulation-driven energy proxies (0..1)
+    this.energyLevel = 0.0;
+    this.pwmEnergyLevel = 0.0;
+    this.flowEnergyLevel = 0.0;
+    this.voltageEnergyLevel = 0.0;
   }
 
   async init() {
@@ -123,6 +136,7 @@ class DeviceInstance {
     await this.pipelineManager.setupPipelines();
     await this.geometry.setupParticles();
     await this.computeManager.setupComputeResources();
+    this.setupEffectsParticles();
 
     if (this.id === 'seg') {
       // Unified SEG geometry initialization
@@ -256,12 +270,75 @@ class DeviceInstance {
     });
   }
 
+  getRingIndex() {
+    if (this.id === 'heron') return 1;
+    if (this.id === 'kelvin') return 2;
+    if (this.id === 'solar') return 3;
+    if (this.id === 'peltier') return 4;
+    if (this.id === 'mhd') return 5;
+    return 0;
+  }
+
+  _computeEnergyLevel(deltaTime) {
+    const speed = Math.max(0.0, this.speedMult || 1.0);
+    const speedNorm = Math.min(1.0, Math.log2(speed + 1.0) / Math.log2(21.0));
+    const overdrive = Math.max(0.0, speed - 1.0);
+    const overdriveBoost = Math.min(1.0, 1.0 - Math.exp(-overdrive * 0.18));
+
+    let deviceEnergy = speedNorm * 0.4 + overdriveBoost * 0.25;
+    if (this.id === 'seg') {
+      const coilMean = this.coilEnergies && this.coilEnergies.length
+        ? this.coilEnergies.reduce((sum, v) => sum + v, 0) / this.coilEnergies.length
+        : 0.0;
+      const coilNorm = Math.min(1.0, coilMean * 1.6);
+      deviceEnergy = speedNorm * 0.35 + coilNorm * 0.35 + this.pwmEnergyLevel * 0.30;
+    } else if (this.id === 'kelvin') {
+      this.voltageEnergyLevel = Math.min(1.0, speedNorm * 0.65 + (0.5 + 0.5 * Math.sin(this.visualizer.time * 3.2)) * 0.35);
+      deviceEnergy = this.voltageEnergyLevel;
+    } else if (this.id === 'heron') {
+      this.flowEnergyLevel = Math.min(1.0, speedNorm * 0.7 + (0.5 + 0.5 * Math.sin(this.visualizer.time * 1.6)) * 0.3);
+      deviceEnergy = this.flowEnergyLevel;
+    } else if (this.id === 'solar') {
+      const battery = Math.min(1.0, Math.max(0.0, this.batteryCharge || 0.0));
+      deviceEnergy = battery * 0.65 + speedNorm * 0.35;
+    } else if (this.id === 'peltier') {
+      deviceEnergy = Math.min(1.0, speedNorm * 0.6 + overdriveBoost * 0.4);
+    } else if (this.id === 'mhd') {
+      deviceEnergy = Math.min(1.0, speedNorm * 0.5 + overdriveBoost * 0.5);
+    }
+
+    // Exponential response in high-energy regime to make overdrive feel dangerous.
+    const boosted = Math.pow(Math.max(0.0, deviceEnergy), 0.75);
+    const target = Math.min(1.0, boosted + overdriveBoost * 0.35);
+    const smooth = 1.0 - Math.exp(-Math.max(0.0, deltaTime) * 14.0);
+    this.energyLevel = this.energyLevel + (target - this.energyLevel) * smooth;
+    this.energyLevel = Math.min(1.0, Math.max(0.0, this.energyLevel));
+  }
+
+  _buildDeviceUniformData(renderMode, yOffset = 0.0) {
+    const ringIndex = this.getRingIndex();
+    return new Float32Array([
+      renderMode,
+      this.position[0],
+      this.position[1] + yOffset,
+      this.position[2],
+      Math.sin(this.rotation[1] / 2),
+      0,
+      Math.cos(this.rotation[1] / 2),
+      1.0,
+      this.energyLevel,
+      ringIndex,
+      this.id === 'solar' ? this.batteryCharge : 0,
+      this.id === 'solar' ? 1 : 0
+    ]);
+  }
+
   update(deltaTime, qualityScale) {
     // Scale particle count by quality
     const scaledParticleCount = Math.floor(this.particleCount * qualityScale);
 
-    // Determine ring index for shaders: 0=SEG, 1=Heron, 2=Kelvin, 3=Solar, 4=Peltier
-    const ringIndex = this.id === 'heron' ? 1 : (this.id === 'kelvin' ? 2 : (this.id === 'solar' ? 3 : (this.id === 'peltier' ? 4 : 0)));
+    // Determine ring index for shaders: 0=SEG, 1=Heron, 2=Kelvin, 3=Solar, 4=Peltier, 5=MHD
+    const ringIndex = this.getRingIndex();
     this.scaledParticleCount = scaledParticleCount;
 
     // Update battery charge for solar device (0..1)
@@ -270,9 +347,6 @@ class DeviceInstance {
       this.visualizer.updateBatteryGaugeMesh(this.batteryCharge);
       this.uniformManager.updateGaugeBuffer(this.position, ringIndex);
     }
-
-    // Update device and material uniforms
-    this.uniformManager.updateUniforms(this.position, this.rotation, this.renderMode);
 
     // Update compute uniforms for shader
     this.computeManager.updateComputeUniforms(this.visualizer.time, ringIndex, scaledParticleCount, this.speedMult);
@@ -346,6 +420,149 @@ class DeviceInstance {
       // Update electromagnet coil activation visualization
       this.updateElectromagnetCoils();
     }
+
+    this._computeEnergyLevel(deltaTime);
+    this.uniformManager.updateUniforms(this.position, this.rotation, this.renderMode, this.energyLevel);
+    this.updateEmitterEffects(deltaTime, qualityScale);
+  }
+
+  setupEffectsParticles() {
+    this.effectsParticles = this.device.createBuffer({
+      size: this.maxEffectParticles * 16,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(
+      `device-${this.id}-effects-particles`,
+      this.maxEffectParticles * 16,
+      GPUBufferUsage.STORAGE
+    );
+  }
+
+  updateEmitterEffects(deltaTime, qualityScale) {
+    if (!this.effectsParticles) {
+      this.effectParticleCount = 0;
+      return;
+    }
+
+    const t = this.visualizer.time;
+    const speedMult = this.speedMult || 1.0;
+    const energy = this.energyLevel;
+    const quality = Math.max(0.0, Math.min(1.0, Math.min(qualityScale, this.visualizer.profiler.qualityLevel)));
+    const budget = Math.min(
+      this.maxEffectParticles,
+      Math.floor(this.maxEffectParticles * quality * Math.min(1.0, 0.28 + speedMult * 0.18 + Math.pow(energy, 1.35) * 0.7))
+    );
+    if (budget <= 0) {
+      this.effectParticleCount = 0;
+      return;
+    }
+
+    const pushParticle = (x, y, z, phaseEncoded) => {
+      if (this.effectParticleCount >= budget) return;
+      const idx = this.effectParticleCount * 4;
+      this._effectParticleData[idx] = x;
+      this._effectParticleData[idx + 1] = y;
+      this._effectParticleData[idx + 2] = z;
+      this._effectParticleData[idx + 3] = phaseEncoded;
+      this.effectParticleCount++;
+    };
+
+    this.effectParticleCount = 0;
+
+    if (this.id === 'seg') {
+      const coilEnergy = this.coilEnergies
+        ? this.coilEnergies.reduce((sum, e) => sum + e, 0) / this.coilEnergies.length
+        : 0;
+      const coronaStrength = Math.max(0.0, Math.min(1.0, (speedMult - 1.0) * 0.25 + coilEnergy * 0.7 + Math.pow(energy, 1.4) * 0.9));
+      const coronaCount = Math.floor((24 + budget * 0.5) * coronaStrength);
+      for (let i = 0; i < coronaCount; i++) {
+        const a = (i / Math.max(1, coronaCount)) * Math.PI * 2 + t * (0.35 + coronaStrength);
+        const ring = i % 3;
+        const radius = (ring === 0 ? 2.4 : ring === 1 ? 3.9 : 5.4) + Math.sin(i * 2.31 + t) * 0.16;
+        const y = (Math.sin(i * 1.93 + t * 1.9) * 0.8 + (Math.random() - 0.5) * 0.3) * (0.8 + coronaStrength * 1.4);
+        pushParticle(Math.cos(a) * radius, y, Math.sin(a) * radius, 2.0 + Math.random());
+      }
+
+      const burstBase = Math.floor(budget * (0.06 + coronaStrength * 0.30));
+      for (let i = 0; i < burstBase; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const radius = 3.0 + Math.random() * 2.6;
+        const y = (Math.random() - 0.5) * 1.8;
+        pushParticle(Math.cos(a) * radius, y, Math.sin(a) * radius, 1.0 + Math.random());
+      }
+    } else if (this.id === 'kelvin') {
+      const voltageProxy = Math.max(0.0, Math.min(1.0, this.voltageEnergyLevel * 0.7 + Math.pow(energy, 1.2) * 0.5));
+      const sparkCount = Math.floor(budget * (0.16 + 0.70 * voltageProxy));
+      for (let i = 0; i < sparkCount; i++) {
+        const side = i % 2 === 0 ? -1 : 1;
+        const y = -2.4 + Math.random() * 8.0;
+        const z = (Math.random() - 0.5) * 1.0;
+        pushParticle(side * (2.2 + Math.random() * 0.8), y, z, 1.0 + Math.random());
+      }
+
+      const filamentCount = Math.floor(sparkCount * 0.35);
+      for (let i = 0; i < filamentCount; i++) {
+        const y = -2.8 + (i / Math.max(1, filamentCount)) * 8.8;
+        const wobble = Math.sin(i * 1.7 + t * 7.0) * 0.22;
+        pushParticle(wobble, y, (Math.random() - 0.5) * 0.4, 3.0 + Math.random());
+      }
+    } else if (this.id === 'heron') {
+      const mistCount = Math.floor(budget * (0.25 + this.flowEnergyLevel * 0.75));
+      const clusterA = [Math.sin(t * 0.8) * 0.25, 5.2 + Math.sin(t * 1.2) * 0.12, Math.cos(t * 0.9) * 0.25];
+      const clusterB = [-clusterA[0], 5.7 + Math.cos(t * 1.1) * 0.12, -clusterA[2]];
+      for (let i = 0; i < mistCount; i++) {
+        const c = i % 2 === 0 ? clusterA : clusterB;
+        const r = Math.random() * 1.1;
+        const a = Math.random() * Math.PI * 2;
+        pushParticle(c[0] + Math.cos(a) * r, c[1] + (Math.random() - 0.5) * 1.5, c[2] + Math.sin(a) * r, Math.random());
+      }
+    } else if (this.id === 'solar') {
+      const photonCount = Math.floor(budget * (0.20 + this.batteryCharge * 0.55 + Math.pow(energy, 1.2) * 0.35));
+      for (let i = 0; i < photonCount; i++) {
+        const led = i % 6;
+        const a = (led / 6) * Math.PI * 2 + (Math.random() - 0.5) * 0.18;
+        const r = 3.0 + Math.random() * 0.6;
+        const y = 2.8 + Math.random() * 1.2;
+        pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 1.0 + Math.random());
+      }
+    } else if (this.id === 'peltier') {
+      const thermalCount = Math.floor(budget * (0.10 + Math.pow(energy, 1.3) * 0.38));
+      for (let i = 0; i < thermalCount; i++) {
+        const x = (Math.random() - 0.5) * 3.2;
+        const y = (Math.random() - 0.5) * 1.8;
+        const z = (Math.random() - 0.5) * 2.6;
+        pushParticle(x, y, z, 3.0 + Math.random());
+      }
+    } else if (this.id === 'mhd') {
+      const filamentCount = Math.floor(budget * (0.10 + Math.pow(energy, 1.2) * 0.45));
+      for (let i = 0; i < filamentCount; i++) {
+        const x = (Math.random() - 0.5) * 4.4;
+        const y = (Math.random() - 0.5) * 2.4;
+        const z = (Math.random() - 0.5) * 1.8;
+        pushParticle(x, y, z, 3.0 + Math.random());
+      }
+    }
+
+    // Subtle thermal haze billboards around hot devices.
+    if ((this.id === 'seg' || this.id === 'peltier' || this.id === 'mhd') && energy > 0.35) {
+      const hazeCount = Math.floor(budget * Math.pow(energy, 1.2) * 0.12);
+      for (let i = 0; i < hazeCount; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = 2.4 + Math.random() * 3.0;
+        const y = (Math.random() - 0.5) * 2.2;
+        pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 4.0 + Math.random());
+      }
+    }
+
+    if (this.effectParticleCount > 0) {
+      this.device.queue.writeBuffer(
+        this.effectsParticles,
+        0,
+        this._effectParticleData,
+        0,
+        this.effectParticleCount * 4
+      );
+    }
   }
 
   updateElectromagnetCoils() {
@@ -374,6 +591,7 @@ class DeviceInstance {
       coilMask = em.computeCoilMask(phaseDeg, 1);
       pwmValues = em.computePwmValues(phaseDeg, 1);
     } else {
+      this.pwmEnergyLevel = 0.0;
       return;
     }
 
@@ -439,6 +657,14 @@ class DeviceInstance {
         instanceData[idx + 6] = 0;
         instanceData[idx + 7] = 0;
       }
+    }
+
+    if (numCoils > 0) {
+      let activeSum = 0;
+      for (let i = 0; i < numCoils; i++) activeSum += instanceData[i * 8 + 4];
+      this.pwmEnergyLevel = Math.min(1.0, activeSum / numCoils);
+    } else {
+      this.pwmEnergyLevel = 0.0;
     }
 
     this.device.queue.writeBuffer(this.electromagnetInstances, 0, instanceData);
@@ -644,20 +870,7 @@ class DeviceInstance {
     if (this.id === 'seg' && this.rollerInstances && this.segEnhancedPipeline && !skipEffects) {
       // Reset renderMode to 0 (rollers)
       this.renderMode = 0;
-      const deviceData = new Float32Array([
-        this.renderMode,
-        this.position[0],
-        this.position[1],
-        this.position[2],
-        Math.sin(this.rotation[1] / 2),
-        0,
-        Math.cos(this.rotation[1] / 2),
-        1.0,
-        1.0,
-        0,
-        this.id === 'solar' ? this.batteryCharge : 0,
-        this.id === 'solar' ? 1 : 0
-      ]);
+      const deviceData = this._buildDeviceUniformData(this.renderMode);
       this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
       const enhancedBindGroup = this.device.createBindGroup({
@@ -667,7 +880,8 @@ class DeviceInstance {
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.rollerInstances } },
           { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-          { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } }
+          { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
+          { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
         ]
       });
 
@@ -680,20 +894,7 @@ class DeviceInstance {
 
     // Render electromagnet coils (SEG only)
     if (this.id === 'seg' && this.electromagnetInstances && this.coilPipeline && !skipEffects) {
-      const deviceData = new Float32Array([
-        this.renderMode,
-        this.position[0],
-        this.position[1],
-        this.position[2],
-        Math.sin(this.rotation[1] / 2),
-        0,
-        Math.cos(this.rotation[1] / 2),
-        1.0,
-        1.0,
-        0,
-        this.id === 'solar' ? this.batteryCharge : 0,
-        this.id === 'solar' ? 1 : 0
-      ]);
+      const deviceData = this._buildDeviceUniformData(this.renderMode);
       this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
       // Coil material: copper base with orange glow potential
@@ -735,7 +936,8 @@ class DeviceInstance {
           { binding: 0, resource: { buffer: globalUniformBuffer } },
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.gaugeInstanceBuffer } },
-          { binding: 3, resource: { buffer: this.materialUniformBuffer } }
+          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+          { binding: 5, resource: { buffer: this.visualizer.materialTableBuffer } }
         ]
       });
 
@@ -809,6 +1011,21 @@ class DeviceInstance {
     renderPass.setPipeline(this.particlePipeline);
     renderPass.setBindGroup(0, particleBindGroup);
     renderPass.draw(4, scaledCount);
+
+    if (this.effectParticleCount > 0 && this.effectsParticles && !skipEffects) {
+      const effectsBindGroup = this.device.createBindGroup({
+        layout: this.particlePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: globalUniformBuffer } },
+          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+          { binding: 4, resource: { buffer: this.effectsParticles } }
+        ]
+      });
+      renderPass.setPipeline(this.particlePipeline);
+      renderPass.setBindGroup(0, effectsBindGroup);
+      renderPass.draw(4, this.effectParticleCount);
+    }
   }
 
   renderBase(renderPass, globalUniformBuffer) {
@@ -816,20 +1033,7 @@ class DeviceInstance {
     
     // Set renderMode to 1 (base)
     this.renderMode = 1;
-    const deviceData = new Float32Array([
-      this.renderMode,
-      this.position[0],
-      this.position[1],
-      this.position[2],
-      Math.sin(this.rotation[1] / 2),
-      0,
-      Math.cos(this.rotation[1] / 2),
-      1.0,
-      1.0,
-      0,
-      this.id === 'solar' ? this.batteryCharge : 0,
-      this.id === 'solar' ? 1 : 0
-    ]);
+    const deviceData = this._buildDeviceUniformData(this.renderMode);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
     
     const bindGroup = this.device.createBindGroup({
@@ -838,7 +1042,8 @@ class DeviceInstance {
         { binding: 0, resource: { buffer: globalUniformBuffer } },
         { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
         { binding: 2, resource: { buffer: this.geometry.baseBuffer } },
-        { binding: 3, resource: { buffer: this.materialUniformBuffer } }
+        { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+        { binding: 5, resource: { buffer: this.visualizer.materialTableBuffer } }
       ]
     });
 
@@ -856,20 +1061,7 @@ class DeviceInstance {
     
     // Set renderMode to 2 (stator)
     this.renderMode = 2;
-    const deviceData = new Float32Array([
-      this.renderMode,
-      this.position[0],
-      this.position[1],
-      this.position[2],
-      Math.sin(this.rotation[1] / 2),
-      0,
-      Math.cos(this.rotation[1] / 2),
-      1.0,
-      1.0,
-      0,
-      this.id === 'solar' ? this.batteryCharge : 0,
-      this.id === 'solar' ? 1 : 0
-    ]);
+    const deviceData = this._buildDeviceUniformData(this.renderMode);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
     
     // Use enhanced PBR pipeline if available (with UV geometry)
@@ -881,7 +1073,8 @@ class DeviceInstance {
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
           { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-          { binding: 5, resource: { buffer: v.lightingUniformBuffer } }
+          { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
+          { binding: 6, resource: { buffer: v.materialTableBuffer } }
         ]
       });
 
@@ -898,7 +1091,8 @@ class DeviceInstance {
           { binding: 0, resource: { buffer: globalUniformBuffer } },
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
-          { binding: 3, resource: { buffer: this.materialUniformBuffer } }
+          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+          { binding: 5, resource: { buffer: this.visualizer.materialTableBuffer } }
         ]
       });
 
@@ -916,20 +1110,7 @@ class DeviceInstance {
     
     // Set renderMode to 3 (wiring)
     this.renderMode = 3;
-    const deviceData = new Float32Array([
-      this.renderMode,
-      this.position[0],
-      this.position[1],
-      this.position[2],
-      Math.sin(this.rotation[1] / 2),
-      0,
-      Math.cos(this.rotation[1] / 2),
-      1.0,
-      1.0,
-      0,
-      this.id === 'solar' ? this.batteryCharge : 0,
-      this.id === 'solar' ? 1 : 0
-    ]);
+    const deviceData = this._buildDeviceUniformData(this.renderMode);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
     
     // Use enhanced PBR pipeline if available (with UV geometry)
@@ -941,7 +1122,8 @@ class DeviceInstance {
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
           { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-          { binding: 5, resource: { buffer: v.lightingUniformBuffer } }
+          { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
+          { binding: 6, resource: { buffer: v.materialTableBuffer } }
         ]
       });
 
@@ -958,7 +1140,8 @@ class DeviceInstance {
           { binding: 0, resource: { buffer: globalUniformBuffer } },
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
-          { binding: 3, resource: { buffer: this.materialUniformBuffer } }
+          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+          { binding: 5, resource: { buffer: this.visualizer.materialTableBuffer } }
         ]
       });
 
@@ -984,7 +1167,8 @@ class DeviceInstance {
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: instanceBuffer } },
           { binding: 3, resource: { buffer: this.coreMaterialBuffer || this.materialUniformBuffer } },
-          { binding: 5, resource: { buffer: v.lightingUniformBuffer } }
+          { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
+          { binding: 6, resource: { buffer: v.materialTableBuffer } }
         ]
       });
       renderPass.setPipeline(this.segEnhancedPipeline);
@@ -1024,18 +1208,12 @@ class DeviceInstance {
     if (!this.coilInstances || !this.coilPipeline || !this.ringPipeline) return;
     if (!this.visualizer.connectionRingBuffer || !this.visualizer.coilBuffer) return;
 
+    this.renderMode = 0;
     const numCoils = 24;
 
     // Render top connection ring (at y = +2.0)
     const topRingDeviceData = new Float32Array(12);
-    topRingDeviceData.set([
-      this.renderMode,
-      this.position[0], this.position[1] + 2.0, this.position[2],
-      Math.sin(this.rotation[1] / 2), 0, Math.cos(this.rotation[1] / 2), 1.0,
-      1.0, 0,
-      this.id === 'solar' ? this.batteryCharge : 0,
-      this.id === 'solar' ? 1 : 0
-    ]);
+    topRingDeviceData.set(this._buildDeviceUniformData(this.renderMode, 2.0));
     const topRingDeviceBuffer = this.device.createBuffer({
       size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -1059,14 +1237,7 @@ class DeviceInstance {
 
     // Render bottom connection ring (at y = -2.0)
     const bottomRingDeviceData = new Float32Array(12);
-    bottomRingDeviceData.set([
-      this.renderMode,
-      this.position[0], this.position[1] - 2.0, this.position[2],
-      Math.sin(this.rotation[1] / 2), 0, Math.cos(this.rotation[1] / 2), 1.0,
-      1.0, 0,
-      this.id === 'solar' ? this.batteryCharge : 0,
-      this.id === 'solar' ? 1 : 0
-    ]);
+    bottomRingDeviceData.set(this._buildDeviceUniformData(this.renderMode, -2.0));
     const bottomRingDeviceBuffer = this.device.createBuffer({
       size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -1113,7 +1284,8 @@ class DeviceInstance {
         { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
         { binding: 2, resource: { buffer: this.shaftInstanceBuffer } },
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-        { binding: 5, resource: { buffer: v.lightingUniformBuffer } }
+        { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
+        { binding: 6, resource: { buffer: v.materialTableBuffer } }
       ]
     });
 
@@ -1137,7 +1309,8 @@ class DeviceInstance {
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.shaftInstanceBuffer } },
           { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-          { binding: 5, resource: { buffer: v.lightingUniformBuffer } }
+          { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
+          { binding: 6, resource: { buffer: v.materialTableBuffer } }
         ]
       });
       renderPass.setPipeline(this.segEnhancedPipeline);

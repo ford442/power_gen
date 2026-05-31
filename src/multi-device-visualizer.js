@@ -7,6 +7,7 @@ import { PerformanceProfiler } from './performance-profiler.js';
 import { DebugPanel, DEVICE_CONFIG } from './debug-panel.js';
 import { DeviceInstance } from './device-instance.js';
 import { EnergyPipe } from './energy-pipe.js';
+import { SEGMaterialPresets } from './seg-materials.js';
 
 export class MultiDeviceVisualizer {
   constructor() {
@@ -43,6 +44,7 @@ export class MultiDeviceVisualizer {
     this.lastFrameTime = 0;
     this.fps = 60;
     this.speedMult = 1.0;
+    this.globalEnergyLevel = 0.0;
 
     // SimRateController for speed-scaled physics and visuals
     this.simRateController = new SimRateController();
@@ -94,6 +96,8 @@ export class MultiDeviceVisualizer {
       });
       this.profiler.trackBuffer('lightingUniforms', 192, GPUBufferUsage.UNIFORM);
 
+      this.setupMaterialTableBuffer();
+
       this.render(0);
 
       window.addEventListener('resize', () => this.webgpu.resize());
@@ -113,6 +117,40 @@ export class MultiDeviceVisualizer {
     console.log('Recommended settings:', settings);
     
     // Could show a UI notification here
+  }
+
+  setupMaterialTableBuffer() {
+    const materials = [
+      { ...SEGMaterialPresets.copper, accent: [0.55, 0.30, 0.15], detail: [18.0, 0.06, 0.10, 0.0] },      // 0 copper
+      { ...SEGMaterialPresets.steel, accent: [0.75, 0.77, 0.80], detail: [24.0, 0.04, 0.08, 0.0] },       // 1 steel
+      { ...SEGMaterialPresets.brass, accent: [0.45, 0.32, 0.12], detail: [20.0, 0.05, 0.12, 0.0] },       // 2 brass
+      { ...SEGMaterialPresets.insulation, accent: [0.72, 0.70, 0.62], detail: [14.0, 0.0, 0.06, 0.0] },   // 3 insulation
+      { ...SEGMaterialPresets.neodymium, accent: [0.55, 0.58, 0.60], detail: [16.0, 0.03, 0.07, 0.0] },   // 4 neodymium
+      { ...SEGMaterialPresets.copperOxide, accent: [0.26, 0.42, 0.34], detail: [26.0, 0.04, 0.12, 0.0] }, // 5 oxidized copper
+      { ...SEGMaterialPresets.boltSteel, accent: [0.85, 0.86, 0.88], detail: [36.0, 0.02, 0.18, 0.0] },   // 6 bolt steel
+      { baseColor: [0.08, 0.13, 0.22], metallic: 0.18, roughness: 0.36, accent: [0.15, 0.34, 0.52], detail: [46.0, 0.0, 0.04, 0.0] }, // 7 solar
+      { baseColor: [0.73, 0.77, 0.82], metallic: 0.02, roughness: 0.08, accent: [0.84, 0.89, 0.95], detail: [8.0, 0.0, 0.03, 0.0] },  // 8 fluid/glass
+      { baseColor: [0.83, 0.86, 0.88], metallic: 0.05, roughness: 0.62, accent: [0.35, 0.45, 0.58], detail: [22.0, 0.0, 0.05, 0.0] }, // 9 ceramic
+      { baseColor: [0.74, 0.76, 0.80], metallic: 0.72, roughness: 0.28, accent: [0.94, 0.96, 0.99], detail: [28.0, 0.05, 0.08, 0.0] }, // 10 anodized can
+      { baseColor: [0.18, 0.23, 0.28], metallic: 0.12, roughness: 0.52, accent: [0.72, 0.20, 0.14], detail: [40.0, 0.0, 0.05, 0.0] }, // 11 peltier junction
+      { baseColor: [0.92, 0.92, 0.90], metallic: 0.02, roughness: 0.48, accent: [0.20, 0.20, 0.22], detail: [30.0, 0.0, 0.06, 0.0] }  // 12 label paint
+    ];
+
+    const packed = new Float32Array(materials.length * 12);
+    for (let i = 0; i < materials.length; i++) {
+      const m = materials[i];
+      const baseOffset = i * 12;
+      packed.set([m.baseColor[0], m.baseColor[1], m.baseColor[2], m.metallic], baseOffset);
+      packed.set([m.accent[0], m.accent[1], m.accent[2], m.roughness], baseOffset + 4);
+      packed.set([m.detail[0], m.detail[1], m.detail[2], m.detail[3]], baseOffset + 8);
+    }
+
+    this.materialTableBuffer = this.device.createBuffer({
+      size: packed.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(this.materialTableBuffer, 0, packed);
+    this.profiler.trackBuffer('materialTable', packed.byteLength, GPUBufferUsage.STORAGE);
   }
   
   // ... [Rest of the MultiDeviceVisualizer methods remain the same]
@@ -586,7 +624,7 @@ export class MultiDeviceVisualizer {
     this.depthTexture = this.device.createTexture({
       size: [this.canvas.width, this.canvas.height, 1],
       format: 'depth24plus',
-      usage: GPUTextureUsage.RENDER_ATTACHMENT
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
     });
     this.profiler.trackTexture('depthBuffer', this.canvas.width, this.canvas.height, 'depth24plus');
   }
@@ -598,6 +636,7 @@ export class MultiDeviceVisualizer {
 
     if (this.bloomSceneTexture) this.bloomSceneTexture.destroy();
     if (this.bloomBlurTexture)  this.bloomBlurTexture.destroy();
+    if (this.bloomTempTexture)  this.bloomTempTexture.destroy();
 
     this.bloomSceneTexture = this.device.createTexture({
       size: [w, h], format: fmt,
@@ -607,11 +646,19 @@ export class MultiDeviceVisualizer {
       size: [w, h], format: fmt,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
     });
+    this.bloomTempTexture = this.device.createTexture({
+      size: [w, h], format: fmt,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
 
     if (this.bloomParamsBuffer) {
       this.device.queue.writeBuffer(
         this.bloomParamsBuffer, 0,
-        new Float32Array([1.0 / w, 1.0 / h, 0.60, 1.4])
+        new Float32Array([
+          1.0 / w, 1.0 / h, 0.60, 0.12,
+          1.4, 1.8, 0.0, 0.02,
+          0.04, 0.20, 0.0, 0.0
+        ])
       );
     }
   }
@@ -625,18 +672,34 @@ export class MultiDeviceVisualizer {
     });
 
     this.bloomParamsBuffer = this.device.createBuffer({
+      size: 48,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.bloomBlurDirXBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.bloomBlurDirYBuffer = this.device.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
     const vertModule    = this.device.createShaderModule({ code: this.shaders.bloomVertShader });
     const extractModule = this.device.createShaderModule({ code: this.shaders.bloomExtractShader });
+    const blurModule    = this.device.createShaderModule({ code: this.shaders.bloomBlurShader });
     const compModule    = this.device.createShaderModule({ code: this.shaders.bloomCompositeShader });
 
     this.bloomExtractPipeline = this.device.createRenderPipeline({
       layout: 'auto',
       vertex:   { module: vertModule,    entryPoint: 'main' },
       fragment: { module: extractModule, entryPoint: 'main', targets: [{ format: fmt }] },
+      primitive: { topology: 'triangle-list' }
+    });
+
+    this.bloomBlurPipeline = this.device.createRenderPipeline({
+      layout: 'auto',
+      vertex:   { module: vertModule, entryPoint: 'main' },
+      fragment: { module: blurModule, entryPoint: 'main', targets: [{ format: fmt }] },
       primitive: { topology: 'triangle-list' }
     });
 
@@ -647,6 +710,8 @@ export class MultiDeviceVisualizer {
       primitive: { topology: 'triangle-list' }
     });
 
+    this.device.queue.writeBuffer(this.bloomBlurDirXBuffer, 0, new Float32Array([1, 0, 0, 0]));
+    this.device.queue.writeBuffer(this.bloomBlurDirYBuffer, 0, new Float32Array([0, 1, 0, 0]));
     this.setupBloomTextures();
   }
   
@@ -787,6 +852,13 @@ export class MultiDeviceVisualizer {
         device.update(deltaTime * speed, qualityScale);
       }
     }
+
+    const enabledDevices = Object.values(this.devices).filter((d) => this.devicesEnabled[d.id]);
+    const targetGlobalEnergy = enabledDevices.length
+      ? enabledDevices.reduce((sum, d) => sum + (d.energyLevel || 0), 0) / enabledDevices.length
+      : 0.0;
+    const globalSmooth = 1.0 - Math.exp(-Math.max(0.0, deltaTime) * 10.0);
+    this.globalEnergyLevel += (targetGlobalEnergy - this.globalEnergyLevel) * globalSmooth;
     
     // Begin command encoding
     const encoder = this.device.createCommandEncoder();
@@ -896,26 +968,38 @@ export class MultiDeviceVisualizer {
     renderPass.end();
 
     // ── Bloom post-processing ─────────────────────────────────────────────
-    if (this.bloomExtractPipeline && this.bloomSceneTexture && this.bloomBlurTexture) {
+    if (this.bloomExtractPipeline && this.bloomBlurPipeline && this.bloomCompositePipeline &&
+        this.bloomSceneTexture && this.bloomBlurTexture && this.bloomTempTexture && this.depthTexture) {
       // Update bloom parameters dynamically based on current speed
       if (this.bloomParamsBuffer) {
         const w = this.canvas.width || 1;
         const h = this.canvas.height || 1;
+        const speedEnergy = Math.min(1.0, this.simRateController.speedMult / 20.0);
+        const energy = Math.min(1.0, Math.max(speedEnergy, this.globalEnergyLevel));
+        const energyPow = Math.pow(energy, 1.35);
         this.device.queue.writeBuffer(
           this.bloomParamsBuffer, 0,
           new Float32Array([
             1.0 / w,
             1.0 / h,
-            this.simRateController.bloomThreshold,
-            this.simRateController.bloomStrength
+            Math.max(0.20, this.simRateController.bloomThreshold - energyPow * 0.18),
+            Math.max(0.08, this.simRateController.bloomThreshold * (0.18 + energy * 0.10)),
+            this.simRateController.bloomStrength * (1.0 + energyPow * 0.9),
+            1.3 + energyPow * 3.6,
+            energyPow,
+            0.010 + energyPow * 0.045,
+            0.010 + energyPow * 0.040,
+            0.08 + energyPow * 0.52,
+            0.0,
+            0.0
           ])
         );
       }
 
-      // Pass 1: extract bright areas → bloomBlurTexture
+      // Pass 1: extract bright areas → bloomTempTexture
       const extractPass = encoder.beginRenderPass({
         colorAttachments: [{
-          view: this.bloomBlurTexture.createView(),
+          view: this.bloomTempTexture.createView(),
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
           loadOp: 'clear', storeOp: 'store'
         }]
@@ -932,7 +1016,49 @@ export class MultiDeviceVisualizer {
       extractPass.draw(3);
       extractPass.end();
 
-      // Pass 2: composite scene + bloom → canvas with tonemap & vignette
+      // Pass 2: horizontal blur bloomTemp → bloomBlur
+      const blurXPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: this.bloomBlurTexture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: 'clear', storeOp: 'store'
+        }]
+      });
+      blurXPass.setPipeline(this.bloomBlurPipeline);
+      blurXPass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.bloomBlurPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.bloomTempTexture.createView() },
+          { binding: 1, resource: this.bloomSampler },
+          { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
+          { binding: 3, resource: { buffer: this.bloomBlurDirXBuffer } }
+        ]
+      }));
+      blurXPass.draw(3);
+      blurXPass.end();
+
+      // Pass 3: vertical blur bloomBlur → bloomTemp
+      const blurYPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: this.bloomTempTexture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: 'clear', storeOp: 'store'
+        }]
+      });
+      blurYPass.setPipeline(this.bloomBlurPipeline);
+      blurYPass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.bloomBlurPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.bloomBlurTexture.createView() },
+          { binding: 1, resource: this.bloomSampler },
+          { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
+          { binding: 3, resource: { buffer: this.bloomBlurDirYBuffer } }
+        ]
+      }));
+      blurYPass.draw(3);
+      blurYPass.end();
+
+      // Pass 4: composite scene + bloom → canvas with tonemap/post FX
       const compositePass = encoder.beginRenderPass({
         colorAttachments: [{
           view: this.context.getCurrentTexture().createView(),
@@ -945,9 +1071,10 @@ export class MultiDeviceVisualizer {
         layout: this.bloomCompositePipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: this.bloomSceneTexture.createView() },
-          { binding: 1, resource: this.bloomBlurTexture.createView() },
+          { binding: 1, resource: this.bloomTempTexture.createView() },
           { binding: 2, resource: this.bloomSampler },
-          { binding: 3, resource: { buffer: this.bloomParamsBuffer } }
+          { binding: 3, resource: { buffer: this.bloomParamsBuffer } },
+          { binding: 4, resource: this.depthTexture.createView() }
         ]
       }));
       compositePass.draw(3);

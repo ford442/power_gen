@@ -33,7 +33,7 @@ export class DevicePipelineManager {
       vertex: {
         module: this.device.createShaderModule({ code: this.visualizer.shaders.particleVertShader }),
         entryPoint: 'main',
-        buffers: [{ arrayStride: 16, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32' }] }]
+        buffers: []
       },
       fragment: {
         module: this.device.createShaderModule({ code: this.visualizer.shaders.particleFragShader }),
