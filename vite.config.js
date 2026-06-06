@@ -7,9 +7,12 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    https: true,
+    https: false,
     host: 'localhost',
     port: 5173,
+  },
+  preview: {
+    https: false,
   },
   // Treat raw .wasm files as static assets so they can be imported
   // with ?url (e.g. `import wasmUrl from './public/wasm/sim_core.wasm?url'`).
