@@ -10,8 +10,8 @@
     "build_colab": "npm run wasm:build_colab && vite build",
     "preview": "vite preview",
     "deploy": "npm run build && python deploy.py",
-    "wasm:build": ". /root/emsdk/emsdk_env.sh && cd cpp && make wasm",
-    "wasm:build_colab": ". /content/build_space/emsdk/emsdk_env.sh && cd cpp && make wasm",
+    "wasm:build": "cd /root/emsdk && . ./emsdk_env.sh && cd /root/power_gen/cpp && make wasm",
+    "wasm:build_colab": "cd /content/build_space/emsdk && . ./emsdk_env.sh && cd /root/power_gen/cpp && make wasm",
     "wasm:build-debug": "cd cpp && make wasm-dbg",
     "wasm:native": "cd cpp && make native"
   },
