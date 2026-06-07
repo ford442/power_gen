@@ -99,14 +99,11 @@ class DeviceInstance {
 
     // Field line visualization (SEG only)
     this.fieldLineCount = 1200;
-    this.fieldLineParticles = null;
-    this.fieldLinePipeline = null;
     this.fieldLineEnabled = true;
 
     // Energy arc visualization (SEG only)
     this.arcSegmentCount = 20;
     this.arcSegments = null;
-    this.energyArcPipeline = null;
     this.energyArcEnabled = true;
     this.lastArcTime = 0;
     
