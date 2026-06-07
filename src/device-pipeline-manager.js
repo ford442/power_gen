@@ -23,7 +23,7 @@ export class DevicePipelineManager {
         targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
       },
       primitive: { topology: 'triangle-list' },
-      depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
+      depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
     });
 
     // Particle pipeline
@@ -41,7 +41,7 @@ export class DevicePipelineManager {
         targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } } }]
       },
       primitive: { topology: 'triangle-strip' },
-      depthStencil: { depthWriteEnabled: false, depthCompare: 'less' }
+      depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: false, depthCompare: 'less' }
     });
 
     // Core pipeline (SEG only)
@@ -60,7 +60,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format }]
         },
         primitive: { topology: 'triangle-list' },
-        depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
+        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
       });
     }
 
@@ -80,7 +80,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
         primitive: { topology: 'line-list' },
-        depthStencil: { depthWriteEnabled: false, depthCompare: 'less' }
+        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: false, depthCompare: 'less' }
       });
     }
 
@@ -108,7 +108,7 @@ export class DevicePipelineManager {
           }]
         },
         primitive: { topology: 'triangle-strip' },
-        depthStencil: { depthWriteEnabled: false, depthCompare: 'less' }
+        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: false, depthCompare: 'less' }
       });
     }
 
@@ -128,7 +128,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
         primitive: { topology: 'line-list' },
-        depthStencil: { depthWriteEnabled: false, depthCompare: 'less' }
+        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: false, depthCompare: 'less' }
       });
     }
 
@@ -148,7 +148,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
         primitive: { topology: 'triangle-list' },
-        depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
+        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
       });
     }
 
@@ -172,7 +172,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
         primitive: { topology: 'triangle-list', cullMode: 'back' },
-        depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
+        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
       });
     }
 
@@ -192,7 +192,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format }]
         },
         primitive: { topology: 'triangle-list' },
-        depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
+        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
       });
     }
   }

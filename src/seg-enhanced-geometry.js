@@ -34,6 +34,16 @@ import {
   generateBandedRollerInstances
 } from './seg-geometry-generators.js';
 
+export {
+  generateBearingShaft,
+  generatePoleBandedRoller,
+  generatePlateWithCutouts,
+  generateSupportStand,
+  generateWireHarness,
+  generateCoilWithWindings,
+  generateBandedRollerInstances
+};
+
 export class EnhancedSEGGeometry {
   constructor(device, config) {
     this.device = device;
