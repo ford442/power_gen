@@ -103,11 +103,18 @@ export class WebGL2MultiDeviceVisualizer {
   }
 
   switchMode(mode) {
+    this.onModeChange(mode);
+  }
+
+  onModeChange(mode) {
     this.currentView = mode;
     const el = document.getElementById('currentView');
     if (el) el.textContent = mode.toUpperCase();
     this.cameraController.focusOnDevice(mode);
   }
+
+  /** No-op: solar battery gauge is DOM-only in the WebGL2 path. */
+  updateBatteryGaugeMesh(_charge) {}
 
   render(timestamp) {
     const rawDelta = (timestamp - this.lastFrameTime) / 1000;
