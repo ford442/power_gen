@@ -8,6 +8,7 @@ export class PerformanceProfiler {
     this.timestampResolveBuffer = null;
     this.timestampMappedBuffer = null;
     this.timingEnabled = false;
+    this._timestampResolvePending = false;
     this.queryCount = 8; // Space for multiple timestamps
 
     // FPS History (60 seconds at 60fps = 3600 samples, but we'll use 1 sample per frame)
@@ -338,6 +339,15 @@ export class PerformanceProfiler {
     ) {
       encoder.writeTimestamp(this.timestampQuerySet, index);
     }
+  }
+
+  /** Queue a single in-flight timestamp resolve (avoids buffer-in-use-during-submit). */
+  scheduleResolveTimestamps() {
+    if (!this.timingEnabled || this._timestampResolvePending) return;
+    this._timestampResolvePending = true;
+    this.resolveTimestamps()
+      .catch(() => {})
+      .finally(() => { this._timestampResolvePending = false; });
   }
 
   // Resolve timestamps
