@@ -6,6 +6,7 @@
   "main": "src/main.js",
   "scripts": {
     "dev": "vite",
+    "build:site": "vite build",
     "build": "npm run wasm:build && vite build",
     "build_colab": "npm run wasm:build_colab && vite build",
     "preview": "vite preview",
