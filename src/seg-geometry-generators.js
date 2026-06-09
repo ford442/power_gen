@@ -3,6 +3,10 @@
 // ============================================================================
 // Generator functions for creating detailed, photo-realistic SEG geometry.
 // Used for enhancing the basic primitives with detailed 3D models.
+//
+// WebGL2 path: basic cylinders/discs live in src/renderers/shared/primitive-geometry.js
+// (CPU Float32Array output, uploaded to GL buffers). Enhanced PBR meshes here remain
+// WebGPU-first; port to WebGL2 by reusing the same vertex/index arrays.
 
 import { SEGMaterialPresets } from './seg-materials.js';
 

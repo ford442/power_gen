@@ -1,3 +1,7 @@
+/**
+ * WebGPU device/context init. For renderer switching see renderers/renderer-selector.js.
+ * WebGL2 fallback uses WebGL2Context — same canvas, shared simulation in renderers/shared/.
+ */
 export class WebGPUManager {
   constructor(canvas) {
     this.canvas = canvas;

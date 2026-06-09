@@ -9,6 +9,8 @@ import { SEGIntegrationManager } from './integration';
 import { ValidatedConstants } from './ValidatedConstants';
 import { SEGSim } from './wasm/sim';
 import { MultiDeviceVisualizer } from './multi-device-visualizer.js';
+import { resolveRenderer, exposeRenderer, RENDERER_WEBGPU, RENDERER_WEBGL2 } from './renderers/renderer-selector.js';
+import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 
 class SEGVisualizer {
   constructor() {
@@ -1386,14 +1388,58 @@ async function initWasm() {
   });
 }
 
-window.addEventListener('load', () => {
-  // MultiDeviceVisualizer is the primary renderer for the multi-device SEG visualization.
-  // SEGVisualizer is kept as fallback for single-device mode when multi-device init fails.
+/**
+ * Bootstrap the active graphics backend.
+ * ?renderer=webgl2 | localStorage seg-renderer | DEBUG_RENDERER
+ */
+async function bootstrapVisualizer() {
+  const renderer = resolveRenderer();
+  const canvas = document.getElementById('gpuCanvas');
+  console.log(`[main] Selected renderer: ${renderer}`);
+
+  if (renderer === RENDERER_WEBGL2) {
+    try {
+      window.multiVisualizer = new WebGL2MultiDeviceVisualizer();
+      exposeRenderer(canvas, RENDERER_WEBGL2);
+      return;
+    } catch (e) {
+      console.warn('[main] WebGL2 path failed, trying WebGPU:', e);
+    }
+  }
+
   try {
     window.multiVisualizer = new MultiDeviceVisualizer();
+    exposeRenderer(canvas, RENDERER_WEBGPU);
   } catch (e) {
-    console.warn('[main] MultiDeviceVisualizer failed to construct, falling back to SEGVisualizer:', e);
-    visualizer = new SEGVisualizer();
+    console.warn('[main] MultiDeviceVisualizer failed, falling back to SEGVisualizer:', e);
+    if (navigator.gpu) {
+      visualizer = new SEGVisualizer();
+      exposeRenderer(canvas, RENDERER_WEBGPU);
+    } else {
+      try {
+        window.multiVisualizer = new WebGL2MultiDeviceVisualizer();
+        exposeRenderer(canvas, RENDERER_WEBGL2);
+      } catch (e2) {
+        console.error('[main] All renderers failed:', e2);
+        alert('No compatible graphics API (WebGPU or WebGL2).');
+      }
+    }
   }
+}
+
+/** Hot-switch renderer without editing code (full reload). */
+window.setRenderer = (name) => {
+  const n = String(name).toLowerCase();
+  if (n !== RENDERER_WEBGPU && n !== RENDERER_WEBGL2) {
+    console.warn('Use setRenderer("webgpu") or setRenderer("webgl2")');
+    return;
+  }
+  try { localStorage.setItem('seg-renderer', n); } catch (_) { /* ignore */ }
+  window.DEBUG_RENDERER = n;
+  location.reload();
+};
+
+window.addEventListener('load', () => {
+  bootstrapVisualizer();
   initWasm();
 });
