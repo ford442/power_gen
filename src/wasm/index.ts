@@ -54,12 +54,11 @@ export async function loadSimCore(): Promise<SimCoreModule | null> {
       return null;
     }
 
-    // 2. Dynamically inject the Emscripten JS glue as a module script.
-    //    Emscripten's MODULARIZE=1 output exports a factory function under
-    //    the name specified by EXPORT_NAME (SimCore).
+    // 2. Inject Emscripten glue as a classic script (not type=module).
+    //    MODULARIZE=1 assigns `var SimCore` on globalThis in script scope only.
     await injectScript(WASM_JS_URL);
 
-    // 3. The glue attaches the factory to globalThis.SimCore.
+    // 3. Factory is on globalThis after classic script execution.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const factory = (globalThis as any)['SimCore'] as SimCoreFactory | undefined;
 
@@ -98,15 +97,21 @@ export function isSimCoreReady(): boolean {
 
 function injectScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    // Avoid double-injection
-    if (document.querySelector(`script[src="${src}"]`)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((globalThis as any)['SimCore']) {
       resolve();
       return;
     }
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      existing.addEventListener('load', () => resolve());
+      existing.addEventListener('error', () => reject(new Error(`[sim_core] Failed to load script: ${src}`)));
+      return;
+    }
     const s = document.createElement('script');
-    s.type  = 'module';   // Emscripten -s ENVIRONMENT=web output is an ES module
-    s.src   = src;
-    s.onload  = () => resolve();
+    s.src = src;
+    s.async = true;
+    s.onload = () => resolve();
     s.onerror = () => reject(new Error(`[sim_core] Failed to load script: ${src}`));
     document.head.appendChild(s);
   });

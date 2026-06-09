@@ -59,9 +59,9 @@ export class WebGPUManager {
   }
 
   async setupGlobalResources() {
-    // Global uniform buffer for camera matrices, time, etc.
+    // Global uniform buffer: viewProj + time/camera + 4× light blocks (512 B total).
     this.globalUniformBuffer = this.device.createBuffer({
-      size: 256, // 4x4 view + 4x4 proj + vec4 time/mode + vec4 camera pos
+      size: 512, // viewProj(64) + time/camera(32) + 4 lights × 32 = 224; padded to 512
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 

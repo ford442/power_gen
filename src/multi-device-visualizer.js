@@ -87,7 +87,7 @@ export class MultiDeviceVisualizer {
       await this.setupBloomPipeline();
 
       // Track initial allocations
-      this.profiler.trackBuffer('globalUniforms', 256, GPUBufferUsage.UNIFORM);
+      this.profiler.trackBuffer('globalUniforms', 512, GPUBufferUsage.UNIFORM);
 
       // Create lighting uniform buffer for enhanced PBR shaders (192 bytes)
       this.lightingUniformBuffer = this.device.createBuffer({
@@ -932,10 +932,7 @@ export class MultiDeviceVisualizer {
     }
     computePass.end();
     
-    // Write start timestamp if enabled
-    if (this.profiler.timingEnabled) {
-      encoder.writeTimestamp(this.profiler.timestampQuerySet, 0);
-    }
+    this.profiler.writeTimestamp(encoder, 0);
     
     const sceneView = (this.bloomSceneTexture)
       ? this.bloomSceneTexture.createView()
@@ -1100,9 +1097,7 @@ export class MultiDeviceVisualizer {
       compositePass.draw(3);
       compositePass.end();
     }
-    if (this.profiler.timingEnabled) {
-      encoder.writeTimestamp(this.profiler.timestampQuerySet, 1);
-    }
+    this.profiler.writeTimestamp(encoder, 1);
     
     this.device.queue.submit([encoder.finish()]);
     

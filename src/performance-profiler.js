@@ -63,7 +63,12 @@ export class PerformanceProfiler {
     // Detect GPU tier
     this.detectGPUTier();
 
-    // Try to create timestamp query set
+    // Timestamp writes require the device feature, not just a query set allocation.
+    if (!this.device.features.has('timestamp-query')) {
+      this.timingEnabled = false;
+      return;
+    }
+
     try {
       this.timestampQuerySet = this.device.createQuerySet({
         type: 'timestamp',
@@ -326,7 +331,11 @@ export class PerformanceProfiler {
 
   // Write timestamp to encoder
   writeTimestamp(encoder, index) {
-    if (this.timingEnabled && index < this.queryCount) {
+    if (
+      this.timingEnabled &&
+      typeof encoder.writeTimestamp === 'function' &&
+      index < this.queryCount
+    ) {
       encoder.writeTimestamp(this.timestampQuerySet, index);
     }
   }
