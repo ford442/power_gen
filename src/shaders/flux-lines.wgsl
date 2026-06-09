@@ -47,13 +47,16 @@ const MAX_FIELD_AGE: f32 = 100.0;     // Max segments before reset
 
 // Storage buffer for field line segments
 // Each segment: (start_pos: vec3f, end_pos: vec3f, strength: f32, age: f32)
-// Aligned to 32 bytes per segment for GPU efficiency
-// @align(4) on endPos mirrors the FieldParticle pattern used in fieldLineVertShader:
-// forces 4-byte offset so the struct packs to exactly 32 bytes in storage buffers,
-// matching the CPU-allocated stride (10800 × 32 = 345 600 bytes).
+// Scalar fields keep the struct tightly packed at exactly 32 bytes, matching
+// the CPU-allocated stride (10800 × 32 = 345 600 bytes). vec3f members would
+// force 16-byte-aligned offsets in storage address space, breaking that layout.
 struct FluxSegment {
-    startPos: vec3f,
-    @align(4) endPos: vec3f,
+    startX: f32,
+    startY: f32,
+    startZ: f32,
+    endX: f32,
+    endY: f32,
+    endZ: f32,
     strength: f32,  // Field magnitude at segment
     age: f32,       // Segment age for animation
 }
@@ -372,8 +375,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     
     // Store segment data
     let segment = FluxSegment(
-        currentPos,
-        endPos,
+        currentPos.x, currentPos.y, currentPos.z,
+        endPos.x, endPos.y, endPos.z,
         Bmag,
         age
     );
@@ -415,8 +418,8 @@ fn traceBidirectional(@builtin(global_invocation_id) id: vec3u) {
         let age = fract(time * 0.5 + f32(i) / f32(halfSegments));
         
         fluxSegments[segmentIdx] = FluxSegment(
-            forwardPos,
-            nextPos,
+            forwardPos.x, forwardPos.y, forwardPos.z,
+            nextPos.x, nextPos.y, nextPos.z,
             Bmag,
             age
         );
@@ -439,8 +442,8 @@ fn traceBidirectional(@builtin(global_invocation_id) id: vec3u) {
         
         // Note: For backward trace, startPos is the new point, endPos is current
         fluxSegments[segmentIdx] = FluxSegment(
-            prevPos,
-            backwardPos,
+            prevPos.x, prevPos.y, prevPos.z,
+            backwardPos.x, backwardPos.y, backwardPos.z,
             Bmag,
             age
         );
