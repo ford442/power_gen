@@ -458,7 +458,42 @@ export class MultiDeviceShaders {
         vec2f( 1.0,  1.0)
       );
 
-      fn modePathPos(mode: f32, phase: f32, t: f32) -> vec3f {
+      fn posPeltierPath(phase: f32, t: f32, idx: u32) -> vec3f {
+        let isSetupA = (idx % 2u) == 0u;
+        let xOffset = select(3.5, -3.5, isSetupA);
+        let cycleT = fract(t * 0.4 + phase);
+        if (phase < 0.4) {
+          let yStart = select(4.0, -4.0, isSetupA);
+          return vec3f(xOffset + sin(phase * 123.45) * 1.5, mix(yStart, 0.0, cycleT), cos(f32(idx) * 0.123) * 1.5);
+        } else if (phase < 0.8) {
+          let yStart = select(-4.0, 4.0, isSetupA);
+          return vec3f(xOffset + sin(phase * 123.45) * 1.5, mix(yStart, 0.0, cycleT), cos(f32(idx) * 0.123) * 1.5);
+        }
+        let angle = phase * 62.83 + f32(idx) * 0.1;
+        let radius = 1.0 + cycleT * 3.0;
+        return vec3f(
+          xOffset + cos(angle) * radius,
+          sin(t * 5.0 + phase * 20.0) * 0.15,
+          sin(angle) * radius
+        );
+      }
+
+      fn posMhdPath(phase: f32, t: f32, idx: u32) -> vec3f {
+        let cycleT = fract(t * 0.7 + fract(phase * 123.45));
+        let zPos = 8.0 - 16.0 * cycleT;
+        let chargeMultiplier = select(-1.0, 1.0, phase < 0.5);
+        var xDeflection = 0.0;
+        if (zPos < 2.0) {
+          xDeflection = chargeMultiplier * clamp((2.0 - zPos) / 4.0, 0.0, 1.0) * 4.0;
+        }
+        return vec3f(
+          sin(f32(idx) * 123.45) * 0.8 + xDeflection,
+          cos(f32(idx) * 0.123) * 0.8,
+          zPos
+        );
+      }
+
+      fn modePathPos(mode: f32, phase: f32, t: f32, idx: u32) -> vec3f {
         if (mode < 0.5) {
           let cycleT = fract(t * 0.12 + phase);
           let radius = 8.5 - cycleT * 8.0;
@@ -493,17 +528,17 @@ export class MultiDeviceShaders {
           let radius = 2.8 + fract(phase * 37.0) * 0.9;
           let y = 3.1 + sin(t * 1.3 + phase * 17.0) * 0.25;
           return vec3f(cos(angle) * radius, y, sin(angle) * radius);
+        } else if (mode < 4.5) {
+          return posPeltierPath(phase, t, idx);
         }
-        let z = (phase * 2.0 - 1.0) * 3.0;
-        let y = sin(t * 2.0 + phase * 11.0) * 0.8;
-        return vec3f(0.6 * sin(t * 0.9 + phase * 8.0), y, z);
+        return posMhdPath(phase, t, idx);
       }
 
-      fn velocityForParticle(pos: vec3f, mode: f32, phase: f32, effectType: f32, t: f32) -> vec3f {
+      fn velocityForParticle(pos: vec3f, mode: f32, phase: f32, effectType: f32, t: f32, idx: u32) -> vec3f {
         if (effectType < 0.5) {
           let dt = 0.015;
-          let p1 = modePathPos(mode, phase, t + dt);
-          let p0 = modePathPos(mode, phase, t - dt);
+          let p1 = modePathPos(mode, phase, t + dt, idx);
+          let p0 = modePathPos(mode, phase, t - dt, idx);
           return (p1 - p0) / (2.0 * dt);
         } else if (effectType < 1.5) {
           let radial = normalize(vec3f(pos.x, 0.2, pos.z) + vec3f(1e-4, 0.0, 0.0));
@@ -540,7 +575,7 @@ export class MultiDeviceShaders {
         
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
         let mode = device.ringIndex;
-        let vel = velocityForParticle(pos, mode, phase, effectType, uniforms.time);
+        let vel = velocityForParticle(pos, mode, phase, effectType, uniforms.time, instIdx);
         let speed = length(vel);
         let velDir = normalize(vel + vec3f(1e-5, 0.0, 0.0));
         let toCamera = normalize(uniforms.cameraPos - pos - devicePos);
@@ -1843,6 +1878,22 @@ export class MultiDeviceShaders {
         return pos;
       }
 
+      fn posMhd(phase: f32, t: f32, idx: u32) -> vec3f {
+        let speed = 0.7;
+        let cycleT = fract(t * speed + fract(phase * 123.45));
+        let zPos = 8.0 - 16.0 * cycleT;
+        let isPositive = phase < 0.5;
+        let chargeMultiplier = select(-1.0, 1.0, isPositive);
+        let px = sin(f32(idx) * 123.45) * 0.8;
+        let py = cos(f32(idx) * 0.123) * 0.8;
+        var xDeflection = 0.0;
+        if (zPos < 2.0) {
+          let exposure = clamp((2.0 - zPos) / 4.0, 0.0, 1.0);
+          xDeflection = chargeMultiplier * exposure * 4.0;
+        }
+        return vec3f(px + xDeflection, py, zPos);
+      }
+
       @compute @workgroup_size(64)
       fn main(@builtin(global_invocation_id) id: vec3u) {
         let idx = id.x;
@@ -1862,8 +1913,10 @@ export class MultiDeviceShaders {
           newPos = posKelvin(phase, t, idx);
         } else if (mode < 3.5) {
           newPos = posSolar(phase, t, idx, uniforms.speedMult);
-        } else {
+        } else if (mode < 4.5) {
           newPos = posPeltier(phase, t, idx);
+        } else {
+          newPos = posMhd(phase, t, idx);
         }
 
         particles[idx] = vec4f(newPos, phase);

@@ -2,6 +2,9 @@
 // (108 lines × 100 segments). Update both if the WGSL constants change.
 const FLUX_TOTAL_SEGMENTS = 10800;
 
+/** WebGPU particle storage layout: vec4f (xyz + phase) = 16 bytes per particle. */
+export const PARTICLE_BYTES_PER_INSTANCE = 16;
+
 export class DeviceGeometry {
   constructor(device, id, config, visualizer) {
     this.device = device;
@@ -168,13 +171,15 @@ export class DeviceGeometry {
   }
 
   async setupParticles() {
-    // New unified layout: 16 bytes per particle = vec4f (xyz + phase)
-    const particleSize = 16;
     this.particles = this.device.createBuffer({
-      size: this.particleCount * particleSize,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      size: this.particleCount * PARTICLE_BYTES_PER_INSTANCE,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-particles`, this.particleCount * particleSize, GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
+    this.visualizer.profiler.trackBuffer(
+      `device-${this.id}-particles`,
+      this.particleCount * PARTICLE_BYTES_PER_INSTANCE,
+      GPUBufferUsage.STORAGE
+    );
 
     const particleData = new Float32Array(this.particleCount * 4);
     for (let i = 0; i < this.particleCount; i++) {
