@@ -606,6 +606,11 @@ export class MultiDeviceVisualizer {
     });
     this.device.queue.writeBuffer(this.gridVertexBuffer, 0, gridVertices);
     this.profiler.trackBuffer('gridVertices', gridVertices.byteLength, GPUBufferUsage.VERTEX);
+
+    this.gridBindGroup = this.device.createBindGroup({
+      layout: this.gridPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.globalUniformBuffer } }]
+    });
   }
 
   async setupSkyGradient() {
@@ -624,6 +629,11 @@ export class MultiDeviceVisualizer {
       },
       primitive: { topology: 'triangle-list' },
       depthStencil: { depthWriteEnabled: false, depthCompare: 'always', format: 'depth24plus' }
+    });
+
+    this.skyBindGroup = this.device.createBindGroup({
+      layout: this.skyPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.globalUniformBuffer } }]
     });
   }
   
@@ -954,24 +964,20 @@ export class MultiDeviceVisualizer {
     });
 
     // Render sky gradient first (fullscreen, before all geometry)
-    if (this.skyPipeline) {
+    if (this.skyPipeline && this.skyBindGroup) {
       renderPass.setPipeline(this.skyPipeline);
-      renderPass.setBindGroup(0, this.device.createBindGroup({
-        layout: this.skyPipeline.getBindGroupLayout(0),
-        entries: [{ binding: 0, resource: { buffer: this.globalUniformBuffer } }]
-      }));
+      renderPass.setBindGroup(0, this.skyBindGroup);
       renderPass.draw(3);
     }
 
     // Render grid
-    renderPass.setPipeline(this.gridPipeline);
-    renderPass.setBindGroup(0, this.device.createBindGroup({
-      layout: this.gridPipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.globalUniformBuffer } }]
-    }));
-    renderPass.setVertexBuffer(0, this.gridVertexBuffer);
-    renderPass.draw(6);
-    
+    if (this.gridPipeline && this.gridBindGroup) {
+      renderPass.setPipeline(this.gridPipeline);
+      renderPass.setBindGroup(0, this.gridBindGroup);
+      renderPass.setVertexBuffer(0, this.gridVertexBuffer);
+      renderPass.draw(6);
+    }
+
     // Render devices (scaled by quality)
     const scaledQuality = this.profiler.qualityLevel;
     for (const device of Object.values(this.devices)) {
@@ -1101,9 +1107,9 @@ export class MultiDeviceVisualizer {
     
     this.device.queue.submit([encoder.finish()]);
     
-    // Resolve timestamps asynchronously
+    // Resolve timestamps asynchronously (guarded against overlapping map/submit)
     if (this.profiler.timingEnabled) {
-      this.profiler.resolveTimestamps().catch(() => {});
+      this.profiler.scheduleResolveTimestamps();
     }
     
     requestAnimationFrame((t) => this.render(t));

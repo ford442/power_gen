@@ -42,11 +42,12 @@ class DeviceUniformManager {
 
     // Battery gauge instance buffer used by solar device
     if (this.id === 'solar') {
+      // 48 B — matches InstanceData in rollerVertShader (pos+ring+quat+copper+emissive)
       this.gaugeInstanceBuffer = this.device.createBuffer({
-        size: 32,
+        size: 48,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-gauge-instance`, 32, GPUBufferUsage.STORAGE);
+      this.visualizer.profiler.trackBuffer(`device-${this.id}-gauge-instance`, 48, GPUBufferUsage.STORAGE);
     }
 
     // MaterialUniforms: albedo(3) + metallic(1) + roughness(1) + ao(1) + emission(1) + ringIndex(1) + pad(2)
@@ -182,7 +183,9 @@ class DeviceUniformManager {
       const rotation = [0, 0, 0, 1];
       const instanceData = new Float32Array([
         gaugePos[0], gaugePos[1], gaugePos[2], ringIndex,
-        rotation[0], rotation[1], rotation[2], rotation[3]
+        rotation[0], rotation[1], rotation[2], rotation[3],
+        1.0, 0.9, 0.2,   // copperColor (solar gold)
+        this.batteryCharge // greenEmissive slot → reuse for charge visualization
       ]);
       this.device.queue.writeBuffer(this.gaugeInstanceBuffer, 0, instanceData);
     }

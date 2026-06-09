@@ -1596,6 +1596,8 @@ export class MultiDeviceShaders {
         }
 
         // Blend with shared material table so all devices use consistent physical presets.
+        // Keep @binding(3) material live for auto pipeline layout (Tint strips unused bindings).
+        baseColor += material.glowColor * material.emission * 0.0005;
         baseColor = mix(baseColor, mat.baseMetal.rgb, 0.65);
         metallic = mix(metallic, mat.baseMetal.a, 0.65);
         roughness = mix(roughness, mat.accentRough.a, 0.65);
@@ -2123,6 +2125,9 @@ export class MultiDeviceShaders {
         let energyGlow = exp(-lowDist * lowDist * 4.5) * 0.055;
         color += vec3f(0.15, 0.45, 1.00) * energyGlow;
 
+        // Subtle time-based shimmer (keeps @binding(0) live for auto layout)
+        color += vec3f(0.02, 0.04, 0.08) * sin(uniforms.time * 0.25 + input.uv.x * 6.0) * 0.04;
+
         return vec4f(color, 1.0);
       }
     `;
@@ -2131,14 +2136,6 @@ export class MultiDeviceShaders {
   // Grid vertex shader
   get gridVertShader() {
     return /* wgsl */ `
-      struct Uniforms {
-        viewProj: mat4x4f,
-        time: f32,
-        cameraPos: vec3f
-      }
-      
-      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      
       struct VertexOutput {
         @builtin(position) position: vec4f,
         @location(0) uv: vec2f
@@ -2161,10 +2158,20 @@ export class MultiDeviceShaders {
         @location(0) uv: vec2f
       }
 
+      struct Uniforms {
+        viewProj: mat4x4f,
+        time: f32,
+        cameraPos: vec3f
+      }
+
+      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+
       @fragment
       fn main(input: FragmentInput) -> @location(0) vec4f {
         let gridSize = 20.0;
         let worldPos = input.uv * gridSize - gridSize * 0.5;
+        // Tie uniforms into the layout (prevents binding strip + subtle pulse)
+        let pulse = 1.0 + sin(uniforms.time * 0.5) * 0.02;
 
         let lineWidth = 0.05;
         let gridX = abs(fract(worldPos.x) - 0.5);
@@ -2178,7 +2185,7 @@ export class MultiDeviceShaders {
         let distFromCenter = length(worldPos);
         let distFade = 1.0 - smoothstep(4.5, 10.5, distFromCenter);
         let nearFade  = smoothstep(0.8, 2.5, distFromCenter);
-        let alpha = 0.40 * distFade * nearFade * isLine;
+        let alpha = 0.40 * distFade * nearFade * isLine * pulse;
 
         return vec4f(lineColor, alpha);
       }
