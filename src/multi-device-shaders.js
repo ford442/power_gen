@@ -1254,19 +1254,19 @@ export class MultiDeviceShaders {
         color = color + vec3f(1.0) * spec * 0.5;
 
         // Orange emissive glow when active — boosted multipliers for punch
-        let active = input.activeIntensity;
+        let coilActive = input.activeIntensity;
         let energy = clamp(device.timeScale, 0.0, 1.0);
         let flicker = 0.72 + 0.28 * sin(uniforms.time * 5.4 + input.coilIndex * 0.78);
         let travel = 0.5 + 0.5 * sin(uniforms.time * 9.8 - input.coilIndex * 0.55 + input.worldPos.y * 6.0);
         let verticalFalloff = exp(-abs(input.worldPos.y) * 0.35);
-        let drive = active * (0.7 + energy * 1.3) * flicker * (0.55 + 0.45 * travel) * verticalFalloff;
+        let drive = coilActive * (0.7 + energy * 1.3) * flicker * (0.55 + 0.45 * travel) * verticalFalloff;
         let orangeGlow = vec3f(1.0, 0.55, 0.0) * drive * 4.2;
         let whiteCore = vec3f(1.0, 0.90, 0.7) * drive * 1.6;
         color = color + orangeGlow + whiteCore;
 
         // Per-coil time-based shimmer using traveling wave + low-frequency wobble.
         let shimmer = 1.0 + (0.08 + energy * 0.12) * sin(uniforms.time * 2.4 + input.coilIndex * 0.35);
-        color = color * (1.0 + (shimmer - 1.0) * active);
+        color = color * (1.0 + (shimmer - 1.0) * coilActive);
 
         return vec4f(color, 1.0);
       }

@@ -14,10 +14,11 @@
 
 import type { SimCoreModule, SimCoreFactory } from './types';
 
-// The WASM JS-glue is served as a static asset from public/wasm/.
-// The path is relative to the Vite root (src/) so Vite serves it at /wasm/sim_core.js.
-const WASM_JS_URL   = '/wasm/sim_core.js';
-const WASM_WASM_URL = '/wasm/sim_core.wasm';
+// Served from src/public/wasm/ → dist/wasm/ at build time.
+// Respect Vite base (./ or /repo-name/) so GitHub Pages subpaths resolve correctly.
+const WASM_BASE = `${import.meta.env.BASE_URL}wasm/`;
+const WASM_JS_URL   = `${WASM_BASE}sim_core.js`;
+const WASM_WASM_URL = `${WASM_BASE}sim_core.wasm`;
 
 let _module: SimCoreModule | null = null;
 let _loading: Promise<SimCoreModule | null> | null = null;

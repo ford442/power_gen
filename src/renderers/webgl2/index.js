@@ -86,7 +86,7 @@ export class WebGL2MultiDeviceVisualizer {
       this.skyGrid = new SkyGridRenderer(gl);
       this.meshRenderer = new MeshRenderer(gl);
       this.particleRenderer = new ParticleRenderer(gl);
-      this.cameraController = new MultiDeviceCamera(this.canvas, this.camera, this);
+      this.cameraController = new MultiDeviceCamera(this.canvas, this.camera.camera, this);
       this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
 
       for (const [id, config] of Object.entries(DEVICE_CONFIG)) {
