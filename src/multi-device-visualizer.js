@@ -156,6 +156,26 @@ export class MultiDeviceVisualizer {
   // ... [Rest of the MultiDeviceVisualizer methods remain the same]
   // Setup methods, camera methods, rendering loop, etc.
   
+  /**
+   * Resize the 3D solar battery gauge cylinder to reflect charge level (0–1).
+   * Called at init and each frame from DeviceInstance.update for the solar device.
+   */
+  updateBatteryGaugeMesh(charge = 0.5) {
+    if (!this.device || !this.batteryGaugeVertexBuffer) return;
+    const clamped = Math.max(0, Math.min(1, charge));
+    const minH = 0.04;
+    const maxH = 0.35;
+    const height = minH + (maxH - minH) * clamped;
+    const gaugeData = this.generateCylinder(0.3, height, 16);
+    this.device.queue.writeBuffer(this.batteryGaugeVertexBuffer, 0, gaugeData.vertices);
+    this.device.queue.writeBuffer(this.batteryGaugeIndexBuffer, 0, gaugeData.indices);
+    this.batteryGaugeIndexCount = gaugeData.indices.length;
+  }
+
+  switchMode(mode) {
+    this.onModeChange(mode);
+  }
+
   async setupDevices() {
     for (const [deviceId, config] of Object.entries(DEVICE_CONFIG)) {
       this.devices[deviceId] = new DeviceInstance(
