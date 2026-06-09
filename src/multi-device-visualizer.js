@@ -74,7 +74,7 @@ export class MultiDeviceVisualizer {
       // Initialize multi-device camera controller (for view transitions and matrix math)
       // Note: MultiDeviceCamera focuses on view transitions and matrix operations only.
       // Input handling is delegated to CameraController.setupInteraction() below.
-      this.cameraController = new MultiDeviceCamera(this.canvas, this.camera, this);
+      this.cameraController = new MultiDeviceCamera(this.canvas, this.camera.camera, this);
 
       this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
 
@@ -800,9 +800,9 @@ export class MultiDeviceVisualizer {
     globalData.set(viewProj, 0);                    // 0-15: viewProj matrix
     globalData[16] = this.time;                     // 16: time
     // padding at 17-19 (3 floats = 12 bytes)
-    globalData[20] = this.camera.position[0];       // 20: cameraPos.x
-    globalData[21] = this.camera.position[1];       // 21: cameraPos.y
-    globalData[22] = this.camera.position[2];       // 22: cameraPos.z
+    globalData[20] = this.camera.camera.position[0];  // 20: cameraPos.x
+    globalData[21] = this.camera.camera.position[1];  // 21: cameraPos.y
+    globalData[22] = this.camera.camera.position[2];  // 22: cameraPos.z
     // padding at 23 (1 float = 4 bytes)
     
     // Key light (offset 24-31: 32 bytes)
