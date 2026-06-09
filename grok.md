@@ -9,7 +9,25 @@
 - **Focus**: Making complex physics or engineering ideas visually understandable and engaging.
 
 ## Technology Stack
-- JavaScript
+- JavaScript (Vite)
+- **WebGPU** — primary renderer (`MultiDeviceVisualizer`)
+- **WebGL2** — debug/CI fallback (`src/renderers/webgl2/`)
+
+## WebGL2-First Workflow (Recommended for Graphics Work)
+
+When iterating on geometry, materials, or particles:
+
+1. **Start in WebGL2 mode** — `?renderer=webgl2` or `setRenderer('webgl2')`. GLSL is easier to debug than WGSL; Playwright can capture pixels via `window.captureCanvasFrame()`.
+2. **Share state** — particle arrays, roller positions, and physics constants come from `src/renderers/shared/` and `ValidatedConstants.ts`. Do not duplicate simulation logic.
+3. **Port to WebGPU** — once visuals look right in WebGL2, translate GLSL → WGSL in `multi-device-shaders.js` or `src/shaders/*.wgsl`. Map instancing: GL `drawElementsInstanced` ↔ WebGPU `drawIndexed` with storage-buffer instances.
+
+### WebGPU ↔ WebGL2 mapping
+| WebGPU | WebGL2 fallback |
+|--------|-----------------|
+| Compute shader (`compute.wgsl`) | `shared/particle-physics.js` (CPU) |
+| Storage buffers | `Float32Array` + `bufferSubData` |
+| Bind groups | Uniform blocks + attrib divisors |
+| `firstInstance` offsets | Per-draw instance ranges |
 
 ## Grok Guidelines
 - **Clarity & Education**: The main goal is to help people understand how these devices work through visuals.
