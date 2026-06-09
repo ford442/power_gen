@@ -27,7 +27,7 @@ export class DeviceGeometry {
 
   async setupFluxLineBuffer() {
     // 108 lines × 100 segments × 32 bytes per FluxSegment
-    // (FluxSegment: startPos vec3f + @align(4) endPos vec3f + strength f32 + age f32 = 32 B)
+    // (FluxSegment: 6 x f32 position scalars + strength f32 + age f32 = 32 B)
     this.fluxTotalSegments = FLUX_TOTAL_SEGMENTS;
     this.fluxSegmentBuffer = this.device.createBuffer({
       label: 'flux-segment-buffer',
@@ -43,16 +43,16 @@ export class DeviceGeometry {
 
   async setupBase() {
     // Black square industrial base like the physical prototype
-    this.baseBuffer = this.device.createBuffer({
-      size: 48,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-    });
     const baseData = new Float32Array([
       0, -0.35, 0,        // position
       8.2, 0.22, 8.2,     // size (square)
       0.08, 0.08, 0.12, 1.0,  // dark base color (dark metallic)
       0.6, 0.6, 0.6       // roughness / metallic
     ]);
+    this.baseBuffer = this.device.createBuffer({
+      size: baseData.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
     this.device.queue.writeBuffer(this.baseBuffer, 0, baseData);
   }
 

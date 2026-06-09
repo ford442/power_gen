@@ -861,32 +861,37 @@ export class MultiDeviceShaders {
         isSolar: f32                  // [11]
       }
       
-      // @align(4) on velocity matches the 32-byte CPU-written layout:
-      // position@0(12B), velocity@12(12B), life@24(4B), strength@28(4B)
+      // Scalar fields keep the struct tightly packed at 32 bytes, matching the
+      // CPU-written layout (position, velocity, life, strength = 8 x f32).
+      // vec3f members would force 16-byte-aligned offsets in storage address space.
       struct FieldParticle {
-        position:          vec3f,
-        @align(4) velocity: vec3f,
-        life:              f32,
-        strength:          f32
+        posX:     f32,
+        posY:     f32,
+        posZ:     f32,
+        velX:     f32,
+        velY:     f32,
+        velZ:     f32,
+        life:     f32,
+        strength: f32
       }
-      
+
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
       @binding(4) @group(0) var<storage> particles: array<FieldParticle>;
-      
+
       struct VertexOutput {
         @builtin(position) position: vec4f,
         @location(0) color: vec3f,
         @location(1) alpha: f32
       }
-      
+
       @vertex
       fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instIdx: u32) -> VertexOutput {
         let particle = particles[instIdx];
-        
+
         // Reconstruct device position from individual fields
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
-        let worldPos = particle.position + devicePos;
+        let worldPos = vec3f(particle.posX, particle.posY, particle.posZ) + devicePos;
         
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
@@ -948,12 +953,18 @@ export class MultiDeviceShaders {
         isSolar: f32
       }
 
-      // 32-byte layout (matches flux-lines.wgsl with @align(4) on endPos)
+      // Scalar fields keep the struct tightly packed at 32 bytes (matches
+      // flux-lines.wgsl); vec3f members would require 16-byte-aligned offsets
+      // in storage address space.
       struct FluxSegment {
-        startPos: vec3f,
-        @align(4) endPos: vec3f,
+        startX:   f32,
+        startY:   f32,
+        startZ:   f32,
+        endX:     f32,
+        endY:     f32,
+        endZ:     f32,
         strength: f32,
-        age: f32,
+        age:      f32,
       }
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -971,10 +982,12 @@ export class MultiDeviceShaders {
               @builtin(instance_index) instIdx: u32) -> VertexOutput {
         let seg = segments[instIdx];
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
+        let startPos = vec3f(seg.startX, seg.startY, seg.startZ);
+        let endPos   = vec3f(seg.endX,   seg.endY,   seg.endZ);
 
         // Transform both endpoints to clip space
-        let sc = uniforms.viewProj * vec4f(seg.startPos + devicePos, 1.0);
-        let ec = uniforms.viewProj * vec4f(seg.endPos   + devicePos, 1.0);
+        let sc = uniforms.viewProj * vec4f(startPos + devicePos, 1.0);
+        let ec = uniforms.viewProj * vec4f(endPos   + devicePos, 1.0);
 
         // Screen-space direction (NDC)
         let sn = sc.xy / sc.w;
@@ -1062,12 +1075,18 @@ export class MultiDeviceShaders {
         isSolar: f32                  // [11]
       }
       
-      // @align(4) on velocity matches the 32-byte CPU-written layout
+      // Scalar fields keep the struct tightly packed at 32 bytes, matching the
+      // CPU-written layout; vec3f members would require 16-byte-aligned offsets
+      // in storage address space.
       struct ArcParticle {
-        position:          vec3f,
-        @align(4) velocity: vec3f,
-        life:              f32,
-        intensity:         f32
+        posX:      f32,
+        posY:      f32,
+        posZ:      f32,
+        velX:      f32,
+        velY:      f32,
+        velZ:      f32,
+        life:      f32,
+        intensity: f32
       }
       
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -1085,11 +1104,11 @@ export class MultiDeviceShaders {
         let particle = particles[instIdx];
         // Reconstruct device position from individual fields
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
-        let worldPos = particle.position + devicePos;
-        
+        let worldPos = vec3f(particle.posX, particle.posY, particle.posZ) + devicePos;
+
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
-        
+
         // Electric arc colors - cyan/blue energy
         output.color = vec3f(0.3, 0.8, 1.0);
         output.intensity = particle.intensity;
@@ -1254,12 +1273,12 @@ export class MultiDeviceShaders {
         color = color + vec3f(1.0) * spec * 0.5;
 
         // Orange emissive glow when active — boosted multipliers for punch
-        let active = input.activeIntensity;
+        let activeAmount = input.activeIntensity;
         let energy = clamp(device.timeScale, 0.0, 1.0);
         let flicker = 0.72 + 0.28 * sin(uniforms.time * 5.4 + input.coilIndex * 0.78);
         let travel = 0.5 + 0.5 * sin(uniforms.time * 9.8 - input.coilIndex * 0.55 + input.worldPos.y * 6.0);
         let verticalFalloff = exp(-abs(input.worldPos.y) * 0.35);
-        let drive = active * (0.7 + energy * 1.3) * flicker * (0.55 + 0.45 * travel) * verticalFalloff;
+        let drive = activeAmount * (0.7 + energy * 1.3) * flicker * (0.55 + 0.45 * travel) * verticalFalloff;
         let orangeGlow = vec3f(1.0, 0.55, 0.0) * drive * 4.2;
         let whiteCore = vec3f(1.0, 0.90, 0.7) * drive * 1.6;
         color = color + orangeGlow + whiteCore;
@@ -1966,16 +1985,21 @@ export class MultiDeviceShaders {
   // ============================================
   // SEG field-line GPU advect compute shader
   // Replaces the 1200-particle CPU loop (sin/cos/random per frame) with a
-  // single GPU dispatch.  Uses @align(4) on velocity to match the 32-byte
-  // CPU-written FieldParticle layout (pos@0, vel@12, life@24, strength@28).
+  // single GPU dispatch.  Scalar fields keep the struct tightly packed at
+  // 32 bytes to match the CPU-written FieldParticle layout — vec3f members
+  // would require 16-byte-aligned offsets in storage address space.
   // ============================================
   get segFieldAdvectShader() {
     return /* wgsl */ `
       struct FieldParticle {
-        position:          vec3f,
-        @align(4) velocity: vec3f,
-        life:              f32,
-        strength:          f32,
+        posX:     f32,
+        posY:     f32,
+        posZ:     f32,
+        velX:     f32,
+        velY:     f32,
+        velZ:     f32,
+        life:     f32,
+        strength: f32,
       }
 
       struct FieldUniforms {
@@ -2023,8 +2047,12 @@ export class MultiDeviceShaders {
                       * min(1.0, 0.5 + sm * 0.15);
 
         var p: FieldParticle;
-        p.position = vec3f(px, py, pz);
-        p.velocity = vec3f(vx, vy, vz);
+        p.posX = px;
+        p.posY = py;
+        p.posZ = pz;
+        p.velX = vx;
+        p.velY = vy;
+        p.velZ = vz;
         p.life     = life;
         p.strength = strength;
 
