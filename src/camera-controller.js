@@ -50,7 +50,7 @@ export class CameraController {
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.zoom(e.deltaY * 0.001);
-    });
+    }, { passive: false });
 
     // Mode switching with number keys
     document.addEventListener('keydown', (e) => {
