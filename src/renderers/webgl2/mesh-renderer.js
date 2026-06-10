@@ -2,6 +2,9 @@ import { linkProgram, getUniformLocations } from './shader-utils.js';
 import { MESH_VERT, MESH_FRAG } from './shaders.js';
 import { generateCylinder, generateDisc, uploadMesh } from '../shared/primitive-geometry.js';
 
+/** Instance record: vec3 position + vec4 rgba — 28 bytes (matches MESH_VERT a_instanceColor). */
+const INSTANCE_STRIDE_FLOATS = 7;
+
 /**
  * Instanced mesh renderer for rollers, stator rings, and simple device geometry.
  * WebGPU storage-buffer instancing → instanced vertex attributes (divisor=1).
@@ -20,24 +23,35 @@ export class MeshRenderer {
     this.statorDisc = uploadMesh(gl, generateDisc(2.2, 2.5, 0.08, 48));
   }
 
-  _bindInstanceAttribs(instanceBuffer, strideFloats) {
+  _bindInstanceAttribs(instanceBuffer) {
     const gl = this.gl;
-    const stride = strideFloats * 4;
+    const stride = INSTANCE_STRIDE_FLOATS * 4;
     gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
-    // instance position
+    // instance position (vec3 @ offset 0)
     gl.vertexAttribPointer(2, 3, gl.FLOAT, false, stride, 0);
     gl.enableVertexAttribArray(2);
     gl.vertexAttribDivisor(2, 1);
-    // instance color/emissive
+    // instance color + emissive scalar in .a (vec4 @ offset 12)
     gl.vertexAttribPointer(3, 4, gl.FLOAT, false, stride, 12);
     gl.enableVertexAttribArray(3);
     gl.vertexAttribDivisor(3, 1);
   }
 
-  _drawInstanced(mesh, instanceBuffer, instanceCount, strideFloats) {
+  _packInstance(out, index, pos, rgb, emissive) {
+    const base = index * INSTANCE_STRIDE_FLOATS;
+    out[base] = pos[0];
+    out[base + 1] = pos[1];
+    out[base + 2] = pos[2];
+    out[base + 3] = rgb[0];
+    out[base + 4] = rgb[1];
+    out[base + 5] = rgb[2];
+    out[base + 6] = emissive;
+  }
+
+  _drawInstanced(mesh, instanceBuffer, instanceCount) {
     const gl = this.gl;
     gl.bindVertexArray(mesh.vao);
-    this._bindInstanceAttribs(instanceBuffer, strideFloats);
+    this._bindInstanceAttribs(instanceBuffer);
     gl.drawElementsInstanced(gl.TRIANGLES, mesh.indexCount, gl.UNSIGNED_SHORT, 0, instanceCount);
     gl.vertexAttribDivisor(2, 0);
     gl.vertexAttribDivisor(3, 0);
@@ -47,16 +61,17 @@ export class MeshRenderer {
   drawRollers(viewProj, devicePos, rollerPositions, time, opts = {}) {
     const gl = this.gl;
     const count = rollerPositions.length / 2;
-    const instanceData = new Float32Array(count * 4);
+    const instanceData = new Float32Array(count * INSTANCE_STRIDE_FLOATS);
     const copper = [0.85, 0.48, 0.25];
     const glow = 0.3 + 0.7 * (opts.corona || 0);
 
     for (let i = 0; i < count; i++) {
-      const base = i * 4;
-      instanceData[base] = rollerPositions[i * 2];
-      instanceData[base + 1] = 0;
-      instanceData[base + 2] = rollerPositions[i * 2 + 1];
-      instanceData[base + 3] = glow;
+      this._packInstance(
+        instanceData, i,
+        [rollerPositions[i * 2], 0, rollerPositions[i * 2 + 1]],
+        copper,
+        glow
+      );
     }
 
     if (!this._rollerInstanceBuf || this._rollerInstanceBuf.length < instanceData.length) {
@@ -78,16 +93,16 @@ export class MeshRenderer {
     gl.uniform1f(this.locs.u_wireframe, opts.wireframe ? 1 : 0);
     gl.uniform1f(this.locs.u_debugMode, opts.debugMode || 0);
 
-    this._drawInstanced(this.cylinder, this._rollerInstanceBuf, count, 4);
+    this._drawInstanced(this.cylinder, this._rollerInstanceBuf, count);
   }
 
   drawStatorRings(viewProj, devicePos, opts = {}) {
     const gl = this.gl;
     const radii = [2.4, 4.1, 5.8];
-    const instanceData = new Float32Array(radii.length * 4);
+    const copper = [0.85, 0.48, 0.25];
+    const instanceData = new Float32Array(radii.length * INSTANCE_STRIDE_FLOATS);
     for (let i = 0; i < radii.length; i++) {
-      instanceData[i * 4 + 1] = 0.12 * i;
-      instanceData[i * 4 + 3] = 0.15;
+      this._packInstance(instanceData, i, [0, 0.12 * i, 0], copper, 0.15);
     }
     if (!this._statorBuf) this._statorBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this._statorBuf);
@@ -108,12 +123,13 @@ export class MeshRenderer {
 
     for (let i = 0; i < radii.length; i++) {
       const scale = radii[i] / 2.35;
-      const inst = new Float32Array([0, 0.12 * i, 0, 0.2]);
+      const inst = new Float32Array(INSTANCE_STRIDE_FLOATS);
+      this._packInstance(inst, 0, [0, 0.12 * i, 0], copper, 0.2);
       const buf = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, buf);
       gl.bufferData(gl.ARRAY_BUFFER, inst, gl.STATIC_DRAW);
       gl.bindVertexArray(this.statorDisc.vao);
-      this._bindInstanceAttribs(buf, 4);
+      this._bindInstanceAttribs(buf);
       const model = new Float32Array(16);
       model[0] = scale; model[5] = 1; model[10] = scale; model[15] = 1;
       gl.uniformMatrix4fv(this.locs.u_model, false, model);
@@ -127,7 +143,8 @@ export class MeshRenderer {
 
   drawSimpleBase(viewProj, devicePos, color, opts = {}) {
     const gl = this.gl;
-    const instanceData = new Float32Array([0, -0.35, 0, 0.1]);
+    const instanceData = new Float32Array(INSTANCE_STRIDE_FLOATS);
+    this._packInstance(instanceData, 0, [0, -0.35, 0], [0.08, 0.08, 0.12], 0.1);
     if (!this._baseBuf) this._baseBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this._baseBuf);
     gl.bufferData(gl.ARRAY_BUFFER, instanceData, gl.STATIC_DRAW);
@@ -147,7 +164,7 @@ export class MeshRenderer {
     gl.uniform1f(this.locs.u_debugMode, opts.debugMode || 0);
 
     gl.bindVertexArray(this.disc.vao);
-    this._bindInstanceAttribs(this._baseBuf, 4);
+    this._bindInstanceAttribs(this._baseBuf);
     gl.drawElementsInstanced(gl.TRIANGLES, this.disc.indexCount, gl.UNSIGNED_SHORT, 0, 1);
     gl.vertexAttribDivisor(2, 0);
     gl.vertexAttribDivisor(3, 0);

@@ -52,11 +52,16 @@ export class PerformanceProfiler {
     // GPU Info
     this.gpuTier = 'unknown';
     this.adapterInfo = null;
-
-    this.init();
+    this._initPromise = null;
   }
 
   async init() {
+    if (this._initPromise) return this._initPromise;
+    this._initPromise = this._initInternal();
+    return this._initPromise;
+  }
+
+  async _initInternal() {
     // Check for timestamp query support
     const adapter = await navigator.gpu.requestAdapter();
     this.adapterInfo = adapter?.info || {};

@@ -869,42 +869,36 @@ class DeviceInstance {
   render(renderPass, globalUniformBuffer, skipEffects = false) {
     const scaledCount = Math.floor(this.particleCount * this.visualizer.profiler.qualityLevel);
 
-    // Render base first (for SEG)
-    if (this.id === 'seg' && this.geometry.baseBuffer && !skipEffects) {
+    // Core SEG mesh — always drawn (skipEffects only gates VFX below).
+    if (this.id === 'seg' && this.geometry.baseBuffer) {
       this.renderBase(renderPass, globalUniformBuffer);
     }
 
-    // Render stator rings (for SEG)
-    if (this.id === 'seg' && this.geometry.statorRingBuffer && !skipEffects) {
+    if (this.id === 'seg' && this.geometry.statorRingBuffer) {
       this.renderStatorRings(renderPass, globalUniformBuffer);
     }
 
-    // Render wiring (for SEG) — fallback if enhanced wires not available
-    if (this.id === 'seg' && this.geometry.wiringBuffer && !skipEffects && !this.visualizer.wireBuffers) {
+    if (this.id === 'seg' && this.geometry.wiringBuffer && !this.visualizer.wireBuffers) {
       this.renderWiring(renderPass, globalUniformBuffer);
     }
 
-    // Render support stand (beneath the device)
-    if (this.id === 'seg' && !skipEffects) {
+    if (this.id === 'seg') {
       this.renderStand(renderPass, globalUniformBuffer);
     }
 
-    // Render core (before rollers so rollers appear in front)
-    if (this.id === 'seg' && !skipEffects) {
+    if (this.id === 'seg') {
       this.renderCore(renderPass, globalUniformBuffer);
     }
 
-    // Render pickup coils (outside the roller ring)
-    if (this.id === 'seg' && !skipEffects) {
+    if (this.id === 'seg') {
       this.renderPickupCoils(renderPass, globalUniformBuffer);
     }
 
-    // Render wire harnesses between coils
-    if (this.id === 'seg' && !skipEffects) {
+    if (this.id === 'seg') {
       this.renderWires(renderPass, globalUniformBuffer);
     }
 
-    if (this.id === 'seg' && this.rollerInstances && this.segEnhancedPipeline && !skipEffects) {
+    if (this.id === 'seg' && this.rollerInstances && this.segEnhancedPipeline) {
       // Reset renderMode to 0 (rollers)
       this.renderMode = 0;
       const deviceData = this._buildDeviceUniformData(this.renderMode);
