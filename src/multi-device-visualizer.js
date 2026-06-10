@@ -70,6 +70,7 @@ export class MultiDeviceVisualizer {
   async init() {
     try {
       await this.webgpu.init();
+      this.webgpu.resize();
 
       // Initialize profiler
       this.profiler = new PerformanceProfiler(this.webgpu.device, this.canvas);
@@ -90,6 +91,9 @@ export class MultiDeviceVisualizer {
       await this.setupEnergyPipes();
       await this.setupFloorGrid();
       await this.setupSkyGradient();
+
+      // Match canvas backing store to layout before depth/bloom textures are allocated.
+      await this._syncCanvasSize();
       await this.setupDepthBuffer();
       await this.setupBloomPipeline();
 
@@ -107,7 +111,7 @@ export class MultiDeviceVisualizer {
 
       this.render(0);
 
-      window.addEventListener('resize', () => this.webgpu.resize());
+      window.addEventListener('resize', () => this._syncCanvasSize());
 
       // Show optimal settings hint
       this.showOptimalSettingsHint();
@@ -657,7 +661,7 @@ export class MultiDeviceVisualizer {
         targets: [{ format: navigator.gpu.getPreferredCanvasFormat(), blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } } }]
       },
       primitive: { topology: 'triangle-list' },
-      depthStencil: { depthWriteEnabled: false, depthCompare: 'less', format: 'depth24plus' }
+      depthStencil: { depthWriteEnabled: false, depthCompare: 'less', format: 'depth24plus-stencil8' }
     });
 
     const gridVertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
@@ -689,7 +693,7 @@ export class MultiDeviceVisualizer {
         targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }]
       },
       primitive: { topology: 'triangle-list' },
-      depthStencil: { depthWriteEnabled: false, depthCompare: 'always', format: 'depth24plus' }
+      depthStencil: { depthWriteEnabled: false, depthCompare: 'always', format: 'depth24plus-stencil8' }
     });
 
     this.skyBindGroup = this.device.createBindGroup({
@@ -698,15 +702,19 @@ export class MultiDeviceVisualizer {
     });
   }
   
-  resize() {
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
-    if (this.device) {
-      this.setupDepthBuffer();
-      this.setupBloomTextures();
+  /**
+   * Resize the canvas backing store (DPR-aware) and recreate depth/bloom targets.
+   */
+  async _syncCanvasSize() {
+    this.webgpu.resize();
+    if (this.device && this.profiler) {
+      await this.setupDepthBuffer();
+      if (this.bloomParamsBuffer) {
+        this.setupBloomTextures();
+      }
     }
   }
-  
+
   async setupDepthBuffer() {
     if (this.depthTexture) {
       this.profiler.textureAllocations = this.profiler.textureAllocations.filter(t => !t.name.includes('depth'));
@@ -714,10 +722,10 @@ export class MultiDeviceVisualizer {
     }
     this.depthTexture = this.device.createTexture({
       size: [this.canvas.width, this.canvas.height, 1],
-      format: 'depth24plus',
+      format: 'depth24plus-stencil8',
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
     });
-    this.profiler.trackTexture('depthBuffer', this.canvas.width, this.canvas.height, 'depth24plus');
+    this.profiler.trackTexture('depthBuffer', this.canvas.width, this.canvas.height, 'depth24plus-stencil8');
   }
 
   setupBloomTextures() {
@@ -1043,7 +1051,7 @@ export class MultiDeviceVisualizer {
     const scaledQuality = this.profiler.qualityLevel;
     for (const device of Object.values(this.devices)) {
       if (this.devicesEnabled[device.id]) {
-        // Skip field lines if quality is low
+        // Skip expensive SEG VFX (field lines, arcs, flux) at low quality — keep core mesh visible.
         const skipEffects = scaledQuality < 0.5 && device.id === 'seg';
         device.render(renderPass, this.globalUniformBuffer, skipEffects);
       }
