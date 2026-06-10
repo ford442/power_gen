@@ -28,10 +28,12 @@ export class DevicePipelineManager {
       depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
     });
 
-    // Particle pipeline — positions read from storage @binding(4) as vec4f (xyz + phase).
-    // Stride is PARTICLE_BYTES_PER_INSTANCE (16 B); no vertex buffer attributes.
+    // Particle pipeline — vec4f storage records (xyz + phase) = PARTICLE_BYTES_PER_INSTANCE (16 B).
+    // Positions are read in the vertex shader from @binding(4) storage, not vertex attribs.
     if (PARTICLE_BYTES_PER_INSTANCE !== 16) {
-      console.warn('[DevicePipelineManager] Unexpected particle stride:', PARTICLE_BYTES_PER_INSTANCE);
+      throw new Error(
+        `[DevicePipelineManager] Particle stride must be 16 bytes (vec4f); got ${PARTICLE_BYTES_PER_INSTANCE}`
+      );
     }
     this.particlePipeline = this.device.createRenderPipeline({
       label: 'particlePipeline',

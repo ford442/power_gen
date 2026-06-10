@@ -8,17 +8,13 @@ import { DebugPanel, DEVICE_CONFIG } from './debug-panel.js';
 import { DeviceInstance } from './device-instance.js';
 import { EnergyPipe } from './energy-pipe.js';
 import { SEGMaterialPresets } from './seg-materials.js';
-
-/** Devices that render as GPU particle fields only — no dedicated solid mesh builder. */
-const PARTICLE_ONLY_DEVICES = new Set(['heron', 'kelvin', 'solar', 'peltier', 'mhd']);
-
-const REQUIRED_GEOMETRY_GENERATORS = [
-  'generateBearingShaft',
-  'generatePoleBandedRoller',
-  'generateSupportStand',
-  'generateWireHarness',
-  'generateCoilWithWindings'
-];
+import {
+  generateBearingShaft,
+  generateCoilWithWindings,
+  generatePoleBandedRoller,
+  generateSupportStand,
+  generateWireHarness
+} from './seg-enhanced-geometry.js';
 
 export class MultiDeviceVisualizer {
   constructor() {
@@ -441,24 +437,20 @@ export class MultiDeviceVisualizer {
     console.log('Initializing structural mesh geometry layouts...');
     this.deviceGeometryBuffers = this.deviceGeometryBuffers || {};
 
-    await this._setupCoreSEGSharedMeshes();
-
+    // Per-device hooks — never call undefined builders (peltier/mhd are compute-only).
     for (const [deviceId, config] of Object.entries(DEVICE_CONFIG)) {
-      const builderMethodName = `build${deviceId.charAt(0).toUpperCase()}${deviceId.slice(1)}Geometry`;
+      const targetBuilderName = `build${deviceId.toUpperCase()}Geometry`;
+      const builderMethod = this[targetBuilderName];
 
-      if (PARTICLE_ONLY_DEVICES.has(deviceId)) {
-        console.log(`Skipping structural solid mesh for particle-only system: [${deviceId}]`);
-        await this.setupDefaultPrimitiveGeometry(deviceId, config);
-        continue;
-      }
-
-      if (typeof this[builderMethodName] === 'function') {
-        await this[builderMethodName](config);
-      } else if (deviceId !== 'seg') {
-        console.log(`No solid mesh builder for [${deviceId}] — using default primitive`);
+      if (typeof builderMethod === 'function') {
+        await builderMethod.call(this, config);
+      } else {
+        console.log(`[System Neutral]: Bypassing mesh generation for particle-only device: ${deviceId}`);
         await this.setupDefaultPrimitiveGeometry(deviceId, config);
       }
     }
+
+    await this._setupCoreSEGSharedMeshes();
   }
 
   /**
@@ -489,19 +481,18 @@ export class MultiDeviceVisualizer {
   }
 
   async _setupCoreSEGSharedMeshes() {
-    const generators = await import('./seg-enhanced-geometry.js');
-    for (const name of REQUIRED_GEOMETRY_GENERATORS) {
-      if (typeof generators[name] !== 'function') {
-        throw new Error(`[setupSharedGeometry] Missing geometry generator: ${name}`);
-      }
-    }
-    const {
+    const generators = {
       generateBearingShaft,
       generatePoleBandedRoller,
       generateSupportStand,
       generateWireHarness,
       generateCoilWithWindings
-    } = generators;
+    };
+    for (const [name, fn] of Object.entries(generators)) {
+      if (typeof fn !== 'function') {
+        throw new Error(`[setupSharedGeometry] Missing geometry generator: ${name}`);
+      }
+    }
 
     // Shared cylinder geometry used by rollers, coils, base, stator rings, wiring
     const cylinderData = this.generateCylinder(0.8, 2.5, 64);
