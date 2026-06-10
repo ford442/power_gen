@@ -9,6 +9,17 @@ import { DeviceInstance } from './device-instance.js';
 import { EnergyPipe } from './energy-pipe.js';
 import { SEGMaterialPresets } from './seg-materials.js';
 
+/** Devices that render as GPU particle fields only — no dedicated solid mesh builder. */
+const PARTICLE_ONLY_DEVICES = new Set(['heron', 'kelvin', 'solar', 'peltier', 'mhd']);
+
+const REQUIRED_GEOMETRY_GENERATORS = [
+  'generateBearingShaft',
+  'generatePoleBandedRoller',
+  'generateSupportStand',
+  'generateWireHarness',
+  'generateCoilWithWindings'
+];
+
 export class MultiDeviceVisualizer {
   constructor() {
     console.log('MultiDeviceVisualizer v5 starting - depthStencil fix applied');
@@ -427,6 +438,71 @@ export class MultiDeviceVisualizer {
   }
 
   async setupSharedGeometry() {
+    console.log('Initializing structural mesh geometry layouts...');
+    this.deviceGeometryBuffers = this.deviceGeometryBuffers || {};
+
+    await this._setupCoreSEGSharedMeshes();
+
+    for (const [deviceId, config] of Object.entries(DEVICE_CONFIG)) {
+      const builderMethodName = `build${deviceId.charAt(0).toUpperCase()}${deviceId.slice(1)}Geometry`;
+
+      if (PARTICLE_ONLY_DEVICES.has(deviceId)) {
+        console.log(`Skipping structural solid mesh for particle-only system: [${deviceId}]`);
+        await this.setupDefaultPrimitiveGeometry(deviceId, config);
+        continue;
+      }
+
+      if (typeof this[builderMethodName] === 'function') {
+        await this[builderMethodName](config);
+      } else if (deviceId !== 'seg') {
+        console.log(`No solid mesh builder for [${deviceId}] — using default primitive`);
+        await this.setupDefaultPrimitiveGeometry(deviceId, config);
+      }
+    }
+  }
+
+  /**
+   * Tiny placeholder mesh so particle-only devices never bind null geometry buffers.
+   */
+  async setupDefaultPrimitiveGeometry(deviceId, config) {
+    if (this.deviceGeometryBuffers[deviceId]) return;
+
+    const data = this.generateCylinder(0.05, 0.05, 8);
+    const vertexBuffer = this.device.createBuffer({
+      size: data.vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(vertexBuffer, 0, data.vertices);
+    const indexBuffer = this.device.createBuffer({
+      size: data.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(indexBuffer, 0, data.indices);
+
+    this.deviceGeometryBuffers[deviceId] = {
+      vertexBuffer,
+      indexBuffer,
+      indexCount: data.indices.length,
+      color: config.color
+    };
+    this.profiler.trackBuffer(`placeholder-${deviceId}-vertices`, data.vertices.byteLength, GPUBufferUsage.VERTEX);
+  }
+
+  async _setupCoreSEGSharedMeshes() {
+    const generators = await import('./seg-enhanced-geometry.js');
+    for (const name of REQUIRED_GEOMETRY_GENERATORS) {
+      if (typeof generators[name] !== 'function') {
+        throw new Error(`[setupSharedGeometry] Missing geometry generator: ${name}`);
+      }
+    }
+    const {
+      generateBearingShaft,
+      generatePoleBandedRoller,
+      generateSupportStand,
+      generateWireHarness,
+      generateCoilWithWindings
+    } = generators;
+
     // Shared cylinder geometry used by rollers, coils, base, stator rings, wiring
     const cylinderData = this.generateCylinder(0.8, 2.5, 64);
     const cylinderVertexBuffer = this.device.createBuffer({
@@ -447,12 +523,6 @@ export class MultiDeviceVisualizer {
     };
     this.profiler.trackBuffer('shared-cylinder-vertices', cylinderData.vertices.byteLength, GPUBufferUsage.VERTEX);
     this.profiler.trackBuffer('shared-cylinder-indices', cylinderData.indices.byteLength, GPUBufferUsage.INDEX);
-
-    // Import enhanced geometry generators
-    const {
-      generateBearingShaft, generatePoleBandedRoller, generatePlateWithCutouts,
-      generateSupportStand, generateWireHarness, generateCoilWithWindings
-    } = await import('./seg-enhanced-geometry.js');
 
     // Enhanced SEG roller with 6 magnetic pole bands
     this.enhancedRollerBuffer = generatePoleBandedRoller(this.device, {

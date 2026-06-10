@@ -1,3 +1,5 @@
+import { PARTICLE_BYTES_PER_INSTANCE } from './device-geometry.js';
+
 export class DevicePipelineManager {
   constructor(device, id, visualizer) {
     this.device = device;
@@ -27,7 +29,11 @@ export class DevicePipelineManager {
       depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' }
     });
 
-    // Particle pipeline
+    // Particle pipeline — positions read from storage @binding(4) as vec4f (xyz + phase).
+    // Stride is PARTICLE_BYTES_PER_INSTANCE (16 B); no vertex buffer attributes.
+    if (PARTICLE_BYTES_PER_INSTANCE !== 16) {
+      console.warn('[DevicePipelineManager] Unexpected particle stride:', PARTICLE_BYTES_PER_INSTANCE);
+    }
     this.particlePipeline = this.device.createRenderPipeline({
       label: 'particlePipeline',
       layout: 'auto',
