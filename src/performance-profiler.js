@@ -91,8 +91,9 @@ export class PerformanceProfiler {
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
       });
 
-      this.timingEnabled = true;
-      console.log('GPU timestamp queries enabled');
+      // Never auto-enable: writeTimestamp in the render encoder blanks the canvas on some GPUs.
+      this.timingEnabled = false;
+      console.log('GPU timestamp queries available (off by default; add ?gpuTiming=1 and enable in debug panel)');
     } catch (e) {
       console.warn('GPU timestamp queries not supported:', e);
       this.timingEnabled = false;

@@ -580,6 +580,7 @@ export class MultiDeviceVisualizer {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     this.device.queue.writeBuffer(this.coreBoltInstanceBuffer, 0, new Float32Array(boltInstanceData));
+    this.profiler.trackBuffer('core-bolt-instances', boltInstanceData.length * 4, GPUBufferUsage.STORAGE);
 
     // Connection ring (torus-like using a thin cylinder)
     const ringData = this.generateCylinder(0.15, 0.3, 48);
