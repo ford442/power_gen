@@ -725,6 +725,9 @@ export class MultiDeviceVisualizer {
       format: 'depth24plus-stencil8',
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
     });
+    // Full aspect for render attachment; depth-only for shader sampling (bloom contact shadow).
+    this.depthAttachmentView = this.depthTexture.createView();
+    this.depthSampleView = this.depthTexture.createView({ aspect: 'depth-only' });
     this.profiler.trackTexture('depthBuffer', this.canvas.width, this.canvas.height, 'depth24plus-stencil8');
   }
 
@@ -1025,10 +1028,13 @@ export class MultiDeviceVisualizer {
         storeOp: 'store'
       }],
       depthStencilAttachment: {
-        view: this.depthTexture.createView(),
+        view: this.depthAttachmentView,
         depthClearValue: 1.0,
         depthLoadOp: 'clear',
-        depthStoreOp: 'store'
+        depthStoreOp: 'store',
+        stencilClearValue: 0,
+        stencilLoadOp: 'clear',
+        stencilStoreOp: 'store'
       }
     });
 
@@ -1166,7 +1172,7 @@ export class MultiDeviceVisualizer {
           { binding: 1, resource: this.bloomTempTexture.createView() },
           { binding: 2, resource: this.bloomSampler },
           { binding: 3, resource: { buffer: this.bloomParamsBuffer } },
-          { binding: 4, resource: this.depthTexture.createView() }
+          { binding: 4, resource: this.depthSampleView }
         ]
       }));
       compositePass.draw(3);
