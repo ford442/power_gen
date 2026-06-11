@@ -12,6 +12,11 @@ export class MultiDeviceCamera {
     this.visualizer = visualizer;
   }
 
+  /** @deprecated Use focusOnDevice — kept for older call sites */
+  focusDevice(deviceId) {
+    return this.focusOnDevice(deviceId);
+  }
+
   focusOnDevice(deviceId) {
     const config = DEVICE_CONFIG[deviceId];
     if (!config) return;

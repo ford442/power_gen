@@ -601,7 +601,7 @@
     // Multi-device camera focus: snap view to a specific device
     window.focusDevice = (deviceId) => {
       if (window.multiVisualizer && window.multiVisualizer.cameraController) {
-        window.multiVisualizer.cameraController.focusDevice(deviceId);
+        window.multiVisualizer.cameraController.focusOnDevice(deviceId);
       }
     };
 
