@@ -10,7 +10,7 @@ export class DevicePipelineManager {
 
   async setupPipelines() {
     await this.setupComputePipeline();
-    const depthFormat = this.visualizer.depthFormat || 'depth24plus';
+    const depthFormat = this.visualizer.depthFormat || 'depth24plus-stencil8';
     // Roller pipeline
     this.rollerPipeline = this.device.createRenderPipeline({
       label: 'rollerPipeline',

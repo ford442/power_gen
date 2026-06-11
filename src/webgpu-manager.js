@@ -26,8 +26,14 @@ export class WebGPUManager {
       // Log adapter info for debugging
       console.log('WebGPU Adapter:', adapter.info);
 
+      // NOTE: 'timestamp-query' is intentionally NOT requested. Calling
+      // GPUCommandEncoder.writeTimestamp() inside the per-frame render
+      // encoder (see PerformanceProfiler.writeTimestamp) corrupts canvas
+      // presentation on this ANGLE/GL backend — the frame still submits at
+      // full FPS with zero validation errors, but the swap chain texture
+      // never receives the rendered content (canvas stays blank/white).
       this.device = await adapter.requestDevice({
-        requiredFeatures: adapter.features.has('timestamp-query') ? ['timestamp-query'] : []
+        requiredFeatures: []
       });
 
       this.context = this.canvas.getContext('webgpu');
