@@ -10,6 +10,7 @@ export class DevicePipelineManager {
 
   async setupPipelines() {
     await this.setupComputePipeline();
+    const depthFormat = this.visualizer.depthFormat || 'depth24plus-stencil8';
     // Roller pipeline
     this.rollerPipeline = this.device.createRenderPipeline({
       label: 'rollerPipeline',
@@ -25,7 +26,7 @@ export class DevicePipelineManager {
         targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
       },
       primitive: { topology: 'triangle-list' },
-      depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
+      depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' }
     });
 
     // Particle pipeline — vec4f storage records (xyz + phase) = PARTICLE_BYTES_PER_INSTANCE (16 B).
@@ -49,7 +50,7 @@ export class DevicePipelineManager {
         targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } } }]
       },
       primitive: { topology: 'triangle-strip' },
-      depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: false, depthCompare: 'less' }
+      depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
     });
 
     // Core pipeline (SEG only)
@@ -68,7 +69,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format }]
         },
         primitive: { topology: 'triangle-list' },
-        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
+        depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' }
       });
     }
 
@@ -88,7 +89,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
         primitive: { topology: 'line-list' },
-        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: false, depthCompare: 'less' }
+        depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
       });
     }
 
@@ -116,7 +117,7 @@ export class DevicePipelineManager {
           }]
         },
         primitive: { topology: 'triangle-strip' },
-        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: false, depthCompare: 'less' }
+        depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
       });
     }
 
@@ -136,7 +137,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
         primitive: { topology: 'line-list' },
-        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: false, depthCompare: 'less' }
+        depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
       });
     }
 
@@ -156,7 +157,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
         primitive: { topology: 'triangle-list' },
-        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
+        depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' }
       });
     }
 
@@ -180,7 +181,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
         primitive: { topology: 'triangle-list', cullMode: 'back' },
-        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
+        depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' }
       });
     }
 
@@ -200,7 +201,7 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format }]
         },
         primitive: { topology: 'triangle-list' },
-        depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: true, depthCompare: 'less' }
+        depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' }
       });
     }
   }

@@ -131,8 +131,10 @@ class DeviceInstance {
   async init() {
     await this.uniformManager.setupUniforms();
     await this.pipelineManager.setupPipelines();
-    await this.geometry.setupParticles();
-    await this.computeManager.setupComputeResources();
+    if (this.id !== 'seg') {
+      await this.geometry.setupParticles();
+      await this.computeManager.setupComputeResources();
+    }
     this.setupEffectsParticles();
 
     if (this.id === 'seg') {
@@ -146,6 +148,8 @@ class DeviceInstance {
       await this.setupRollerCompute();
       await this.setupFieldAdvect();
       await this.setupFluxLineTracer();
+
+      await this.computeManager.setupComputeResources();
     }
   }
 
@@ -929,11 +933,19 @@ class DeviceInstance {
         0.75, 0.45, 0.25, 0,    // baseColor + pad
         1.0, 0.55, 0.0, 2.5      // glowColor (orange) + emission
       ]);
-      const coilMaterialBuffer = this.device.createBuffer({
-        size: 32,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-      });
-      this.device.queue.writeBuffer(coilMaterialBuffer, 0, coilMaterialData);
+      if (!this.coilRenderMaterialBuffer) {
+        this.coilRenderMaterialBuffer = this.device.createBuffer({
+          label: 'seg-coil-render-material',
+          size: 32,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+        this.visualizer.profiler.trackBuffer(
+          `device-${this.id}-coil-render-material`,
+          32,
+          GPUBufferUsage.UNIFORM
+        );
+      }
+      this.device.queue.writeBuffer(this.coilRenderMaterialBuffer, 0, coilMaterialData);
 
       const coilBindGroup = this.device.createBindGroup({
         layout: this.coilPipeline.getBindGroupLayout(0),
@@ -941,7 +953,7 @@ class DeviceInstance {
           { binding: 0, resource: { buffer: globalUniformBuffer } },
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.electromagnetInstances } },
-          { binding: 3, resource: { buffer: coilMaterialBuffer } }
+          { binding: 3, resource: { buffer: this.coilRenderMaterialBuffer } }
         ]
       });
 
@@ -951,8 +963,6 @@ class DeviceInstance {
       renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
       const numCoils = this.visualizer.emController?.numCoils || 8;
       renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, numCoils);
-
-      coilMaterialBuffer.destroy();
     }
 
     // Render battery gauge (solar device only)

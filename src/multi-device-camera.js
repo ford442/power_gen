@@ -90,7 +90,15 @@ export class MultiDeviceCamera {
   dot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
   multiplyMatrices(a, b) {
     const out = new Float32Array(16);
-    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let sum = 0; for (let k = 0; k < 4; k++) sum += a[i*4+k] * b[k*4+j]; out[i*4+j] = sum; }
+    for (let col = 0; col < 4; col++) {
+      for (let row = 0; row < 4; row++) {
+        let sum = 0;
+        for (let k = 0; k < 4; k++) {
+          sum += a[k * 4 + row] * b[col * 4 + k];
+        }
+        out[col * 4 + row] = sum;
+      }
+    }
     return out;
   }
 }
