@@ -577,9 +577,10 @@ export class MultiDeviceVisualizer {
     this.coreBoltPositions = new Float32Array(boltPositions);
     this.coreBoltInstanceBuffer = this.device.createBuffer({
       size: boltInstanceData.length * 4,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     this.device.queue.writeBuffer(this.coreBoltInstanceBuffer, 0, new Float32Array(boltInstanceData));
+    this.profiler.trackBuffer('core-bolt-instances', boltInstanceData.length * 4, GPUBufferUsage.STORAGE);
 
     // Connection ring (torus-like using a thin cylinder)
     const ringData = this.generateCylinder(0.15, 0.3, 48);
