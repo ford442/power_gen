@@ -117,6 +117,11 @@ export class DebugPanel {
       this.profiler.autoQualityEnabled = e.target.checked;
     });
     document.getElementById('gpuTimingToggle').addEventListener('change', (e) => {
+      if (e.target.checked && !this.profiler.device.features.has('timestamp-query')) {
+        e.target.checked = false;
+        console.warn('[debug] GPU timing needs ?gpuTiming=1 and a page reload (may blank canvas on some GPUs)');
+        return;
+      }
       this.profiler.timingEnabled = e.target.checked;
     });
     document.getElementById('startBenchmark').addEventListener('click', () => this.startBenchmark());
