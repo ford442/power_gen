@@ -1196,7 +1196,7 @@ export class MultiDeviceVisualizer {
    * Focuses the camera on the named device, matching the single-device API.
    */
   onModeChange(mode) {
-    if (this.cameraController) this.cameraController.focusDevice(mode);
+    if (this.cameraController) this.cameraController.focusOnDevice(mode);
   }
 
   /**
