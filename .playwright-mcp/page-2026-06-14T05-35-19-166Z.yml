@@ -1,0 +1,96 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - heading "SEG WebGPU Dashboard" [level=1] [ref=e3]
+    - generic [ref=e4]:
+      - generic [ref=e7]: WASM…
+      - generic [ref=e10]: STANDBY
+      - generic [ref=e11]: "FPS: 63"
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - heading "Power Control" [level=3] [ref=e15]
+        - generic [ref=e16]:
+          - button "▶ Start" [ref=e17] [cursor=pointer]
+          - button "■ Stop" [ref=e18] [cursor=pointer]
+      - generic [ref=e19]:
+        - heading "Drive Parameters" [level=3] [ref=e20]
+        - generic [ref=e21]:
+          - generic [ref=e22]:
+            - text: Speed
+            - generic [ref=e23]: 1.00×
+          - slider [ref=e24] [cursor=pointer]: "50"
+        - generic [ref=e25]:
+          - generic [ref=e26]:
+            - text: Mag. Field
+            - generic [ref=e27]: "50"
+            - text: "%"
+          - slider [ref=e28] [cursor=pointer]: "50"
+        - generic [ref=e29]:
+          - generic [ref=e30]:
+            - text: Load
+            - generic [ref=e31]: "100"
+            - text: Ω
+          - slider [ref=e32] [cursor=pointer]: "100"
+      - generic [ref=e33]:
+        - heading "Simulation Mode" [level=3] [ref=e34]
+        - button "🔮 SEG Generator" [ref=e35] [cursor=pointer]
+        - button "💧 Heron's Fountain" [ref=e36] [cursor=pointer]
+        - button "⚡ Kelvin Thunderstorm" [ref=e37] [cursor=pointer]
+        - button "☀️ LEDs + Solar" [ref=e38] [cursor=pointer]
+        - button "🌊 MHD Generator" [ref=e39] [cursor=pointer]
+      - generic [ref=e40]:
+        - heading "Rendering" [level=3] [ref=e41]
+        - generic [ref=e42]:
+          - generic [ref=e43]:
+            - text: Particles
+            - generic [ref=e44]: "10000"
+          - slider [ref=e45] [cursor=pointer]: "10000"
+      - generic [ref=e46]:
+        - heading "Info" [level=3] [ref=e47]
+        - generic [ref=e48]: 3 concentric rings of 12/22/32 magnetic rollers with alternating copper/neodymium pole bands orbiting around central stator rings.
+      - generic [ref=e49]:
+        - heading "WASM Physics Core" [level=3] [ref=e50]
+        - generic [ref=e51]: C++ sim_core compiled to WebAssembly — CPU-side RK4 integrator & magnetic field solver.
+        - button "⚡ Benchmark" [ref=e53] [cursor=pointer]
+    - generic [ref=e54]:
+      - generic: SEG WebGPU v2.0
+      - generic: Drag to orbit · Scroll to zoom
+      - generic: "Mode: SEG"
+      - generic:
+        - generic: Sim Speed
+        - generic: 1.00×
+    - generic [ref=e56]:
+      - generic [ref=e57]: Performance
+      - generic [ref=e58]:
+        - generic [ref=e59]: Inner Ring RPM
+        - generic [ref=e61]:
+          - generic [ref=e62]: "0"
+          - generic [ref=e63]: RPM
+      - generic [ref=e64]:
+        - generic [ref=e65]: Efficiency
+        - generic [ref=e66]: 0.0%
+      - generic [ref=e68]: Electrical
+      - generic [ref=e69]:
+        - generic [ref=e70]: Output Voltage
+        - generic [ref=e71]: 0.000 V
+      - generic [ref=e72]:
+        - generic [ref=e73]: Output Current
+        - generic [ref=e74]: 0.000 A
+      - generic [ref=e75]:
+        - generic [ref=e76]: Output Power
+        - generic [ref=e77]: 0.000 W
+      - generic [ref=e78]: Physical
+      - generic [ref=e79]:
+        - generic [ref=e80]: Magnetic Field
+        - generic [ref=e81]: 0.000 T
+      - generic [ref=e82]:
+        - generic [ref=e83]: Temperature
+        - generic [ref=e84]: 25.0 °C
+      - generic [ref=e85]: Energy
+      - generic [ref=e86]:
+        - generic [ref=e87]: Total Energy
+        - generic [ref=e88]: 0.0000 kWh
+  - generic [ref=e89]:
+    - generic [ref=e90]: "Mode: SEG"
+    - generic [ref=e91]: WebGPU Compute Shader Physics
+    - generic [ref=e92]: "Battery: --"

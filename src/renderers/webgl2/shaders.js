@@ -1,5 +1,5 @@
 /**
- * GLSL shaders — WebGL2 equivalents of multi-device-shaders.js / particles.wgsl / roller.wgsl.
+ * GLSL shaders — WebGL2 equivalents of multi-device-shaders.js / particles.wgsl.
  *
  * WebGPU → WebGL2 mapping:
  *   @group(0) @binding(0) uniform  → uniform mat4 u_viewProj + scalars

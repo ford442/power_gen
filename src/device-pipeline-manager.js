@@ -53,45 +53,6 @@ export class DevicePipelineManager {
       depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
     });
 
-    // Core pipeline (SEG only)
-    if (this.id === 'seg') {
-      this.corePipeline = this.device.createRenderPipeline({
-        label: 'corePipeline',
-        layout: 'auto',
-        vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreVertShader }),
-          entryPoint: 'main',
-          buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
-        },
-        fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreFragShader }),
-          entryPoint: 'main',
-          targets: [{ format: this.visualizer.context.getCurrentTexture().format }]
-        },
-        primitive: { topology: 'triangle-list' },
-        depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' }
-      });
-    }
-
-    // Field line pipeline (SEG only)
-    if (this.id === 'seg') {
-      this.fieldLinePipeline = this.device.createRenderPipeline({
-        label: 'fieldLinePipeline',
-        layout: 'auto',
-        vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.fieldLineVertShader }),
-          entryPoint: 'main',
-          buffers: [{ arrayStride: 32, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }, { shaderLocation: 2, offset: 24, format: 'float32' }, { shaderLocation: 3, offset: 28, format: 'float32' }] }]
-        },
-        fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.fieldLineFragShader }),
-          entryPoint: 'main',
-          targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
-        },
-        primitive: { topology: 'line-list' },
-        depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
-      });
-    }
 
     // RK4 flux segment billboard render pipeline (SEG only)
     // Reads FluxSegment data directly from storage buffer — no vertex buffer.
@@ -141,25 +102,6 @@ export class DevicePipelineManager {
       });
     }
 
-    // Electromagnet coil pipeline (SEG only)
-    if (this.id === 'seg') {
-      this.coilPipeline = this.device.createRenderPipeline({
-        label: 'coilPipeline',
-        layout: 'auto',
-        vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coilVertShader }),
-          entryPoint: 'main',
-          buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
-        },
-        fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coilFragShader }),
-          entryPoint: 'main',
-          targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
-        },
-        primitive: { topology: 'triangle-list' },
-        depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' }
-      });
-    }
 
     // Enhanced SEG pipeline with UV support and PBR (SEG only)
     if (this.id === 'seg') {
@@ -185,25 +127,6 @@ export class DevicePipelineManager {
       });
     }
 
-    // Ring pipeline for connection rings (SEG only)
-    if (this.id === 'seg') {
-      this.ringPipeline = this.device.createRenderPipeline({
-        label: 'ringPipeline',
-        layout: 'auto',
-        vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreVertShader }),
-          entryPoint: 'main',
-          buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
-        },
-        fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreFragShader }),
-          entryPoint: 'main',
-          targets: [{ format: this.visualizer.context.getCurrentTexture().format }]
-        },
-        primitive: { topology: 'triangle-list' },
-        depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' }
-      });
-    }
   }
 
   async setupComputePipeline() {

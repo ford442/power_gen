@@ -1,0 +1,11 @@
+[     834ms] [LOG] [main] Selected renderer: webgpu @ http://localhost:4173/assets/index-DTNWENco.js:4095
+[     836ms] [LOG] MultiDeviceVisualizer v5 starting - depthStencil fix applied @ http://localhost:4173/assets/index-DTNWENco.js:3923
+[     904ms] [WARNING] No available adapters. @ http://localhost:4173/:0
+[     905ms] [ERROR] Error: No adapter
+    at At.init (http://localhost:4173/assets/index-DTNWENco.js:3924:4875)
+    at async qt.init (http://localhost:4173/assets/index-DTNWENco.js:3924:77532) @ http://localhost:4173/assets/index-DTNWENco.js:3923
+[   18994ms] [ERROR] Error: No adapter
+    at At.init (http://localhost:4173/assets/index-DTNWENco.js:3924:4875)
+    at async qt.init (http://localhost:4173/assets/index-DTNWENco.js:3924:77532) @ http://localhost:4173/assets/index-DTNWENco.js:3923
+[   24493ms] [INFO] [sim_core] SimCore factory not found – WASM benchmark unavailable. @ http://localhost:4173/assets/index-DTNWENco.js:1076
+[   24498ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4173/favicon.ico:0

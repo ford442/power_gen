@@ -11,6 +11,7 @@ import { SEGMaterialPresets } from './seg-materials.js';
 import {
   generateBearingShaft,
   generateCoilWithWindings,
+  generatePlateWithCutouts,
   generatePoleBandedRoller,
   generateSupportStand,
   generateWireHarness
@@ -144,7 +145,8 @@ export class MultiDeviceVisualizer {
       { baseColor: [0.83, 0.86, 0.88], metallic: 0.05, roughness: 0.62, accent: [0.35, 0.45, 0.58], detail: [22.0, 0.0, 0.05, 0.0] }, // 9 ceramic
       { baseColor: [0.74, 0.76, 0.80], metallic: 0.72, roughness: 0.28, accent: [0.94, 0.96, 0.99], detail: [28.0, 0.05, 0.08, 0.0] }, // 10 anodized can
       { baseColor: [0.18, 0.23, 0.28], metallic: 0.12, roughness: 0.52, accent: [0.72, 0.20, 0.14], detail: [40.0, 0.0, 0.05, 0.0] }, // 11 peltier junction
-      { baseColor: [0.92, 0.92, 0.90], metallic: 0.02, roughness: 0.48, accent: [0.20, 0.20, 0.22], detail: [30.0, 0.0, 0.06, 0.0] }  // 12 label paint
+      { baseColor: [0.92, 0.92, 0.90], metallic: 0.02, roughness: 0.48, accent: [0.20, 0.20, 0.22], detail: [30.0, 0.0, 0.06, 0.0] }, // 12 label paint
+      { baseColor: [0.07, 0.08, 0.10], metallic: 0.55, roughness: 0.42, accent: [0.16, 0.18, 0.22], detail: [24.0, 0.06, 0.12, 0.0] }  // 13 SEG dark base
     ];
 
     const packed = new Float32Array(materials.length * 12);
@@ -437,6 +439,53 @@ export class MultiDeviceVisualizer {
     return { vertices: vertexData, indices: new Uint16Array(indices) };
   }
 
+  generateBoxWithUVs(width, height, depth) {
+    const w = width / 2;
+    const h = height / 2;
+    const d = depth / 2;
+    const vertices = new Float32Array([
+      // front (+z)
+      -w, -h,  d,  0, 0, 1,  0, 0,
+       w, -h,  d,  0, 0, 1,  1, 0,
+       w,  h,  d,  0, 0, 1,  1, 1,
+      -w,  h,  d,  0, 0, 1,  0, 1,
+      // back (-z)
+       w, -h, -d,  0, 0, -1,  0, 0,
+      -w, -h, -d,  0, 0, -1,  1, 0,
+      -w,  h, -d,  0, 0, -1,  1, 1,
+       w,  h, -d,  0, 0, -1,  0, 1,
+      // top (+y)
+      -w,  h,  d,  0, 1, 0,  0, 0,
+       w,  h,  d,  0, 1, 0,  1, 0,
+       w,  h, -d,  0, 1, 0,  1, 1,
+      -w,  h, -d,  0, 1, 0,  0, 1,
+      // bottom (-y)
+       w, -h,  d,  0, -1, 0,  0, 0,
+      -w, -h,  d,  0, -1, 0,  1, 0,
+      -w, -h, -d,  0, -1, 0,  1, 1,
+       w, -h, -d,  0, -1, 0,  0, 1,
+      // right (+x)
+       w, -h,  d,  1, 0, 0,  0, 0,
+       w, -h, -d,  1, 0, 0,  1, 0,
+       w,  h, -d,  1, 0, 0,  1, 1,
+       w,  h,  d,  1, 0, 0,  0, 1,
+      // left (-x)
+      -w, -h, -d,  -1, 0, 0,  0, 0,
+      -w, -h,  d,  -1, 0, 0,  1, 0,
+      -w,  h,  d,  -1, 0, 0,  1, 1,
+      -w,  h, -d,  -1, 0, 0,  0, 1,
+    ]);
+    const indices = new Uint16Array([
+      0, 1, 2,  0, 2, 3,
+      4, 5, 6,  4, 6, 7,
+      8, 9, 10,  8, 10, 11,
+      12, 13, 14,  12, 14, 15,
+      16, 17, 18,  16, 18, 19,
+      20, 21, 22,  20, 22, 23
+    ]);
+    return { vertices, indices };
+  }
+
   async setupSharedGeometry() {
     console.log('Initializing structural mesh geometry layouts...');
     this.deviceGeometryBuffers = this.deviceGeometryBuffers || {};
@@ -498,26 +547,38 @@ export class MultiDeviceVisualizer {
       }
     }
 
-    // Shared cylinder geometry used by rollers, coils, base, stator rings, wiring
-    const cylinderData = this.generateCylinder(0.8, 2.5, 64);
-    const cylinderVertexBuffer = this.device.createBuffer({
-      size: cylinderData.vertices.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
-    });
-    this.device.queue.writeBuffer(cylinderVertexBuffer, 0, cylinderData.vertices);
-    const cylinderIndexBuffer = this.device.createBuffer({
-      size: cylinderData.indices.byteLength,
-      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
-    });
-    this.device.queue.writeBuffer(cylinderIndexBuffer, 0, cylinderData.indices);
+    // UV cylinder shared by pickup/electromagnet coils
+    const coilCylData = this.generateCylinderWithUVs(0.8, 2.5, 64);
+    const coilCylVB = this.device.createBuffer({ size: coilCylData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(coilCylVB, 0, coilCylData.vertices);
+    const coilCylIB = this.device.createBuffer({ size: coilCylData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(coilCylIB, 0, coilCylData.indices);
+    this.coilUVBuffer = { vertexBuffer: coilCylVB, indexBuffer: coilCylIB, indexCount: coilCylData.indices.length };
+    this.profiler.trackBuffer('seg-coil-uv-vertices', coilCylData.vertices.byteLength, GPUBufferUsage.VERTEX);
+    this.profiler.trackBuffer('seg-coil-uv-indices', coilCylData.indices.byteLength, GPUBufferUsage.INDEX);
 
-    this.cylinderBuffer = {
-      vertexBuffer: cylinderVertexBuffer,
-      indexBuffer: cylinderIndexBuffer,
-      indexCount: cylinderData.indices.length
-    };
-    this.profiler.trackBuffer('shared-cylinder-vertices', cylinderData.vertices.byteLength, GPUBufferUsage.VERTEX);
-    this.profiler.trackBuffer('shared-cylinder-indices', cylinderData.indices.byteLength, GPUBufferUsage.INDEX);
+    // Industrial base box (UV mesh for enhanced PBR pipeline)
+    const baseBoxData = this.generateBoxWithUVs(8.2, 0.22, 8.2);
+    const baseBoxVB = this.device.createBuffer({ size: baseBoxData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(baseBoxVB, 0, baseBoxData.vertices);
+    const baseBoxIB = this.device.createBuffer({ size: baseBoxData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(baseBoxIB, 0, baseBoxData.indices);
+    this.basePlateBuffer = { vertexBuffer: baseBoxVB, indexBuffer: baseBoxIB, indexCount: baseBoxData.indices.length };
+    this.profiler.trackBuffer('seg-base-plate-vertices', baseBoxData.vertices.byteLength, GPUBufferUsage.VERTEX);
+    this.profiler.trackBuffer('seg-base-plate-indices', baseBoxData.indices.byteLength, GPUBufferUsage.INDEX);
+
+    this.baseInstanceBuffer = this.device.createBuffer({
+      size: 48,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(this.baseInstanceBuffer, 0, new Float32Array([
+      0, -0.35, 0,  // position
+      0.0,          // ringIndex
+      0, 0, 0, 1,   // rotation
+      0.08, 0.08, 0.12, // dark base color
+      0.0           // emissive
+    ]));
+    this.profiler.trackBuffer('seg-base-instance', 48, GPUBufferUsage.STORAGE);
 
     // Enhanced SEG roller with 6 magnetic pole bands
     this.enhancedRollerBuffer = generatePoleBandedRoller(this.device, {
@@ -541,13 +602,35 @@ export class MultiDeviceVisualizer {
     this.device.queue.writeBuffer(magnetIB, 0, magnetData.indices);
     this.coreMagnetBuffer = { vertexBuffer: magnetVB, indexBuffer: magnetIB, indexCount: magnetData.indices.length };
 
-    // Core plate (simple annulus disc with UVs)
-    const plateData = this.generateDiscWithUVs(0.8, 6.5, 0.25, 48);
-    const plateVB = this.device.createBuffer({ size: plateData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-    this.device.queue.writeBuffer(plateVB, 0, plateData.vertices);
-    const plateIB = this.device.createBuffer({ size: plateData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-    this.device.queue.writeBuffer(plateIB, 0, plateData.indices);
-    this.corePlateBuffer = { vertexBuffer: plateVB, indexBuffer: plateIB, indexCount: plateData.indices.length };
+    // Core plates with roller cutouts, bolt holes and radial ribs
+    const rings = [
+      { count: 8, radius: 2.5 },
+      { count: 12, radius: 4.0 },
+      { count: 16, radius: 5.5 }
+    ];
+    const rollerCutouts = [];
+    for (const ring of rings) {
+      for (let i = 0; i < ring.count; i++) {
+        rollerCutouts.push({
+          angle: (i / ring.count) * Math.PI * 2,
+          radius: ring.radius,
+          size: 0.85
+        });
+      }
+    }
+    const plateData = generatePlateWithCutouts(this.device, {
+      innerRadius: 0.8,
+      outerRadius: 6.5,
+      thickness: 0.25,
+      rollerCutouts,
+      boltHoles: 16,
+      hasRibs: true,
+      ribCount: 8,
+      segments: 96
+    });
+    this.corePlateBuffer = plateData;
+    this.profiler.trackBuffer('seg-core-plate-vertices', plateData.vertexBuffer.size, GPUBufferUsage.VERTEX);
+    this.profiler.trackBuffer('seg-core-plate-indices', plateData.indexBuffer.size, GPUBufferUsage.INDEX);
 
     // Bolt geometry (small cylinder with UVs)
     const boltData = this.generateCylinderWithUVs(0.08, 0.15, 8);
@@ -582,19 +665,31 @@ export class MultiDeviceVisualizer {
     this.device.queue.writeBuffer(this.coreBoltInstanceBuffer, 0, new Float32Array(boltInstanceData));
     this.profiler.trackBuffer('core-bolt-instances', boltInstanceData.length * 4, GPUBufferUsage.STORAGE);
 
-    // Connection ring (torus-like using a thin cylinder)
-    const ringData = this.generateCylinder(0.15, 0.3, 48);
+    // Connection rings (thin UV cylinders, instanced at y = +/-2.0)
+    const ringData = this.generateCylinderWithUVs(0.15, 0.3, 48);
     const ringVB = this.device.createBuffer({ size: ringData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(ringVB, 0, ringData.vertices);
     const ringIB = this.device.createBuffer({ size: ringData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(ringIB, 0, ringData.indices);
     this.connectionRingBuffer = { vertexBuffer: ringVB, indexBuffer: ringIB, indexCount: ringData.indices.length };
 
-    // Coil buffer (cylinder drawn without index buffer for instanced rendering)
-    this.coilBuffer = {
-      vertexBuffer: this.cylinderBuffer.vertexBuffer,
-      vertexCount: cylinderData.vertices.length / 6
-    };
+    this.connectionRingInstances = this.device.createBuffer({
+      size: 2 * 48,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(this.connectionRingInstances, 0, new Float32Array([
+      // top ring
+      0, 2.0, 0,  0.0,
+      0, 0, 0, 1,
+      0.85, 0.48, 0.25,
+      0.0,
+      // bottom ring
+      0, -2.0, 0,  0.0,
+      0, 0, 0, 1,
+      0.85, 0.48, 0.25,
+      0.0
+    ]));
+    this.profiler.trackBuffer('seg-connection-ring-instances', 2 * 48, GPUBufferUsage.STORAGE);
 
     // Battery gauge (simple cylinder)
     const gaugeData = this.generateCylinder(0.3, 0.1, 16);
@@ -969,7 +1064,7 @@ export class MultiDeviceVisualizer {
     // ─── COMPUTE PASS: animate particles on GPU ───
     const computePass = encoder.beginComputePass({ label: 'particle-compute' });
 
-    // SEG-specific compute: roller kinematics + field line advection
+    // SEG-specific compute: roller kinematics + RK4 flux line tracing.
     // These run first so rendering reads the freshly updated buffers.
     const segDevice = this.devices['seg'];
     if (segDevice && this.devicesEnabled['seg']) {
@@ -977,12 +1072,6 @@ export class MultiDeviceVisualizer {
         computePass.setPipeline(segDevice.rollerComputePipeline);
         computePass.setBindGroup(0, segDevice.rollerComputeBindGroup);
         computePass.dispatchWorkgroups(1);  // 1 workgroup × 64 threads, 36 active
-      }
-      if (segDevice.fieldAdvectPipeline && segDevice.fieldAdvectBindGroup) {
-        computePass.setPipeline(segDevice.fieldAdvectPipeline);
-        computePass.setBindGroup(0, segDevice.fieldAdvectBindGroup);
-        const fieldWorkgroups = Math.ceil(segDevice.fieldLineCount / 64);
-        computePass.dispatchWorkgroups(fieldWorkgroups);  // 19 workgroups × 64 = 1216 threads
       }
       // RK4 flux line tracer: 2 workgroups × 64 threads = 128 threads, 108 active.
       // Each thread traces one complete bidirectional flux line (100 RK4 steps).

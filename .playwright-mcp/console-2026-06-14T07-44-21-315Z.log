@@ -1,0 +1,15 @@
+[   15018ms] [WARNING] [.WebGL-0xdd4000fba00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels @ http://localhost:8125/?renderer=webgl2:0
+[   15019ms] [INFO] [sim_core] Could not reach WASM binary – falling back to JS-only physics. @ http://localhost:8125/assets/index-DFq0hNRr.js:1685
+[   15118ms] [LOG] [main] Selected renderer: webgpu @ http://localhost:8125/assets/index-DFq0hNRr.js:4547
+[   15120ms] [LOG] MultiDeviceVisualizer v5 starting - depthStencil fix applied @ http://localhost:8125/assets/index-DFq0hNRr.js:4375
+[   15172ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:8125/favicon.ico:0
+[   15189ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:8125/favicon.ico:0
+[   15226ms] [WARNING] No available adapters. @ http://localhost:8125/:0
+[   15226ms] [ERROR] Error: No adapter
+    at Nt.init (http://localhost:8125/assets/index-DFq0hNRr.js:4376:4875)
+    at async qt.init (http://localhost:8125/assets/index-DFq0hNRr.js:4376:72611) @ http://localhost:8125/assets/index-DFq0hNRr.js:4375
+[   21400ms] [ERROR] Error: No adapter
+    at Nt.init (http://localhost:8125/assets/index-DFq0hNRr.js:4376:4875)
+    at async qt.init (http://localhost:8125/assets/index-DFq0hNRr.js:4376:72611) @ http://localhost:8125/assets/index-DFq0hNRr.js:4375
+[   27531ms] [INFO] [sim_core] SimCore factory not found – WASM benchmark unavailable. @ http://localhost:8125/assets/index-DFq0hNRr.js:1685
+[   27532ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8125/favicon.ico:0

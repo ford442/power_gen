@@ -1,0 +1,5 @@
+[   12218ms] [WARNING] [.WebGL-0xdd4000f6c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels @ http://localhost:8125/?renderer=webgl2:0
+[   12243ms] [INFO] [sim_core] Could not reach WASM binary – falling back to JS-only physics. @ http://localhost:8125/assets/index-DFq0hNRr.js:1685
+[   12454ms] [LOG] [main] Selected renderer: webgl2 @ http://localhost:8125/assets/index-DFq0hNRr.js:4547
+[   12454ms] [LOG] WebGL2MultiDeviceVisualizer starting (debug fallback path) @ http://localhost:8125/assets/index-DFq0hNRr.js:4547
+[   13149ms] [LOG] [webgl2] Ready. Keys: W=wireframe P=particle debug N=normals Space=pause .=step [/]=slow-mo @ http://localhost:8125/assets/index-DFq0hNRr.js:4547

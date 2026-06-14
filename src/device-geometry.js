@@ -12,7 +12,6 @@ export class DeviceGeometry {
     this.config = config;
     this.visualizer = visualizer;
     this.particleCount = config.particleCount || 50000;
-    this.fieldLineCount = 1200;
   }
 
   async initializeSEG() {
@@ -21,7 +20,6 @@ export class DeviceGeometry {
     await this.setupRollers();
     await this.setupCore();
     await this.setupParticles();
-    await this.setupFieldLines();
     await this.setupFluxLineBuffer();
     await this.setupEnergyArcs();
     await this.setupWiring();
@@ -45,18 +43,9 @@ export class DeviceGeometry {
   }
 
   async setupBase() {
-    // Black square industrial base like the physical prototype
-    const baseData = new Float32Array([
-      0, -0.35, 0,        // position
-      8.2, 0.22, 8.2,     // size (square)
-      0.08, 0.08, 0.12, 1.0,  // dark base color (dark metallic)
-      0.6, 0.6, 0.6       // roughness / metallic
-    ]);
-    this.baseBuffer = this.device.createBuffer({
-      size: baseData.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-    });
-    this.device.queue.writeBuffer(this.baseBuffer, 0, baseData);
+    // Base geometry is now a shared UV mesh in the visualizer (basePlateBuffer).
+    // This method is intentionally a no-op; the instance data lives in
+    // MultiDeviceVisualizer.baseInstanceBuffer.
   }
 
   async setupStatorRings() {
@@ -214,38 +203,6 @@ export class DeviceGeometry {
     this.device.queue.writeBuffer(this.particles, 0, particleData);
   }
 
-  async setupFieldLines() {
-    this.fieldLineParticles = this.device.createBuffer({
-      size: this.fieldLineCount * 32,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-    });
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-fieldlines`, this.fieldLineCount * 32, GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
-
-    const fieldData = new Float32Array(this.fieldLineCount * 8);
-    for (let i = 0; i < this.fieldLineCount; i++) {
-      const idx = i * 8;
-      const ringIdx = Math.floor(Math.random() * 3);
-      const ringRadii = [2.5, 4.0, 5.5];
-      const ringRadius = ringRadii[ringIdx];
-
-      const angle = Math.random() * Math.PI * 2;
-      const height = (Math.random() - 0.5) * 2.0;
-
-      fieldData[idx] = Math.cos(angle) * ringRadius;
-      fieldData[idx + 1] = height;
-      fieldData[idx + 2] = Math.sin(angle) * ringRadius;
-
-      const speed = 0.5 + Math.random() * 1.0;
-      fieldData[idx + 3] = -Math.sin(angle) * speed;
-      fieldData[idx + 4] = (Math.random() - 0.5) * 0.2;
-      fieldData[idx + 5] = Math.cos(angle) * speed;
-
-      fieldData[idx + 6] = Math.random();
-      fieldData[idx + 7] = 0.5 + Math.random() * 0.5;
-    }
-    this.device.queue.writeBuffer(this.fieldLineParticles, 0, fieldData);
-  }
-
   async setupEnergyArcs() {
     this.energyArcParticles = this.device.createBuffer({
       size: 200 * 32,
@@ -346,10 +303,10 @@ export class DeviceGeometry {
     // Instance format: position(3) + angle(1) + activeIntensity(1) + coilIndex(1) + pad(2) = 8 floats = 32 bytes
     const maxCoils = 24;
     this.electromagnetInstances = this.device.createBuffer({
-      size: maxCoils * 32,
+      size: maxCoils * 48,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-electromagnets`, maxCoils * 32, GPUBufferUsage.STORAGE);
+    this.visualizer.profiler.trackBuffer(`device-${this.id}-electromagnets`, maxCoils * 48, GPUBufferUsage.STORAGE);
 
     // Initialize with default 8-coil layout at radius 7.0
     this.updateElectromagnetLayout(8, 0);

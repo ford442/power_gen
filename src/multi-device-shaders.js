@@ -124,7 +124,7 @@ export class MultiDeviceShaders {
       }
 
       const PI: f32 = 3.14159265;
-      const MATERIAL_COUNT: u32 = 13u;
+      const MATERIAL_COUNT: u32 = 14u;
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
@@ -213,7 +213,7 @@ export class MultiDeviceShaders {
         return warm * max(0.0, t - 0.8);
       }
 
-      fn getMaterialId(mode: i32, renderMode: i32, ringIndex: f32) -> u32 {
+      fn getMaterialId(mode: i32, renderMode: i32) -> u32 {
         if (mode == 1) { return 8u; }   // Heron vessel
         if (mode == 2) { return 10u; }  // Kelvin cans
         if (mode == 3) { return 7u; }   // Solar cell body
@@ -222,8 +222,6 @@ export class MultiDeviceShaders {
         if (renderMode == 1) { return 1u; }  // SEG base
         if (renderMode == 2) { return 2u; }  // SEG stator
         if (renderMode == 3) { return 0u; }  // Wiring copper
-        if (ringIndex < -0.5) { return 1u; } // Shaft
-        if (ringIndex > 10.0) { return 2u; } // Brass ring
         return 0u;
       }
 
@@ -237,7 +235,7 @@ export class MultiDeviceShaders {
         let renderMode = i32(round(device.renderMode));
         let energy = clamp(device.timeScale, 0.0, 1.0);
         let overdrive = pow(energy, 1.8);
-        let materialId = getMaterialId(mode, renderMode, input.ringIndex);
+        let materialId = getMaterialId(mode, renderMode);
         let mat = getMaterial(materialId);
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
         let localPos = input.worldPos - devicePos;
@@ -246,12 +244,6 @@ export class MultiDeviceShaders {
         var baseColor = mat.baseMetal.rgb;
         var metallic = mat.baseMetal.a;
         var roughness = clamp(mat.accentRough.a, 0.05, 1.0);
-
-        if (mode == 0 && materialId == 0u) {
-          baseColor = mix(baseColor, input.copperColor, 0.55);
-          let rollerTemp = mix(820.0, 3200.0, clamp(energy * 0.75 + input.greenEmissive * 0.9, 0.0, 1.0));
-          baseColor = mix(baseColor, baseColor + blackbody(rollerTemp) * 0.45, energy);
-        }
 
         let brushed = fbm(localPos * (mat.detailParams.x * 0.32));
         let oxidation = fbm(localPos * (mat.detailParams.x * 0.75 + 9.0));
@@ -365,17 +357,9 @@ export class MultiDeviceShaders {
 
         let ambient = albedo * 0.3 * vec3f(0.15, 0.18, 0.22);
         var color = ambient + diffuse + specular + rimLight;
-        
-        // GREEN EMISSIVE GLOW on bottom half of roller (LED underglow effect)
-        let bottomGlow = max(0.0, -detailN.y) * input.greenEmissive * (1.8 + overdrive * 2.8);
-        let greenGlow = vec3f(0.0, 1.2, 0.6) * bottomGlow;
-        let plasmaRim = vec3f(0.25, 1.0, 0.65) * pow(1.0 - NdotV, 4.0) * (0.25 + overdrive * 1.2);
-        
+
         // Add material emission
         color = color + material.glowColor * material.emission * (0.2 + energy * 0.8);
-        
-        // Add the green LED underglow
-        color = color + greenGlow + plasmaRim;
 
         if (mode == 2) {
           let coronaPulse = 0.5 + 0.5 * sin(uniforms.time * 10.0 + localPos.y * 4.0);
@@ -788,178 +772,7 @@ export class MultiDeviceShaders {
     `;
   }
   
-  // Core vertex shader
-  get coreVertShader() {
-    return /* wgsl */ `
-      struct Uniforms {
-        viewProj: mat4x4f,
-        time: f32,
-        cameraPos: vec3f
-      }
-      
-      // Canonical 48-byte DeviceUniforms struct (12 x f32)
-      struct DeviceUniforms {
-        renderMode: f32,              // [0]
-        posX: f32,                    // [1]
-        posY: f32,                    // [2]
-        posZ: f32,                    // [3]
-        rotation: vec4f,              // [4-7]
-        timeScale: f32,               // [8]
-        ringIndex: f32,               // [9]
-        batteryCharge: f32,           // [10]
-        isSolar: f32                  // [11]
-      }
-      
-      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      
-      struct VertexInput {
-        @location(0) position: vec3f,
-        @location(1) normal: vec3f
-      }
-      
-      struct VertexOutput {
-        @builtin(position) position: vec4f,
-        @location(0) worldPos: vec3f,
-        @location(1) normal: vec3f
-      }
-      
-      @vertex
-      fn main(input: VertexInput) -> VertexOutput {
-        // Reconstruct device position from individual fields
-        let devicePos = vec3f(device.posX, device.posY, device.posZ);
-        let worldPos = input.position + devicePos;
-        
-        var output: VertexOutput;
-        output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
-        output.worldPos = worldPos;
-        output.normal = input.normal;
-        
-        return output;
-      }
-    `;
-  }
-  
-  // Core fragment shader
-  get coreFragShader() {
-    return /* wgsl */ `
-      struct CoreMaterialUniforms {
-        baseColor: vec3f,
-        emission: f32,
-        coreColor: vec3f,
-        glowIntensity: f32
-      }
-      
-      @binding(3) @group(0) var<uniform> material: CoreMaterialUniforms;
-      
-      struct FragmentInput {
-        @location(0) worldPos: vec3f,
-        @location(1) normal: vec3f
-      }
-      
-      @fragment
-      fn main(input: FragmentInput) -> @location(0) vec4f {
-        let normal = normalize(input.normal);
-        let lightDir = normalize(vec3f(1.0, 1.0, 1.0));
-        let diff = max(dot(normal, lightDir), 0.0);
-        
-        // Central core with green glow
-        let baseColor = material.baseColor;
-        let glowColor = material.coreColor * material.glowIntensity;
-        
-        let color = baseColor * (0.3 + diff * 0.7) + glowColor;
-        
-        return vec4f(color, 1.0);
-      }
-    `;
-  }
-  
   // Field line vertex shader
-  get fieldLineVertShader() {
-    return /* wgsl */ `
-      struct Uniforms {
-        viewProj: mat4x4f,
-        time: f32,
-        cameraPos: vec3f
-      }
-      
-      // Canonical 48-byte DeviceUniforms struct (12 x f32)
-      struct DeviceUniforms {
-        renderMode: f32,              // [0]
-        posX: f32,                    // [1]
-        posY: f32,                    // [2]
-        posZ: f32,                    // [3]
-        rotation: vec4f,              // [4-7]
-        timeScale: f32,               // [8]
-        ringIndex: f32,               // [9]
-        batteryCharge: f32,           // [10]
-        isSolar: f32                  // [11]
-      }
-      
-      // Scalar fields keep the struct tightly packed at 32 bytes, matching the
-      // CPU-written layout (position, velocity, life, strength = 8 x f32).
-      // vec3f members would force 16-byte-aligned offsets in storage address space.
-      struct FieldParticle {
-        posX:     f32,
-        posY:     f32,
-        posZ:     f32,
-        velX:     f32,
-        velY:     f32,
-        velZ:     f32,
-        life:     f32,
-        strength: f32
-      }
-
-      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(4) @group(0) var<storage> particles: array<FieldParticle>;
-
-      struct VertexOutput {
-        @builtin(position) position: vec4f,
-        @location(0) color: vec3f,
-        @location(1) alpha: f32
-      }
-
-      @vertex
-      fn main(@builtin(vertex_index) vertIdx: u32, @builtin(instance_index) instIdx: u32) -> VertexOutput {
-        let particle = particles[instIdx];
-
-        // Reconstruct device position from individual fields
-        let devicePos = vec3f(device.posX, device.posY, device.posZ);
-        let worldPos = vec3f(particle.posX, particle.posY, particle.posZ) + devicePos;
-        
-        var output: VertexOutput;
-        output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
-        
-        // Green energy field lines
-        let copper = vec3f(0.85, 0.48, 0.25);
-        let greenEnergy = vec3f(0.2, 1.0, 0.5);
-        output.color = mix(copper, greenEnergy, particle.strength);
-        output.alpha = particle.life * particle.strength;
-        
-        return output;
-      }
-    `;
-  }
-  
-  // Field line fragment shader
-  get fieldLineFragShader() {
-    return /* wgsl */ `
-      struct FragmentInput {
-        @location(0) color: vec3f,
-        @location(1) alpha: f32
-      }
-      
-      @fragment
-      fn main(input: FragmentInput) -> @location(0) vec4f {
-        return vec4f(input.color, input.alpha * 0.6);
-      }
-    `;
-  }
-
-  // ── RK4 Flux Line Tracer compute shader ──────────────────────────────────
-  // Returns the full flux-lines.wgsl content.  The pipeline uses the
-  // `traceBidirectional` entry point (1 thread per line, 2 workgroups).
   get fluxLineTracerShader() {
     return fluxLinesWgsl;
   }
@@ -1020,36 +833,43 @@ export class MultiDeviceShaders {
         let startPos = vec3f(seg.startX, seg.startY, seg.startZ);
         let endPos   = vec3f(seg.endX,   seg.endY,   seg.endZ);
 
-        // Transform both endpoints to clip space
-        let sc = uniforms.viewProj * vec4f(startPos + devicePos, 1.0);
-        let ec = uniforms.viewProj * vec4f(endPos   + devicePos, 1.0);
+        // World-space basis: tangent along B, right perpendicular to B and the camera.
+        // This keeps the ribbon facing the viewer and gives a view-consistent width.
+        let tangent = normalize(endPos - startPos);
+        let centerWorld = (startPos + endPos) * 0.5 + devicePos;
+        let viewDir = normalize(uniforms.cameraPos - centerWorld);
 
-        // Screen-space direction (NDC)
-        let sn = sc.xy / sc.w;
-        let en = ec.xy / ec.w;
-        let dir = en - sn;
-        let len = length(dir);
-        let unitDir = select(vec2f(1.0, 0.0), dir / len, len > 0.0001);
-        let perp = vec2f(-unitDir.y, unitDir.x);
+        var right = cross(tangent, viewDir);
+        if (length(right) < 0.001) {
+          // Camera is looking nearly along the field line; fall back to world up.
+          right = cross(tangent, vec3f(0.0, 1.0, 0.0));
+          if (length(right) < 0.001) {
+            right = vec3f(1.0, 0.0, 0.0);
+          }
+        }
+        right = normalize(right);
 
-        // Half-width: 0.002..0.008 px driven by field strength (sqrt scale)
+        // View-consistent world-space half-width.  Width scales with |B| and is
+        // distance-compensated so lines stay a similar thickness in pixels as
+        // the camera zooms in/out.  Base width ~2 px, max ~8 px.
         let t = clamp(sqrt(seg.strength * 2.0e6), 0.0, 1.0);
-        let halfWidth = 0.002 + t * 0.006;
+        let ndcHalfWidth = 0.002 + t * 0.006;
+        let dist = length(uniforms.cameraPos - centerWorld);
+        let halfWidthWorld = ndcHalfWidth * dist * 0.5;
 
         // Vertices 0,1 at start; 2,3 at end.  Sides alternate left/right.
         let atEnd = (vertIdx >= 2u);
         let side  = select(-1.0, 1.0, (vertIdx & 1u) == 1u);
 
-        var pos = select(sc, ec, atEnd);
-        pos.x  += perp.x * halfWidth * side * pos.w;
-        pos.y  += perp.y * halfWidth * side * pos.w;
+        let baseWorld = select(startPos, endPos, atEnd) + devicePos;
+        let worldPos = baseWorld + right * halfWidthWorld * side;
 
         // Age-pulsed alpha: crawling tesla-bug effect
         let agePulse = 0.5 + 0.5 * sin(seg.age * 6.2832);
         let alpha = clamp(t * 0.8 + 0.1, 0.1, 0.9) * agePulse;
 
         var out: VertexOutput;
-        out.position = pos;
+        out.position = uniforms.viewProj * vec4f(worldPos, 1.0);
         out.strength = seg.strength;
         out.alpha    = alpha;
         return out;
@@ -1165,164 +985,6 @@ export class MultiDeviceShaders {
       fn main(input: FragmentInput) -> @location(0) vec4f {
         let glow = input.color * input.intensity * 2.0;
         return vec4f(glow, input.intensity);
-      }
-    `;
-  }
-  
-  // ============================================
-  // Electromagnet coil shaders
-  // ============================================
-  
-  get coilVertShader() {
-    return /* wgsl */ `
-      struct Uniforms {
-        viewProj: mat4x4f,
-        time: f32,
-        cameraPos: vec3f
-      }
-      
-      struct DeviceUniforms {
-        renderMode: f32,
-        posX: f32,
-        posY: f32,
-        posZ: f32,
-        rotation: vec4f,
-        timeScale: f32,
-        ringIndex: f32,
-        batteryCharge: f32,
-        isSolar: f32
-      }
-      
-      struct CoilInstance {
-        position: vec3f,
-        angle: f32,
-        activeIntensity: f32,
-        coilIndex: f32,
-        pad1: f32,
-        pad2: f32
-      }
-      
-      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(2) @group(0) var<storage> instances: array<CoilInstance>;
-      
-      struct VertexInput {
-        @location(0) position: vec3f,
-        @location(1) normal: vec3f
-      }
-      
-      struct VertexOutput {
-        @builtin(position) position: vec4f,
-        @location(0) worldPos: vec3f,
-        @location(1) normal: vec3f,
-        @location(2) activeIntensity: f32,
-        @location(3) coilIndex: f32
-      }
-      
-      @vertex
-      fn main(input: VertexInput, @builtin(instance_index) instanceIdx: u32) -> VertexOutput {
-        let instance = instances[instanceIdx];
-        
-        // Rotate cylinder to face tangent to the ring
-        let ca = cos(instance.angle);
-        let sa = sin(instance.angle);
-        // Rotate around Y axis to align with ring tangent
-        let rotPos = vec3f(
-          input.position.x * ca + input.position.z * sa,
-          input.position.y,
-          -input.position.x * sa + input.position.z * ca
-        );
-        let rotNormal = vec3f(
-          input.normal.x * ca + input.normal.z * sa,
-          input.normal.y,
-          -input.normal.x * sa + input.normal.z * ca
-        );
-        
-        let devicePos = vec3f(device.posX, device.posY, device.posZ);
-        let worldPos = rotPos + instance.position + devicePos;
-        
-        var output: VertexOutput;
-        output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
-        output.worldPos = worldPos;
-        output.normal = rotNormal;
-        output.activeIntensity = instance.activeIntensity;
-        output.coilIndex = instance.coilIndex;
-        
-        return output;
-      }
-    `;
-  }
-  
-  get coilFragShader() {
-    return /* wgsl */ `
-      struct Uniforms {
-        viewProj: mat4x4f,
-        time: f32,
-        cameraPos: vec3f
-      }
-
-      struct CoilMaterialUniforms {
-        baseColor: vec3f,
-        pad1: f32,
-        glowColor: vec3f,
-        emission: f32
-      }
-
-      struct DeviceUniforms {
-        renderMode: f32,
-        posX: f32,
-        posY: f32,
-        posZ: f32,
-        rotation: vec4f,
-        timeScale: f32,
-        ringIndex: f32,
-        batteryCharge: f32,
-        isSolar: f32
-      }
-
-      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(3) @group(0) var<uniform> material: CoilMaterialUniforms;
-
-      struct FragmentInput {
-        @location(0) worldPos: vec3f,
-        @location(1) normal: vec3f,
-        @location(2) activeIntensity: f32,
-        @location(3) coilIndex: f32
-      }
-
-      @fragment
-      fn main(input: FragmentInput) -> @location(0) vec4f {
-        let normal = normalize(input.normal);
-        let lightDir = normalize(vec3f(1.0, 1.0, 1.0));
-        let diff = max(dot(normal, lightDir), 0.0);
-        let ambient = 0.3;
-
-        // Copper base color
-        var color = material.baseColor * (ambient + diff * 0.7);
-
-        // Add specular for metallic look
-        let viewDir = normalize(vec3f(0.0, 5.0, 10.0) - input.worldPos);
-        let halfDir = normalize(lightDir + viewDir);
-        let spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
-        color = color + vec3f(1.0) * spec * 0.5;
-
-        // Orange emissive glow when active — boosted multipliers for punch
-        let coilActive = input.activeIntensity;
-        let energy = clamp(device.timeScale, 0.0, 1.0);
-        let flicker = 0.72 + 0.28 * sin(uniforms.time * 5.4 + input.coilIndex * 0.78);
-        let travel = 0.5 + 0.5 * sin(uniforms.time * 9.8 - input.coilIndex * 0.55 + input.worldPos.y * 6.0);
-        let verticalFalloff = exp(-abs(input.worldPos.y) * 0.35);
-        let drive = coilActive * (0.7 + energy * 1.3) * flicker * (0.55 + 0.45 * travel) * verticalFalloff;
-        let orangeGlow = vec3f(1.0, 0.55, 0.0) * drive * 4.2;
-        let whiteCore = vec3f(1.0, 0.90, 0.7) * drive * 1.6;
-        color = color + orangeGlow + whiteCore;
-
-        // Per-coil time-based shimmer using traveling wave + low-frequency wobble.
-        let shimmer = 1.0 + (0.08 + energy * 0.12) * sin(uniforms.time * 2.4 + input.coilIndex * 0.35);
-        color = color * (1.0 + (shimmer - 1.0) * coilActive);
-
-        return vec4f(color, 1.0);
       }
     `;
   }
@@ -1577,7 +1239,7 @@ export class MultiDeviceShaders {
         if (mode == 3) { return 7u; }
         if (mode == 4) { return 9u; }
         if (mode >= 5) { return 1u; }
-        if (renderMode == 1) { return 1u; }
+        if (renderMode == 1) { return 13u; }
         if (renderMode == 2) { return 2u; }
         if (renderMode == 3) { return 0u; }
         if (ringIndex < -0.5) { return 1u; }
@@ -1605,7 +1267,7 @@ export class MultiDeviceShaders {
         var emissive: f32;
         var isCopper = false;
 
-        if (input.bandIndex >= 0.0 && input.bandIndex < 6.0) {
+        if (renderMode == 0 && input.bandIndex >= 0.0 && input.bandIndex < 6.0) {
           baseColor = poleBandColor(input.bandIndex, input.copperColor);
           let isNeodymium = (u32(input.bandIndex) % 4u) == 2u;
           isCopper = (u32(input.bandIndex) % 4u) == 0u || (u32(input.bandIndex) % 4u) == 1u;
@@ -2037,86 +1699,6 @@ export class MultiDeviceShaders {
     `;
   }
 
-  // ============================================
-  // SEG field-line GPU advect compute shader
-  // Replaces the 1200-particle CPU loop (sin/cos/random per frame) with a
-  // single GPU dispatch.  Scalar fields keep the struct tightly packed at
-  // 32 bytes to match the CPU-written FieldParticle layout — vec3f members
-  // would require 16-byte-aligned offsets in storage address space.
-  // ============================================
-  get segFieldAdvectShader() {
-    return /* wgsl */ `
-      struct FieldParticle {
-        posX:     f32,
-        posY:     f32,
-        posZ:     f32,
-        velX:     f32,
-        velY:     f32,
-        velZ:     f32,
-        life:     f32,
-        strength: f32,
-      }
-
-      struct FieldUniforms {
-        time:          f32,
-        speedMult:     f32,
-        particleCount: u32,
-        pad:           f32,
-      }
-
-      @group(0) @binding(0) var<storage, read_write> particles: array<FieldParticle>;
-      @group(0) @binding(1) var<uniform>             uniforms:  FieldUniforms;
-
-      const PI: f32 = 3.14159265359;
-
-      @compute @workgroup_size(64)
-      fn main(@builtin(global_invocation_id) gid: vec3u) {
-        let i = gid.x;
-        if (i >= uniforms.particleCount) { return; }
-
-        // uniforms.time is already the speed-scaled visualizer time
-        let t      = uniforms.time;
-        let sm     = uniforms.speedMult;
-        let ringIdx = i % 3u;
-        let r      = array<f32, 3>(2.5, 4.0, 5.5)[ringIdx];
-
-        // Advect along the circular magnetic flux ring (mirrors CPU formula)
-        let angle       = (f32(i) / f32(uniforms.particleCount)) * PI * 20.0
-                        + t * (0.5 + f32(ringIdx) * 0.3);
-        let heightOffset = sin(t * 0.5 + f32(i) * 0.1) * 0.8;
-
-        let px = cos(angle) * r;
-        let pz = sin(angle) * r;
-        let py = heightOffset;
-
-        // Velocity tangent to the ring
-        let speed = 1.0 + f32(ringIdx) * 0.5;
-        let vx = -sin(angle) * speed;
-        let vy =  cos(t * 2.0 + f32(i) * 0.05) * 0.1;
-        let vz =  cos(angle)  * speed;
-
-        // Life and strength boosted at higher speeds for denser/brighter field lines
-        let lifePulse = sin(t * 2.0 + f32(i) * 0.5) * 0.5 + 0.5;
-        let life      = clamp(lifePulse * min(sm * 0.4 + 0.6, 1.0), 0.0, 1.0);
-        let strength  = clamp(0.3 + 0.7 * sin(angle * 3.0 + t), 0.0, 1.0)
-                      * min(1.0, 0.5 + sm * 0.15);
-
-        var p: FieldParticle;
-        p.posX = px;
-        p.posY = py;
-        p.posZ = pz;
-        p.velX = vx;
-        p.velY = vy;
-        p.velZ = vz;
-        p.life     = life;
-        p.strength = strength;
-
-        particles[i] = p;
-      }
-    `;
-  }
-
-  // Sky background vertex shader (fullscreen triangle, no vertex buffer needed)
   get skyVertShader() {
     return /* wgsl */ `
       struct VertexOutput {

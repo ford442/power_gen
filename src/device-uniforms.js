@@ -100,10 +100,10 @@ class DeviceUniformManager {
     // Setup coil and ring material buffers for SEG pickup coils
     if (this.id === 'seg') {
       this.coilInstances = this.device.createBuffer({
-        size: 24 * 8 * 4, // 24 coils * 8 floats * 4 bytes
+        size: 24 * 12 * 4, // 24 coils * 12 floats * 4 bytes (canonical InstanceData)
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-coil-instances`, 24 * 32, GPUBufferUsage.STORAGE);
+      this.visualizer.profiler.trackBuffer(`device-${this.id}-coil-instances`, 24 * 48, GPUBufferUsage.STORAGE);
 
       this.coilMaterialBuffer = this.device.createBuffer({
         size: 32,

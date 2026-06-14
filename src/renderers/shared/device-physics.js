@@ -1,6 +1,6 @@
 /**
  * Per-device CPU physics state shared between renderers.
- * Mirrors stepPhysics() from main.js SEGVisualizer and device-instance energy proxies.
+ * Mirrors per-device physics state from device-instance energy proxies.
  */
 
 import { ValidatedConstants } from '../../ValidatedConstants';

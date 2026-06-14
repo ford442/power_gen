@@ -1,0 +1,9 @@
+[     449ms] [LOG] [main] Selected renderer: webgl2 @ http://localhost:8124/assets/index-DPTTi2i4.js:5082
+[     450ms] [LOG] WebGL2MultiDeviceVisualizer starting (debug fallback path) @ http://localhost:8124/assets/index-DPTTi2i4.js:5082
+[     704ms] [LOG] [webgl2] Ready. Keys: W=wireframe P=particle debug N=normals Space=pause .=step [/]=slow-mo @ http://localhost:8124/assets/index-DPTTi2i4.js:5082
+[   14700ms] [WARNING] [.WebGL-0x235c000ed400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels @ http://localhost:8124/?renderer=webgl2:0
+[   18357ms] [WARNING] [.WebGL-0x235c000ed400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels @ http://localhost:8124/?renderer=webgl2:0
+[   22987ms] [INFO] [sim_core] SimCore factory not found – WASM benchmark unavailable. @ http://localhost:8124/assets/index-DPTTi2i4.js:2227
+[   23030ms] [WARNING] [.WebGL-0x235c000ed400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels @ http://localhost:8124/?renderer=webgl2:0
+[   25915ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:8124/favicon.ico:0
+[   25917ms] [WARNING] [.WebGL-0x235c000ed400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat) @ http://localhost:8124/?renderer=webgl2:0

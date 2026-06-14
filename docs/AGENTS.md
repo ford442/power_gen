@@ -121,21 +121,21 @@ The core of the new architecture. `MultiDeviceVisualizer` class:
 - Creates device uniform buffers, material buffers, and core material buffers
 - Updates device state each frame (including battery drain/gain for solar device)
 - Delegates geometry to `DeviceGeometry` and pipelines to `DevicePipelineManager`
-- Supports field line visualization and energy arc visualization for SEG
+- Supports RK4 flux-line visualization and energy arc visualization for SEG
 
 #### `device-geometry.js` (~252 lines)
 `DeviceGeometry` class:
 - Generates cylinder geometry for rollers
 - Generates sphere geometry for cores
 - Creates particle buffers (position + phase seed as vec4f)
-- Creates field line particle buffers for SEG
+- Creates RK4 flux-segment buffers for SEG magnetic field lines
 - Creates arc segment buffers for energy arcs
 - Initializes SEG-specific geometry (base plate, stator rings, wiring, ring-separator plates, outer coil)
 
 #### `device-pipeline-manager.js` (~104 lines)
 `DevicePipelineManager` class:
 - Creates roller render pipelines, particle pipelines, core pipelines
-- Creates field line pipelines and energy arc pipelines for SEG
+- Creates RK4 flux-line pipelines and energy arc pipelines for SEG
 - Uses `layout: 'auto'` for simplicity
 
 #### `energy-pipe.js` (~21 lines)
@@ -362,11 +362,11 @@ class DeviceInstance {
 
 Shaders are written in WGSL and loaded via Vite `?raw` imports:
 
-1. **`roller.wgsl`** (~330 lines): Vertex + fragment shader for device geometry
+1. **`roller.wgsl`** (~476 lines): Vertex + fragment shader for device geometry
    - Transforms cylinders/spheres for all four modes
    - Instance-index conventions: 0-65 rollers, 66 core, 67 coil, 68-71 plates, 100-101 Kelvin rings, 200+ solar disc
    - Mode-specific materials: SEG metallic with green underglow, Heron steel/water, Kelvin copper with electrostatic shimmer, Solar LED warm glow + battery indicator
-   - Fresnel and specular lighting
+   - Fresnel and specular lighting driven by the real `cameraPos` uniform from the CPU (legacy fake orbiting camera removed)
 
 2. **`particles.wgsl`** (~85 lines): Billboards particles as quads
    - Camera-facing orientation
@@ -379,11 +379,15 @@ Shaders are written in WGSL and loaded via Vite `?raw` imports:
    - `posKelvin()`: Falling droplets with wobble + spark discharge
    - `posSolar()`: Photons in straight lines from LEDs to solar panel
 
-4. **`flux-lines.wgsl`** (~487 lines): Magnetic field line visualization for SEG
+4. **`flux-lines.wgsl`** (~486 lines): Magnetic field line visualization for SEG. Generates clean, continuous toroidal helices around the three roller rings using the `traceBidirectional` compute entry point
 
 5. **`magnetic-field.wgsl`** (~459 lines): Magnetic field calculation utilities
 
 6. **`led-solar.wgsl`** (~1544 lines): LED/Solar specific shaders
+
+7. **`multi-device-shaders.js`** (new architecture): Inline WGSL getters for the multi-device renderer
+   - `segEnhancedVertShader` / `segEnhancedFragShader`: Default PBR path for SEG rollers, stator rings, wiring, and core plates (uses UV-bearing geometry from `seg-enhanced-geometry.js`)
+   - Legacy `rollerVertShader` / `rollerFragShader`: Retained as a material fallback for the SEG base, the solar battery gauge, and any future non-SEG device geometry
 
 ### Mode System
 

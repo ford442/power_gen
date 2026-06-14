@@ -1,292 +1,385 @@
-// Stateful kinematic particle integrator.
-//
-// Each particle is a persistent body carried across frames:
-//   pos.xyz  – world position
-//   phase    – per-particle random seed (0–1), kept for spawn/colour variety
-//   vel.xyz  – velocity (the stateful quantity; parametric modes had none)
-//   aux      – per-mode scalar (Kelvin: signed charge, Solar: reflected flag)
-//
-// Integration is semi-implicit (symplectic) Euler: v += a·dt ; p += v·dt.
-// It is stable for the restoring/drag forces used here and, unlike position
-// Verlet, keeps velocity available for the velocity-dependent drag terms
-// (Stokes, eddy, aerodynamic) that the four devices rely on.
-//
-// IMPORTANT: the Uniforms struct mirrors the JS uniform buffer layout exactly
-// and is shared (as a prefix) with roller.wgsl and particles.wgsl.
-
-struct Particle {
-  pos:   vec3f,
-  phase: f32,
-  vel:   vec3f,
-  aux:   f32,
+struct FluxSegment {
+    startX: f32,
+    startY: f32,
+    startZ: f32,
+    endX: f32,
+    endY: f32,
+    endZ: f32,
+    strength: f32,
+    age: f32,
 }
 
-@binding(0) @group(0) var<storage, read_write> particles: array<Particle>;
-
-struct Uniforms {
-  viewProj:       mat4x4f,  // 0   – ignored by compute
-  time:           f32,      // 64  – ω-scaled roller clock
-  mode:           f32,      // 68  (0=SEG 1=Heron 2=Kelvin 3=Solar)
-  particleCount:  f32,      // 72
-  battery:        f32,      // 76
-  dt:             f32,      // 80  – clamped physics step (s)
-  segOmega:       f32,      // 84  – normalised SEG angular velocity
-  fieldStrength:  f32,      // 88
-  heronVExit:     f32,      // 92  – nozzle exit speed (scene units/s)
-  heronHead:      f32,      // 96  – normalised reservoir head 0–1
-  kelvinE:        f32,      // 100 – upward qE accel coefficient
-  kelvinVoltageN: f32,      // 104 – normalised bucket voltage 0–1
-  kelvinSpark:    f32,      // 108 – 1 during discharge
-  solarN2:        f32,      // 112 – substrata refractive index
-  corona:         f32,      // 116 – SEG plasma intensity 0–1
-  simClock:       f32,      // 120 – steady wall clock (s) for hashing
-  spare:          f32,      // 124
-}
-@binding(1) @group(0) var<uniform> u: Uniforms;
-
-const PI:   f32 = 3.14159265359;
-const TAU:  f32 = 6.28318530718;
-const GRAV: f32 = 9.81;
-
-// ─── Hashing ────────────────────────────────────────────────────────────────
-fn hash1(n: f32) -> f32 {
-  return fract(sin(n * 78.233 + 12.9898) * 43758.5453);
-}
-fn rnd(idx: u32, salt: f32) -> f32 {
-  return hash1(f32(idx) * 0.1031 + salt * 1.7 + u.simClock * 0.37);
+struct FluxUniforms {
+    time: f32,
+    deltaTime: f32,
+    integrationStep: f32,
+    lineOpacity: f32,
+    seedRadius: f32,
+    followStrength: f32,
+    _pad: f32,
 }
 
-// ─── Fresnel (unpolarised) reflectance for an air→substrata interface ─────────
-// Snell's law sets the transmission angle; the s- and p-polarised reflection
-// coefficients are averaged. n1 = 1 (air), n2 = u.solarN2.
-fn fresnelReflectance(cosI: f32, n2: f32) -> f32 {
-  let n1 = 1.0;
-  let ci = clamp(cosI, 0.0, 1.0);
-  let sinI = sqrt(max(0.0, 1.0 - ci * ci));
-  let sinT = (n1 / n2) * sinI;          // n1 sinI = n2 sinT
-  if (sinT >= 1.0) { return 1.0; }       // (cannot occur for n1<n2, kept for safety)
-  let ct = sqrt(max(0.0, 1.0 - sinT * sinT));
-  let rs = (n1 * ci - n2 * ct) / (n1 * ci + n2 * ct);
-  let rp = (n1 * ct - n2 * ci) / (n1 * ct + n2 * ci);
-  return clamp(0.5 * (rs * rs + rp * rp), 0.0, 1.0);
+struct RingParams {
+    radius: f32,
+    speed: f32,
 }
 
-// ─── SEG: ring radius for a particle ──────────────────────────────────────────
-fn segRingRadius(idx: u32) -> f32 {
-  let z = idx % 3u;
-  if (z == 0u)      { return 3.5; }
-  else if (z == 1u) { return 5.5; }
-  else              { return 7.5; }
+struct FieldLineVertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec3<f32>,
+    @location(1) alpha: f32,
+    @location(2) fieldStrength: f32,
 }
 
-// ─── Spawn helpers (set pos + vel + aux for a recycled particle) ──────────────
-fn spawnSEG(idx: u32) -> Particle {
-  let R = segRingRadius(idx);
-  let a = rnd(idx, 1.0) * TAU;
-  let y = (rnd(idx, 2.0) - 0.5) * 1.6;
-  var p: Particle;
-  p.pos = vec3f(cos(a) * R, y, sin(a) * R);
-  p.phase = rnd(idx, 3.0);
-  // tangential seed velocity (CCW)
-  let vT = u.segOmega * R * 1.2;
-  p.vel = vec3f(-sin(a) * vT, 0.0, cos(a) * vT);
-  p.aux = 0.0;
-  return p;
-}
+const PI: f32 = 3.1415927f;
+const MU_0_: f32 = 0.000001256637f;
+const ROLLER_MOMENT: f32 = 18.5f;
+const INNER_RING_COUNT: i32 = 8i;
+const MIDDLE_RING_COUNT: i32 = 12i;
+const OUTER_RING_COUNT: i32 = 16i;
+const INNER_RADIUS: f32 = 2.5f;
+const MIDDLE_RADIUS: f32 = 4f;
+const OUTER_RADIUS: f32 = 5.5f;
+const FLUX_LINES_PER_RING: i32 = 36i;
+const TOTAL_FLUX_LINES: i32 = 108i;
+const SEGMENTS_PER_LINE: i32 = 100i;
+const TOTAL_SEGMENTS: i32 = 10800i;
+const INTEGRATION_STEP: f32 = 0.02f;
+const MAX_FIELD_AGE: f32 = 100f;
 
-fn spawnHeron(idx: u32) -> Particle {
-  let ang = rnd(idx, 1.0) * TAU;
-  let rad = rnd(idx, 2.0) * 0.18;
-  var p: Particle;
-  // nozzle mouth at (0, 5.6, 0)
-  p.pos = vec3f(cos(ang) * rad, 5.6, sin(ang) * rad);
-  p.phase = rnd(idx, 3.0);
-  let spread = 0.9;
-  p.vel = vec3f(cos(ang) * rad * spread,
-                u.heronVExit,
-                sin(ang) * rad * spread);
-  p.aux = 0.0;
-  return p;
-}
+@group(0) @binding(0) 
+var<storage, read_write> fluxSegments: array<FluxSegment>;
+@group(0) @binding(1) 
+var<uniform> fluxUniforms: FluxUniforms;
 
-fn spawnKelvin(idx: u32) -> Particle {
-  let side = select(-1.0, 1.0, (idx & 1u) == 1u);
-  var p: Particle;
-  let jitterX = (rnd(idx, 1.0) - 0.5) * 0.18;
-  let jitterZ = (rnd(idx, 2.0) - 0.5) * 0.18;
-  p.pos = vec3f(side * 2.5 + jitterX, 5.0 + rnd(idx, 4.0) * 0.4, jitterZ);
-  p.phase = rnd(idx, 3.0);
-  p.vel = vec3f(0.0, -0.25, 0.0);
-  // Charge captured at pinch-off grows with the induction-ring voltage
-  // (positive feedback). Sign alternates between the two cross-wired streams.
-  p.aux = side * (0.25 + 0.75 * u.kelvinVoltageN);
-  return p;
-}
-
-// ─── MHD Generator Mode (Molten Bismuth) ───────────────────────────────────────
-// Fluid flows along the Z axis. A transverse magnetic field (Y axis) generates
-// the Lorentz force F = q(v × B), separating positive ions (+X) from electrons (-X).
-fn posMHD(phase: f32, t: f32, idx: u32) -> vec3f {
-  let speed = 0.7;
-  let cycleT = fract(t * speed + fract(phase * 123.45));
-
-  // Molten bismuth flows down a pipe from z = 8.0 to z = -8.0
-  let zPos = mix(8.0, -8.0, cycleT);
-
-  // phase < 0.5 → positive ion, >= 0.5 → electron
-  let isPositive = phase < 0.5;
-  let chargeMultiplier = select(-1.0, 1.0, isPositive);
-
-  // Base spread inside the circular pipe cross-section
-  let px = sin(f32(idx) * 123.45) * 0.8;
-  let py = cos(f32(idx) * 0.123) * 0.8;
-
-  // Lorentz deflection begins at the magnetic field region (z < 2.0)
-  var xDeflection = 0.0;
-  if (zPos < 2.0) {
-    let exposure = clamp((2.0 - zPos) / 4.0, 0.0, 1.0);
-    xDeflection = chargeMultiplier * exposure * 4.0;
-  }
-
-  return vec3f(px + xDeflection, py, zPos);
-}
-
-// ─── Solar / LED Mode ──────────────────────────────────────────────────────────
-// Photons travel in straight lines from each LED down to the solar panel surface.
-fn posSolar(phase: f32, t: f32, idx: u32, speedMult: f32) -> vec3f {
-  let ledIdx  = idx % 6u;
-  let ledX    = (f32(ledIdx) - 2.5) * 1.6;
-  let ledPos  = vec3f(ledX, 3.5, 1.5);
-
-  // Each photon aims at a slightly randomised point on the panel
-  let panelX  = (fract(f32(idx) * 0.61803) - 0.5) * 9.0;
-  let panelZ  = (fract(f32(idx) * 0.38490) - 0.5) * 9.0;
-  let panelPos = vec3f(panelX, 0.05, panelZ);
-
-  let speed  = 1.0 + speedMult * 1.5;
-  let life   = fract(t * speed * 0.18 + phase);
-  return mix(ledPos, panelPos, min(life * 1.05, 1.0));
-fn spawnSolar(idx: u32) -> Particle {
-  let ledIdx = idx % 6u;
-  let ledX = (f32(ledIdx) - 2.5) * 1.6;
-  let led = vec3f(ledX, 3.5, 1.5);
-  let panel = vec3f((rnd(idx, 1.0) - 0.5) * 9.0, 0.05, (rnd(idx, 2.0) - 0.5) * 9.0);
-  var p: Particle;
-  p.pos = led;
-  p.phase = rnd(idx, 3.0);
-  p.vel = normalize(panel - led) * 6.0;
-  p.aux = 0.0;   // 0 = travelling, 1 = reflected
-  return p;
-}
-
-// ─── Main entry ───────────────────────────────────────────────────────────────
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  let idx = id.x;
-  if (idx >= u32(u.particleCount)) { return; }
-
-  var p  = particles[idx];
-  let dt = u.dt;
-  let mode = u.mode;
-
-  // ── SEG ──────────────────────────────────────────────────────────────────
-  if (mode < 0.5) {
-    let R = segRingRadius(idx);
-    let rXZ = vec2f(p.pos.x, p.pos.z);
-    let r = max(length(rXZ), 1e-4);
-    let radial  = rXZ / r;
-    let tangent = vec2f(-radial.y, radial.x);     // CCW unit tangent
-    let vXZ = vec2f(p.vel.x, p.vel.z);
-    let vTan = dot(vXZ, tangent);
-    let vRad = dot(vXZ, radial);
-
-    // Lorentz/Poynting macroscopic thrust drives tangential speed toward
-    // ω·R; the gap closes with a time constant, so particles inherit the
-    // device's momentum lag instead of snapping to the target.
-    let vTarget = u.segOmega * R * 1.2;
-    let aTan = (vTarget - vTan) * 3.0;
-    let aRad = -(r - R) * 26.0 - vRad * 4.0;       // confine to the ring radius
-    let aY   = -p.pos.y * 9.0 - p.vel.y * 3.0;     // confine near the equator
-    let aXZ  = tangent * aTan + radial * aRad;
-    let accel = vec3f(aXZ.x, aY, aXZ.y);
-
-    // Harmonic turbulence: high-frequency jitter gives an electrified, organic feel
-    let turb1 = sin(u.simClock * 7.3  + p.phase * 31.4) * 0.045;
-    let turb2 = cos(u.simClock * 11.7 + p.phase * 17.8) * 0.032;
-    let turb3 = sin(u.simClock * 5.1  + p.phase * 43.2) * 0.028;
-    let turbAccel = vec3f(turb1 + turb2 * radial.x,
-                          turb3,
-                          turb1 * radial.y - turb2);
-
-    p.vel = p.vel + (accel + turbAccel * u.corona) * dt;
-    p.pos = p.pos + p.vel * dt;
-
-    if (r < 1.0 || r > 11.0 || abs(p.pos.y) > 5.0) { p = spawnSEG(idx); }
-
-  // ── Heron's Fountain ──────────────────────────────────────────────────────
-  } else if (mode < 1.5) {
-    let speed = length(p.vel);
-    // gravity + aerodynamic drag (linear + quadratic)
-    let accel = vec3f(0.0, -GRAV, 0.0) - p.vel * (0.18 + 0.05 * speed);
-    p.vel = p.vel + accel * dt;
-    p.pos = p.pos + p.vel * dt;
-
-    // Recycle once the droplet has fallen back into the display basin.
-    if (p.pos.y < 3.4 || abs(p.pos.x) > 6.0 || abs(p.pos.z) > 6.0) {
-      p = spawnHeron(idx);
+fn magneticDipoleField(observationPoint: vec3<f32>, dipolePosition: vec3<f32>, magneticMoment: vec3<f32>) -> vec3<f32> {
+    let r = (observationPoint - dipolePosition);
+    let dist = length(r);
+    if (dist < 0.001f) {
+        return vec3(0f);
     }
+    let rHat = normalize(r);
+    let mDotR = dot(magneticMoment, rHat);
+    let rCubed = ((dist * dist) * dist);
+    let factor = (0.000000099999994f / rCubed);
+    return (factor * (((3f * mDotR) * rHat) - magneticMoment));
+}
 
-  // ── Kelvin's Thunderstorm ─────────────────────────────────────────────────
-  } else if (mode < 2.5) {
-    newPos = posKelvin(phase, t, idx);
-  } else if (mode < 4.5) {
-    // Solar (3.0) and Peltier (4.0) both use photon-stream particles
-    newPos = posSolar(phase, t, idx, uniforms.speedMult);
-  } else {
-    // Mode 5: MHD Generator – molten bismuth Lorentz deflection
-    newPos = posMHD(phase, t, idx);
-    let q = p.aux;
-    let stokes = 2.0;                              // 6πηr / m, lumped
-    // Net vertical: gravity − Stokes drag + Coulomb repulsion (qE, upward).
-    let aE = u.kelvinE * abs(q);                   // upward when same-charge bucket below
-    var accel = vec3f(-p.vel.x * stokes,
-                      -GRAV + aE - p.vel.y * stokes,
-                      -p.vel.z * stokes);
-    // Near/above force balance the drops scatter sideways before levitating.
-    if (aE > GRAV * 0.85) {
-      let s = (aE - GRAV * 0.85);
-      accel.x = accel.x + (rnd(idx, 5.0) - 0.5) * s * 2.2;
-      accel.z = accel.z + (rnd(idx, 6.0) - 0.5) * s * 2.2;
+fn getRollerMagneticState(ringIndex: i32, rollerIndex: i32, time: f32, outPosition: ptr<function, vec3<f32>>, outMoment: ptr<function, vec3<f32>>) {
+    var ringCount: i32;
+    var ringRadius: f32;
+    var rotationSpeed: f32;
+
+    switch ringIndex {
+        case 0: {
+            ringCount = INNER_RING_COUNT;
+            ringRadius = INNER_RADIUS;
+            rotationSpeed = 2f;
+        }
+        case 1: {
+            ringCount = MIDDLE_RING_COUNT;
+            ringRadius = MIDDLE_RADIUS;
+            rotationSpeed = 1f;
+        }
+        case 2: {
+            ringCount = OUTER_RING_COUNT;
+            ringRadius = OUTER_RADIUS;
+            rotationSpeed = 0.5f;
+        }
+        default: {
+            ringCount = MIDDLE_RING_COUNT;
+            ringRadius = MIDDLE_RADIUS;
+            rotationSpeed = 1f;
+        }
     }
-    p.vel = p.vel + accel * dt;
-    p.pos = p.pos + p.vel * dt;
+    let _e22 = ringCount;
+    let baseAngle = (f32(rollerIndex) * (6.2831855f / f32(_e22)));
+    let _e28 = rotationSpeed;
+    let angle = (baseAngle + ((time * 0.5f) * _e28));
+    let _e32 = ringRadius;
+    let _e35 = ringRadius;
+    (*outPosition) = vec3<f32>((cos(angle) * _e32), 0f, (sin(angle) * _e35));
+    (*outMoment) = vec3<f32>((-(sin(angle)) * ROLLER_MOMENT), 0f, (cos(angle) * ROLLER_MOMENT));
+    return;
+}
 
-    // Reached a collector, drifted away, or the spark collapsed the field.
-    if (p.pos.y < -2.4 || abs(p.pos.x) > 8.0 || p.pos.y > 9.0) {
-      p = spawnKelvin(idx);
+fn calculateToroidalField(pos: vec3<f32>, time_1: f32) -> vec3<f32> {
+    var totalField: vec3<f32> = vec3(0f);
+    var ring: i32 = 0i;
+    var rollerCount: i32;
+    var i_2: i32;
+    var rollerPos: vec3<f32>;
+    var rollerMoment: vec3<f32>;
+
+    loop {
+        let _e7 = ring;
+        if (_e7 < 3i) {
+        } else {
+            break;
+        }
+        {
+            let _e11 = ring;
+            switch _e11 {
+                case 0: {
+                    rollerCount = INNER_RING_COUNT;
+                }
+                case 1: {
+                    rollerCount = MIDDLE_RING_COUNT;
+                }
+                case 2: {
+                    rollerCount = OUTER_RING_COUNT;
+                }
+                default: {
+                    rollerCount = MIDDLE_RING_COUNT;
+                }
+            }
+            i_2 = 0i;
+            loop {
+                let _e18 = i_2;
+                let _e19 = rollerCount;
+                if (_e18 < _e19) {
+                } else {
+                    break;
+                }
+                {
+                    let _e23 = ring;
+                    let _e24 = i_2;
+                    getRollerMagneticState(_e23, _e24, time_1, (&rollerPos), (&rollerMoment));
+                    let _e25 = totalField;
+                    let _e26 = rollerPos;
+                    let _e27 = rollerMoment;
+                    let _e28 = magneticDipoleField(pos, _e26, _e27);
+                    totalField = (_e25 + _e28);
+                }
+                continuing {
+                    let _e31 = i_2;
+                    i_2 = (_e31 + 1i);
+                }
+            }
+        }
+        continuing {
+            let _e34 = ring;
+            ring = (_e34 + 1i);
+        }
     }
+    let _e36 = totalField;
+    return _e36;
+}
 
-  // ── Solar / LED photons ───────────────────────────────────────────────────
-  } else {
-    // Photons travel ballistically (straight) until they meet the panel.
-    p.pos = p.pos + p.vel * dt;
-
-    if (p.aux < 0.5 && p.pos.y <= 0.06 && p.vel.y < 0.0) {
-      // Strike: Snell + Fresnel decide reflection vs absorption.
-      let vh = normalize(p.vel);
-      let cosI = clamp(-vh.y, 0.0, 1.0);
-      let Rf = fresnelReflectance(cosI, u.solarN2);
-      if (rnd(idx, 7.0) < Rf) {
-        p.pos.y = 0.07;
-        p.vel.y = -p.vel.y;                        // specular bounce (glare)
-        p.aux = 1.0;
-      } else {
-        p = spawnSolar(idx);                       // absorbed → re-emit at LED
-      }
-    } else if (p.aux > 0.5 && p.pos.y > 3.6) {
-      p = spawnSolar(idx);                          // reflected ray left the scene
+fn rk4Step(pos_1: vec3<f32>, time_2: f32, h: f32, direction: f32) -> vec3<f32> {
+    let _e4 = calculateToroidalField(pos_1, time_2);
+    let B1mag = length(_e4);
+    if (B1mag < 0.0000000001f) {
+        return pos_1;
     }
-  }
+    let k1_ = (((h * direction) * _e4) / vec3(B1mag));
+    let _e15 = calculateToroidalField((pos_1 + (k1_ * 0.5f)), time_2);
+    let B2mag = length(_e15);
+    if (B2mag < 0.0000000001f) {
+        return (pos_1 + k1_);
+    }
+    let k2_ = (((h * direction) * _e15) / vec3(B2mag));
+    let _e27 = calculateToroidalField((pos_1 + (k2_ * 0.5f)), time_2);
+    let B3mag = length(_e27);
+    if (B3mag < 0.0000000001f) {
+        return (pos_1 + k2_);
+    }
+    let k3_ = (((h * direction) * _e27) / vec3(B3mag));
+    let _e37 = calculateToroidalField((pos_1 + k3_), time_2);
+    let B4mag = length(_e37);
+    if (B4mag < 0.0000000001f) {
+        return (pos_1 + k3_);
+    }
+    let k4_ = (((h * direction) * _e37) / vec3(B4mag));
+    return (pos_1 + ((((k1_ + (2f * k2_)) + (2f * k3_)) + k4_) / vec3(6f)));
+}
 
-  particles[idx] = p;
+fn eulerStep(pos_2: vec3<f32>, time_3: f32, h_1: f32, direction_1: f32) -> vec3<f32> {
+    let _e4 = calculateToroidalField(pos_2, time_3);
+    let Bmag_2 = length(_e4);
+    if (Bmag_2 < 0.0000000001f) {
+        return pos_2;
+    }
+    return (pos_2 + (((h_1 * direction_1) * _e4) / vec3(Bmag_2)));
+}
+
+fn getFluxLineSeed(lineIndex: i32, time_4: f32) -> vec3<f32> {
+    var ringCount_1: i32;
+    var ringRadius_1: f32;
+    var rotationSpeed_1: f32;
+
+    let ringIndex_2 = (lineIndex / FLUX_LINES_PER_RING);
+    let indexInRing = (lineIndex % FLUX_LINES_PER_RING);
+    switch ringIndex_2 {
+        case 0: {
+            ringCount_1 = INNER_RING_COUNT;
+            ringRadius_1 = INNER_RADIUS;
+            rotationSpeed_1 = 2f;
+        }
+        case 1: {
+            ringCount_1 = MIDDLE_RING_COUNT;
+            ringRadius_1 = MIDDLE_RADIUS;
+            rotationSpeed_1 = 1f;
+        }
+        case 2: {
+            ringCount_1 = OUTER_RING_COUNT;
+            ringRadius_1 = OUTER_RADIUS;
+            rotationSpeed_1 = 0.5f;
+        }
+        default: {
+            ringCount_1 = MIDDLE_RING_COUNT;
+            ringRadius_1 = MIDDLE_RADIUS;
+            rotationSpeed_1 = 1f;
+        }
+    }
+    let _e21 = ringCount_1;
+    let rollerIndex_1 = (indexInRing % _e21);
+    let _e23 = ringCount_1;
+    let seedOffset = f32((indexInRing / _e23));
+    let _e28 = ringCount_1;
+    let baseAngle_1 = (f32(rollerIndex_1) * (6.2831855f / f32(_e28)));
+    let _e34 = rotationSpeed_1;
+    let angle_1 = (baseAngle_1 + ((time_4 * 0.5f) * _e34));
+    let _e38 = ringRadius_1;
+    let _e41 = ringRadius_1;
+    let rollerPos_1 = vec3<f32>((cos(angle_1) * _e38), 0f, (sin(angle_1) * _e41));
+    let _e51 = ringCount_1;
+    let seedAngle = (((seedOffset * 2f) * PI) / f32((FLUX_LINES_PER_RING / _e51)));
+    let seedHeight = (sin((seedAngle * 3f)) * 0.05f);
+    let offset = vec3<f32>((cos(seedAngle) * 0.06f), seedHeight, (sin(seedAngle) * 0.06f));
+    return (rollerPos_1 + offset);
+}
+
+fn getRingParams(ringIndex_1: i32) -> RingParams {
+    switch ringIndex_1 {
+        case 0: {
+            return RingParams(2.5f, 2f);
+        }
+        case 1: {
+            return RingParams(4f, 1f);
+        }
+        case 2: {
+            return RingParams(5.5f, 0.5f);
+        }
+        default: {
+            return RingParams(4f, 1f);
+        }
+    }
+}
+
+fn fluxLinePoint(lineIndex_1: i32, u: f32, time_5: f32) -> vec3<f32> {
+    let ringIndex_3 = (lineIndex_1 / FLUX_LINES_PER_RING);
+    let idxInRing = (lineIndex_1 % FLUX_LINES_PER_RING);
+    let _e7 = getRingParams(ringIndex_3);
+    let tIdx = (idxInRing % 12i);
+    let pIdx = (idxInRing / 12i);
+    let phi0_ = ((f32(tIdx) * (6.2831855f / f32(12i))) + ((time_5 * 0.5f) * _e7.speed));
+    let theta0_ = (f32(pIdx) * (6.2831855f / f32(3i)));
+    let seedR = fluxUniforms.seedRadius;
+    let minorR_1 = (seedR * (0.85f + (0.45f * f32(pIdx))));
+    let _e39 = fluxUniforms.followStrength;
+    let poloidalSpan = (((_e39 * (0.6f + (0.2f * f32(ringIndex_3)))) * 2f) * PI);
+    let phi = (phi0_ + (u * 3.7699115f));
+    let theta = (theta0_ + (u * poloidalSpan));
+    let major = (_e7.radius + (minorR_1 * cos(theta)));
+    return vec3<f32>((major * cos(phi)), (minorR_1 * sin(theta)), (major * sin(phi)));
+}
+
+fn fluxStrength(minorR: f32) -> f32 {
+    return clamp((0.6f / (minorR + 0.08f)), 0.05f, 1.5f);
+}
+
+fn fieldStrengthToColor(Bmag: f32) -> vec3<f32> {
+    let t = clamp((Bmag / 3f), 0f, 1f);
+    if (t < 0.5f) {
+        let s = (t * 2f);
+        return vec3<f32>(s, 1f, (1f - s));
+    } else {
+        let s_1 = ((t - 0.5f) * 2f);
+        return vec3<f32>(1f, (1f - s_1), s_1);
+    }
+}
+
+fn calculateLineAlpha(Bmag_1: f32, age: f32) -> f32 {
+    let strengthAlpha = clamp((Bmag_1 / 2f), 0.1f, 0.8f);
+    let agePulse = (0.7f + (0.3f * sin((age * 6.2831855f))));
+    let _e17 = fluxUniforms.lineOpacity;
+    return ((strengthAlpha * agePulse) * _e17);
+}
+
+@compute @workgroup_size(64, 1, 1) 
+fn traceBidirectional(@builtin(global_invocation_id) id: vec3<u32>) {
+    var i: i32 = 0i;
+    var i_1: i32 = 0i;
+    var local: bool;
+
+    let lineIndex_2 = i32(id.x);
+    if (lineIndex_2 >= TOTAL_FLUX_LINES) {
+        return;
+    }
+    let time_6 = fluxUniforms.time;
+    let idxInRing_1 = (lineIndex_2 % FLUX_LINES_PER_RING);
+    let pIdx_1 = (idxInRing_1 / 12i);
+    let _e16 = fluxUniforms.seedRadius;
+    let minorR_2 = (_e16 * (0.85f + (0.45f * f32(pIdx_1))));
+    let _e23 = fluxStrength(minorR_2);
+    loop {
+        let _e26 = i;
+        if (_e26 < 50i) {
+        } else {
+            break;
+        }
+        {
+            let _e28 = i;
+            let u0_ = (f32(_e28) * 0.01010101f);
+            let _e31 = i;
+            let u1_ = (f32((_e31 + 1i)) * 0.01010101f);
+            let _e39 = i;
+            let segIdx = (((lineIndex_2 * SEGMENTS_PER_LINE) + 50i) + _e39);
+            if (segIdx >= TOTAL_SEGMENTS) {
+                break;
+            }
+            let _e43 = fluxLinePoint(lineIndex_2, u0_, time_6);
+            let _e44 = fluxLinePoint(lineIndex_2, u1_, time_6);
+            let age_1 = fract(((time_6 * 0.5f) + (f32((segIdx % SEGMENTS_PER_LINE)) / 100f)));
+            fluxSegments[segIdx] = FluxSegment(_e43.x, _e43.y, _e43.z, _e44.x, _e44.y, _e44.z, _e23, age_1);
+        }
+        continuing {
+            let _e64 = i;
+            i = (_e64 + 1i);
+        }
+    }
+    loop {
+        let _e68 = i_1;
+        if (_e68 < 50i) {
+        } else {
+            break;
+        }
+        {
+            let _e70 = i_1;
+            let u0_1 = (-(f32(_e70)) * 0.01010101f);
+            let _e74 = i_1;
+            let u1_1 = (-(f32((_e74 + 1i))) * 0.01010101f);
+            let _e85 = i_1;
+            let segIdx_1 = ((((lineIndex_2 * SEGMENTS_PER_LINE) + 50i) - 1i) - _e85);
+            if !((segIdx_1 < 0i)) {
+                local = (segIdx_1 >= TOTAL_SEGMENTS);
+            } else {
+                local = true;
+            }
+            let _e95 = local;
+            if _e95 {
+                break;
+            }
+            let _e96 = fluxLinePoint(lineIndex_2, u1_1, time_6);
+            let _e97 = fluxLinePoint(lineIndex_2, u0_1, time_6);
+            let age_2 = fract(((time_6 * 0.5f) + (f32((segIdx_1 % SEGMENTS_PER_LINE)) / 100f)));
+            fluxSegments[segIdx_1] = FluxSegment(_e96.x, _e96.y, _e96.z, _e97.x, _e97.y, _e97.z, _e23, age_2);
+        }
+        continuing {
+            let _e117 = i_1;
+            i_1 = (_e117 + 1i);
+        }
+    }
+    return;
 }

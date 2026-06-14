@@ -18,7 +18,6 @@ class DeviceInstance {
     // Delegate properties
     Object.defineProperty(this, 'particles', { get: () => this.geometry.particles });
     Object.defineProperty(this, 'rollerInstances', { get: () => this.geometry.rollerInstances });
-    Object.defineProperty(this, 'fieldLineParticles', { get: () => this.geometry.fieldLineParticles });
     Object.defineProperty(this, 'energyArcParticles', { get: () => this.geometry.energyArcParticles });
     Object.defineProperty(this, 'coreInstances', { get: () => this.geometry.coreInstances });
     Object.defineProperty(this, 'shaftInstanceBuffer', { get: () => this.geometry.shaftInstanceBuffer });
@@ -27,13 +26,9 @@ class DeviceInstance {
     Object.defineProperty(this, 'bottomPlateInstanceBuffer', { get: () => this.geometry.bottomPlateInstanceBuffer });
     Object.defineProperty(this, 'rollerPipeline', { get: () => this.pipelineManager.rollerPipeline });
     Object.defineProperty(this, 'particlePipeline', { get: () => this.pipelineManager.particlePipeline });
-    Object.defineProperty(this, 'corePipeline', { get: () => this.pipelineManager.corePipeline });
-    Object.defineProperty(this, 'fieldLinePipeline', { get: () => this.pipelineManager.fieldLinePipeline });
     Object.defineProperty(this, 'energyArcPipeline', { get: () => this.pipelineManager.energyArcPipeline });
     Object.defineProperty(this, 'electromagnetInstances', { get: () => this.geometry.electromagnetInstances });
-    Object.defineProperty(this, 'coilPipeline', { get: () => this.pipelineManager.coilPipeline });
     Object.defineProperty(this, 'segEnhancedPipeline', { get: () => this.pipelineManager.segEnhancedPipeline });
-    Object.defineProperty(this, 'ringPipeline', { get: () => this.pipelineManager.ringPipeline });
     Object.defineProperty(this, 'fluxSegmentBuffer', { get: () => this.geometry.fluxSegmentBuffer });
     Object.defineProperty(this, 'fluxSegmentPipeline', { get: () => this.pipelineManager.fluxSegmentPipeline });
     
@@ -97,8 +92,7 @@ class DeviceInstance {
     this.rotation = config.rotation;
     this.renderMode = 0;  // 0=rollers, 1=base, 2=stator, 3=wiring
 
-    // Field line visualization (SEG only)
-    this.fieldLineCount = 1200;
+    // Field line visualization (SEG only) - now driven by RK4 flux segment ribbons
     this.fieldLineEnabled = true;
 
     // Energy arc visualization (SEG only)
@@ -144,9 +138,8 @@ class DeviceInstance {
       // Connect energy arc buffer (fixes arcSegments = null bug)
       this.arcSegments = this.geometry.energyArcParticles;
 
-      // Set up GPU compute pipelines for rollers and field lines
+      // Set up GPU compute pipelines for rollers and RK4 flux lines
       await this.setupRollerCompute();
-      await this.setupFieldAdvect();
       await this.setupFluxLineTracer();
 
       await this.computeManager.setupComputeResources();
@@ -182,39 +175,6 @@ class DeviceInstance {
       entries: [
         { binding: 0, resource: { buffer: this.geometry.rollerInstances } },
         { binding: 1, resource: { buffer: this.rollerComputeUniformBuffer } }
-      ]
-    });
-  }
-
-  /**
-   * Set up the SEG field-line GPU advect compute pipeline.
-   * Replaces the 1200-particle CPU loop (sin/cos/random per frame) with a
-   * single GPU dispatch of 19 workgroups × 64 threads.
-   */
-  async setupFieldAdvect() {
-    this.fieldAdvectUniformBuffer = this.device.createBuffer({
-      label: 'seg-field-advect-uniforms',
-      size: 16,  // [time f32, speedMult f32, particleCount u32, pad f32]
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-    });
-
-    const module = this.device.createShaderModule({
-      label: 'seg-field-advect-module',
-      code: this.visualizer.shaders.segFieldAdvectShader
-    });
-
-    this.fieldAdvectPipeline = await this.device.createComputePipelineAsync({
-      label: 'seg-field-advect-pipeline',
-      layout: 'auto',
-      compute: { module, entryPoint: 'main' }
-    });
-
-    this.fieldAdvectBindGroup = this.device.createBindGroup({
-      label: 'seg-field-advect-bg',
-      layout: this.fieldAdvectPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.geometry.fieldLineParticles } },
-        { binding: 1, resource: { buffer: this.fieldAdvectUniformBuffer } }
       ]
     });
   }
@@ -365,18 +325,14 @@ class DeviceInstance {
           new Float32Array([time, speedMult, 0, 0])
         );
       }
-      if (this.fieldAdvectUniformBuffer && this.geometry.fieldLineParticles) {
-        this.device.queue.writeBuffer(
-          this.fieldAdvectUniformBuffer, 0,
-          new Float32Array([time, speedMult, this.fieldLineCount, 0])
-        );
-      }
-      // Write RK4 flux tracer uniforms: time, deltaTime, integrationStep,
-      // lineOpacity, seedRadius, followStrength, _pad, _pad
+      // Write flux tracer uniforms: time, deltaTime, integrationStep,
+      // lineOpacity, seedRadius, followStrength, _pad, _pad.
+      // seedRadius now controls the minor radius of the flux torus;
+      // followStrength scales the poloidal twist (helicity).
       if (this.fluxTracerUniformBuffer) {
         this.device.queue.writeBuffer(
           this.fluxTracerUniformBuffer, 0,
-          new Float32Array([time, deltaTime, 0.02, 1.0, 0.06, 1.0, 0.0, 0.0])
+          new Float32Array([time, deltaTime, 0.02, 1.0, 0.35, 2.0, 0.0, 0.0])
         );
       }
 
@@ -643,10 +599,9 @@ class DeviceInstance {
       this._lastCoilCount = numCoils;
     }
 
-    // Read current instance data, update only the activeIntensity field
-    // Format per instance: position(3) + angle(1) + activeIntensity(1) + coilIndex(1) + pad(2)
+    // Instance data in canonical InstanceData format: position(3)+ringIndex(1)+rotation(4)+color(3)+emissive(1)
     const maxCoils = 24;
-    const instanceData = new Float32Array(maxCoils * 8);
+    const instanceData = new Float32Array(maxCoils * 12);
     const radius = 7.2;
     const offsetRad = ((em?.offsetAngle || 0) * Math.PI) / 180;
 
@@ -655,13 +610,19 @@ class DeviceInstance {
     const waveSpeed = 3.0;
 
     for (let i = 0; i < maxCoils; i++) {
-      const idx = i * 8;
+      const idx = i * 12;
       if (i < numCoils) {
         const angle = (i / numCoils) * Math.PI * 2 + offsetRad;
-        instanceData[idx] = Math.cos(angle) * radius;
+        instanceData[idx]     = Math.cos(angle) * radius;
         instanceData[idx + 1] = 0.0;
         instanceData[idx + 2] = Math.sin(angle) * radius;
-        instanceData[idx + 3] = angle;
+        instanceData[idx + 3] = 0.0; // ringIndex
+
+        // Y-axis quaternion from angle
+        instanceData[idx + 4] = 0.0;
+        instanceData[idx + 5] = Math.sin(angle / 2);
+        instanceData[idx + 6] = 0.0;
+        instanceData[idx + 7] = Math.cos(angle / 2);
 
         // Determine base active intensity from commutation state
         let intensity = 0;
@@ -680,25 +641,30 @@ class DeviceInstance {
           intensity = wave * 0.06;
         }
 
-        instanceData[idx + 4] = intensity;
-        instanceData[idx + 5] = i;
-        instanceData[idx + 6] = 0;
-        instanceData[idx + 7] = 0;
+        instanceData[idx + 8]  = 0.75; // copper R
+        instanceData[idx + 9]  = 0.45; // copper G
+        instanceData[idx + 10] = 0.25; // copper B
+        instanceData[idx + 11] = intensity;
       } else {
-        instanceData[idx] = 0;
+        // Hide unused coils below the floor
+        instanceData[idx]     = 0;
         instanceData[idx + 1] = -1000;
         instanceData[idx + 2] = 0;
         instanceData[idx + 3] = 0;
         instanceData[idx + 4] = 0;
-        instanceData[idx + 5] = i;
+        instanceData[idx + 5] = 0;
         instanceData[idx + 6] = 0;
-        instanceData[idx + 7] = 0;
+        instanceData[idx + 7] = 1;
+        instanceData[idx + 8]  = 0.75;
+        instanceData[idx + 9]  = 0.45;
+        instanceData[idx + 10] = 0.25;
+        instanceData[idx + 11] = 0;
       }
     }
 
     if (numCoils > 0) {
       let activeSum = 0;
-      for (let i = 0; i < numCoils; i++) activeSum += instanceData[i * 8 + 4];
+      for (let i = 0; i < numCoils; i++) activeSum += instanceData[i * 12 + 11];
       this.pwmEnergyLevel = Math.min(1.0, activeSum / numCoils);
     } else {
       this.pwmEnergyLevel = 0.0;
@@ -725,8 +691,8 @@ class DeviceInstance {
       this.coilEnergies = new Float32Array(numCoils);
     }
 
-    // Coil data packed as vec4f pairs for the shader
-    const coilInstanceData = new Float32Array(numCoils * 8);
+    // Coil data in canonical InstanceData: position(3)+ringIndex(1)+rotation(4)+color(3)+emissive(1)
+    const coilInstanceData = new Float32Array(numCoils * 12);
 
     for (let i = 0; i < numCoils; i++) {
       const coilAngle = (i / numCoils) * Math.PI * 2;
@@ -761,74 +727,34 @@ class DeviceInstance {
       // Smooth energy transition
       this.coilEnergies[i] = this.coilEnergies[i] * 0.9 + energy * 0.1;
 
-      // Rotation: face inward (toward center)
+      // Rotation around the local Y axis
       const rotAngle = coilAngle + Math.PI;
       const rotY = Math.sin(rotAngle / 2);
       const rotW = Math.cos(rotAngle / 2);
 
-      // Pack data into two vec4f
-      coilInstanceData[i * 8] = coilX;
-      coilInstanceData[i * 8 + 1] = 0;
-      coilInstanceData[i * 8 + 2] = coilZ;
-      coilInstanceData[i * 8 + 3] = 0;
+      const idx = i * 12;
+      coilInstanceData[idx]     = coilX;
+      coilInstanceData[idx + 1] = 0;
+      coilInstanceData[idx + 2] = coilZ;
+      coilInstanceData[idx + 3] = 0.0;          // ringIndex
 
-      coilInstanceData[i * 8 + 4] = rotY;
-      coilInstanceData[i * 8 + 5] = 0;
-      coilInstanceData[i * 8 + 6] = rotW;
-      coilInstanceData[i * 8 + 7] = this.coilEnergies[i];
+      coilInstanceData[idx + 4] = 0.0;          // quaternion x
+      coilInstanceData[idx + 5] = rotY;         // quaternion y
+      coilInstanceData[idx + 6] = 0.0;          // quaternion z
+      coilInstanceData[idx + 7] = rotW;         // quaternion w
+
+      coilInstanceData[idx + 8]  = 0.75;        // copper R
+      coilInstanceData[idx + 9]  = 0.45;        // copper G
+      coilInstanceData[idx + 10] = 0.25;        // copper B
+      coilInstanceData[idx + 11] = this.coilEnergies[i]; // emissive
     }
 
     this.device.queue.writeBuffer(this.coilInstances, 0, coilInstanceData);
-
-    // Field-line particles are now animated by the GPU field-advect compute
-    // shader dispatched in the compute pass; no CPU updateFieldLines() call needed.
 
     // Update energy arcs
     if (this.arcSegments && this.energyArcEnabled) {
       this.updateEnergyArcs();
     }
-  }
-
-  /**
-   * CPU fallback for field line animation (used when GPU field-advect pipeline
-   * is not yet ready, e.g. during first frame before async pipeline creation).
-   */
-  updateFieldLines(deltaTime) {
-    // Animate field line particles flowing along magnetic field lines
-    const fieldData = new Float32Array(this.fieldLineCount * 8);
-    const time = this.visualizer.time;
-
-    for (let i = 0; i < this.fieldLineCount; i++) {
-      const idx = i * 8;
-
-      // Get ring for this particle
-      const ringIdx = i % 3;
-      const ringRadii = [2.5, 4.0, 5.5];
-      const ringRadius = ringRadii[ringIdx];
-
-      // Flow along circular magnetic field line
-      const baseAngle = (i / this.fieldLineCount) * Math.PI * 20 + time * (0.5 + ringIdx * 0.3);
-      const heightOffset = Math.sin(time * 0.5 + i * 0.1) * 0.8;
-
-      // Position along magnetic field line
-      fieldData[idx] = Math.cos(baseAngle) * ringRadius;
-      fieldData[idx + 1] = heightOffset + (Math.random() - 0.5) * 0.2;
-      fieldData[idx + 2] = Math.sin(baseAngle) * ringRadius;
-
-      // Velocity tangent to field line
-      const speed = 1.0 + ringIdx * 0.5;
-      fieldData[idx + 3] = -Math.sin(baseAngle) * speed;
-      fieldData[idx + 4] = Math.cos(time * 2 + i * 0.05) * 0.1;
-      fieldData[idx + 5] = Math.cos(baseAngle) * speed;
-
-      // Life cycles through 0-1
-      fieldData[idx + 6] = (Math.sin(time * 2 + i * 0.5) * 0.5 + 0.5);
-
-      // Strength varies by position
-      fieldData[idx + 7] = 0.3 + 0.7 * Math.sin(baseAngle * 3 + time);
-    }
-
-    this.device.queue.writeBuffer(this.fieldLineParticles, 0, fieldData);
   }
 
   /**
@@ -870,7 +796,7 @@ class DeviceInstance {
     const scaledCount = Math.floor(this.particleCount * this.visualizer.profiler.qualityLevel);
 
     // Core SEG mesh — always drawn (skipEffects only gates VFX below).
-    if (this.id === 'seg' && this.geometry.baseBuffer) {
+    if (this.id === 'seg' && this.visualizer.basePlateBuffer) {
       this.renderBase(renderPass, globalUniformBuffer);
     }
 
@@ -924,45 +850,29 @@ class DeviceInstance {
     }
 
     // Render electromagnet coils (SEG only)
-    if (this.id === 'seg' && this.electromagnetInstances && this.coilPipeline && !skipEffects) {
+    if (this.id === 'seg' && this.electromagnetInstances && this.segEnhancedPipeline && !skipEffects) {
+      this.renderMode = 3;
       const deviceData = this._buildDeviceUniformData(this.renderMode);
       this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
-      // Coil material: copper base with orange glow potential
-      const coilMaterialData = new Float32Array([
-        0.75, 0.45, 0.25, 0,    // baseColor + pad
-        1.0, 0.55, 0.0, 2.5      // glowColor (orange) + emission
-      ]);
-      if (!this.coilRenderMaterialBuffer) {
-        this.coilRenderMaterialBuffer = this.device.createBuffer({
-          label: 'seg-coil-render-material',
-          size: 32,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        });
-        this.visualizer.profiler.trackBuffer(
-          `device-${this.id}-coil-render-material`,
-          32,
-          GPUBufferUsage.UNIFORM
-        );
-      }
-      this.device.queue.writeBuffer(this.coilRenderMaterialBuffer, 0, coilMaterialData);
-
       const coilBindGroup = this.device.createBindGroup({
-        layout: this.coilPipeline.getBindGroupLayout(0),
+        layout: this.segEnhancedPipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: globalUniformBuffer } },
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.electromagnetInstances } },
-          { binding: 3, resource: { buffer: this.coilRenderMaterialBuffer } }
+          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+          { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
+          { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
         ]
       });
 
-      renderPass.setPipeline(this.coilPipeline);
+      renderPass.setPipeline(this.segEnhancedPipeline);
       renderPass.setBindGroup(0, coilBindGroup);
-      renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
-      renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
+      renderPass.setVertexBuffer(0, this.visualizer.coilUVBuffer.vertexBuffer);
+      renderPass.setIndexBuffer(this.visualizer.coilUVBuffer.indexBuffer, 'uint16');
       const numCoils = this.visualizer.emController?.numCoils || 8;
-      renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, numCoils);
+      renderPass.drawIndexed(this.visualizer.coilUVBuffer.indexCount, numCoils);
     }
 
     // Render battery gauge (solar device only)
@@ -986,8 +896,8 @@ class DeviceInstance {
     }
 
     // Render RK4 flux line segments (physically accurate, |B|-driven color).
-    // Replaces the legacy circular-path field line render with physically
-    // traced billboard quads.  Falls back gracefully if pipeline is absent.
+    // The lower-quality circular-path field-line particle fallback has been
+    // removed; the RK4 flux ribbons are now the sole magnetic-field-line viz.
     if (this.id === 'seg' && this.fluxSegmentRenderBindGroup && this.pipelineManager.fluxSegmentPipeline && this.fieldLineEnabled && !skipEffects) {
       const qualityScale = this.visualizer.profiler.qualityLevel;
       const totalSegments = Math.floor(this.geometry.fluxTotalSegments * qualityScale);
@@ -995,23 +905,6 @@ class DeviceInstance {
       renderPass.setPipeline(this.pipelineManager.fluxSegmentPipeline);
       renderPass.setBindGroup(0, this.fluxSegmentRenderBindGroup);
       renderPass.draw(4, totalSegments);
-    } else if (this.id === 'seg' && this.fieldLineParticles && this.fieldLineEnabled && !skipEffects) {
-      // Fallback: legacy circular-path field line particles
-      const qualityScale = this.visualizer.profiler.qualityLevel;
-      const fieldLineCount = Math.floor(this.fieldLineCount * qualityScale);
-
-      const fieldLineBindGroup = this.device.createBindGroup({
-        layout: this.fieldLinePipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 4, resource: { buffer: this.fieldLineParticles } }
-        ]
-      });
-
-      renderPass.setPipeline(this.fieldLinePipeline);
-      renderPass.setBindGroup(0, fieldLineBindGroup);
-      renderPass.draw(4, fieldLineCount);
     }
 
     // Render energy arcs (between nearby rollers)
@@ -1066,128 +959,90 @@ class DeviceInstance {
   }
 
   renderBase(renderPass, globalUniformBuffer) {
-    if (!this.geometry.baseBuffer) return;
-    
+    if (!this.visualizer.basePlateBuffer || !this.segEnhancedPipeline) return;
+
     // Set renderMode to 1 (base)
     this.renderMode = 1;
     const deviceData = this._buildDeviceUniformData(this.renderMode);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
-    
+
     const bindGroup = this.device.createBindGroup({
-      layout: this.rollerPipeline.getBindGroupLayout(0),
+      layout: this.segEnhancedPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: globalUniformBuffer } },
         { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-        { binding: 2, resource: { buffer: this.geometry.baseBuffer } },
+        { binding: 2, resource: { buffer: this.visualizer.baseInstanceBuffer } },
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-        { binding: 5, resource: { buffer: this.visualizer.materialTableBuffer } }
+        { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
+        { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
       ]
     });
 
-    renderPass.setPipeline(this.rollerPipeline);
+    renderPass.setPipeline(this.segEnhancedPipeline);
     renderPass.setBindGroup(0, bindGroup);
-    // Draw base as a cube/quad
-    renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
-    renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
-    renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 1);
+    renderPass.setVertexBuffer(0, this.visualizer.basePlateBuffer.vertexBuffer);
+    renderPass.setIndexBuffer(this.visualizer.basePlateBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(this.visualizer.basePlateBuffer.indexCount, 1);
   }
 
   renderStatorRings(renderPass, globalUniformBuffer) {
-    if (!this.geometry.statorRingBuffer) return;
+    if (!this.geometry.statorRingBuffer || !this.segEnhancedPipeline) return;
     const v = this.visualizer;
-    
+    if (!v.statorRingUVBuffer || !v.lightingUniformBuffer) return;
+
     // Set renderMode to 2 (stator)
     this.renderMode = 2;
     const deviceData = this._buildDeviceUniformData(this.renderMode);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
-    
-    // Use enhanced PBR pipeline if available (with UV geometry)
-    if (this.segEnhancedPipeline && v.statorRingUVBuffer && v.lightingUniformBuffer) {
-      const bindGroup = this.device.createBindGroup({
-        layout: this.segEnhancedPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
-          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-          { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-          { binding: 6, resource: { buffer: v.materialTableBuffer } }
-        ]
-      });
 
-      renderPass.setPipeline(this.segEnhancedPipeline);
-      renderPass.setBindGroup(0, bindGroup);
-      renderPass.setVertexBuffer(0, v.statorRingUVBuffer.vertexBuffer);
-      renderPass.setIndexBuffer(v.statorRingUVBuffer.indexBuffer, 'uint16');
-      renderPass.drawIndexed(v.statorRingUVBuffer.indexCount, 3); // 3 rings
-    } else {
-      // Fallback to basic Blinn-Phong pipeline
-      const bindGroup = this.device.createBindGroup({
-        layout: this.rollerPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
-          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-          { binding: 5, resource: { buffer: this.visualizer.materialTableBuffer } }
-        ]
-      });
+    // Enhanced PBR pipeline with UV geometry is now the only stator path.
+    const bindGroup = this.device.createBindGroup({
+      layout: this.segEnhancedPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
+        { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+        { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
+        { binding: 6, resource: { buffer: v.materialTableBuffer } }
+      ]
+    });
 
-      renderPass.setPipeline(this.rollerPipeline);
-      renderPass.setBindGroup(0, bindGroup);
-      renderPass.setVertexBuffer(0, v.cylinderBuffer.vertexBuffer);
-      renderPass.setIndexBuffer(v.cylinderBuffer.indexBuffer, 'uint16');
-      renderPass.drawIndexed(v.cylinderBuffer.indexCount, 3); // 3 rings
-    }
+    renderPass.setPipeline(this.segEnhancedPipeline);
+    renderPass.setBindGroup(0, bindGroup);
+    renderPass.setVertexBuffer(0, v.statorRingUVBuffer.vertexBuffer);
+    renderPass.setIndexBuffer(v.statorRingUVBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(v.statorRingUVBuffer.indexCount, 3); // 3 rings
   }
 
   renderWiring(renderPass, globalUniformBuffer) {
-    if (!this.geometry.wiringBuffer) return;
+    if (!this.geometry.wiringBuffer || !this.segEnhancedPipeline) return;
     const v = this.visualizer;
-    
+    if (!v.wiringUVBuffer || !v.lightingUniformBuffer) return;
+
     // Set renderMode to 3 (wiring)
     this.renderMode = 3;
     const deviceData = this._buildDeviceUniformData(this.renderMode);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
-    
-    // Use enhanced PBR pipeline if available (with UV geometry)
-    if (this.segEnhancedPipeline && v.wiringUVBuffer && v.lightingUniformBuffer) {
-      const bindGroup = this.device.createBindGroup({
-        layout: this.segEnhancedPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
-          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-          { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-          { binding: 6, resource: { buffer: v.materialTableBuffer } }
-        ]
-      });
 
-      renderPass.setPipeline(this.segEnhancedPipeline);
-      renderPass.setBindGroup(0, bindGroup);
-      renderPass.setVertexBuffer(0, v.wiringUVBuffer.vertexBuffer);
-      renderPass.setIndexBuffer(v.wiringUVBuffer.indexBuffer, 'uint16');
-      renderPass.drawIndexed(v.wiringUVBuffer.indexCount, 8); // 8 wires
-    } else {
-      // Fallback to basic Blinn-Phong pipeline
-      const bindGroup = this.device.createBindGroup({
-        layout: this.rollerPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
-          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-          { binding: 5, resource: { buffer: this.visualizer.materialTableBuffer } }
-        ]
-      });
+    // Enhanced PBR pipeline with UV geometry is now the only wiring path.
+    const bindGroup = this.device.createBindGroup({
+      layout: this.segEnhancedPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
+        { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+        { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
+        { binding: 6, resource: { buffer: v.materialTableBuffer } }
+      ]
+    });
 
-      renderPass.setPipeline(this.rollerPipeline);
-      renderPass.setBindGroup(0, bindGroup);
-      renderPass.setVertexBuffer(0, v.cylinderBuffer.vertexBuffer);
-      renderPass.setIndexBuffer(v.cylinderBuffer.indexBuffer, 'uint16');
-      renderPass.drawIndexed(v.cylinderBuffer.indexCount, 8); // 8 wires
-    }
+    renderPass.setPipeline(this.segEnhancedPipeline);
+    renderPass.setBindGroup(0, bindGroup);
+    renderPass.setVertexBuffer(0, v.wiringUVBuffer.vertexBuffer);
+    renderPass.setIndexBuffer(v.wiringUVBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(v.wiringUVBuffer.indexCount, 8); // 8 wires
   }
 
   renderCore(renderPass, globalUniformBuffer) {
@@ -1242,72 +1097,46 @@ class DeviceInstance {
   }
 
   renderPickupCoils(renderPass, globalUniformBuffer) {
-    if (!this.coilInstances || !this.coilPipeline || !this.ringPipeline) return;
-    if (!this.visualizer.connectionRingBuffer || !this.visualizer.coilBuffer) return;
+    if (!this.coilInstances || !this.segEnhancedPipeline) return;
+    if (!this.visualizer.connectionRingBuffer || !this.visualizer.coilUVBuffer) return;
 
-    this.renderMode = 0;
+    this.renderMode = 3;
     const numCoils = 24;
 
-    // Render top connection ring (at y = +2.0)
-    const topRingDeviceData = new Float32Array(12);
-    topRingDeviceData.set(this._buildDeviceUniformData(this.renderMode, 2.0));
-    const topRingDeviceBuffer = this.device.createBuffer({
-      size: 48,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-    });
-    this.device.queue.writeBuffer(topRingDeviceBuffer, 0, topRingDeviceData);
-
-    const topRingBindGroup = this.device.createBindGroup({
-      layout: this.ringPipeline.getBindGroupLayout(0),
+    // Connection rings (top + bottom)
+    const ringBindGroup = this.device.createBindGroup({
+      layout: this.segEnhancedPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: globalUniformBuffer } },
-        { binding: 1, resource: { buffer: topRingDeviceBuffer } },
-        { binding: 3, resource: { buffer: this.ringMaterialBuffer } }
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: this.visualizer.connectionRingInstances } },
+        { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+        { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
+        { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
       ]
     });
-
-    renderPass.setPipeline(this.ringPipeline);
-    renderPass.setBindGroup(0, topRingBindGroup);
+    renderPass.setPipeline(this.segEnhancedPipeline);
+    renderPass.setBindGroup(0, ringBindGroup);
     renderPass.setVertexBuffer(0, this.visualizer.connectionRingBuffer.vertexBuffer);
     renderPass.setIndexBuffer(this.visualizer.connectionRingBuffer.indexBuffer, 'uint16');
-    renderPass.drawIndexed(this.visualizer.connectionRingBuffer.indexCount);
+    renderPass.drawIndexed(this.visualizer.connectionRingBuffer.indexCount, 2);
 
-    // Render bottom connection ring (at y = -2.0)
-    const bottomRingDeviceData = new Float32Array(12);
-    bottomRingDeviceData.set(this._buildDeviceUniformData(this.renderMode, -2.0));
-    const bottomRingDeviceBuffer = this.device.createBuffer({
-      size: 48,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-    });
-    this.device.queue.writeBuffer(bottomRingDeviceBuffer, 0, bottomRingDeviceData);
-
-    const bottomRingBindGroup = this.device.createBindGroup({
-      layout: this.ringPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: globalUniformBuffer } },
-        { binding: 1, resource: { buffer: bottomRingDeviceBuffer } },
-        { binding: 3, resource: { buffer: this.ringMaterialBuffer } }
-      ]
-    });
-
-    renderPass.setBindGroup(0, bottomRingBindGroup);
-    renderPass.drawIndexed(this.visualizer.connectionRingBuffer.indexCount);
-
-    // Render coils
+    // Pickup coils
     const coilBindGroup = this.device.createBindGroup({
-      layout: this.coilPipeline.getBindGroupLayout(0),
+      layout: this.segEnhancedPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: globalUniformBuffer } },
         { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
         { binding: 2, resource: { buffer: this.coilInstances } },
-        { binding: 3, resource: { buffer: this.coilMaterialBuffer } }
+        { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+        { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
+        { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
       ]
     });
-
-    renderPass.setPipeline(this.coilPipeline);
     renderPass.setBindGroup(0, coilBindGroup);
-    renderPass.setVertexBuffer(0, this.visualizer.coilBuffer.vertexBuffer);
-    renderPass.draw(this.visualizer.coilBuffer.vertexCount, numCoils);
+    renderPass.setVertexBuffer(0, this.visualizer.coilUVBuffer.vertexBuffer);
+    renderPass.setIndexBuffer(this.visualizer.coilUVBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(this.visualizer.coilUVBuffer.indexCount, numCoils);
   }
 
   renderStand(renderPass, globalUniformBuffer) {
