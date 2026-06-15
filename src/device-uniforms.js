@@ -100,11 +100,12 @@ class DeviceUniformManager {
 
     // Setup coil and ring material buffers for SEG pickup coils
     if (this.id === 'seg') {
+      // C-shaped pickup coils: up to 24 coils, 3 parts each (core/winding/foot).
       this.coilInstances = this.device.createBuffer({
-        size: 24 * 12 * 4, // 24 coils * 12 floats * 4 bytes (canonical InstanceData)
+        size: 24 * 3 * 12 * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-coil-instances`, 24 * 48, GPUBufferUsage.STORAGE);
+      this.visualizer.profiler.trackBuffer(`device-${this.id}-coil-instances`, 24 * 3 * 48, GPUBufferUsage.STORAGE);
 
       this.coilMaterialBuffer = this.device.createBuffer({
         size: 32,

@@ -11,11 +11,17 @@ import { SEGMaterialPresets } from './seg-materials.js';
 import {
   generateBearingShaft,
   generateCoilWithWindings,
+  generateCCorePickupCoil,
   generatePlateWithCutouts,
   generatePoleBandedRoller,
   generateSupportStand,
   generateWireHarness
 } from './seg-enhanced-geometry.js';
+
+function smoothstep(edge0, edge1, x) {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
 
 export class MultiDeviceVisualizer {
   constructor() {
@@ -129,6 +135,8 @@ export class MultiDeviceVisualizer {
 
       this.render(0);
 
+      window.runSEGSpeedTest = (speeds, durationMs) => this.runSpeedTest(speeds, durationMs);
+
       window.addEventListener('resize', () => this._syncCanvasSize());
 
       // Show optimal settings hint
@@ -163,7 +171,10 @@ export class MultiDeviceVisualizer {
       { baseColor: [0.74, 0.76, 0.80], metallic: 0.72, roughness: 0.28, accent: [0.94, 0.96, 0.99], detail: [28.0, 0.05, 0.08, 0.0] }, // 10 anodized can
       { baseColor: [0.18, 0.23, 0.28], metallic: 0.12, roughness: 0.52, accent: [0.72, 0.20, 0.14], detail: [40.0, 0.0, 0.05, 0.0] }, // 11 peltier junction
       { baseColor: [0.92, 0.92, 0.90], metallic: 0.02, roughness: 0.48, accent: [0.20, 0.20, 0.22], detail: [30.0, 0.0, 0.06, 0.0] }, // 12 label paint
-      { baseColor: [0.07, 0.08, 0.10], metallic: 0.55, roughness: 0.42, accent: [0.16, 0.18, 0.22], detail: [24.0, 0.06, 0.12, 0.0] }  // 13 SEG dark base
+      { baseColor: [0.07, 0.08, 0.10], metallic: 0.55, roughness: 0.42, accent: [0.16, 0.18, 0.22], detail: [24.0, 0.06, 0.12, 0.0] }, // 13 SEG dark base
+      { ...SEGMaterialPresets.laminatedIron, accent: [0.10, 0.11, 0.12], detail: [48.0, 0.08, 0.18, 0.0] },                            // 14 C-core laminated iron
+      { ...SEGMaterialPresets.windingCopperEnamel, accent: [0.95, 0.62, 0.12], detail: [64.0, 0.04, 0.10, 0.0] },                      // 15 enameled winding copper
+      { ...SEGMaterialPresets.mountFootSteel, accent: [0.55, 0.57, 0.60], detail: [32.0, 0.05, 0.14, 0.0] }                            // 16 coil mounting foot
     ];
 
     const packed = new Float32Array(materials.length * 12);
@@ -709,6 +720,19 @@ export class MultiDeviceVisualizer {
     ]));
     this.profiler.trackBuffer('seg-connection-ring-instances', 2 * 48, GPUBufferUsage.STORAGE);
 
+    // C-shaped pickup coil geometry (core, winding bundle, mounting foot)
+    this.cCoreCoilBuffer = generateCCorePickupCoil(this.device, {
+      coilRadius: 7.2,
+      jawReach: 1.7,
+      coreWidth: 1.8,
+      coreHeight: 0.70,
+      coreThickness: 0.45,
+      armWidth: 0.45,
+      windingWidth: 1.4,
+      windingHeight: 0.9,
+      windingThickness: 0.85
+    });
+
     // Battery gauge (simple cylinder)
     const gaugeData = this.generateCylinder(0.3, 0.1, 16);
     const gaugeVB = this.device.createBuffer({ size: gaugeData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -914,10 +938,11 @@ export class MultiDeviceVisualizer {
     if (this.bloomSceneTexture) this.bloomSceneTexture.destroy();
     if (this.bloomBlurTexture)  this.bloomBlurTexture.destroy();
     if (this.bloomTempTexture)  this.bloomTempTexture.destroy();
+    if (this.prevSceneTexture)  this.prevSceneTexture.destroy();
 
     this.bloomSceneTexture = this.device.createTexture({
       size: [w, h], format: fmt,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
     });
     this.bloomBlurTexture = this.device.createTexture({
       size: [w, h], format: fmt,
@@ -926,6 +951,10 @@ export class MultiDeviceVisualizer {
     this.bloomTempTexture = this.device.createTexture({
       size: [w, h], format: fmt,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
+    this.prevSceneTexture = this.device.createTexture({
+      size: [w, h], format: fmt,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
     });
 
     if (this.bloomParamsBuffer) {
@@ -1062,7 +1091,7 @@ export class MultiDeviceVisualizer {
     globalData[20] = this.camera.camera.position[0];  // 20: cameraPos.x
     globalData[21] = this.camera.camera.position[1];  // 21: cameraPos.y
     globalData[22] = this.camera.camera.position[2];  // 22: cameraPos.z
-    // padding at 23 (1 float = 4 bytes)
+    globalData[23] = this.speedMult;                  // 23: speedMult
     
     // Key light (offset 24-31: 32 bytes)
     const key = this.lightingConfig.key;
@@ -1237,9 +1266,18 @@ export class MultiDeviceVisualizer {
     
     renderPass.end();
 
+    // Preserve this frame’s scene for next frame’s overdrive motion blur.
+    if (this.bloomSceneTexture && this.prevSceneTexture) {
+      encoder.copyTextureToTexture(
+        { texture: this.bloomSceneTexture },
+        { texture: this.prevSceneTexture },
+        [this.canvas.width || 1, this.canvas.height || 1, 1]
+      );
+    }
+
     // ── Bloom post-processing ─────────────────────────────────────────────
     if (this.bloomExtractPipeline && this.bloomBlurPipeline && this.bloomCompositePipeline &&
-        this.bloomSceneTexture && this.bloomBlurTexture && this.bloomTempTexture && this.depthTexture) {
+        this.bloomSceneTexture && this.bloomBlurTexture && this.bloomTempTexture && this.prevSceneTexture && this.depthTexture) {
       // Update bloom parameters dynamically based on current speed
       if (this.bloomParamsBuffer) {
         const w = this.canvas.width || 1;
@@ -1247,6 +1285,8 @@ export class MultiDeviceVisualizer {
         const speedEnergy = Math.min(1.0, this.simRateController.speedMult / 20.0);
         const energy = Math.min(1.0, Math.max(speedEnergy, this.globalEnergyLevel));
         const energyPow = Math.pow(energy, 1.35);
+        // Subtle temporal motion blur that ramps up in overdrive (speedMult > 7).
+        const motionBlur = smoothstep(7.0, 20.0, this.simRateController.speedMult) * 0.12;
         this.device.queue.writeBuffer(
           this.bloomParamsBuffer, 0,
           new Float32Array([
@@ -1260,7 +1300,7 @@ export class MultiDeviceVisualizer {
             0.010 + energyPow * 0.045,
             0.010 + energyPow * 0.040,
             0.08 + energyPow * 0.52,
-            0.0,
+            motionBlur,
             0.0
           ])
         );
@@ -1344,7 +1384,8 @@ export class MultiDeviceVisualizer {
           { binding: 1, resource: this.bloomTempTexture.createView() },
           { binding: 2, resource: this.bloomSampler },
           { binding: 3, resource: { buffer: this.bloomParamsBuffer } },
-          { binding: 4, resource: this.depthSampleView }
+          { binding: 4, resource: this.depthSampleView },
+          { binding: 5, resource: this.prevSceneTexture.createView() }
         ]
       }));
       compositePass.draw(3);
@@ -1390,5 +1431,62 @@ export class MultiDeviceVisualizer {
       label.textContent = `${src.speedMult.toFixed(2)}×`;
       label.style.color = `hsl(${src.tachHue}, 100%, 65%)`;
     }
+  }
+
+  /**
+   * Quality/perf test harness: step through a set of speed multipliers for a
+   * fixed duration, then print average frame time, FPS, and SEG effect metrics.
+   * Exposed as window.runSEGSpeedTest([0.1, 1, 10, 30], 3000).
+   */
+  async runSpeedTest(speeds = [0.1, 1, 10, 30], durationMs = 3000) {
+    const slider = document.getElementById('speedControl');
+    if (!slider) {
+      console.warn('[SpeedTest] #speedControl not found');
+      return;
+    }
+    const speedToSlider = (speed) => Math.max(0, Math.min(100, 100 * Math.log(speed / 0.05) / Math.log(400)));
+    const segDevice = this.devices['seg'];
+
+    console.log('[SpeedTest] starting — speeds:', speeds, 'duration:', durationMs, 'ms');
+    const results = [];
+
+    for (const speed of speeds) {
+      slider.value = speedToSlider(speed);
+      // Wait for the visualizer to pick up the new slider value and settle.
+      await new Promise(r => setTimeout(r, 500));
+
+      const startFps = this.fps || 0;
+      const startFrame = this.profiler?.frameCount || 0;
+      const startTime = performance.now();
+      let minFps = 999;
+      let maxFps = 0;
+      let samples = 0;
+
+      while (performance.now() - startTime < durationMs) {
+        await new Promise(r => requestAnimationFrame(r));
+        const f = this.fps || 0;
+        if (f > 0) {
+          minFps = Math.min(minFps, f);
+          maxFps = Math.max(maxFps, f);
+          samples++;
+        }
+      }
+
+      const endFrame = this.profiler?.frameCount || startFrame;
+      const avgFps = samples > 0 ? (startFps + this.fps) / 2 : 0; // rough
+      results.push({
+        speed,
+        fps: this.fps || 0,
+        minFps: minFps === 999 ? 0 : minFps,
+        maxFps,
+        frames: endFrame - startFrame,
+        energy: segDevice?.energyLevel || 0,
+        effectBudget: segDevice?._prevEffectBudget || 0
+      });
+      console.log(`[SpeedTest] ${speed.toFixed(2)}× — FPS ${this.fps} (min ${minFps === 999 ? 0 : minFps}, max ${maxFps}), energy ${(segDevice?.energyLevel || 0).toFixed(3)}`);
+    }
+
+    console.table(results);
+    console.log('[SpeedTest] complete');
   }
 }

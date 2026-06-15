@@ -31,6 +31,7 @@ import {
   generateSupportStand,
   generateWireHarness,
   generateCoilWithWindings,
+  generateCCorePickupCoil,
   generateBandedRollerInstances
 } from './seg-geometry-generators.js';
 
@@ -41,6 +42,7 @@ export {
   generateSupportStand,
   generateWireHarness,
   generateCoilWithWindings,
+  generateCCorePickupCoil,
   generateBandedRollerInstances
 };
 
@@ -125,6 +127,19 @@ export class EnhancedSEGGeometry {
       majorSegments: 96
     });
 
+    // C-shaped pickup coil (core, winding bundle, mounting foot)
+    this.buffers.cCoreCoil = generateCCorePickupCoil(this.device, {
+      coilRadius: 7.2,
+      jawReach: 1.7,
+      coreWidth: 1.8,
+      coreHeight: 0.70,
+      coreThickness: 0.45,
+      armWidth: 0.45,
+      windingWidth: 1.4,
+      windingHeight: 0.9,
+      windingThickness: 0.85
+    });
+
     // Wire harness between coils (8 connections)
     this.buffers.wires = [];
     const coilCount = 8;
@@ -149,6 +164,12 @@ export class EnhancedSEGGeometry {
           w.vertexBuffer?.destroy();
           w.indexBuffer?.destroy();
         }
+      } else if (key === 'cCoreCoil') {
+        const coil = this.buffers.cCoreCoil;
+        for (const part of ['core', 'winding', 'foot']) {
+          coil[part]?.vertexBuffer?.destroy();
+          coil[part]?.indexBuffer?.destroy();
+        }
       } else {
         this.buffers[key]?.vertexBuffer?.destroy();
         this.buffers[key]?.indexBuffer?.destroy();
@@ -166,6 +187,7 @@ export default {
   generateSupportStand,
   generateWireHarness,
   generateCoilWithWindings,
+  generateCCorePickupCoil,
   generateBandedRollerInstances,
   EnhancedSEGGeometry
 };

@@ -189,13 +189,21 @@ class DeviceInstance {
    * reuse it every frame without a per-frame allocation.
    */
   async setupFluxLineTracer() {
-    // FluxUniforms: time, deltaTime, integrationStep, lineOpacity, seedRadius, followStrength, _pad
-    // = 7 × f32 = 28 bytes, aligned to 32 bytes
+    // FluxUniforms: time, deltaTime, integrationStep, lineOpacity, seedRadius,
+    // followStrength, coilBoostCount, coilBoostStrength = 8 × f32 = 32 bytes.
     this.fluxTracerUniformBuffer = this.device.createBuffer({
       label: 'flux-tracer-uniforms',
       size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
+
+    // Coil boost data: world-space jaw-gap centre + energy, one per active coil.
+    this.fluxCoilBoostBuffer = this.device.createBuffer({
+      label: 'flux-coil-boost',
+      size: 24 * 16,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer('flux-coil-boost', 24 * 16, GPUBufferUsage.STORAGE);
 
     const module = this.device.createShaderModule({
       label: 'flux-tracer-module',
@@ -213,7 +221,8 @@ class DeviceInstance {
       layout: this.fluxTracerPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.geometry.fluxSegmentBuffer } },
-        { binding: 1, resource: { buffer: this.fluxTracerUniformBuffer } }
+        { binding: 1, resource: { buffer: this.fluxTracerUniformBuffer } },
+        { binding: 2, resource: { buffer: this.fluxCoilBoostBuffer } }
       ]
     });
 
@@ -326,14 +335,21 @@ class DeviceInstance {
         );
       }
       // Write flux tracer uniforms: time, deltaTime, integrationStep,
-      // lineOpacity, seedRadius, followStrength, _pad, _pad.
+      // lineOpacity, seedRadius, followStrength, coilBoostCount, coilBoostStrength.
       // seedRadius now controls the minor radius of the flux torus;
       // followStrength scales the poloidal twist (helicity).
+      const coilBoostCount = this.activePickupCoilCount || 0;
+      const coilBoostStrength = 0.6 + 0.4 * Math.min(1.0, (this.speedMult || 1.0) / 5.0);
       if (this.fluxTracerUniformBuffer) {
         this.device.queue.writeBuffer(
           this.fluxTracerUniformBuffer, 0,
-          new Float32Array([time, deltaTime, 0.02, 0.45, 0.35, 2.0, 0.0, 0.0])
+          new Float32Array([time, deltaTime, 0.02, 0.45, 0.35, 2.0, coilBoostCount, coilBoostStrength])
         );
+      }
+
+      // Upload jaw-gap centres and energies for the flux boost.
+      if (this.fluxCoilBoostBuffer) {
+        this.updateFluxCoilBoostData();
       }
 
       // Lightweight CPU coil-energy calculation.
@@ -405,10 +421,16 @@ class DeviceInstance {
     const speedMult = this.speedMult || 1.0;
     const energy = this.energyLevel;
     const quality = Math.max(0.0, Math.min(1.0, Math.min(qualityScale, this.visualizer.profiler.qualityLevel)));
-    const budget = Math.min(
+    const targetBudget = Math.min(
       this.maxEffectParticles,
-      Math.floor(this.maxEffectParticles * quality * Math.min(1.0, 0.28 + speedMult * 0.18 + Math.pow(energy, 1.35) * 0.7))
+      this.maxEffectParticles * quality * Math.min(1.0, 0.28 + speedMult * 0.18 + Math.pow(energy, 1.35) * 0.7)
     );
+    // Smooth budget transitions so particle spawn count doesn’t pop when speed changes.
+    if (this._prevEffectBudget === undefined) {
+      this._prevEffectBudget = targetBudget;
+    }
+    this._prevEffectBudget += (targetBudget - this._prevEffectBudget) * Math.min(1.0, deltaTime * 8.0);
+    const budget = Math.max(0, Math.floor(this._prevEffectBudget));
     if (budget <= 0) {
       this.effectParticleCount = 0;
       return;
@@ -418,6 +440,11 @@ class DeviceInstance {
       if (high <= low) return value > high ? 1 : 0;
       return Math.max(0, Math.min(1, (value - low) / (high - low)));
     };
+    const smoothstep = (edge0, edge1, x) => {
+      const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+      return t * t * (3 - 2 * t);
+    };
+    const fract = (x) => x - Math.floor(x);
 
     const pushParticle = (x, y, z, phaseEncoded) => {
       if (this.effectParticleCount >= budget) return;
@@ -435,22 +462,50 @@ class DeviceInstance {
       const coilEnergy = this.coilEnergies
         ? this.coilEnergies.reduce((sum, e) => sum + e, 0) / this.coilEnergies.length
         : 0;
-      const coronaStrength = Math.max(0.0, Math.min(1.0, (speedMult - 1.0) * 0.08 + coilEnergy * 0.35 + Math.pow(energy, 1.4) * 0.45));
+      // Smooth speed envelope: quiet below 0.2x, full at 1x-8x, gentle saturation above 10x.
+      const speedEnvelope = smoothstep(0.2, 1.5, speedMult) * (1.0 - smoothstep(8.0, 20.0, speedMult) * 0.35);
+      const coronaStrength = Math.max(0.0, Math.min(1.0, speedEnvelope * 0.35 + coilEnergy * 0.35 + Math.pow(energy, 1.4) * 0.45));
       const coronaCount = Math.floor((10 + budget * 0.22) * coronaStrength);
+      // Deterministic pseudo-random hash so corona particles don’t flicker every frame.
+      const hash1 = (s) => fract(Math.sin(s * 127.1) * 43758.5453);
+      const hash2 = (s) => fract(Math.sin(s * 269.5) * 43758.5453);
       for (let i = 0; i < coronaCount; i++) {
+        const seed = i * 0.731 + t * 0.13;
         const a = (i / Math.max(1, coronaCount)) * Math.PI * 2 + t * (0.35 + coronaStrength);
         const ring = i % 3;
         const radius = (ring === 0 ? 2.4 : ring === 1 ? 3.9 : 5.4) + Math.sin(i * 2.31 + t) * 0.16;
-        const y = (Math.sin(i * 1.93 + t * 1.9) * 0.8 + (Math.random() - 0.5) * 0.3) * (0.45 + coronaStrength * 0.55);
-        pushParticle(Math.cos(a) * radius, y, Math.sin(a) * radius, 2.0 + Math.random());
+        const y = (Math.sin(i * 1.93 + t * 1.9) * 0.8 + (hash1(seed) - 0.5) * 0.3) * (0.45 + coronaStrength * 0.55);
+        pushParticle(Math.cos(a) * radius, y, Math.sin(a) * radius, 2.0 + hash2(seed));
       }
 
-      const burstBase = Math.floor(budget * (0.04 + coronaStrength * 0.18));
+      const burstBase = Math.floor(budget * (0.04 + coronaStrength * 0.18) * speedEnvelope);
       for (let i = 0; i < burstBase; i++) {
-        const a = Math.random() * Math.PI * 2;
-        const radius = 3.0 + Math.random() * 2.6;
-        const y = (Math.random() - 0.5) * 1.8;
-        pushParticle(Math.cos(a) * radius, y, Math.sin(a) * radius, 1.0 + Math.random());
+        const seed = i * 1.237 + t * 0.21;
+        const a = hash1(seed) * Math.PI * 2;
+        const radius = 3.0 + hash2(seed) * 2.6;
+        const y = (hash1(seed * 1.93) - 0.5) * 1.8;
+        pushParticle(Math.cos(a) * radius, y, Math.sin(a) * radius, 1.0 + hash2(seed * 2.17));
+      }
+
+      // Jaw-gap brush discharge: fine sparks at each C-core pickup-coil gap.
+      const coilCount = this.activePickupCoilCount || 0;
+      const coilRadius = 7.2;
+      const jawReach = 1.7;
+      const jawBrushBudget = Math.floor(budget * 0.12 * coronaStrength * speedEnvelope);
+      for (let i = 0; i < jawBrushBudget; i++) {
+        const coilIdx = i % Math.max(1, coilCount);
+        const angle = (coilIdx / coilCount) * Math.PI * 2;
+        const cx = Math.cos(angle) * coilRadius;
+        const cz = Math.sin(angle) * coilRadius;
+        // Inward jaw-gap centre.
+        const gx = cx - Math.cos(angle) * jawReach;
+        const gz = cz - Math.sin(angle) * jawReach;
+        const seed = i * 0.913 + t * 0.37 + coilIdx * 2.31;
+        const spread = 0.08 + hash2(seed) * 0.10;
+        const px = gx + (hash1(seed) - 0.5) * spread;
+        const py = (hash2(seed * 1.71) - 0.5) * 0.35;
+        const pz = gz + (hash1(seed * 2.13) - 0.5) * spread;
+        pushParticle(px, py, pz, 1.0 + hash2(seed * 3.19));
       }
     } else if (this.id === 'kelvin') {
       const voltageProxy = Math.max(0.0, Math.min(1.0, this.voltageEnergyLevel * 0.7 + Math.pow(energy, 1.2) * 0.5));
@@ -683,97 +738,166 @@ class DeviceInstance {
   updatePickupCoilEnergies(rollerData, compact = false) {
     if (!this.coilInstances) return;
 
-    const numCoils = 24;
-    const coilRadius = 7.0;
+    const maxCoils = 24;
+    const quality = this.visualizer.profiler?.qualityLevel ?? 1.0;
+    // Quality-scalable coil count: 8 at low quality, 16 at high, capped by buffer.
+    const numCoils = Math.max(8, Math.min(16, Math.floor(8 + quality * 8)));
+    this.activePickupCoilCount = numCoils;
+    const coilRadius = 7.2;
 
     // Initialize coil energies array if needed
-    if (!this.coilEnergies) {
-      this.coilEnergies = new Float32Array(numCoils);
+    if (!this.coilEnergies || this.coilEnergies.length !== maxCoils) {
+      this.coilEnergies = new Float32Array(maxCoils);
     }
 
-    // Coil data in canonical InstanceData: position(3)+ringIndex(1)+rotation(4)+color(3)+emissive(1)
-    const coilInstanceData = new Float32Array(numCoils * 12);
+    // C-shaped coils: 3 instanced parts per coil (core, winding, foot).
+    // Instance layout: position(3)+ringIndex(1)+rotation(4)+color(3)+emissive(1)
+    const coilInstanceData = new Float32Array(maxCoils * 3 * 12);
 
-    for (let i = 0; i < numCoils; i++) {
+    for (let i = 0; i < maxCoils; i++) {
+      const active = i < numCoils;
       const coilAngle = (i / numCoils) * Math.PI * 2;
-      const coilX = Math.cos(coilAngle) * coilRadius;
-      const coilZ = Math.sin(coilAngle) * coilRadius;
+      const coilX = active ? Math.cos(coilAngle) * coilRadius : 0;
+      const coilZ = active ? Math.sin(coilAngle) * coilRadius : 0;
 
       // Find nearest roller and calculate energy
       let minDistance = Infinity;
       let nearestRollerSpeed = 0;
 
-      // Check all 36 rollers (3 rings: 8 + 12 + 16)
-      for (let r = 0; r < 36; r++) {
-        const rollerX = compact ? rollerData[r * 2]     : rollerData[r * 12];
-        const rollerZ = compact ? rollerData[r * 2 + 1] : rollerData[r * 12 + 2];
+      if (active) {
+        // Check all 36 rollers (3 rings: 8 + 12 + 16)
+        for (let r = 0; r < 36; r++) {
+          const rollerX = compact ? rollerData[r * 2]     : rollerData[r * 12];
+          const rollerZ = compact ? rollerData[r * 2 + 1] : rollerData[r * 12 + 2];
 
-        const dx = coilX - rollerX;
-        const dz = coilZ - rollerZ;
-        const dist = Math.sqrt(dx * dx + dz * dz);
+          const dx = coilX - rollerX;
+          const dz = coilZ - rollerZ;
+          const dist = Math.sqrt(dx * dx + dz * dz);
 
-        if (dist < minDistance) {
-          minDistance = dist;
-          // Ring speed factors: inner=2.0, middle=1.0, outer=0.5
-          if (r < 8) nearestRollerSpeed = 2.0;
-          else if (r < 20) nearestRollerSpeed = 1.0;
-          else nearestRollerSpeed = 0.5;
+          if (dist < minDistance) {
+            minDistance = dist;
+            // Ring speed factors: inner=2.0, middle=1.0, outer=0.5
+            if (r < 8) nearestRollerSpeed = 2.0;
+            else if (r < 20) nearestRollerSpeed = 1.0;
+            else nearestRollerSpeed = 0.5;
+          }
         }
       }
 
       // Calculate energy: higher when rollers are closer, modulated by roller speed
-      const energy = Math.max(0, 1 - minDistance / 3.0) * nearestRollerSpeed * 0.5;
+      const rawEnergy = active ? Math.max(0, 1 - minDistance / 3.0) * nearestRollerSpeed * 0.5 : 0;
 
       // Smooth energy transition
-      this.coilEnergies[i] = this.coilEnergies[i] * 0.9 + energy * 0.1;
+      this.coilEnergies[i] = this.coilEnergies[i] * 0.9 + rawEnergy * 0.1;
 
-      // Rotation around the local Y axis
-      const rotAngle = coilAngle + Math.PI;
+      // Rotation around the local Y axis so the C-core opening faces inward.
+      // local -Z must align with the radial inward direction (-cosθ, 0, -sinθ),
+      // which requires a Y-rotation of π/2 - θ.
+      const rotAngle = active ? Math.PI / 2 - coilAngle : 0;
       const rotY = Math.sin(rotAngle / 2);
       const rotW = Math.cos(rotAngle / 2);
 
-      const idx = i * 12;
-      coilInstanceData[idx]     = coilX;
-      coilInstanceData[idx + 1] = 0;
-      coilInstanceData[idx + 2] = coilZ;
-      coilInstanceData[idx + 3] = 0.0;          // ringIndex
+      const energy = this.coilEnergies[i];
+      // Part selectors: 0 reserved for connection rings; 1=core, 2=winding, 3=foot
+      const partSelectors = [1.0, 2.0, 3.0];
 
-      coilInstanceData[idx + 4] = 0.0;          // quaternion x
-      coilInstanceData[idx + 5] = rotY;         // quaternion y
-      coilInstanceData[idx + 6] = 0.0;          // quaternion z
-      coilInstanceData[idx + 7] = rotW;         // quaternion w
+      for (let p = 0; p < 3; p++) {
+        // Buffer layout: [core × maxCoils][winding × maxCoils][foot × maxCoils]
+        // so each mesh can draw a contiguous instance range.
+        const idx = (p * maxCoils + i) * 12;
+        coilInstanceData[idx]     = coilX;
+        coilInstanceData[idx + 1] = 0;
+        coilInstanceData[idx + 2] = coilZ;
+        coilInstanceData[idx + 3] = partSelectors[p];
 
-      coilInstanceData[idx + 8]  = 0.75;        // copper R
-      coilInstanceData[idx + 9]  = 0.45;        // copper G
-      coilInstanceData[idx + 10] = 0.25;        // copper B
-      coilInstanceData[idx + 11] = this.coilEnergies[i]; // emissive
+        coilInstanceData[idx + 4] = 0.0;          // quaternion x
+        coilInstanceData[idx + 5] = rotY;         // quaternion y
+        coilInstanceData[idx + 6] = 0.0;          // quaternion z
+        coilInstanceData[idx + 7] = rotW;         // quaternion w
+
+        coilInstanceData[idx + 8]  = 0.75;        // copper R
+        coilInstanceData[idx + 9]  = 0.45;        // copper G
+        coilInstanceData[idx + 10] = 0.25;        // copper B
+        coilInstanceData[idx + 11] = energy;      // emissive (winding pulse)
+      }
     }
 
     this.device.queue.writeBuffer(this.coilInstances, 0, coilInstanceData);
 
     // Update energy arcs
     if (this.arcSegments && this.energyArcEnabled) {
-      this.updateEnergyArcs();
+      this.updateEnergyArcs(this.visualizer.frameDelta || 0.016);
     }
+  }
+
+  /**
+   * Upload world-space jaw-gap centres and smoothed energies for the flux-line
+   * compute shader. The boost pulls field lines through the C-core gaps as
+   * rollers pass by, visualising the linked magnetic path.
+   */
+  updateFluxCoilBoostData() {
+    if (!this.fluxCoilBoostBuffer || !this.coilEnergies) return;
+
+    const numCoils = this.activePickupCoilCount || 0;
+    const coilRadius = 7.2;
+    const jawReach = 1.7;
+    const data = new Float32Array(24 * 4);
+
+    for (let i = 0; i < 24; i++) {
+      const idx = i * 4;
+      if (i < numCoils) {
+        const angle = (i / numCoils) * Math.PI * 2;
+        const cx = Math.cos(angle) * coilRadius;
+        const cz = Math.sin(angle) * coilRadius;
+        // Jaw gap sits jawReach metres inward from the coil centre.
+        const gx = cx - Math.cos(angle) * jawReach;
+        const gz = cz - Math.sin(angle) * jawReach;
+        data[idx]     = gx;
+        data[idx + 1] = 0.0;
+        data[idx + 2] = gz;
+        data[idx + 3] = this.coilEnergies[i];
+      } else {
+        data[idx] = data[idx + 1] = data[idx + 2] = 0.0;
+        data[idx + 3] = 0.0;
+      }
+    }
+
+    this.device.queue.writeBuffer(this.fluxCoilBoostBuffer, 0, data);
   }
 
   /**
    * Animate energy arc particles (called when arcSegments is non-null).
    * Distributes short arc segments around the stator coil ring.
    */
-  updateEnergyArcs() {
+  updateEnergyArcs(deltaTime) {
     if (!this.arcSegments) return;
     const arcCount = 200;
     const arcData = new Float32Array(arcCount * 8);
     const time = this.visualizer.time;
     const speedMult = this.speedMult || 1.0;
 
+    // Smooth speed envelope: quiet at low speed, gentle saturation at overdrive.
+    const smoothstep = (edge0, edge1, x) => {
+      const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+      return t * t * (3 - 2 * t);
+    };
+    const fract = (x) => x - Math.floor(x);
+    const speedEnvelope = smoothstep(0.2, 1.5, speedMult) * (1.0 - smoothstep(8.0, 20.0, speedMult) * 0.35);
+    const arcIntensity = Math.min(0.55, 0.12 + 0.25 * speedEnvelope);
+
+    // Wall-time frequency so arcs don’t freeze at low speed or buzz at high speed.
+    const wallTime = time / Math.max(speedMult, 0.001);
+
     for (let i = 0; i < arcCount; i++) {
       const idx = i * 8;
+      const seed = i * 0.617 + wallTime * 0.05;
+      const hash1 = fract(Math.sin(seed * 127.1) * 43758.5453);
+      const hash2 = fract(Math.sin(seed * 269.5) * 43758.5453);
+
       // Spread arcs around the outer coil ring
-      const arcAngle = (i / arcCount) * Math.PI * 2 + time * 0.3 * speedMult;
-      const arcRadius = 5.5 + (Math.random() - 0.5) * 0.8;
-      const arcHeight = (Math.random() - 0.5) * 0.6;
+      const arcAngle = (i / arcCount) * Math.PI * 2 + wallTime * 0.3;
+      const arcRadius = 5.5 + (hash1 - 0.5) * 0.8;
+      const arcHeight = (hash2 - 0.5) * 0.6;
 
       arcData[idx]     = Math.cos(arcAngle) * arcRadius;
       arcData[idx + 1] = arcHeight;
@@ -785,8 +909,8 @@ class DeviceInstance {
       arcData[idx + 5] = Math.sin(arcAngle) * 0.5;
 
       // Life and intensity
-      arcData[idx + 6] = Math.sin(time * 5.0 * speedMult + i * 0.3) * 0.3 + 0.5;
-      arcData[idx + 7] = Math.min(0.55, 0.12 + 0.35 * speedMult * 0.12);
+      arcData[idx + 6] = Math.sin(wallTime * 5.0 + i * 0.3) * 0.3 + 0.5;
+      arcData[idx + 7] = arcIntensity;
     }
 
     this.device.queue.writeBuffer(this.arcSegments, 0, arcData);
@@ -1105,10 +1229,11 @@ class DeviceInstance {
 
   renderPickupCoils(renderPass, globalUniformBuffer) {
     if (!this.coilInstances || !this.segEnhancedPipeline) return;
-    if (!this.visualizer.connectionRingBuffer || !this.visualizer.coilUVBuffer) return;
+    if (!this.visualizer.connectionRingBuffer || !this.visualizer.cCoreCoilBuffer) return;
 
     this.renderMode = 3;
-    const numCoils = 24;
+    const numCoils = this.activePickupCoilCount || 24;
+    const coil = this.visualizer.cCoreCoilBuffer;
 
     // Connection rings (top + bottom)
     const ringBindGroup = this.device.createBindGroup({
@@ -1129,7 +1254,9 @@ class DeviceInstance {
     renderPass.setIndexBuffer(this.visualizer.connectionRingBuffer.indexBuffer, 'uint16');
     renderPass.drawIndexed(this.visualizer.connectionRingBuffer.indexCount, 2);
 
-    // Pickup coils
+    // C-shaped pickup coils: draw core, winding bundle, and mounting foot.
+    // Each mesh uses the same instance buffer, offset by firstInstance so the
+    // three parts align per coil (core=0, winding=1, foot=2 within every triplet).
     const coilBindGroup = this.device.createBindGroup({
       layout: this.segEnhancedPipeline.getBindGroupLayout(0),
       entries: [
@@ -1143,9 +1270,19 @@ class DeviceInstance {
       ]
     });
     renderPass.setBindGroup(0, coilBindGroup);
-    renderPass.setVertexBuffer(0, this.visualizer.coilUVBuffer.vertexBuffer);
-    renderPass.setIndexBuffer(this.visualizer.coilUVBuffer.indexBuffer, 'uint16');
-    renderPass.drawIndexed(this.visualizer.coilUVBuffer.indexCount, numCoils);
+
+    const maxCoils = 24;
+    const parts = [
+      { buf: coil.core,     first: 0 },
+      { buf: coil.winding,  first: maxCoils },
+      { buf: coil.foot,     first: maxCoils * 2 }
+    ];
+    for (const part of parts) {
+      if (!part.buf) continue;
+      renderPass.setVertexBuffer(0, part.buf.vertexBuffer);
+      renderPass.setIndexBuffer(part.buf.indexBuffer, 'uint16');
+      renderPass.drawIndexed(part.buf.indexCount, numCoils, 0, 0, part.first);
+    }
   }
 
   renderStand(renderPass, globalUniformBuffer) {

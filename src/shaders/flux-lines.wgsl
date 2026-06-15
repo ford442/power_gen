@@ -69,12 +69,22 @@ struct FluxUniforms {
     deltaTime: f32,
     integrationStep: f32,
     lineOpacity: f32,
-    seedRadius: f32,      // Radius around rollers for seeding
-    followStrength: f32,  // How closely lines follow B-field (0-1)
-    _pad: f32,
+    seedRadius: f32,           // Radius around rollers for seeding
+    followStrength: f32,       // How closely lines follow B-field (0-1)
+    coilBoostCount: f32,       // Number of active pickup-coil jaw gaps
+    coilBoostStrength: f32,    // Strength of roller-through-jaw flux boost
 }
 
 @binding(1) @group(0) var<uniform> fluxUniforms: FluxUniforms;
+
+// Per-coil boost data uploaded from the CPU each frame.
+// Position is the world-space jaw-gap centre; energy is the smoothed coil energy.
+struct CoilBoostData {
+    pos: vec3f,
+    energy: f32,
+}
+
+@binding(2) @group(0) var<storage, read> coilBoost: array<CoilBoostData>;
 
 // ============================================
 // Magnetic Field Functions (Duplicated for Standalone)
@@ -153,26 +163,41 @@ fn getRollerMagneticState(
 
 fn calculateToroidalField(pos: vec3f, time: f32) -> vec3f {
     var totalField = vec3f(0.0);
-    
+
     for (var ring: i32 = 0; ring < 3; ring++) {
         var rollerCount: i32;
-        
+
         switch (ring) {
             case 0: { rollerCount = INNER_RING_COUNT; }
             case 1: { rollerCount = MIDDLE_RING_COUNT; }
             case 2: { rollerCount = OUTER_RING_COUNT; }
             default: { rollerCount = MIDDLE_RING_COUNT; }
         }
-        
+
         for (var i: i32 = 0; i < rollerCount; i++) {
             var rollerPos: vec3f;
             var rollerMoment: vec3f;
-            
+
             getRollerMagneticState(ring, i, time, &rollerPos, &rollerMoment);
             totalField += magneticDipoleField(pos, rollerPos, rollerMoment);
         }
     }
-    
+
+    // Roller-through-jaw flux boost: pickup coils pull field lines through
+    // their C-core gaps, strengthening the path that links roller magnets.
+    let boostCount = i32(fluxUniforms.coilBoostCount);
+    if (boostCount > 0 && fluxUniforms.coilBoostStrength > 0.0) {
+        for (var c: i32 = 0; c < boostCount; c++) {
+            let coil = coilBoost[c];
+            let d = pos - coil.pos;
+            let distSq = dot(d, d);
+            if (distSq < 0.0001 || distSq > 9.0) { continue; }
+            let falloff = exp(-distSq * 1.2);
+            // Pull toward coil jaw gap; strength scales with coil energy and speed.
+            totalField += normalize(-d) * coil.energy * falloff * fluxUniforms.coilBoostStrength;
+        }
+    }
+
     return totalField;
 }
 
@@ -400,6 +425,21 @@ fn traceBidirectional(@builtin(global_invocation_id) id: vec3u) {
     let time = fluxUniforms.time;
     let h = fluxUniforms.integrationStep;
     let halfSegments = SEGMENTS_PER_LINE / 2;
+
+    // Per-line pulse rate tied to actual roller angular velocity.
+    // Angular velocity in simulation time is 0.5 * ringSpeed (rad/s).
+    // We want a fixed number of pulses per roller orbit.
+    let ringIdx = lineIndex / FLUX_LINES_PER_RING;
+    var ringSpeed: f32;
+    switch (ringIdx) {
+      case 0: { ringSpeed = 2.0; }
+      case 1: { ringSpeed = 1.0; }
+      case 2: { ringSpeed = 0.5; }
+      default: { ringSpeed = 1.0; }
+    }
+    let angularVelocity = 0.5 * ringSpeed;
+    let pulsesPerOrbit = 2.0;
+    let pulseRate = angularVelocity * pulsesPerOrbit / (2.0 * PI);
     
     // Start from seed point
     var centerPos = getFluxLineSeed(lineIndex, time);
@@ -415,7 +455,7 @@ fn traceBidirectional(@builtin(global_invocation_id) id: vec3u) {
         
         let nextPos = rk4Step(forwardPos, time, h, 1.0);
         
-        let age = fract(time * 0.5 + f32(i) / f32(halfSegments));
+        let age = fract(time * pulseRate + f32(i) / f32(halfSegments));
         
         fluxSegments[segmentIdx] = FluxSegment(
             forwardPos.x, forwardPos.y, forwardPos.z,
@@ -438,7 +478,7 @@ fn traceBidirectional(@builtin(global_invocation_id) id: vec3u) {
         
         let prevPos = rk4Step(backwardPos, time, h, -1.0);
         
-        let age = fract(time * 0.5 + f32(i) / f32(halfSegments));
+        let age = fract(time * pulseRate + f32(i) / f32(halfSegments));
         
         // Note: For backward trace, startPos is the new point, endPos is current
         fluxSegments[segmentIdx] = FluxSegment(

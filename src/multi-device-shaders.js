@@ -15,7 +15,8 @@ export class MultiDeviceShaders {
       struct Uniforms {
         viewProj: mat4x4f,
         time: f32,
-        cameraPos: vec3f
+        cameraPos: vec3f,
+        speedMult: f32
       }
       
       // Canonical 48-byte DeviceUniforms struct (12 x f32)
@@ -95,7 +96,8 @@ export class MultiDeviceShaders {
       struct Uniforms {
         viewProj: mat4x4f,
         time: f32,
-        cameraPos: vec3f
+        cameraPos: vec3f,
+        speedMult: f32
       }
 
       struct DeviceUniforms {
@@ -139,7 +141,7 @@ export class MultiDeviceShaders {
       }
 
       const PI: f32 = 3.14159265;
-      const MATERIAL_COUNT: u32 = 14u;
+      const MATERIAL_COUNT: u32 = 17u;
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
@@ -431,7 +433,8 @@ export class MultiDeviceShaders {
       struct Uniforms {
         viewProj: mat4x4f,
         time: f32,
-        cameraPos: vec3f
+        cameraPos: vec3f,
+        speedMult: f32
       }
       
       struct DeviceUniforms {
@@ -644,7 +647,9 @@ export class MultiDeviceShaders {
         output.uv = quadPos * 0.5 + 0.5;
         output.effectType = effectType;
         output.speed = speed;
-        output.life = fract(uniforms.time * 0.5 + phase);
+        // Keep fade/ripple/spark life cycles at a constant wall-time rate.
+        let wallTime = uniforms.time / max(uniforms.speedMult, 0.001);
+        output.life = fract(wallTime * 0.5 + phase);
         
         return output;
       }
@@ -657,7 +662,8 @@ export class MultiDeviceShaders {
       struct Uniforms {
         viewProj: mat4x4f,
         time: f32,
-        cameraPos: vec3f
+        cameraPos: vec3f,
+        speedMult: f32
       }
 
       struct DeviceUniforms {
@@ -705,8 +711,11 @@ export class MultiDeviceShaders {
         let energy = clamp(device.timeScale, 0.0, 1.0);
         let overdrive = pow(energy, 1.7);
         let t = uniforms.time;
+        let speedMult = uniforms.speedMult;
+        let wallTime = t / max(speedMult, 0.001);
         let phase = input.particlePhase;
         var color: vec3f;
+        let temporalSmooth = smoothstep(0.0, 0.5, speedMult);
 
         if (effectType > 6.5 && effectType < 7.5) {
           // Solar refraction caustic photons at panel interface.
@@ -717,10 +726,10 @@ export class MultiDeviceShaders {
         } else if (effectType > 5.5 && effectType < 6.5) {
           // Kelvin branching discharges (lightning-inspired blue-white channels).
           let trunk = exp(-abs(uv.x) * 18.0) * exp(-abs(uv.y) * 3.8);
-          let branch = exp(-abs(uv.x + sin(t * 8.0 + phase * 12.0) * 0.35) * 10.0) * exp(-abs(uv.y) * 5.2);
+          let branch = exp(-abs(uv.x + sin(wallTime * 8.0 + phase * 12.0) * 0.35) * 10.0) * exp(-abs(uv.y) * 5.2);
           let flare = exp(-dist * dist * 16.0) * 0.35;
           alpha = (trunk + branch * 0.7 + flare) * (0.9 + overdrive * 1.25);
-          color = vec3f(0.75, 0.88, 1.0) * (0.7 + 0.3 * (0.5 + 0.5 * sin(t * 16.0 + phase * 22.0)));
+          color = vec3f(0.75, 0.88, 1.0) * (0.7 + 0.3 * (0.5 + 0.5 * sin(wallTime * 16.0 + phase * 22.0)) * temporalSmooth);
         } else if (effectType > 4.5 && effectType < 5.5) {
           // Heron impact ripples: expanding annular profile at basin.
           let ring = exp(-pow((dist - (0.35 + input.life * 0.45)) * 9.0, 2.0));
@@ -738,12 +747,13 @@ export class MultiDeviceShaders {
           let strand = exp(-abs(uv.x) * 22.0) * exp(-abs(uv.y) * 4.0);
           let haze = exp(-dist * dist * 8.0) * 0.2;
           alpha = strand + haze;
-          color = vec3f(0.7, 0.9, 1.0) + vec3f(0.25, 0.0, 0.45) * (0.5 + 0.5 * sin(t * 17.0 + phase * 29.0));
+          color = vec3f(0.7, 0.9, 1.0) + vec3f(0.25, 0.0, 0.45) * (0.5 + 0.5 * sin(wallTime * 17.0 + phase * 29.0)) * temporalSmooth;
         } else if (effectType > 1.5 && effectType < 2.5) {
           // Corona: faint blue-white plasma halo around stator rings.
           let shell = exp(-dist * dist * 2.6);
           let core = exp(-dist * dist * 10.0) * 0.35;
-          alpha = (shell + core) * (0.28 + 0.35 * (0.5 + 0.5 * sin(t * 9.0 + phase * 11.0))) * (0.18 + overdrive * 0.45);
+          let pulse = 0.5 + 0.5 * sin(wallTime * 9.0 + phase * 11.0);
+          alpha = (shell + core) * (0.28 + 0.35 * mix(0.5, pulse, temporalSmooth)) * (0.18 + overdrive * 0.45);
           color = mix(vec3f(0.45, 0.72, 0.95), vec3f(0.82, 0.92, 1.0), input.life);
         } else if (effectType > 0.5 && effectType < 1.5) {
           // Spark bursts: fine charge filaments, not giant glowing orbs.
@@ -824,7 +834,8 @@ export class MultiDeviceShaders {
         viewProj: mat4x4f,
         time: f32,
         resolution: vec2f,
-        cameraPos: vec3f
+        cameraPos: vec3f,
+        speedMult: f32
       }
 
       struct DeviceUniforms {
@@ -988,7 +999,8 @@ export class MultiDeviceShaders {
       struct Uniforms {
         viewProj: mat4x4f,
         time: f32,
-        cameraPos: vec3f
+        cameraPos: vec3f,
+        speedMult: f32
       }
       
       // Canonical 48-byte DeviceUniforms struct (12 x f32)
@@ -1072,7 +1084,8 @@ export class MultiDeviceShaders {
       struct Uniforms {
         viewProj: mat4x4f,
         time: f32,
-        cameraPos: vec3f
+        cameraPos: vec3f,
+        speedMult: f32
       }
 
       struct DeviceUniforms {
@@ -1153,7 +1166,8 @@ export class MultiDeviceShaders {
       struct Uniforms {
         viewProj: mat4x4f,
         time: f32,
-        cameraPos: vec3f
+        cameraPos: vec3f,
+        speedMult: f32
       }
 
       struct MaterialUniforms {
@@ -1463,6 +1477,13 @@ export class MultiDeviceShaders {
       }
 
       fn sharedMaterialId(mode: i32, renderMode: i32, ringIndex: f32, bandIndex: f32) -> u32 {
+        if (renderMode == 3) {
+          // Pickup coil assembly: connection ring (copper) or C-core parts.
+          if (ringIndex < 0.5) { return 7u; }
+          if (ringIndex < 1.5) { return 14u; }  // C-core laminated iron
+          if (ringIndex < 2.5) { return 15u; }  // enameled winding copper
+          return 16u;                            // mounting foot steel
+        }
         if (mode == 1) { return 8u; }
         if (mode == 2) { return 10u; }
         if (mode == 3) { return 7u; }
@@ -1470,7 +1491,6 @@ export class MultiDeviceShaders {
         if (mode >= 5) { return 1u; }
         if (renderMode == 1) { return 13u; }
         if (renderMode == 2) { return 2u; }
-        if (renderMode == 3) { return 0u; }
         if (ringIndex < -0.5) { return 1u; }
         if (ringIndex > 10.0) { return 2u; }
         return 0u;
@@ -1556,6 +1576,13 @@ export class MultiDeviceShaders {
               N = normalize(mix(N, -radialDir, grooveT * 0.55));
             }
           }
+        } else if (renderMode == 3 && input.ringIndex > 0.5) {
+          // C-shaped pickup coil parts use material-table physical presets.
+          baseColor = mat.baseMetal.rgb;
+          metallic = mat.baseMetal.a;
+          roughness = mat.accentRough.a;
+          emissive = 0.0;
+          isCopper = (input.ringIndex > 1.5 && input.ringIndex < 2.5);
         } else if (input.ringIndex < -0.5) {
           baseColor = vec3f(0.65, 0.67, 0.70);
           metallic = 0.96;
@@ -2152,7 +2179,8 @@ export class MultiDeviceShaders {
       struct Uniforms {
         viewProj: mat4x4f,
         time: f32,
-        cameraPos: vec3f
+        cameraPos: vec3f,
+        speedMult: f32
       }
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -2218,7 +2246,8 @@ export class MultiDeviceShaders {
       struct Uniforms {
         viewProj: mat4x4f,
         time: f32,
-        cameraPos: vec3f
+        cameraPos: vec3f,
+        speedMult: f32
       }
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -2324,18 +2353,18 @@ export class MultiDeviceShaders {
   get bloomBlurShader() {
     return /* wgsl */ `
       struct BloomParams {
-        texelSizeX: f32,
-        texelSizeY: f32,
-        threshold:  f32,
-        knee:       f32,
-        strength:   f32,
-        radius:     f32,
-        power:      f32,
-        grain:      f32,
-        aberration: f32,
-        vignette:   f32,
-        reserved0:  f32,
-        reserved1:  f32,
+        texelSizeX:  f32,
+        texelSizeY:  f32,
+        threshold:   f32,
+        knee:        f32,
+        strength:    f32,
+        radius:      f32,
+        power:       f32,
+        grain:       f32,
+        aberration:  f32,
+        vignette:    f32,
+        motionBlur:  f32,
+        reserved1:   f32,
       }
 
       @group(0) @binding(0) var bloomInput : texture_2d<f32>;
@@ -2368,25 +2397,26 @@ export class MultiDeviceShaders {
   get bloomCompositeShader() {
     return /* wgsl */ `
       struct BloomParams {
-        texelSizeX: f32,
-        texelSizeY: f32,
-        threshold:  f32,
-        knee:       f32,
-        strength:   f32,
-        radius:     f32,
-        power:      f32,
-        grain:      f32,
-        aberration: f32,
-        vignette:   f32,
-        reserved0:  f32,
-        reserved1:  f32,
+        texelSizeX:  f32,
+        texelSizeY:  f32,
+        threshold:   f32,
+        knee:        f32,
+        strength:    f32,
+        radius:      f32,
+        power:       f32,
+        grain:       f32,
+        aberration:  f32,
+        vignette:    f32,
+        motionBlur:  f32,   // overdrive temporal blend weight
+        reserved1:   f32,
       }
 
-      @group(0) @binding(0) var sceneTexC  : texture_2d<f32>;
-      @group(0) @binding(1) var bloomTexC  : texture_2d<f32>;
-      @group(0) @binding(2) var compSampler: sampler;
-      @group(0) @binding(3) var<uniform> params: BloomParams;
-      @group(0) @binding(4) var depthTexC: texture_depth_2d;
+      @group(0) @binding(0) var sceneTexC   : texture_2d<f32>;
+      @group(0) @binding(1) var bloomTexC   : texture_2d<f32>;
+      @group(0) @binding(2) var compSampler : sampler;
+      @group(0) @binding(3) var<uniform>    params: BloomParams;
+      @group(0) @binding(4) var depthTexC   : texture_depth_2d;
+      @group(0) @binding(5) var prevSceneTex: texture_2d<f32>;
 
       struct FragInput {
         @location(0) uv: vec2f,
@@ -2430,7 +2460,11 @@ export class MultiDeviceShaders {
         let scene = vec3f(sceneR, sceneG, sceneB);
         let bloom = textureSample(bloomTexC, compSampler, input.uv).rgb;
 
-        var combined = scene + bloom * params.strength;
+        // Subtle overdrive motion blur: blend with previous frame.
+        let prevScene = textureSample(prevSceneTex, compSampler, input.uv).rgb;
+        let motionBlurred = mix(scene, prevScene, params.motionBlur);
+
+        var combined = motionBlurred + bloom * params.strength;
         let shadow = contactShadow(input.uv);
         combined *= (1.0 - shadow * (0.20 + params.power * 0.18));
         let tm = acesTonemap(combined);
