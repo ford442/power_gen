@@ -64,7 +64,8 @@ export class MultiDeviceVisualizer {
       rim: { position: [0.0, 2.0, -8.0], color: [0.4, 0.8, 1.0], intensity: 0.8 },
       ground: { position: [0.0, -5.0, 0.0], color: [0.3, 0.25, 0.2], intensity: 0.15 },
       ambient: 0.3,
-      envMapStrength: 0.5
+      envMapStrength: 0.5,
+      shadowStrength: 1.0
     };
 
     // Prototype-accuracy preset for SEG rollers.
@@ -1121,6 +1122,7 @@ export class MultiDeviceVisualizer {
     lightingData[28] = ground.color[0]; lightingData[29] = ground.color[1]; lightingData[30] = ground.color[2]; lightingData[31] = ground.intensity;
     lightingData[32] = this.lightingConfig.ambient;
     lightingData[33] = this.lightingConfig.envMapStrength;
+    lightingData[34] = this.lightingConfig.shadowStrength;
     this.device.queue.writeBuffer(this.lightingUniformBuffer, 0, lightingData);
 
     // Update devices with quality scaling

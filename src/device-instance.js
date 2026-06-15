@@ -838,7 +838,8 @@ class DeviceInstance {
           { binding: 2, resource: { buffer: this.rollerInstances } },
           { binding: 3, resource: { buffer: this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
-          { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
+          { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } },
+          { binding: 7, resource: { buffer: this.rollerInstances } }
         ]
       });
 
@@ -863,7 +864,8 @@ class DeviceInstance {
           { binding: 2, resource: { buffer: this.electromagnetInstances } },
           { binding: 3, resource: { buffer: this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
-          { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
+          { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } },
+          { binding: 7, resource: { buffer: this.rollerInstances } }
         ]
       });
 
@@ -975,7 +977,8 @@ class DeviceInstance {
         { binding: 2, resource: { buffer: this.visualizer.baseInstanceBuffer } },
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
-        { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
+        { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } },
+        { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
 
@@ -1005,7 +1008,8 @@ class DeviceInstance {
         { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-        { binding: 6, resource: { buffer: v.materialTableBuffer } }
+        { binding: 6, resource: { buffer: v.materialTableBuffer } },
+        { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
 
@@ -1035,7 +1039,8 @@ class DeviceInstance {
         { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-        { binding: 6, resource: { buffer: v.materialTableBuffer } }
+        { binding: 6, resource: { buffer: v.materialTableBuffer } },
+        { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
 
@@ -1061,7 +1066,8 @@ class DeviceInstance {
           { binding: 2, resource: { buffer: instanceBuffer } },
           { binding: 3, resource: { buffer: this.coreMaterialBuffer || this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-          { binding: 6, resource: { buffer: v.materialTableBuffer } }
+          { binding: 6, resource: { buffer: v.materialTableBuffer } },
+          { binding: 7, resource: { buffer: this.rollerInstances } }
         ]
       });
       renderPass.setPipeline(this.segEnhancedPipeline);
@@ -1113,7 +1119,8 @@ class DeviceInstance {
         { binding: 2, resource: { buffer: this.visualizer.connectionRingInstances } },
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
-        { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
+        { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } },
+        { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
     renderPass.setPipeline(this.segEnhancedPipeline);
@@ -1131,7 +1138,8 @@ class DeviceInstance {
         { binding: 2, resource: { buffer: this.coilInstances } },
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
-        { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
+        { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } },
+        { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
     renderPass.setBindGroup(0, coilBindGroup);
@@ -1152,7 +1160,8 @@ class DeviceInstance {
         { binding: 2, resource: { buffer: this.shaftInstanceBuffer } },
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-        { binding: 6, resource: { buffer: v.materialTableBuffer } }
+        { binding: 6, resource: { buffer: v.materialTableBuffer } },
+        { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
 
@@ -1177,7 +1186,8 @@ class DeviceInstance {
           { binding: 2, resource: { buffer: this.shaftInstanceBuffer } },
           { binding: 3, resource: { buffer: this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-          { binding: 6, resource: { buffer: v.materialTableBuffer } }
+          { binding: 6, resource: { buffer: v.materialTableBuffer } },
+          { binding: 7, resource: { buffer: this.rollerInstances } }
         ]
       });
       renderPass.setPipeline(this.segEnhancedPipeline);

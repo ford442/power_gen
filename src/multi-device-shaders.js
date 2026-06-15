@@ -1194,6 +1194,11 @@ export class MultiDeviceShaders {
         ground: Light,
         ambient: f32,
         envMapStrength: f32,
+        shadowStrength: f32,
+      }
+
+      struct RollerShadowData {
+        pos: vec4f,   // xyz = world position, w = ring index
       }
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -1201,6 +1206,7 @@ export class MultiDeviceShaders {
       @binding(3) @group(0) var<uniform> material: MaterialUniforms;
       @binding(5) @group(0) var<uniform> lighting: LightingConfig;
       @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
+      @binding(7) @group(0) var<storage, read> rollerShadows: array<RollerShadowData>;
 
       struct FragmentInput {
         @location(0) worldPos: vec3f,
@@ -1405,6 +1411,55 @@ export class MultiDeviceShaders {
         if (layerId == 1) { return 0.62; }
         if (layerId == 2) { return 0.38; }
         return 0.34;
+      }
+
+      // ----------------------------------------------------------------------------
+      // Unified analytic contact shadows + per-roller moving penumbra
+      // ----------------------------------------------------------------------------
+      fn groundHubShadow(r: f32, h: f32) -> f32 {
+        let contact = exp(-pow(r / 0.70, 2.0));
+        let broad   = exp(-pow(r / 1.80, 2.0)) * 0.45;
+        return (contact + broad) * exp(-h * 1.6);
+      }
+
+      fn groundOrbitShadow(r: f32, orbitRadius: f32, h: f32) -> f32 {
+        let dr = r - orbitRadius;
+        let contact = exp(-pow(dr / 0.48, 2.0));
+        let broad   = exp(-pow(dr / 1.15, 2.0)) * 0.35;
+        return (contact + broad) * exp(-h * 1.9);
+      }
+
+      fn accumulateRollerPenumbra(worldPos: vec3f) -> f32 {
+        var shadow = 0.0;
+        for (var i = 0u; i < 36u; i++) {
+          let rp = rollerShadows[i].pos;
+          let d = worldPos.xz - rp.xz;
+          let distSq = dot(d, d);
+          if (distSq > 16.0) { continue; }
+          let distH = sqrt(distSq);
+          let dh = worldPos.y - rp.y;
+          if (dh < -0.4) { continue; }
+          let penumbraRadius = 0.95 + max(0.0, dh) * 0.85;
+          let s = smoothstep(penumbraRadius, 0.0, distH);
+          shadow += s * exp(-max(0.0, dh) * 1.8) * 0.10;
+        }
+        return shadow;
+      }
+
+      fn unifiedContactShadow(worldPos: vec3f, N: vec3f) -> f32 {
+        let r = length(worldPos.xz);
+        let h = max(0.0, worldPos.y + 0.35);
+        let upWeight = clamp(N.y, 0.0, 1.0);
+
+        var groundShadow = 0.0;
+        groundShadow += groundHubShadow(r, h) * 0.55;
+        groundShadow += groundOrbitShadow(r, 2.5, h) * 0.40;
+        groundShadow += groundOrbitShadow(r, 4.0, h) * 0.32;
+        groundShadow += groundOrbitShadow(r, 5.5, h) * 0.26;
+
+        let penumbra = accumulateRollerPenumbra(worldPos);
+        let total = clamp((groundShadow * upWeight + penumbra) * lighting.shadowStrength, 0.0, 0.78);
+        return 1.0 - total;
       }
 
       fn sharedMaterialId(mode: i32, renderMode: i32, ringIndex: f32, bandIndex: f32) -> u32 {
@@ -1726,10 +1781,11 @@ export class MultiDeviceShaders {
           color += vec3f(0.55, 0.78, 1.0) * statorHalo;
         }
 
-        // Contact shadow / ambient-occlusion hint: darken surfaces near Y = 0
-        // and in procedural crevices (bolt seams, rib valleys, grooves).
-        let contactAO = 0.55 + 0.45 * smoothstep(0.0, 2.2, abs(input.worldPos.y));
-        color *= contactAO * (1.0 - creviceAO * 0.55);
+        // Unified contact shadow / ambient-occlusion: analytic ground shadows from
+        // hub + orbit rings plus a moving per-roller penumbra, blended with
+        // procedural crevice AO.
+        let contactShadow = unifiedContactShadow(input.worldPos, N);
+        color *= contactShadow * (1.0 - creviceAO * 0.55);
 
         color = color * (2.51 * color + 0.03) / (color * (2.43 * color + 0.59) + 0.14);
 
@@ -1934,6 +1990,14 @@ export class MultiDeviceShaders {
         vec3f(0.78, 0.58, 0.22),
       );
 
+      // Deterministic per-roller hashes.
+      fn hash1f(p: f32) -> f32 {
+        return fract(sin(p * 127.1) * 43758.5453);
+      }
+      fn hash2f(p: vec2f) -> vec2f {
+        return fract(sin(vec2f(dot(p, vec2f(127.1, 311.7)), dot(p, vec2f(269.5, 183.3)))) * 43758.5453);
+      }
+
       @compute @workgroup_size(64)
       fn main(@builtin(global_invocation_id) gid: vec3u) {
         let idx = gid.x;
@@ -1969,25 +2033,67 @@ export class MultiDeviceShaders {
         // Per-ring startup ramp (mirrors CPU formula)
         let startupRamp = min(t * (0.25 + f32(ringIdx) * 0.1), 1.0);
 
-        // Per-roller speed jitter (same hash as CPU)
-        let jitterSeed  = f32(idx) * 127.3 + f32(ringIdx) * 53.7;
-        let speedJitter = 1.0 + 0.04 * sin(t * 1.3 + sin(jitterSeed) * 12.7);
+        // Unique per-roller seed.
+        let rollerHash = hash1f(f32(idx) * 0.731 + f32(ringIdx) * 1.93);
+        let rollerHash2 = hash2f(vec2f(f32(idx), f32(ringIdx) * 3.7));
 
-        let baseAngle = (f32(localI) / f32(count)) * PI * 2.0;
-        let angle = baseAngle
-                  + t * 0.5 * speed * speedJitter * startupRamp
-                  + f32(ringIdx) * 0.22;
+        // Per-roller speed jitter: fast component + slow wander + per-ring drift.
+        let jitterSeed = f32(idx) * 127.3 + f32(ringIdx) * 53.7;
+        let speedJitter = 1.0
+          + 0.03 * sin(t * 1.3 + sin(jitterSeed) * 12.7)
+          + 0.02 * sin(t * 0.47 + rollerHash * 20.0)
+          + 0.01 * sin(t * 0.11 + f32(ringIdx) * 7.0);
 
-        let x = cos(angle) * radius;
-        let z = sin(angle) * radius;
+        // Each ring has a distinct fixed phase so the three rings feel coupled
+        // but not identically clockwork.
+        let ringPhaseOffsets = array<f32, 3>(0.0, 0.31, 0.67);
+        let baseAngle = (f32(localI) / f32(count)) * PI * 2.0 + ringPhaseOffsets[ringIdx];
 
-        // Gear-ratio self-rotation quaternion (mirrors CPU)
+        // Uncogged orbital angle used to compute detent modulation.
+        let uncoggedAngle = baseAngle + t * 0.5 * speed * speedJitter * startupRamp;
+
+        // Magnetic detent / cogging: occasional micro speed variation at fixed
+        // angular positions, stronger as speed increases.
+        let cogCount = 6.0 + f32(ringIdx) * 3.0 + rollerHash * 4.0;
+        let cogAmp = 0.018 * smoothstep(0.5, 2.0, uniforms.speedMult);
+        let cogTimeScale = 1.0 - cogAmp * (0.5 + 0.5 * cos(uncoggedAngle * cogCount * 2.0));
+
+        let angle = baseAngle + t * 0.5 * speed * speedJitter * cogTimeScale * startupRamp;
+
+        // Very low-amplitude radial compliance and vertical runout, as if the
+        // rollers ride a real bearing race with slight eccentricity.
+        let radialFreq = 0.6 + rollerHash * 0.5;
+        let radialAmp = 0.018 * (1.0 + 0.25 * uniforms.speedMult);
+        let radialOffset = sin(t * radialFreq + rollerHash * 4.0) * radialAmp;
+
+        let bobFreq = 0.9 + rollerHash * 0.4;
+        let bobAmp = 0.012 * (1.0 + 0.35 * uniforms.speedMult);
+        let yBob = sin(t * bobFreq + rollerHash * 6.28) * bobAmp;
+
+        let rEff = radius + radialOffset;
+        let x = cos(angle) * rEff;
+        let z = sin(angle) * rEff;
+        let y = yBob;
+
+        // Gear-ratio self-rotation angle.
         let gearRatio    = radius / scale;
         let selfRotAngle = angle * gearRatio * 0.5;
-        let tangentAngle = angle + PI / 2.0;
-        let rollAxisX    = cos(tangentAngle);
-        let rollAxisZ    = sin(tangentAngle);
-        let halfAngle    = selfRotAngle / 2.0;
+
+        // Per-roller micro tilt / coning: the spin axis wobbles slightly away
+        // from the perfect tangent, varying with orbital angle and time.
+        let up = vec3f(0.0, 1.0, 0.0);
+        let radialDir = vec3f(cos(angle), 0.0, sin(angle));
+        let tangent = normalize(cross(up, radialDir));
+
+        let coneSpeed = 0.12 + rollerHash * 0.12;
+        let coneAngleA = angle * 2.0 + t * coneSpeed + rollerHash * 6.28;
+        let coneAngleB = angle * 3.0 - t * coneSpeed * 0.7 + rollerHash2.y * 6.28;
+        let coneAmp = 0.035 * smoothstep(0.5, 3.0, uniforms.speedMult);
+        let radialTilt = sin(coneAngleA) * coneAmp;
+        let vertTilt = cos(coneAngleB) * coneAmp * 0.6;
+
+        let tiltedAxis = normalize(tangent + radialDir * radialTilt + up * vertTilt);
+        let halfAngle = selfRotAngle / 2.0;
 
         // Emissive boost proportional to speed (neodymium rollers glow brighter).
         // Restrained baseline: no green underglow until high RPM, then a faint
@@ -1999,12 +2105,12 @@ export class MultiDeviceShaders {
         let emissive  = min(baseEmit * speedFactor, 0.35);
 
         var r: RollerInstance;
-        r.position     = vec3f(x, 0.0, z);
+        r.position     = vec3f(x, y, z);
         r.ringIndex    = f32(ringIdx);
         r.rotation     = vec4f(
-          rollAxisX * sin(halfAngle),
-          0.0,
-          rollAxisZ * sin(halfAngle),
+          tiltedAxis.x * sin(halfAngle),
+          tiltedAxis.y * sin(halfAngle),
+          tiltedAxis.z * sin(halfAngle),
           cos(halfAngle)
         );
         r.copperColor  = POLE_COLORS[colorIdx];
