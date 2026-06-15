@@ -18,6 +18,14 @@ import {
   generateSupportStand,
   generateWireHarness
 } from './seg-enhanced-geometry.js';
+import {
+  computeSEGLayout,
+  SEG_LAYOUT_PRESETS,
+  SEG_LAYOUT_UNIFORM_BYTES,
+  packSEGLayoutUniforms,
+  buildRollerCutouts,
+  MAX_ROLLERS
+} from './seg-layout.js';
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -90,6 +98,25 @@ export class MultiDeviceVisualizer {
       this.prototypePreset = window.SEG_PROTOTYPE_PRESET;
     }
 
+    // Literature-grounded SEG layout preset (roller counts, gap rule, scale).
+  //   searl    = documented 10/25/35 three-ring device
+  //   roschin  = Roschin–Godin 1 m single-ring 12-roller converter
+  //   legacy   = previous 8/12/16 toy proportions (regression)
+    const layoutParam = params.get('layout');
+    this.segLayoutPreset = SEG_LAYOUT_PRESETS.searl;
+    if (layoutParam === 'roschin' || layoutParam === 'lab' || layoutParam === 'godin') {
+      this.segLayoutPreset = SEG_LAYOUT_PRESETS.roschin;
+    } else if (layoutParam === 'legacy') {
+      this.segLayoutPreset = SEG_LAYOUT_PRESETS.legacy;
+    } else if (layoutParam === 'searl' || layoutParam === 'showroom') {
+      this.segLayoutPreset = SEG_LAYOUT_PRESETS.searl;
+    } else if (this.prototypePreset === 'lab') {
+      this.segLayoutPreset = SEG_LAYOUT_PRESETS.roschin;
+    } else if (typeof window !== 'undefined' && window.SEG_LAYOUT_PRESET) {
+      this.segLayoutPreset = window.SEG_LAYOUT_PRESET;
+    }
+    this.segLayout = null;
+
     this.init();
   }
   
@@ -111,6 +138,14 @@ export class MultiDeviceVisualizer {
       this.cameraController = new MultiDeviceCamera(this.canvas, this.camera.camera, this);
 
       this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
+
+      this.segLayoutUniformBuffer = this.device.createBuffer({
+        label: 'seg-layout-uniforms',
+        size: SEG_LAYOUT_UNIFORM_BYTES,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      });
+      this.profiler.trackBuffer('seg-layout-uniforms', SEG_LAYOUT_UNIFORM_BYTES, GPUBufferUsage.UNIFORM);
+      this.refreshSEGLayout(1.0);
 
       await this.setupSharedGeometry();
       await this.setupDevices();
@@ -145,12 +180,69 @@ export class MultiDeviceVisualizer {
       // Show optimal settings hint
       this.showOptimalSettingsHint();
 
+      if (typeof window.syncSEGLayoutUI === 'function') {
+        window.syncSEGLayoutUI();
+      }
+
     } catch (e) {
       console.error(e);
       alert("Init failed: " + e.message);
     }
   }
   
+  refreshSEGLayout(qualityScale = 1.0) {
+    this.segLayout = computeSEGLayout(this.segLayoutPreset, qualityScale);
+    if (this.segLayoutUniformBuffer && this.device) {
+      this.device.queue.writeBuffer(
+        this.segLayoutUniformBuffer,
+        0,
+        packSEGLayoutUniforms(this.segLayout)
+      );
+    }
+    return this.segLayout;
+  }
+
+  getSEGLayoutPreset() {
+    return this.segLayoutPreset;
+  }
+
+  /**
+   * Switch SEG layout preset at runtime (rebuilds shared SEG meshes + uniform buffer).
+   * @param {string} presetName - 'searl', 'roschin', or 'legacy'
+   */
+  async setSEGLayoutPreset(presetName) {
+    const presets = Object.values(SEG_LAYOUT_PRESETS);
+    if (!presets.includes(presetName)) {
+      console.warn('[SEG] Unknown layout preset:', presetName);
+      return null;
+    }
+    if (this.segLayoutPreset === presetName) {
+      return this.segLayout;
+    }
+
+    this.segLayoutPreset = presetName;
+    await this._setupCoreSEGSharedMeshes();
+
+    const quality = this.profiler?.qualityLevel ?? 1.0;
+    const layout = this.refreshSEGLayout(quality);
+
+    if (DEVICE_CONFIG.seg && layout.cameraOffset) {
+      DEVICE_CONFIG.seg.cameraOffset = layout.cameraOffset;
+    }
+
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('layout', presetName);
+      window.history.replaceState(null, '', url);
+    } catch (_) { /* ignore */ }
+
+    if (this.currentView === 'seg' && this.cameraController) {
+      this.cameraController.focusOnDevice('seg');
+    }
+
+    return layout;
+  }
+
   showOptimalSettingsHint() {
     const settings = this.profiler.getOptimalSettings();
     console.log('Detected GPU Tier:', this.profiler.gpuTier);
@@ -565,6 +657,13 @@ export class MultiDeviceVisualizer {
   }
 
   async _setupCoreSEGSharedMeshes() {
+    const layout = this.refreshSEGLayout(1.0);
+    const ws = layout.worldScale;
+    const statorH = layout.statorHeightM * ws;
+    const outerR = layout.outerRadiusM * ws;
+    const basePlateSize = layout.basePlateRadiusM * ws * 2;
+    const coilRadius = outerR * 1.15;
+
     const generators = {
       generateBearingShaft,
       generatePoleBandedRoller,
@@ -589,7 +688,7 @@ export class MultiDeviceVisualizer {
     this.profiler.trackBuffer('seg-coil-uv-indices', coilCylData.indices.byteLength, GPUBufferUsage.INDEX);
 
     // Industrial base box (UV mesh for enhanced PBR pipeline)
-    const baseBoxData = this.generateBoxWithUVs(8.2, 0.22, 8.2);
+    const baseBoxData = this.generateBoxWithUVs(basePlateSize, statorH * 0.45, basePlateSize);
     const baseBoxVB = this.device.createBuffer({ size: baseBoxData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(baseBoxVB, 0, baseBoxData.vertices);
     const baseBoxIB = this.device.createBuffer({ size: baseBoxData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -598,12 +697,13 @@ export class MultiDeviceVisualizer {
     this.profiler.trackBuffer('seg-base-plate-vertices', baseBoxData.vertices.byteLength, GPUBufferUsage.VERTEX);
     this.profiler.trackBuffer('seg-base-plate-indices', baseBoxData.indices.byteLength, GPUBufferUsage.INDEX);
 
+    const baseY = -statorH * 0.35;
     this.baseInstanceBuffer = this.device.createBuffer({
       size: 48,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     this.device.queue.writeBuffer(this.baseInstanceBuffer, 0, new Float32Array([
-      0, -0.35, 0,  // position
+      0, baseY, 0,  // position
       0.0,          // ringIndex
       0, 0, 0, 1,   // rotation
       0.08, 0.08, 0.12, // dark base color
@@ -611,8 +711,7 @@ export class MultiDeviceVisualizer {
     ]));
     this.profiler.trackBuffer('seg-base-instance', 48, GPUBufferUsage.STORAGE);
 
-    // Enhanced SEG roller: 8 stacked segments with machined grooves and
-    // prototype-accurate end-face layer rings.
+    // Enhanced SEG roller mesh at reference dimensions; per-ring scale in shader.
     this.enhancedRollerBuffer = generatePoleBandedRoller(this.device, {
       radius: 0.75, height: 2.8, bands: 8, segments: 64
     });
@@ -621,8 +720,11 @@ export class MultiDeviceVisualizer {
 
     // Central bearing shaft (replaces sphere)
     this.coreShaftBuffer = generateBearingShaft(this.device, {
-      shaftRadius: 0.5, shaftHeight: 3.5, flangeRadius: 1.8,
-      topRingRadius: 1.3, segments: 48
+      shaftRadius: layout.shaftRadiusM * ws,
+      shaftHeight: layout.shaftHeightM * ws,
+      flangeRadius: layout.shaftRadiusM * ws * 3.6,
+      topRingRadius: layout.shaftRadiusM * ws * 2.6,
+      segments: 48
     });
     this.profiler.trackBuffer('core-shaft-vertices', this.coreShaftBuffer.vertexBuffer.size, GPUBufferUsage.VERTEX);
 
@@ -634,26 +736,12 @@ export class MultiDeviceVisualizer {
     this.device.queue.writeBuffer(magnetIB, 0, magnetData.indices);
     this.coreMagnetBuffer = { vertexBuffer: magnetVB, indexBuffer: magnetIB, indexCount: magnetData.indices.length };
 
-    // Core plates with roller cutouts, bolt holes and radial ribs
-    const rings = [
-      { count: 8, radius: 2.5 },
-      { count: 12, radius: 4.0 },
-      { count: 16, radius: 5.5 }
-    ];
-    const rollerCutouts = [];
-    for (const ring of rings) {
-      for (let i = 0; i < ring.count; i++) {
-        rollerCutouts.push({
-          angle: (i / ring.count) * Math.PI * 2,
-          radius: ring.radius,
-          size: 0.85
-        });
-      }
-    }
+    // Core plates with roller cutouts derived from layout (full roller counts).
+    const rollerCutouts = buildRollerCutouts(layout);
     const plateData = generatePlateWithCutouts(this.device, {
-      innerRadius: 0.8,
-      outerRadius: 6.5,
-      thickness: 0.25,
+      innerRadius: layout.shaftRadiusM * ws * 1.2,
+      outerRadius: outerR * 1.08,
+      thickness: statorH * 0.55,
       rollerCutouts,
       boltHoles: 16,
       hasRibs: true,
@@ -676,7 +764,7 @@ export class MultiDeviceVisualizer {
     const boltPositions = [];
     const boltInstanceData = [];
     const boltCount = 16;
-    const boltRadius = 6.2;
+    const boltRadius = outerR * 1.02;
     for (let i = 0; i < boltCount; i++) {
       const angle = (i / boltCount) * Math.PI * 2;
       boltPositions.push(Math.cos(angle) * boltRadius, 0, Math.sin(angle) * boltRadius);
@@ -725,15 +813,15 @@ export class MultiDeviceVisualizer {
 
     // C-shaped pickup coil geometry (core, winding bundle, mounting foot)
     this.cCoreCoilBuffer = generateCCorePickupCoil(this.device, {
-      coilRadius: 7.2,
-      jawReach: 1.7,
-      coreWidth: 1.8,
-      coreHeight: 0.70,
-      coreThickness: 0.45,
-      armWidth: 0.45,
-      windingWidth: 1.4,
-      windingHeight: 0.9,
-      windingThickness: 0.85
+      coilRadius,
+      jawReach: statorH * 2.2,
+      coreWidth: statorH * 2.4,
+      coreHeight: statorH * 1.1,
+      coreThickness: statorH * 0.6,
+      armWidth: statorH * 0.6,
+      windingWidth: statorH * 1.9,
+      windingHeight: statorH * 1.2,
+      windingThickness: statorH * 1.15
     });
 
     // Battery gauge (simple cylinder)
@@ -748,52 +836,43 @@ export class MultiDeviceVisualizer {
 
     // Support stand
     this.standBuffer = generateSupportStand(this.device, {
-      legCount: 4, legLength: 5.0, baseRadius: 3.0, height: 3.0, segments: 24
+      legCount: 4, legLength: outerR * 1.1, baseRadius: outerR * 0.65, height: outerR * 0.55, segments: 24
     });
 
     // Wire harnesses (8 wires between coils)
     this.wireBuffers = [];
     const coilCount = 8;
-    const coilRadius = 7.5;
     for (let i = 0; i < coilCount; i++) {
       const angle1 = (i / coilCount) * Math.PI * 2;
       const angle2 = ((i + 1) / coilCount) * Math.PI * 2;
       this.wireBuffers.push(generateWireHarness(this.device, {
-        start: [Math.cos(angle1) * coilRadius, 0.8, Math.sin(angle1) * coilRadius],
-        end: [Math.cos(angle2) * coilRadius, 0.8, Math.sin(angle2) * coilRadius],
-        radius: 0.035, sag: 0.4, segments: 16
+        start: [Math.cos(angle1) * coilRadius, statorH * 1.2, Math.sin(angle1) * coilRadius],
+        end: [Math.cos(angle2) * coilRadius, statorH * 1.2, Math.sin(angle2) * coilRadius],
+        radius: statorH * 0.08, sag: statorH * 0.9, segments: 16
       }));
     }
 
     // Coil with windings
     this.coilWindingBuffer = generateCoilWithWindings(this.device, {
-      majorRadius: 7.5, minorRadius: 0.6, turns: 60, majorSegments: 96
+      majorRadius: coilRadius, minorRadius: statorH * 0.85, turns: 60, majorSegments: 96
     });
 
     // Magnetic wall shells for Roschin–Godin anomalous environmental effects.
-    // Five concentric shells; drawn selectively based on quality/envelope.
     this.magneticWallBuffer = generateMagneticWallShells(this.device, {
-      innerRadius: 1.6,
-      spacing: 0.55,
-      shellThickness: 0.06,
-      height: 8.0,
+      innerRadius: layout.shaftRadiusM * ws * 1.4,
+      spacing: statorH * 0.9,
+      shellThickness: statorH * 0.1,
+      height: outerR * 2.2,
       maxShells: 5,
       segments: 96
     });
 
-    // Stator rings: three concentric annular discs with proper UVs and radii.
-    // The old unit-cylinder path used a custom instance layout that did not match
-    // the enhanced SEG vertex shader; these discs are baked to size and drawn with
-    // a single canonical InstanceData entry.
-    const statorRings = [
-      { radius: 2.4, y: 0.00 },
-      { radius: 4.1, y: 0.12 },
-      { radius: 5.8, y: 0.24 }
-    ];
-    const ringThickness = 0.22;
+    // Stator rings: annular discs with square cross-section (h_s × h_s) per ring.
     const ringSegs = 96;
-    const ringVCount = statorRings.map(r => {
-      const d = this.generateDiscWithUVs(r.radius - ringThickness * 0.5, r.radius + ringThickness * 0.5, ringThickness, ringSegs);
+    const ringVCount = layout.rings.map((ring) => {
+      const inner = ring.statorInnerM * ws;
+      const outer = ring.statorOuterM * ws;
+      const d = this.generateDiscWithUVs(inner, outer, statorH, ringSegs);
       return { data: d, vertexCount: d.vertices.length / 8 };
     });
 
@@ -808,7 +887,7 @@ export class MultiDeviceVisualizer {
     let vOff = 0;
     let iOff = 0;
     for (let ri = 0; ri < ringVCount.length; ri++) {
-      const y = statorRings[ri].y;
+      const y = statorH * 0.5;
       const src = ringVCount[ri].data;
       const vCount = ringVCount[ri].vertexCount;
       for (let i = 0; i < vCount; i++) {
@@ -1242,6 +1321,7 @@ export class MultiDeviceVisualizer {
 
     // Update devices with quality scaling
     const qualityScale = this.profiler.qualityLevel;
+    this.refreshSEGLayout(qualityScale);
     for (const device of Object.values(this.devices)) {
       if (this.devicesEnabled[device.id]) {
         device.update(deltaTime * speed, qualityScale);
@@ -1268,16 +1348,15 @@ export class MultiDeviceVisualizer {
       if (segDevice.rollerComputePipeline && segDevice.rollerComputeBindGroup) {
         computePass.setPipeline(segDevice.rollerComputePipeline);
         computePass.setBindGroup(0, segDevice.rollerComputeBindGroup);
-        computePass.dispatchWorkgroups(1);  // 1 workgroup × 64 threads, 36 active
+        computePass.dispatchWorkgroups(Math.ceil(MAX_ROLLERS / 64));
       }
-      // RK4 flux line tracer: 2 workgroups × 64 threads = 128 threads, 108 active.
-      // Each thread traces one complete bidirectional flux line (100 RK4 steps).
-      // Skipped at low quality to preserve frame budget on weaker GPUs.
+      // RK4 flux line tracer: one thread per flux line (up to 108).
       if (segDevice.fluxTracerPipeline && segDevice.fluxTracerBindGroup &&
           this.profiler.qualityLevel > 0.4) {
         computePass.setPipeline(segDevice.fluxTracerPipeline);
         computePass.setBindGroup(0, segDevice.fluxTracerBindGroup);
-        computePass.dispatchWorkgroups(2);  // ceil(108 / 64) = 2
+        const fluxLines = this.segLayout?.totalFluxLines ?? 108;
+        computePass.dispatchWorkgroups(Math.ceil(fluxLines / 64));
       }
     }
 

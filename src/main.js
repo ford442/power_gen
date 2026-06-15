@@ -9,6 +9,11 @@ import { MultiDeviceVisualizer } from './multi-device-visualizer.js';
 import { resolveRenderer, exposeRenderer, RENDERER_WEBGPU, RENDERER_WEBGL2 } from './renderers/renderer-selector.js';
 import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 
+const SEG_LAYOUT_DESCRIPTIONS = {
+  searl: 'Searl documented configuration: 10 / 25 / 35 rollers on three rings, gap-derived proportions (~3 mm air gap).',
+  roschin: 'Roschin–Godin 1 m converter: single ring of 12 rollers with 1 mm measured air gap; pairs with lab material preset.',
+  legacy: 'Legacy 8 / 12 / 16 layout at 2.5 / 4.0 / 5.5 radii — retained for regression comparison.'
+};
 
 window.setMode = (mode) => {
   if (window.multiVisualizer) window.multiVisualizer.onModeChange(mode);
@@ -16,7 +21,7 @@ window.setMode = (mode) => {
   document.getElementById('btn-' + mode).classList.add('active');
 
   const descriptions = {
-    seg:    "Searl Effect Generator: 3 concentric rings of 12/22/32 rollers with alternating copper/neodymium magnetic pole bands. Rollers orbit at ring-specific speeds around glowing stator rings.",
+    seg:    "Searl Effect Generator: literature-grounded 10/25/35 or Roschin–Godin 12-roller layouts with gap-derived proportions, pole-banded rollers, and RK4 flux lines.",
     heron:  "Heron's Fountain: Fluid dynamics with siphon-driven water jets. Particles simulate hydraulic pressure differentials.",
     kelvin: "Kelvin's Thunderstorm: Electrostatic induction with falling water droplets charging conductors.",
     solar:  "LEDs & Solar Cells: LEDs drain a battery while shining on solar panels that recharge it. Watch the charge level change.",
@@ -31,6 +36,53 @@ window.setMode = (mode) => {
   const modeFooterEl = document.getElementById('modeFooter');
   if (modeFooterEl) modeFooterEl.textContent = modeLabel;
 };
+
+function syncSEGLayoutUI() {
+  const v = window.multiVisualizer;
+  const buttons = document.querySelectorAll('[data-seg-layout]');
+  const infoEl = document.getElementById('seg-layout-info');
+  if (!v || typeof v.getSEGLayoutPreset !== 'function') return;
+
+  const preset = v.getSEGLayoutPreset();
+  buttons.forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.segLayout === preset);
+  });
+
+  const layout = v.segLayout;
+  if (infoEl) {
+    if (layout) {
+      infoEl.textContent = `${layout.name} — ${layout.totalRollers} active rollers, ${layout.ringCount} ring(s)`;
+    } else {
+      infoEl.textContent = SEG_LAYOUT_DESCRIPTIONS[preset] || '';
+    }
+  }
+
+  if (v.currentView === 'seg') {
+    const info = document.getElementById('info');
+    if (info) info.textContent = SEG_LAYOUT_DESCRIPTIONS[preset] || info.textContent;
+  }
+}
+
+window.setSEGLayout = async (preset) => {
+  const v = window.multiVisualizer;
+  if (!v?.setSEGLayoutPreset) {
+    console.warn('[main] Layout switching requires WebGPU visualizer');
+    return;
+  }
+  await v.setSEGLayoutPreset(preset);
+  syncSEGLayoutUI();
+};
+
+window.syncSEGLayoutUI = syncSEGLayoutUI;
+
+function wireSEGLayoutControls() {
+  document.querySelectorAll('[data-seg-layout]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      window.setSEGLayout(btn.dataset.segLayout);
+    });
+  });
+  syncSEGLayoutUI();
+}
 
 // ─────────────────────────────────────────────────────────────
 // WASM sim_core initialisation
@@ -143,15 +195,18 @@ window.setRenderer = (name) => {
 };
 
 window.addEventListener('load', () => {
-  bootstrapVisualizer();
   initWasm();
 
-  // Wire anomalous-effects toggle after visualizer is created.
-  const anomalyToggle = document.getElementById('anomalyToggle');
-  if (anomalyToggle && window.multiVisualizer) {
-    anomalyToggle.checked = window.multiVisualizer.anomalousEffectsEnabled;
-    anomalyToggle.addEventListener('change', (e) => {
-      window.multiVisualizer.anomalousEffectsEnabled = e.target.checked;
-    });
-  }
+  bootstrapVisualizer().then(() => {
+    wireSEGLayoutControls();
+
+    const anomalyToggle = document.getElementById('anomalyToggle');
+    const v = window.multiVisualizer;
+    if (anomalyToggle && v) {
+      anomalyToggle.checked = v.anomalousEffectsEnabled;
+      anomalyToggle.addEventListener('change', (e) => {
+        v.anomalousEffectsEnabled = e.target.checked;
+      });
+    }
+  });
 });

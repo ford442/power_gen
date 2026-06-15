@@ -2,6 +2,7 @@ import { DeviceGeometry } from './device-geometry.js';
 import { DevicePipelineManager } from './device-pipeline-manager.js';
 import { DeviceUniformManager } from './device-uniforms.js';
 import { DeviceComputeManager } from './device-compute.js';
+import { computeRollerPositionsXZ, rollerIndexToRing, MAX_ROLLERS } from './seg-layout.js';
 
 class DeviceInstance {
   constructor(device, id, config, visualizer) {
@@ -105,8 +106,8 @@ class DeviceInstance {
     this.coilEnergies = null;
     this._lastCoilCount = null;
 
-    // Pre-allocated roller position buffer (36 rollers × 2 floats) to reduce per-frame GC
-    this._rollerPositions = new Float32Array(36 * 2);
+    // Pre-allocated roller position buffer (MAX_ROLLERS × 2 floats) to reduce per-frame GC
+    this._rollerPositions = new Float32Array(MAX_ROLLERS * 2);
 
     // Dynamic emitter effects (sparks/corona/mist/photon streaks), encoded as vec4f
     // per particle: xyz = local position, w = encoded phase/type.
@@ -181,7 +182,8 @@ class DeviceInstance {
       layout: this.rollerComputePipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.geometry.rollerInstances } },
-        { binding: 1, resource: { buffer: this.rollerComputeUniformBuffer } }
+        { binding: 1, resource: { buffer: this.rollerComputeUniformBuffer } },
+        { binding: 2, resource: { buffer: this.visualizer.segLayoutUniformBuffer } }
       ]
     });
   }
@@ -229,7 +231,8 @@ class DeviceInstance {
       entries: [
         { binding: 0, resource: { buffer: this.geometry.fluxSegmentBuffer } },
         { binding: 1, resource: { buffer: this.fluxTracerUniformBuffer } },
-        { binding: 2, resource: { buffer: this.fluxCoilBoostBuffer } }
+        { binding: 2, resource: { buffer: this.fluxCoilBoostBuffer } },
+        { binding: 3, resource: { buffer: this.visualizer.segLayoutUniformBuffer } }
       ]
     });
 
@@ -404,40 +407,21 @@ class DeviceInstance {
       // Lightweight CPU coil-energy calculation.
       // We only need 36 (x, z) pairs — no quaternions, no colour lookup, no
       // buffer write — so the tight inner-loop is ~10× cheaper than before.
-      const hw = this.visualizer.hardwareBridge;
-      const useHardware = hw?.isConnected && hw?.mirrorEnabled;
-      const hardwarePhaseRad = useHardware ? (hw.actualPhase * Math.PI / 180) : null;
+      const layout = this.visualizer.segLayout;
+      if (layout) {
+        const hw = this.visualizer.hardwareBridge;
+        const useHardware = hw?.isConnected && hw?.mirrorEnabled;
+        const hardwarePhaseRad = useHardware ? (hw.actualPhase * Math.PI / 180) : null;
 
-      const rings = [
-        { count: 8,  radius: 2.5, speed: 2.0, index: 0 },
-        { count: 12, radius: 4.0, speed: 1.0, index: 1 },
-        { count: 16, radius: 5.5, speed: 0.5, index: 2 }
-      ];
+        const computed = computeRollerPositionsXZ(time, layout, {
+          useHardware,
+          hardwarePhaseRad,
+          speedMult: this.speedMult || 1.0
+        });
+        this._rollerPositions.set(computed.subarray(0, layout.totalRollers * 2));
 
-      // Compact roller positions: [x0,z0, x1,z1, ..., x35,z35] — reuse pre-allocated buffer
-      const rollerPositions = this._rollerPositions;
-      let rollerOffset = 0;
-      for (const ring of rings) {
-        const startupRamp = Math.min(time * (0.25 + ring.index * 0.1), 1.0);
-        for (let i = 0; i < ring.count; i++) {
-          const jitterNoise = Math.sin(rollerOffset * 127.3 + ring.index * 53.7);
-          const speedJitter = 1.0 + 0.04 * Math.sin(time * 1.3 + jitterNoise * 12.7);
-          let angle;
-          if (useHardware) {
-            angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad * ring.speed;
-          } else {
-            angle = (i / ring.count) * Math.PI * 2
-                  + time * 0.5 * ring.speed * speedJitter * startupRamp
-                  + ring.index * 0.22;
-          }
-          rollerPositions[rollerOffset * 2]     = Math.cos(angle) * ring.radius;
-          rollerPositions[rollerOffset * 2 + 1] = Math.sin(angle) * ring.radius;
-          rollerOffset++;
-        }
+        this.updatePickupCoilEnergies(this._rollerPositions, true);
       }
-
-      // Update pickup coil energy levels from compact positions
-      this.updatePickupCoilEnergies(rollerPositions, true);
 
       // Update electromagnet coil activation visualization
       this.updateElectromagnetCoils();
@@ -818,7 +802,9 @@ class DeviceInstance {
     // Quality-scalable coil count: 8 at low quality, 16 at high, capped by buffer.
     const numCoils = Math.max(8, Math.min(16, Math.floor(8 + quality * 8)));
     this.activePickupCoilCount = numCoils;
-    const coilRadius = 7.2;
+    const layout = this.visualizer.segLayout;
+    const coilRadius = layout ? layout.outerRadiusM * layout.worldScale * 1.15 : 7.2;
+    const rollerCount = layout?.totalRollers ?? MAX_ROLLERS;
 
     // Initialize coil energies array if needed
     if (!this.coilEnergies || this.coilEnergies.length !== maxCoils) {
@@ -840,8 +826,7 @@ class DeviceInstance {
       let nearestRollerSpeed = 0;
 
       if (active) {
-        // Check all 36 rollers (3 rings: 8 + 12 + 16)
-        for (let r = 0; r < 36; r++) {
+        for (let r = 0; r < rollerCount; r++) {
           const rollerX = compact ? rollerData[r * 2]     : rollerData[r * 12];
           const rollerZ = compact ? rollerData[r * 2 + 1] : rollerData[r * 12 + 2];
 
@@ -851,10 +836,8 @@ class DeviceInstance {
 
           if (dist < minDistance) {
             minDistance = dist;
-            // Ring speed factors: inner=2.0, middle=1.0, outer=0.5
-            if (r < 8) nearestRollerSpeed = 2.0;
-            else if (r < 20) nearestRollerSpeed = 1.0;
-            else nearestRollerSpeed = 0.5;
+            const mapped = layout ? rollerIndexToRing(layout, r) : null;
+            nearestRollerSpeed = mapped ? mapped.ring.speed : 1.0;
           }
         }
       }
@@ -971,7 +954,9 @@ class DeviceInstance {
 
       // Spread arcs around the outer coil ring
       const arcAngle = (i / arcCount) * Math.PI * 2 + wallTime * 0.3;
-      const arcRadius = 5.5 + (hash1 - 0.5) * 0.8;
+      const outerR = (this.visualizer.segLayout?.outerRadiusM ?? 1.5)
+        * (this.visualizer.segLayout?.worldScale ?? 2.0);
+      const arcRadius = outerR * 1.05 + (hash1 - 0.5) * outerR * 0.12;
       const arcHeight = (hash2 - 0.5) * 0.6;
 
       arcData[idx]     = Math.cos(arcAngle) * arcRadius;
@@ -1041,6 +1026,7 @@ class DeviceInstance {
           { binding: 3, resource: { buffer: this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
           { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } },
+          { binding: 4, resource: { buffer: this.visualizer.segLayoutUniformBuffer } },
           { binding: 7, resource: { buffer: this.rollerInstances } }
         ]
       });
@@ -1049,7 +1035,7 @@ class DeviceInstance {
       renderPass.setBindGroup(0, enhancedBindGroup);
       renderPass.setVertexBuffer(0, this.visualizer.enhancedRollerBuffer.vertexBuffer);
       renderPass.setIndexBuffer(this.visualizer.enhancedRollerBuffer.indexBuffer, 'uint16');
-      renderPass.drawIndexed(this.visualizer.enhancedRollerBuffer.indexCount, 36);
+      renderPass.drawIndexed(this.visualizer.enhancedRollerBuffer.indexCount, this.visualizer.segLayout?.totalRollers ?? MAX_ROLLERS);
     }
 
     // Render electromagnet coils (SEG only)
@@ -1067,6 +1053,7 @@ class DeviceInstance {
           { binding: 3, resource: { buffer: this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
           { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } },
+          { binding: 4, resource: { buffer: this.visualizer.segLayoutUniformBuffer } },
           { binding: 7, resource: { buffer: this.rollerInstances } }
         ]
       });
@@ -1180,6 +1167,7 @@ class DeviceInstance {
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
         { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } },
+        { binding: 4, resource: { buffer: this.visualizer.segLayoutUniformBuffer } },
         { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
@@ -1211,6 +1199,7 @@ class DeviceInstance {
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
         { binding: 6, resource: { buffer: v.materialTableBuffer } },
+        { binding: 4, resource: { buffer: v.segLayoutUniformBuffer } },
         { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
@@ -1242,6 +1231,7 @@ class DeviceInstance {
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
         { binding: 6, resource: { buffer: v.materialTableBuffer } },
+        { binding: 4, resource: { buffer: v.segLayoutUniformBuffer } },
         { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
@@ -1269,6 +1259,7 @@ class DeviceInstance {
           { binding: 3, resource: { buffer: this.coreMaterialBuffer || this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
           { binding: 6, resource: { buffer: v.materialTableBuffer } },
+          { binding: 4, resource: { buffer: v.segLayoutUniformBuffer } },
           { binding: 7, resource: { buffer: this.rollerInstances } }
         ]
       });
@@ -1323,6 +1314,7 @@ class DeviceInstance {
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
         { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } },
+        { binding: 4, resource: { buffer: this.visualizer.segLayoutUniformBuffer } },
         { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
@@ -1344,6 +1336,7 @@ class DeviceInstance {
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
         { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } },
+        { binding: 4, resource: { buffer: this.visualizer.segLayoutUniformBuffer } },
         { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
@@ -1376,6 +1369,7 @@ class DeviceInstance {
         { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
         { binding: 6, resource: { buffer: v.materialTableBuffer } },
+        { binding: 4, resource: { buffer: v.segLayoutUniformBuffer } },
         { binding: 7, resource: { buffer: this.rollerInstances } }
       ]
     });
@@ -1402,6 +1396,7 @@ class DeviceInstance {
           { binding: 3, resource: { buffer: this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
           { binding: 6, resource: { buffer: v.materialTableBuffer } },
+          { binding: 4, resource: { buffer: v.segLayoutUniformBuffer } },
           { binding: 7, resource: { buffer: this.rollerInstances } }
         ]
       });

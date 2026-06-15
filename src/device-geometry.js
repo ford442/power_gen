@@ -1,3 +1,5 @@
+import { MAX_ROLLERS } from './seg-layout.js';
+
 // Matches TOTAL_FLUX_LINES × SEGMENTS_PER_LINE constants in flux-lines.wgsl
 // (108 lines × 100 segments). Update both if the WGSL constants change.
 const FLUX_TOTAL_SEGMENTS = 10800;
@@ -75,52 +77,15 @@ export class DeviceGeometry {
   }
 
   async setupRollers() {
-    // 36 dense cylindrical rollers (8+12+16) with green underglow data
-    const totalRollers = 36;
+    // Up to 72 roller instances (Searl 10+25+35); active count comes from layout.
+    const totalRollers = MAX_ROLLERS;
     this.rollerInstances = this.device.createBuffer({
-      size: totalRollers * 48,   // extra space for emissive green data
+      size: totalRollers * 48,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     this.visualizer.profiler.trackBuffer(`device-${this.id}-rollers`, totalRollers * 48, GPUBufferUsage.STORAGE);
 
-    // Initialize roller data with copper material + green emissive flag
-    // Format: position(3) + ringIndex(1) + rotation(4) + emissiveGreen(3) + pad(1)
     const rollerData = new Float32Array(totalRollers * 12);
-    
-    const rings = [
-      { count: 8, radius: 2.5, scale: 0.6, index: 0 },
-      { count: 12, radius: 4.0, scale: 0.8, index: 1 },
-      { count: 16, radius: 5.5, scale: 1.0, index: 2 }
-    ];
-
-    let rollerOffset = 0;
-    for (const ring of rings) {
-      for (let i = 0; i < ring.count; i++) {
-        const idx = rollerOffset * 12;
-        const angle = (i / ring.count) * Math.PI * 2;
-
-        // Position
-        rollerData[idx] = Math.cos(angle) * ring.radius;
-        rollerData[idx + 1] = 0;
-        rollerData[idx + 2] = Math.sin(angle) * ring.radius;
-        rollerData[idx + 3] = ring.index; // ringIndex
-
-        // Rotation (quaternion)
-        const tangentAngle = angle + Math.PI / 2;
-        rollerData[idx + 4] = Math.cos(tangentAngle) * Math.sin(0);
-        rollerData[idx + 5] = 0;
-        rollerData[idx + 6] = Math.sin(tangentAngle) * Math.sin(0);
-        rollerData[idx + 7] = Math.cos(0);
-
-        // Copper color (stored for shader reference)
-        rollerData[idx + 8] = 0.85;  // copper R
-        rollerData[idx + 9] = 0.48;  // copper G
-        rollerData[idx + 10] = 0.25; // copper B
-        rollerData[idx + 11] = 1.0;  // green emissive flag (1.0 = enabled)
-
-        rollerOffset++;
-      }
-    }
     this.device.queue.writeBuffer(this.rollerInstances, 0, rollerData);
   }
 

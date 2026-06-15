@@ -1145,6 +1145,22 @@ export class MultiDeviceShaders {
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
       @binding(2) @group(0) var<storage> instances: array<InstanceData>;
+      @binding(4) @group(0) var<uniform> segLayoutData: array<f32, 64>;
+
+      fn layoutRingField(ringIdx: u32, fieldOffset: u32) -> f32 {
+        return segLayoutData[8.0 + f32(ringIdx) * 12.0 + f32(fieldOffset)];
+      }
+
+      fn layoutRefMeshRadius() -> f32 { return segLayoutData[4]; }
+      fn layoutRefMeshHeight() -> f32 { return segLayoutData[5]; }
+
+      fn rollerMeshScale(ringIdx: u32) -> vec3f {
+        let rollerR = layoutRingField(ringIdx, 3u);
+        let rollerH = layoutRingField(ringIdx, 4u);
+        let sXZ = rollerR / max(layoutRefMeshRadius(), 1e-4);
+        let sY = rollerH / max(layoutRefMeshHeight(), 1e-4);
+        return vec3f(sXZ, sY, sXZ);
+      }
 
       struct VertexInput {
         @location(0) position: vec3f,
@@ -1171,8 +1187,12 @@ export class MultiDeviceShaders {
       @vertex
       fn main(input: VertexInput, @builtin(instance_index) instanceIdx: u32) -> VertexOutput {
         let instance = instances[instanceIdx];
-        let rotatedPos = quatMul(instance.rotation, input.position);
-        let rotatedNormal = quatMul(instance.rotation, input.normal);
+        let ringIdx = u32(clamp(instance.ringIndex, 0.0, 2.0));
+        let meshScale = rollerMeshScale(ringIdx);
+        let scaledPos = input.position * meshScale;
+        let scaledNormal = normalize(input.normal * meshScale);
+        let rotatedPos = quatMul(instance.rotation, scaledPos);
+        let rotatedNormal = quatMul(instance.rotation, scaledNormal);
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
         let worldPos = rotatedPos + instance.position + devicePos;
 
@@ -1255,6 +1275,16 @@ export class MultiDeviceShaders {
       @binding(5) @group(0) var<uniform> lighting: LightingConfig;
       @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
       @binding(7) @group(0) var<storage, read> rollerShadows: array<RollerShadowData>;
+      @binding(4) @group(0) var<uniform> segLayoutData: array<f32, 64>;
+
+      fn layoutRingCount() -> u32 { return u32(segLayoutData[1]); }
+      fn layoutActiveRollers() -> u32 { return u32(segLayoutData[2]); }
+      fn layoutMaxRollers() -> u32 { return u32(segLayoutData[3]); }
+      fn layoutRefMeshRadius() -> f32 { return segLayoutData[4]; }
+      fn layoutRefMeshHeight() -> f32 { return segLayoutData[5]; }
+      fn layoutRingField(ringIdx: u32, fieldOffset: u32) -> f32 {
+        return segLayoutData[8.0 + f32(ringIdx) * 12.0 + f32(fieldOffset)];
+      }
 
       struct FragmentInput {
         @location(0) worldPos: vec3f,
@@ -1479,7 +1509,8 @@ export class MultiDeviceShaders {
 
       fn accumulateRollerPenumbra(worldPos: vec3f) -> f32 {
         var shadow = 0.0;
-        for (var i = 0u; i < 36u; i++) {
+        let maxR = min(layoutActiveRollers(), layoutMaxRollers());
+        for (var i = 0u; i < maxR; i++) {
           let rp = rollerShadows[i].pos;
           let d = worldPos.xz - rp.xz;
           let distSq = dot(d, d);
@@ -1501,9 +1532,12 @@ export class MultiDeviceShaders {
 
         var groundShadow = 0.0;
         groundShadow += groundHubShadow(r, h) * 0.55;
-        groundShadow += groundOrbitShadow(r, 2.5, h) * 0.40;
-        groundShadow += groundOrbitShadow(r, 4.0, h) * 0.32;
-        groundShadow += groundOrbitShadow(r, 5.5, h) * 0.26;
+        let ringN = layoutRingCount();
+        for (var ri = 0u; ri < ringN; ri++) {
+          let orbitR = layoutRingField(ri, 2u);
+          let weight = 0.40 - f32(ri) * 0.07;
+          groundShadow += groundOrbitShadow(r, orbitR, h) * weight;
+        }
 
         let penumbra = accumulateRollerPenumbra(worldPos);
         let total = clamp((groundShadow * upWeight + penumbra) * lighting.shadowStrength, 0.0, 0.78);
@@ -1557,18 +1591,21 @@ export class MultiDeviceShaders {
         if (renderMode == 0) {
           let capThreshold = 0.85;
           let isCap = abs(N.y) > capThreshold;
-          let radialT = length(localPos.xz) / ROLLER_RADIUS;
+          let ringIdx = u32(clamp(input.ringIndex, 0.0, 2.0));
+          let worldRollerR = layoutRingField(ringIdx, 3u);
+          let radialT = length(localPos.xz) / max(worldRollerR, 1e-4);
           layerId = rollerLayerId(radialT);
 
           // Axial segment / groove detection on the barrel.
-          let yRel = localPos.y + ROLLER_HEIGHT * 0.5;
-          let segmentPitch = (ROLLER_HEIGHT - ROLLER_GROOVE_WIDTH * (ROLLER_SEGMENTS - 1.0)) / ROLLER_SEGMENTS + ROLLER_GROOVE_WIDTH;
+          let worldRollerH = layoutRingField(ringIdx, 4u);
+          let yRel = localPos.y + worldRollerH * 0.5;
+          let segmentPitch = (worldRollerH - ROLLER_GROOVE_WIDTH * (ROLLER_SEGMENTS - 1.0)) / ROLLER_SEGMENTS + ROLLER_GROOVE_WIDTH;
           let cyclePos = fract(yRel / segmentPitch) * segmentPitch;
           let bandHeight = segmentPitch - ROLLER_GROOVE_WIDTH;
           segmentId = i32(clamp(floor(yRel / segmentPitch), 0.0, ROLLER_SEGMENTS - 1.0));
           let distToBoundary = min(cyclePos, abs(cyclePos - bandHeight));
           let isGroove = distToBoundary < ROLLER_GROOVE_WIDTH * 0.5 &&
-                         yRel > ROLLER_GROOVE_WIDTH && yRel < ROLLER_HEIGHT - ROLLER_GROOVE_WIDTH;
+                         yRel > ROLLER_GROOVE_WIDTH && yRel < worldRollerH - ROLLER_GROOVE_WIDTH;
 
           // Pull material table index from layer composition.
           if (isCap) {
@@ -1828,7 +1865,9 @@ export class MultiDeviceShaders {
         color += vec3f(0.95, 0.62, 0.28) * bottomGlow * 0.25;
 
         if (renderMode == 0 && abs(N.y) < 0.85) {
-          let yEdge = 1.0 - abs(localPos.y) / (ROLLER_HEIGHT * 0.5);
+          let ringIdxGlow = u32(clamp(input.ringIndex, 0.0, 2.0));
+          let worldRollerHGlow = layoutRingField(ringIdxGlow, 4u);
+          let yEdge = 1.0 - abs(localPos.y) / max(worldRollerHGlow * 0.5, 1e-4);
           let edgeProximity = smoothstep(0.18, 0.0, yEdge);
           let brushDischarge = edgeProximity * smoothstep(0.30, 0.70, overdrive);
           color += vec3f(0.62, 0.82, 1.0) * brushDischarge * 0.18 * energy;
@@ -2054,8 +2093,30 @@ export class MultiDeviceShaders {
 
       @group(0) @binding(0) var<storage, read_write> rollers: array<RollerInstance>;
       @group(0) @binding(1) var<uniform>             uniforms: RollerUniforms;
+      @group(0) @binding(2) var<uniform>             segLayoutData: array<f32, 64>;
 
       const PI: f32 = 3.14159265359;
+
+      fn layoutRingCount() -> u32 { return u32(segLayoutData[1]); }
+      fn layoutActiveRollers() -> u32 { return u32(segLayoutData[2]); }
+      fn layoutMaxRollers() -> u32 { return u32(segLayoutData[3]); }
+      fn layoutRingField(ringIdx: u32, fieldOffset: u32) -> f32 {
+        return segLayoutData[8.0 + f32(ringIdx) * 12.0 + f32(fieldOffset)];
+      }
+
+      fn mapRollerIndex(idx: u32) -> vec2u {
+        var ringIdx: u32 = 0u;
+        var localI: u32 = idx;
+        let ringN = layoutRingCount();
+        for (var ri = 0u; ri < ringN; ri++) {
+          let count = u32(layoutRingField(ri, 0u));
+          if (localI < count) {
+            return vec2u(ri, localI);
+          }
+          localI -= count;
+        }
+        return vec2u(0u, 0u);
+      }
 
       // Pole-band colours (copper / oxide / neodymium / brass)
       const POLE_COLORS = array<vec3f, 4>(
@@ -2065,7 +2126,6 @@ export class MultiDeviceShaders {
         vec3f(0.78, 0.58, 0.22),
       );
 
-      // Deterministic per-roller hashes.
       fn hash1f(p: f32) -> f32 {
         return fract(sin(p * 127.1) * 43758.5453);
       }
@@ -2076,67 +2136,51 @@ export class MultiDeviceShaders {
       @compute @workgroup_size(64)
       fn main(@builtin(global_invocation_id) gid: vec3u) {
         let idx = gid.x;
-        if (idx >= 36u) { return; }
+        if (idx >= layoutMaxRollers()) { return; }
 
-        // Map flat roller index to ring + local index
-        // Ring 0: idx  0-7  (8  rollers, r=2.5, speed=2.0)
-        // Ring 1: idx  8-19 (12 rollers, r=4.0, speed=1.0)
-        // Ring 2: idx 20-35 (16 rollers, r=5.5, speed=0.5)
-        var ringIdx: u32;
-        var localI:  u32;
-        if (idx < 8u) {
-          ringIdx = 0u;  localI = idx;
-        } else if (idx < 20u) {
-          ringIdx = 1u;  localI = idx - 8u;
-        } else {
-          ringIdx = 2u;  localI = idx - 20u;
+        let mapped = mapRollerIndex(idx);
+        let ringIdx = mapped.x;
+        let localI  = mapped.y;
+
+        let count  = u32(layoutRingField(ringIdx, 0u));
+        let radius = layoutRingField(ringIdx, 2u);
+        let rollerR = layoutRingField(ringIdx, 3u);
+        let speed  = layoutRingField(ringIdx, 5u);
+
+        if (idx >= layoutActiveRollers() || localI >= count) {
+          var inactive: RollerInstance;
+          inactive.position = vec3f(0.0);
+          inactive.ringIndex = f32(ringIdx);
+          inactive.rotation = vec4f(0.0, 0.0, 0.0, 1.0);
+          inactive.copperColor = vec3f(0.0);
+          inactive.greenEmissive = 0.0;
+          rollers[idx] = inactive;
+          return;
         }
 
-        let counts = array<u32, 3>(8u, 12u, 16u);
-        let radii  = array<f32, 3>(2.5, 4.0, 5.5);
-        let scales = array<f32, 3>(0.6, 0.8, 1.0);
-        let speeds = array<f32, 3>(2.0, 1.0, 0.5);
-
-        let count  = counts[ringIdx];
-        let radius = radii[ringIdx];
-        let scale  = scales[ringIdx];
-        let speed  = speeds[ringIdx];
-
-        // uniforms.time is already the speed-scaled visualizer time
         let t = uniforms.time;
-
-        // Per-ring startup ramp (mirrors CPU formula)
         let startupRamp = min(t * (0.25 + f32(ringIdx) * 0.1), 1.0);
 
-        // Unique per-roller seed.
         let rollerHash = hash1f(f32(idx) * 0.731 + f32(ringIdx) * 1.93);
         let rollerHash2 = hash2f(vec2f(f32(idx), f32(ringIdx) * 3.7));
 
-        // Per-roller speed jitter: fast component + slow wander + per-ring drift.
         let jitterSeed = f32(idx) * 127.3 + f32(ringIdx) * 53.7;
         let speedJitter = 1.0
           + 0.03 * sin(t * 1.3 + sin(jitterSeed) * 12.7)
           + 0.02 * sin(t * 0.47 + rollerHash * 20.0)
           + 0.01 * sin(t * 0.11 + f32(ringIdx) * 7.0);
 
-        // Each ring has a distinct fixed phase so the three rings feel coupled
-        // but not identically clockwork.
         let ringPhaseOffsets = array<f32, 3>(0.0, 0.31, 0.67);
         let baseAngle = (f32(localI) / f32(count)) * PI * 2.0 + ringPhaseOffsets[ringIdx];
 
-        // Uncogged orbital angle used to compute detent modulation.
         let uncoggedAngle = baseAngle + t * 0.5 * speed * speedJitter * startupRamp;
 
-        // Magnetic detent / cogging: occasional micro speed variation at fixed
-        // angular positions, stronger as speed increases.
         let cogCount = 6.0 + f32(ringIdx) * 3.0 + rollerHash * 4.0;
         let cogAmp = 0.018 * smoothstep(0.5, 2.0, uniforms.speedMult);
         let cogTimeScale = 1.0 - cogAmp * (0.5 + 0.5 * cos(uncoggedAngle * cogCount * 2.0));
 
         let angle = baseAngle + t * 0.5 * speed * speedJitter * cogTimeScale * startupRamp;
 
-        // Very low-amplitude radial compliance and vertical runout, as if the
-        // rollers ride a real bearing race with slight eccentricity.
         let radialFreq = 0.6 + rollerHash * 0.5;
         let radialAmp = 0.018 * (1.0 + 0.25 * uniforms.speedMult);
         let radialOffset = sin(t * radialFreq + rollerHash * 4.0) * radialAmp;
@@ -2148,14 +2192,13 @@ export class MultiDeviceShaders {
         let rEff = radius + radialOffset;
         let x = cos(angle) * rEff;
         let z = sin(angle) * rEff;
-        let y = yBob;
+        // Rollers stand slightly taller than stator; centre at half height.
+        let rollerH = layoutRingField(ringIdx, 4u);
+        let y = yBob + rollerH * 0.5;
 
-        // Gear-ratio self-rotation angle.
-        let gearRatio    = radius / scale;
+        let gearRatio = radius / max(rollerR, 1e-4);
         let selfRotAngle = angle * gearRatio * 0.5;
 
-        // Per-roller micro tilt / coning: the spin axis wobbles slightly away
-        // from the perfect tangent, varying with orbital angle and time.
         let up = vec3f(0.0, 1.0, 0.0);
         let radialDir = vec3f(cos(angle), 0.0, sin(angle));
         let tangent = normalize(cross(up, radialDir));
@@ -2170,13 +2213,9 @@ export class MultiDeviceShaders {
         let tiltedAxis = normalize(tangent + radialDir * radialTilt + up * vertTilt);
         let halfAngle = selfRotAngle / 2.0;
 
-        // Emissive boost proportional to speed (neodymium rollers glow brighter).
-        // Restrained baseline: no green underglow until high RPM, then a faint
-        // bearing-edge glow rather than a neon floor wash.
         let colorIdx  = (localI + ringIdx * 3u) % 4u;
         let baseEmit  = select(0.0, 0.15, colorIdx == 2u);
         let speedFactor = smoothstep(2.0, 7.0, uniforms.speedMult);
-        // Clamp emissive to avoid overflow at very high speeds
         let emissive  = min(baseEmit * speedFactor, 0.35);
 
         var r: RollerInstance;

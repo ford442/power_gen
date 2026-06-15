@@ -21,19 +21,10 @@ const PI: f32 = 3.14159265359;
 const MU_0: f32 = 1.25663706212e-6;
 const ROLLER_MOMENT: f32 = 18.5;  // A·m²
 
-const INNER_RING_COUNT: i32 = 8;
-const MIDDLE_RING_COUNT: i32 = 12;
-const OUTER_RING_COUNT: i32 = 16;
-
-const INNER_RADIUS: f32 = 2.5;
-const MIDDLE_RADIUS: f32 = 4.0;
-const OUTER_RADIUS: f32 = 5.5;
-
-// ============================================
-// Flux Line Configuration
-// ============================================
-const FLUX_LINES_PER_RING: i32 = 36;  // 36 lines per ring
-const TOTAL_FLUX_LINES: i32 = 108;    // 3 rings × 36 lines
+const MAX_RINGS: i32 = 3;
+const MAX_ROLLERS: i32 = 72;
+const FLUX_LINES_PER_RING_MAX: i32 = 36;
+const TOTAL_FLUX_LINES_MAX: i32 = 108;    // 3 rings × 36 lines
 const SEGMENTS_PER_LINE: i32 = 100;   // Resolution of each line
 const TOTAL_SEGMENTS: i32 = 10800;    // 108 lines × 100 segments
 
@@ -86,6 +77,45 @@ struct CoilBoostData {
 
 @binding(2) @group(0) var<storage, read> coilBoost: array<CoilBoostData>;
 
+// Packed SEG layout (must match packSEGLayoutUniforms in seg-layout.js).
+@binding(3) @group(0) var<uniform> segLayoutData: array<f32, 64>;
+
+fn layoutRingCount() -> i32 {
+    return i32(segLayoutData[1]);
+}
+
+fn layoutActiveRollers() -> i32 {
+    return i32(segLayoutData[2]);
+}
+
+fn layoutFluxLinesPerRing() -> i32 {
+    return i32(segLayoutData[7]);
+}
+
+fn layoutTotalFluxLines() -> i32 {
+    return layoutRingCount() * layoutFluxLinesPerRing();
+}
+
+fn layoutRingField(ringIdx: i32, fieldOffset: i32) -> f32 {
+    return segLayoutData[8.0 + f32(ringIdx) * 12.0 + f32(fieldOffset)];
+}
+
+fn layoutRingCountAt(ringIdx: i32) -> i32 {
+    return i32(layoutRingField(ringIdx, 0));
+}
+
+fn layoutRingOrbit(ringIdx: i32) -> f32 {
+    return layoutRingField(ringIdx, 2);
+}
+
+fn layoutRingRollerRadius(ringIdx: i32) -> f32 {
+    return layoutRingField(ringIdx, 3);
+}
+
+fn layoutRingSpeed(ringIdx: i32) -> f32 {
+    return layoutRingField(ringIdx, 5);
+}
+
 // ============================================
 // Magnetic Field Functions (Duplicated for Standalone)
 // ============================================
@@ -118,42 +148,25 @@ fn getRollerMagneticState(
     outPosition: ptr<function, vec3f>,
     outMoment: ptr<function, vec3f>
 ) {
-    var ringCount: i32;
-    var ringRadius: f32;
-    var rotationSpeed: f32;
-    
-    switch (ringIndex) {
-        case 0: {
-            ringCount = INNER_RING_COUNT;
-            ringRadius = INNER_RADIUS;
-            rotationSpeed = 2.0;
-        }
-        case 1: {
-            ringCount = MIDDLE_RING_COUNT;
-            ringRadius = MIDDLE_RADIUS;
-            rotationSpeed = 1.0;
-        }
-        case 2: {
-            ringCount = OUTER_RING_COUNT;
-            ringRadius = OUTER_RADIUS;
-            rotationSpeed = 0.5;
-        }
-        default: {
-            ringCount = MIDDLE_RING_COUNT;
-            ringRadius = MIDDLE_RADIUS;
-            rotationSpeed = 1.0;
-        }
+    if (ringIndex < 0 || ringIndex >= layoutRingCount()) {
+        *outPosition = vec3f(0.0);
+        *outMoment = vec3f(0.0);
+        return;
     }
-    
+
+    let ringCount = layoutRingCountAt(ringIndex);
+    let ringRadius = layoutRingOrbit(ringIndex);
+    let rotationSpeed = layoutRingSpeed(ringIndex);
+
     let baseAngle = f32(rollerIndex) * (2.0 * PI / f32(ringCount));
     let angle = baseAngle + time * 0.5 * rotationSpeed;
-    
+
     *outPosition = vec3f(
         cos(angle) * ringRadius,
         0.0,
         sin(angle) * ringRadius
     );
-    
+
     *outMoment = vec3f(
         -sin(angle) * ROLLER_MOMENT,
         0.0,
@@ -163,16 +176,10 @@ fn getRollerMagneticState(
 
 fn calculateToroidalField(pos: vec3f, time: f32) -> vec3f {
     var totalField = vec3f(0.0);
+    let rings = layoutRingCount();
 
-    for (var ring: i32 = 0; ring < 3; ring++) {
-        var rollerCount: i32;
-
-        switch (ring) {
-            case 0: { rollerCount = INNER_RING_COUNT; }
-            case 1: { rollerCount = MIDDLE_RING_COUNT; }
-            case 2: { rollerCount = OUTER_RING_COUNT; }
-            default: { rollerCount = MIDDLE_RING_COUNT; }
-        }
+    for (var ring: i32 = 0; ring < rings; ring++) {
+        let rollerCount = layoutRingCountAt(ring);
 
         for (var i: i32 = 0; i < rollerCount; i++) {
             var rollerPos: vec3f;
@@ -291,62 +298,45 @@ fn eulerStep(pos: vec3f, time: f32, h: f32, direction: f32) -> vec3f {
 // @return Seed position for this field line
 // -----------------------------------------------------------------------------
 fn getFluxLineSeed(lineIndex: i32, time: f32) -> vec3f {
-    // Determine which ring this line belongs to
-    let ringIndex = lineIndex / FLUX_LINES_PER_RING;
-    let indexInRing = lineIndex % FLUX_LINES_PER_RING;
-    
-    var ringCount: i32;
-    var ringRadius: f32;
-    var rotationSpeed: f32;
-    
-    switch (ringIndex) {
-        case 0: {
-            ringCount = INNER_RING_COUNT;
-            ringRadius = INNER_RADIUS;
-            rotationSpeed = 2.0;
-        }
-        case 1: {
-            ringCount = MIDDLE_RING_COUNT;
-            ringRadius = MIDDLE_RADIUS;
-            rotationSpeed = 1.0;
-        }
-        case 2: {
-            ringCount = OUTER_RING_COUNT;
-            ringRadius = OUTER_RADIUS;
-            rotationSpeed = 0.5;
-        }
-        default: {
-            ringCount = MIDDLE_RING_COUNT;
-            ringRadius = MIDDLE_RADIUS;
-            rotationSpeed = 1.0;
-        }
+    let linesPerRing = layoutFluxLinesPerRing();
+    let ringIndex = lineIndex / linesPerRing;
+    let indexInRing = lineIndex % linesPerRing;
+
+    if (ringIndex >= layoutRingCount()) {
+        return vec3f(0.0);
     }
-    
+
+    let ringCount = layoutRingCountAt(ringIndex);
+    let ringRadius = layoutRingOrbit(ringIndex);
+    let rollerRadius = layoutRingRollerRadius(ringIndex);
+    let rotationSpeed = layoutRingSpeed(ringIndex);
+
     // Distribute seeds around each roller in the ring
     let rollerIndex = indexInRing % ringCount;
-    let seedOffset = f32(indexInRing / ringCount);
-    
+    let seedOffset = indexInRing / ringCount;
+
     let baseAngle = f32(rollerIndex) * (2.0 * PI / f32(ringCount));
     let angle = baseAngle + time * 0.5 * rotationSpeed;
-    
+
     // Roller center position
     let rollerPos = vec3f(
         cos(angle) * ringRadius,
         0.0,
         sin(angle) * ringRadius
     );
-    
+
     // Seed offset from roller surface (slightly outside)
-    let seedRadius = 0.06;  // Slightly larger than roller radius (0.05m)
-    let seedAngle = seedOffset * 2.0 * PI / f32(FLUX_LINES_PER_RING / ringCount);
-    let seedHeight = sin(seedAngle * 3.0) * 0.05;  // Vary height
-    
+    let seedRadius = rollerRadius * 0.25 + 0.02;
+    let seedsPerRoller = max(linesPerRing / ringCount, 1);
+    let seedAngle = f32(seedOffset) * 2.0 * PI / f32(seedsPerRoller);
+    let seedHeight = sin(seedAngle * 3.0) * rollerRadius * 0.15;
+
     let offset = vec3f(
         cos(seedAngle) * seedRadius,
         seedHeight,
         sin(seedAngle) * seedRadius
     );
-    
+
     return rollerPos + offset;
 }
 
@@ -418,7 +408,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 fn traceBidirectional(@builtin(global_invocation_id) id: vec3u) {
     let lineIndex = i32(id.x);
     
-    if (lineIndex >= TOTAL_FLUX_LINES) {
+    if (lineIndex >= layoutTotalFluxLines()) {
         return;
     }
     
@@ -427,16 +417,9 @@ fn traceBidirectional(@builtin(global_invocation_id) id: vec3u) {
     let halfSegments = SEGMENTS_PER_LINE / 2;
 
     // Per-line pulse rate tied to actual roller angular velocity.
-    // Angular velocity in simulation time is 0.5 * ringSpeed (rad/s).
-    // We want a fixed number of pulses per roller orbit.
-    let ringIdx = lineIndex / FLUX_LINES_PER_RING;
-    var ringSpeed: f32;
-    switch (ringIdx) {
-      case 0: { ringSpeed = 2.0; }
-      case 1: { ringSpeed = 1.0; }
-      case 2: { ringSpeed = 0.5; }
-      default: { ringSpeed = 1.0; }
-    }
+    let linesPerRing = layoutFluxLinesPerRing();
+    let ringIdx = lineIndex / linesPerRing;
+    let ringSpeed = layoutRingSpeed(ringIdx);
     let angularVelocity = 0.5 * ringSpeed;
     let pulsesPerOrbit = 2.0;
     let pulseRate = angularVelocity * pulsesPerOrbit / (2.0 * PI);
