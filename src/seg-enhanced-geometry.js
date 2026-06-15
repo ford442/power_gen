@@ -32,6 +32,7 @@ import {
   generateWireHarness,
   generateCoilWithWindings,
   generateCCorePickupCoil,
+  generateMagneticWallShells,
   generateBandedRollerInstances
 } from './seg-geometry-generators.js';
 
@@ -43,6 +44,7 @@ export {
   generateWireHarness,
   generateCoilWithWindings,
   generateCCorePickupCoil,
+  generateMagneticWallShells,
   generateBandedRollerInstances
 };
 
@@ -188,6 +190,7 @@ export default {
   generateWireHarness,
   generateCoilWithWindings,
   generateCCorePickupCoil,
+  generateMagneticWallShells,
   generateBandedRollerInstances,
   EnhancedSEGGeometry
 };

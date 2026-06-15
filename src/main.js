@@ -145,4 +145,13 @@ window.setRenderer = (name) => {
 window.addEventListener('load', () => {
   bootstrapVisualizer();
   initWasm();
+
+  // Wire anomalous-effects toggle after visualizer is created.
+  const anomalyToggle = document.getElementById('anomalyToggle');
+  if (anomalyToggle && window.multiVisualizer) {
+    anomalyToggle.checked = window.multiVisualizer.anomalousEffectsEnabled;
+    anomalyToggle.addEventListener('change', (e) => {
+      window.multiVisualizer.anomalousEffectsEnabled = e.target.checked;
+    });
+  }
 });

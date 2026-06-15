@@ -4,6 +4,7 @@
  * energy arc, coil, seg-enhanced, compute, and grid shaders.
  */
 import fluxLinesWgsl from './shaders/flux-lines.wgsl?raw';
+import anomalyWallsWgsl from './shaders/seg-anomaly-walls.wgsl?raw';
 
 export class MultiDeviceShaders {
   constructor() {
@@ -568,6 +569,15 @@ export class MultiDeviceShaders {
           return vec3f(side * (2.5 + 1.6 * sin(t * 6.5 + phase * 19.0)), sin(t * 12.0 + phase * 21.0) * 1.2, cos(t * 8.0 + phase * 17.0) * 0.9);
         } else if (effectType < 7.5) {
           return vec3f(cos(t * 7.0 + phase * 31.0), -1.0 - 0.5 * sin(t * 4.5 + phase * 9.0), sin(t * 6.2 + phase * 27.0)) * 0.45;
+        } else if (effectType < 8.5) {
+          // Cold-zone fog: slow downward drift with gentle outward spread.
+          let driftDown = -0.12 - phase * 0.08;
+          let spread = normalize(vec3f(pos.x, 0.0, pos.z) + vec3f(1e-4, 0.0, 0.0)) * 0.03;
+          return vec3f(spread.x, driftDown, spread.z);
+        } else if (effectType < 9.5) {
+          // Inverse heat-haze: cool descending shimmer.
+          let shimmer = sin(t * 3.0 + phase * 17.0) * 0.04;
+          return vec3f(shimmer, -0.25 - 0.1 * sin(t * 1.5 + phase * 9.0), shimmer * 0.7);
         }
         return vec3f(0.0, 0.0, 0.0);
       }
@@ -635,6 +645,14 @@ export class MultiDeviceShaders {
         } else if (effectType > 2.5 && effectType < 3.5) {
           stretch = 2.6;
           size *= 0.6;
+        } else if (effectType > 7.5 && effectType < 8.5) {
+          // Cold fog: large soft puffs, minimal stretch.
+          stretch = 1.0;
+          size *= 4.5;
+        } else if (effectType > 8.5 && effectType < 9.5) {
+          // Inverse haze: very broad, low opacity veil.
+          stretch = 1.0;
+          size *= 8.0;
         }
         
         let worldPos = pos + devicePos + 
@@ -717,7 +735,23 @@ export class MultiDeviceShaders {
         var color: vec3f;
         let temporalSmooth = smoothstep(0.0, 0.5, speedMult);
 
-        if (effectType > 6.5 && effectType < 7.5) {
+        if (effectType > 8.5 && effectType < 9.5) {
+          // Inverse heat-haze: broad cool descending shimmer inside the first magnetic wall.
+          let shell = exp(-dist * dist * 1.4);
+          let wobble = 0.55 + 0.45 * sin(t * 2.2 + phase * 8.0 + uv.x * 4.0);
+          let rpm = speedMult * 60.0;
+          let coldEnvelope = pow(clamp((rpm - 520.0) / 60.0, 0.0, 1.0), 1.2);
+          alpha = shell * wobble * (0.04 + coldEnvelope * 0.12);
+          color = mix(vec3f(0.55, 0.82, 0.95), vec3f(0.85, 0.95, 1.0), clamp(uv.y * 0.5 + 0.5, 0.0, 1.0));
+        } else if (effectType > 7.5 && effectType < 8.5) {
+          // Cold-zone fog: soft white-blue condensing billows.
+          let puff = exp(-dist * dist * 2.2);
+          let haze = exp(-dist * dist * 6.0) * 0.25;
+          let rpm = speedMult * 60.0;
+          let coldEnvelope = pow(clamp((rpm - 520.0) / 60.0, 0.0, 1.0), 1.2);
+          alpha = (puff + haze) * (0.10 + coldEnvelope * 0.22);
+          color = mix(vec3f(0.78, 0.88, 0.95), vec3f(0.55, 0.72, 0.90), 0.5 + 0.5 * sin(wallTime * 2.0 + phase * 11.0));
+        } else if (effectType > 6.5 && effectType < 7.5) {
           // Solar refraction caustic photons at panel interface.
           let core = exp(-dist * dist * 20.0);
           let halo = exp(-dist * dist * 7.0) * 0.45;
@@ -1632,6 +1666,13 @@ export class MultiDeviceShaders {
           // Perturb normal so bolt heads catch the key light.
           let boltTangent = normalize(vec3f(-localPos.z, 0.0, localPos.x));
           N = normalize(mix(N, boltTangent * 0.25 + vec3f(0.0, 0.35, 0.0), bolts * 0.45));
+
+          // Cold-zone frost sheen on base-plate rim at sustained overdrive.
+          if (energy > 0.82) {
+            let frost = smoothstep(0.82, 0.96, energy) * smoothstep(6.5, 3.5, polarR);
+            baseColor = mix(baseColor, vec3f(0.78, 0.90, 0.96), frost * 0.28);
+            roughness = mix(roughness, 0.18, frost * 0.25);
+          }
         }
 
         if (renderMode == 1 || renderMode == 2) {
@@ -1980,6 +2021,13 @@ export class MultiDeviceShaders {
         particles[idx] = vec4f(newPos, phase);
       }
     `;
+  }
+
+  // ============================================
+  // Roschin–Godin magnetic wall shell shader
+  // ============================================
+  get anomalyWallsShader() {
+    return anomalyWallsWgsl;
   }
 
   // ============================================

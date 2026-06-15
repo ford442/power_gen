@@ -120,6 +120,13 @@ class DeviceInstance {
     this.pwmEnergyLevel = 0.0;
     this.flowEnergyLevel = 0.0;
     this.voltageEnergyLevel = 0.0;
+
+    // Roschin–Godin anomalous-effect envelopes (0..1)
+    this._anomalyT = 0.0;  // magnetic walls
+    this._coldT = 0.0;     // cold-zone fog / frost
+    this._liftT = 0.0;     // weight-loss / levitation
+    this._torusT = 0.0;    // ionization torus (driven earliest)
+    this._anomalyLiftOffset = [0, 0, 0];
   }
 
   async init() {
@@ -285,13 +292,55 @@ class DeviceInstance {
     this.energyLevel = Math.min(1.0, Math.max(0.0, this.energyLevel));
   }
 
-  _buildDeviceUniformData(renderMode, yOffset = 0.0) {
+  /**
+   * Compute Roschin–Godin anomalous-effect envelopes from RPM proxy.
+   * rpmProxy = speedMult * 60 (1x = 60 RPM). Effects ordered:
+   *   ~200 RPM: ionization torus
+   *   ~550 RPM: magnetic walls + cold zone
+   *   ~595 RPM: levitation / weight-loss
+   * Envelopes use exponential smoothing for temporal stability (#55).
+   */
+  _updateAnomalyEnvelopes(deltaTime) {
+    const enabled = this.id === 'seg' && this.visualizer.anomalousEffectsEnabled;
+    const speedMult = Math.max(0.0, this.speedMult || 1.0);
+    const rpm = speedMult * 60.0;
+
+    const gate = (value, low, high) => {
+      if (high <= low) return value > high ? 1 : 0;
+      return Math.max(0, Math.min(1, (value - low) / (high - low)));
+    };
+
+    const targetTorus   = enabled ? Math.pow(gate(rpm, 180, 220), 0.7) : 0.0;
+    const targetWall    = enabled ? Math.pow(gate(rpm, 520, 580), 1.2) : 0.0;
+    const targetCold    = enabled ? targetWall : 0.0;
+    const targetLift    = enabled ? Math.pow(gate(rpm, 585, 620), 0.9) : 0.0;
+
+    const smooth = (tau) => 1.0 - Math.exp(-Math.max(0.0, deltaTime) / tau);
+    this._torusT   += (targetTorus   - this._torusT)   * smooth(1.5);
+    this._anomalyT += (targetWall    - this._anomalyT) * smooth(2.0);
+    this._coldT    += (targetCold    - this._coldT)    * smooth(2.5);
+    this._liftT    += (targetLift    - this._liftT)    * smooth(3.5);
+
+    // Levitation offset: vertical lift + slow precession + micro-jitter.
+    const basePos = this.position;
+    const maxLift = 0.22;
+    const liftY = maxLift * this._liftT;
+    const precessionRate = 0.35;
+    const precessionRadius = 0.08 * this._liftT;
+    const jitter = 0.01 * this._liftT * Math.sin(this.visualizer.time * 23.0);
+    this._anomalyLiftOffset[0] = basePos[0] + Math.sin(this.visualizer.time * precessionRate) * precessionRadius;
+    this._anomalyLiftOffset[1] = basePos[1] + liftY + jitter;
+    this._anomalyLiftOffset[2] = basePos[2] + Math.cos(this.visualizer.time * precessionRate * 0.83) * precessionRadius;
+  }
+
+  _buildDeviceUniformData(renderMode, positionOverride = null) {
     const ringIndex = this.getRingIndex();
+    const pos = positionOverride || this.position;
     return new Float32Array([
       renderMode,
-      this.position[0],
-      this.position[1] + yOffset,
-      this.position[2],
+      pos[0],
+      pos[1],
+      pos[2],
       Math.sin(this.rotation[1] / 2),
       0,
       Math.cos(this.rotation[1] / 2),
@@ -395,7 +444,13 @@ class DeviceInstance {
     }
 
     this._computeEnergyLevel(deltaTime);
-    this.uniformManager.updateUniforms(this.position, this.rotation, this.renderMode, this.energyLevel);
+    this._updateAnomalyEnvelopes(deltaTime);
+
+    // Apply levitation offset to SEG device position so the whole assembly lifts.
+    const renderPosition = (this.id === 'seg')
+      ? this._anomalyLiftOffset
+      : this.position;
+    this.uniformManager.updateUniforms(renderPosition, this.rotation, this.renderMode, this.energyLevel);
     this.updateEmitterEffects(deltaTime, qualityScale);
   }
 
@@ -506,6 +561,26 @@ class DeviceInstance {
         const py = (hash2(seed * 1.71) - 0.5) * 0.35;
         const pz = gz + (hash1(seed * 2.13) - 0.5) * spread;
         pushParticle(px, py, pz, 1.0 + hash2(seed * 3.19));
+      }
+
+      // Cold-zone fog: slow downward-drifting white-blue particles inside the first magnetic wall.
+      const coldFogBudget = Math.floor(budget * 0.18 * this._coldT);
+      for (let i = 0; i < coldFogBudget; i++) {
+        const seed = i * 0.617 + t * 0.07;
+        const a = hash1(seed) * Math.PI * 2;
+        const r = hash2(seed) * 1.8;
+        const y = 2.2 - hash1(seed * 1.37) * 4.4;
+        pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 8.0 + hash2(seed * 2.71));
+      }
+
+      // Inverse heat-haze: cool descending shimmer inside the first wall.
+      const hazeBudget = Math.floor(budget * 0.10 * this._coldT);
+      for (let i = 0; i < hazeBudget; i++) {
+        const seed = i * 0.819 + t * 0.11;
+        const a = hash1(seed) * Math.PI * 2;
+        const r = 0.5 + hash2(seed) * 1.2;
+        const y = 1.5 - hash1(seed * 2.11) * 3.0;
+        pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 9.0 + hash2(seed * 1.93));
       }
     } else if (this.id === 'kelvin') {
       const voltageProxy = Math.max(0.0, Math.min(1.0, this.voltageEnergyLevel * 0.7 + Math.pow(energy, 1.2) * 0.5));
@@ -918,6 +993,9 @@ class DeviceInstance {
 
   render(renderPass, globalUniformBuffer, skipEffects = false) {
     const scaledCount = Math.floor(this.particleCount * this.visualizer.profiler.qualityLevel);
+    const renderPosition = (this.id === 'seg')
+      ? this._anomalyLiftOffset
+      : this.position;
 
     // Core SEG mesh — always drawn (skipEffects only gates VFX below).
     if (this.id === 'seg' && this.visualizer.basePlateBuffer) {
@@ -951,7 +1029,7 @@ class DeviceInstance {
     if (this.id === 'seg' && this.rollerInstances && this.segEnhancedPipeline) {
       // Reset renderMode to 0 (rollers)
       this.renderMode = 0;
-      const deviceData = this._buildDeviceUniformData(this.renderMode);
+      const deviceData = this._buildDeviceUniformData(this.renderMode, renderPosition);
       this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
       const enhancedBindGroup = this.device.createBindGroup({
@@ -977,7 +1055,7 @@ class DeviceInstance {
     // Render electromagnet coils (SEG only)
     if (this.id === 'seg' && this.electromagnetInstances && this.segEnhancedPipeline && !skipEffects) {
       this.renderMode = 3;
-      const deviceData = this._buildDeviceUniformData(this.renderMode);
+      const deviceData = this._buildDeviceUniformData(this.renderMode, renderPosition);
       this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
       const coilBindGroup = this.device.createBindGroup({
@@ -1090,7 +1168,7 @@ class DeviceInstance {
 
     // Set renderMode to 1 (base)
     this.renderMode = 1;
-    const deviceData = this._buildDeviceUniformData(this.renderMode);
+    const deviceData = this._buildDeviceUniformData(this.renderMode, renderPosition);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
     const bindGroup = this.device.createBindGroup({
@@ -1120,7 +1198,7 @@ class DeviceInstance {
 
     // Set renderMode to 2 (stator)
     this.renderMode = 2;
-    const deviceData = this._buildDeviceUniformData(this.renderMode);
+    const deviceData = this._buildDeviceUniformData(this.renderMode, renderPosition);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
     // Enhanced PBR pipeline with merged annular-disc geometry.
@@ -1151,7 +1229,7 @@ class DeviceInstance {
 
     // Set renderMode to 3 (wiring)
     this.renderMode = 3;
-    const deviceData = this._buildDeviceUniformData(this.renderMode);
+    const deviceData = this._buildDeviceUniformData(this.renderMode, renderPosition);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
     // Enhanced PBR pipeline with UV geometry is now the only wiring path.

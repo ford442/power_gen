@@ -12,6 +12,7 @@ import {
   generateBearingShaft,
   generateCoilWithWindings,
   generateCCorePickupCoil,
+  generateMagneticWallShells,
   generatePlateWithCutouts,
   generatePoleBandedRoller,
   generateSupportStand,
@@ -59,6 +60,7 @@ export class MultiDeviceVisualizer {
     this.fps = 60;
     this.speedMult = 1.0;
     this.globalEnergyLevel = 0.0;
+    this.anomalousEffectsEnabled = (this.prototypePreset === 'lab');
 
     // SimRateController for speed-scaled physics and visuals
     this.simRateController = new SimRateController();
@@ -120,6 +122,7 @@ export class MultiDeviceVisualizer {
       await this._syncCanvasSize();
       await this.setupDepthBuffer();
       await this.setupBloomPipeline();
+      await this.setupAnomalyWallPipeline();
 
       // Track initial allocations
       this.profiler.trackBuffer('globalUniforms', 512, GPUBufferUsage.UNIFORM);
@@ -767,6 +770,17 @@ export class MultiDeviceVisualizer {
       majorRadius: 7.5, minorRadius: 0.6, turns: 60, majorSegments: 96
     });
 
+    // Magnetic wall shells for Roschin–Godin anomalous environmental effects.
+    // Five concentric shells; drawn selectively based on quality/envelope.
+    this.magneticWallBuffer = generateMagneticWallShells(this.device, {
+      innerRadius: 1.6,
+      spacing: 0.55,
+      shellThickness: 0.06,
+      height: 8.0,
+      maxShells: 5,
+      segments: 96
+    });
+
     // Stator rings: three concentric annular discs with proper UVs and radii.
     // The old unit-cylinder path used a custom instance layout that did not match
     // the enhanced SEG vertex shader; these discs are baked to size and drawn with
@@ -900,6 +914,47 @@ export class MultiDeviceVisualizer {
       entries: [{ binding: 0, resource: { buffer: this.globalUniformBuffer } }]
     });
   }
+
+  async setupAnomalyWallPipeline() {
+    const fmt = navigator.gpu.getPreferredCanvasFormat();
+
+    this.anomalyWallPipeline = this.device.createRenderPipeline({
+      label: 'anomalyWallPipeline',
+      layout: 'auto',
+      vertex: {
+        module: this.device.createShaderModule({ code: this.shaders.anomalyWallsShader }),
+        entryPoint: 'vsMain',
+        buffers: [{
+          arrayStride: 32,
+          attributes: [
+            { shaderLocation: 0, offset: 0,  format: 'float32x3' },
+            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+            { shaderLocation: 2, offset: 24, format: 'float32x2' }
+          ]
+        }]
+      },
+      fragment: {
+        module: this.device.createShaderModule({ code: this.shaders.anomalyWallsShader }),
+        entryPoint: 'fsMain',
+        targets: [{
+          format: fmt,
+          blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+          }
+        }]
+      },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: { depthWriteEnabled: false, depthCompare: 'less', format: 'depth24plus-stencil8' }
+    });
+
+    this.anomalyWallParamsBuffer = this.device.createBuffer({
+      label: 'anomaly-wall-params',
+      size: 24,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.profiler.trackBuffer('anomaly-wall-params', 24, GPUBufferUsage.UNIFORM);
+  }
   
   /**
    * Resize the canvas backing store (DPR-aware) and recreate depth/bloom targets.
@@ -1021,6 +1076,37 @@ export class MultiDeviceVisualizer {
     this.setupBloomTextures();
   }
   
+  renderAnomalyWalls(renderPass, globalUniformBuffer, segDevice) {
+    if (!this.anomalyWallPipeline || !this.magneticWallBuffer || !segDevice) return;
+    if (this.anomalousEffectsEnabled === false) return;
+
+    const envelope = segDevice._anomalyT || 0;
+    if (envelope <= 0.001) return;
+
+    const quality = this.profiler.qualityLevel;
+    const shellCount = quality < 0.6 ? 3 : 5;
+
+    // WallParams: intensity, shellCount, innerRadius, spacing, shellThickness, height
+    this.device.queue.writeBuffer(
+      this.anomalyWallParamsBuffer, 0,
+      new Float32Array([envelope, shellCount, 1.6, 0.55, 0.06, 8.0])
+    );
+
+    const bindGroup = this.device.createBindGroup({
+      layout: this.anomalyWallPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.anomalyWallParamsBuffer } }
+      ]
+    });
+
+    renderPass.setPipeline(this.anomalyWallPipeline);
+    renderPass.setBindGroup(0, bindGroup);
+    renderPass.setVertexBuffer(0, this.magneticWallBuffer.vertexBuffer);
+    renderPass.setIndexBuffer(this.magneticWallBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(this.magneticWallBuffer.indexCount, 1);
+  }
+
   render(timestamp) {
     const deltaTime = (timestamp - this.lastFrameTime) / 1000;
     this.lastFrameTime = timestamp;
@@ -1263,7 +1349,12 @@ export class MultiDeviceVisualizer {
         device.render(renderPass, this.globalUniformBuffer, skipEffects);
       }
     }
-    
+
+    // Roschin–Godin magnetic wall shells (drawn after SEG so they overlay the scene).
+    if (segDevice && this.devicesEnabled['seg']) {
+      this.renderAnomalyWalls(renderPass, this.globalUniformBuffer, segDevice);
+    }
+
     renderPass.end();
 
     // Preserve this frame’s scene for next frame’s overdrive motion blur.
