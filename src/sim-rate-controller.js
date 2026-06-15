@@ -56,14 +56,14 @@ export class SimRateController {
     return Math.pow(this._speedMult, 1.3);
   }
 
-  /** Bloom extraction threshold — drops at high speed for stronger glow */
+  /** Bloom extraction threshold — stays high so only bright plasma blooms */
   get bloomThreshold() {
-    return Math.max(0.28, 0.60 - (this._speedMult - 1) * 0.022);
+    return Math.max(0.45, 0.72 - (this._speedMult - 1) * 0.022);
   }
 
-  /** Bloom composite strength — grows at high speed */
+  /** Bloom composite strength — restrained baseline, modest overdrive flare */
   get bloomStrength() {
-    return Math.min(3.0, 1.4 + (this._speedMult - 1) * 0.11);
+    return Math.min(1.6, 0.9 + (this._speedMult - 1) * 0.07);
   }
 
   /**

@@ -123,13 +123,29 @@ export class MultiDeviceShaders {
         detailParams: vec4f  // x: detailScale, y: oxide strength, z: wear amount
       }
 
+      struct Light {
+        dir: vec3f,
+        color: vec3f,
+        intensity: f32,
+      }
+
+      struct LightingConfig {
+        key: Light,
+        fill: Light,
+        rim: Light,
+        ground: Light,
+        ambient: f32,
+        envMapStrength: f32,
+      }
+
       const PI: f32 = 3.14159265;
       const MATERIAL_COUNT: u32 = 14u;
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
       @binding(3) @group(0) var<uniform> material: MaterialUniforms;
-      @binding(5) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
+      @binding(5) @group(0) var<uniform> lighting: LightingConfig;
+      @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
 
       struct FragmentInput {
         @location(0) worldPos: vec3f,
@@ -319,7 +335,7 @@ export class MultiDeviceShaders {
         let albedo = mix(baseColor, vec3f(0.0), metallic);
 
         // Key light (main directional)
-        let L1 = normalize(vec3f(1.0, 1.0, 1.0));
+        let L1 = normalize(lighting.key.dir);
         let H1 = normalize(V + L1);
         let NdotL1 = max(dot(detailN, L1), 0.0);
         let NdotH1 = max(dot(detailN, H1), 0.0);
@@ -330,7 +346,7 @@ export class MultiDeviceShaders {
         let kD1 = (vec3f(1.0) - F1) * (1.0 - metallic);
 
         // Fill light (softer, opposite side)
-        let L2 = normalize(vec3f(-0.5, 0.3, -0.5));
+        let L2 = normalize(lighting.fill.dir);
         let H2 = normalize(V + L2);
         let NdotL2 = max(dot(detailN, L2), 0.0);
         let NdotH2 = max(dot(detailN, H2), 0.0);
@@ -341,22 +357,30 @@ export class MultiDeviceShaders {
         let kD2 = (vec3f(1.0) - F2) * (1.0 - metallic);
 
         // Rim light
-        let rimFactor = pow(1.0 - NdotV, 3.0) * (0.6 + overdrive * 0.5);
-        let rimLight = vec3f(0.4, 0.5, 0.6) * rimFactor;
+        let rimFactor = pow(1.0 - NdotV, 3.0) * lighting.rim.intensity;
+        let rimLight = lighting.rim.color * rimFactor;
+
+        // Ground bounce light from below
+        let Lg = normalize(lighting.ground.dir);
+        let NdotLg = max(dot(detailN, Lg), 0.0);
 
         // Combine
         let diffuse = albedo * PI * (
-          kD1 * NdotL1 * vec3f(1.0, 0.95, 0.9) * 1.2 +
-          kD2 * NdotL2 * vec3f(0.6, 0.7, 0.9) * 0.4
+          kD1 * NdotL1 * lighting.key.color * lighting.key.intensity +
+          kD2 * NdotL2 * lighting.fill.color * lighting.fill.intensity * 0.5 +
+          lighting.ground.color * lighting.ground.intensity * NdotLg
         );
 
         let specular = (
-          specular1 * vec3f(1.0, 0.95, 0.9) * 1.2 * NdotL1 +
-          specular2 * vec3f(0.6, 0.7, 0.9) * 0.4 * NdotL2
+          specular1 * lighting.key.color * lighting.key.intensity * NdotL1 +
+          specular2 * lighting.fill.color * lighting.fill.intensity * NdotL2 * 0.3
         );
 
-        let ambient = albedo * 0.3 * vec3f(0.15, 0.18, 0.22);
-        var color = ambient + diffuse + specular + rimLight;
+        // Cheap IBL approximation (environment reflection term)
+        let envReflect = fresnelSchlick(NdotV, f0) * lighting.envMapStrength * 0.3;
+
+        let ambient = albedo * lighting.ambient * vec3f(0.15, 0.18, 0.22);
+        var color = ambient + diffuse + specular + rimLight + envReflect;
 
         // Add material emission
         color = color + material.glowColor * material.emission * (0.2 + energy * 0.8);
@@ -582,12 +606,17 @@ export class MultiDeviceShaders {
         }
 
         var stretch = 1.0 + speed * 0.8;
+        if (mode < 0.5) {
+          // SEG field particles: fine dust, less speed streaking.
+          stretch = 1.0 + speed * 0.35;
+          size *= 0.55;
+        }
         if (effectType > 0.5 && effectType < 1.5) {
           stretch = 2.0 + speed * 1.5;
           size *= 0.75;
         } else if (effectType > 1.5 && effectType < 2.5) {
           stretch = 1.2;
-          size *= 2.6;
+          size *= 1.4;
         } else if (effectType > 6.5 && effectType < 7.5) {
           stretch = 1.6;
           size *= 1.8;
@@ -711,30 +740,31 @@ export class MultiDeviceShaders {
           alpha = strand + haze;
           color = vec3f(0.7, 0.9, 1.0) + vec3f(0.25, 0.0, 0.45) * (0.5 + 0.5 * sin(t * 17.0 + phase * 29.0));
         } else if (effectType > 1.5 && effectType < 2.5) {
-          // Corona: broad soft additive sheath.
+          // Corona: faint blue-white plasma halo around stator rings.
           let shell = exp(-dist * dist * 2.6);
           let core = exp(-dist * dist * 10.0) * 0.35;
-          alpha = (shell + core) * (0.45 + 0.55 * (0.5 + 0.5 * sin(t * 9.0 + phase * 11.0))) * (0.75 + overdrive);
-          color = mix(vec3f(0.15, 0.7, 1.0), vec3f(0.65, 0.95, 1.0), input.life);
+          alpha = (shell + core) * (0.28 + 0.35 * (0.5 + 0.5 * sin(t * 9.0 + phase * 11.0))) * (0.18 + overdrive * 0.45);
+          color = mix(vec3f(0.45, 0.72, 0.95), vec3f(0.82, 0.92, 1.0), input.life);
         } else if (effectType > 0.5 && effectType < 1.5) {
-          // Spark bursts: sharper, elongated, dangerous look.
+          // Spark bursts: fine charge filaments, not giant glowing orbs.
           let line = exp(-abs(uv.x) * 8.0) * exp(-abs(uv.y) * 2.2);
           let flare = exp(-dist * dist * 30.0);
-          alpha = (line * 0.9 + flare * 0.7) * (1.1 + input.speed * 0.08 + overdrive * 1.1);
+          alpha = (line * 0.9 + flare * 0.7) * (0.35 + input.speed * 0.04 + overdrive * 0.55);
           color = mix(vec3f(0.6, 0.85, 1.0), vec3f(1.0, 0.95, 0.65), clamp(input.life * 1.2, 0.0, 1.0));
-          if (mode < 2.5 || mode > 3.5) {
+          // Keep the magenta tint only for non-SEG devices; SEG stays blue-white/copper.
+          if ((mode < 2.5 || mode > 3.5) && mode >= 0.5) {
             color = mix(color, vec3f(0.7, 0.2, 1.0), 0.25);
           }
         } else {
           // Bright core + soft halo for additive blending
           let core = exp(-dist * dist * 22.0);
           let halo = exp(-dist * dist * 6.0) * 0.35;
-          alpha = (core + halo) * 2.2;
+          alpha = (core + halo) * 0.55;
         
           if (mode < 0.5) {
-            // SEG: cyan / electric-blue magnetic field lines
+            // SEG: subtle steel-blue magnetic dust / field lines.
             let pulse = 0.6 + 0.4 * sin(t * 5.0 + phase * 6.28);
-            color = mix(vec3f(0.0, 0.65, 1.0), vec3f(0.3, 1.0, 0.85), pulse);
+            color = mix(vec3f(0.55, 0.72, 0.88), vec3f(0.78, 0.88, 0.95), pulse);
           } else if (mode < 1.5) {
             // Heron: blue water droplets with slight white specular centre
             let h = clamp(input.uv.y * 0.5 + 0.5, 0.0, 1.0);
@@ -777,15 +807,23 @@ export class MultiDeviceShaders {
     return fluxLinesWgsl;
   }
 
-  // ── RK4 Flux Segment billboard vertex shader ──────────────────────────────
+  // ── RK4 Flux Segment ribbon vertex shader ────────────────────────────────
   // Reads FluxSegment data from storage buffer @binding(2) and expands each
-  // segment to a screen-space quad (triangle-strip, 4 verts/instance).
-  // Width is |B|-driven; age drives a crawling pulse.
+  // segment into a world-space ribbon (triangle-strip, 4 verts/instance).
+  //
+  // The ribbon is oriented with the B-field tangent and the view ray so it
+  // always faces the camera.  Width is computed in pixels and then converted
+  // back to world space using the projection matrix, giving a line thickness
+  // that stays constant regardless of zoom, distance, or camera angle.  |B|
+  // drives both width and color, and segment age drives a crawling energy
+  // pulse.  Round caps/edges are handled in the fragment shader via (u,v)
+  // coordinates passed from the vertex stage.
   get fluxSegmentVertShader() {
     return /* wgsl */ `
       struct Uniforms {
         viewProj: mat4x4f,
         time: f32,
+        resolution: vec2f,
         cameraPos: vec3f
       }
 
@@ -823,87 +861,123 @@ export class MultiDeviceShaders {
         @builtin(position) position: vec4f,
         @location(0) strength: f32,
         @location(1) alpha: f32,
+        @location(2) u: f32,
+        @location(3) v: f32,
       }
+
+      const BASE_PX_HALF_WIDTH: f32 = 0.8;
+      const MAX_PX_HALF_WIDTH:  f32 = 2.2;
+      const WORLD_UP: vec3f = vec3f(0.0, 1.0, 0.0);
 
       @vertex
       fn main(@builtin(vertex_index) vertIdx: u32,
               @builtin(instance_index) instIdx: u32) -> VertexOutput {
         let seg = segments[instIdx];
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
-        let startPos = vec3f(seg.startX, seg.startY, seg.startZ);
-        let endPos   = vec3f(seg.endX,   seg.endY,   seg.endZ);
+        let startWorld = vec3f(seg.startX, seg.startY, seg.startZ) + devicePos;
+        let endWorld   = vec3f(seg.endX,   seg.endY,   seg.endZ) + devicePos;
 
-        // World-space basis: tangent along B, right perpendicular to B and the camera.
-        // This keeps the ribbon facing the viewer and gives a view-consistent width.
-        let tangent = normalize(endPos - startPos);
-        let centerWorld = (startPos + endPos) * 0.5 + devicePos;
+        // Tangent along the local B-field direction.
+        let tangent = normalize(endWorld - startWorld);
+
+        // View-aligned width direction: perpendicular to tangent and to the
+        // view ray, so the ribbon always faces the camera.
+        let centerWorld = (startWorld + endWorld) * 0.5;
         let viewDir = normalize(uniforms.cameraPos - centerWorld);
+        let widthDirRaw = cross(tangent, viewDir);
 
-        var right = cross(tangent, viewDir);
-        if (length(right) < 0.001) {
-          // Camera is looking nearly along the field line; fall back to world up.
-          right = cross(tangent, vec3f(0.0, 1.0, 0.0));
-          if (length(right) < 0.001) {
-            right = vec3f(1.0, 0.0, 0.0);
-          }
+        // Near grazing angles the cross product collapses and becomes noisy.
+        // Blend to a world-up ribbon basis to keep the line stable when the
+        // camera aligns with the field direction.
+        let upFallback = cross(tangent, WORLD_UP);
+        let widthMag = length(widthDirRaw);
+        var widthDir: vec3f;
+        if (widthMag < 0.001 || length(upFallback) < 0.001) {
+          widthDir = vec3f(1.0, 0.0, 0.0);
+        } else {
+          let grazing = 1.0 - clamp(widthMag / 0.02, 0.0, 1.0);
+          widthDir = normalize(mix(normalize(widthDirRaw), normalize(upFallback), grazing));
         }
-        right = normalize(right);
 
-        // View-consistent world-space half-width.  Width scales with |B| and is
-        // distance-compensated so lines stay a similar thickness in pixels as
-        // the camera zooms in/out.  Base width ~2 px, max ~8 px.
+        // View-consistent half-width in pixels, driven by |B|.
         let t = clamp(sqrt(seg.strength * 2.0e6), 0.0, 1.0);
-        let ndcHalfWidth = 0.002 + t * 0.006;
-        let dist = length(uniforms.cameraPos - centerWorld);
-        let halfWidthWorld = ndcHalfWidth * dist * 0.5;
+        let pxHalfWidth = mix(BASE_PX_HALF_WIDTH, MAX_PX_HALF_WIDTH, t);
+        let ndcHalfWidth = pxHalfWidth * (2.0 / uniforms.resolution.y);
 
-        // Vertices 0,1 at start; 2,3 at end.  Sides alternate left/right.
+        // Convert NDC half-width back to world space using the projection of
+        // the width direction.  This gives an exact pixel width independent of
+        // distance, zoom, or field-of-view.
+        let clipCenter = uniforms.viewProj * vec4f(centerWorld, 1.0);
+        let clipWidth  = (uniforms.viewProj * vec4f(widthDir, 0.0)).xy;
+        let projScale  = length(clipWidth);
+        let safeW      = max(clipCenter.w, 1e-6);
+        let halfWidthWorld = select(
+          ndcHalfWidth * safeW / projScale,
+          0.0,
+          projScale < 1e-6 || safeW <= 0.0
+        );
+
+        // Triangle-strip layout: 0,1 at start; 2,3 at end.  Sides alternate.
         let atEnd = (vertIdx >= 2u);
         let side  = select(-1.0, 1.0, (vertIdx & 1u) == 1u);
+        let end   = select(-1.0, 1.0, atEnd);
 
-        let baseWorld = select(startPos, endPos, atEnd) + devicePos;
-        let worldPos = baseWorld + right * halfWidthWorld * side;
+        let baseWorld = select(startWorld, endWorld, atEnd);
+        let worldPos = baseWorld + widthDir * halfWidthWorld * side;
 
-        // Age-pulsed alpha: crawling tesla-bug effect
+        // Age-pulsed alpha: crawling energy effect. Restrained baseline so the
+        // field lines read as fine B-field filaments rather than neon tubes.
         let agePulse = 0.5 + 0.5 * sin(seg.age * 6.2832);
-        let alpha = clamp(t * 0.8 + 0.1, 0.1, 0.9) * agePulse;
+        let alpha = clamp(t * 0.55 + 0.06, 0.06, 0.55) * agePulse;
 
         var out: VertexOutput;
         out.position = uniforms.viewProj * vec4f(worldPos, 1.0);
         out.strength = seg.strength;
         out.alpha    = alpha;
+        out.u        = side;
+        out.v        = end;
         return out;
       }
     `;
   }
 
   // ── RK4 Flux Segment fragment shader ─────────────────────────────────────
-  // |B|-driven color ramp: deep blue → cyan → light-blue → white-hot
+  // |B|-driven color ramp: deep blue → cyan → light-blue → white-hot.
+  // Applies soft round caps/edges using (u,v) coordinates from the vertex
+  // stage, hiding small gaps between adjacent segments and giving the lines
+  // a smooth, glowing, tube-like appearance.
   get fluxSegmentFragShader() {
     return /* wgsl */ `
       struct FragInput {
         @location(0) strength: f32,
         @location(1) alpha: f32,
+        @location(2) u: f32,
+        @location(3) v: f32,
       }
 
-      // deep blue (0,0.1,0.8) → cyan (0,0.8,1) → soft white (0.8,1,1) → white-hot (1.2,1.2,1.2)
+      // Desaturated steel-blue → soft white. No 1.2× overbright white-hot push.
       fn fluxColor(strength: f32) -> vec3f {
         let t = clamp(sqrt(strength * 2.0e6), 0.0, 1.0);
         if (t < 0.33) {
           let s = t / 0.33;
-          return mix(vec3f(0.0, 0.1, 0.8), vec3f(0.0, 0.8, 1.0), s);
+          return mix(vec3f(0.05, 0.12, 0.55), vec3f(0.35, 0.65, 0.85), s);
         } else if (t < 0.66) {
           let s = (t - 0.33) / 0.33;
-          return mix(vec3f(0.0, 0.8, 1.0), vec3f(0.8, 1.0, 1.0), s);
+          return mix(vec3f(0.35, 0.65, 0.85), vec3f(0.85, 0.92, 0.96), s);
         } else {
           let s = (t - 0.66) / 0.34;
-          return mix(vec3f(0.8, 1.0, 1.0), vec3f(1.2, 1.2, 1.2), s);
+          return mix(vec3f(0.85, 0.92, 0.96), vec3f(1.0, 1.0, 1.0), s);
         }
       }
 
       @fragment
       fn main(input: FragInput) -> @location(0) vec4f {
-        return vec4f(fluxColor(input.strength), input.alpha);
+        // Round the ribbon cross-section and caps.  u spans the width, v spans
+        // the length; fading outside the unit circle creates anti-aliased,
+        // tube-like segments that blend smoothly at joints.
+        let r = length(vec2f(input.u, input.v));
+        let edgeAlpha = 1.0 - smoothstep(0.92, 1.0, r);
+        return vec4f(fluxColor(input.strength), input.alpha * edgeAlpha);
       }
     `;
   }
@@ -964,8 +1038,8 @@ export class MultiDeviceShaders {
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
 
-        // Electric arc colors - cyan/blue energy
-        output.color = vec3f(0.3, 0.8, 1.0);
+        // Electric arc colors - desaturated blue-white filaments.
+        output.color = vec3f(0.72, 0.88, 1.0);
         output.intensity = particle.intensity;
         
         return output;
@@ -983,8 +1057,8 @@ export class MultiDeviceShaders {
       
       @fragment
       fn main(input: FragmentInput) -> @location(0) vec4f {
-        let glow = input.color * input.intensity * 2.0;
-        return vec4f(glow, input.intensity);
+        let glow = input.color * input.intensity * 0.55;
+        return vec4f(glow, input.intensity * 0.45);
       }
     `;
   }
@@ -1055,7 +1129,10 @@ export class MultiDeviceShaders {
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
         let worldPos = rotatedPos + instance.position + devicePos;
 
-        let bandIdx = floor(input.uv.y * 6.0);
+        // bandIndex is now computed in the fragment shader from uv + normal
+        // because the roller mesh encodes end-face radial layers and barrel
+        // axial segments differently.  Pass 0 here; roller logic ignores it.
+        let bandIdx = 0.0;
 
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
@@ -1104,16 +1181,17 @@ export class MultiDeviceShaders {
         detailParams: vec4f
       }
 
+      struct Light {
+        dir: vec3f,
+        color: vec3f,
+        intensity: f32,
+      }
+
       struct LightingConfig {
-        keyDir: vec3f,
-        keyColor: vec3f,
-        keyIntensity: f32,
-        fillDir: vec3f,
-        fillColor: vec3f,
-        fillIntensity: f32,
-        rimDir: vec3f,
-        rimColor: vec3f,
-        rimIntensity: f32,
+        key: Light,
+        fill: Light,
+        rim: Light,
+        ground: Light,
         ambient: f32,
         envMapStrength: f32,
       }
@@ -1188,17 +1266,6 @@ export class MultiDeviceShaders {
         return ggx1 * ggx2;
       }
 
-      fn poleBandColor(bandIndex: f32, baseColor: vec3f) -> vec3f {
-        let idx = u32(bandIndex) % 4u;
-        switch(idx) {
-          case 0u: { return vec3f(0.85, 0.48, 0.22); }
-          case 1u: { return vec3f(0.55, 0.30, 0.15); }
-          case 2u: { return vec3f(0.72, 0.74, 0.76); }
-          case 3u: { return vec3f(0.78, 0.58, 0.22); }
-          default: { return baseColor; }
-        }
-      }
-
       fn fbm(p: vec3f) -> f32 {
         var value = 0.0;
         var amplitude = 0.5;
@@ -1233,6 +1300,113 @@ export class MultiDeviceShaders {
         return vec2f(u, v);
       }
 
+      // Tangent direction for radial brushed-metal surfaces.
+      // Horizontal faces get an azimuthal tangent; vertical cylindrical faces get
+      // a radial-outward tangent. Falls back to the view-space horizontal axis
+      // when the surface is not ring-like.
+      fn radialTangent(localPos: vec3f, N: vec3f) -> vec3f {
+        let radial = normalize(vec3f(localPos.x, 0.0, localPos.z) + vec3f(1e-5));
+        let azimuthal = vec3f(-radial.z, 0.0, radial.x);
+        let isHorizontal = abs(N.y) > 0.65;
+        return select(radial, azimuthal, isHorizontal);
+      }
+
+      // Signed-distance to a regular hexagon (2D, centred at origin, circumradius = 1).
+      fn hexDist(p: vec2f) -> f32 {
+        let k = vec2f(-0.5, 0.86602540378);
+        var q = abs(p);
+        q = q - 2.0 * min(dot(k, q), 0.0) * k;
+        q = q - vec2f(clamp(q.x, -k.y, k.y), 0.0);
+        return length(q) * sign(q.y);
+      }
+
+      // Ring of hex bolt heads in the XZ plane.
+      fn boltRingDecal(localPos: vec3f, boltCount: i32, boltRadius: f32, headSize: f32) -> f32 {
+        let theta = atan2(localPos.z, localPos.x) / (2.0 * 3.14159265) + 0.5;
+        let countF = f32(boltCount);
+        let idx = i32(round(theta * countF));
+        let boltTheta = f32(idx) / countF * 2.0 * 3.14159265;
+        let c = cos(boltTheta);
+        let s = sin(boltTheta);
+        let center = vec2f(c * boltRadius, s * boltRadius);
+        let p = (localPos.xz - center) / max(headSize, 1e-4);
+        let d = hexDist(p);
+        return 1.0 - smoothstep(-0.05, 0.12, d);
+      }
+
+      // ----------------------------------------------------------------------------
+      // Prototype-accurate SEG roller layering
+      // ----------------------------------------------------------------------------
+      // These constants MUST stay in sync with generatePoleBandedRoller() in
+      // seg-geometry-generators.js.
+      const ROLLER_RADIUS: f32 = 0.75;
+      const ROLLER_HEIGHT: f32 = 2.8;
+      const ROLLER_SEGMENTS: f32 = 8.0;
+      const ROLLER_GROOVE_WIDTH: f32 = 0.045;
+      const ROLLER_GROOVE_DEPTH: f32 = 0.035;
+
+      // End-face radial layer boundaries (fraction of outer radius):
+      //   0.0-0.30  neodymium core
+      //   0.30-0.52  nylon / teflon regulator
+      //   0.52-0.74  iron / nickel accelerator
+      //   0.74-1.00  copper / aluminum outer sleeve
+      const LAYER_R0: f32 = 0.30;
+      const LAYER_R1: f32 = 0.52;
+      const LAYER_R2: f32 = 0.74;
+      const LAYER_R3: f32 = 1.00;
+
+      fn rollerLayerId(radialT: f32) -> i32 {
+        if (radialT < LAYER_R0) { return 0; }
+        if (radialT < LAYER_R1) { return 1; }
+        if (radialT < LAYER_R2) { return 2; }
+        return 3;
+      }
+
+      // Layer color for the two prototype presets.
+      // preset 0 = Searl showroom mock-up (nickel/brass/copper finish)
+      // preset 1 = Roschin-Godin lab rig (aluminum sleeves, ceramic, wear)
+      fn rollerLayerColor(layerId: i32, preset: i32) -> vec3f {
+        var c: vec3f;
+        if (preset == 0) {
+          if (layerId == 0) { c = vec3f(0.74, 0.76, 0.78); }      // neodymium
+          else if (layerId == 1) { c = vec3f(0.92, 0.90, 0.85); } // nylon
+          else if (layerId == 2) { c = vec3f(0.88, 0.89, 0.91); } // bright nickel
+          else { c = vec3f(0.85, 0.55, 0.28); }                   // polished copper
+        } else {
+          if (layerId == 0) { c = vec3f(0.62, 0.64, 0.66); }      // ceramic magnet
+          else if (layerId == 1) { c = vec3f(0.90, 0.88, 0.82); } // off-white nylon
+          else if (layerId == 2) { c = vec3f(0.55, 0.56, 0.58); } // steel/iron
+          else { c = vec3f(0.78, 0.79, 0.80); }                   // aluminum sleeve
+        }
+        return c;
+      }
+
+      fn rollerLayerMetallic(layerId: i32, preset: i32) -> f32 {
+        if (preset == 0) {
+          if (layerId == 0) { return 0.88; }
+          if (layerId == 1) { return 0.05; }
+          if (layerId == 2) { return 0.96; }
+          return 0.95;
+        }
+        if (layerId == 0) { return 0.12; }
+        if (layerId == 1) { return 0.05; }
+        if (layerId == 2) { return 0.72; }
+        return 0.55;
+      }
+
+      fn rollerLayerRoughness(layerId: i32, preset: i32) -> f32 {
+        if (preset == 0) {
+          if (layerId == 0) { return 0.24; }
+          if (layerId == 1) { return 0.55; }
+          if (layerId == 2) { return 0.13; }
+          return 0.22;
+        }
+        if (layerId == 0) { return 0.48; }
+        if (layerId == 1) { return 0.62; }
+        if (layerId == 2) { return 0.38; }
+        return 0.34;
+      }
+
       fn sharedMaterialId(mode: i32, renderMode: i32, ringIndex: f32, bandIndex: f32) -> u32 {
         if (mode == 1) { return 8u; }
         if (mode == 2) { return 10u; }
@@ -1244,7 +1418,6 @@ export class MultiDeviceShaders {
         if (renderMode == 3) { return 0u; }
         if (ringIndex < -0.5) { return 1u; }
         if (ringIndex > 10.0) { return 2u; }
-        if (bandIndex >= 0.0 && bandIndex < 6.0 && (u32(bandIndex) % 4u) == 2u) { return 4u; }
         return 0u;
       }
 
@@ -1254,7 +1427,7 @@ export class MultiDeviceShaders {
         let renderMode = i32(round(device.renderMode));
         let energy = clamp(device.timeScale, 0.0, 1.0);
         let overdrive = pow(energy, 1.8);
-        let mat = materialTable[sharedMaterialId(mode, renderMode, input.ringIndex, input.bandIndex)];
+        var mat = materialTable[sharedMaterialId(mode, renderMode, input.ringIndex, 0.0)];
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
         let localPos = input.worldPos - devicePos;
         let cylUV = cylindricalUV(localPos);
@@ -1266,14 +1439,68 @@ export class MultiDeviceShaders {
         var roughness: f32;
         var emissive: f32;
         var isCopper = false;
+        var layerId: i32 = -1;
+        var segmentId: i32 = -1;
 
-        if (renderMode == 0 && input.bandIndex >= 0.0 && input.bandIndex < 6.0) {
-          baseColor = poleBandColor(input.bandIndex, input.copperColor);
-          let isNeodymium = (u32(input.bandIndex) % 4u) == 2u;
-          isCopper = (u32(input.bandIndex) % 4u) == 0u || (u32(input.bandIndex) % 4u) == 1u;
-          metallic = select(0.95, 0.88, isNeodymium);
-          roughness = select(0.30, 0.20, isNeodymium);
-          emissive = select(0.0, 0.15, isNeodymium);
+        // Prototype preset encoded in material pad1 (0 = Searl mock-up, 1 = Roschin-Godin)
+        let prototypePreset = i32(round(material.pad1));
+
+        if (renderMode == 0) {
+          let capThreshold = 0.85;
+          let isCap = abs(N.y) > capThreshold;
+          let radialT = length(localPos.xz) / ROLLER_RADIUS;
+          layerId = rollerLayerId(radialT);
+
+          // Axial segment / groove detection on the barrel.
+          let yRel = localPos.y + ROLLER_HEIGHT * 0.5;
+          let segmentPitch = (ROLLER_HEIGHT - ROLLER_GROOVE_WIDTH * (ROLLER_SEGMENTS - 1.0)) / ROLLER_SEGMENTS + ROLLER_GROOVE_WIDTH;
+          let cyclePos = fract(yRel / segmentPitch) * segmentPitch;
+          let bandHeight = segmentPitch - ROLLER_GROOVE_WIDTH;
+          segmentId = i32(clamp(floor(yRel / segmentPitch), 0.0, ROLLER_SEGMENTS - 1.0));
+          let distToBoundary = min(cyclePos, abs(cyclePos - bandHeight));
+          let isGroove = distToBoundary < ROLLER_GROOVE_WIDTH * 0.5 &&
+                         yRel > ROLLER_GROOVE_WIDTH && yRel < ROLLER_HEIGHT - ROLLER_GROOVE_WIDTH;
+
+          // Pull material table index from layer composition.
+          if (isCap) {
+            // layer 0=neo, 1=nylon, 2=iron, 3=outer
+            var layerMatId = select(select(select(4u, 3u, layerId == 1), 1u, layerId == 2), 0u, layerId == 3);
+            // For Roschin-Godin use the anodized-can/aluminum preset for the outer sleeve.
+            if (prototypePreset == 1 && layerId == 3) { layerMatId = 10u; }
+            mat = materialTable[layerMatId];
+          }
+
+          if (isCap) {
+            baseColor = rollerLayerColor(layerId, prototypePreset);
+            metallic = rollerLayerMetallic(layerId, prototypePreset);
+            roughness = rollerLayerRoughness(layerId, prototypePreset);
+            emissive = select(0.0, 0.22, layerId == 0) * energy;
+            isCopper = (layerId == 3) && (prototypePreset == 0);
+
+            // Slight step-normal at radial layer transitions.
+            let layerEdgeDist = min(abs(radialT - LAYER_R0), min(abs(radialT - LAYER_R1), abs(radialT - LAYER_R2)));
+            let nearEdge = smoothstep(0.025, 0.0, layerEdgeDist);
+            let radialDir = normalize(vec3f(localPos.x, 0.0, localPos.z));
+            N = normalize(mix(N, radialDir * sign(N.y), nearEdge * 0.25));
+          } else {
+            // Barrel is the outer sleeve, interrupted by dark oxidized grooves.
+            baseColor = rollerLayerColor(3, prototypePreset);
+            metallic = rollerLayerMetallic(3, prototypePreset);
+            roughness = rollerLayerRoughness(3, prototypePreset);
+            emissive = 0.0;
+            isCopper = (prototypePreset == 0);
+
+            if (isGroove) {
+              baseColor *= 0.50;
+              roughness = min(roughness + 0.28, 0.95);
+              emissive = 0.18 * energy;
+
+              // Bend normal inward to emphasize the machined recess.
+              let grooveT = smoothstep(ROLLER_GROOVE_WIDTH * 0.5, 0.0, distToBoundary);
+              let radialDir = normalize(vec3f(localPos.x, 0.0, localPos.z));
+              N = normalize(mix(N, -radialDir, grooveT * 0.55));
+            }
+          }
         } else if (input.ringIndex < -0.5) {
           baseColor = vec3f(0.65, 0.67, 0.70);
           metallic = 0.96;
@@ -1299,21 +1526,53 @@ export class MultiDeviceShaders {
         metallic = mix(metallic, mat.baseMetal.a, 0.65);
         roughness = mix(roughness, mat.accentRough.a, 0.65);
 
-        let brushed = fbm(localPos * (mat.detailParams.x * 0.35));
-        let oxidation = fbm(localPos * (mat.detailParams.x * 0.75 + 9.0));
+        // Offset FBM by layer and segment so wear/oxidation respects boundaries
+        // rather than smearing continuously across them.
+        let layerOffset = vec3f(f32(layerId + 1) * 7.31, f32(segmentId + 1) * 11.73, 0.0);
+        let brushed = fbm(localPos * (mat.detailParams.x * 0.35) + layerOffset);
+        let oxidation = fbm(localPos * (mat.detailParams.x * 0.75 + 9.0) + layerOffset * 1.3);
         baseColor = mix(baseColor, mat.accentRough.rgb, oxidation * mat.detailParams.y);
         baseColor *= 0.90 + brushed * 0.15;
         roughness = clamp(roughness + brushed * 0.08 + oxidation * 0.08, 0.05, 1.0);
 
         var decalMask = 0.0;
+        var radialBrush = 0.0;
+        var creviceAO = 0.0;
         let triMask = triplanarMask(localPos, N, 0.85);
 
+        let theta = atan2(localPos.z, localPos.x) / (2.0 * 3.14159265) + 0.5;
+        let polarR = length(localPos.xz);
+
+        // Base-plate bolt ring: hex heads around the perimeter of the chassis.
+        if (renderMode == 1) {
+          let bolts = boltRingDecal(localPos, 24, 3.65, 0.13);
+          decalMask += bolts;
+          // Perturb normal so bolt heads catch the key light.
+          let boltTangent = normalize(vec3f(-localPos.z, 0.0, localPos.x));
+          N = normalize(mix(N, boltTangent * 0.25 + vec3f(0.0, 0.35, 0.0), bolts * 0.45));
+        }
+
         if (renderMode == 1 || renderMode == 2) {
-          let theta = atan2(localPos.z, localPos.x) / (2.0 * 3.14159265) + 0.5;
           let rivetSector = abs(fract(theta * 24.0) - 0.5);
-          let rivetRadial = abs(length(localPos.xz) - 3.2);
+          let rivetRadial = abs(polarR - 3.2);
           let rivets = smoothstep(0.08, 0.01, rivetSector) * smoothstep(0.12, 0.0, rivetRadial);
           decalMask += rivets * 0.8;
+        }
+
+        // Radial machining scratches for rings, plates, and roller end-caps.
+        let isCapLike = (renderMode == 0) && (abs(N.y) > 0.85);
+        if (renderMode == 2 || input.ringIndex > 10.0 || isCapLike) {
+          let scratchFreq = 112.0;
+          let scratchNoise = fbm(vec3f(theta * scratchFreq, polarR * 5.0, localPos.y * 10.0));
+          let scratch = abs(sin(theta * scratchFreq + scratchNoise * 1.8));
+          radialBrush = smoothstep(0.38, 0.58, scratch);
+        }
+
+        // Structural plate rib valley shadow (8 radial ribs).
+        if (input.ringIndex > 10.0) {
+          let ribSector = abs(fract(theta * 8.0 + 0.5) - 0.5);
+          let ribShadow = smoothstep(0.14, 0.0, ribSector) * smoothstep(0.45, 0.0, abs(N.y));
+          creviceAO += ribShadow * 0.38;
         }
 
         if (mode == 1) {
@@ -1339,27 +1598,59 @@ export class MultiDeviceShaders {
 
         baseColor = mix(baseColor, vec3f(0.93, 0.93, 0.90), decalMask * 0.35);
         roughness = clamp(roughness - decalMask * 0.08, 0.05, 1.0);
+
         let NdotV = max(dot(N, V), 0.0);
-        let edgeWear = pow(1.0 - NdotV, 2.0) * mat.detailParams.z;
-        baseColor = mix(baseColor, mat.accentRough.rgb, edgeWear * 0.62);
-        if (renderMode == 1 || renderMode == 2) {
-          baseColor *= 1.0 - edgeWear * 0.1;
+
+        // Edge wear: combine grazing Fresnel with physical rim proximity so edges
+        // read even at a distance.
+        var rimDist = 1000.0;
+        if (renderMode == 2) {
+          rimDist = min(abs(polarR - 2.4), min(abs(polarR - 4.1), abs(polarR - 5.8)));
+        } else if (input.ringIndex > 10.0) {
+          rimDist = min(abs(polarR - 6.5), abs(polarR - 0.8));
+        } else if (renderMode == 1) {
+          rimDist = 4.1 - polarR;
+        }
+        let rimWear = smoothstep(0.30, 0.0, rimDist);
+        let edgeWear = pow(1.0 - NdotV, 2.0) * mat.detailParams.z + rimWear * 0.55;
+
+        // Aged copper / brass patina: greenish oxidation concentrated in crevices
+        // and on horizontal-facing copper-bearing surfaces.
+        if (isCopper || input.ringIndex > 10.0 || renderMode == 2) {
+          let oxide = oxidationFBM(localPos * 0.55 + vec3f(3.7, 1.2, 5.3));
+          let patina = oxide * (1.0 - NdotV) * 0.65;
+          baseColor = mix(baseColor, vec3f(0.20, 0.30, 0.16), patina * 0.42);
         }
 
-        // Construct tangent/bitangent for anisotropic specular (brushed-metal)
+        // Crevice / contact ambient occlusion.
+        creviceAO += (1.0 - NdotV) * 0.15;
+        creviceAO += fbm(localPos * 6.0) * 0.06;
+        creviceAO = clamp(creviceAO, 0.0, 0.55);
+
+        baseColor = mix(baseColor, mat.accentRough.rgb, edgeWear * 0.55);
+        if (renderMode == 1 || renderMode == 2 || input.ringIndex > 10.0) {
+          baseColor *= 1.0 - edgeWear * 0.12;
+        }
+
+        // Construct tangent/bitangent for anisotropic specular (brushed-metal).
+        // Use a radial tangent for ring-like surfaces, otherwise fall back to the
+        // generic view-space horizontal reference.
         let upRef = select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(N.y) > 0.99);
-        let T = normalize(cross(upRef, N));
+        let isRadialSurface = (renderMode == 2) || (input.ringIndex > 10.0) || isCapLike;
+        let T = normalize(select(cross(upRef, N), radialTangent(localPos, N), isRadialSurface));
         let B = cross(N, T);
 
-        // Anisotropic roughness (brushed along tangent direction)
-        let roughX = roughness * 0.7; // Tighter along brush direction
-        let roughY = roughness * 1.3; // Wider perpendicular to brush
+        // Anisotropic roughness (brushed along tangent direction).
+        var roughX = roughness * 0.65; // Tighter along brush direction
+        var roughY = roughness * 1.45; // Wider perpendicular to brush
+        roughX = mix(roughX, roughX * 0.55, radialBrush * 0.65);
+        roughY = mix(roughY, roughY * 1.25, radialBrush * 0.65);
 
         let f0 = mix(vec3f(0.04), baseColor, metallic);
         let albedo = mix(baseColor, vec3f(0.0), metallic);
 
         // Key light with anisotropic specular
-        let L1 = normalize(-lighting.keyDir);
+        let L1 = normalize(lighting.key.dir);
         let H1 = normalize(V + L1);
         let NdotL1 = max(dot(N, L1), 0.0);
         let NdotH1 = max(dot(N, H1), 0.0);
@@ -1372,7 +1663,7 @@ export class MultiDeviceShaders {
         let kD1 = (vec3f(1.0) - F1) * (1.0 - metallic);
 
         // Fill light with anisotropic specular
-        let L2 = normalize(-lighting.fillDir);
+        let L2 = normalize(lighting.fill.dir);
         let H2 = normalize(V + L2);
         let NdotL2 = max(dot(N, L2), 0.0);
         let NdotH2 = max(dot(N, H2), 0.0);
@@ -1384,17 +1675,22 @@ export class MultiDeviceShaders {
         let specular2 = (D2 * G2 * F2) / (4.0 * NdotV * NdotL2 + 0.001);
         let kD2 = (vec3f(1.0) - F2) * (1.0 - metallic);
 
-        let rimFactor = pow(1.0 - NdotV, 3.0) * lighting.rimIntensity;
-        let rimLight = lighting.rimColor * rimFactor;
+        let rimFactor = pow(1.0 - NdotV, 3.0) * lighting.rim.intensity;
+        let rimLight = lighting.rim.color * rimFactor;
+
+        // Ground bounce light from below
+        let Lg = normalize(lighting.ground.dir);
+        let NdotLg = max(dot(N, Lg), 0.0);
 
         let diffuse = albedo * 3.14159265 * (
-          kD1 * NdotL1 * lighting.keyColor * lighting.keyIntensity +
-          kD2 * NdotL2 * lighting.fillColor * lighting.fillIntensity * 0.5
+          kD1 * NdotL1 * lighting.key.color * lighting.key.intensity +
+          kD2 * NdotL2 * lighting.fill.color * lighting.fill.intensity * 0.5 +
+          lighting.ground.color * lighting.ground.intensity * NdotLg
         );
 
         let specular = (
-          specular1 * lighting.keyColor * lighting.keyIntensity * NdotL1 +
-          specular2 * lighting.fillColor * lighting.fillIntensity * NdotL2 * 0.3
+          specular1 * lighting.key.color * lighting.key.intensity * NdotL1 +
+          specular2 * lighting.fill.color * lighting.fill.intensity * NdotL2 * 0.3
         );
 
         // Cheap IBL approximation (environment reflection term)
@@ -1403,20 +1699,37 @@ export class MultiDeviceShaders {
         let ambient = albedo * lighting.ambient * vec3f(0.15, 0.18, 0.22);
         var color = ambient + diffuse + specular + rimLight + envReflect;
 
-        let bottomGlow = max(0.0, -N.y) * input.greenEmissive * (1.5 + overdrive * 2.5);
-        color += vec3f(0.0, 1.0, 0.5) * bottomGlow;
+        // Subtle bearing-edge glow: warm copper at the rim plus a faint blue-white
+        // brush discharge that only appears at high RPM / overdrive.
+        let bottomGlow = max(0.0, -N.y) * input.greenEmissive * (0.35 + overdrive * 0.8);
+        color += vec3f(0.95, 0.62, 0.28) * bottomGlow * 0.25;
+
+        if (renderMode == 0 && abs(N.y) < 0.85) {
+          let yEdge = 1.0 - abs(localPos.y) / (ROLLER_HEIGHT * 0.5);
+          let edgeProximity = smoothstep(0.18, 0.0, yEdge);
+          let brushDischarge = edgeProximity * smoothstep(0.30, 0.70, overdrive);
+          color += vec3f(0.62, 0.82, 1.0) * brushDischarge * 0.18 * energy;
+        }
         color += baseColor * emissive * (0.4 + energy * 0.7);
         if (isCopper) {
           let hot = mix(850.0, 3300.0, clamp(energy * 0.8 + input.greenEmissive * 0.7, 0.0, 1.0));
-          color += blackbody(hot) * (0.12 + overdrive * 0.55);
+          color += blackbody(hot) * (0.08 + overdrive * 0.38);
         }
 
-        let energyArc = smoothstep(0.7, 1.0, input.greenEmissive) * (0.25 + overdrive * 0.8);
-        color += vec3f(0.3, 0.8, 1.0) * energyArc * NdotV;
+        // Fine charge filaments at the roller surface, not giant glowing orbs.
+        let energyArc = smoothstep(0.7, 1.0, input.greenEmissive) * (0.04 + overdrive * 0.35);
+        color += vec3f(0.65, 0.85, 1.0) * energyArc * NdotV;
+
+        // Faint blue-white plasma halo on stator rings, scaling with energy/speed.
+        if (renderMode == 2) {
+          let statorHalo = pow(1.0 - NdotV, 2.5) * (0.03 + overdrive * 0.10) * smoothstep(0.0, 0.30, energy);
+          color += vec3f(0.55, 0.78, 1.0) * statorHalo;
+        }
 
         // Contact shadow / ambient-occlusion hint: darken surfaces near Y = 0
+        // and in procedural crevices (bolt seams, rib valleys, grooves).
         let contactAO = 0.55 + 0.45 * smoothstep(0.0, 2.2, abs(input.worldPos.y));
-        color *= contactAO;
+        color *= contactAO * (1.0 - creviceAO * 0.55);
 
         color = color * (2.51 * color + 0.03) / (color * (2.43 * color + 0.59) + 0.14);
 
@@ -1676,11 +1989,14 @@ export class MultiDeviceShaders {
         let rollAxisZ    = sin(tangentAngle);
         let halfAngle    = selfRotAngle / 2.0;
 
-        // Emissive boost proportional to speed (neodymium rollers glow brighter)
+        // Emissive boost proportional to speed (neodymium rollers glow brighter).
+        // Restrained baseline: no green underglow until high RPM, then a faint
+        // bearing-edge glow rather than a neon floor wash.
         let colorIdx  = (localI + ringIdx * 3u) % 4u;
-        let baseEmit  = select(0.0, 0.3, colorIdx == 2u);
+        let baseEmit  = select(0.0, 0.15, colorIdx == 2u);
+        let speedFactor = smoothstep(2.0, 7.0, uniforms.speedMult);
         // Clamp emissive to avoid overflow at very high speeds
-        let emissive  = min(baseEmit * max(1.0, uniforms.speedMult * 0.5), 1.0);
+        let emissive  = min(baseEmit * speedFactor, 0.35);
 
         var r: RollerInstance;
         r.position     = vec3f(x, 0.0, z);

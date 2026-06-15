@@ -63,6 +63,7 @@ class DeviceUniformManager {
       baseColor = [0.85, 0.48, 0.25]; // Copper
       glowColor = [0.0, 1.2, 0.6];    // Green energy
       emission = 1.8;
+      pad = this.visualizer.prototypePreset === 'lab' ? 1.0 : 0.0;
     } else if (this.id === 'solar') {
       // Solar device uses a warm glow color and will modulate emission based on battery charge.
       baseColor = this.config.color;

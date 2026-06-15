@@ -65,8 +65,8 @@ export class EnhancedSEGGeometry {
     this.buffers.roller = generatePoleBandedRoller(this.device, {
       radius: 0.75,
       height: 2.8,
-      bands: 6,
-      segments: 32
+      bands: 8,
+      segments: 64
     });
 
     // Upper plate with cutouts

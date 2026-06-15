@@ -62,8 +62,24 @@ export class MultiDeviceVisualizer {
       key: { position: [5.0, 8.0, 5.0], color: [1.0, 0.98, 0.95], intensity: 1.2 },
       fill: { position: [-4.0, 3.0, -3.0], color: [0.75, 0.85, 1.0], intensity: 0.4 },
       rim: { position: [0.0, 2.0, -8.0], color: [0.4, 0.8, 1.0], intensity: 0.8 },
-      ground: { position: [0.0, -5.0, 0.0], color: [0.3, 0.25, 0.2], intensity: 0.15 }
+      ground: { position: [0.0, -5.0, 0.0], color: [0.3, 0.25, 0.2], intensity: 0.15 },
+      ambient: 0.3,
+      envMapStrength: 0.5
     };
+
+    // Prototype-accuracy preset for SEG rollers.
+    //   'showroom' = Searl mock-up (nickel/brass/copper showroom finish)
+    //   'lab'      = Roschin-Godin lab rig (aluminum sleeves, ceramic, wear)
+    const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
+    const protoParam = params.get('prototype');
+    this.prototypePreset = 'showroom';
+    if (protoParam === 'lab' || protoParam === 'roschin' || protoParam === 'godin') {
+      this.prototypePreset = 'lab';
+    } else if (protoParam === 'showroom' || protoParam === 'searl') {
+      this.prototypePreset = 'showroom';
+    } else if (typeof window !== 'undefined' && window.SEG_PROTOTYPE_PRESET) {
+      this.prototypePreset = window.SEG_PROTOTYPE_PRESET;
+    }
 
     this.init();
   }
@@ -101,7 +117,7 @@ export class MultiDeviceVisualizer {
       // Track initial allocations
       this.profiler.trackBuffer('globalUniforms', 512, GPUBufferUsage.UNIFORM);
 
-      // Create lighting uniform buffer for enhanced PBR shaders (192 bytes)
+      // Create lighting uniform buffer for all lit SEG and solar-gauge passes (192 bytes)
       this.lightingUniformBuffer = this.device.createBuffer({
         size: 192,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -580,9 +596,10 @@ export class MultiDeviceVisualizer {
     ]));
     this.profiler.trackBuffer('seg-base-instance', 48, GPUBufferUsage.STORAGE);
 
-    // Enhanced SEG roller with 6 magnetic pole bands
+    // Enhanced SEG roller: 8 stacked segments with machined grooves and
+    // prototype-accurate end-face layer rings.
     this.enhancedRollerBuffer = generatePoleBandedRoller(this.device, {
-      radius: 0.75, height: 2.8, bands: 6, segments: 64
+      radius: 0.75, height: 2.8, bands: 8, segments: 64
     });
     this.profiler.trackBuffer('enhanced-roller-vertices', this.enhancedRollerBuffer.vertexBuffer.size, GPUBufferUsage.VERTEX);
     this.profiler.trackBuffer('enhanced-roller-indices', this.enhancedRollerBuffer.indexBuffer.size, GPUBufferUsage.INDEX);
@@ -725,13 +742,74 @@ export class MultiDeviceVisualizer {
       majorRadius: 7.5, minorRadius: 0.6, turns: 60, majorSegments: 96
     });
 
-    // Stator ring cylinder with UVs (for enhanced PBR pipeline)
-    const statorCylData = this.generateCylinderWithUVs(1.0, 0.22, 64);
-    const statorCylVB = this.device.createBuffer({ size: statorCylData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-    this.device.queue.writeBuffer(statorCylVB, 0, statorCylData.vertices);
-    const statorCylIB = this.device.createBuffer({ size: statorCylData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-    this.device.queue.writeBuffer(statorCylIB, 0, statorCylData.indices);
-    this.statorRingUVBuffer = { vertexBuffer: statorCylVB, indexBuffer: statorCylIB, indexCount: statorCylData.indices.length };
+    // Stator rings: three concentric annular discs with proper UVs and radii.
+    // The old unit-cylinder path used a custom instance layout that did not match
+    // the enhanced SEG vertex shader; these discs are baked to size and drawn with
+    // a single canonical InstanceData entry.
+    const statorRings = [
+      { radius: 2.4, y: 0.00 },
+      { radius: 4.1, y: 0.12 },
+      { radius: 5.8, y: 0.24 }
+    ];
+    const ringThickness = 0.22;
+    const ringSegs = 96;
+    const ringVCount = statorRings.map(r => {
+      const d = this.generateDiscWithUVs(r.radius - ringThickness * 0.5, r.radius + ringThickness * 0.5, ringThickness, ringSegs);
+      return { data: d, vertexCount: d.vertices.length / 8 };
+    });
+
+    let ringTotalVerts = 0;
+    let ringTotalIdx = 0;
+    for (const r of ringVCount) {
+      ringTotalVerts += r.vertexCount;
+      ringTotalIdx += r.data.indices.length;
+    }
+    const ringVertices = new Float32Array(ringTotalVerts * 8);
+    const ringIndices = new Uint16Array(ringTotalIdx);
+    let vOff = 0;
+    let iOff = 0;
+    for (let ri = 0; ri < ringVCount.length; ri++) {
+      const y = statorRings[ri].y;
+      const src = ringVCount[ri].data;
+      const vCount = ringVCount[ri].vertexCount;
+      for (let i = 0; i < vCount; i++) {
+        ringVertices[(vOff + i) * 8 + 0] = src.vertices[i * 8 + 0];
+        ringVertices[(vOff + i) * 8 + 1] = src.vertices[i * 8 + 1] + y;
+        ringVertices[(vOff + i) * 8 + 2] = src.vertices[i * 8 + 2];
+        ringVertices[(vOff + i) * 8 + 3] = src.vertices[i * 8 + 3];
+        ringVertices[(vOff + i) * 8 + 4] = src.vertices[i * 8 + 4];
+        ringVertices[(vOff + i) * 8 + 5] = src.vertices[i * 8 + 5];
+        ringVertices[(vOff + i) * 8 + 6] = src.vertices[i * 8 + 6];
+        ringVertices[(vOff + i) * 8 + 7] = src.vertices[i * 8 + 7];
+      }
+      for (let i = 0; i < src.indices.length; i++) {
+        ringIndices[iOff + i] = src.indices[i] + vOff;
+      }
+      vOff += vCount;
+      iOff += src.indices.length;
+    }
+
+    const statorRingVB = this.device.createBuffer({ size: ringVertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(statorRingVB, 0, ringVertices);
+    const statorRingIB = this.device.createBuffer({ size: ringIndices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(statorRingIB, 0, ringIndices);
+    this.statorRingUVBuffer = { vertexBuffer: statorRingVB, indexBuffer: statorRingIB, indexCount: ringIndices.length };
+    this.profiler.trackBuffer('seg-stator-ring-vertices', ringVertices.byteLength, GPUBufferUsage.VERTEX);
+    this.profiler.trackBuffer('seg-stator-ring-indices', ringIndices.byteLength, GPUBufferUsage.INDEX);
+
+    // Single canonical instance entry for the merged stator-ring mesh.
+    this.statorRingInstanceBuffer = this.device.createBuffer({
+      size: 48,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(this.statorRingInstanceBuffer, 0, new Float32Array([
+      0, 0, 0,       // position
+      0.0,           // ringIndex
+      0, 0, 0, 1,    // rotation
+      0.85, 0.48, 0.25, // copper color
+      0.0            // emissive
+    ]));
+    this.profiler.trackBuffer('seg-stator-ring-instance', 48, GPUBufferUsage.STORAGE);
 
     // Wiring cylinder with UVs (for enhanced PBR pipeline)
     const wireCylData = this.generateCylinderWithUVs(0.15, 2.0, 16);
@@ -977,7 +1055,9 @@ export class MultiDeviceVisualizer {
     // Base uniforms (offset 0-23: 96 bytes)
     globalData.set(viewProj, 0);                    // 0-15: viewProj matrix
     globalData[16] = this.time;                     // 16: time
-    // padding at 17-19 (3 floats = 12 bytes)
+    // padding at 17 (1 float = 4 bytes)
+    globalData[18] = this.canvas.width  || 1.0;     // 18-19: resolution (vec2f)
+    globalData[19] = this.canvas.height || 1.0;
     globalData[20] = this.camera.camera.position[0];  // 20: cameraPos.x
     globalData[21] = this.camera.camera.position[1];  // 21: cameraPos.y
     globalData[22] = this.camera.camera.position[2];  // 22: cameraPos.z
@@ -1029,7 +1109,7 @@ export class MultiDeviceVisualizer {
     
     this.device.queue.writeBuffer(this.globalUniformBuffer, 0, globalData);
 
-    // Upload lighting data for enhanced PBR shaders
+    // Upload centralized 3-point + environment lighting rig for all lit passes
     const lightingData = new Float32Array(48);
     lightingData[0] = key.position[0]; lightingData[1] = key.position[1]; lightingData[2] = key.position[2]; lightingData[3] = 0;
     lightingData[4] = key.color[0]; lightingData[5] = key.color[1]; lightingData[6] = key.color[2]; lightingData[7] = key.intensity;
@@ -1039,8 +1119,8 @@ export class MultiDeviceVisualizer {
     lightingData[20] = rim.color[0]; lightingData[21] = rim.color[1]; lightingData[22] = rim.color[2]; lightingData[23] = rim.intensity;
     lightingData[24] = ground.position[0]; lightingData[25] = ground.position[1]; lightingData[26] = ground.position[2]; lightingData[27] = 0;
     lightingData[28] = ground.color[0]; lightingData[29] = ground.color[1]; lightingData[30] = ground.color[2]; lightingData[31] = ground.intensity;
-    lightingData[32] = 0.3;  // ambient
-    lightingData[33] = 0.5;  // envMapStrength
+    lightingData[32] = this.lightingConfig.ambient;
+    lightingData[33] = this.lightingConfig.envMapStrength;
     this.device.queue.writeBuffer(this.lightingUniformBuffer, 0, lightingData);
 
     // Update devices with quality scaling
@@ -1170,9 +1250,9 @@ export class MultiDeviceVisualizer {
           new Float32Array([
             1.0 / w,
             1.0 / h,
-            Math.max(0.20, this.simRateController.bloomThreshold - energyPow * 0.18),
+            Math.max(0.45, this.simRateController.bloomThreshold - energyPow * 0.10),
             Math.max(0.08, this.simRateController.bloomThreshold * (0.18 + energy * 0.10)),
-            this.simRateController.bloomStrength * (1.0 + energyPow * 0.9),
+            this.simRateController.bloomStrength * (1.0 + energyPow * 0.35),
             1.3 + energyPow * 3.6,
             energyPow,
             0.010 + energyPow * 0.045,

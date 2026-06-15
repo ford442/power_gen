@@ -71,9 +71,11 @@ export class WebGPUManager {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
-    // Seed a valid viewProj so a partial init never leaves NaN transforms in the GPU block.
+    // Seed a valid viewProj and a non-zero resolution so partial init never
+    // leaves NaN transforms or division-by-zero in the GPU block.
     const globalSeed = new Float32Array(24);
     globalSeed[0] = 1; globalSeed[5] = 1; globalSeed[10] = 1; globalSeed[15] = 1;
+    globalSeed[18] = 1; globalSeed[19] = 1;
     globalSeed[20] = 0; globalSeed[21] = 8; globalSeed[22] = 18;
     this.device.queue.writeBuffer(this.globalUniformBuffer, 0, globalSeed);
 

@@ -332,7 +332,7 @@ class DeviceInstance {
       if (this.fluxTracerUniformBuffer) {
         this.device.queue.writeBuffer(
           this.fluxTracerUniformBuffer, 0,
-          new Float32Array([time, deltaTime, 0.02, 1.0, 0.35, 2.0, 0.0, 0.0])
+          new Float32Array([time, deltaTime, 0.02, 0.45, 0.35, 2.0, 0.0, 0.0])
         );
       }
 
@@ -435,17 +435,17 @@ class DeviceInstance {
       const coilEnergy = this.coilEnergies
         ? this.coilEnergies.reduce((sum, e) => sum + e, 0) / this.coilEnergies.length
         : 0;
-      const coronaStrength = Math.max(0.0, Math.min(1.0, (speedMult - 1.0) * 0.25 + coilEnergy * 0.7 + Math.pow(energy, 1.4) * 0.9));
-      const coronaCount = Math.floor((24 + budget * 0.5) * coronaStrength);
+      const coronaStrength = Math.max(0.0, Math.min(1.0, (speedMult - 1.0) * 0.08 + coilEnergy * 0.35 + Math.pow(energy, 1.4) * 0.45));
+      const coronaCount = Math.floor((10 + budget * 0.22) * coronaStrength);
       for (let i = 0; i < coronaCount; i++) {
         const a = (i / Math.max(1, coronaCount)) * Math.PI * 2 + t * (0.35 + coronaStrength);
         const ring = i % 3;
         const radius = (ring === 0 ? 2.4 : ring === 1 ? 3.9 : 5.4) + Math.sin(i * 2.31 + t) * 0.16;
-        const y = (Math.sin(i * 1.93 + t * 1.9) * 0.8 + (Math.random() - 0.5) * 0.3) * (0.8 + coronaStrength * 1.4);
+        const y = (Math.sin(i * 1.93 + t * 1.9) * 0.8 + (Math.random() - 0.5) * 0.3) * (0.45 + coronaStrength * 0.55);
         pushParticle(Math.cos(a) * radius, y, Math.sin(a) * radius, 2.0 + Math.random());
       }
 
-      const burstBase = Math.floor(budget * (0.06 + coronaStrength * 0.30));
+      const burstBase = Math.floor(budget * (0.04 + coronaStrength * 0.18));
       for (let i = 0; i < burstBase; i++) {
         const a = Math.random() * Math.PI * 2;
         const radius = 3.0 + Math.random() * 2.6;
@@ -785,8 +785,8 @@ class DeviceInstance {
       arcData[idx + 5] = Math.sin(arcAngle) * 0.5;
 
       // Life and intensity
-      arcData[idx + 6] = Math.sin(time * 5.0 * speedMult + i * 0.3) * 0.5 + 0.5;
-      arcData[idx + 7] = Math.min(1.0, 0.4 + 0.6 * speedMult * 0.2);
+      arcData[idx + 6] = Math.sin(time * 5.0 * speedMult + i * 0.3) * 0.3 + 0.5;
+      arcData[idx + 7] = Math.min(0.55, 0.12 + 0.35 * speedMult * 0.12);
     }
 
     this.device.queue.writeBuffer(this.arcSegments, 0, arcData);
@@ -884,7 +884,8 @@ class DeviceInstance {
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.gaugeInstanceBuffer } },
           { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-          { binding: 5, resource: { buffer: this.visualizer.materialTableBuffer } }
+          { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
+          { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
         ]
       });
 
@@ -995,7 +996,7 @@ class DeviceInstance {
     const deviceData = this._buildDeviceUniformData(this.renderMode);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
-    // Enhanced PBR pipeline with UV geometry is now the only stator path.
+    // Enhanced PBR pipeline with merged annular-disc geometry.
     const bindGroup = this.device.createBindGroup({
       layout: this.segEnhancedPipeline.getBindGroupLayout(0),
       entries: [
@@ -1012,7 +1013,7 @@ class DeviceInstance {
     renderPass.setBindGroup(0, bindGroup);
     renderPass.setVertexBuffer(0, v.statorRingUVBuffer.vertexBuffer);
     renderPass.setIndexBuffer(v.statorRingUVBuffer.indexBuffer, 'uint16');
-    renderPass.drawIndexed(v.statorRingUVBuffer.indexCount, 3); // 3 rings
+    renderPass.drawIndexed(v.statorRingUVBuffer.indexCount, 1);
   }
 
   renderWiring(renderPass, globalUniformBuffer) {

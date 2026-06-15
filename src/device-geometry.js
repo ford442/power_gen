@@ -49,29 +49,29 @@ export class DeviceGeometry {
   }
 
   async setupStatorRings() {
-    // 3 flat concentric copper stator rings (layered plates)
-    const ringCount = 3;
+    // The enhanced SEG vertex shader expects the canonical InstanceData layout:
+    //   position(3) + ringIndex(1) + rotation(4) + copperColor(3) + greenEmissive(1).
+    // The actual ring meshes (three concentric annular discs) now live in the
+    // shared visualizer buffer; this instance buffer supplies the single identity
+    // transform that places the merged mesh at the origin.
+    if (this.visualizer && this.visualizer.statorRingInstanceBuffer) {
+      this.statorRingBuffer = this.visualizer.statorRingInstanceBuffer;
+      return;
+    }
+
+    // Fallback: create a minimal canonical instance buffer if the shared buffer
+    // is not available (should not happen in the normal enhanced path).
     this.statorRingBuffer = this.device.createBuffer({
-      size: ringCount * 48,
+      size: 48,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-
-    const ringData = new Float32Array(ringCount * 12);
-    const radii = [2.4, 4.1, 5.8];
-    for (let i = 0; i < ringCount; i++) {
-      const idx = i * 12;
-      ringData[idx]     = 0;
-      ringData[idx + 1] = 0.12 * i;           // slight vertical stacking
-      ringData[idx + 2] = 0;
-      ringData[idx + 3] = radii[i];           // radius
-      ringData[idx + 4] = 0.22;               // thickness (flat plate)
-      ringData[idx + 5] = 0;                  // rotation
-      // Copper color
-      ringData[idx + 6] = 0.85; ringData[idx + 7] = 0.48; ringData[idx + 8] = 0.25;
-      ringData[idx + 9] = 0.0;                // emissive (none on stator)
-      ringData[idx + 10] = 0.9;               // specular
-    }
-    this.device.queue.writeBuffer(this.statorRingBuffer, 0, ringData);
+    this.device.queue.writeBuffer(this.statorRingBuffer, 0, new Float32Array([
+      0, 0, 0,       // position
+      0.0,           // ringIndex
+      0, 0, 0, 1,    // rotation
+      0.85, 0.48, 0.25, // copper color
+      0.0            // emissive
+    ]));
   }
 
   async setupRollers() {
