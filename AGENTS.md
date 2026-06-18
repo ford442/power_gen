@@ -37,3 +37,10 @@ built with **Vite**. There is no backend, database, or server-side service.
   (RPM/Voltage/Current/Power), the `START`/`STOP` buttons, mode switching, and
   SEG layout switching are driven by the WebGPU visualizer and will **not** update
   under WebGL2 (values stay at 0). This is expected, not a bug.
+- Because the WebGPU path can't run here, you cannot catch WGSL compile/validation
+  errors in a browser. To check WGSL offline, validate with `naga` (e.g.
+  `cargo install naga-cli --version 0.19.0 --locked`, then `naga shader.wgsl`).
+  The inline WGSL in `src/multi-device-shaders.js` is in plain template literals
+  (no `${}`), so it can be extracted/validated directly. Note: naga is stricter
+  than Chrome's Tint in places — e.g. it rejects dynamic indexing of `let`/`const`
+  value arrays (`arr[i]`), which Tint/Chrome actually allow.
