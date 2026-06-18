@@ -1076,7 +1076,7 @@ export class MultiDeviceVisualizer {
 
     this.bloomSceneTexture = this.device.createTexture({
       size: [w, h], format: fmt,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC
     });
     this.bloomBlurTexture = this.device.createTexture({
       size: [w, h], format: fmt,
