@@ -71,7 +71,7 @@ export class MultiDeviceCamera {
   lerp(a, b, t) { return a + (b - a) * t; }
   
   getViewProjMatrix() {
-    const aspect = this.canvas.width / this.canvas.height;
+    const aspect = this.canvas.width / Math.max(this.canvas.height, 1);
     const proj = this.perspectiveMatrix(this.camera.fov * Math.PI / 180, aspect, 0.1, 200);
     const view = this.lookAt(this.camera.position, this.camera.target, [0, 1, 0]);
     return this.multiplyMatrices(proj, view);
