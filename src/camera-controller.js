@@ -107,7 +107,7 @@ export class CameraController {
       eye[1] - target[1],
       eye[2] - target[2]
     ];
-    const len = Math.sqrt(z[0]*z[0] + z[1]*z[1] + z[2]*z[2]);
+    let len = Math.sqrt(z[0]*z[0] + z[1]*z[1] + z[2]*z[2]);
     z[0] /= len; z[1] /= len; z[2] /= len;
 
     const x = [
