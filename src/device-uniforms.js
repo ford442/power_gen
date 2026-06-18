@@ -42,11 +42,12 @@ class DeviceUniformManager {
 
     // Battery gauge instance buffer used by solar device
     if (this.id === 'solar') {
+      // 48 B — matches InstanceData in rollerVertShader (pos+ring+quat+copper+emissive)
       this.gaugeInstanceBuffer = this.device.createBuffer({
-        size: 32,
+        size: 48,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-gauge-instance`, 32, GPUBufferUsage.STORAGE);
+      this.visualizer.profiler.trackBuffer(`device-${this.id}-gauge-instance`, 48, GPUBufferUsage.STORAGE);
     }
 
     // MaterialUniforms: albedo(3) + metallic(1) + roughness(1) + ao(1) + emission(1) + ringIndex(1) + pad(2)
@@ -62,6 +63,7 @@ class DeviceUniformManager {
       baseColor = [0.85, 0.48, 0.25]; // Copper
       glowColor = [0.0, 1.2, 0.6];    // Green energy
       emission = 1.8;
+      pad = this.visualizer.prototypePreset === 'lab' ? 1.0 : 0.0;
     } else if (this.id === 'solar') {
       // Solar device uses a warm glow color and will modulate emission based on battery charge.
       baseColor = this.config.color;
@@ -98,11 +100,12 @@ class DeviceUniformManager {
 
     // Setup coil and ring material buffers for SEG pickup coils
     if (this.id === 'seg') {
+      // C-shaped pickup coils: up to 24 coils, 3 parts each (core/winding/foot).
       this.coilInstances = this.device.createBuffer({
-        size: 24 * 8 * 4, // 24 coils * 8 floats * 4 bytes
+        size: 24 * 3 * 12 * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-coil-instances`, 24 * 32, GPUBufferUsage.STORAGE);
+      this.visualizer.profiler.trackBuffer(`device-${this.id}-coil-instances`, 24 * 3 * 48, GPUBufferUsage.STORAGE);
 
       this.coilMaterialBuffer = this.device.createBuffer({
         size: 32,
@@ -182,7 +185,9 @@ class DeviceUniformManager {
       const rotation = [0, 0, 0, 1];
       const instanceData = new Float32Array([
         gaugePos[0], gaugePos[1], gaugePos[2], ringIndex,
-        rotation[0], rotation[1], rotation[2], rotation[3]
+        rotation[0], rotation[1], rotation[2], rotation[3],
+        1.0, 0.9, 0.2,   // copperColor (solar gold)
+        this.batteryCharge // greenEmissive slot → reuse for charge visualization
       ]);
       this.device.queue.writeBuffer(this.gaugeInstanceBuffer, 0, instanceData);
     }

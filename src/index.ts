@@ -1,8 +1,9 @@
 /**
  * SEG WebGPU Visualizer - TypeScript Module Exports
- * 
- * This is the main entry point for the TypeScript integration layer.
- * All modules are designed to work alongside the existing JavaScript codebase.
+ *
+ * Runtime entry is src/main.js (not this file). This barrel exports types,
+ * constants, and integration helpers. Renderer selection lives in
+ * src/renderers/renderer-selector.js (webgpu | webgl2).
  */
 
 // ============================================

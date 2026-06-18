@@ -3,6 +3,10 @@
 // ============================================================================
 // Generator functions for creating detailed, photo-realistic SEG geometry.
 // Used for enhancing the basic primitives with detailed 3D models.
+//
+// WebGL2 path: basic cylinders/discs live in src/renderers/shared/primitive-geometry.js
+// (CPU Float32Array output, uploaded to GL buffers). Enhanced PBR meshes here remain
+// WebGPU-first; port to WebGL2 by reusing the same vertex/index arrays.
 
 import { SEGMaterialPresets } from './seg-materials.js';
 
@@ -174,124 +178,134 @@ export function generateBearingShaft(device, options = {}) {
 // ----------------------------------------------------------------------------
 // 2. POLE-BANDED ROLLER (replaces smooth cylinder)
 // ----------------------------------------------------------------------------
-// Real SEG rollers have visible magnetic pole bands:
-//   - Alternating N/S magnetic segments appear as different colored bands
-//   - Neodymium core shows as silver-gray sections
-//   - Copper cladding shows as reddish-brown sections  
-//   - Some prototypes show 4-6 distinct bands per roller
+// Prototype-accurate SEG roller geometry.
 //
-// This generator creates a roller with latitudinal bands that can be
-// colored differently in the shader via the UV y-coordinate.
+// Reference grounding (rexresearch.com/searl4, Roschin-Godin reports):
+//   - Real rollers are 8 stacked segments held together magnetically
+//     (~34 g each, machined to ±0.05 g), separated by fine seam grooves.
+//   - The visible barrel is the outer copper/aluminum sleeve; axial seams are
+//     darkened/oxidized grooves.
+//   - The radial layer composition (visible on the flat end faces) is:
+//       1. Neodymium core          — electron reservoir, silver-gray
+//       2. Nylon 66 / Teflon       — electron flow regulator, off-white/ivory
+//       3. Iron or Nickel          — magnetized accelerator, bright nickel
+//       4. Copper or Aluminum      — outer paramagnetic sleeve
 //
-// Options:
-//   radius: 0.4-1.0 (roller radius)
-//   height: 1.5-4.0 (roller length)
-//   bands: 4-8 (number of pole bands)
-//   bandSpacing: 0.02-0.05 (gap between bands)
-//   segments: 24-48 (radial smoothness)
+// This generator builds:
+//   - A single top and bottom end-cap disk (shader draws concentric rings).
+//   - 8 axial barrel segments of the outer sleeve.
+//   - 7 recessed groove rings between segments.
+//
+// Shader UV convention:
+//   - End caps:   uv.x = angle/2π,  uv.y = radial fraction (0 center -> 1 edge)
+//   - Barrel:     uv.x = angle/2π,  uv.y = height fraction (0 bottom -> 1 top)
+//   - Grooves:    uv.x = angle/2π,  uv.y = height fraction at groove center
 // ----------------------------------------------------------------------------
 export function generatePoleBandedRoller(device, options = {}) {
   const {
-    radius = 0.8,
-    height = 2.5,
-    bands = 6,
-    bandSpacing = 0.03,
-    segments = 32
+    radius = 0.75,
+    height = 2.8,
+    segments = 64,
+    bands = 8,
+    grooveDepth = 0.035,
+    grooveWidth = 0.045
   } = options;
 
   const vertices = [];
   const indices = [];
   const normals = [];
   const uvs = [];
+  let vOffset = 0;
 
-  const bandHeight = (height - bandSpacing * (bands - 1)) / bands;
-  let yStart = -height / 2;
+  function addVertex(px, py, pz, nx, ny, nz, u, v) {
+    vertices.push(px, py, pz);
+    normals.push(nx, ny, nz);
+    uvs.push(u, v);
+    return vOffset++;
+  }
 
-  // For each band, create a cylinder section
-  for (let b = 0; b < bands; b++) {
-    const yBottom = yStart + b * (bandHeight + bandSpacing);
-    const yTop = yBottom + bandHeight;
-    const vBase = b / bands;       // UV y-start for this band
-    const vScale = 1.0 / bands;    // UV y-range for this band
-
-    const baseVertex = vertices.length / 3;
-
-    // Top cap center for this band section
-    vertices.push(0, yTop, 0);
-    normals.push(0, 1, 0);
-    uvs.push(0.5, vBase + vScale);
-
-    // Bottom cap center
-    vertices.push(0, yBottom, 0);
-    normals.push(0, -1, 0);
-    uvs.push(0.5, vBase);
-
-    // Rim vertices for this band
+  // --- End caps (single disks; shader colors concentric rings by radius) ---
+  function addCap(y, ny) {
+    const centerIdx = addVertex(0, y, 0, 0, ny, 0, 0.5, 0.0);
+    const rimStart = vOffset;
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2;
       const c = Math.cos(theta), s = Math.sin(theta);
-
-      // Top face vertex
-      vertices.push(c * radius, yTop, s * radius);
-      normals.push(0, 1, 0);
-      uvs.push(i / segments, vBase + vScale);
-
-      // Bottom face vertex
-      vertices.push(c * radius, yBottom, s * radius);
-      normals.push(0, -1, 0);
-      uvs.push(i / segments, vBase);
-
-      // Side top vertex
-      vertices.push(c * radius, yTop, s * radius);
-      normals.push(c, 0, s);
-      uvs.push(i / segments, vBase + vScale);
-
-      // Side bottom vertex
-      vertices.push(c * radius, yBottom, s * radius);
-      normals.push(c, 0, s);
-      uvs.push(i / segments, vBase);
+      addVertex(c * radius, y, s * radius, 0, ny, 0, i / segments, 1.0);
     }
-
-    const capTopCenter = baseVertex;
-    const capBotCenter = baseVertex + 1;
-    const rimStart = baseVertex + 2;
-
-    // Generate indices for this band
     for (let i = 0; i < segments; i++) {
-      const curr = rimStart + i * 4;
-      const next = rimStart + ((i + 1) % (segments + 1)) * 4;
-
-      // Top cap triangle
-      indices.push(capTopCenter, curr, next);
-      // Bottom cap triangle
-      indices.push(capBotCenter, next + 1, curr + 1);
-      // Side quads
-      indices.push(curr + 2, curr + 3, next + 2);
-      indices.push(next + 2, curr + 3, next + 3);
+      const curr = rimStart + i;
+      const next = rimStart + ((i + 1) % (segments + 1));
+      // Winding order depends on cap normal
+      if (ny > 0.0) {
+        indices.push(centerIdx, next, curr);
+      } else {
+        indices.push(centerIdx, curr, next);
+      }
     }
   }
 
-  // Spacer rings (slightly smaller radius) between bands
-  const spacerRadius = radius * 0.92;
+  addCap(height * 0.5, 1.0);
+  addCap(-height * 0.5, -1.0);
+
+  // --- Barrel segments (outer sleeve) ---
+  const bandHeight = (height - grooveWidth * (bands - 1)) / bands;
+  for (let b = 0; b < bands; b++) {
+    const yBottom = -height * 0.5 + b * (bandHeight + grooveWidth);
+    const yTop = yBottom + bandHeight;
+    const vBottom = (yBottom + height * 0.5) / height;
+    const vTop = (yTop + height * 0.5) / height;
+
+    const baseIdx = vOffset;
+    for (let i = 0; i <= segments; i++) {
+      const theta = (i / segments) * Math.PI * 2;
+      const c = Math.cos(theta), s = Math.sin(theta);
+      // Top rim
+      addVertex(c * radius, yTop, s * radius, c, 0.0, s, i / segments, vTop);
+      // Bottom rim
+      addVertex(c * radius, yBottom, s * radius, c, 0.0, s, i / segments, vBottom);
+    }
+    for (let i = 0; i < segments; i++) {
+      const curr = baseIdx + i * 2;
+      const next = baseIdx + ((i + 1) % (segments + 1)) * 2;
+      indices.push(curr, next, curr + 1);
+      indices.push(next, next + 1, curr + 1);
+    }
+  }
+
+  // --- Groove rings between segments (recessed, with inward-facing normals) ---
+  const grooveRadius = Math.max(radius - grooveDepth, 0.01);
   for (let b = 0; b < bands - 1; b++) {
-    const ySpacer = -height / 2 + (b + 1) * (bandHeight + bandSpacing) - bandSpacing / 2;
-    const spacerThick = bandSpacing * 0.8;
-    const baseIdx = vertices.length / 3;
+    const yCenter = -height * 0.5 + (b + 1) * (bandHeight + grooveWidth) - grooveWidth * 0.5;
+    const vCenter = (yCenter + height * 0.5) / height;
+    const baseIdx = vOffset;
 
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2;
       const c = Math.cos(theta), s = Math.sin(theta);
-      vertices.push(c * spacerRadius, ySpacer + spacerThick / 2, s * spacerRadius);
-      normals.push(c, 0, s);
-      uvs.push(i / segments, 0.5);
-      vertices.push(c * spacerRadius, ySpacer - spacerThick / 2, s * spacerRadius);
-      normals.push(c, 0, s);
-      uvs.push(i / segments, 0.5);
+      // Inner wall top/bottom (faces inward, normal points toward axis)
+      addVertex(c * grooveRadius, yCenter + grooveWidth * 0.5, s * grooveRadius, -c, 0.0, -s, i / segments, vCenter);
+      addVertex(c * grooveRadius, yCenter - grooveWidth * 0.5, s * grooveRadius, -c, 0.0, -s, i / segments, vCenter);
+      // Outer wall top/bottom (flush with barrel, normal points outward)
+      addVertex(c * radius, yCenter + grooveWidth * 0.5, s * radius, c, 0.0, s, i / segments, vCenter);
+      addVertex(c * radius, yCenter - grooveWidth * 0.5, s * radius, c, 0.0, s, i / segments, vCenter);
     }
+
     for (let i = 0; i < segments; i++) {
-      const b = baseIdx + i * 2;
-      const n = baseIdx + ((i + 1) % (segments + 1)) * 2;
-      indices.push(b, n, b + 1, b + 1, n, n + 1);
+      const curr = baseIdx + i * 4;
+      const next = baseIdx + ((i + 1) % (segments + 1)) * 4;
+      // Outer wall
+      indices.push(curr + 2, next + 2, curr + 3);
+      indices.push(next + 2, next + 3, curr + 3);
+      // Inner wall
+      indices.push(curr, curr + 1, next);
+      indices.push(next, curr + 1, next + 1);
+      // Top wall (faces +y)
+      indices.push(curr + 2, next + 2, curr);
+      indices.push(next + 2, next, curr);
+      // Bottom wall (faces -y)
+      indices.push(curr + 3, curr + 1, next + 3);
+      indices.push(next + 3, curr + 1, next + 1);
     }
   }
 
@@ -446,70 +460,129 @@ export function generatePlateWithCutouts(device, options = {}) {
     }
   }
 
-  // Bolt holes (simple cylinders subtracted visually - represented as small raised rings)
+  // Bolt heads with hexagonal caps and washers around the plate perimeter.
   if (boltHoles > 0) {
     const boltCircleRadius = outerRadius * 0.92;
     for (let b = 0; b < boltHoles; b++) {
       const angle = (b / boltHoles) * Math.PI * 2;
       const bx = Math.cos(angle) * boltCircleRadius;
       const bz = Math.sin(angle) * boltCircleRadius;
-      const boltSegs = 12;
-      const boltBase = vOff;
 
-      // Raised bolt head
-      for (let i = 0; i <= boltSegs; i++) {
-        const t = (i / boltSegs) * Math.PI * 2;
-        vertices.push(bx + Math.cos(t) * boltRadius, h2 + 0.06, bz + Math.sin(t) * boltRadius);
+      const headHeight = 0.07;
+      const headRadius = boltRadius * 0.95;
+      const washerInner = boltRadius * 1.05;
+      const washerOuter = boltRadius * 1.65;
+      const hexBase = vOff;
+
+      // Hexagonal bolt head: top rim + bottom rim.
+      for (let i = 0; i < 6; i++) {
+        const t = (i / 6) * Math.PI * 2;
+        const c = Math.cos(t), s = Math.sin(t);
+        vertices.push(bx + c * headRadius, h2 + headHeight, bz + s * headRadius);
         normals.push(0, 1, 0);
-        uvs.push(i / boltSegs, 1);
-        vertices.push(bx + Math.cos(t) * boltRadius, h2, bz + Math.sin(t) * boltRadius);
-        normals.push(Math.cos(t), 0.3, Math.sin(t));
-        uvs.push(i / boltSegs, 0);
+        uvs.push(i / 6, 1);
+
+        vertices.push(bx + c * headRadius, h2, bz + s * headRadius);
+        normals.push(c * 0.85, 0.35, s * 0.85); // bevelled side wall normal
+        uvs.push(i / 6, 0);
         vOff += 2;
       }
-      for (let i = 0; i < boltSegs; i++) {
-        const curr = boltBase + i * 2;
-        const next = boltBase + ((i + 1) % (boltSegs + 1)) * 2;
-        indices.push(curr, next, curr + 1, curr + 1, next, next + 1);
+      // Hex cap centre.
+      const hexCenter = vOff;
+      vertices.push(bx, h2 + headHeight, bz);
+      normals.push(0, 1, 0);
+      uvs.push(0.5, 0.5);
+      vOff += 1;
+
+      // Top hex cap (6 triangles).
+      for (let i = 0; i < 6; i++) {
+        const curr = hexBase + i * 2;
+        const next = hexBase + ((i + 1) % 6) * 2;
+        indices.push(hexCenter, next, curr);
+      }
+      // Hex side walls (2 triangles per face).
+      for (let i = 0; i < 6; i++) {
+        const curr = hexBase + i * 2;
+        const next = hexBase + ((i + 1) % 6) * 2;
+        indices.push(curr, next, curr + 1);
+        indices.push(next, next + 1, curr + 1);
+      }
+
+      // Washer ring at the base of the bolt.
+      const washerBase = vOff;
+      const washerSegs = 16;
+      for (let i = 0; i <= washerSegs; i++) {
+        const t = (i / washerSegs) * Math.PI * 2;
+        const c = Math.cos(t), s = Math.sin(t);
+        vertices.push(bx + c * washerInner, h2 + 0.005, bz + s * washerInner);
+        normals.push(0, 1, 0);
+        uvs.push(i / washerSegs, 0);
+
+        vertices.push(bx + c * washerOuter, h2 + 0.005, bz + s * washerOuter);
+        normals.push(0, 1, 0);
+        uvs.push(i / washerSegs, 1);
+        vOff += 2;
+      }
+      for (let i = 0; i < washerSegs; i++) {
+        const curr = washerBase + i * 2;
+        const next = washerBase + ((i + 1) % (washerSegs + 1)) * 2;
+        indices.push(curr, next, curr + 1);
+        indices.push(next, next + 1, curr + 1);
       }
     }
   }
 
-  // Radial reinforcement ribs
+  // Radial reinforcement ribs with side walls so they read as raised structural webs.
   if (hasRibs) {
     for (let r = 0; r < ribCount; r++) {
       const angle = (r / ribCount) * Math.PI * 2;
       const c = Math.cos(angle), s = Math.sin(angle);
       const ribBase = vOff;
-      const ribWidth = (outerRadius - innerRadius) * 0.06;
+      const ribWidth = (outerRadius - innerRadius) * 0.07;
       const rStart = innerRadius + (outerRadius - innerRadius) * 0.15;
-      const rEnd = outerRadius * 0.88;
+      const rEnd = outerRadius * 0.86;
 
-      // Rib cross-section: a thin raised strip
       for (let step = 0; step <= 8; step++) {
         const t = step / 8;
         const rad = rStart + t * (rEnd - rStart);
-        const perpC = -s;  // perpendicular direction
-        const perpS = c;
-        const w2 = ribWidth / 2 * (1 - Math.abs(t - 0.5) * 0.3); // Slight taper
+        const w2 = ribWidth / 2 * (1 - Math.abs(t - 0.5) * 0.25); // slight taper
 
-        vertices.push(
-          (c * rad + perpC * w2), h2 + ribHeight, (s * rad + perpS * w2)
-        );
+        // Rib centre at plate height.
+        const cx = c * rad;
+        const cz = s * rad;
+
+        // Side normals point tangentially outward from the rib direction.
+        const nlx = -s, nlz = c; // left wall outward
+        const nrx = s, nrz = -c; // right wall outward
+
+        // Left bottom, right bottom, left top, right top.
+        vertices.push(cx - s * w2, h2, cz + c * w2);
+        normals.push(nlx, 0, nlz);
+        uvs.push(t, 0);
+
+        vertices.push(cx + s * w2, h2, cz - c * w2);
+        normals.push(nrx, 0, nrz);
+        uvs.push(t, 0);
+
+        vertices.push(cx - s * w2, h2 + ribHeight, cz + c * w2);
         normals.push(0, 1, 0);
         uvs.push(t, 1);
 
-        vertices.push(
-          (c * rad - perpC * w2), h2 + ribHeight, (s * rad - perpS * w2)
-        );
+        vertices.push(cx + s * w2, h2 + ribHeight, cz - c * w2);
         normals.push(0, 1, 0);
-        uvs.push(t, 0);
-        vOff += 2;
+        uvs.push(t, 1);
+        vOff += 4;
       }
+
       for (let i = 0; i < 8; i++) {
-        const b = ribBase + i * 2;
-        const n = ribBase + (i + 1) * 2;
-        indices.push(b, b + 1, n, n, b + 1, n + 1);
+        const b = ribBase + i * 4;
+        const n = ribBase + (i + 1) * 4;
+        // Top face
+        indices.push(b + 2, n + 2, n + 3, b + 2, n + 3, b + 3);
+        // Left side wall
+        indices.push(b, n, n + 2, b, n + 2, b + 2);
+        // Right side wall
+        indices.push(b + 1, b + 3, n + 1, n + 1, b + 3, n + 3);
       }
     }
   }
@@ -959,6 +1032,334 @@ export function generateCoilWithWindings(device, options = {}) {
     vertices: vertexData,
     indices: new Uint16Array(indices)
   });
+}
+
+// ----------------------------------------------------------------------------
+// 6b. C-SHAPED PICKUP COIL (replaces floating torus/cylinder coils)
+// ----------------------------------------------------------------------------
+// Documented SEG prototypes show laminated C-core electromagnets straddling the
+// outer roller ring. This generator produces three separate mesh parts that
+// share one instance buffer: the laminated iron C-core, the enameled copper
+// winding bundle on the core back, and a small mounting foot.
+// ----------------------------------------------------------------------------
+
+function _dot3(a, b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function _appendBox(vertices, normals, uvs, indices, center, size, uvScale, baseIndex) {
+  const [cx, cy, cz] = center;
+  const [sx, sy, sz] = size;
+  const [us, vs] = uvScale;
+  const half = [sx / 2, sy / 2, sz / 2];
+
+  // 8 corners
+  const corners = [
+    [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+    [-1, -1, 1],  [1, -1, 1],  [1, 1, 1],  [-1, 1, 1]
+  ].map(([x, y, z]) => [cx + x * half[0], cy + y * half[1], cz + z * half[2]]);
+
+  // 6 faces: normal, tangent, 4 corner indices, uv origin/scale axes
+  const faces = [
+    { n: [0, 0, -1], idx: [0, 1, 2, 3], uAxis: [1, 0, 0], vAxis: [0, 1, 0] },
+    { n: [0, 0, 1],  idx: [5, 4, 7, 6], uAxis: [1, 0, 0], vAxis: [0, 1, 0] },
+    { n: [0, -1, 0], idx: [0, 4, 5, 1], uAxis: [1, 0, 0], vAxis: [0, 0, 1] },
+    { n: [0, 1, 0],  idx: [3, 2, 6, 7], uAxis: [1, 0, 0], vAxis: [0, 0, 1] },
+    { n: [-1, 0, 0], idx: [0, 3, 7, 4], uAxis: [0, 0, 1], vAxis: [0, 1, 0] },
+    { n: [1, 0, 0],  idx: [1, 5, 6, 2], uAxis: [0, 0, 1], vAxis: [0, 1, 0] }
+  ];
+
+  let vOff = baseIndex;
+  for (const f of faces) {
+    const p0 = corners[f.idx[0]];
+    for (let i = 0; i < 4; i++) {
+      const p = corners[f.idx[i]];
+      vertices.push(p[0], p[1], p[2]);
+      normals.push(f.n[0], f.n[1], f.n[2]);
+      const du = _dot3([p[0] - p0[0], p[1] - p0[1], p[2] - p0[2]], f.uAxis);
+      const dv = _dot3([p[0] - p0[0], p[1] - p0[1], p[2] - p0[2]], f.vAxis);
+      uvs.push(du * us, dv * vs);
+    }
+    indices.push(vOff, vOff + 1, vOff + 2, vOff, vOff + 2, vOff + 3);
+    vOff += 4;
+  }
+  return vOff;
+}
+
+function _buildBoxPart(device, boxes) {
+  const vertices = [];
+  const normals = [];
+  const uvs = [];
+  const indices = [];
+  let baseIndex = 0;
+  for (const box of boxes) {
+    baseIndex = _appendBox(vertices, normals, uvs, indices, box.center, box.size, box.uvScale, baseIndex);
+  }
+
+  const vertexData = new Float32Array(vertices.length / 3 * 8);
+  const vCount = vertices.length / 3;
+  for (let i = 0; i < vCount; i++) {
+    vertexData[i * 8] = vertices[i * 3];
+    vertexData[i * 8 + 1] = vertices[i * 3 + 1];
+    vertexData[i * 8 + 2] = vertices[i * 3 + 2];
+    vertexData[i * 8 + 3] = normals[i * 3];
+    vertexData[i * 8 + 4] = normals[i * 3 + 1];
+    vertexData[i * 8 + 5] = normals[i * 3 + 2];
+    vertexData[i * 8 + 6] = uvs[i * 2];
+    vertexData[i * 8 + 7] = uvs[i * 2 + 1];
+  }
+  return _makeGeomBuffers(device, {
+    vertices: vertexData,
+    indices: new Uint16Array(indices)
+  });
+}
+
+function _buildWindingPart(device, options) {
+  const { backZ = 0.5, width = 1.4, height = 0.9, thickness = 0.85, segments = 24 } = options;
+  const vertices = [];
+  const normals = [];
+  const uvs = [];
+  const indices = [];
+
+  // Rounded rectangular winding bundle: a rounded box created from a grid.
+  const rx = width / 2;
+  const ry = height / 2;
+  const rz = thickness / 2;
+  const cx = 0, cy = 0, cz = backZ;
+
+  // Build a rounded-box shell from a 3D grid of points
+  const nx = 6, ny = 4, nz = 4;
+  const indexMap = new Map();
+  let vCount = 0;
+
+  function getVertex(gx, gy, gz) {
+    const key = `${gx},${gy},${gz}`;
+    if (indexMap.has(key)) return indexMap.get(key);
+
+    const lx = (gx / (nx - 1)) * 2 - 1;
+    const ly = (gy / (ny - 1)) * 2 - 1;
+    const lz = (gz / (nz - 1)) * 2 - 1;
+
+    // Round the box: normalize corner direction and lerp toward sphere
+    const len = Math.sqrt(lx * lx + ly * ly + lz * lz) || 1;
+    const round = 0.35;
+    const ux = lx / len * (1 - round) + lx * round;
+    const uy = ly / len * (1 - round) + ly * round;
+    const uz = lz / len * (1 - round) + lz * round;
+
+    const px = cx + ux * rx;
+    const py = cy + uy * ry;
+    const pz = cz + uz * rz;
+
+    // Normal is the direction from box center
+    const nlen = Math.sqrt(ux * ux + uy * uy + uz * uz) || 1;
+    normals.push(ux / nlen, uy / nlen, uz / nlen);
+    vertices.push(px, py, pz);
+    // Helical UV around the back limb
+    uvs.push((Math.atan2(ux, uz) / (2 * Math.PI) + 0.5) * 8, (py + ry) / height * 20);
+
+    indexMap.set(key, vCount);
+    return vCount++;
+  }
+
+  for (let gy = 0; gy < ny - 1; gy++) {
+    for (let gx = 0; gx < nx - 1; gx++) {
+      // Front and back faces
+      for (const gz of [0, nz - 1]) {
+        const a = getVertex(gx, gy, gz);
+        const b = getVertex(gx + 1, gy, gz);
+        const c = getVertex(gx + 1, gy + 1, gz);
+        const d = getVertex(gx, gy + 1, gz);
+        if (gz === 0) indices.push(a, c, b, a, d, c);
+        else indices.push(a, b, c, a, c, d);
+      }
+    }
+    for (let gz = 0; gz < nz - 1; gz++) {
+      // Left and right faces
+      for (const gx of [0, nx - 1]) {
+        const a = getVertex(gx, gy, gz);
+        const b = getVertex(gx, gy, gz + 1);
+        const c = getVertex(gx, gy + 1, gz + 1);
+        const d = getVertex(gx, gy + 1, gz);
+        if (gx === 0) indices.push(a, b, c, a, c, d);
+        else indices.push(a, c, b, a, d, c);
+      }
+    }
+  }
+  for (let gx = 0; gx < nx - 1; gx++) {
+    for (let gz = 0; gz < nz - 1; gz++) {
+      // Top and bottom faces
+      for (const gy of [0, ny - 1]) {
+        const a = getVertex(gx, gy, gz);
+        const b = getVertex(gx + 1, gy, gz);
+        const c = getVertex(gx + 1, gy, gz + 1);
+        const d = getVertex(gx, gy, gz + 1);
+        if (gy === 0) indices.push(a, c, b, a, d, c);
+        else indices.push(a, b, c, a, c, d);
+      }
+    }
+  }
+
+  const vertexData = new Float32Array(vCount * 8);
+  for (let i = 0; i < vCount; i++) {
+    vertexData[i * 8] = vertices[i * 3];
+    vertexData[i * 8 + 1] = vertices[i * 3 + 1];
+    vertexData[i * 8 + 2] = vertices[i * 3 + 2];
+    vertexData[i * 8 + 3] = normals[i * 3];
+    vertexData[i * 8 + 4] = normals[i * 3 + 1];
+    vertexData[i * 8 + 5] = normals[i * 3 + 2];
+    vertexData[i * 8 + 6] = uvs[i * 2];
+    vertexData[i * 8 + 7] = uvs[i * 2 + 1];
+  }
+  return _makeGeomBuffers(device, {
+    vertices: vertexData,
+    indices: new Uint16Array(indices)
+  });
+}
+
+export function generateCCorePickupCoil(device, options = {}) {
+  const {
+    coilRadius = 7.2,
+    jawReach = 1.7,
+    coreWidth = 1.8,
+    coreHeight = 0.70,
+    coreThickness = 0.45,
+    armWidth = 0.45,
+    windingWidth = 1.4,
+    windingHeight = 0.9,
+    windingThickness = 0.85
+  } = options;
+
+  // Local-space C-core: opening faces -Z, back at +Z.
+  const backZ = jawReach * 0.35; // back bar sits slightly outward
+  const jawZ = -jawReach;
+  const sideX = coreWidth / 2;
+  const halfH = coreHeight / 2;
+
+  // Core = back bar + two side arms.
+  const coreBoxes = [
+    {
+      center: [0, 0, backZ],
+      size: [coreWidth, coreHeight, coreThickness],
+      uvScale: [1 / coreWidth, 1 / coreHeight]
+    },
+    {
+      center: [sideX, 0, (backZ + jawZ) / 2],
+      size: [armWidth, coreHeight, backZ - jawZ + coreThickness],
+      uvScale: [1 / armWidth, 1 / coreHeight]
+    },
+    {
+      center: [-sideX, 0, (backZ + jawZ) / 2],
+      size: [armWidth, coreHeight, backZ - jawZ + coreThickness],
+      uvScale: [1 / armWidth, 1 / coreHeight]
+    }
+  ];
+
+  // Mounting foot: small tab extending from core back down to base plate.
+  const footBoxes = [
+    {
+      center: [0, -halfH - 0.25, backZ + 0.05],
+      size: [0.6, 0.5, 0.3],
+      uvScale: [2, 2]
+    },
+    {
+      center: [0, -halfH - 0.45, backZ + 0.25],
+      size: [0.9, 0.15, 0.7],
+      uvScale: [2, 2]
+    }
+  ];
+
+  return {
+    core: _buildBoxPart(device, coreBoxes),
+    winding: _buildWindingPart(device, {
+      backZ: backZ + coreThickness * 0.5 + windingThickness * 0.1,
+      width: windingWidth,
+      height: windingHeight,
+      thickness: windingThickness
+    }),
+    foot: _buildBoxPart(device, footBoxes)
+  };
+}
+
+// ----------------------------------------------------------------------------
+// 6c. MAGNETIC WALL SHELLS (Roschin–Godin anomalous environmental effect)
+// ----------------------------------------------------------------------------
+// Generates N open-ended concentric cylindrical shells used as extremely faint
+// refractive/shimmer markers for zones of increased magnetic flux. The shells
+// are drawn double-sided with depth-write disabled so they act as a pure
+// atmospheric overlay around the SEG device.
+// ----------------------------------------------------------------------------
+
+export function generateMagneticWallShells(device, options = {}) {
+  const {
+    innerRadius = 1.6,
+    spacing = 0.55,
+    shellThickness = 0.06,
+    height = 8.0,
+    maxShells = 5,
+    segments = 96
+  } = options;
+
+  const vertices = [];
+  const indices = [];
+  let baseVertex = 0;
+
+  for (let s = 0; s < maxShells; s++) {
+    const radius = innerRadius + s * spacing;
+    const halfH = height / 2;
+
+    // Each shell has two rings of vertices: inner surface and outer surface.
+    // We build side quads only (no caps) so the shell is open-ended.
+    for (let i = 0; i <= segments; i++) {
+      const theta = (i / segments) * Math.PI * 2;
+      const c = Math.cos(theta);
+      const sn = Math.sin(theta);
+
+      // Outer surface vertex
+      vertices.push(
+        c * (radius + shellThickness * 0.5), -halfH, sn * (radius + shellThickness * 0.5),
+        c, 0.0, sn,
+        i / segments, 0.0
+      );
+      vertices.push(
+        c * (radius + shellThickness * 0.5),  halfH, sn * (radius + shellThickness * 0.5),
+        c, 0.0, sn,
+        i / segments, 1.0
+      );
+
+      // Inner surface vertex (normal inverted)
+      vertices.push(
+        c * (radius - shellThickness * 0.5), -halfH, sn * (radius - shellThickness * 0.5),
+        -c, 0.0, -sn,
+        i / segments, 0.0
+      );
+      vertices.push(
+        c * (radius - shellThickness * 0.5),  halfH, sn * (radius - shellThickness * 0.5),
+        -c, 0.0, -sn,
+        i / segments, 1.0
+      );
+    }
+
+    // Indices for outer and inner side strips.
+    for (let i = 0; i < segments; i++) {
+      const outerBase = baseVertex + i * 4;
+      const nextOuter = baseVertex + (i + 1) * 4;
+      // Outer side: two triangles
+      indices.push(outerBase, nextOuter, outerBase + 1);
+      indices.push(outerBase + 1, nextOuter, nextOuter + 1);
+      // Inner side: two triangles (winding reversed for inward normal)
+      indices.push(outerBase + 2, outerBase + 3, nextOuter + 2);
+      indices.push(outerBase + 3, nextOuter + 3, nextOuter + 2);
+    }
+
+    baseVertex += (segments + 1) * 4;
+  }
+
+  const vertexData = new Float32Array(vertices.length);
+  vertexData.set(vertices);
+  const indexData = new Uint16Array(indices);
+
+  return _makeGeomBuffers(device, { vertices: vertexData, indices: indexData });
 }
 
 // ----------------------------------------------------------------------------

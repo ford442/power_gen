@@ -1,0 +1,9 @@
+[     415ms] [LOG] [main] Selected renderer: webgl2 @ http://localhost:4173/assets/index-DTNWENco.js:4095
+[     415ms] [LOG] WebGL2MultiDeviceVisualizer starting (debug fallback path) @ http://localhost:4173/assets/index-DTNWENco.js:4095
+[    1266ms] [LOG] [webgl2] Ready. Keys: W=wireframe P=particle debug N=normals Space=pause .=step [/]=slow-mo @ http://localhost:4173/assets/index-DTNWENco.js:4095
+[   18867ms] [WARNING] [.WebGL-0x26ec00119a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels @ http://localhost:4173/?renderer=webgl2:0
+[   25842ms] [WARNING] [.WebGL-0x26ec00119a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels @ http://localhost:4173/?renderer=webgl2:0
+[   32997ms] [INFO] [sim_core] SimCore factory not found – WASM benchmark unavailable. @ http://localhost:4173/assets/index-DTNWENco.js:1076
+[   33021ms] [WARNING] [.WebGL-0x26ec00119a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels @ http://localhost:4173/?renderer=webgl2:0
+[   42737ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:4173/favicon.ico:0
+[   42738ms] [WARNING] [.WebGL-0x26ec00119a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat) @ http://localhost:4173/?renderer=webgl2:0

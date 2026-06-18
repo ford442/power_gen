@@ -1,0 +1,3 @@
+[     793ms] [LOG] [main] Selected renderer: webgl2 @ http://localhost:8126/assets/index-DFq0hNRr.js:4547
+[     794ms] [LOG] WebGL2MultiDeviceVisualizer starting (debug fallback path) @ http://localhost:8126/assets/index-DFq0hNRr.js:4547
+[    1416ms] [LOG] [webgl2] Ready. Keys: W=wireframe P=particle debug N=normals Space=pause .=step [/]=slow-mo @ http://localhost:8126/assets/index-DFq0hNRr.js:4547

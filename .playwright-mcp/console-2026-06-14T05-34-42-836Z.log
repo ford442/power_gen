@@ -1,0 +1,4 @@
+[    7791ms] [LOG] [main] Selected renderer: webgl2 @ http://localhost:4173/assets/index-DTNWENco.js:4095
+[    7792ms] [LOG] WebGL2MultiDeviceVisualizer starting (debug fallback path) @ http://localhost:4173/assets/index-DTNWENco.js:4095
+[    7997ms] [LOG] [webgl2] Ready. Keys: W=wireframe P=particle debug N=normals Space=pause .=step [/]=slow-mo @ http://localhost:4173/assets/index-DTNWENco.js:4095
+[   36316ms] [INFO] [sim_core] SimCore factory not found – WASM benchmark unavailable. @ http://localhost:4173/assets/index-DTNWENco.js:1076

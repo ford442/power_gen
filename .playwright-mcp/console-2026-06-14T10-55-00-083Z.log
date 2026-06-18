@@ -1,0 +1,11 @@
+[    1380ms] [LOG] [main] Selected renderer: webgpu @ http://localhost:4173/assets/index-C18_UrNI.js:2242
+[    1380ms] [LOG] MultiDeviceVisualizer v5 starting - depthStencil fix applied @ http://localhost:4173/assets/index-C18_UrNI.js:2070
+[    1577ms] [WARNING] No available adapters. @ http://localhost:4173/:0
+[    1577ms] [ERROR] Error: No adapter
+    at bt.init (http://localhost:4173/assets/index-C18_UrNI.js:2071:4875)
+    at async Tt.init (http://localhost:4173/assets/index-C18_UrNI.js:2071:72051) @ http://localhost:4173/assets/index-C18_UrNI.js:2070
+[   19089ms] [ERROR] Error: No adapter
+    at bt.init (http://localhost:4173/assets/index-C18_UrNI.js:2071:4875)
+    at async Tt.init (http://localhost:4173/assets/index-C18_UrNI.js:2071:72051) @ http://localhost:4173/assets/index-C18_UrNI.js:2070
+[   26115ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:4173/favicon.ico:0
+[   26164ms] [INFO] [sim_core] SimCore factory not found – WASM benchmark unavailable. @ http://localhost:4173/assets/index-C18_UrNI.js:0

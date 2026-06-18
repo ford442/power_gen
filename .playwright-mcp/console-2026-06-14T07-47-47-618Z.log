@@ -1,0 +1,5 @@
+[     715ms] [LOG] [main] Selected renderer: webgl2 @ http://localhost:8127/assets/index-DFq0hNRr.js:4547
+[     715ms] [LOG] WebGL2MultiDeviceVisualizer starting (debug fallback path) @ http://localhost:8127/assets/index-DFq0hNRr.js:4547
+[   51692ms] [LOG] [webgl2] Ready. Keys: W=wireframe P=particle debug N=normals Space=pause .=step [/]=slow-mo @ http://localhost:8127/assets/index-DFq0hNRr.js:4547
+[  220666ms] [INFO] [sim_core] SimCore factory not found – WASM benchmark unavailable. @ http://localhost:8127/assets/index-DFq0hNRr.js:1685
+[  257149ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:8127/favicon.ico:0

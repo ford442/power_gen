@@ -8,6 +8,7 @@ export class PerformanceProfiler {
     this.timestampResolveBuffer = null;
     this.timestampMappedBuffer = null;
     this.timingEnabled = false;
+    this._timestampResolvePending = false;
     this.queryCount = 8; // Space for multiple timestamps
 
     // FPS History (60 seconds at 60fps = 3600 samples, but we'll use 1 sample per frame)
@@ -51,11 +52,16 @@ export class PerformanceProfiler {
     // GPU Info
     this.gpuTier = 'unknown';
     this.adapterInfo = null;
-
-    this.init();
+    this._initPromise = null;
   }
 
   async init() {
+    if (this._initPromise) return this._initPromise;
+    this._initPromise = this._initInternal();
+    return this._initPromise;
+  }
+
+  async _initInternal() {
     // Check for timestamp query support
     const adapter = await navigator.gpu.requestAdapter();
     this.adapterInfo = adapter?.info || {};
@@ -63,7 +69,12 @@ export class PerformanceProfiler {
     // Detect GPU tier
     this.detectGPUTier();
 
-    // Try to create timestamp query set
+    // Timestamp writes require the device feature, not just a query set allocation.
+    if (!this.device.features.has('timestamp-query')) {
+      this.timingEnabled = false;
+      return;
+    }
+
     try {
       this.timestampQuerySet = this.device.createQuerySet({
         type: 'timestamp',
@@ -80,8 +91,9 @@ export class PerformanceProfiler {
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
       });
 
-      this.timingEnabled = true;
-      console.log('GPU timestamp queries enabled');
+      // Never auto-enable: writeTimestamp in the render encoder blanks the canvas on some GPUs.
+      this.timingEnabled = false;
+      console.log('GPU timestamp queries available (off by default; add ?gpuTiming=1 and enable in debug panel)');
     } catch (e) {
       console.warn('GPU timestamp queries not supported:', e);
       this.timingEnabled = false;
@@ -326,9 +338,22 @@ export class PerformanceProfiler {
 
   // Write timestamp to encoder
   writeTimestamp(encoder, index) {
-    if (this.timingEnabled && index < this.queryCount) {
+    if (
+      this.timingEnabled &&
+      typeof encoder.writeTimestamp === 'function' &&
+      index < this.queryCount
+    ) {
       encoder.writeTimestamp(this.timestampQuerySet, index);
     }
+  }
+
+  /** Queue a single in-flight timestamp resolve (avoids buffer-in-use-during-submit). */
+  scheduleResolveTimestamps() {
+    if (!this.timingEnabled || this._timestampResolvePending) return;
+    this._timestampResolvePending = true;
+    this.resolveTimestamps()
+      .catch(() => {})
+      .finally(() => { this._timestampResolvePending = false; });
   }
 
   // Resolve timestamps

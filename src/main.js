@@ -9,6 +9,8 @@ import { SEGIntegrationManager } from './integration';
 import { ValidatedConstants } from './ValidatedConstants';
 import { SEGSim } from './wasm/sim';
 import { MultiDeviceVisualizer } from './multi-device-visualizer.js';
+import { resolveRenderer, exposeRenderer, RENDERER_WEBGPU, RENDERER_WEBGL2 } from './renderers/renderer-selector.js';
+import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 
 import { SEGVisualizerGeometry } from './app/seg-visualizer-geometry.js';
 import { SEGVisualizerMath } from './app/seg-visualizer-physics.js';
@@ -967,17 +969,24 @@ class SEGVisualizer {
     return out;
 }
 
+}
+
 let visualizer;
 
+const SEG_LAYOUT_DESCRIPTIONS = {
+  searl: 'Searl documented configuration: 10 / 25 / 35 rollers on three rings, gap-derived proportions (~3 mm air gap).',
+  roschin: 'Roschin–Godin 1 m converter: single ring of 12 rollers with 1 mm measured air gap; pairs with lab material preset.',
+  legacy: 'Legacy 8 / 12 / 16 layout at 2.5 / 4.0 / 5.5 radii — retained for regression comparison.'
+};
+
 window.setMode = (mode) => {
-  // Prefer multi-device visualizer if active, fall back to single-device
   if (window.multiVisualizer) window.multiVisualizer.onModeChange(mode);
   else if (visualizer) visualizer.onModeChange(mode);
   document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
   document.getElementById('btn-' + mode).classList.add('active');
 
   const descriptions = {
-    seg:    "Searl Effect Generator: 3 concentric rings of 12/22/32 rollers with alternating copper/neodymium magnetic pole bands. Rollers orbit at ring-specific speeds around glowing stator rings.",
+    seg:    "Searl Effect Generator: literature-grounded 10/25/35 or Roschin–Godin 12-roller layouts with gap-derived proportions, pole-banded rollers, and RK4 flux lines.",
     heron:  "Heron's Fountain: Fluid dynamics with siphon-driven water jets. Particles simulate hydraulic pressure differentials.",
     kelvin: "Kelvin's Thunderstorm: Electrostatic induction with falling water droplets charging conductors.",
     solar:  "LEDs & Solar Cells: LEDs drain a battery while shining on solar panels that recharge it. Watch the charge level change.",
@@ -1055,15 +1064,114 @@ async function initWasm() {
   });
 }
 
-window.addEventListener('load', () => {
-  // MultiDeviceVisualizer is the primary renderer for the multi-device SEG visualization.
-  // SEGVisualizer is kept as fallback for single-device mode when multi-device init fails.
+function syncSEGLayoutUI() {
+  const v = window.multiVisualizer;
+  const buttons = document.querySelectorAll('[data-seg-layout]');
+  const infoEl = document.getElementById('seg-layout-info');
+  if (!v || typeof v.getSEGLayoutPreset !== 'function') return;
+
+  const preset = v.getSEGLayoutPreset();
+  buttons.forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.segLayout === preset);
+  });
+
+  const layout = v.segLayout;
+  if (infoEl) {
+    if (layout) {
+      infoEl.textContent = `${layout.name} — ${layout.totalRollers} active rollers, ${layout.ringCount} ring(s)`;
+    } else {
+      infoEl.textContent = SEG_LAYOUT_DESCRIPTIONS[preset] || '';
+    }
+  }
+
+  if (v.currentView === 'seg') {
+    const info = document.getElementById('info');
+    if (info) info.textContent = SEG_LAYOUT_DESCRIPTIONS[preset] || info.textContent;
+  }
+}
+
+window.setSEGLayout = async (preset) => {
+  const v = window.multiVisualizer;
+  if (!v?.setSEGLayoutPreset) {
+    console.warn('[main] Layout switching requires WebGPU visualizer');
+    return;
+  }
+  await v.setSEGLayoutPreset(preset);
+  syncSEGLayoutUI();
+};
+
+window.syncSEGLayoutUI = syncSEGLayoutUI;
+
+function wireSEGLayoutControls() {
+  document.querySelectorAll('[data-seg-layout]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      window.setSEGLayout(btn.dataset.segLayout);
+    });
+  });
+  syncSEGLayoutUI();
+}
+
+async function bootstrapVisualizer() {
+  const renderer = resolveRenderer();
+  const canvas = document.getElementById('gpuCanvas');
+  console.log(`[main] Selected renderer: ${renderer}`);
+
+  if (renderer === RENDERER_WEBGL2) {
+    try {
+      window.multiVisualizer = new WebGL2MultiDeviceVisualizer();
+      exposeRenderer(canvas, RENDERER_WEBGL2);
+      return;
+    } catch (e) {
+      console.warn('[main] WebGL2 path failed, trying WebGPU:', e);
+    }
+  }
+
   try {
     window.multiVisualizer = new MultiDeviceVisualizer();
+    exposeRenderer(canvas, RENDERER_WEBGPU);
+    return;
   } catch (e) {
-    console.warn('[main] MultiDeviceVisualizer failed to construct, falling back to SEGVisualizer:', e);
-    visualizer = new SEGVisualizer();
+    console.warn('[main] MultiDeviceVisualizer failed, trying WebGL2 fallback:', e);
   }
-  initWasm();
+
+  try {
+    window.multiVisualizer = new WebGL2MultiDeviceVisualizer();
+    exposeRenderer(canvas, RENDERER_WEBGL2);
+  } catch (e2) {
+    console.error('[main] All renderers failed:', e2);
+    try {
+      visualizer = new SEGVisualizer();
+    } catch (e3) {
+      console.error('[main] SEGVisualizer fallback failed:', e3);
+      alert('No compatible graphics API (WebGPU or WebGL2).');
+    }
+  }
 }
-);
+
+window.setRenderer = (name) => {
+  const n = String(name).toLowerCase();
+  if (n !== RENDERER_WEBGPU && n !== RENDERER_WEBGL2) {
+    console.warn('Use setRenderer("webgpu") or setRenderer("webgl2")');
+    return;
+  }
+  try { localStorage.setItem('seg-renderer', n); } catch (_) { /* ignore */ }
+  window.DEBUG_RENDERER = n;
+  location.reload();
+};
+
+window.addEventListener('load', () => {
+  initWasm();
+
+  bootstrapVisualizer().then(() => {
+    wireSEGLayoutControls();
+
+    const anomalyToggle = document.getElementById('anomalyToggle');
+    const v = window.multiVisualizer;
+    if (anomalyToggle && v) {
+      anomalyToggle.checked = v.anomalousEffectsEnabled;
+      anomalyToggle.addEventListener('change', (e) => {
+        v.anomalousEffectsEnabled = e.target.checked;
+      });
+    }
+  });
+});

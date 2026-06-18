@@ -23,9 +23,48 @@ Real-time WebGPU simulation of the Searl Effect Generator (SEG) with extensible 
 - Add Quanta Magnetics devices to the visualization suite
 
 ## Browser Support
-Chrome/Edge 113+ with WebGPU enabled. Requires HTTPS or localhost.
+- **WebGPU (default):** Chrome/Edge 113+ with WebGPU enabled. Requires HTTPS or localhost.
+- **WebGL2 fallback:** Any browser with WebGL2 — for debugging, CI, and agent-driven visual testing when WebGPU is unavailable or hard to automate.
+
+## WebGL2 Fallback Renderer
+
+A toggleable WebGL2 path renders the same multi-device scene (SEG rollers, particles, sky/grid) using shared simulation state. Use it for Playwright screenshots, geometry/material iteration, and porting features to WebGPU.
+
+### Enable WebGL2 mode
+
+| Method | Example |
+|--------|---------|
+| URL parameter | `?renderer=webgl2` |
+| Browser console | `setRenderer('webgl2')` then reload |
+| localStorage | `localStorage.setItem('seg-renderer', 'webgl2')` |
+| Global (dev) | `window.DEBUG_RENDERER = 'webgl2'` before load |
+
+Switch back: `?renderer=webgpu` or `setRenderer('webgpu')`.
+
+### Debug keys (WebGL2 only)
+
+| Key | Action |
+|-----|--------|
+| `W` | Wireframe overlay |
+| `P` | Cycle particle debug (glow → ID/phase → velocity heat) |
+| `N` | Normal debug coloring |
+| `Space` | Pause / resume simulation |
+| `.` | Single simulation step |
+| `[` / `]` | Slow-motion factor |
+
+### Agent / CI hooks
+
+```js
+window.currentRenderer          // 'webgpu' | 'webgl2'
+document.querySelector('#gpuCanvas').dataset.renderer
+window.captureCanvasFrame()     // { width, height, pixels } — WebGL2
+window.getRendererInfo()        // fps, particle count, debug state
+```
 
 ## Local Development
 ```bash
-npx serve . --ssl
+npm install
+npm run dev
+# WebGL2: http://localhost:5173/?renderer=webgl2
+# WebGPU: http://localhost:5173/
 ```

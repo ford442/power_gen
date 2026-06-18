@@ -1,3 +1,7 @@
+/**
+ * WebGPU device/context init. For renderer switching see renderers/renderer-selector.js.
+ * WebGL2 fallback uses WebGL2Context — same canvas, shared simulation in renderers/shared/.
+ */
 export class WebGPUManager {
   constructor(canvas) {
     this.canvas = canvas;
@@ -7,6 +11,20 @@ export class WebGPUManager {
     this.globalUniformBuffer = null;
     this.globalBindGroup = null;
     this.globalBindGroupLayout = null;
+  }
+
+  static canvasPixelSize(canvas) {
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const clientWidth = canvas.clientWidth;
+    const clientHeight = canvas.clientHeight;
+    const layoutReady = clientWidth >= 1 && clientHeight >= 1;
+    const cssWidth = layoutReady ? clientWidth : Math.max(canvas.width / dpr, 1);
+    const cssHeight = layoutReady ? clientHeight : Math.max(canvas.height / dpr, 1);
+    return {
+      width: Math.max(1, Math.floor(cssWidth * dpr)),
+      height: Math.max(1, Math.floor(cssHeight * dpr)),
+      layoutReady
+    };
   }
 
   async init() {
@@ -22,9 +40,15 @@ export class WebGPUManager {
       // Log adapter info for debugging
       console.log('WebGPU Adapter:', adapter.info);
 
-      this.device = await adapter.requestDevice({
-        requiredFeatures: adapter.features.has('timestamp-query') ? ['timestamp-query'] : []
-      });
+      // GPU timestamp queries break canvas presentation on D3D12/ANGLE when written into
+      // the main render command encoder (blank/white canvas, 60 FPS, no validation errors).
+      // Opt in only for profiling: ?gpuTiming=1 (requires reload).
+      const wantsGpuTiming = typeof location !== 'undefined' &&
+        new URLSearchParams(location.search).get('gpuTiming') === '1';
+      const requiredFeatures = (wantsGpuTiming && adapter.features.has('timestamp-query'))
+        ? ['timestamp-query']
+        : [];
+      this.device = await adapter.requestDevice({ requiredFeatures });
 
       this.context = this.canvas.getContext('webgpu');
 
@@ -35,7 +59,6 @@ export class WebGPUManager {
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
       });
 
-      await this.setupDepthBuffer();
       await this.setupGlobalResources();
 
     } catch (e) {
@@ -46,7 +69,8 @@ export class WebGPUManager {
   }
 
   async setupDepthBuffer() {
-    const size = [this.canvas.width, this.canvas.height, 1];
+    const { width, height } = WebGPUManager.canvasPixelSize(this.canvas);
+    const size = [width, height, 1];
     this.depthTexture = this.device.createTexture({
       size,
       format: 'depth24plus-stencil8',
@@ -55,11 +79,19 @@ export class WebGPUManager {
   }
 
   async setupGlobalResources() {
-    // Global uniform buffer for camera matrices, time, etc.
+    // Global uniform buffer: viewProj + time/camera + 4× light blocks (512 B total).
     this.globalUniformBuffer = this.device.createBuffer({
-      size: 256, // 4x4 view + 4x4 proj + vec4 time/mode + vec4 camera pos
+      size: 512, // viewProj(64) + time/camera(32) + 4 lights × 32 = 224; padded to 512
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
+
+    // Seed a valid viewProj and a non-zero resolution so partial init never
+    // leaves NaN transforms or division-by-zero in the GPU block.
+    const globalSeed = new Float32Array(24);
+    globalSeed[0] = 1; globalSeed[5] = 1; globalSeed[10] = 1; globalSeed[15] = 1;
+    globalSeed[18] = 1; globalSeed[19] = 1;
+    globalSeed[20] = 0; globalSeed[21] = 8; globalSeed[22] = 18;
+    this.device.queue.writeBuffer(this.globalUniformBuffer, 0, globalSeed);
 
     // Global bind group layout
     this.globalBindGroupLayout = this.device.createBindGroupLayout({
@@ -81,9 +113,11 @@ export class WebGPUManager {
   }
 
   resize() {
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    const displayWidth = Math.floor(this.canvas.clientWidth * devicePixelRatio);
-    const displayHeight = Math.floor(this.canvas.clientHeight * devicePixelRatio);
+    const { width: displayWidth, height: displayHeight, layoutReady } =
+      WebGPUManager.canvasPixelSize(this.canvas);
+    if (!layoutReady) {
+      return false;
+    }
 
     if (this.canvas.width !== displayWidth || this.canvas.height !== displayHeight) {
       this.canvas.width = displayWidth;
@@ -95,5 +129,6 @@ export class WebGPUManager {
       }
       this.setupDepthBuffer();
     }
+    return true;
   }
 }

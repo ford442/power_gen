@@ -135,6 +135,26 @@
     .mode-btn.active { background: #00d4ff22; color: #0ff; border-color: #0ff; box-shadow: 0 0 10px #0ff5; }
     .mode-btn.active .mode-icon { opacity: 1; }
 
+    /* SEG layout preset buttons */
+    .layout-btn {
+      display: block;
+      width: 100%;
+      margin: 4px 0;
+      padding: 6px 8px;
+      background: #07101a;
+      border: 1px solid #0ff3;
+      color: #0aa;
+      cursor: pointer;
+      transition: all 0.25s;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-align: left;
+      letter-spacing: 0.3px;
+    }
+    .layout-btn:hover  { background: #0ff1; color: #0ff; border-color: #0ff6; }
+    .layout-btn.active { background: #00d4ff18; color: #0ff; border-color: #0ff; box-shadow: 0 0 8px #0ff4; }
+
     /* Control buttons */
     .ctrl-row {
       display: flex;
@@ -465,12 +485,27 @@
         <button class="mode-btn"        id="btn-mhd"    onclick="setMode('mhd')">🌊 MHD Generator</button>
       </div>
 
+      <!-- SEG roller/stator layout preset -->
+      <div class="panel-section" id="seg-layout-section">
+        <h3>SEG Layout</h3>
+        <button type="button" class="layout-btn" data-seg-layout="searl" id="btn-layout-searl">Searl 10/25/35</button>
+        <button type="button" class="layout-btn" data-seg-layout="roschin" id="btn-layout-roschin">Roschin–Godin 12</button>
+        <button type="button" class="layout-btn" data-seg-layout="legacy" id="btn-layout-legacy">Legacy 8/12/16</button>
+        <div id="seg-layout-info" style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;"></div>
+      </div>
+
       <!-- Particle count -->
       <div class="panel-section">
         <h3>Rendering</h3>
         <div class="slider-row">
           <label>Particles <span id="particleVal">10000</span></label>
           <input type="range" id="particleSlider" min="1000" max="50000" step="1000" value="10000">
+        </div>
+        <div style="margin-top: 8px;">
+          <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.72rem; color: #0aa;">
+            <input type="checkbox" id="anomalyToggle" style="margin-right: 8px;">
+            <span>Anomalous Effects</span>
+          </label>
         </div>
       </div>
 
@@ -601,7 +636,7 @@
     // Multi-device camera focus: snap view to a specific device
     window.focusDevice = (deviceId) => {
       if (window.multiVisualizer && window.multiVisualizer.cameraController) {
-        window.multiVisualizer.cameraController.focusDevice(deviceId);
+        window.multiVisualizer.cameraController.focusOnDevice(deviceId);
       }
     };
 

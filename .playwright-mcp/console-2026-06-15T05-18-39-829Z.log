@@ -1,0 +1,11 @@
+[     733ms] [LOG] [main] Selected renderer: webgpu @ http://localhost:4174/assets/index-8A4Fjqa3.js:2947
+[     733ms] [LOG] MultiDeviceVisualizer v5 starting - depthStencil fix applied @ http://localhost:4174/assets/index-8A4Fjqa3.js:2775
+[     831ms] [WARNING] No available adapters. @ http://localhost:4174/:0
+[     831ms] [ERROR] Error: No adapter
+    at st.init (http://localhost:4174/assets/index-8A4Fjqa3.js:2776:4877)
+    at async dt.init (http://localhost:4174/assets/index-8A4Fjqa3.js:2776:73356) @ http://localhost:4174/assets/index-8A4Fjqa3.js:2775
+[    5863ms] [ERROR] Error: No adapter
+    at st.init (http://localhost:4174/assets/index-8A4Fjqa3.js:2776:4877)
+    at async dt.init (http://localhost:4174/assets/index-8A4Fjqa3.js:2776:73356) @ http://localhost:4174/assets/index-8A4Fjqa3.js:2775
+[   10689ms] [INFO] [sim_core] SimCore factory not found – WASM benchmark unavailable. @ http://localhost:4174/assets/index-8A4Fjqa3.js:0
+[   10690ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:4174/favicon.ico:0

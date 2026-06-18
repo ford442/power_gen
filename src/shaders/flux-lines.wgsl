@@ -21,19 +21,10 @@ const PI: f32 = 3.14159265359;
 const MU_0: f32 = 1.25663706212e-6;
 const ROLLER_MOMENT: f32 = 18.5;  // A·m²
 
-const INNER_RING_COUNT: i32 = 8;
-const MIDDLE_RING_COUNT: i32 = 12;
-const OUTER_RING_COUNT: i32 = 16;
-
-const INNER_RADIUS: f32 = 2.5;
-const MIDDLE_RADIUS: f32 = 4.0;
-const OUTER_RADIUS: f32 = 5.5;
-
-// ============================================
-// Flux Line Configuration
-// ============================================
-const FLUX_LINES_PER_RING: i32 = 36;  // 36 lines per ring
-const TOTAL_FLUX_LINES: i32 = 108;    // 3 rings × 36 lines
+const MAX_RINGS: i32 = 3;
+const MAX_ROLLERS: i32 = 72;
+const FLUX_LINES_PER_RING_MAX: i32 = 36;
+const TOTAL_FLUX_LINES_MAX: i32 = 108;    // 3 rings × 36 lines
 const SEGMENTS_PER_LINE: i32 = 100;   // Resolution of each line
 const TOTAL_SEGMENTS: i32 = 10800;    // 108 lines × 100 segments
 
@@ -47,13 +38,16 @@ const MAX_FIELD_AGE: f32 = 100.0;     // Max segments before reset
 
 // Storage buffer for field line segments
 // Each segment: (start_pos: vec3f, end_pos: vec3f, strength: f32, age: f32)
-// Aligned to 32 bytes per segment for GPU efficiency
-// @align(4) on endPos mirrors the FieldParticle pattern used in fieldLineVertShader:
-// forces 4-byte offset so the struct packs to exactly 32 bytes in storage buffers,
-// matching the CPU-allocated stride (10800 × 32 = 345 600 bytes).
+// Scalar fields keep the struct tightly packed at exactly 32 bytes, matching
+// the CPU-allocated stride (10800 × 32 = 345 600 bytes). vec3f members would
+// force 16-byte-aligned offsets in storage address space, breaking that layout.
 struct FluxSegment {
-    startPos: vec3f,
-    @align(4) endPos: vec3f,
+    startX: f32,
+    startY: f32,
+    startZ: f32,
+    endX: f32,
+    endY: f32,
+    endZ: f32,
     strength: f32,  // Field magnitude at segment
     age: f32,       // Segment age for animation
 }
@@ -66,12 +60,61 @@ struct FluxUniforms {
     deltaTime: f32,
     integrationStep: f32,
     lineOpacity: f32,
-    seedRadius: f32,      // Radius around rollers for seeding
-    followStrength: f32,  // How closely lines follow B-field (0-1)
-    _pad: f32,
+    seedRadius: f32,           // Radius around rollers for seeding
+    followStrength: f32,       // How closely lines follow B-field (0-1)
+    coilBoostCount: f32,       // Number of active pickup-coil jaw gaps
+    coilBoostStrength: f32,    // Strength of roller-through-jaw flux boost
 }
 
 @binding(1) @group(0) var<uniform> fluxUniforms: FluxUniforms;
+
+// Per-coil boost data uploaded from the CPU each frame.
+// Position is the world-space jaw-gap centre; energy is the smoothed coil energy.
+struct CoilBoostData {
+    pos: vec3f,
+    energy: f32,
+}
+
+@binding(2) @group(0) var<storage, read> coilBoost: array<CoilBoostData>;
+
+// Packed SEG layout (must match packSEGLayoutUniforms in seg-layout.js).
+@binding(3) @group(0) var<uniform> segLayoutData: array<f32, 64>;
+
+fn layoutRingCount() -> i32 {
+    return i32(segLayoutData[1]);
+}
+
+fn layoutActiveRollers() -> i32 {
+    return i32(segLayoutData[2]);
+}
+
+fn layoutFluxLinesPerRing() -> i32 {
+    return i32(segLayoutData[7]);
+}
+
+fn layoutTotalFluxLines() -> i32 {
+    return layoutRingCount() * layoutFluxLinesPerRing();
+}
+
+fn layoutRingField(ringIdx: u32, fieldOffset: u32) -> f32 {
+    return segLayoutData[8u + ringIdx * 12u + fieldOffset];
+}
+
+fn layoutRingCountAt(ringIdx: u32) -> i32 {
+    return i32(layoutRingField(ringIdx, 0u));
+}
+
+fn layoutRingOrbit(ringIdx: u32) -> f32 {
+    return layoutRingField(ringIdx, 2u);
+}
+
+fn layoutRingRollerRadius(ringIdx: u32) -> f32 {
+    return layoutRingField(ringIdx, 3u);
+}
+
+fn layoutRingSpeed(ringIdx: u32) -> f32 {
+    return layoutRingField(ringIdx, 5u);
+}
 
 // ============================================
 // Magnetic Field Functions (Duplicated for Standalone)
@@ -105,42 +148,26 @@ fn getRollerMagneticState(
     outPosition: ptr<function, vec3f>,
     outMoment: ptr<function, vec3f>
 ) {
-    var ringCount: i32;
-    var ringRadius: f32;
-    var rotationSpeed: f32;
-    
-    switch (ringIndex) {
-        case 0: {
-            ringCount = INNER_RING_COUNT;
-            ringRadius = INNER_RADIUS;
-            rotationSpeed = 2.0;
-        }
-        case 1: {
-            ringCount = MIDDLE_RING_COUNT;
-            ringRadius = MIDDLE_RADIUS;
-            rotationSpeed = 1.0;
-        }
-        case 2: {
-            ringCount = OUTER_RING_COUNT;
-            ringRadius = OUTER_RADIUS;
-            rotationSpeed = 0.5;
-        }
-        default: {
-            ringCount = MIDDLE_RING_COUNT;
-            ringRadius = MIDDLE_RADIUS;
-            rotationSpeed = 1.0;
-        }
+    if (ringIndex < 0 || ringIndex >= layoutRingCount()) {
+        *outPosition = vec3f(0.0);
+        *outMoment = vec3f(0.0);
+        return;
     }
-    
+
+    let ringCount = layoutRingCountAt(u32(ringIndex));
+    let ringRadius = layoutRingOrbit(u32(ringIndex));
+    let rotationSpeed = layoutRingSpeed(u32(ringIndex));
+    let rollerH = layoutRingField(u32(ringIndex), 4u);
+
     let baseAngle = f32(rollerIndex) * (2.0 * PI / f32(ringCount));
     let angle = baseAngle + time * 0.5 * rotationSpeed;
-    
+
     *outPosition = vec3f(
         cos(angle) * ringRadius,
-        0.0,
+        rollerH * 0.5,
         sin(angle) * ringRadius
     );
-    
+
     *outMoment = vec3f(
         -sin(angle) * ROLLER_MOMENT,
         0.0,
@@ -150,26 +177,35 @@ fn getRollerMagneticState(
 
 fn calculateToroidalField(pos: vec3f, time: f32) -> vec3f {
     var totalField = vec3f(0.0);
-    
-    for (var ring: i32 = 0; ring < 3; ring++) {
-        var rollerCount: i32;
-        
-        switch (ring) {
-            case 0: { rollerCount = INNER_RING_COUNT; }
-            case 1: { rollerCount = MIDDLE_RING_COUNT; }
-            case 2: { rollerCount = OUTER_RING_COUNT; }
-            default: { rollerCount = MIDDLE_RING_COUNT; }
-        }
-        
+    let rings = layoutRingCount();
+
+    for (var ring: i32 = 0; ring < rings; ring++) {
+        let rollerCount = layoutRingCountAt(u32(ring));
+
         for (var i: i32 = 0; i < rollerCount; i++) {
             var rollerPos: vec3f;
             var rollerMoment: vec3f;
-            
+
             getRollerMagneticState(ring, i, time, &rollerPos, &rollerMoment);
             totalField += magneticDipoleField(pos, rollerPos, rollerMoment);
         }
     }
-    
+
+    // Roller-through-jaw flux boost: pickup coils pull field lines through
+    // their C-core gaps, strengthening the path that links roller magnets.
+    let boostCount = i32(fluxUniforms.coilBoostCount);
+    if (boostCount > 0 && fluxUniforms.coilBoostStrength > 0.0) {
+        for (var c: i32 = 0; c < boostCount; c++) {
+            let coil = coilBoost[c];
+            let d = pos - coil.pos;
+            let distSq = dot(d, d);
+            if (distSq < 0.0001 || distSq > 9.0) { continue; }
+            let falloff = exp(-distSq * 1.2);
+            // Pull toward coil jaw gap; strength scales with coil energy and speed.
+            totalField += normalize(-d) * coil.energy * falloff * fluxUniforms.coilBoostStrength;
+        }
+    }
+
     return totalField;
 }
 
@@ -263,62 +299,46 @@ fn eulerStep(pos: vec3f, time: f32, h: f32, direction: f32) -> vec3f {
 // @return Seed position for this field line
 // -----------------------------------------------------------------------------
 fn getFluxLineSeed(lineIndex: i32, time: f32) -> vec3f {
-    // Determine which ring this line belongs to
-    let ringIndex = lineIndex / FLUX_LINES_PER_RING;
-    let indexInRing = lineIndex % FLUX_LINES_PER_RING;
-    
-    var ringCount: i32;
-    var ringRadius: f32;
-    var rotationSpeed: f32;
-    
-    switch (ringIndex) {
-        case 0: {
-            ringCount = INNER_RING_COUNT;
-            ringRadius = INNER_RADIUS;
-            rotationSpeed = 2.0;
-        }
-        case 1: {
-            ringCount = MIDDLE_RING_COUNT;
-            ringRadius = MIDDLE_RADIUS;
-            rotationSpeed = 1.0;
-        }
-        case 2: {
-            ringCount = OUTER_RING_COUNT;
-            ringRadius = OUTER_RADIUS;
-            rotationSpeed = 0.5;
-        }
-        default: {
-            ringCount = MIDDLE_RING_COUNT;
-            ringRadius = MIDDLE_RADIUS;
-            rotationSpeed = 1.0;
-        }
+    let linesPerRing = layoutFluxLinesPerRing();
+    let ringIndex = lineIndex / linesPerRing;
+    let indexInRing = lineIndex % linesPerRing;
+
+    if (ringIndex >= layoutRingCount()) {
+        return vec3f(0.0);
     }
-    
+
+    let ringCount = layoutRingCountAt(u32(ringIndex));
+    let ringRadius = layoutRingOrbit(u32(ringIndex));
+    let rollerRadius = layoutRingRollerRadius(u32(ringIndex));
+    let rotationSpeed = layoutRingSpeed(u32(ringIndex));
+    let rollerH = layoutRingField(u32(ringIndex), 4u);
+
     // Distribute seeds around each roller in the ring
     let rollerIndex = indexInRing % ringCount;
-    let seedOffset = f32(indexInRing / ringCount);
-    
+    let seedOffset = indexInRing / ringCount;
+
     let baseAngle = f32(rollerIndex) * (2.0 * PI / f32(ringCount));
     let angle = baseAngle + time * 0.5 * rotationSpeed;
-    
-    // Roller center position
+
+    // Roller center position (matches seg-roller compute shader height).
     let rollerPos = vec3f(
         cos(angle) * ringRadius,
-        0.0,
+        rollerH * 0.5,
         sin(angle) * ringRadius
     );
-    
+
     // Seed offset from roller surface (slightly outside)
-    let seedRadius = 0.06;  // Slightly larger than roller radius (0.05m)
-    let seedAngle = seedOffset * 2.0 * PI / f32(FLUX_LINES_PER_RING / ringCount);
-    let seedHeight = sin(seedAngle * 3.0) * 0.05;  // Vary height
-    
+    let seedRadius = rollerRadius * 0.25 + 0.02;
+    let seedsPerRoller = max(linesPerRing / ringCount, 1);
+    let seedAngle = f32(seedOffset) * 2.0 * PI / f32(seedsPerRoller);
+    let seedHeight = sin(seedAngle * 3.0) * rollerRadius * 0.15;
+
     let offset = vec3f(
         cos(seedAngle) * seedRadius,
         seedHeight,
         sin(seedAngle) * seedRadius
     );
-    
+
     return rollerPos + offset;
 }
 
@@ -372,8 +392,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     
     // Store segment data
     let segment = FluxSegment(
-        currentPos,
-        endPos,
+        currentPos.x, currentPos.y, currentPos.z,
+        endPos.x, endPos.y, endPos.z,
         Bmag,
         age
     );
@@ -390,13 +410,21 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 fn traceBidirectional(@builtin(global_invocation_id) id: vec3u) {
     let lineIndex = i32(id.x);
     
-    if (lineIndex >= TOTAL_FLUX_LINES) {
+    if (lineIndex >= layoutTotalFluxLines()) {
         return;
     }
     
     let time = fluxUniforms.time;
     let h = fluxUniforms.integrationStep;
     let halfSegments = SEGMENTS_PER_LINE / 2;
+
+    // Per-line pulse rate tied to actual roller angular velocity.
+    let linesPerRing = layoutFluxLinesPerRing();
+    let ringIdx = lineIndex / linesPerRing;
+    let ringSpeed = layoutRingSpeed(u32(ringIdx));
+    let angularVelocity = 0.5 * ringSpeed;
+    let pulsesPerOrbit = 2.0;
+    let pulseRate = angularVelocity * pulsesPerOrbit / (2.0 * PI);
     
     // Start from seed point
     var centerPos = getFluxLineSeed(lineIndex, time);
@@ -412,11 +440,11 @@ fn traceBidirectional(@builtin(global_invocation_id) id: vec3u) {
         
         let nextPos = rk4Step(forwardPos, time, h, 1.0);
         
-        let age = fract(time * 0.5 + f32(i) / f32(halfSegments));
+        let age = fract(time * pulseRate + f32(i) / f32(halfSegments));
         
         fluxSegments[segmentIdx] = FluxSegment(
-            forwardPos,
-            nextPos,
+            forwardPos.x, forwardPos.y, forwardPos.z,
+            nextPos.x, nextPos.y, nextPos.z,
             Bmag,
             age
         );
@@ -435,12 +463,12 @@ fn traceBidirectional(@builtin(global_invocation_id) id: vec3u) {
         
         let prevPos = rk4Step(backwardPos, time, h, -1.0);
         
-        let age = fract(time * 0.5 + f32(i) / f32(halfSegments));
+        let age = fract(time * pulseRate + f32(i) / f32(halfSegments));
         
         // Note: For backward trace, startPos is the new point, endPos is current
         fluxSegments[segmentIdx] = FluxSegment(
-            prevPos,
-            backwardPos,
+            prevPos.x, prevPos.y, prevPos.z,
+            backwardPos.x, backwardPos.y, backwardPos.z,
             Bmag,
             age
         );

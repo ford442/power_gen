@@ -236,5 +236,3 @@ export class DeviceInstance {
 
 
 }
-
-export { DeviceInstance }

@@ -1,3 +1,5 @@
+import { PARTICLE_BYTES_PER_INSTANCE } from './device-geometry.js';
+
 export class DevicePipelineManager {
   constructor(device, id, visualizer) {
     this.device = device;
@@ -8,6 +10,7 @@ export class DevicePipelineManager {
 
   async setupPipelines() {
     await this.setupComputePipeline();
+    const depthFormat = this.visualizer.depthFormat || 'depth24plus-stencil8';
     // Roller pipeline
     this.rollerPipeline = this.device.createRenderPipeline({
       label: 'rollerPipeline',
@@ -23,10 +26,16 @@ export class DevicePipelineManager {
         targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
       },
       primitive: { topology: 'triangle-list' },
-      depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
+      depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' }
     });
 
-    // Particle pipeline
+    // Particle pipeline — vec4f storage records (xyz + phase) = PARTICLE_BYTES_PER_INSTANCE (16 B).
+    // Positions are read in the vertex shader from @binding(4) storage, not vertex attribs.
+    if (PARTICLE_BYTES_PER_INSTANCE !== 16) {
+      throw new Error(
+        `[DevicePipelineManager] Particle stride must be 16 bytes (vec4f); got ${PARTICLE_BYTES_PER_INSTANCE}`
+      );
+    }
     this.particlePipeline = this.device.createRenderPipeline({
       label: 'particlePipeline',
       layout: 'auto',
@@ -41,48 +50,9 @@ export class DevicePipelineManager {
         targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } } }]
       },
       primitive: { topology: 'triangle-strip' },
-      depthStencil: { depthWriteEnabled: false, depthCompare: 'less' }
+      depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
     });
 
-    // Core pipeline (SEG only)
-    if (this.id === 'seg') {
-      this.corePipeline = this.device.createRenderPipeline({
-        label: 'corePipeline',
-        layout: 'auto',
-        vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreVertShader }),
-          entryPoint: 'main',
-          buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
-        },
-        fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreFragShader }),
-          entryPoint: 'main',
-          targets: [{ format: this.visualizer.context.getCurrentTexture().format }]
-        },
-        primitive: { topology: 'triangle-list' },
-        depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
-      });
-    }
-
-    // Field line pipeline (SEG only)
-    if (this.id === 'seg') {
-      this.fieldLinePipeline = this.device.createRenderPipeline({
-        label: 'fieldLinePipeline',
-        layout: 'auto',
-        vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.fieldLineVertShader }),
-          entryPoint: 'main',
-          buffers: [{ arrayStride: 32, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }, { shaderLocation: 2, offset: 24, format: 'float32' }, { shaderLocation: 3, offset: 28, format: 'float32' }] }]
-        },
-        fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.fieldLineFragShader }),
-          entryPoint: 'main',
-          targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
-        },
-        primitive: { topology: 'line-list' },
-        depthStencil: { depthWriteEnabled: false, depthCompare: 'less' }
-      });
-    }
 
     // RK4 flux segment billboard render pipeline (SEG only)
     // Reads FluxSegment data directly from storage buffer — no vertex buffer.
@@ -108,7 +78,7 @@ export class DevicePipelineManager {
           }]
         },
         primitive: { topology: 'triangle-strip' },
-        depthStencil: { depthWriteEnabled: false, depthCompare: 'less' }
+        depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
       });
     }
 
@@ -128,29 +98,10 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
         primitive: { topology: 'line-list' },
-        depthStencil: { depthWriteEnabled: false, depthCompare: 'less' }
+        depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
       });
     }
 
-    // Electromagnet coil pipeline (SEG only)
-    if (this.id === 'seg') {
-      this.coilPipeline = this.device.createRenderPipeline({
-        label: 'coilPipeline',
-        layout: 'auto',
-        vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coilVertShader }),
-          entryPoint: 'main',
-          buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
-        },
-        fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coilFragShader }),
-          entryPoint: 'main',
-          targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
-        },
-        primitive: { topology: 'triangle-list' },
-        depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
-      });
-    }
 
     // Enhanced SEG pipeline with UV support and PBR (SEG only)
     if (this.id === 'seg') {
@@ -172,29 +123,10 @@ export class DevicePipelineManager {
           targets: [{ format: this.visualizer.context.getCurrentTexture().format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' }, alpha: {} } }]
         },
         primitive: { topology: 'triangle-list', cullMode: 'back' },
-        depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
+        depthStencil: { format: depthFormat, depthWriteEnabled: true, depthCompare: 'less' }
       });
     }
 
-    // Ring pipeline for connection rings (SEG only)
-    if (this.id === 'seg') {
-      this.ringPipeline = this.device.createRenderPipeline({
-        label: 'ringPipeline',
-        layout: 'auto',
-        vertex: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreVertShader }),
-          entryPoint: 'main',
-          buffers: [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }]
-        },
-        fragment: {
-          module: this.device.createShaderModule({ code: this.visualizer.shaders.coreFragShader }),
-          entryPoint: 'main',
-          targets: [{ format: this.visualizer.context.getCurrentTexture().format }]
-        },
-        primitive: { topology: 'triangle-list' },
-        depthStencil: { depthWriteEnabled: true, depthCompare: 'less' }
-      });
-    }
   }
 
   async setupComputePipeline() {

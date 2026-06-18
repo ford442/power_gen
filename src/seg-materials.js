@@ -75,5 +75,26 @@ export const SEGMaterialPresets = {
     metallic: 0.98,
     roughness: 0.15,
     emissive: 0.0
+  },
+  // Laminated iron C-core (dark grey, slightly rough, visible edge lamination)
+  laminatedIron: {
+    baseColor: [0.18, 0.19, 0.21],
+    metallic: 0.45,
+    roughness: 0.55,
+    emissive: 0.0
+  },
+  // Enameled copper winding bundle (warm copper under amber/orange lacquer)
+  windingCopperEnamel: {
+    baseColor: [0.82, 0.46, 0.14],
+    metallic: 0.72,
+    roughness: 0.38,
+    emissive: 0.0
+  },
+  // Mounting foot steel (darker, more matte than bolt steel)
+  mountFootSteel: {
+    baseColor: [0.32, 0.34, 0.36],
+    metallic: 0.78,
+    roughness: 0.42,
+    emissive: 0.0
   }
 };
