@@ -78,26 +78,27 @@ struct CoilBoostData {
 @binding(2) @group(0) var<storage, read> coilBoost: array<CoilBoostData>;
 
 // Packed SEG layout (must match packSEGLayoutUniforms in seg-layout.js).
-@binding(3) @group(0) var<uniform> segLayoutData: array<f32, 64>;
+@binding(3) @group(0) var<uniform> segLayoutData: array<vec4f, 16>;
 
 fn layoutRingCount() -> i32 {
-    return i32(segLayoutData[1]);
+    return i32(segLayoutData[0][1]);
 }
 
 fn layoutActiveRollers() -> i32 {
-    return i32(segLayoutData[2]);
+    return i32(segLayoutData[0][2]);
 }
 
 fn layoutFluxLinesPerRing() -> i32 {
-    return i32(segLayoutData[7]);
+    return i32(segLayoutData[1][3]);
 }
 
 fn layoutTotalFluxLines() -> i32 {
     return layoutRingCount() * layoutFluxLinesPerRing();
 }
 
-fn layoutRingField(ringIdx: u32, fieldOffset: u32) -> f32 {
-    return segLayoutData[8u + ringIdx * 12u + fieldOffset];
+fn layoutRingField(ringIdx: i32, fieldOffset: i32) -> f32 {
+    let i = 8 + ringIdx * 12 + fieldOffset;
+    return segLayoutData[i >> 2][i & 3];
 }
 
 fn layoutRingCountAt(ringIdx: u32) -> i32 {
