@@ -96,24 +96,24 @@ fn layoutTotalFluxLines() -> i32 {
     return layoutRingCount() * layoutFluxLinesPerRing();
 }
 
-fn layoutRingField(ringIdx: i32, fieldOffset: i32) -> f32 {
-    return segLayoutData[8 + ringIdx * 12 + fieldOffset];
+fn layoutRingField(ringIdx: u32, fieldOffset: u32) -> f32 {
+    return segLayoutData[8u + ringIdx * 12u + fieldOffset];
 }
 
-fn layoutRingCountAt(ringIdx: i32) -> i32 {
-    return i32(layoutRingField(ringIdx, 0));
+fn layoutRingCountAt(ringIdx: u32) -> i32 {
+    return i32(layoutRingField(ringIdx, 0u));
 }
 
-fn layoutRingOrbit(ringIdx: i32) -> f32 {
-    return layoutRingField(ringIdx, 2);
+fn layoutRingOrbit(ringIdx: u32) -> f32 {
+    return layoutRingField(ringIdx, 2u);
 }
 
-fn layoutRingRollerRadius(ringIdx: i32) -> f32 {
-    return layoutRingField(ringIdx, 3);
+fn layoutRingRollerRadius(ringIdx: u32) -> f32 {
+    return layoutRingField(ringIdx, 3u);
 }
 
-fn layoutRingSpeed(ringIdx: i32) -> f32 {
-    return layoutRingField(ringIdx, 5);
+fn layoutRingSpeed(ringIdx: u32) -> f32 {
+    return layoutRingField(ringIdx, 5u);
 }
 
 // ============================================
@@ -154,16 +154,17 @@ fn getRollerMagneticState(
         return;
     }
 
-    let ringCount = layoutRingCountAt(ringIndex);
-    let ringRadius = layoutRingOrbit(ringIndex);
-    let rotationSpeed = layoutRingSpeed(ringIndex);
+    let ringCount = layoutRingCountAt(u32(ringIndex));
+    let ringRadius = layoutRingOrbit(u32(ringIndex));
+    let rotationSpeed = layoutRingSpeed(u32(ringIndex));
+    let rollerH = layoutRingField(u32(ringIndex), 4u);
 
     let baseAngle = f32(rollerIndex) * (2.0 * PI / f32(ringCount));
     let angle = baseAngle + time * 0.5 * rotationSpeed;
 
     *outPosition = vec3f(
         cos(angle) * ringRadius,
-        0.0,
+        rollerH * 0.5,
         sin(angle) * ringRadius
     );
 
@@ -179,7 +180,7 @@ fn calculateToroidalField(pos: vec3f, time: f32) -> vec3f {
     let rings = layoutRingCount();
 
     for (var ring: i32 = 0; ring < rings; ring++) {
-        let rollerCount = layoutRingCountAt(ring);
+        let rollerCount = layoutRingCountAt(u32(ring));
 
         for (var i: i32 = 0; i < rollerCount; i++) {
             var rollerPos: vec3f;
@@ -306,10 +307,11 @@ fn getFluxLineSeed(lineIndex: i32, time: f32) -> vec3f {
         return vec3f(0.0);
     }
 
-    let ringCount = layoutRingCountAt(ringIndex);
-    let ringRadius = layoutRingOrbit(ringIndex);
-    let rollerRadius = layoutRingRollerRadius(ringIndex);
-    let rotationSpeed = layoutRingSpeed(ringIndex);
+    let ringCount = layoutRingCountAt(u32(ringIndex));
+    let ringRadius = layoutRingOrbit(u32(ringIndex));
+    let rollerRadius = layoutRingRollerRadius(u32(ringIndex));
+    let rotationSpeed = layoutRingSpeed(u32(ringIndex));
+    let rollerH = layoutRingField(u32(ringIndex), 4u);
 
     // Distribute seeds around each roller in the ring
     let rollerIndex = indexInRing % ringCount;
@@ -318,10 +320,10 @@ fn getFluxLineSeed(lineIndex: i32, time: f32) -> vec3f {
     let baseAngle = f32(rollerIndex) * (2.0 * PI / f32(ringCount));
     let angle = baseAngle + time * 0.5 * rotationSpeed;
 
-    // Roller center position
+    // Roller center position (matches seg-roller compute shader height).
     let rollerPos = vec3f(
         cos(angle) * ringRadius,
-        0.0,
+        rollerH * 0.5,
         sin(angle) * ringRadius
     );
 
@@ -419,7 +421,7 @@ fn traceBidirectional(@builtin(global_invocation_id) id: vec3u) {
     // Per-line pulse rate tied to actual roller angular velocity.
     let linesPerRing = layoutFluxLinesPerRing();
     let ringIdx = lineIndex / linesPerRing;
-    let ringSpeed = layoutRingSpeed(ringIdx);
+    let ringSpeed = layoutRingSpeed(u32(ringIdx));
     let angularVelocity = 0.5 * ringSpeed;
     let pulsesPerOrbit = 2.0;
     let pulseRate = angularVelocity * pulsesPerOrbit / (2.0 * PI);
