@@ -97,7 +97,7 @@ fn layoutTotalFluxLines() -> i32 {
 }
 
 fn layoutRingField(ringIdx: i32, fieldOffset: i32) -> f32 {
-    return segLayoutData[8.0 + f32(ringIdx) * 12.0 + f32(fieldOffset)];
+    return segLayoutData[8 + ringIdx * 12 + fieldOffset];
 }
 
 fn layoutRingCountAt(ringIdx: i32) -> i32 {
