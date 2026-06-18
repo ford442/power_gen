@@ -1145,14 +1145,15 @@ export class MultiDeviceShaders {
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
       @binding(2) @group(0) var<storage> instances: array<InstanceData>;
-      @binding(4) @group(0) var<uniform> segLayoutData: array<f32, 64>;
+      @binding(4) @group(0) var<uniform> segLayoutData: array<vec4f, 16>;
 
       fn layoutRingField(ringIdx: u32, fieldOffset: u32) -> f32 {
-        return segLayoutData[8.0 + f32(ringIdx) * 12.0 + f32(fieldOffset)];
+        let i = 8u + ringIdx * 12u + fieldOffset;
+        return segLayoutData[i >> 2u][i & 3u];
       }
 
-      fn layoutRefMeshRadius() -> f32 { return segLayoutData[4]; }
-      fn layoutRefMeshHeight() -> f32 { return segLayoutData[5]; }
+      fn layoutRefMeshRadius() -> f32 { return segLayoutData[1][0]; }
+      fn layoutRefMeshHeight() -> f32 { return segLayoutData[1][1]; }
 
       fn rollerMeshScale(ringIdx: u32) -> vec3f {
         let rollerR = layoutRingField(ringIdx, 3u);
@@ -1275,15 +1276,16 @@ export class MultiDeviceShaders {
       @binding(5) @group(0) var<uniform> lighting: LightingConfig;
       @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
       @binding(7) @group(0) var<storage, read> rollerShadows: array<RollerShadowData>;
-      @binding(4) @group(0) var<uniform> segLayoutData: array<f32, 64>;
+      @binding(4) @group(0) var<uniform> segLayoutData: array<vec4f, 16>;
 
-      fn layoutRingCount() -> u32 { return u32(segLayoutData[1]); }
-      fn layoutActiveRollers() -> u32 { return u32(segLayoutData[2]); }
-      fn layoutMaxRollers() -> u32 { return u32(segLayoutData[3]); }
-      fn layoutRefMeshRadius() -> f32 { return segLayoutData[4]; }
-      fn layoutRefMeshHeight() -> f32 { return segLayoutData[5]; }
+      fn layoutRingCount() -> u32 { return u32(segLayoutData[0][1]); }
+      fn layoutActiveRollers() -> u32 { return u32(segLayoutData[0][2]); }
+      fn layoutMaxRollers() -> u32 { return u32(segLayoutData[0][3]); }
+      fn layoutRefMeshRadius() -> f32 { return segLayoutData[1][0]; }
+      fn layoutRefMeshHeight() -> f32 { return segLayoutData[1][1]; }
       fn layoutRingField(ringIdx: u32, fieldOffset: u32) -> f32 {
-        return segLayoutData[8.0 + f32(ringIdx) * 12.0 + f32(fieldOffset)];
+        let i = 8u + ringIdx * 12u + fieldOffset;
+        return segLayoutData[i >> 2u][i & 3u];
       }
 
       struct FragmentInput {
@@ -2093,15 +2095,16 @@ export class MultiDeviceShaders {
 
       @group(0) @binding(0) var<storage, read_write> rollers: array<RollerInstance>;
       @group(0) @binding(1) var<uniform>             uniforms: RollerUniforms;
-      @group(0) @binding(2) var<uniform>             segLayoutData: array<f32, 64>;
+      @group(0) @binding(2) var<uniform>             segLayoutData: array<vec4f, 16>;
 
       const PI: f32 = 3.14159265359;
 
-      fn layoutRingCount() -> u32 { return u32(segLayoutData[1]); }
-      fn layoutActiveRollers() -> u32 { return u32(segLayoutData[2]); }
-      fn layoutMaxRollers() -> u32 { return u32(segLayoutData[3]); }
+      fn layoutRingCount() -> u32 { return u32(segLayoutData[0][1]); }
+      fn layoutActiveRollers() -> u32 { return u32(segLayoutData[0][2]); }
+      fn layoutMaxRollers() -> u32 { return u32(segLayoutData[0][3]); }
       fn layoutRingField(ringIdx: u32, fieldOffset: u32) -> f32 {
-        return segLayoutData[8.0 + f32(ringIdx) * 12.0 + f32(fieldOffset)];
+        let i = 8u + ringIdx * 12u + fieldOffset;
+        return segLayoutData[i >> 2u][i & 3u];
       }
 
       fn mapRollerIndex(idx: u32) -> vec2u {
