@@ -13,6 +13,20 @@ export class WebGPUManager {
     this.globalBindGroupLayout = null;
   }
 
+  static canvasPixelSize(canvas) {
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const clientWidth = canvas.clientWidth;
+    const clientHeight = canvas.clientHeight;
+    const layoutReady = clientWidth >= 1 && clientHeight >= 1;
+    const cssWidth = layoutReady ? clientWidth : Math.max(canvas.width / dpr, 1);
+    const cssHeight = layoutReady ? clientHeight : Math.max(canvas.height / dpr, 1);
+    return {
+      width: Math.max(1, Math.floor(cssWidth * dpr)),
+      height: Math.max(1, Math.floor(cssHeight * dpr)),
+      layoutReady
+    };
+  }
+
   async init() {
     if (!navigator.gpu) {
       alert("WebGPU not supported. Use Chrome 113+ or Edge 113+.");
@@ -45,7 +59,6 @@ export class WebGPUManager {
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
       });
 
-      await this.setupDepthBuffer();
       await this.setupGlobalResources();
 
     } catch (e) {
@@ -56,7 +69,8 @@ export class WebGPUManager {
   }
 
   async setupDepthBuffer() {
-    const size = [this.canvas.width, this.canvas.height, 1];
+    const { width, height } = WebGPUManager.canvasPixelSize(this.canvas);
+    const size = [width, height, 1];
     this.depthTexture = this.device.createTexture({
       size,
       format: 'depth24plus-stencil8',
@@ -99,9 +113,11 @@ export class WebGPUManager {
   }
 
   resize() {
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    const displayWidth = Math.floor(this.canvas.clientWidth * devicePixelRatio);
-    const displayHeight = Math.floor(this.canvas.clientHeight * devicePixelRatio);
+    const { width: displayWidth, height: displayHeight, layoutReady } =
+      WebGPUManager.canvasPixelSize(this.canvas);
+    if (!layoutReady) {
+      return false;
+    }
 
     if (this.canvas.width !== displayWidth || this.canvas.height !== displayHeight) {
       this.canvas.width = displayWidth;
@@ -113,5 +129,6 @@ export class WebGPUManager {
       }
       this.setupDepthBuffer();
     }
+    return true;
   }
 }

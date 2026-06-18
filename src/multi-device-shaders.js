@@ -1266,8 +1266,12 @@ export class MultiDeviceShaders {
         shadowStrength: f32,
       }
 
-      struct RollerShadowData {
-        pos: vec4f,   // xyz = world position, w = ring index
+      struct InstanceData {
+        position: vec3f,
+        ringIndex: f32,
+        rotation: vec4f,
+        copperColor: vec3f,
+        greenEmissive: f32
       }
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -1275,7 +1279,7 @@ export class MultiDeviceShaders {
       @binding(3) @group(0) var<uniform> material: MaterialUniforms;
       @binding(5) @group(0) var<uniform> lighting: LightingConfig;
       @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
-      @binding(7) @group(0) var<storage, read> rollerShadows: array<RollerShadowData>;
+      @binding(7) @group(0) var<storage, read> rollerShadowInstances: array<InstanceData>;
       @binding(4) @group(0) var<uniform> segLayoutData: array<vec4f, 16>;
 
       fn layoutRingCount() -> u32 { return u32(segLayoutData[0][1]); }
@@ -1512,8 +1516,9 @@ export class MultiDeviceShaders {
       fn accumulateRollerPenumbra(worldPos: vec3f) -> f32 {
         var shadow = 0.0;
         let maxR = min(layoutActiveRollers(), layoutMaxRollers());
+        let devicePos = vec3f(device.posX, device.posY, device.posZ);
         for (var i = 0u; i < maxR; i++) {
-          let rp = rollerShadows[i].pos;
+          let rp = rollerShadowInstances[i].position + devicePos;
           let d = worldPos.xz - rp.xz;
           let distSq = dot(d, d);
           if (distSq > 16.0) { continue; }
