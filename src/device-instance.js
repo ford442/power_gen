@@ -1155,6 +1155,7 @@ class DeviceInstance {
 
     // Set renderMode to 1 (base)
     this.renderMode = 1;
+    const renderPosition = (this.id === 'seg') ? this._anomalyLiftOffset : this.position;
     const deviceData = this._buildDeviceUniformData(this.renderMode, renderPosition);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
@@ -1186,6 +1187,7 @@ class DeviceInstance {
 
     // Set renderMode to 2 (stator)
     this.renderMode = 2;
+    const renderPosition = (this.id === 'seg') ? this._anomalyLiftOffset : this.position;
     const deviceData = this._buildDeviceUniformData(this.renderMode, renderPosition);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
@@ -1218,6 +1220,7 @@ class DeviceInstance {
 
     // Set renderMode to 3 (wiring)
     this.renderMode = 3;
+    const renderPosition = (this.id === 'seg') ? this._anomalyLiftOffset : this.position;
     const deviceData = this._buildDeviceUniformData(this.renderMode, renderPosition);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
