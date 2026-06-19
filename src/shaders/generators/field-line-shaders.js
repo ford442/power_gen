@@ -21,13 +21,17 @@ export function getFieldLineVertShader() {
         isSolar: f32                  // [11]
       }
       
-      // @align(4) on velocity matches the 32-byte CPU-written layout:
-      // position@0(12B), velocity@12(12B), life@24(4B), strength@28(4B)
+      // Scalar fields keep this at the CPU-written 32-byte stride. A second
+      // vec3f member cannot start at offset 12 in storage address space.
       struct FieldParticle {
-        position:          vec3f,
-        @align(4) velocity: vec3f,
-        life:              f32,
-        strength:          f32
+        posX: f32,
+        posY: f32,
+        posZ: f32,
+        velX: f32,
+        velY: f32,
+        velZ: f32,
+        life: f32,
+        strength: f32
       }
       
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -46,7 +50,7 @@ export function getFieldLineVertShader() {
         
         // Reconstruct device position from individual fields
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
-        let worldPos = particle.position + devicePos;
+        let worldPos = vec3f(particle.posX, particle.posY, particle.posZ) + devicePos;
         
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
@@ -100,10 +104,15 @@ export function getFluxSegmentVertShader() {
         isSolar: f32
       }
 
-      // 32-byte layout (matches flux-lines.wgsl with @align(4) on endPos)
+      // Scalar fields keep this at the CPU-written 32-byte stride. A second
+      // vec3f member cannot start at offset 12 in storage address space.
       struct FluxSegment {
-        startPos: vec3f,
-        @align(4) endPos: vec3f,
+        startX: f32,
+        startY: f32,
+        startZ: f32,
+        endX: f32,
+        endY: f32,
+        endZ: f32,
         strength: f32,
         age: f32,
       }
@@ -125,8 +134,10 @@ export function getFluxSegmentVertShader() {
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
 
         // Transform both endpoints to clip space
-        let sc = uniforms.viewProj * vec4f(seg.startPos + devicePos, 1.0);
-        let ec = uniforms.viewProj * vec4f(seg.endPos   + devicePos, 1.0);
+        let startPos = vec3f(seg.startX, seg.startY, seg.startZ);
+        let endPos = vec3f(seg.endX, seg.endY, seg.endZ);
+        let sc = uniforms.viewProj * vec4f(startPos + devicePos, 1.0);
+        let ec = uniforms.viewProj * vec4f(endPos   + devicePos, 1.0);
 
         // Screen-space direction (NDC)
         let sn = sc.xy / sc.w;
@@ -189,4 +200,3 @@ export function getFluxSegmentFragShader() {
       }
     `;
   }
-

@@ -249,10 +249,14 @@ export function getSegRollerComputeShader() {
 export function getSegFieldAdvectShader() {
     return /* wgsl */ `
       struct FieldParticle {
-        position:          vec3f,
-        @align(4) velocity: vec3f,
-        life:              f32,
-        strength:          f32,
+        posX: f32,
+        posY: f32,
+        posZ: f32,
+        velX: f32,
+        velY: f32,
+        velZ: f32,
+        life: f32,
+        strength: f32,
       }
 
       struct FieldUniforms {
@@ -300,8 +304,12 @@ export function getSegFieldAdvectShader() {
                       * min(1.0, 0.5 + sm * 0.15);
 
         var p: FieldParticle;
-        p.position = vec3f(px, py, pz);
-        p.velocity = vec3f(vx, vy, vz);
+        p.posX = px;
+        p.posY = py;
+        p.posZ = pz;
+        p.velX = vx;
+        p.velY = vy;
+        p.velZ = vz;
         p.life     = life;
         p.strength = strength;
 
@@ -309,4 +317,3 @@ export function getSegFieldAdvectShader() {
       }
     `;
   }
-

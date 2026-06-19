@@ -19,12 +19,17 @@ export function getEnergyArcVertShader() {
         isSolar: f32                  // [11]
       }
       
-      // @align(4) on velocity matches the 32-byte CPU-written layout
+      // Scalar fields keep this at the CPU-written 32-byte stride. A second
+      // vec3f member cannot start at offset 12 in storage address space.
       struct ArcParticle {
-        position:          vec3f,
-        @align(4) velocity: vec3f,
-        life:              f32,
-        intensity:         f32
+        posX: f32,
+        posY: f32,
+        posZ: f32,
+        velX: f32,
+        velY: f32,
+        velZ: f32,
+        life: f32,
+        intensity: f32
       }
       
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -42,7 +47,7 @@ export function getEnergyArcVertShader() {
         let particle = particles[instIdx];
         // Reconstruct device position from individual fields
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
-        let worldPos = particle.position + devicePos;
+        let worldPos = vec3f(particle.posX, particle.posY, particle.posZ) + devicePos;
         
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
@@ -70,4 +75,3 @@ export function getEnergyArcFragShader() {
       }
     `;
   }
-
