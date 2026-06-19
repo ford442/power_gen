@@ -64,6 +64,17 @@ export const DeviceSetupMixin = {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
+    // Per-coil boost data (binding 2). 24 pickup coils max, 16 B each
+    // (vec3f pos + f32 energy). Currently coilBoostCount is held at 0 in the
+    // uniform write, so the shader's boost loop is inert — but the binding must
+    // still exist because the 'auto' pipeline layout derives all 4 bindings
+    // declared by traceBidirectional (segments, uniforms, coilBoost, segLayout).
+    this.fluxCoilBoostBuffer = this.device.createBuffer({
+      label: 'flux-coil-boost',
+      size: 24 * 16,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+
     const module = this.device.createShaderModule({
       label: 'flux-tracer-module',
       code: this.visualizer.shaders.fluxLineTracerShader
@@ -80,7 +91,9 @@ export const DeviceSetupMixin = {
       layout: this.fluxTracerPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.geometry.fluxSegmentBuffer } },
-        { binding: 1, resource: { buffer: this.fluxTracerUniformBuffer } }
+        { binding: 1, resource: { buffer: this.fluxTracerUniformBuffer } },
+        { binding: 2, resource: { buffer: this.fluxCoilBoostBuffer } },
+        { binding: 3, resource: { buffer: this.visualizer.segLayoutUniformBuffer } }
       ]
     });
 
