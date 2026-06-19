@@ -4,6 +4,12 @@ import { MAX_ROLLERS } from './seg-layout.js';
 // (108 lines × 100 segments). Update both if the WGSL constants change.
 const FLUX_TOTAL_SEGMENTS = 10800;
 
+// Legacy circular-path field-line particles. Must match `fieldLineCount` in
+// DeviceInstance. Each FieldParticle is 8 × f32 (pos3 + vel3 + life + strength)
+// = 32 bytes; see getSegFieldAdvectShader() and updateFieldLines().
+const FIELD_LINE_PARTICLE_COUNT = 1200;
+const FIELD_LINE_PARTICLE_BYTES = 32;
+
 /** WebGPU particle storage layout: vec4f (xyz + phase) = 16 bytes per particle. */
 export const PARTICLE_BYTES_PER_INSTANCE = 16;
 
@@ -22,10 +28,29 @@ export class DeviceGeometry {
     await this.setupRollers();
     await this.setupCore();
     await this.setupParticles();
+    await this.setupFieldLineBuffer();
     await this.setupFluxLineBuffer();
     await this.setupEnergyArcs();
     await this.setupWiring();
     await this.setupElectromagnets();
+  }
+
+  async setupFieldLineBuffer() {
+    // Storage buffer for the legacy circular field-line particles. Written by
+    // the GPU advect compute pass (setupFieldAdvect, read_write) and the CPU
+    // fallback (updateFieldLines, writeBuffer), read by the field-line render
+    // pipeline (binding 4).
+    const size = FIELD_LINE_PARTICLE_COUNT * FIELD_LINE_PARTICLE_BYTES;
+    this.fieldLineParticles = this.device.createBuffer({
+      label: 'seg-field-line-particles',
+      size,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(
+      `device-${this.id}-field-lines`,
+      size,
+      GPUBufferUsage.STORAGE
+    );
   }
 
   async setupFluxLineBuffer() {
