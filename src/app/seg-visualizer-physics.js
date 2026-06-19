@@ -1,5 +1,5 @@
 // Math & Physics Methods for SEGVisualizer
-import { ValidatedConstants } from '../ValidatedConstants.js';
+import { ValidatedConstants } from '../ValidatedConstants';
 
 export const SEGVisualizerMath = {
   perspectiveMatrix: function (fov, aspect, near, far) {

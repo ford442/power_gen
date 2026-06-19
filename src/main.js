@@ -1,10 +1,3 @@
-import rollerShaderCode from './shaders/roller.wgsl?raw';
-import particleShaderCode from './shaders/particles.wgsl?raw';
-import computeShaderCode from './shaders/compute.wgsl?raw';
-import lightningShaderCode from './shaders/lightning.wgsl?raw';
-import bloomVertCode from './shaders/bloom.wgsl?raw';
-import bloomExtractCode from './shaders/bloom-extract.wgsl?raw';
-import bloomCompositeCode from './shaders/bloom-composite.wgsl?raw';
 import { SEGIntegrationManager } from './integration';
 import { ValidatedConstants } from './ValidatedConstants';
 import { SEGSim } from './wasm/sim';
@@ -14,6 +7,15 @@ import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 
 import { SEGVisualizerGeometry } from './app/seg-visualizer-geometry.js';
 import { SEGVisualizerMath } from './app/seg-visualizer-physics.js';
+
+// Legacy shader stubs (SEGVisualizer fallback only; modern path uses MultiDeviceShaders + generators)
+const rollerShaderCode = '';
+const particleShaderCode = '';
+const computeShaderCode = '';
+const lightningShaderCode = '';
+const bloomVertCode = '';
+const bloomExtractCode = '';
+const bloomCompositeCode = '';
 
 class SEGVisualizer {
 
