@@ -25,14 +25,6 @@ export function getSkyVertShader() {
 
 export function getSkyFragShader() {
     return /* wgsl */ `
-      struct Uniforms {
-        viewProj: mat4x4f,
-        time: f32,
-        cameraPos: vec3f
-      }
-
-      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-
       struct FragmentInput {
         @location(0) uv: vec2f
       }
@@ -65,14 +57,6 @@ export function getSkyFragShader() {
 
 export function getGridVertShader() {
     return /* wgsl */ `
-      struct Uniforms {
-        viewProj: mat4x4f,
-        time: f32,
-        cameraPos: vec3f
-      }
-      
-      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      
       struct VertexOutput {
         @builtin(position) position: vec4f,
         @location(0) uv: vec2f

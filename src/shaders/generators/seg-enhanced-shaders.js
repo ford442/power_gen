@@ -84,13 +84,6 @@ export function getSegEnhancedFragShader() {
         cameraPos: vec3f
       }
 
-      struct MaterialUniforms {
-        baseColor: vec3f,
-        pad1: f32,
-        glowColor: vec3f,
-        emission: f32
-      }
-
       struct DeviceUniforms {
         renderMode: f32,
         posX: f32,
@@ -125,7 +118,6 @@ export function getSegEnhancedFragShader() {
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(3) @group(0) var<uniform> material: MaterialUniforms;
       @binding(5) @group(0) var<uniform> lighting: LightingConfig;
       @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
 

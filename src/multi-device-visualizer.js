@@ -965,9 +965,11 @@ export class MultiDeviceVisualizer {
     this.device.queue.writeBuffer(this.gridVertexBuffer, 0, gridVertices);
     this.profiler.trackBuffer('gridVertices', gridVertices.byteLength, GPUBufferUsage.VERTEX);
 
+    // Grid is screen-space and references no bindings; layout 'auto' yields an empty
+    // bind group layout, so the bind group must have no entries.
     this.gridBindGroup = this.device.createBindGroup({
       layout: this.gridPipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.globalUniformBuffer } }]
+      entries: []
     });
   }
 
@@ -989,9 +991,11 @@ export class MultiDeviceVisualizer {
       depthStencil: { depthWriteEnabled: false, depthCompare: 'always', format: 'depth24plus-stencil8' }
     });
 
+    // Sky is a screen-space gradient that references no bindings; layout 'auto' yields
+    // an empty bind group layout, so the bind group must have no entries.
     this.skyBindGroup = this.device.createBindGroup({
       layout: this.skyPipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.globalUniformBuffer } }]
+      entries: []
     });
   }
 
@@ -1611,8 +1615,7 @@ export class MultiDeviceVisualizer {
           { binding: 1, resource: this.bloomTempTexture.createView() },
           { binding: 2, resource: this.bloomSampler },
           { binding: 3, resource: { buffer: this.bloomParamsBuffer } },
-          { binding: 4, resource: this.depthSampleView },
-          { binding: 5, resource: this.prevSceneTexture.createView() }
+          { binding: 4, resource: this.depthSampleView }
         ]
       }));
       compositePass.draw(3);

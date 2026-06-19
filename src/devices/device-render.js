@@ -49,7 +49,6 @@ export const DeviceRenderMixin = {
           { binding: 0, resource: { buffer: globalUniformBuffer } },
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.rollerInstances } },
-          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
           { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
         ]
@@ -242,7 +241,6 @@ export const DeviceRenderMixin = {
           { binding: 0, resource: { buffer: globalUniformBuffer } },
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
-          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
           { binding: 6, resource: { buffer: v.materialTableBuffer } }
         ]
@@ -291,7 +289,6 @@ export const DeviceRenderMixin = {
           { binding: 0, resource: { buffer: globalUniformBuffer } },
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
-          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
           { binding: 6, resource: { buffer: v.materialTableBuffer } }
         ]
@@ -336,7 +333,6 @@ export const DeviceRenderMixin = {
           { binding: 0, resource: { buffer: globalUniformBuffer } },
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: instanceBuffer } },
-          { binding: 3, resource: { buffer: this.coreMaterialBuffer || this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
           { binding: 6, resource: { buffer: v.materialTableBuffer } }
         ]
@@ -453,7 +449,6 @@ export const DeviceRenderMixin = {
         { binding: 0, resource: { buffer: globalUniformBuffer } },
         { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
         { binding: 2, resource: { buffer: this.shaftInstanceBuffer } },
-        { binding: 3, resource: { buffer: this.materialUniformBuffer } },
         { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
         { binding: 6, resource: { buffer: v.materialTableBuffer } }
       ]
@@ -478,7 +473,6 @@ export const DeviceRenderMixin = {
           { binding: 0, resource: { buffer: globalUniformBuffer } },
           { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
           { binding: 2, resource: { buffer: this.shaftInstanceBuffer } },
-          { binding: 3, resource: { buffer: this.materialUniformBuffer } },
           { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
           { binding: 6, resource: { buffer: v.materialTableBuffer } }
         ]
