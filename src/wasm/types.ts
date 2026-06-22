@@ -69,6 +69,19 @@ export interface SEGSimulatorInstance {
   /** Read particle state at index i. */
   getParticle(i: number): SimParticle;
 
+  /** Bulk particle export (vector<SimParticle> → JS array). */
+  getParticles(maxCount?: number): SimParticle[];
+
+  /** Per-ring load torque controls (non-breaking additions). */
+  setRingLoadTorque(ring: number, torque: number): void;
+  setRingLoadTorques(t0: number, t1: number, t2: number): void;
+  /** Step using currently configured per-ring torques (SEG mode only). */
+  stepWithPerRingTorques(dt: number): void;
+
+  /** Multi-mode skeleton (0=SEG, 1=Heron stub, 2=Kelvin stub). */
+  setMode(mode: number): void;
+  getMode(): number;
+
   /** Free Emscripten heap memory held by this instance. */
   delete(): void;
 }

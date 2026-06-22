@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 // ─────────────────────────────────────────────────────────────
 // Vec3  (simple 3-component float vector)
@@ -124,6 +125,15 @@ void  seg_roller_rk4(SEGRollerState& r, float dt, float loadTorque);
 void  seg_particle_step(SimParticle& p, float omega, float corona, float dt);
 
 // ─────────────────────────────────────────────────────────────
+// SimMode  –  multi-mode skeleton (SEG primary; others are stubs)
+// ─────────────────────────────────────────────────────────────
+enum SimMode {
+    SIM_MODE_SEG   = 0,
+    SIM_MODE_HERON = 1,
+    SIM_MODE_KELVIN = 2
+};
+
+// ─────────────────────────────────────────────────────────────
 // SEGSimulator  –  high-level class
 // ─────────────────────────────────────────────────────────────
 class SEGSimulator {
@@ -137,6 +147,7 @@ public:
     SEGSimulator();
 
     /// Advance all rollers by dt with the given electrical load torque (N·m).
+    /// This broadcasts the single loadTorque to all rings (backward-compat path).
     void step(float dt, float loadTorque);
 
     /// Seed the internal CPU-side particle array for the SEG mode.
@@ -144,6 +155,26 @@ public:
 
     /// Advance all particles by dt (SEG mode kinematics).
     void stepParticles(float dt);
+
+    // ── Per-ring load torque (non-breaking addition) ───────────
+    /// Set load torque for one ring (0=inner/12, 1=middle/22, 2=outer/32).
+    /// Callers may then use stepWithPerRingTorques(dt) or still call step(dt, x)
+    /// (the latter will override all rings for that step).
+    void setRingLoadTorque(int ring, float torque);
+
+    /// Set all three ring load torques in one call.
+    void setRingLoadTorques(float tInner, float tMiddle, float tOuter);
+
+    /// Advance rollers using the per-ring torques last set via the setters above.
+    /// Non-SEG modes are no-ops on rollers (skeleton).
+    void stepWithPerRingTorques(float dt);
+
+    // ── Multi-mode skeleton (non-breaking) ─────────────────────
+    /// Set simulation mode. 0=SEG (default), 1=Heron (stub), 2=Kelvin (stub).
+    void setMode(int mode);
+
+    /// Get current mode (0/1/2).
+    int getMode() const;
 
     // ── Accessors ──────────────────────────────────────────────
     float getOmega()        const { return _rollers[0].omega; }
@@ -167,6 +198,11 @@ public:
     /// Read particle position for index i (for optional JS readback).
     SimParticle getParticle(int i) const;
 
+    /// Bulk export of the particle array (or a prefix).
+    /// If maxCount < 0 or >= numParticles, returns all seeded particles.
+    /// Embind converts std::vector<SimParticle> to a JS array of objects.
+    std::vector<SimParticle> getParticles(int maxCount = -1) const;
+
     /// Version string.
     static const char* version();
 
@@ -179,6 +215,12 @@ private:
 
     float          _time{0.f};
     float          _Br{PhysicsConstants::Br_DEFAULT};
+
+    // Mode (0=SEG primary path; others stubbed for now)
+    int            _mode{ SIM_MODE_SEG };
+
+    // Per-ring braking torques (N·m, scene-scaled). step(dt, x) broadcasts.
+    float          _ringLoadTorques[3]{ 0.f, 0.f, 0.f };
 
     void _initRollers();
 };

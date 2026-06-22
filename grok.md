@@ -13,6 +13,13 @@
 - **WebGPU** — primary renderer (`MultiDeviceVisualizer`)
 - **WebGL2** — debug/CI fallback (`src/renderers/webgl2/`)
 
+## C++ WASM Physics Path
+A high-precision C++ (Emscripten) physics path runs alongside the JS/WebGPU implementation:
+- Enable with `?wasmPhysics=1` or the debug panel toggle (persisted via localStorage).
+- Recommended consumer: `src/wasm/seg-physics-bridge.js` (also `src/wasm/sim.ts`).
+- Focus: SEG-mode rollers with RK4 integration (exact dipole B-field calcs).
+- Non-SEG modes (Heron, Kelvin) are stubs. Particle buffer export and per-ring torques are supported for sync/export scenarios.
+
 ## WebGL2-First Workflow (Recommended for Graphics Work)
 
 When iterating on geometry, materials, or particles:

@@ -145,6 +145,72 @@ export class SEGSim {
     this._sim = null;
   }
 
+  // ── Per-ring torque (thin wrappers; safe no-ops if WASM absent) ──
+
+  setRingLoadTorque(ring: number, torque: number): void {
+    (this._sim as any)?.setRingLoadTorque?.(ring, torque);
+  }
+
+  setRingLoadTorques(t0: number, t1: number, t2: number): void {
+    (this._sim as any)?.setRingLoadTorques?.(t0, t1, t2);
+  }
+
+  /**
+   * Step using the per-ring torques configured via the setters.
+   * Returns the same shape as step() for convenience.
+   */
+  stepWithPerRingTorques(dt: number): SEGStepResult {
+    if (this._sim) {
+      (this._sim as any).stepWithPerRingTorques?.(dt);
+      this._simTimeS += dt;
+      // power estimate still needs a representative load; use 0 for the
+      // per-ring path (caller can compute from current state if needed).
+      const lt = 0;
+      return {
+        omega: this._sim.getOmega(),
+        rpm: this._sim.getRPM(),
+        powerW: this._sim.estimatePower(lt),
+        energyDensityJm3: this._sim.magneticEnergyDensity(),
+        simTimeS: this._simTimeS,
+      };
+    }
+    this._simTimeS += dt;
+    return { omega: 0, rpm: 0, powerW: 0, energyDensityJm3: 0, simTimeS: this._simTimeS };
+  }
+
+  // ── Mode (skeleton) ──────────────────────────────────────────
+
+  setMode(mode: number): void {
+    this._sim?.setMode?.(mode);
+  }
+
+  getMode(): number {
+    return (this._sim as any)?.getMode?.() ?? 0;
+  }
+
+  // ── Bulk particle export ─────────────────────────────────────
+
+  /**
+   * Return up to maxCount particles (or all if omitted/negative).
+   * Falls back to elementwise getParticle when bulk binding absent.
+   */
+  getParticles(maxCount = -1): import('./types').SimParticle[] {
+    if (!this._sim) return [];
+    const raw = (this._sim as any);
+    if (typeof raw.getParticles === 'function') {
+      const arr = raw.getParticles(maxCount);
+      return Array.isArray(arr) ? arr : [];
+    }
+    // Fallback path using the pre-existing single-particle accessor
+    const total = this._sim.numParticles();
+    const n = (maxCount >= 0 && maxCount < total) ? maxCount : total;
+    const out: import('./types').SimParticle[] = [];
+    for (let i = 0; i < n; i++) {
+      out.push(this._sim.getParticle(i));
+    }
+    return out;
+  }
+
   /** Static version string from the WASM module (or fallback). */
   static async getVersion(): Promise<string> {
     const mod = await loadSimCore();

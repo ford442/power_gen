@@ -21,6 +21,7 @@ using namespace emscripten;
 
 #include <cstdlib>   // rand, srand
 #include <ctime>     // time
+#include <vector>    // for getParticles bulk export
 
 // ─────────────────────────────────────────────────────────────
 // Internal helpers
@@ -40,6 +41,14 @@ static uint32_t lcg_state = 0x12345678u;
 inline float lcg_rand() {
     lcg_state = lcg_state * 1664525u + 1013904223u;
     return static_cast<float>(lcg_state >> 8) / static_cast<float>(1u << 24);
+}
+
+// Map roller index (0..65, layout from _initRollers) to ring 0/1/2.
+// Ring 0: 0..11 (12), Ring 1: 12..33 (22), Ring 2: 34..65 (32).
+inline int rollerIndexToRing(int idx) {
+    if (idx < 12) return 0;
+    if (idx < 12 + 22) return 1;
+    return 2;
 }
 
 // Hash-based deterministic random – mirrors compute.wgsl hash1 / rnd
@@ -234,13 +243,47 @@ void SEGSimulator::_initRollers() {
 }
 
 void SEGSimulator::step(float dt, float loadTorque) {
-    float B_avg = axialBField(0.f, 0.05f, 0.025f, _Br);
-    B_avg = std::max(0.f, B_avg);
+    // Backward-compat path: broadcast loadTorque to all rings for this step.
+    _ringLoadTorques[0] = _ringLoadTorques[1] = _ringLoadTorques[2] = loadTorque;
+    stepWithPerRingTorques(dt);
+}
+
+void SEGSimulator::stepWithPerRingTorques(float dt) {
+    // Multi-mode skeleton: non-SEG modes currently stub roller dynamics.
+    // They still advance sim time so callers see consistent clocks.
+    if (_mode != SIM_MODE_SEG) {
+        _time += dt;
+        return;
+    }
 
     for (int i = 0; i < _numRollers; ++i) {
-        seg_roller_rk4(_rollers[i], dt, loadTorque);
+        int ring = rollerIndexToRing(i);
+        float lt = _ringLoadTorques[ring];
+        seg_roller_rk4(_rollers[i], dt, lt);
     }
     _time += dt;
+}
+
+void SEGSimulator::setRingLoadTorque(int ring, float torque) {
+    if (ring >= 0 && ring < 3) {
+        _ringLoadTorques[ring] = torque;
+    }
+}
+
+void SEGSimulator::setRingLoadTorques(float tInner, float tMiddle, float tOuter) {
+    _ringLoadTorques[0] = tInner;
+    _ringLoadTorques[1] = tMiddle;
+    _ringLoadTorques[2] = tOuter;
+}
+
+void SEGSimulator::setMode(int mode) {
+    if (mode >= 0 && mode <= 2) {
+        _mode = mode;
+    }
+}
+
+int SEGSimulator::getMode() const {
+    return _mode;
 }
 
 void SEGSimulator::seedParticles(int count) {
@@ -331,6 +374,19 @@ SimParticle SEGSimulator::getParticle(int i) const {
     return _particles[i];
 }
 
+std::vector<SimParticle> SEGSimulator::getParticles(int maxCount) const {
+    int n = _numParticles;
+    if (maxCount >= 0 && maxCount < n) {
+        n = maxCount;
+    }
+    std::vector<SimParticle> out;
+    out.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        out.push_back(_particles[i]);
+    }
+    return out;
+}
+
 const char* SEGSimulator::version() {
     return "sim_core 1.0.0";
 }
@@ -384,6 +440,13 @@ EMSCRIPTEN_BINDINGS(sim_core) {
         .function("estimatePower",         &SEGSimulator::estimatePower)
         .function("magneticEnergyDensity", &SEGSimulator::magneticEnergyDensity)
         .function("getParticle",           &SEGSimulator::getParticle)
+        // New (non-breaking) expansions:
+        .function("getParticles",          &SEGSimulator::getParticles)
+        .function("setRingLoadTorque",     &SEGSimulator::setRingLoadTorque)
+        .function("setRingLoadTorques",    &SEGSimulator::setRingLoadTorques)
+        .function("stepWithPerRingTorques", &SEGSimulator::stepWithPerRingTorques)
+        .function("setMode",               &SEGSimulator::setMode)
+        .function("getMode",               &SEGSimulator::getMode)
         .class_function("version", optional_override([]() -> std::string {
             return std::string(SEGSimulator::version());
         }));
@@ -420,6 +483,14 @@ int main() {
     Vec3  samplePos{3.5f, 0.f, 0.f};
     Vec3  B = sim.sampleBField(samplePos);
     printf("B-field at (3.5, 0, 0): (%.4e, %.4e, %.4e) T\n", B.x, B.y, B.z);
+
+    // Exercise new non-breaking APIs (no output change to prior lines)
+    sim.setMode(SIM_MODE_SEG);
+    sim.setRingLoadTorques(0.001f, 0.002f, 0.003f);
+    sim.stepWithPerRingTorques(1.f / 60.f);
+    auto parts = sim.getParticles(4);
+    (void)sim.getMode();
+    (void)parts.size();
 
     return 0;
 }

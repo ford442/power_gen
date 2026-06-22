@@ -107,6 +107,52 @@ export const segWasm = {
   dispose() {
     _instance?.dispose();
     _instance = null;
+  },
+
+  // ── Thin wrappers for new C++ expansions (safe when unavailable) ──
+
+  setRingLoadTorque(ring, torque) {
+    _instance?.setRingLoadTorque?.(ring, torque);
+  },
+
+  setRingLoadTorques(t0, t1, t2) {
+    _instance?.setRingLoadTorques?.(t0, t1, t2);
+  },
+
+  /**
+   * Step rollers using the per-ring torques (if previously set).
+   * Returns the same metric shape as getRollerState().
+   */
+  async stepWithPerRingTorques(dt = 1 / 60) {
+    if (!this.enabled || !_instance) {
+      return { omega: 0, rpm: 0, powerW: 0, energyDensityJm3: 0, simTimeS: 0, wasm: false };
+    }
+    if (typeof _instance.stepWithPerRingTorques === 'function') {
+      const res = _instance.stepWithPerRingTorques(dt);
+      return { ...res, wasm: true };
+    }
+    // Fallback to global-0 path
+    const res = _instance.step(dt, 0);
+    return { ...res, wasm: true };
+  },
+
+  setMode(mode) {
+    _instance?.setMode?.(mode);
+  },
+
+  getMode() {
+    return _instance?.getMode?.() ?? 0;
+  },
+
+  /**
+   * Bulk particle array (or subset). Returns [] when unavailable.
+   */
+  getParticles(maxCount = -1) {
+    if (!this.enabled || !_instance) return [];
+    if (typeof _instance.getParticles === 'function') {
+      return _instance.getParticles(maxCount) || [];
+    }
+    return [];
   }
 };
 

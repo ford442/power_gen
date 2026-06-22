@@ -44,3 +44,13 @@ built with **Vite**. There is no backend, database, or server-side service.
   (no `${}`), so it can be extracted/validated directly. Note: naga is stricter
   than Chrome's Tint in places — e.g. it rejects dynamic indexing of `let`/`const`
   value arrays (`arr[i]`), which Tint/Chrome actually allow.
+
+### C++ WASM physics path
+
+A high-precision C++ (Emscripten) SEG physics core (`cpp/sim_core.cpp`, RK4 rollers)
+is available alongside the JS/WebGPU path. The bridge at `src/wasm/seg-physics-bridge.js`
+is the recommended API (`init()`, `getRollerState()`, `runBenchmark()`, `setEnabled()`).
+Enable via `?wasmPhysics=1` or the debug panel "Use C++ WASM Physics (RK4)" toggle
+(localStorage persisted). Currently focused on SEG rollers + RK4; a mode enum skeleton
+(SEG/Heron/Kelvin) and particle buffer export exist for future expansion. The WebGL2
+fallback (`?renderer=webgl2`) does not drive telemetry from the WASM path.

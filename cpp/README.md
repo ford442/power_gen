@@ -103,3 +103,28 @@ The GitHub Actions workflow `.github/workflows/build-wasm.yml` builds the WASM
 automatically on every push that touches `cpp/` or `src/wasm/`, and commits the
 artefacts back to `src/public/wasm/` on the `main` branch so GitHub Pages can
 serve them without a separate npm build step.
+
+## Next Steps / Roadmap
+
+Recent non-breaking expansions (SEGSimulator API and all prior bindings preserved):
+
+- **Particle buffer export**: `getParticles(maxCount?)` returns a JS array of
+  `SimParticle` objects (full or prefix). Complements the existing single
+  `getParticle(i)`. JavaScript side (via `seg-physics-bridge.js` and `sim.ts`)
+  can now pull the high-precision CPU particle state for seeding or diffing
+  against the WebGPU side.
+- **Multi-mode skeleton**: `setMode(0|1|2)` / `getMode()`. 0 = SEG (full RK4
+  roller path). 1 = Heron and 2 = Kelvin are explicit stubs (rollers untouched,
+  time still advances). Prepares the architecture without affecting SEG.
+- **Per-ring load torque**: `setRingLoadTorque(ring, t)`, `setRingLoadTorques(t0, t1, t2)`,
+  and `stepWithPerRingTorques(dt)`. The original `step(dt, loadTorque)` continues
+  to broadcast its value to all rings (identical prior behaviour).
+
+Thin JS wrappers live in `src/wasm/seg-physics-bridge.js` and `src/wasm/sim.ts`
+so the debug panel and future consumers can call the new functionality directly.
+
+Future items (not implemented here):
+- Real Heron/Kelvin dynamics or equivalent state machines in C++.
+- Zero-copy particle buffer (expose base pointer + typed array mapping).
+- Bulk roller state export (angles/omegas for all 66 rollers in one call).
+- Mode-aware particle seeding / stepping.
