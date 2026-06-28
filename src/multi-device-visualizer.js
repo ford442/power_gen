@@ -14,7 +14,6 @@ import {
   generateCCorePickupCoil,
   generateMagneticWallShells,
   generatePlateWithCutouts,
-  generatePoleBandedRoller,
   generateSupportStand,
   generateWireHarness
 } from './seg-enhanced-geometry.js';
@@ -26,6 +25,18 @@ import {
   buildRollerCutouts,
   MAX_ROLLERS
 } from './seg-layout.js';
+import { createDetailedRollerBuffers, ROLLER_DEFAULTS } from './seg-roller-model.js';
+import {
+  parseSegFrameLevel,
+  createSegFrameBuffers,
+  makeFrameInstanceBuffer,
+  computeFrameDimensions
+} from './seg-frame-model.js';
+import {
+  parseLightingLook,
+  getLightingPreset,
+  packPostUniforms
+} from './seg-lighting-presets.js';
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -73,16 +84,15 @@ export class MultiDeviceVisualizer {
     // SimRateController for speed-scaled physics and visuals
     this.simRateController = new SimRateController();
 
-    // Lighting configuration for PBR shaders
-    this.lightingConfig = {
-      key: { position: [5.0, 8.0, 5.0], color: [1.0, 0.98, 0.95], intensity: 1.2 },
-      fill: { position: [-4.0, 3.0, -3.0], color: [0.75, 0.85, 1.0], intensity: 0.4 },
-      rim: { position: [0.0, 2.0, -8.0], color: [0.4, 0.8, 1.0], intensity: 0.8 },
-      ground: { position: [0.0, -5.0, 0.0], color: [0.3, 0.25, 0.2], intensity: 0.15 },
-      ambient: 0.3,
-      envMapStrength: 0.5,
-      shadowStrength: 1.0
-    };
+    // Lighting / post look preset (studio | lab | drama)
+    this.lightingLook = parseLightingLook(params);
+    const lookPreset = getLightingPreset(this.lightingLook);
+
+    // Lighting configuration for PBR shaders (from active look preset)
+    this.lightingConfig = { ...lookPreset.lighting };
+    this.postPreset = lookPreset;
+    this.postExposure = lookPreset.post.exposure;
+    this.postBloomStrength = lookPreset.post.bloomStrength;
 
     // Prototype-accuracy preset for SEG rollers.
     //   'showroom' = Searl mock-up (nickel/brass/copper showroom finish)
@@ -116,6 +126,13 @@ export class MultiDeviceVisualizer {
       this.segLayoutPreset = window.SEG_LAYOUT_PRESET;
     }
     this.segLayout = null;
+
+    this.segFrameLevel = parseSegFrameLevel(params);
+    this.segFrameBuffers = null;
+    this.frameStructuralInstanceBuffer = null;
+    this.frameControlInstanceBuffer = null;
+    this.frameCageInstanceBuffer = null;
+    this.frameLabBenchInstanceBuffer = null;
 
     this.init();
   }
@@ -191,6 +208,36 @@ export class MultiDeviceVisualizer {
     }
   }
   
+  setSegFrameLevel(level) {
+    const allowed = ['off', 'minimal', 'full'];
+    if (!allowed.includes(level)) return;
+    this.segFrameLevel = level;
+    console.log(`[SEG] Frame level → ${level} (reload to rebuild geometry if buffers missing)`);
+  }
+
+  /** Switch studio / lab / drama lighting + post look at runtime. */
+  setLightingLook(look) {
+    const preset = getLightingPreset(look);
+    if (!preset) return;
+    this.lightingLook = look;
+    this.postPreset = preset;
+    this.lightingConfig = { ...preset.lighting };
+    this.postExposure = preset.post.exposure;
+    this.postBloomStrength = preset.post.bloomStrength;
+    this._uploadSkyUniforms();
+    console.log(`[SEG] Lighting look → ${look}`);
+  }
+
+  _uploadSkyUniforms(energy = 0) {
+    if (!this.skyUniformBuffer || !this.device) return;
+    const sky = this.postPreset?.sky ?? getLightingPreset(this.lightingLook).sky;
+    this.device.queue.writeBuffer(this.skyUniformBuffer, 0, new Float32Array([
+      sky.mode,
+      sky.energy + energy * 0.5,
+      0, 0
+    ]));
+  }
+
   refreshSEGLayout(qualityScale = 1.0) {
     this.segLayout = computeSEGLayout(this.segLayoutPreset, qualityScale);
     if (this.segLayoutUniformBuffer && this.device) {
@@ -270,7 +317,9 @@ export class MultiDeviceVisualizer {
       { baseColor: [0.07, 0.08, 0.10], metallic: 0.55, roughness: 0.42, accent: [0.16, 0.18, 0.22], detail: [24.0, 0.06, 0.12, 0.0] }, // 13 SEG dark base
       { ...SEGMaterialPresets.laminatedIron, accent: [0.10, 0.11, 0.12], detail: [48.0, 0.08, 0.18, 0.0] },                            // 14 C-core laminated iron
       { ...SEGMaterialPresets.windingCopperEnamel, accent: [0.95, 0.62, 0.12], detail: [64.0, 0.04, 0.10, 0.0] },                      // 15 enameled winding copper
-      { ...SEGMaterialPresets.mountFootSteel, accent: [0.55, 0.57, 0.60], detail: [32.0, 0.05, 0.14, 0.0] }                            // 16 coil mounting foot
+      { ...SEGMaterialPresets.mountFootSteel, accent: [0.55, 0.57, 0.60], detail: [32.0, 0.05, 0.14, 0.0] },                            // 16 coil mounting foot
+      { ...SEGMaterialPresets.brushedAluminum, accent: [0.94, 0.96, 0.98], detail: [42.0, 0.03, 0.10, 0.0] },                           // 17 stator / ring aluminum
+      { ...SEGMaterialPresets.magnetSegment, accent: [0.12, 0.14, 0.18], detail: [36.0, 0.06, 0.14, 0.0] }                             // 18 magnet segment strips
     ];
 
     const packed = new Float32Array(materials.length * 12);
@@ -664,10 +713,11 @@ export class MultiDeviceVisualizer {
     const outerR = layout.outerRadiusM * ws;
     const basePlateSize = layout.basePlateRadiusM * ws * 2;
     const coilRadius = outerR * 1.15;
+    const frameDims = computeFrameDimensions(layout);
 
     const generators = {
       generateBearingShaft,
-      generatePoleBandedRoller,
+      createDetailedRollerBuffers,
       generateSupportStand,
       generateWireHarness,
       generateCoilWithWindings
@@ -698,7 +748,7 @@ export class MultiDeviceVisualizer {
     this.profiler.trackBuffer('seg-base-plate-vertices', baseBoxData.vertices.byteLength, GPUBufferUsage.VERTEX);
     this.profiler.trackBuffer('seg-base-plate-indices', baseBoxData.indices.byteLength, GPUBufferUsage.INDEX);
 
-    const baseY = -statorH * 0.35;
+    const baseY = frameDims.baseCenterY;
     this.baseInstanceBuffer = this.device.createBuffer({
       size: 48,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
@@ -712,9 +762,12 @@ export class MultiDeviceVisualizer {
     ]));
     this.profiler.trackBuffer('seg-base-instance', 48, GPUBufferUsage.STORAGE);
 
-    // Enhanced SEG roller mesh at reference dimensions; per-ring scale in shader.
-    this.enhancedRollerBuffer = generatePoleBandedRoller(this.device, {
-      radius: 0.75, height: 2.8, bands: 8, segments: 64
+    // Detailed SEG roller assembly (pole-banded barrel, shaft, bearings, magnet strips).
+    this.enhancedRollerBuffer = createDetailedRollerBuffers(this.device, {
+      radius: ROLLER_DEFAULTS.radius,
+      height: ROLLER_DEFAULTS.height,
+      bands: ROLLER_DEFAULTS.bands,
+      segments: ROLLER_DEFAULTS.segments
     });
     this.profiler.trackBuffer('enhanced-roller-vertices', this.enhancedRollerBuffer.vertexBuffer.size, GPUBufferUsage.VERTEX);
     this.profiler.trackBuffer('enhanced-roller-indices', this.enhancedRollerBuffer.indexBuffer.size, GPUBufferUsage.INDEX);
@@ -835,10 +888,28 @@ export class MultiDeviceVisualizer {
     this.batteryGaugeIndexBuffer = gaugeIB;
     this.batteryGaugeIndexCount = gaugeData.indices.length;
 
-    // Support stand
+    // Support stand — legs span lab bench top → base plate bottom
     this.standBuffer = generateSupportStand(this.device, {
-      legCount: 4, legLength: outerR * 1.1, baseRadius: outerR * 0.65, height: outerR * 0.55, segments: 24
+      legCount: 4,
+      legRadius: statorH * 0.22,
+      legLength: outerR * 0.95,
+      baseRadius: outerR * 0.52,
+      baseThickness: statorH * 0.18,
+      height: frameDims.standHeight,
+      footRadius: statorH * 0.55,
+      segments: 24,
+      platformY: frameDims.baseBottomY
     });
+
+    // Frame assembly (lab bench, columns, control box, safety cage)
+    if (this.segFrameLevel !== 'off') {
+      this.segFrameBuffers = createSegFrameBuffers(this.device, layout, this.segFrameLevel);
+      this.frameStructuralInstanceBuffer = makeFrameInstanceBuffer(this.device, 11.0, [0.74, 0.76, 0.80]);
+      this.frameControlInstanceBuffer = makeFrameInstanceBuffer(this.device, 11.0, [0.62, 0.64, 0.68]);
+      this.frameCageInstanceBuffer = makeFrameInstanceBuffer(this.device, 12.0, [0.50, 0.54, 0.60]);
+      this.frameLabBenchInstanceBuffer = makeFrameInstanceBuffer(this.device, 13.0, [0.42, 0.40, 0.38]);
+      this.profiler.trackBuffer('seg-frame-structural-inst', 48, GPUBufferUsage.STORAGE);
+    }
 
     // Wire harnesses (8 wires between coils)
     this.wireBuffers = [];
@@ -974,13 +1045,18 @@ export class MultiDeviceVisualizer {
   }
 
   async setupSkyGradient() {
+    this.skyUniformBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this._uploadSkyUniforms();
+
     this.skyPipeline = this.device.createRenderPipeline({
       label: 'skyPipeline',
       layout: 'auto',
       vertex: {
         module: this.device.createShaderModule({ code: this.shaders.skyVertShader }),
         entryPoint: 'main'
-        // No vertex buffers — uses @builtin(vertex_index) to generate a fullscreen triangle
       },
       fragment: {
         module: this.device.createShaderModule({ code: this.shaders.skyFragShader }),
@@ -991,11 +1067,11 @@ export class MultiDeviceVisualizer {
       depthStencil: { depthWriteEnabled: false, depthCompare: 'always', format: 'depth24plus-stencil8' }
     });
 
-    // Sky is a screen-space gradient that references no bindings; layout 'auto' yields
-    // an empty bind group layout, so the bind group must have no entries.
     this.skyBindGroup = this.device.createBindGroup({
       layout: this.skyPipeline.getBindGroupLayout(0),
-      entries: []
+      entries: [
+        { binding: 0, resource: { buffer: this.skyUniformBuffer } }
+      ]
     });
   }
 
@@ -1150,11 +1226,7 @@ export class MultiDeviceVisualizer {
     if (this.bloomParamsBuffer) {
       this.device.queue.writeBuffer(
         this.bloomParamsBuffer, 0,
-        new Float32Array([
-          1.0 / w, 1.0 / h, 0.60, 0.12,
-          1.4, 1.8, 0.0, 0.02,
-          0.04, 0.20, 0.0, 0.0
-        ])
+        packPostUniforms({ width: w, height: h, preset: this.postPreset })
       );
     }
   }
@@ -1168,7 +1240,7 @@ export class MultiDeviceVisualizer {
     });
 
     this.bloomParamsBuffer = this.device.createBuffer({
-      size: 48,
+      size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.bloomBlurDirXBuffer = this.device.createBuffer({
@@ -1395,6 +1467,7 @@ export class MultiDeviceVisualizer {
       : 0.0;
     const globalSmooth = 1.0 - Math.exp(-Math.max(0.0, deltaTime) * 10.0);
     this.globalEnergyLevel += (targetGlobalEnergy - this.globalEnergyLevel) * globalSmooth;
+    this._uploadSkyUniforms(this.globalEnergyLevel);
     
     // Begin command encoding
     const encoder = this.device.createCommandEncoder();
@@ -1515,25 +1588,25 @@ export class MultiDeviceVisualizer {
         const h = this.canvas.height || 1;
         const speedEnergy = Math.min(1.0, this.simRateController.speedMult / 20.0);
         const energy = Math.min(1.0, Math.max(speedEnergy, this.globalEnergyLevel));
-        const energyPow = Math.pow(energy, 1.35);
-        // Subtle temporal motion blur that ramps up in overdrive (speedMult > 7).
         const motionBlur = smoothstep(7.0, 20.0, this.simRateController.speedMult) * 0.12;
+        const preset = {
+          ...this.postPreset,
+          post: {
+            ...this.postPreset.post,
+            exposure: this.postExposure ?? this.postPreset.post.exposure,
+            bloomStrength: this.postBloomStrength ?? this.postPreset.post.bloomStrength
+          }
+        };
         this.device.queue.writeBuffer(
           this.bloomParamsBuffer, 0,
-          new Float32Array([
-            1.0 / w,
-            1.0 / h,
-            Math.max(0.45, this.simRateController.bloomThreshold - energyPow * 0.10),
-            Math.max(0.08, this.simRateController.bloomThreshold * (0.18 + energy * 0.10)),
-            this.simRateController.bloomStrength * (1.0 + energyPow * 0.35),
-            1.3 + energyPow * 3.6,
-            energyPow,
-            0.010 + energyPow * 0.045,
-            0.010 + energyPow * 0.040,
-            0.08 + energyPow * 0.52,
-            motionBlur,
-            0.0
-          ])
+          packPostUniforms({
+            width: w,
+            height: h,
+            preset,
+            energy,
+            speedMult: this.simRateController.speedMult,
+            motionBlur
+          })
         );
       }
 
@@ -1615,7 +1688,8 @@ export class MultiDeviceVisualizer {
           { binding: 1, resource: this.bloomTempTexture.createView() },
           { binding: 2, resource: this.bloomSampler },
           { binding: 3, resource: { buffer: this.bloomParamsBuffer } },
-          { binding: 4, resource: this.depthSampleView }
+          { binding: 4, resource: this.depthSampleView },
+          { binding: 5, resource: this.prevSceneTexture.createView() }
         ]
       }));
       compositePass.draw(3);

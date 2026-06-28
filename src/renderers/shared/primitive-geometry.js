@@ -112,3 +112,27 @@ export function uploadMesh(gl, mesh) {
   gl.bindVertexArray(null);
   return { vao, indexCount: mesh.indices.length, vbo, ibo };
 }
+
+/** Upload pos(3)+normal(3)+uv(2) interleaved mesh — 8 floats/vertex. */
+export function uploadMeshWithUV(gl, mesh) {
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.STATIC_DRAW);
+  const stride = 32;
+  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(1, 3, gl.FLOAT, false, stride, 12);
+  gl.enableVertexAttribArray(1);
+  gl.vertexAttribPointer(4, 2, gl.FLOAT, false, stride, 24);
+  gl.enableVertexAttribArray(4);
+
+  const ibo = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
+
+  gl.bindVertexArray(null);
+  return { vao, indexCount: mesh.indices.length, vbo, ibo };
+}

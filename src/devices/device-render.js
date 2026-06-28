@@ -1,6 +1,27 @@
 export const DeviceRenderMixin = {
+  _enhancedBindGroup: function (globalUniformBuffer, instanceBuffer) {
+    const v = this.visualizer;
+    return this.device.createBindGroup({
+      layout: this.segEnhancedPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: instanceBuffer } },
+        { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+        { binding: 4, resource: { buffer: v.segLayoutUniformBuffer } },
+        { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
+        { binding: 6, resource: { buffer: v.materialTableBuffer } }
+      ]
+    });
+  },
+
   render: function (renderPass, globalUniformBuffer, skipEffects = false) {
     const scaledCount = Math.floor(this.particleCount * this.visualizer.profiler.qualityLevel);
+
+    // Render lab bench + frame (SEG structural support)
+    if (this.id === 'seg' && !skipEffects) {
+      this.renderFrame(renderPass, globalUniformBuffer);
+    }
 
     // Render base first (for SEG)
     if (this.id === 'seg' && this.geometry.baseBuffer && !skipEffects) {
@@ -17,10 +38,7 @@ export const DeviceRenderMixin = {
       this.renderWiring(renderPass, globalUniformBuffer);
     }
 
-    // Render support stand (beneath the device)
-    if (this.id === 'seg' && !skipEffects) {
-      this.renderStand(renderPass, globalUniformBuffer);
-    }
+    // Stand is drawn from renderFrame(); skip duplicate call here.
 
     // Render core (before rollers so rollers appear in front)
     if (this.id === 'seg' && !skipEffects) {
@@ -43,22 +61,15 @@ export const DeviceRenderMixin = {
       const deviceData = this._buildDeviceUniformData(this.renderMode);
       this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
-      const enhancedBindGroup = this.device.createBindGroup({
-        layout: this.segEnhancedPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 2, resource: { buffer: this.rollerInstances } },
-          { binding: 5, resource: { buffer: this.visualizer.lightingUniformBuffer } },
-          { binding: 6, resource: { buffer: this.visualizer.materialTableBuffer } }
-        ]
-      });
+      const activeRollers = this.visualizer.segLayout?.totalRollers ?? 36;
+
+      const enhancedBindGroup = this._enhancedBindGroup(globalUniformBuffer, this.rollerInstances);
 
       renderPass.setPipeline(this.segEnhancedPipeline);
       renderPass.setBindGroup(0, enhancedBindGroup);
       renderPass.setVertexBuffer(0, this.visualizer.enhancedRollerBuffer.vertexBuffer);
       renderPass.setIndexBuffer(this.visualizer.enhancedRollerBuffer.indexBuffer, 'uint16');
-      renderPass.drawIndexed(this.visualizer.enhancedRollerBuffer.indexCount, 36);
+      renderPass.drawIndexed(this.visualizer.enhancedRollerBuffer.indexCount, activeRollers);
     }
 
     // Render electromagnet coils (SEG only)
@@ -198,30 +209,51 @@ export const DeviceRenderMixin = {
   },
 
   renderBase: function (renderPass, globalUniformBuffer) {
-    if (!this.geometry.baseBuffer) return;
-    
-    // Set renderMode to 1 (base)
+    const v = this.visualizer;
+    if (!v.basePlateBuffer || !v.baseInstanceBuffer) return;
+
     this.renderMode = 1;
     const deviceData = this._buildDeviceUniformData(this.renderMode);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
-    
-    const bindGroup = this.device.createBindGroup({
-      layout: this.rollerPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: globalUniformBuffer } },
-        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-        { binding: 2, resource: { buffer: this.geometry.baseBuffer } },
-        { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-        { binding: 5, resource: { buffer: this.visualizer.materialTableBuffer } }
-      ]
-    });
 
-    renderPass.setPipeline(this.rollerPipeline);
-    renderPass.setBindGroup(0, bindGroup);
-    // Draw base as a cube/quad
-    renderPass.setVertexBuffer(0, this.visualizer.cylinderBuffer.vertexBuffer);
-    renderPass.setIndexBuffer(this.visualizer.cylinderBuffer.indexBuffer, 'uint16');
-    renderPass.drawIndexed(this.visualizer.cylinderBuffer.indexCount, 1);
+    if (this.segEnhancedPipeline && v.lightingUniformBuffer) {
+      const bindGroup = this._enhancedBindGroup(globalUniformBuffer, v.baseInstanceBuffer);
+      renderPass.setPipeline(this.segEnhancedPipeline);
+      renderPass.setBindGroup(0, bindGroup);
+      renderPass.setVertexBuffer(0, v.basePlateBuffer.vertexBuffer);
+      renderPass.setIndexBuffer(v.basePlateBuffer.indexBuffer, 'uint16');
+      renderPass.drawIndexed(v.basePlateBuffer.indexCount, 1);
+    }
+  },
+
+  renderFrame: function (renderPass, globalUniformBuffer) {
+    const v = this.visualizer;
+    if (v.segFrameLevel === 'off' || !this.segEnhancedPipeline || !v.segFrameBuffers) return;
+
+    const drawPart = (geom, instanceBuffer, renderMode = 0) => {
+      if (!geom || !instanceBuffer) return;
+      this.renderMode = renderMode;
+      const deviceData = this._buildDeviceUniformData(renderMode);
+      this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
+      const bindGroup = this._enhancedBindGroup(globalUniformBuffer, instanceBuffer);
+      renderPass.setPipeline(this.segEnhancedPipeline);
+      renderPass.setBindGroup(0, bindGroup);
+      renderPass.setVertexBuffer(0, geom.vertexBuffer);
+      renderPass.setIndexBuffer(geom.indexBuffer, 'uint16');
+      renderPass.drawIndexed(geom.indexCount, 1);
+    };
+
+    const fb = v.segFrameBuffers;
+    const inst = v.frameStructuralInstanceBuffer;
+    const benchInst = v.frameLabBenchInstanceBuffer || inst;
+
+    drawPart(fb.labBench, benchInst, 1);
+    this.renderStand(renderPass, globalUniformBuffer);
+    drawPart(fb.structural, inst, 0);
+    if (v.segFrameLevel === 'full') {
+      drawPart(fb.controlBox, v.frameControlInstanceBuffer, 0);
+      drawPart(fb.safetyCage, v.frameCageInstanceBuffer, 0);
+    }
   },
 
   renderStatorRings: function (renderPass, globalUniformBuffer) {
@@ -235,16 +267,7 @@ export const DeviceRenderMixin = {
     
     // Use enhanced PBR pipeline if available (with UV geometry)
     if (this.segEnhancedPipeline && v.statorRingUVBuffer && v.lightingUniformBuffer) {
-      const bindGroup = this.device.createBindGroup({
-        layout: this.segEnhancedPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 2, resource: { buffer: this.geometry.statorRingBuffer } },
-          { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-          { binding: 6, resource: { buffer: v.materialTableBuffer } }
-        ]
-      });
+      const bindGroup = this._enhancedBindGroup(globalUniformBuffer, this.geometry.statorRingBuffer);
 
       renderPass.setPipeline(this.segEnhancedPipeline);
       renderPass.setBindGroup(0, bindGroup);
@@ -283,16 +306,7 @@ export const DeviceRenderMixin = {
     
     // Use enhanced PBR pipeline if available (with UV geometry)
     if (this.segEnhancedPipeline && v.wiringUVBuffer && v.lightingUniformBuffer) {
-      const bindGroup = this.device.createBindGroup({
-        layout: this.segEnhancedPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 2, resource: { buffer: this.geometry.wiringBuffer } },
-          { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-          { binding: 6, resource: { buffer: v.materialTableBuffer } }
-        ]
-      });
+      const bindGroup = this._enhancedBindGroup(globalUniformBuffer, this.geometry.wiringBuffer);
 
       renderPass.setPipeline(this.segEnhancedPipeline);
       renderPass.setBindGroup(0, bindGroup);
@@ -327,16 +341,7 @@ export const DeviceRenderMixin = {
 
     // Helper to draw a component with the enhanced pipeline
     const drawComponent = (geomBuffer, instanceBuffer, instanceCount = 1) => {
-      const bindGroup = this.device.createBindGroup({
-        layout: this.segEnhancedPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 2, resource: { buffer: instanceBuffer } },
-          { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-          { binding: 6, resource: { buffer: v.materialTableBuffer } }
-        ]
-      });
+      const bindGroup = this._enhancedBindGroup(globalUniformBuffer, instanceBuffer);
       renderPass.setPipeline(this.segEnhancedPipeline);
       renderPass.setBindGroup(0, bindGroup);
       renderPass.setVertexBuffer(0, geomBuffer.vertexBuffer);
@@ -442,18 +447,13 @@ export const DeviceRenderMixin = {
   renderStand: function (renderPass, globalUniformBuffer) {
     if (!this.segEnhancedPipeline || !this.visualizer.standBuffer) return;
     const v = this.visualizer;
+    const inst = v.frameStructuralInstanceBuffer || this.shaftInstanceBuffer;
 
-    const bindGroup = this.device.createBindGroup({
-      layout: this.segEnhancedPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: globalUniformBuffer } },
-        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-        { binding: 2, resource: { buffer: this.shaftInstanceBuffer } },
-        { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-        { binding: 6, resource: { buffer: v.materialTableBuffer } }
-      ]
-    });
+    this.renderMode = 0;
+    const deviceData = this._buildDeviceUniformData(this.renderMode);
+    this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
+    const bindGroup = this._enhancedBindGroup(globalUniformBuffer, inst);
     renderPass.setPipeline(this.segEnhancedPipeline);
     renderPass.setBindGroup(0, bindGroup);
     renderPass.setVertexBuffer(0, v.standBuffer.vertexBuffer);
@@ -467,16 +467,7 @@ export const DeviceRenderMixin = {
 
     for (let i = 0; i < v.wireBuffers.length; i++) {
       const wire = v.wireBuffers[i];
-      const bindGroup = this.device.createBindGroup({
-        layout: this.segEnhancedPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 2, resource: { buffer: this.shaftInstanceBuffer } },
-          { binding: 5, resource: { buffer: v.lightingUniformBuffer } },
-          { binding: 6, resource: { buffer: v.materialTableBuffer } }
-        ]
-      });
+      const bindGroup = this._enhancedBindGroup(globalUniformBuffer, this.shaftInstanceBuffer);
       renderPass.setPipeline(this.segEnhancedPipeline);
       renderPass.setBindGroup(0, bindGroup);
       renderPass.setVertexBuffer(0, wire.vertexBuffer);

@@ -37,6 +37,12 @@ import {
 } from './seg-geometry-generators.js';
 
 export {
+  parseSegFrameLevel,
+  createSegFrameBuffers,
+  computeFrameDimensions
+} from './seg-frame-model.js';
+
+export {
   generateBearingShaft,
   generatePoleBandedRoller,
   generatePlateWithCutouts,

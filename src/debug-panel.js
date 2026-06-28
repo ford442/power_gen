@@ -79,6 +79,27 @@ export class DebugPanel {
           <span>GPU Timing Queries</span>
         </label>
       </div>
+      <div style="margin-bottom: 10px;">
+        <label style="display: block; margin-bottom: 4px; color: #888;">Lighting look</label>
+        <select id="lightingLookSelect" style="width: 100%; padding: 6px; background: #111; color: #0ff; border: 1px solid #0ff; border-radius: 4px;">
+          <option value="studio">Studio (default)</option>
+          <option value="lab">Lab (bright neutral)</option>
+          <option value="drama">Drama (dark cinematic)</option>
+        </select>
+      </div>
+      <div style="margin-bottom: 10px;">
+        <label style="display: block; margin-bottom: 4px; color: #888;">Exposure / bloom</label>
+        <input type="range" id="exposureSlider" min="0.6" max="1.6" step="0.02" value="1.05" style="width: 100%;">
+        <input type="range" id="bloomSlider" min="0.5" max="2.2" step="0.05" value="1.15" style="width: 100%; margin-top: 4px;">
+      </div>
+      <div style="margin-bottom: 10px;">
+        <label style="display: block; margin-bottom: 4px; color: #888;">SEG frame complexity</label>
+        <select id="segFrameLevelSelect" style="width: 100%; padding: 6px; background: #111; color: #0ff; border: 1px solid #0ff; border-radius: 4px;">
+          <option value="full">Full (bench + cage + control box)</option>
+          <option value="minimal">Minimal (bench + columns)</option>
+          <option value="off">Off (rollers only)</option>
+        </select>
+      </div>
       <div style="display: flex; gap: 8px; margin-top: 15px;">
         <button id="startBenchmark" style="flex: 1; padding: 8px; background: #0ff; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Start Benchmark</button>
         <button id="applyOptimal" style="flex: 1; padding: 8px; background: #111; color: #0ff; border: 1px solid #0ff; border-radius: 4px; cursor: pointer;">Apply Optimal</button>
@@ -126,6 +147,40 @@ export class DebugPanel {
     });
     document.getElementById('startBenchmark').addEventListener('click', () => this.startBenchmark());
     document.getElementById('applyOptimal').addEventListener('click', () => this.applyOptimalSettings());
+    const frameSelect = document.getElementById('segFrameLevelSelect');
+    if (frameSelect) {
+      const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
+      const initial = params.get('frame') || 'full';
+      if (['off', 'minimal', 'full'].includes(initial)) frameSelect.value = initial;
+      frameSelect.addEventListener('change', (e) => {
+        if (typeof window.setSegFrameLevel === 'function') {
+          window.setSegFrameLevel(e.target.value);
+        }
+      });
+    }
+
+    const lookSelect = document.getElementById('lightingLookSelect');
+    if (lookSelect) {
+      const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
+      const initialLook = params.get('look') || params.get('lighting') || 'studio';
+      if (['studio', 'lab', 'drama'].includes(initialLook)) lookSelect.value = initialLook;
+      lookSelect.addEventListener('change', (e) => {
+        if (typeof window.setLightingLook === 'function') {
+          window.setLightingLook(e.target.value);
+        }
+      });
+    }
+
+    const exposureSlider = document.getElementById('exposureSlider');
+    const bloomSlider = document.getElementById('bloomSlider');
+    const applyPost = () => {
+      const v = window.multiVisualizer;
+      if (!v) return;
+      if (exposureSlider) v.postExposure = parseFloat(exposureSlider.value);
+      if (bloomSlider) v.postBloomStrength = parseFloat(bloomSlider.value);
+    };
+    exposureSlider?.addEventListener('input', applyPost);
+    bloomSlider?.addEventListener('input', applyPost);
 
     this.panel = container;
   }

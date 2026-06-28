@@ -1,3 +1,10 @@
+import {
+  PBR_SURFACE_WGSL,
+  PBR_BRDF_WGSL,
+  PBR_LIGHTING_STRUCT_WGSL,
+  PBR_EVAL_WGSL
+} from './pbr-wgsl-chunks.js';
+
 export function getSegEnhancedVertShader() {
     return /* wgsl */ `
       struct Uniforms {
@@ -26,9 +33,39 @@ export function getSegEnhancedVertShader() {
         greenEmissive: f32
       }
 
+      struct SEGLayoutRing {
+        count: f32,
+        fullCount: f32,
+        orbitRadius: f32,
+        rollerRadius: f32,
+        rollerHeight: f32,
+        speed: f32,
+        statorInner: f32,
+        statorOuter: f32,
+        rollerOffset: f32,
+        _pad0: f32,
+        _pad1: f32,
+        _pad2: f32
+      }
+
+      struct SEGLayoutUniforms {
+        worldScale: f32,
+        ringCount: f32,
+        totalRollers: f32,
+        maxRollers: f32,
+        refRollerRadius: f32,
+        refRollerHeight: f32,
+        statorHeight: f32,
+        fluxLinesPerRing: f32,
+        ring0: SEGLayoutRing,
+        ring1: SEGLayoutRing,
+        ring2: SEGLayoutRing
+      }
+
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
       @binding(2) @group(0) var<storage> instances: array<InstanceData>;
+      @binding(4) @group(0) var<uniform> segLayout: SEGLayoutUniforms;
 
       struct VertexInput {
         @location(0) position: vec3f,
@@ -44,7 +81,8 @@ export function getSegEnhancedVertShader() {
         @location(3) copperColor: vec3f,
         @location(4) greenEmissive: f32,
         @location(5) ringIndex: f32,
-        @location(6) bandIndex: f32
+        @location(6) scaleXZ: f32,
+        @location(7) scaleY: f32
       }
 
       fn quatMul(q: vec4f, v: vec3f) -> vec3f {
@@ -52,15 +90,26 @@ export function getSegEnhancedVertShader() {
         return v + q.w * t + cross(q.xyz, t);
       }
 
+      fn ringForInstance(idx: u32) -> SEGLayoutRing {
+        if (idx >= u32(segLayout.ring2.rollerOffset)) { return segLayout.ring2; }
+        if (idx >= u32(segLayout.ring1.rollerOffset)) { return segLayout.ring1; }
+        return segLayout.ring0;
+      }
+
       @vertex
       fn main(input: VertexInput, @builtin(instance_index) instanceIdx: u32) -> VertexOutput {
         let instance = instances[instanceIdx];
-        let rotatedPos = quatMul(instance.rotation, input.position);
-        let rotatedNormal = quatMul(instance.rotation, input.normal);
+        let ring = ringForInstance(instanceIdx);
+
+        let scaleXZ = ring.rollerRadius / max(segLayout.refRollerRadius, 1e-4);
+        let scaleY = ring.rollerHeight / max(segLayout.refRollerHeight, 1e-4);
+        let scaledPos = vec3f(input.position.x * scaleXZ, input.position.y * scaleY, input.position.z * scaleXZ);
+        let scaledNormal = normalize(vec3f(input.normal.x / scaleXZ, input.normal.y / scaleY, input.normal.z / scaleXZ));
+
+        let rotatedPos = quatMul(instance.rotation, scaledPos);
+        let rotatedNormal = quatMul(instance.rotation, scaledNormal);
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
         let worldPos = rotatedPos + instance.position + devicePos;
-
-        let bandIdx = floor(input.uv.y * 6.0);
 
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
@@ -70,7 +119,8 @@ export function getSegEnhancedVertShader() {
         output.copperColor = instance.copperColor;
         output.greenEmissive = instance.greenEmissive;
         output.ringIndex = instance.ringIndex;
-        output.bandIndex = bandIdx;
+        output.scaleXZ = scaleXZ;
+        output.scaleY = scaleY;
         return output;
       }
     `;
@@ -96,28 +146,27 @@ export function getSegEnhancedFragShader() {
         isSolar: f32
       }
 
+      struct MaterialUniforms {
+        baseColor: vec3f,
+        prototypePreset: f32,
+        glowColor: vec3f,
+        emission: f32
+      }
+
       struct MaterialEntry {
         baseMetal: vec4f,
         accentRough: vec4f,
         detailParams: vec4f
       }
 
-      struct LightingConfig {
-        keyDir: vec3f,
-        keyColor: vec3f,
-        keyIntensity: f32,
-        fillDir: vec3f,
-        fillColor: vec3f,
-        fillIntensity: f32,
-        rimDir: vec3f,
-        rimColor: vec3f,
-        rimIntensity: f32,
-        ambient: f32,
-        envMapStrength: f32,
-      }
+      ${PBR_LIGHTING_STRUCT_WGSL}
+      ${PBR_SURFACE_WGSL}
+      ${PBR_BRDF_WGSL}
+      ${PBR_EVAL_WGSL}
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
+      @binding(3) @group(0) var<uniform> material: MaterialUniforms;
       @binding(5) @group(0) var<uniform> lighting: LightingConfig;
       @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
 
@@ -128,120 +177,119 @@ export function getSegEnhancedFragShader() {
         @location(3) copperColor: vec3f,
         @location(4) greenEmissive: f32,
         @location(5) ringIndex: f32,
-        @location(6) bandIndex: f32
+        @location(6) scaleXZ: f32,
+        @location(7) scaleY: f32
       }
 
-      fn hash3(p: vec3f) -> vec3f {
-        let q = vec3f(
-          dot(p, vec3f(127.1, 311.7, 74.7)),
-          dot(p, vec3f(269.5, 183.3, 246.1)),
-          dot(p, vec3f(113.5, 271.9, 124.6))
-        );
-        return fract(sin(q) * 43758.5453);
+      const ROLLER_RADIUS: f32 = 0.75;
+      const ROLLER_HEIGHT: f32 = 2.8;
+      const ROLLER_SEGMENTS: f32 = 8.0;
+      const ROLLER_GROOVE_WIDTH: f32 = 0.045;
+      const LAYER_R1: f32 = 0.30;
+      const LAYER_R2: f32 = 0.52;
+      const LAYER_R3: f32 = 0.74;
+      const MAT_ALUMINUM: u32 = 17u;
+      const MAT_MAGNET: u32 = 18u;
+
+      struct RollerSurface {
+        color: vec3f,
+        metallic: f32,
+        roughness: f32,
+        emissive: f32,
       }
 
-      fn surfaceVariation(worldPos: vec3f, scale: f32) -> f32 {
-        let h = hash3(floor(worldPos * scale));
-        return h.x * 0.15 + h.y * 0.1;
-      }
-
-      // FBM noise for copper oxidation variation
-      fn oxidationFBM(p: vec3f) -> f32 {
-        var value = 0.0;
-        var amplitude = 0.5;
-        var pos = p;
-        for (var i = 0; i < 4; i++) {
-          let h = hash3(floor(pos * 3.0));
-          value += (h.x * 2.0 - 1.0) * amplitude;
-          pos = pos * 2.1 + vec3f(1.7, 2.3, 0.9);
-          amplitude *= 0.5;
+      fn capLayerColor(layerId: u32, lab: bool) -> vec3f {
+        if (lab) {
+          switch(layerId) {
+            case 0u: { return vec3f(0.62, 0.64, 0.66); }
+            case 1u: { return vec3f(0.90, 0.88, 0.82); }
+            case 2u: { return vec3f(0.55, 0.56, 0.58); }
+            default: { return vec3f(0.78, 0.79, 0.80); }
+          }
         }
-        return value * 0.5 + 0.5; // Normalize to [0,1]
-      }
-
-      // Anisotropic GGX for brushed-metal specular
-      fn distributionGGXAniso(NdotH: f32, TdotH: f32, BdotH: f32, roughX: f32, roughY: f32) -> f32 {
-        let ax = roughX * roughX;
-        let ay = roughY * roughY;
-        let d = (TdotH * TdotH) / (ax * ax) + (BdotH * BdotH) / (ay * ay) + NdotH * NdotH;
-        return 1.0 / (3.14159265 * ax * ay * d * d);
-      }
-
-      fn fresnelSchlick(cosTheta: f32, f0: vec3f) -> vec3f {
-        return f0 + (vec3f(1.0) - f0) * pow(1.0 - cosTheta, 5.0);
-      }
-
-      fn distributionGGX(NdotH: f32, roughness: f32) -> f32 {
-        let a = roughness * roughness;
-        let a2 = a * a;
-        let denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
-        return a2 / (3.14159265 * denom * denom);
-      }
-
-      fn geometrySmith(NdotV: f32, NdotL: f32, roughness: f32) -> f32 {
-        let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
-        let ggx1 = NdotV / (NdotV * (1.0 - k) + k);
-        let ggx2 = NdotL / (NdotL * (1.0 - k) + k);
-        return ggx1 * ggx2;
-      }
-
-      fn poleBandColor(bandIndex: f32, baseColor: vec3f) -> vec3f {
-        let idx = u32(bandIndex) % 4u;
-        switch(idx) {
-          case 0u: { return vec3f(0.85, 0.48, 0.22); }
-          case 1u: { return vec3f(0.55, 0.30, 0.15); }
-          case 2u: { return vec3f(0.72, 0.74, 0.76); }
-          case 3u: { return vec3f(0.78, 0.58, 0.22); }
-          default: { return baseColor; }
+        switch(layerId) {
+          case 0u: { return vec3f(0.74, 0.76, 0.78); }
+          case 1u: { return vec3f(0.92, 0.90, 0.85); }
+          case 2u: { return vec3f(0.88, 0.89, 0.91); }
+          default: { return vec3f(0.85, 0.55, 0.28); }
         }
       }
 
-      fn fbm(p: vec3f) -> f32 {
-        var value = 0.0;
-        var amplitude = 0.5;
-        var pos = p;
-        for (var i = 0; i < 4; i++) {
-          let h = hash3(floor(pos * 3.0));
-          value += (h.x * 2.0 - 1.0) * amplitude;
-          pos = pos * 2.1 + vec3f(1.7, 2.3, 0.9);
-          amplitude *= 0.5;
+      fn rollerCapShading(localPos: vec3f, energy: f32, lab: bool) -> RollerSurface {
+        let radial = length(localPos.xz) / ROLLER_RADIUS;
+        var layerId: u32 = 3u;
+        if (radial < LAYER_R1) { layerId = 0u; }
+        else if (radial < LAYER_R2) { layerId = 1u; }
+        else if (radial < LAYER_R3) { layerId = 2u; }
+
+        var surf: RollerSurface;
+        surf.color = capLayerColor(layerId, lab);
+        surf.metallic = 0.92;
+        surf.roughness = 0.20;
+        surf.emissive = 0.0;
+        if (layerId == 0u) { surf.emissive = 0.22 * energy; surf.metallic = 0.88; surf.roughness = 0.16; }
+        if (layerId == 1u) { surf.metallic = 0.05; surf.roughness = 0.72; }
+
+        let layerOffset = vec3f(f32(layerId + 1u) * 7.31, radial * 11.73, 0.0);
+        let brushed = fbm(localPos * 4.5 + layerOffset);
+        surf.color *= 0.90 + brushed * 0.12;
+        return surf;
+      }
+
+      fn rollerBarrelShading(localPos: vec3f, poleTint: vec3f, energy: f32, lab: bool,
+                             isMagnetStrip: bool) -> RollerSurface {
+        let yRel = localPos.y + ROLLER_HEIGHT * 0.5;
+        let segmentPitch = ROLLER_HEIGHT / ROLLER_SEGMENTS;
+        let cyclePos = fract(yRel / segmentPitch) * segmentPitch;
+        let bandHeight = segmentPitch - ROLLER_GROOVE_WIDTH;
+        let distToBoundary = min(cyclePos, abs(cyclePos - bandHeight));
+        let isGroove = distToBoundary < ROLLER_GROOVE_WIDTH * 0.5 &&
+                       yRel > ROLLER_GROOVE_WIDTH && yRel < ROLLER_HEIGHT - ROLLER_GROOVE_WIDTH;
+
+        let theta = atan2(localPos.z, localPos.x);
+        let poleBand = step(0.0, cos(theta));
+        let northColor = select(vec3f(0.92, 0.58, 0.35), vec3f(0.78, 0.80, 0.82), lab);
+        let southColor = select(vec3f(0.38, 0.45, 0.68), vec3f(0.48, 0.50, 0.54), lab);
+        var baseColor = mix(southColor, northColor, poleBand);
+        baseColor = mix(baseColor, poleTint, 0.45);
+
+        var surf: RollerSurface;
+        surf.color = baseColor;
+        surf.metallic = 0.94;
+        surf.roughness = 0.24;
+        surf.emissive = 0.0;
+
+        if (isMagnetStrip) {
+          surf.color = mix(vec3f(0.22, 0.24, 0.28), baseColor, 0.35);
+          surf.metallic = 0.42;
+          surf.roughness = 0.38;
+          surf.emissive = 0.12 * energy;
         }
-        return clamp(value * 0.5 + 0.5, 0.0, 1.0);
+        if (isGroove) {
+          surf.color *= 0.48;
+          surf.roughness = 0.58;
+          surf.emissive = max(surf.emissive, 0.18 * energy);
+        }
+
+        let layerOffset = vec3f(3.7, yRel * 2.1, theta * 1.3);
+        let brushed = fbm(localPos * 3.2 + layerOffset);
+        let oxidation = fbm(localPos * 5.5 + layerOffset * 1.3);
+        surf.color = mix(surf.color, vec3f(0.35, 0.28, 0.22), oxidation * 0.22);
+        surf.color *= 0.88 + brushed * 0.14;
+        return surf;
       }
 
-      fn blackbody(temp: f32) -> vec3f {
-        let t = clamp(temp, 800.0, 3500.0) / 1000.0;
-        let warm = vec3f(1.0, 0.4 + t * 0.3, 0.1 + t * 0.6);
-        return warm * max(0.0, t - 0.8);
-      }
-
-      fn triplanarMask(p: vec3f, n: vec3f, scale: f32) -> f32 {
-        let an = abs(n);
-        let w = an / (an.x + an.y + an.z + 1e-4);
-        let nx = fbm(vec3f(p.y, p.z, p.x) * scale);
-        let ny = fbm(vec3f(p.x, p.z, p.y) * scale);
-        let nz = fbm(vec3f(p.x, p.y, p.z) * scale);
-        return nx * w.x + ny * w.y + nz * w.z;
-      }
-
-      fn cylindricalUV(p: vec3f) -> vec2f {
-        let u = fract(atan2(p.z, p.x) / (2.0 * 3.14159265) + 0.5);
-        let v = fract(p.y * 0.33 + 0.5);
-        return vec2f(u, v);
-      }
-
-      fn sharedMaterialId(mode: i32, renderMode: i32, ringIndex: f32, bandIndex: f32) -> u32 {
+      fn sharedMaterialId(mode: i32, renderMode: i32, ringIndex: f32) -> u32 {
         if (mode == 1) { return 8u; }
         if (mode == 2) { return 10u; }
         if (mode == 3) { return 7u; }
         if (mode == 4) { return 9u; }
         if (mode >= 5) { return 1u; }
-        if (renderMode == 1) { return 1u; }
-        if (renderMode == 2) { return 2u; }
+        if (renderMode == 1) { return 13u; }
+        if (renderMode == 2) { return MAT_ALUMINUM; }
         if (renderMode == 3) { return 0u; }
         if (ringIndex < -0.5) { return 1u; }
-        if (ringIndex > 10.0) { return 2u; }
-        if (bandIndex >= 0.0 && bandIndex < 6.0 && (u32(bandIndex) % 4u) == 2u) { return 4u; }
+        if (ringIndex > 10.0) { return MAT_ALUMINUM; }
         return 0u;
       }
 
@@ -251,11 +299,10 @@ export function getSegEnhancedFragShader() {
         let renderMode = i32(round(device.renderMode));
         let energy = clamp(device.timeScale, 0.0, 1.0);
         let overdrive = pow(energy, 1.8);
-        let mat = materialTable[sharedMaterialId(mode, renderMode, input.ringIndex, input.bandIndex)];
+        let lab = material.prototypePreset > 0.5;
+
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
         let localPos = input.worldPos - devicePos;
-        let cylUV = cylindricalUV(localPos);
-        var N = normalize(input.normal);
         let V = normalize(uniforms.cameraPos - input.worldPos);
 
         var baseColor: vec3f;
@@ -263,160 +310,98 @@ export function getSegEnhancedFragShader() {
         var roughness: f32;
         var emissive: f32;
         var isCopper = false;
+        var useAniso = false;
+        var useBrush = false;
 
-        if (input.bandIndex >= 0.0 && input.bandIndex < 6.0) {
-          baseColor = poleBandColor(input.bandIndex, input.copperColor);
-          let isNeodymium = (u32(input.bandIndex) % 4u) == 2u;
-          isCopper = (u32(input.bandIndex) % 4u) == 0u || (u32(input.bandIndex) % 4u) == 1u;
-          metallic = select(0.95, 0.88, isNeodymium);
-          roughness = select(0.30, 0.20, isNeodymium);
-          emissive = select(0.0, 0.15, isNeodymium);
+        let radial = length(localPos.xz);
+        let isCap = abs(input.normal.y) > 0.85;
+        let isShaft = radial < ROLLER_RADIUS * 0.22 && abs(input.normal.y) < 0.2;
+        let isBearing = radial > ROLLER_RADIUS * 0.86 && radial < ROLLER_RADIUS * 1.10 && isCap;
+        let isMagnetStrip = renderMode == 0 && !isCap && !isShaft &&
+                            radial > ROLLER_RADIUS * 1.006 && abs(input.normal.y) < 0.85;
+
+        if (renderMode == 0 && isCap) {
+          let cap = rollerCapShading(localPos, energy, lab);
+          baseColor = cap.color; metallic = cap.metallic; roughness = cap.roughness; emissive = cap.emissive;
+        } else if (renderMode == 0 && isShaft) {
+          baseColor = vec3f(0.68, 0.70, 0.73); metallic = 0.97; roughness = 0.14;
+        } else if (renderMode == 0 && isBearing) {
+          baseColor = vec3f(0.78, 0.80, 0.83); metallic = 0.96; roughness = 0.12;
+          useBrush = true;
+        } else if (renderMode == 0 && !isShaft) {
+          let barrel = rollerBarrelShading(localPos, input.copperColor, energy, lab, isMagnetStrip);
+          baseColor = barrel.color; emissive = barrel.emissive; metallic = barrel.metallic;
+          roughness = barrel.roughness; isCopper = !isMagnetStrip; useAniso = true; useBrush = true;
+        } else if (renderMode == 2) {
+          baseColor = vec3f(0.82, 0.84, 0.87); metallic = 0.88; roughness = 0.26;
+          useAniso = true; useBrush = true;
+        } else if (renderMode == 1) {
+          if (input.ringIndex > 12.5) {
+            baseColor = vec3f(0.50, 0.48, 0.46); metallic = 0.06; roughness = 0.88;
+          } else {
+            baseColor = vec3f(0.10, 0.11, 0.14); metallic = 0.72; roughness = 0.38;
+          }
+        } else if (input.ringIndex > 11.5 && input.ringIndex < 12.5) {
+          baseColor = vec3f(0.46, 0.50, 0.56); metallic = 0.82; roughness = 0.32;
         } else if (input.ringIndex < -0.5) {
-          baseColor = vec3f(0.65, 0.67, 0.70);
-          metallic = 0.96;
-          roughness = 0.15;
-          emissive = 0.0;
+          baseColor = vec3f(0.65, 0.67, 0.70); metallic = 0.96; roughness = 0.14; useBrush = true;
         } else if (input.ringIndex > 10.0) {
-          baseColor = vec3f(0.78, 0.58, 0.22);
-          metallic = 0.90;
-          roughness = 0.22;
-          emissive = 0.0;
+          baseColor = vec3f(0.80, 0.82, 0.85); metallic = 0.90; roughness = 0.20; useAniso = true;
         } else {
-          baseColor = input.copperColor;
-          metallic = 0.95;
-          roughness = 0.30;
-          emissive = input.greenEmissive;
-          isCopper = true;
+          baseColor = input.copperColor; metallic = 0.94; roughness = 0.28;
+          emissive = input.greenEmissive; isCopper = true; useAniso = true;
         }
 
-        // Blend with shared material table so all devices use consistent physical presets.
-        baseColor = mix(baseColor, mat.baseMetal.rgb, 0.65);
-        metallic = mix(metallic, mat.baseMetal.a, 0.65);
-        roughness = mix(roughness, mat.accentRough.a, 0.65);
+        let matId = select(sharedMaterialId(mode, renderMode, input.ringIndex), MAT_MAGNET, isMagnetStrip);
+        let mat = materialTable[min(matId, 18u)];
+        baseColor = mix(baseColor, mat.baseMetal.rgb, 0.42);
+        metallic = mix(metallic, mat.baseMetal.a, 0.42);
+        roughness = mix(roughness, mat.accentRough.a, 0.42);
 
-        let brushed = fbm(localPos * (mat.detailParams.x * 0.35));
-        let oxidation = fbm(localPos * (mat.detailParams.x * 0.75 + 9.0));
-        baseColor = mix(baseColor, mat.accentRough.rgb, oxidation * mat.detailParams.y);
-        baseColor *= 0.90 + brushed * 0.15;
-        roughness = clamp(roughness + brushed * 0.08 + oxidation * 0.08, 0.05, 1.0);
+        let detailScale = mat.detailParams.x;
+        let brushed = fbm(localPos * (detailScale * 0.32));
+        let oxidation = fbm(localPos * (detailScale * 0.75 + 9.0));
+        baseColor = mix(baseColor, mat.accentRough.rgb, oxidation * mat.detailParams.y * 0.45);
+        baseColor *= 0.88 + brushed * 0.14;
+        roughness = clamp(roughness + brushed * 0.05 + oxidation * 0.07, 0.04, 1.0);
 
-        var decalMask = 0.0;
-        let triMask = triplanarMask(localPos, N, 0.85);
-
+        var N = normalize(input.normal);
+        if (useBrush) {
+          N = brushedMetalNormal(N, localPos, detailScale * 0.55, 0.14);
+        } else {
+          N = detailNormal(N, localPos, detailScale);
+        }
         if (renderMode == 1 || renderMode == 2) {
-          let theta = atan2(localPos.z, localPos.x) / (2.0 * 3.14159265) + 0.5;
-          let rivetSector = abs(fract(theta * 24.0) - 0.5);
-          let rivetRadial = abs(length(localPos.xz) - 3.2);
-          let rivets = smoothstep(0.08, 0.01, rivetSector) * smoothstep(0.12, 0.0, rivetRadial);
-          decalMask += rivets * 0.8;
+          N = knurlNormal(N, localPos, 48.0, 0.06);
         }
 
-        if (mode == 1) {
-          let labelBand = smoothstep(0.40, 0.44, cylUV.y) * (1.0 - smoothstep(0.56, 0.60, cylUV.y));
-          let stamp = step(0.72, fract(cylUV.x * 15.0 + triMask * 0.5));
-          decalMask += labelBand * stamp * 0.75;
-          let meniscus = smoothstep(0.47, 0.50, cylUV.y) * (1.0 - smoothstep(0.50, 0.54, cylUV.y));
-          baseColor = mix(baseColor, vec3f(0.86, 0.92, 0.97), meniscus * 0.33);
-        } else if (mode == 2) {
-          let canBand = smoothstep(0.32, 0.36, cylUV.y) * (1.0 - smoothstep(0.64, 0.68, cylUV.y));
-          let stripe = step(0.80, fract(cylUV.x * 26.0));
-          decalMask += canBand * stripe * 0.68;
-        } else if (mode == 3) {
-          let lens = sin(cylUV.x * 180.0) * sin(cylUV.y * 160.0);
-          N = normalize(N + vec3f(0.0, lens * 0.10, 0.0));
-          baseColor += vec3f(0.05, 0.08, 0.11) * (lens * 0.5 + 0.5);
-        } else if (mode == 4) {
-          let grid = fract(cylUV * vec2f(18.0, 10.0));
-          let junction = min(step(0.92, grid.x) + step(0.92, grid.y), 1.0);
-          decalMask += junction * 0.55;
-          baseColor = mix(baseColor, vec3f(0.70, 0.20, 0.14), junction * 0.20);
-        }
-
-        baseColor = mix(baseColor, vec3f(0.93, 0.93, 0.90), decalMask * 0.35);
-        roughness = clamp(roughness - decalMask * 0.08, 0.05, 1.0);
-        let NdotV = max(dot(N, V), 0.0);
-        let edgeWear = pow(1.0 - NdotV, 2.0) * mat.detailParams.z;
-        baseColor = mix(baseColor, mat.accentRough.rgb, edgeWear * 0.62);
-        if (renderMode == 1 || renderMode == 2) {
-          baseColor *= 1.0 - edgeWear * 0.1;
-        }
-
-        // Construct tangent/bitangent for anisotropic specular (brushed-metal)
         let upRef = select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(N.y) > 0.99);
         let T = normalize(cross(upRef, N));
         let B = cross(N, T);
-
-        // Anisotropic roughness (brushed along tangent direction)
-        let roughX = roughness * 0.7; // Tighter along brush direction
-        let roughY = roughness * 1.3; // Wider perpendicular to brush
-
-        let f0 = mix(vec3f(0.04), baseColor, metallic);
         let albedo = mix(baseColor, vec3f(0.0), metallic);
 
-        // Key light with anisotropic specular
-        let L1 = normalize(-lighting.keyDir);
-        let H1 = normalize(V + L1);
-        let NdotL1 = max(dot(N, L1), 0.0);
-        let NdotH1 = max(dot(N, H1), 0.0);
-        let TdotH1 = dot(T, H1);
-        let BdotH1 = dot(B, H1);
-        let D1 = distributionGGXAniso(NdotH1, TdotH1, BdotH1, roughX, roughY);
-        let G1 = geometrySmith(NdotV, NdotL1, roughness);
-        let F1 = fresnelSchlick(max(dot(H1, V), 0.0), f0);
-        let specular1 = (D1 * G1 * F1) / (4.0 * NdotV * NdotL1 + 0.001);
-        let kD1 = (vec3f(1.0) - F1) * (1.0 - metallic);
+        var color = evaluatePBR(N, V, albedo, metallic, roughness, T, B, lighting, useAniso);
 
-        // Fill light with anisotropic specular
-        let L2 = normalize(-lighting.fillDir);
-        let H2 = normalize(V + L2);
-        let NdotL2 = max(dot(N, L2), 0.0);
-        let NdotH2 = max(dot(N, H2), 0.0);
-        let TdotH2 = dot(T, H2);
-        let BdotH2 = dot(B, H2);
-        let D2 = distributionGGXAniso(NdotH2, TdotH2, BdotH2, roughX, roughY);
-        let G2 = geometrySmith(NdotV, NdotL2, roughness);
-        let F2 = fresnelSchlick(max(dot(H2, V), 0.0), f0);
-        let specular2 = (D2 * G2 * F2) / (4.0 * NdotV * NdotL2 + 0.001);
-        let kD2 = (vec3f(1.0) - F2) * (1.0 - metallic);
-
-        let rimFactor = pow(1.0 - NdotV, 3.0) * lighting.rimIntensity;
-        let rimLight = lighting.rimColor * rimFactor;
-
-        let diffuse = albedo * 3.14159265 * (
-          kD1 * NdotL1 * lighting.keyColor * lighting.keyIntensity +
-          kD2 * NdotL2 * lighting.fillColor * lighting.fillIntensity * 0.5
-        );
-
-        let specular = (
-          specular1 * lighting.keyColor * lighting.keyIntensity * NdotL1 +
-          specular2 * lighting.fillColor * lighting.fillIntensity * NdotL2 * 0.3
-        );
-
-        // Cheap IBL approximation (environment reflection term)
-        let envReflect = fresnelSchlick(NdotV, f0) * lighting.envMapStrength * 0.3;
-
-        let ambient = albedo * lighting.ambient * vec3f(0.15, 0.18, 0.22);
-        var color = ambient + diffuse + specular + rimLight + envReflect;
-
-        let bottomGlow = max(0.0, -N.y) * input.greenEmissive * (1.5 + overdrive * 2.5);
-        color += vec3f(0.0, 1.0, 0.5) * bottomGlow;
-        color += baseColor * emissive * (0.4 + energy * 0.7);
+        // PBR-friendly emissive / corona (additive after lighting)
+        let NdotV = max(dot(N, V), 0.0);
+        let bottomGlow = max(0.0, -N.y) * input.greenEmissive * (1.2 + overdrive * 2.0);
+        color += vec3f(0.0, 1.0, 0.5) * bottomGlow * (0.6 + NdotV * 0.4);
+        color += baseColor * emissive * (0.35 + energy * 0.65);
         if (isCopper) {
           let hot = mix(850.0, 3300.0, clamp(energy * 0.8 + input.greenEmissive * 0.7, 0.0, 1.0));
-          color += blackbody(hot) * (0.12 + overdrive * 0.55);
+          color += blackbody(hot) * (0.10 + overdrive * 0.45) * (0.3 + NdotV * 0.7);
         }
-
-        let energyArc = smoothstep(0.7, 1.0, input.greenEmissive) * (0.25 + overdrive * 0.8);
+        if (input.ringIndex > 11.5 && input.ringIndex < 12.5) {
+          color += vec3f(0.04, 0.12, 0.28) * (0.08 + overdrive * 0.12) * NdotV;
+        }
+        let energyArc = smoothstep(0.65, 1.0, input.greenEmissive) * (0.20 + overdrive * 0.65);
         color += vec3f(0.3, 0.8, 1.0) * energyArc * NdotV;
 
-        // Contact shadow / ambient-occlusion hint: darken surfaces near Y = 0
-        let contactAO = 0.55 + 0.45 * smoothstep(0.0, 2.2, abs(input.worldPos.y));
+        let contactAO = 0.52 + 0.48 * smoothstep(0.0, 2.4, abs(input.worldPos.y - devicePos.y));
         color *= contactAO;
 
-        color = color * (2.51 * color + 0.03) / (color * (2.43 * color + 0.59) + 0.14);
-
-        return vec4f(color, 1.0);
+        // HDR scene output — tonemap + bloom handled in post composite pass
+        return vec4f(max(color, vec3f(0.0)), 1.0);
       }
     `;
   }
-

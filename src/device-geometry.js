@@ -70,9 +70,9 @@ export class DeviceGeometry {
   }
 
   async setupBase() {
-    // Base geometry is now a shared UV mesh in the visualizer (basePlateBuffer).
-    // This method is intentionally a no-op; the instance data lives in
-    // MultiDeviceVisualizer.baseInstanceBuffer.
+    if (this.visualizer?.baseInstanceBuffer) {
+      this.baseBuffer = this.visualizer.baseInstanceBuffer;
+    }
   }
 
   async setupStatorRings() {
@@ -225,7 +225,8 @@ export class DeviceGeometry {
     this.visualizer.profiler.trackBuffer(`device-${this.id}-core`, 100 * 32, GPUBufferUsage.STORAGE);
 
     const core = this.config.core || {};
-    const plateY = core.plateY || 2.5;
+    const frameDims = this.visualizer?.segFrameBuffers?.dims;
+    const plateY = frameDims?.plateY ?? core.plateY ?? 2.5;
 
     // Instance buffer for bearing shaft (ringIndex = -1 signals steel to shader)
     this.shaftInstanceBuffer = this.device.createBuffer({

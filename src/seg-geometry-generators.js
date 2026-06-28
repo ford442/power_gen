@@ -9,6 +9,12 @@
 // WebGPU-first; port to WebGL2 by reusing the same vertex/index arrays.
 
 import { SEGMaterialPresets } from './seg-materials.js';
+import {
+  createDetailedRollerBuffers,
+  poleTintColor,
+  computeRollerRotation,
+  isNorthPole
+} from './seg-roller-model.js';
 
 // Helper: Create GPU vertex + index buffer pair
 function _makeGeomBuffers(device, data) {
@@ -202,130 +208,7 @@ export function generateBearingShaft(device, options = {}) {
 //   - Grooves:    uv.x = angle/2π,  uv.y = height fraction at groove center
 // ----------------------------------------------------------------------------
 export function generatePoleBandedRoller(device, options = {}) {
-  const {
-    radius = 0.75,
-    height = 2.8,
-    segments = 64,
-    bands = 8,
-    grooveDepth = 0.035,
-    grooveWidth = 0.045
-  } = options;
-
-  const vertices = [];
-  const indices = [];
-  const normals = [];
-  const uvs = [];
-  let vOffset = 0;
-
-  function addVertex(px, py, pz, nx, ny, nz, u, v) {
-    vertices.push(px, py, pz);
-    normals.push(nx, ny, nz);
-    uvs.push(u, v);
-    return vOffset++;
-  }
-
-  // --- End caps (single disks; shader colors concentric rings by radius) ---
-  function addCap(y, ny) {
-    const centerIdx = addVertex(0, y, 0, 0, ny, 0, 0.5, 0.0);
-    const rimStart = vOffset;
-    for (let i = 0; i <= segments; i++) {
-      const theta = (i / segments) * Math.PI * 2;
-      const c = Math.cos(theta), s = Math.sin(theta);
-      addVertex(c * radius, y, s * radius, 0, ny, 0, i / segments, 1.0);
-    }
-    for (let i = 0; i < segments; i++) {
-      const curr = rimStart + i;
-      const next = rimStart + ((i + 1) % (segments + 1));
-      // Winding order depends on cap normal
-      if (ny > 0.0) {
-        indices.push(centerIdx, next, curr);
-      } else {
-        indices.push(centerIdx, curr, next);
-      }
-    }
-  }
-
-  addCap(height * 0.5, 1.0);
-  addCap(-height * 0.5, -1.0);
-
-  // --- Barrel segments (outer sleeve) ---
-  const bandHeight = (height - grooveWidth * (bands - 1)) / bands;
-  for (let b = 0; b < bands; b++) {
-    const yBottom = -height * 0.5 + b * (bandHeight + grooveWidth);
-    const yTop = yBottom + bandHeight;
-    const vBottom = (yBottom + height * 0.5) / height;
-    const vTop = (yTop + height * 0.5) / height;
-
-    const baseIdx = vOffset;
-    for (let i = 0; i <= segments; i++) {
-      const theta = (i / segments) * Math.PI * 2;
-      const c = Math.cos(theta), s = Math.sin(theta);
-      // Top rim
-      addVertex(c * radius, yTop, s * radius, c, 0.0, s, i / segments, vTop);
-      // Bottom rim
-      addVertex(c * radius, yBottom, s * radius, c, 0.0, s, i / segments, vBottom);
-    }
-    for (let i = 0; i < segments; i++) {
-      const curr = baseIdx + i * 2;
-      const next = baseIdx + ((i + 1) % (segments + 1)) * 2;
-      indices.push(curr, next, curr + 1);
-      indices.push(next, next + 1, curr + 1);
-    }
-  }
-
-  // --- Groove rings between segments (recessed, with inward-facing normals) ---
-  const grooveRadius = Math.max(radius - grooveDepth, 0.01);
-  for (let b = 0; b < bands - 1; b++) {
-    const yCenter = -height * 0.5 + (b + 1) * (bandHeight + grooveWidth) - grooveWidth * 0.5;
-    const vCenter = (yCenter + height * 0.5) / height;
-    const baseIdx = vOffset;
-
-    for (let i = 0; i <= segments; i++) {
-      const theta = (i / segments) * Math.PI * 2;
-      const c = Math.cos(theta), s = Math.sin(theta);
-      // Inner wall top/bottom (faces inward, normal points toward axis)
-      addVertex(c * grooveRadius, yCenter + grooveWidth * 0.5, s * grooveRadius, -c, 0.0, -s, i / segments, vCenter);
-      addVertex(c * grooveRadius, yCenter - grooveWidth * 0.5, s * grooveRadius, -c, 0.0, -s, i / segments, vCenter);
-      // Outer wall top/bottom (flush with barrel, normal points outward)
-      addVertex(c * radius, yCenter + grooveWidth * 0.5, s * radius, c, 0.0, s, i / segments, vCenter);
-      addVertex(c * radius, yCenter - grooveWidth * 0.5, s * radius, c, 0.0, s, i / segments, vCenter);
-    }
-
-    for (let i = 0; i < segments; i++) {
-      const curr = baseIdx + i * 4;
-      const next = baseIdx + ((i + 1) % (segments + 1)) * 4;
-      // Outer wall
-      indices.push(curr + 2, next + 2, curr + 3);
-      indices.push(next + 2, next + 3, curr + 3);
-      // Inner wall
-      indices.push(curr, curr + 1, next);
-      indices.push(next, curr + 1, next + 1);
-      // Top wall (faces +y)
-      indices.push(curr + 2, next + 2, curr);
-      indices.push(next + 2, next, curr);
-      // Bottom wall (faces -y)
-      indices.push(curr + 3, curr + 1, next + 3);
-      indices.push(next + 3, curr + 1, next + 1);
-    }
-  }
-
-  // Pack interleaved: position(3) + normal(3) + uv(2)
-  const vertexData = new Float32Array(vertices.length / 3 * 8);
-  for (let i = 0; i < vertices.length / 3; i++) {
-    vertexData[i * 8] = vertices[i * 3];
-    vertexData[i * 8 + 1] = vertices[i * 3 + 1];
-    vertexData[i * 8 + 2] = vertices[i * 3 + 2];
-    vertexData[i * 8 + 3] = normals[i * 3];
-    vertexData[i * 8 + 4] = normals[i * 3 + 1];
-    vertexData[i * 8 + 5] = normals[i * 3 + 2];
-    vertexData[i * 8 + 6] = uvs[i * 2];
-    vertexData[i * 8 + 7] = uvs[i * 2 + 1];
-  }
-
-  return _makeGeomBuffers(device, {
-    vertices: vertexData,
-    indices: new Uint16Array(indices)
-  });
+  return createDetailedRollerBuffers(device, options);
 }
 
 // ----------------------------------------------------------------------------
@@ -631,8 +514,12 @@ export function generateSupportStand(device, options = {}) {
     baseThickness = 0.20,
     height = 2.0,
     footRadius = 0.4,
-    segments = 24
+    segments = 24,
+    // When set, the annular platform sits at platformY and legs drop to platformY - height.
+    platformY = null
   } = options;
+
+  const yShift = platformY !== null ? platformY + height : 0;
 
   const vertices = [];
   const indices = [];
@@ -649,27 +536,27 @@ export function generateSupportStand(device, options = {}) {
     const rIn = baseRadius * 0.2;
     const rOut = baseRadius;
 
-    vertices.push(c * rIn, -height + h2, s * rIn);
+    vertices.push(c * rIn, -height + h2 + yShift, s * rIn);
     normals.push(0, 1, 0);
     uvs.push(0, i / segments);
 
-    vertices.push(c * rOut, -height + h2, s * rOut);
+    vertices.push(c * rOut, -height + h2 + yShift, s * rOut);
     normals.push(0, 1, 0);
     uvs.push(1, i / segments);
 
-    vertices.push(c * rIn, -height - h2, s * rIn);
+    vertices.push(c * rIn, -height - h2 + yShift, s * rIn);
     normals.push(0, -1, 0);
     uvs.push(0, i / segments);
 
-    vertices.push(c * rOut, -height - h2, s * rOut);
+    vertices.push(c * rOut, -height - h2 + yShift, s * rOut);
     normals.push(0, -1, 0);
     uvs.push(1, i / segments);
 
-    vertices.push(c * rOut, -height + h2, s * rOut);
+    vertices.push(c * rOut, -height + h2 + yShift, s * rOut);
     normals.push(c, 0, s);
     uvs.push(i / segments, 1);
 
-    vertices.push(c * rOut, -height - h2, s * rOut);
+    vertices.push(c * rOut, -height - h2 + yShift, s * rOut);
     normals.push(c, 0, s);
     uvs.push(i / segments, 0);
     vOff += 6;
@@ -691,11 +578,11 @@ export function generateSupportStand(device, options = {}) {
     // Leg goes from center-bottom to outer edge at a slight angle
     const startX = c * baseRadius * 0.3;
     const startZ = s * baseRadius * 0.3;
-    const startY = -height + baseThickness;
+    const startY = -height + baseThickness + yShift;
 
     const endX = c * legLength;
     const endZ = s * legLength;
-    const endY = -height - legLength * 0.4; // Angled downward
+    const endY = -height - legLength * 0.4 + yShift; // Angled downward
 
     // Build leg as a tapered cylinder
     const legSegs = 8;
@@ -1378,12 +1265,7 @@ export function generateBandedRollerInstances(time, rings, options = {}) {
   const {
     useHardwarePhase = false,
     hardwarePhaseRad = 0,
-    poleColors = [
-      [0.85, 0.48, 0.22], // Fresh copper (N pole)
-      [0.55, 0.30, 0.15], // Copper oxide (S pole)
-      [0.72, 0.74, 0.76], // Neodymium silver
-      [0.78, 0.58, 0.22], // Brass
-    ]
+    prototypePreset = 'showroom'
   } = options;
 
   const totalRollers = rings.reduce((sum, r) => sum + r.count, 0);
@@ -1400,33 +1282,22 @@ export function generateBandedRollerInstances(time, rings, options = {}) {
         angle = (i / ring.count) * Math.PI * 2 + time * 0.5 * ring.speed;
       }
 
-      // Position
       instanceData[idx] = Math.cos(angle) * ring.radius;
       instanceData[idx + 1] = 0;
       instanceData[idx + 2] = Math.sin(angle) * ring.radius;
-
-      // Ring index (encoded as band offset for shader)
       instanceData[idx + 3] = ring.index;
 
-      // Self-rotation quaternion (rolling motion)
-      const gearRatio = ring.radius / (ring.scale || 0.8);
-      const selfRotAngle = angle * gearRatio * 0.5;
-      const tangentAngle = angle + Math.PI / 2;
-      const rollAxisX = Math.cos(tangentAngle);
-      const rollAxisZ = Math.sin(tangentAngle);
-      instanceData[idx + 4] = rollAxisX * Math.sin(selfRotAngle / 2);
-      instanceData[idx + 5] = 0;
-      instanceData[idx + 6] = rollAxisZ * Math.sin(selfRotAngle / 2);
-      instanceData[idx + 7] = Math.cos(selfRotAngle / 2);
+      const rot = computeRollerRotation(angle, ring.radius, ring.scale || ring.radius * 0.3);
+      instanceData[idx + 4] = rot[0];
+      instanceData[idx + 5] = rot[1];
+      instanceData[idx + 6] = rot[2];
+      instanceData[idx + 7] = rot[3];
 
-      // Alternating pole color based on roller index and ring
-      const colorIdx = (i + ring.index * 3) % poleColors.length;
-      const color = poleColors[colorIdx];
+      const color = poleTintColor(ring.index, i, prototypePreset);
       instanceData[idx + 8] = color[0];
       instanceData[idx + 9] = color[1];
       instanceData[idx + 10] = color[2];
-      // emissive: neodymium parts get slight glow
-      instanceData[idx + 11] = colorIdx === 2 ? 0.3 : 0.0;
+      instanceData[idx + 11] = isNorthPole(ring.index, i) ? 0.08 : 0.0;
 
       rollerOffset++;
     }

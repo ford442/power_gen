@@ -1102,6 +1102,24 @@ window.setSEGLayout = async (preset) => {
   syncSEGLayoutUI();
 };
 
+window.setSegFrameLevel = (level) => {
+  const v = window.multiVisualizer;
+  if (v?.setSegFrameLevel) {
+    v.setSegFrameLevel(level);
+  } else if (v) {
+    v.segFrameLevel = level;
+  }
+  console.log(`[main] SEG frame level → ${level}`);
+};
+
+window.setLightingLook = (look) => {
+  const v = window.multiVisualizer;
+  if (v?.setLightingLook) {
+    v.setLightingLook(look);
+  }
+  console.log(`[main] Lighting look → ${look}`);
+};
+
 window.syncSEGLayoutUI = syncSEGLayoutUI;
 
 function wireSEGLayoutControls() {

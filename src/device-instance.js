@@ -32,6 +32,7 @@ export class DeviceInstance {
     this.renderStatorRings = DeviceRenderMixin.renderStatorRings.bind(this);
     this.renderWiring = DeviceRenderMixin.renderWiring.bind(this);
     this.renderCore = DeviceRenderMixin.renderCore.bind(this);
+    this.renderFrame = DeviceRenderMixin.renderFrame.bind(this);
     this.renderPickupCoils = DeviceRenderMixin.renderPickupCoils.bind(this);
     this.renderStand = DeviceRenderMixin.renderStand.bind(this);
     this.renderWires = DeviceRenderMixin.renderWires.bind(this);

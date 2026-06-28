@@ -1,3 +1,8 @@
+import {
+  PBR_SURFACE_WGSL,
+  PBR_BRDF_WGSL
+} from './pbr-wgsl-chunks.js';
+
 export function getRollerVertShader() {
     return /* wgsl */ `
       struct Uniforms {
@@ -111,7 +116,11 @@ export function getRollerFragShader() {
       }
 
       const PI: f32 = 3.14159265;
-      const MATERIAL_COUNT: u32 = 13u;
+      const MATERIAL_COUNT: u32 = 19u;
+      const MAT_ALUMINUM: u32 = 17u;
+
+      ${PBR_SURFACE_WGSL}
+      ${PBR_BRDF_WGSL}
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
@@ -126,48 +135,12 @@ export function getRollerFragShader() {
         @location(4) ringIndex: f32
       }
 
-      // PBR functions
-      fn fresnelSchlick(cosTheta: f32, f0: vec3f) -> vec3f {
-        return f0 + (vec3f(1.0) - f0) * pow(1.0 - cosTheta, 5.0);
-      }
+      // PBR functions — BRDF/surface imported from pbr-wgsl-chunks.js
 
-      fn distributionGGX(NdotH: f32, roughness: f32) -> f32 {
-        let a = roughness * roughness;
-        let a2 = a * a;
-        let denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
-        return a2 / (PI * denom * denom);
-      }
-
-      fn geometrySmith(NdotV: f32, NdotL: f32, roughness: f32) -> f32 {
-        let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
-        let ggx1 = NdotV / (NdotV * (1.0 - k) + k);
-        let ggx2 = NdotL / (NdotL * (1.0 - k) + k);
-        return ggx1 * ggx2;
-      }
-
-      fn hash3(p: vec3f) -> vec3f {
-        let q = vec3f(
-          dot(p, vec3f(127.1, 311.7, 74.7)),
-          dot(p, vec3f(269.5, 183.3, 246.1)),
-          dot(p, vec3f(113.5, 271.9, 124.6))
-        );
-        return fract(sin(q) * 43758.5453);
-      }
-
-      fn noise3(p: vec3f) -> f32 {
-        return hash3(floor(p)).x;
-      }
-
-      fn fbm(p: vec3f) -> f32 {
-        var v = 0.0;
-        var amp = 0.5;
-        var pp = p;
-        for (var i = 0; i < 4; i++) {
-          v += (noise3(pp) * 2.0 - 1.0) * amp;
-          pp = pp * 2.03 + vec3f(1.7, 2.3, 0.9);
-          amp *= 0.5;
-        }
-        return clamp(v * 0.5 + 0.5, 0.0, 1.0);
+      fn cylindricalUV(p: vec3f) -> vec2f {
+        let u = fract(atan2(p.z, p.x) / (2.0 * PI) + 0.5);
+        let v = fract(p.y * 0.33 + 0.5);
+        return vec2f(u, v);
       }
 
       fn triplanarMask(p: vec3f, n: vec3f, scale: f32) -> f32 {
@@ -177,21 +150,6 @@ export function getRollerFragShader() {
         let ny = fbm(vec3f(p.x, p.z, p.y) * scale);
         let nz = fbm(vec3f(p.x, p.y, p.z) * scale);
         return nx * w.x + ny * w.y + nz * w.z;
-      }
-
-      fn cylindricalUV(p: vec3f) -> vec2f {
-        let u = fract(atan2(p.z, p.x) / (2.0 * PI) + 0.5);
-        let v = fract(p.y * 0.33 + 0.5);
-        return vec2f(u, v);
-      }
-
-      fn detailNormal(n: vec3f, p: vec3f, detailScale: f32) -> vec3f {
-        let upRef = select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(n.y) > 0.94);
-        let t = normalize(cross(upRef, n));
-        let b = normalize(cross(n, t));
-        let dn1 = fbm(p * detailScale + vec3f(0.3, 4.2, 1.1)) - 0.5;
-        let dn2 = fbm(p * detailScale + vec3f(3.7, 0.8, 2.4)) - 0.5;
-        return normalize(n + t * dn1 * 0.24 + b * dn2 * 0.24);
       }
 
       fn blackbody(temp: f32) -> vec3f {
@@ -206,11 +164,11 @@ export function getRollerFragShader() {
         if (mode == 3) { return 7u; }   // Solar cell body
         if (mode == 4) { return 9u; }   // Peltier ceramic
         if (mode >= 5) { return 1u; }   // MHD steel
-        if (renderMode == 1) { return 1u; }  // SEG base
-        if (renderMode == 2) { return 2u; }  // SEG stator
+        if (renderMode == 1) { return 13u; }  // SEG base
+        if (renderMode == 2) { return MAT_ALUMINUM; }  // SEG stator rings
         if (renderMode == 3) { return 0u; }  // Wiring copper
         if (ringIndex < -0.5) { return 1u; } // Shaft
-        if (ringIndex > 10.0) { return 2u; } // Brass ring
+        if (ringIndex > 10.0) { return MAT_ALUMINUM; } // Outer ring
         return 0u;
       }
 
@@ -247,6 +205,9 @@ export function getRollerFragShader() {
         roughness = clamp(roughness + oxidation * 0.08 + brushed * 0.06, 0.05, 1.0);
 
         var detailN = detailNormal(normalize(input.normal), localPos, mat.detailParams.x);
+        if (renderMode == 0 || renderMode == 2) {
+          detailN = brushedMetalNormal(detailN, localPos, mat.detailParams.x * 0.5, 0.12);
+        }
 
         var decalMask = 0.0;
         let triMask = triplanarMask(localPos, detailN, 0.9);
@@ -350,8 +311,12 @@ export function getRollerFragShader() {
           specular2 * vec3f(0.6, 0.7, 0.9) * 0.4 * NdotL2
         );
 
-        let ambient = albedo * 0.3 * vec3f(0.15, 0.18, 0.22);
-        var color = ambient + diffuse + specular + rimLight;
+        let ambient = albedo * 0.25 * vec3f(0.15, 0.18, 0.22);
+        let R = reflect(-V, detailN);
+        let upBlend = clamp(R.y * 0.5 + 0.5, 0.0, 1.0);
+        let envCol = mix(vec3f(0.10, 0.09, 0.07), vec3f(0.42, 0.52, 0.68), upBlend);
+        let ibl = envCol * fresnelSchlick(NdotV, f0) * (1.0 - roughness * roughness) * 0.55;
+        var color = ambient + diffuse + specular + rimLight + ibl;
         
         // GREEN EMISSIVE GLOW on bottom half of roller (LED underglow effect)
         let bottomGlow = max(0.0, -detailN.y) * input.greenEmissive * (1.8 + overdrive * 2.8);

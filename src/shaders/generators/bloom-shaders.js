@@ -33,8 +33,12 @@ export function getBloomExtractShader() {
         grain:      f32,
         aberration: f32,
         vignette:   f32,
-        reserved0:  f32,
-        reserved1:  f32,
+        motionBlur: f32,
+        exposure:   f32,
+        coronaBoost: f32,
+        ssaoStrength: f32,
+        contactShadow: f32,
+        skyMode:    f32,
       }
 
       @group(0) @binding(0) var sceneTex    : texture_2d<f32>;
@@ -45,20 +49,39 @@ export function getBloomExtractShader() {
         @location(0) uv: vec2f,
       }
 
-      fn luminance(c: vec3f) -> f32 {
-        return dot(c, vec3f(0.2126, 0.7152, 0.0722));
+      fn luminance(c: vec3f) -> vec3f {
+        return vec3f(dot(c, vec3f(0.2126, 0.7152, 0.0722)));
+      }
+
+      /** Weight green/cyan plasma higher so corona blooms before metal specular blows out. */
+      fn coronaLuminance(c: vec3f) -> f32 {
+        let base = dot(c, vec3f(0.2126, 0.7152, 0.0722));
+        let plasma = max(c.g, c.b) * 0.72 + c.g * 0.28;
+        return max(base, plasma * 0.88) * params.coronaBoost;
       }
 
       fn extractBright(c: vec3f, threshold: f32, knee: f32) -> vec3f {
-        let lum  = luminance(c);
+        let lum  = coronaLuminance(c);
         let w    = clamp((lum - threshold + knee) / max(knee, 0.001), 0.0, 1.0);
-        return c * w;
+        let w2   = w * w * (3.0 - 2.0 * w);
+        return c * w2;
       }
 
       @fragment
       fn main(input: FragInput) -> @location(0) vec4f {
-        let scene = textureSample(sceneTex, bloomSampler, input.uv).rgb;
-        return vec4f(extractBright(scene, params.threshold, params.knee), 1.0);
+        let ts = vec2f(params.texelSizeX, params.texelSizeY);
+        var bloom = vec3f(0.0);
+        let weights = array<f32, 5>(0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+        for (var i = 0; i < 5; i++) {
+          let o = ts * f32(i);
+          bloom += extractBright(textureSample(sceneTex, bloomSampler, input.uv + vec2f(o.x, 0.0)).rgb, params.threshold, params.knee) * weights[i];
+          bloom += extractBright(textureSample(sceneTex, bloomSampler, input.uv - vec2f(o.x, 0.0)).rgb, params.threshold, params.knee) * weights[i];
+          bloom += extractBright(textureSample(sceneTex, bloomSampler, input.uv + vec2f(0.0, o.y)).rgb, params.threshold, params.knee) * weights[i];
+          bloom += extractBright(textureSample(sceneTex, bloomSampler, input.uv - vec2f(0.0, o.y)).rgb, params.threshold, params.knee) * weights[i];
+        }
+        bloom *= 0.25;
+        bloom += extractBright(textureSample(sceneTex, bloomSampler, input.uv).rgb, params.threshold, params.knee) * 0.35;
+        return vec4f(bloom, 1.0);
       }
     `;
   }
@@ -76,8 +99,12 @@ export function getBloomBlurShader() {
         grain:      f32,
         aberration: f32,
         vignette:   f32,
-        reserved0:  f32,
-        reserved1:  f32,
+        motionBlur: f32,
+        exposure:   f32,
+        coronaBoost: f32,
+        ssaoStrength: f32,
+        contactShadow: f32,
+        skyMode:    f32,
       }
 
       @group(0) @binding(0) var bloomInput : texture_2d<f32>;
@@ -119,8 +146,12 @@ export function getBloomCompositeShader() {
         grain:      f32,
         aberration: f32,
         vignette:   f32,
-        reserved0:  f32,
-        reserved1:  f32,
+        motionBlur: f32,
+        exposure:   f32,
+        coronaBoost: f32,
+        ssaoStrength: f32,
+        contactShadow: f32,
+        skyMode:    f32,
       }
 
       @group(0) @binding(0) var sceneTexC  : texture_2d<f32>;
@@ -128,6 +159,7 @@ export function getBloomCompositeShader() {
       @group(0) @binding(2) var compSampler: sampler;
       @group(0) @binding(3) var<uniform> params: BloomParams;
       @group(0) @binding(4) var depthTexC: texture_depth_2d;
+      @group(0) @binding(5) var prevSceneTexC: texture_2d<f32>;
 
       struct FragInput {
         @location(0) uv: vec2f,
@@ -143,20 +175,51 @@ export function getBloomCompositeShader() {
         return fract(sin(h) * 43758.5453123);
       }
 
-      fn contactShadow(uv: vec2f) -> f32 {
+      fn sampleDepth(uv: vec2f) -> f32 {
         let texDim = textureDimensions(depthTexC, 0);
         let coord = vec2i(clamp(uv * vec2f(texDim), vec2f(0.0), vec2f(texDim) - vec2f(1.0)));
-        let tx = vec2i(max(i32(params.radius * 1.2), 1), 0);
-        let ty = vec2i(0, max(i32(params.radius * 1.2), 1));
-        let d0 = textureLoad(depthTexC, coord, 0);
-        let dx1 = textureLoad(depthTexC, clamp(coord + tx, vec2i(0), vec2i(texDim) - vec2i(1)), 0);
-        let dx2 = textureLoad(depthTexC, clamp(coord - tx, vec2i(0), vec2i(texDim) - vec2i(1)), 0);
-        let dy1 = textureLoad(depthTexC, clamp(coord + ty, vec2i(0), vec2i(texDim) - vec2i(1)), 0);
-        let dy2 = textureLoad(depthTexC, clamp(coord - ty, vec2i(0), vec2i(texDim) - vec2i(1)), 0);
+        return textureLoad(depthTexC, coord, 0);
+      }
 
-        let grad = abs(d0 - dx1) + abs(d0 - dx2) + abs(d0 - dy1) + abs(d0 - dy2);
-        let contact = smoothstep(0.008, 0.06, grad) * (1.0 - smoothstep(0.94, 0.999, d0));
-        return clamp(contact, 0.0, 1.0);
+      fn contactShadow(uv: vec2f, depth: f32) -> f32 {
+        let texDim = textureDimensions(depthTexC, 0);
+        let ts = vec2f(1.0 / f32(texDim.x), 1.0 / f32(texDim.y));
+        let r = max(params.radius * 1.4, 1.5);
+        let dx1 = sampleDepth(uv + vec2f(ts.x * r, 0.0));
+        let dx2 = sampleDepth(uv - vec2f(ts.x * r, 0.0));
+        let dy1 = sampleDepth(uv + vec2f(0.0, ts.y * r));
+        let dy2 = sampleDepth(uv - vec2f(0.0, ts.y * r));
+        let grad = abs(depth - dx1) + abs(depth - dx2) + abs(depth - dy1) + abs(depth - dy2);
+        let crease = smoothstep(0.006, 0.055, grad) * (1.0 - smoothstep(0.92, 0.999, depth));
+        let ground = smoothstep(0.55, 0.92, depth) * 0.35;
+        return clamp(crease + ground, 0.0, 1.0) * params.contactShadow;
+      }
+
+      fn ssao(uv: vec2f, depth: f32) -> f32 {
+        if (params.ssaoStrength < 0.01) { return 1.0; }
+        let texDim = textureDimensions(depthTexC, 0);
+        let ts = vec2f(1.0 / f32(texDim.x), 1.0 / f32(texDim.y));
+        let r = max(params.radius * 2.2, 2.0);
+        var occ = 0.0;
+        let seed = hash21(uv * vec2f(1920.0, 1080.0));
+        for (var i = 0; i < 6; i++) {
+          let angle = seed * 6.28318 + f32(i) * 1.047197;
+          let offset = vec2f(cos(angle), sin(angle)) * ts * r;
+          let dSample = sampleDepth(uv + offset);
+          if (dSample > depth + 0.0015) { occ += 1.0; }
+        }
+        let ao = 1.0 - (occ / 6.0) * params.ssaoStrength * 0.55;
+        return clamp(ao, 0.45, 1.0);
+      }
+
+      fn wideBloom(uv: vec2f) -> vec3f {
+        let o = vec2f(params.texelSizeX, params.texelSizeY) * params.radius * 2.5;
+        var s = textureSample(bloomTexC, compSampler, uv).rgb * 0.40;
+        s += textureSample(bloomTexC, compSampler, uv + vec2f(o.x, 0.0)).rgb * 0.15;
+        s += textureSample(bloomTexC, compSampler, uv - vec2f(o.x, 0.0)).rgb * 0.15;
+        s += textureSample(bloomTexC, compSampler, uv + vec2f(0.0, o.y)).rgb * 0.15;
+        s += textureSample(bloomTexC, compSampler, uv - vec2f(0.0, o.y)).rgb * 0.15;
+        return s;
       }
 
       @fragment
@@ -168,22 +231,31 @@ export function getBloomCompositeShader() {
         let sceneR = textureSample(sceneTexC, compSampler, input.uv + aberrOffset).r;
         let sceneG = textureSample(sceneTexC, compSampler, input.uv).g;
         let sceneB = textureSample(sceneTexC, compSampler, input.uv - aberrOffset).b;
-        let scene = vec3f(sceneR, sceneG, sceneB);
-        let bloom = textureSample(bloomTexC, compSampler, input.uv).rgb;
+        var scene = vec3f(sceneR, sceneG, sceneB);
 
-        var combined = scene + bloom * params.strength;
-        let shadow = contactShadow(input.uv);
-        combined *= (1.0 - shadow * (0.20 + params.power * 0.18));
+        if (params.motionBlur > 0.001) {
+          let prev = textureSample(prevSceneTexC, compSampler, input.uv).rgb;
+          scene = mix(scene, prev, params.motionBlur);
+        }
+
+        let depth = sampleDepth(input.uv);
+        let shadow = contactShadow(input.uv, depth);
+        let ao = ssao(input.uv, depth);
+        scene *= ao * (1.0 - shadow);
+
+        let bloom = wideBloom(input.uv);
+        var combined = scene + bloom * params.strength * (0.85 + params.power * 0.35);
+        combined *= params.exposure;
+
         let tm = acesTonemap(combined);
 
         let grain = (hash21(input.uv * vec2f(1920.0, 1080.0) + vec2f(params.power * 13.7, params.power * 29.3)) - 0.5) * params.grain;
         let vCoord = input.uv * 2.0 - 1.0;
         let vigDist = dot(vCoord * vec2f(0.48, 0.58), vCoord * vec2f(0.48, 0.58));
         let vignette = 1.0 - smoothstep(0.52, 1.05, vigDist);
-        let pulse = 1.0 + params.vignette * params.power * 0.4 * (1.0 - radial);
-        let graded = (tm + vec3f(grain)) * mix(0.24, 1.0, vignette * pulse);
+        let pulse = 1.0 + params.vignette * params.power * 0.35 * (1.0 - radial);
+        let graded = (tm + vec3f(grain)) * mix(0.28, 1.0, vignette * pulse);
         return vec4f(clamp(graded, vec3f(0.0), vec3f(1.0)), 1.0);
       }
     `;
   }
-

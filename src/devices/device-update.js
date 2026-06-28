@@ -1,3 +1,5 @@
+import { frameVibrationOffset } from '../seg-frame-model.js';
+
 export const DeviceUpdateMixin = {
   update: function (deltaTime, qualityScale) {
     // Scale particle count by quality
@@ -25,9 +27,10 @@ export const DeviceUpdateMixin = {
       // `time` is already speed-scaled by the visualizer; the shader uses it
       // directly so there is no double-multiplication.
       if (this.rollerComputeUniformBuffer) {
+        const presetVal = this.visualizer.prototypePreset === 'lab' ? 1.0 : 0.0;
         this.device.queue.writeBuffer(
           this.rollerComputeUniformBuffer, 0,
-          new Float32Array([time, speedMult, 0, 0])
+          new Float32Array([time, speedMult, presetVal, 0])
         );
       }
       if (this.fieldAdvectUniformBuffer && this.geometry.fieldLineParticles) {
@@ -45,6 +48,8 @@ export const DeviceUpdateMixin = {
         );
       }
 
+      this._updateFrameVibration();
+
       // Lightweight CPU coil-energy calculation.
       // We only need 36 (x, z) pairs — no quaternions, no colour lookup, no
       // buffer write — so the tight inner-loop is ~10× cheaper than before.
@@ -58,25 +63,49 @@ export const DeviceUpdateMixin = {
         { count: 16, radius: 5.5, speed: 0.5, index: 2 }
       ];
 
-      // Compact roller positions: [x0,z0, x1,z1, ..., x35,z35] — reuse pre-allocated buffer
+      // Compact roller positions for pickup coil energy (uses layout when available).
+      const layout = this.visualizer.segLayout;
       const rollerPositions = this._rollerPositions;
       let rollerOffset = 0;
-      for (const ring of rings) {
-        const startupRamp = Math.min(time * (0.25 + ring.index * 0.1), 1.0);
-        for (let i = 0; i < ring.count; i++) {
-          const jitterNoise = Math.sin(rollerOffset * 127.3 + ring.index * 53.7);
-          const speedJitter = 1.0 + 0.04 * Math.sin(time * 1.3 + jitterNoise * 12.7);
-          let angle;
-          if (useHardware) {
-            angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad * ring.speed;
-          } else {
-            angle = (i / ring.count) * Math.PI * 2
-                  + time * 0.5 * ring.speed * speedJitter * startupRamp
-                  + ring.index * 0.22;
+
+      if (layout?.rings?.length) {
+        for (const ring of layout.rings) {
+          const orbitR = ring.orbitRadiusM * layout.worldScale;
+          const startupRamp = Math.min(time * (0.25 + ring.index * 0.1), 1.0);
+          for (let i = 0; i < ring.count; i++) {
+            const jitterNoise = Math.sin(rollerOffset * 127.3 + ring.index * 53.7);
+            const speedJitter = 1.0 + 0.04 * Math.sin(time * 1.3 + jitterNoise * 12.7);
+            let angle;
+            if (useHardware) {
+              angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad * ring.speed;
+            } else {
+              angle = (i / ring.count) * Math.PI * 2
+                    + time * 0.5 * ring.speed * speedJitter * startupRamp
+                    + ring.index * 0.22;
+            }
+            rollerPositions[rollerOffset * 2]     = Math.cos(angle) * orbitR;
+            rollerPositions[rollerOffset * 2 + 1] = Math.sin(angle) * orbitR;
+            rollerOffset++;
           }
-          rollerPositions[rollerOffset * 2]     = Math.cos(angle) * ring.radius;
-          rollerPositions[rollerOffset * 2 + 1] = Math.sin(angle) * ring.radius;
-          rollerOffset++;
+        }
+      } else {
+        for (const ring of rings) {
+          const startupRamp = Math.min(time * (0.25 + ring.index * 0.1), 1.0);
+          for (let i = 0; i < ring.count; i++) {
+            const jitterNoise = Math.sin(rollerOffset * 127.3 + ring.index * 53.7);
+            const speedJitter = 1.0 + 0.04 * Math.sin(time * 1.3 + jitterNoise * 12.7);
+            let angle;
+            if (useHardware) {
+              angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad * ring.speed;
+            } else {
+              angle = (i / ring.count) * Math.PI * 2
+                    + time * 0.5 * ring.speed * speedJitter * startupRamp
+                    + ring.index * 0.22;
+            }
+            rollerPositions[rollerOffset * 2]     = Math.cos(angle) * ring.radius;
+            rollerPositions[rollerOffset * 2 + 1] = Math.sin(angle) * ring.radius;
+            rollerOffset++;
+          }
         }
       }
 
@@ -556,6 +585,31 @@ export const DeviceUpdateMixin = {
     }
 
     this.device.queue.writeBuffer(this.arcSegments, 0, arcData);
+  },
+
+  _updateFrameVibration: function () {
+    const v = this.visualizer;
+    if (v.segFrameLevel === 'off' || !v.frameStructuralInstanceBuffer) return;
+
+    const statorH = v.segFrameBuffers?.dims?.statorH ?? 0.4;
+    const omega = Math.min(1.2, (this.speedMult || 0) * 0.012 + this.energyLevel * 0.35);
+    const [dx, dy, dz] = frameVibrationOffset(omega, statorH);
+
+    const writeInst = (buf, ringIndex, color) => {
+      if (!buf) return;
+      this.device.queue.writeBuffer(buf, 0, new Float32Array([
+        dx, dy, dz,
+        ringIndex,
+        0, 0, 0, 1,
+        color[0], color[1], color[2],
+        0.0
+      ]));
+    };
+
+    writeInst(v.frameStructuralInstanceBuffer, 11.0, [0.74, 0.76, 0.80]);
+    writeInst(v.frameControlInstanceBuffer, 11.0, [0.62, 0.64, 0.68]);
+    writeInst(v.frameCageInstanceBuffer, 12.0, [0.50, 0.54, 0.60]);
+    writeInst(v.frameLabBenchInstanceBuffer, 13.0, [0.42, 0.40, 0.38]);
   },
 
 };

@@ -1,129 +1,84 @@
-# SEG Lighting Rig
+# SEG Lighting & Post-Processing
 
-This document describes the centralized 3-point + environment lighting rig used by all lit SEG device passes in the WebGPU renderer.
+Studio-quality lighting and a full-screen post pipeline for the WebGPU path, with a simplified 3-point + IBL fallback in WebGL2.
 
-## Goal
+## Lighting looks
 
-All SEG geometry (rollers, base plate, stator rings, wiring, stand, core, pickup coils, electromagnets, wire harnesses) and the solar battery gauge now read lighting from a single `LightingConfig` uniform buffer. This eliminates the previous mismatch where:
+Presets live in `src/seg-lighting-presets.js`:
 
-- The enhanced SEG shader read a `LightingConfig` at `@binding(5)` but its struct layout was out of sync with the CPU upload.
-- The legacy roller shader used hard-coded `L1 = normalize(vec3f(1,1,1))`, `L2 = normalize(vec3f(-0.5,0.3,-0.5))`, etc.
-- Some passes bound a `materialTable` at `@binding(5)` instead of lighting.
+| Look | Use case | Sky | Key character |
+|------|----------|-----|---------------|
+| `studio` (default) | Product shots, documentation | Neutral grey sweep | Warm key, soft fill, moderate bloom |
+| `lab` | Bright technical demo | Even white-grey | High key, low vignette |
+| `drama` | Cinematic / overdrive | Deep space | Strong rim, high bloom, heavy vignette |
 
-## Light definitions
+Toggle via URL: `?look=studio`, `?look=lab`, `?look=drama`
 
-The rig is authored on the CPU in `src/multi-device-visualizer.js`:
+Runtime: `setLightingLook('lab')` or debug panel **Lighting look** dropdown.
 
-```js
-this.lightingConfig = {
-  key:    { position: [ 5.0,  8.0,  5.0], color: [1.0, 0.98, 0.95], intensity: 1.2 },
-  fill:   { position: [-4.0,  3.0, -3.0], color: [0.75, 0.85, 1.0], intensity: 0.4 },
-  rim:    { position: [ 0.0,  2.0, -8.0], color: [0.4,  0.8,  1.0], intensity: 0.8 },
-  ground: { position: [ 0.0, -5.0,  0.0], color: [0.3,  0.25, 0.2 ], intensity: 0.15 },
-  ambient: 0.3,
-  envMapStrength: 0.5
-};
-```
+Exposure and bloom strength sliders in the debug panel adjust `postExposure` and `postBloomStrength` without changing the preset.
 
-| Light  | Role | Direction (surface → light) | Color | Intensity |
-|--------|------|----------------------------|-------|-----------|
-| Key    | Main directional highlight | Upper-right-front | Warm white (1.0, 0.98, 0.95) | 1.2 |
-| Fill   | Soft opposite-side fill | Upper-left-back | Cool blue (0.75, 0.85, 1.0) | 0.4 |
-| Rim    | View-dependent edge/rim | Back | Cyan (0.4, 0.8, 1.0) | 0.8 |
-| Ground | Bounce light from below | Upward from ground | Warm brown (0.3, 0.25, 0.2) | 0.15 |
-| Ambient | Flat environment term | — | Cool grey (0.15, 0.18, 0.22) × `ambient` | 0.3 |
-| EnvMap | Fresnel reflection approximation | View-dependent | `f0` × `envMapStrength` × 0.3 | 0.5 |
+## 3-point + IBL rig
 
-The `position` fields are normalized in the shader to produce directional light vectors. `ground.position = [0, -5, 0]` points upward after normalization, simulating light reflected off the floor and illuminating the undersides of objects.
+Each preset defines key / fill / rim / ground lights uploaded to `lightingUniformBuffer` (192 bytes) every frame. PBR evaluation is in `src/shaders/generators/pbr-wgsl-chunks.js`:
 
-## Uniform buffer layout
+- Cook-Torrance GGX specular (anisotropic on rollers)
+- Hemispherical studio IBL (`approximateIBL`) — softbox ceiling + floor bounce
+- Rim term from view-dependent Fresnel
+- `shadowStrength` modulates crevice ambient and IBL occlusion
 
-The lighting uniform buffer is created as a 192-byte `GPUBufferUsage.UNIFORM` buffer in `src/multi-device-visualizer.js` and uploaded every frame.
+## Post-processing pipeline (WebGPU)
 
-### CPU layout (`Float32Array(48)`)
+Scene renders to an HDR-ish offscreen target (`bloomSceneTexture`). Passes:
 
-| Floats | Bytes | Field |
-|--------|-------|-------|
-| 0–2    | 0–11  | `key.dir` (vec3f) |
-| 3      | 12–15 | padding |
-| 4–6    | 16–27 | `key.color` (vec3f) |
-| 7      | 28–31 | `key.intensity` |
-| 8–10   | 32–43 | `fill.dir` |
-| 11     | 44–47 | padding |
-| 12–14  | 48–59 | `fill.color` |
-| 15     | 60–63 | `fill.intensity` |
-| 16–18  | 64–75 | `rim.dir` |
-| 19     | 76–79 | padding |
-| 20–22  | 80–91 | `rim.color` |
-| 23     | 92–95 | `rim.intensity` |
-| 24–26  | 96–107| `ground.dir` |
-| 27     | 108–111| padding |
-| 28–30  | 112–123| `ground.color` |
-| 31     | 124–127| `ground.intensity` |
-| 32     | 128–131| `ambient` |
-| 33     | 132–135| `envMapStrength` |
-| 34–47  | 136–191| unused padding |
+1. **Extract** — luminance threshold with **corona boost** (green/cyan plasma weighted higher than bare metal specular)
+2. **Blur H / V** — 5-tap Gaussian
+3. **Composite** — scene + wide bloom + ACES tonemap + vignette + film grain
 
-### WGSL layout
+Composite also applies:
 
-```wgsl
-struct Light {
-  dir: vec3f,      // offset 0  (align 16, size 12)
-  color: vec3f,    // offset 16 (align 16, size 12)
-  intensity: f32,  // offset 28 (align 4,  size 4)
-}                  // Light size = 32 bytes
+- **SSAO** — 6-tap depth comparison (cheap screen-space AO)
+- **Contact shadows** — depth-gradient creases + ground-plane darkening
+- **Motion blur** — mix with previous frame at high overdrive speed
+- **Chromatic aberration** — scales with energy level
 
-struct LightingConfig {
-  key: Light,           // offset 0
-  fill: Light,          // offset 32
-  rim: Light,           // offset 64
-  ground: Light,        // offset 96
-  ambient: f32,         // offset 128
-  envMapStrength: f32,  // offset 132
-}                       // total size = 144 bytes (padded to 144)
+Mesh shaders output **linear HDR** (no per-object tonemap); tonemapping happens once in composite.
 
-@binding(5) @group(0) var<uniform> lighting: LightingConfig;
-```
+## Uniform layouts
 
-Each `Light` is 32 bytes, so the WGSL struct and the CPU upload are byte-identical.
+### LightingConfig (binding 5, lit passes)
 
-## Consumers
+See prior sections in this doc — 48 floats CPU / WGSL `LightData` × 4 + ambient + envMapStrength + shadowStrength.
 
-| Pipeline | Shader | Binds `lighting` @ 5? | Notes |
-|----------|--------|----------------------|-------|
-| `segEnhancedPipeline` | `segEnhancedFragShader` | Yes | All SEG mesh geometry |
-| `rollerPipeline` | `rollerFragShader` | Yes | Solar battery gauge |
-| `fluxSegmentPipeline` | `fluxSegmentFragShader` | No | Self-illuminated flux ribbons |
-| `energyArcPipeline` | `energyArcFragShader` | No | Self-illuminated arcs |
-| `particlePipeline` | `particleFragShader` | No | Additive particles |
-| `skyPipeline` / `gridPipeline` | sky/grid shaders | No | Background passes |
+### BloomParams (64 bytes)
 
-The lighting buffer is always uploaded before rendering, so any future lit pass only needs to bind `@binding(5)` to receive the rig.
+| Index | Field |
+|-------|-------|
+| 0–1 | texelSize |
+| 2–3 | threshold, knee |
+| 4–5 | strength, radius |
+| 6 | power (energy) |
+| 7–9 | grain, aberration, vignette |
+| 10 | motionBlur |
+| 11 | exposure |
+| 12 | coronaBoost |
+| 13 | ssaoStrength |
+| 14 | contactShadow |
+| 15 | skyMode |
 
-## Bind group convention
+Packed by `packPostUniforms()` in `seg-lighting-presets.js`.
 
-For lit passes the bind group layout is:
+## WebGL2 fallback
 
-```
-@binding(0) global uniforms (viewProj, time, resolution, cameraPos)
-@binding(1) device uniforms
-@binding(2) instance storage buffer
-@binding(3) material uniforms
-@binding(5) LightingConfig
-@binding(6) material table storage buffer
-```
+No full bloom chain (performance / complexity). Instead:
 
-`@binding(4)` is intentionally left free; it is used by arc and particle passes for their dynamic buffers.
+- 3-point PBR in `MESH_FRAG` / `ROLLER_FRAG` (key + fill + rim + IBL)
+- Studio / lab / drama sky via `u_skyMode`
+- Mild vignette + Reinhard tonemap in fragment shader
+- Stronger emissive multiplier so corona reads under simpler lighting
 
-## Modifying the rig
+## Modifying looks
 
-1. Edit `src/multi-device-visualizer.js` → `this.lightingConfig`.
-2. If you change the number of lights or the struct layout, update both the CPU upload and the `Light` / `LightingConfig` structs in `src/multi-device-shaders.js`.
-3. Re-validate shaders with `node validate-shaders.mjs` (or any WGSL → SPIR-V tool such as `naga`).
-4. Run `npm run build:site` to confirm bundling still succeeds.
-
-## History / previous issues fixed
-
-- The enhanced shader previously declared `keyDir`, `keyColor`, `keyIntensity` as flat fields and read `ambient` / `envMapStrength` at offsets that aliased into the ground-light position/color data.
-- The enhanced shader also negated light directions (`normalize(-lighting.keyDir)`), which inverted the key light relative to the legacy roller shader. Both shaders now use `normalize(light.dir)` so highlights come from the same directions.
-- The legacy roller shader bound `materialTable` at `@binding(5)`, blocking lighting. It has been moved to `@binding(6)` and the solar gauge bind group was updated to match.
+1. Edit presets in `src/seg-lighting-presets.js`
+2. If changing struct layouts, update WGSL in `bloom-shaders.js` and CPU packers together
+3. Run `npm run build:site`

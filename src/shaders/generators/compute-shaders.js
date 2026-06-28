@@ -151,94 +151,114 @@ export function getSegRollerComputeShader() {
       struct RollerUniforms {
         time:      f32,
         speedMult: f32,
-        pad0:      f32,
+        prototypePreset: f32,
         pad1:      f32,
+      }
+
+      struct SEGLayoutRing {
+        count: f32,
+        fullCount: f32,
+        orbitRadius: f32,
+        rollerRadius: f32,
+        rollerHeight: f32,
+        speed: f32,
+        statorInner: f32,
+        statorOuter: f32,
+        rollerOffset: f32,
+        _pad0: f32,
+        _pad1: f32,
+        _pad2: f32
+      }
+
+      struct SEGLayoutUniforms {
+        worldScale: f32,
+        ringCount: f32,
+        totalRollers: f32,
+        maxRollers: f32,
+        refRollerRadius: f32,
+        refRollerHeight: f32,
+        statorHeight: f32,
+        fluxLinesPerRing: f32,
+        ring0: SEGLayoutRing,
+        ring1: SEGLayoutRing,
+        ring2: SEGLayoutRing
       }
 
       @group(0) @binding(0) var<storage, read_write> rollers: array<RollerInstance>;
       @group(0) @binding(1) var<uniform>             uniforms: RollerUniforms;
+      @group(0) @binding(2) var<uniform>             segLayout: SEGLayoutUniforms;
 
       const PI: f32 = 3.14159265359;
 
-      // Pole-band colours (copper / oxide / neodymium / brass)
-      const POLE_COLORS = array<vec3f, 4>(
-        vec3f(0.85, 0.48, 0.22),
-        vec3f(0.55, 0.30, 0.15),
-        vec3f(0.72, 0.74, 0.76),
-        vec3f(0.78, 0.58, 0.22),
-      );
+      fn poleTint(ringIdx: u32, localI: u32, lab: bool) -> vec3f {
+        let isNorth = ((localI + ringIdx) & 1u) == 0u;
+        if (lab) {
+          return select(vec3f(0.48, 0.50, 0.54), vec3f(0.78, 0.80, 0.82), isNorth);
+        }
+        return select(vec3f(0.38, 0.45, 0.68), vec3f(0.92, 0.58, 0.35), isNorth);
+      }
+
+      fn ringForFlatIndex(idx: u32) -> SEGLayoutRing {
+        if (idx >= u32(segLayout.ring2.rollerOffset)) { return segLayout.ring2; }
+        if (idx >= u32(segLayout.ring1.rollerOffset)) { return segLayout.ring1; }
+        return segLayout.ring0;
+      }
+
+      fn localIndexInRing(idx: u32, ring: SEGLayoutRing) -> u32 {
+        return idx - u32(ring.rollerOffset);
+      }
 
       @compute @workgroup_size(64)
       fn main(@builtin(global_invocation_id) gid: vec3u) {
         let idx = gid.x;
-        if (idx >= 36u) { return; }
+        if (idx >= u32(segLayout.totalRollers)) { return; }
 
-        // Map flat roller index to ring + local index
-        // Ring 0: idx  0-7  (8  rollers, r=2.5, speed=2.0)
-        // Ring 1: idx  8-19 (12 rollers, r=4.0, speed=1.0)
-        // Ring 2: idx 20-35 (16 rollers, r=5.5, speed=0.5)
-        var ringIdx: u32;
-        var localI:  u32;
-        if (idx < 8u) {
-          ringIdx = 0u;  localI = idx;
-        } else if (idx < 20u) {
-          ringIdx = 1u;  localI = idx - 8u;
-        } else {
-          ringIdx = 2u;  localI = idx - 20u;
-        }
+        let ring = ringForFlatIndex(idx);
+        let localI = localIndexInRing(idx, ring);
+        if (localI >= u32(ring.count)) { return; }
 
-        let counts = array<u32, 3>(8u, 12u, 16u);
-        let radii  = array<f32, 3>(2.5, 4.0, 5.5);
-        let scales = array<f32, 3>(0.6, 0.8, 1.0);
-        let speeds = array<f32, 3>(2.0, 1.0, 0.5);
+        var ringIdx: u32 = 0u;
+        if (u32(ring.rollerOffset) == u32(segLayout.ring1.rollerOffset)) { ringIdx = 1u; }
+        if (u32(ring.rollerOffset) == u32(segLayout.ring2.rollerOffset)) { ringIdx = 2u; }
 
-        let count  = counts[ringIdx];
-        let radius = radii[ringIdx];
-        let scale  = scales[ringIdx];
-        let speed  = speeds[ringIdx];
-
-        // uniforms.time is already the speed-scaled visualizer time
+        let count = u32(ring.count);
+        let radius = ring.orbitRadius;
+        let rollerR = ring.rollerRadius;
+        let speed = ring.speed;
         let t = uniforms.time;
+        let lab = uniforms.prototypePreset > 0.5;
 
-        // Per-ring startup ramp (mirrors CPU formula)
         let startupRamp = min(t * (0.25 + f32(ringIdx) * 0.1), 1.0);
-
-        // Per-roller speed jitter (same hash as CPU)
-        let jitterSeed  = f32(idx) * 127.3 + f32(ringIdx) * 53.7;
+        let jitterSeed = f32(idx) * 127.3 + f32(ringIdx) * 53.7;
         let speedJitter = 1.0 + 0.04 * sin(t * 1.3 + sin(jitterSeed) * 12.7);
 
         let baseAngle = (f32(localI) / f32(count)) * PI * 2.0;
-        let angle = baseAngle
-                  + t * 0.5 * speed * speedJitter * startupRamp
-                  + f32(ringIdx) * 0.22;
+        let angle = baseAngle + t * 0.5 * speed * speedJitter * startupRamp + f32(ringIdx) * 0.22;
 
         let x = cos(angle) * radius;
         let z = sin(angle) * radius;
 
-        // Gear-ratio self-rotation quaternion (mirrors CPU)
-        let gearRatio    = radius / scale;
+        let gearRatio = radius / max(rollerR, 1e-4);
         let selfRotAngle = angle * gearRatio * 0.5;
         let tangentAngle = angle + PI / 2.0;
-        let rollAxisX    = cos(tangentAngle);
-        let rollAxisZ    = sin(tangentAngle);
-        let halfAngle    = selfRotAngle / 2.0;
+        let rollAxisX = cos(tangentAngle);
+        let rollAxisZ = sin(tangentAngle);
+        let halfAngle = selfRotAngle / 2.0;
 
-        // Emissive boost proportional to speed (neodymium rollers glow brighter)
-        let colorIdx  = (localI + ringIdx * 3u) % 4u;
-        let baseEmit  = select(0.0, 0.3, colorIdx == 2u);
-        // Clamp emissive to avoid overflow at very high speeds
-        let emissive  = min(baseEmit * max(1.0, uniforms.speedMult * 0.5), 1.0);
+        let isNorth = ((localI + ringIdx) & 1u) == 0u;
+        let baseEmit = select(0.0, 0.08, isNorth);
+        let emissive = min(baseEmit * max(1.0, uniforms.speedMult * 0.5) + uniforms.speedMult * 0.02, 1.0);
 
         var r: RollerInstance;
-        r.position     = vec3f(x, 0.0, z);
-        r.ringIndex    = f32(ringIdx);
-        r.rotation     = vec4f(
+        r.position = vec3f(x, 0.0, z);
+        r.ringIndex = f32(ringIdx);
+        r.rotation = vec4f(
           rollAxisX * sin(halfAngle),
           0.0,
           rollAxisZ * sin(halfAngle),
           cos(halfAngle)
         );
-        r.copperColor  = POLE_COLORS[colorIdx];
+        r.copperColor = poleTint(ringIdx, localI, lab);
         r.greenEmissive = emissive;
 
         rollers[idx] = r;

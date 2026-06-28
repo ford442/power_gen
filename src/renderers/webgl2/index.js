@@ -26,6 +26,8 @@ import { SkyGridRenderer } from './sky-grid-renderer.js';
 import { MeshRenderer } from './mesh-renderer.js';
 import { ParticleRenderer } from './particle-renderer.js';
 import { WebGL2DebugControls } from './debug-controls.js';
+import { parseSegFrameLevel } from '../../seg-frame-model.js';
+import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets.js';
 
 class WebGL2DeviceState {
   constructor(id, config) {
@@ -55,6 +57,9 @@ export class WebGL2MultiDeviceVisualizer {
     this.lastFrameTime = 0;
     this.fps = 60;
     this.speedMult = 1.0;
+    this.segFrameLevel = parseSegFrameLevel();
+    this.lightingLook = parseLightingLook();
+    this.lightingPreset = getLightingPreset(this.lightingLook);
 
     exposeRenderer(this.canvas, RENDERER_WEBGL2);
     this._exposeScreenshotHooks();
@@ -85,6 +90,7 @@ export class WebGL2MultiDeviceVisualizer {
       const gl = this.ctx.init();
       this.skyGrid = new SkyGridRenderer(gl);
       this.meshRenderer = new MeshRenderer(gl);
+      this.meshRenderer.setLightingPreset(this.lightingPreset);
       this.particleRenderer = new ParticleRenderer(gl);
       this.cameraController = new MultiDeviceCamera(this.canvas, this.camera.camera, this);
       this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
@@ -111,6 +117,20 @@ export class WebGL2MultiDeviceVisualizer {
     const el = document.getElementById('currentView');
     if (el) el.textContent = mode.toUpperCase();
     this.cameraController.focusOnDevice(mode);
+  }
+
+  setSegFrameLevel(level) {
+    if (['off', 'minimal', 'full'].includes(level)) {
+      this.segFrameLevel = level;
+    }
+  }
+
+  setLightingLook(look) {
+    const preset = getLightingPreset(look);
+    if (!preset) return;
+    this.lightingLook = look;
+    this.lightingPreset = preset;
+    this.meshRenderer?.setLightingPreset(preset);
   }
 
   /** No-op: solar battery gauge is DOM-only in the WebGL2 path. */
@@ -173,7 +193,7 @@ export class WebGL2MultiDeviceVisualizer {
     this.ctx.resize();
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    this.skyGrid.drawSky(this.time);
+    this.skyGrid.drawSky(this.time, this.lightingPreset?.sky?.mode ?? 1);
     this.skyGrid.drawGrid(viewProj, cameraPos);
 
     const renderOpts = {
@@ -192,7 +212,10 @@ export class WebGL2MultiDeviceVisualizer {
 
       if (device.id === 'seg') {
         const rollers = computeRollerPositions(this.time, speed);
-        this.meshRenderer.drawSimpleBase(viewProj, pos, [0.08, 0.08, 0.12], renderOpts);
+        this.meshRenderer.drawSegStructure(viewProj, pos, {
+          ...renderOpts,
+          frameLevel: this.segFrameLevel
+        });
         this.meshRenderer.drawStatorRings(viewProj, pos, renderOpts);
         this.meshRenderer.drawRollers(viewProj, pos, rollers, this.time, {
           ...renderOpts,

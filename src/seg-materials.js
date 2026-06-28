@@ -96,5 +96,19 @@ export const SEGMaterialPresets = {
     metallic: 0.78,
     roughness: 0.42,
     emissive: 0.0
+  },
+  // Brushed aluminum stator rings / outer structural rings
+  brushedAluminum: {
+    baseColor: [0.82, 0.84, 0.87],
+    metallic: 0.88,
+    roughness: 0.26,
+    emissive: 0.0
+  },
+  // NdFeB magnet segment strips (dark ceramic-metallic)
+  magnetSegment: {
+    baseColor: [0.22, 0.24, 0.28],
+    metallic: 0.42,
+    roughness: 0.38,
+    emissive: 0.0
   }
 };

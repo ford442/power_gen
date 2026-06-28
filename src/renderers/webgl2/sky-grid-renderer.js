@@ -6,7 +6,7 @@ export class SkyGridRenderer {
     this.gl = gl;
     this.skyProgram = linkProgram(gl, SKY_VERT, SKY_FRAG);
     this.gridProgram = linkProgram(gl, GRID_VERT, GRID_FRAG);
-    this.skyLocs = getUniformLocations(gl, this.skyProgram, ['u_time']);
+    this.skyLocs = getUniformLocations(gl, this.skyProgram, ['u_time', 'u_skyMode']);
     this.gridLocs = getUniformLocations(gl, this.gridProgram, ['u_viewProj', 'u_cameraPos']);
 
     this._buildGrid();
@@ -34,11 +34,12 @@ export class SkyGridRenderer {
     gl.bindVertexArray(null);
   }
 
-  drawSky(time) {
+  drawSky(time, skyMode = 1) {
     const gl = this.gl;
     gl.disable(gl.DEPTH_TEST);
     gl.useProgram(this.skyProgram);
     gl.uniform1f(this.skyLocs.u_time, time);
+    if (this.skyLocs.u_skyMode) gl.uniform1f(this.skyLocs.u_skyMode, skyMode);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.enable(gl.DEPTH_TEST);
   }

@@ -22,7 +22,8 @@ export const DeviceSetupMixin = {
       layout: this.rollerComputePipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.geometry.rollerInstances } },
-        { binding: 1, resource: { buffer: this.rollerComputeUniformBuffer } }
+        { binding: 1, resource: { buffer: this.rollerComputeUniformBuffer } },
+        { binding: 2, resource: { buffer: this.visualizer.segLayoutUniformBuffer } }
       ]
     });
   },
