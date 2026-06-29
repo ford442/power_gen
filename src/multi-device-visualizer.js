@@ -37,6 +37,7 @@ import {
   getLightingPreset,
   packPostUniforms
 } from './seg-lighting-presets.js';
+import { segOperator } from './seg-operator-state.js';
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -79,6 +80,9 @@ export class MultiDeviceVisualizer {
     this.fps = 60;
     this.speedMult = 1.0;
     this.globalEnergyLevel = 0.0;
+    /** Integrated SEG spin state (from segOperator physics) */
+    this.segOmega = 0;
+    this.corona = 0;
     this.anomalousEffectsEnabled = (this.prototypePreset === 'lab');
 
     // SimRateController for speed-scaled physics and visuals
@@ -1333,7 +1337,13 @@ export class MultiDeviceVisualizer {
     // Logarithmic mapping: 0→0.05×, 50→1.0×, 100→20× (base 400)
     const speed = 0.05 * Math.pow(400, rawSpeed / 100);
     this.speedMult = speed;
-    this.simRateController.tick(deltaTime, speed);
+    const simSteps = this.simRateController.tick(deltaTime, speed);
+    for (const subDt of simSteps) {
+      if (subDt > 0) segOperator.step(subDt);
+    }
+    this.segOmega = segOperator.physics.segOmega;
+    this.corona = segOperator.physics.corona;
+    window.segOperatorPanel?.tick(deltaTime);
     this.time += deltaTime * speed;
 
     // Propagate current speedMult to all devices (needed by GPU compute uniforms)
@@ -1502,7 +1512,9 @@ export class MultiDeviceVisualizer {
           this.time,
           modeIndex,
           device.scaledParticleCount || device.particleCount,
-          device.speedMult || 1.0
+          device.id === 'seg'
+            ? (device.speedMult || 1.0) * (0.15 + 0.85 * (this.segOmega || 0))
+            : (device.speedMult || 1.0)
         ]);
         this.device.queue.writeBuffer(device.computeUniformBuffer, 0, computeUniforms);
         
@@ -1713,6 +1725,13 @@ export class MultiDeviceVisualizer {
    */
   onModeChange(mode) {
     if (this.cameraController) this.cameraController.focusOnDevice(mode);
+  }
+
+  /** Adjust SEG particle count from the operator panel slider */
+  setParticleCount(count) {
+    const seg = this.devices?.seg;
+    if (!seg || count === seg.particleCount) return;
+    seg.particleCount = count;
   }
 
   /**

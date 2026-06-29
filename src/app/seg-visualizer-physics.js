@@ -121,15 +121,24 @@ export const SEGVisualizerMath = {
   },
 
   stepPhysics: function (dt, drive) {
-    // ── SEG: rotational kinematics with eddy-current braking ──────────────
-    const field = 0.4 + 0.6 * this.magneticFieldStrength;
-    const tauDrive = drive * field;                  // Lorentz/Poynting thrust
-    const w = this.segOmega;
-    const wArm = 2.5, eddyK = 1.33, visc = 0.05, tScale = 2.5;
-    const tauEddy = eddyK * w / (1 + w / wArm) + visc * w;  // Lenz + armature rolloff
-    this.segOmega = Math.max(0, w + (tauDrive - tauEddy) / (this.rollerHeft * tScale) * dt);
-    this.rotationSpeed = Math.min(120, this.segOmega * 100);
-    this.corona = Math.max(0, Math.min(1, (this.segOmega - 0.6) / 0.4)) * field;
+    const useOperator = typeof window !== 'undefined' && window.segOperatorPanel;
+
+    if (!useOperator) {
+      // ── SEG: rotational kinematics with eddy-current braking ──────────────
+      const field = 0.4 + 0.6 * this.magneticFieldStrength;
+      const tauDrive = drive * field;
+      const w = this.segOmega;
+      const wArm = 2.5, eddyK = 1.33, visc = 0.05, tScale = 2.5;
+      const tauEddy = eddyK * w / (1 + w / wArm) + visc * w;
+      this.segOmega = Math.max(0, w + (tauDrive - tauEddy) / (this.rollerHeft * tScale) * dt);
+      this.rotationSpeed = Math.min(120, this.segOmega * 100);
+      this.corona = Math.max(0, Math.min(1, (this.segOmega - 0.6) / 0.4)) * field;
+    } else {
+      const op = window.segOperator;
+      this.segOmega = op.physics.segOmega;
+      this.corona = op.physics.corona;
+      this.rotationSpeed = op.rotationSpeed;
+    }
 
     // ── Heron: head dynamics + Bernoulli/Swamee–Jain exit velocity ────────
     const pump = 2.2, drain = 0.30;

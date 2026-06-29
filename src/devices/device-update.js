@@ -28,9 +28,10 @@ export const DeviceUpdateMixin = {
       // directly so there is no double-multiplication.
       if (this.rollerComputeUniformBuffer) {
         const presetVal = this.visualizer.prototypePreset === 'lab' ? 1.0 : 0.0;
+        const segOmega = Math.max(0.02, this.visualizer.segOmega ?? 1.0);
         this.device.queue.writeBuffer(
           this.rollerComputeUniformBuffer, 0,
-          new Float32Array([time, speedMult, presetVal, 0])
+          new Float32Array([time, speedMult, presetVal, segOmega])
         );
       }
       if (this.fieldAdvectUniformBuffer && this.geometry.fieldLineParticles) {
@@ -56,6 +57,7 @@ export const DeviceUpdateMixin = {
       const hw = this.visualizer.hardwareBridge;
       const useHardware = hw?.isConnected && hw?.mirrorEnabled;
       const hardwarePhaseRad = useHardware ? (hw.actualPhase * Math.PI / 180) : null;
+      const spinFactor = Math.max(0.02, this.visualizer.segOmega ?? 1.0);
 
       const rings = [
         { count: 8,  radius: 2.5, speed: 2.0, index: 0 },
@@ -80,7 +82,7 @@ export const DeviceUpdateMixin = {
               angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad * ring.speed;
             } else {
               angle = (i / ring.count) * Math.PI * 2
-                    + time * 0.5 * ring.speed * speedJitter * startupRamp
+                    + time * 0.5 * ring.speed * speedJitter * startupRamp * spinFactor
                     + ring.index * 0.22;
             }
             rollerPositions[rollerOffset * 2]     = Math.cos(angle) * orbitR;
@@ -99,7 +101,7 @@ export const DeviceUpdateMixin = {
               angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad * ring.speed;
             } else {
               angle = (i / ring.count) * Math.PI * 2
-                    + time * 0.5 * ring.speed * speedJitter * startupRamp
+                    + time * 0.5 * ring.speed * speedJitter * startupRamp * spinFactor
                     + ring.index * 0.22;
             }
             rollerPositions[rollerOffset * 2]     = Math.cos(angle) * ring.radius;
@@ -133,7 +135,9 @@ export const DeviceUpdateMixin = {
         ? this.coilEnergies.reduce((sum, v) => sum + v, 0) / this.coilEnergies.length
         : 0.0;
       const coilNorm = Math.min(1.0, coilMean * 1.6);
-      deviceEnergy = speedNorm * 0.35 + coilNorm * 0.35 + this.pwmEnergyLevel * 0.30;
+      const opOmega = this.visualizer.segOmega ?? 0;
+      const opCorona = this.visualizer.corona ?? 0;
+      deviceEnergy = opOmega * 0.45 + coilNorm * 0.30 + this.pwmEnergyLevel * 0.25 + opCorona * 0.2;
     } else if (this.id === 'kelvin') {
       this.voltageEnergyLevel = Math.min(1.0, speedNorm * 0.65 + (0.5 + 0.5 * Math.sin(this.visualizer.time * 3.2)) * 0.35);
       deviceEnergy = this.voltageEnergyLevel;
@@ -215,7 +219,9 @@ export const DeviceUpdateMixin = {
       const coilEnergy = this.coilEnergies
         ? this.coilEnergies.reduce((sum, e) => sum + e, 0) / this.coilEnergies.length
         : 0;
-      const coronaStrength = Math.max(0.0, Math.min(1.0, (speedMult - 1.0) * 0.25 + coilEnergy * 0.7 + Math.pow(energy, 1.4) * 0.9));
+      const opCorona = this.visualizer.corona ?? 0;
+      const coronaStrength = Math.max(0.0, Math.min(1.0,
+        opCorona * 0.85 + (speedMult - 1.0) * 0.15 + coilEnergy * 0.5 + Math.pow(energy, 1.4) * 0.6));
       const coronaCount = Math.floor((24 + budget * 0.5) * coronaStrength);
       for (let i = 0; i < coronaCount; i++) {
         const a = (i / Math.max(1, coronaCount)) * Math.PI * 2 + t * (0.35 + coronaStrength);

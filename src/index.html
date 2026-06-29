@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SEG WebGPU Dashboard</title>
+  <link rel="stylesheet" href="styles/seg-operator-panel.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
 
@@ -186,6 +187,12 @@
       box-shadow: 0 0 8px #ff660044;
     }
     #stopBtn:hover { background: linear-gradient(135deg,#7a2e00,#993800); box-shadow: 0 0 14px #ff660077; }
+    #resetBtn {
+      background: #07101a;
+      color: #0aa;
+      border: 1px solid #0ff3;
+    }
+    #resetBtn:hover { color: #0ff; border-color: #0ff6; }
 
     /* Sliders */
     .slider-row {
@@ -448,31 +455,46 @@
 
     <!-- Left sidebar -->
     <div id="left-panel">
+      <button type="button" class="seg-panel-collapse-btn" id="collapse-left" title="Collapse controls" aria-label="Collapse controls">‹</button>
 
       <!-- Power controls -->
       <div class="panel-section">
-        <h3>Power Control</h3>
-        <div class="ctrl-row">
-          <button class="ctrl-btn" id="startBtn">▶ Start</button>
-          <button class="ctrl-btn" id="stopBtn">■ Stop</button>
+        <h3>Unit Control</h3>
+        <div class="seg-op-btn-row">
+          <button class="seg-op-btn seg-op-btn-start ctrl-btn" id="startBtn" title="Spin-up (S)">▶ Spin-up</button>
+          <button class="seg-op-btn seg-op-btn-estop ctrl-btn" id="stopBtn" title="Emergency stop (Shift+E)">⏹ E-Stop</button>
+          <button class="seg-op-btn seg-op-btn-reset ctrl-btn" id="resetBtn" title="Reset unit (R)">↺ Reset</button>
         </div>
       </div>
 
       <!-- Drive parameters -->
       <div class="panel-section">
-        <h3>Drive Parameters</h3>
+        <h3>Excitation &amp; Load</h3>
         <div class="slider-row">
-          <label>Speed <span id="speedVal">1.00×</span></label>
-          <input type="range" id="speedControl" min="0" max="100" step="1" value="50">
+          <label>Drive Setpoint <span id="driveVal">50%</span></label>
+          <input type="range" id="driveControl" min="0" max="100" step="1" value="50" aria-label="Drive setpoint">
         </div>
         <div class="slider-row">
-          <label>Mag. Field <span id="fieldVal">50</span>%</label>
-          <input type="range" id="fieldControl" min="0" max="100" step="1" value="50">
+          <label>Field Excitation <span id="fieldVal">50</span>%</label>
+          <input type="range" id="fieldControl" min="0" max="100" step="1" value="50" aria-label="Magnetic field excitation">
         </div>
         <div class="slider-row">
-          <label>Load <span id="loadVal">100</span>Ω</label>
-          <input type="range" id="loadControl" min="10" max="1000" step="10" value="100">
+          <label>Output Load <span id="loadVal">100</span>Ω</label>
+          <input type="range" id="loadControl" min="10" max="1000" step="10" value="100" aria-label="Output load resistance">
         </div>
+      </div>
+
+      <!-- Sim rate (time dilation — separate from plant drive) -->
+      <div class="panel-section">
+        <h3>Sim Rate</h3>
+        <div class="slider-row">
+          <label>Time Dilation <span id="speedVal">1.00×</span></label>
+          <input type="range" id="speedControl" min="0" max="100" step="1" value="50" aria-label="Simulation time dilation">
+        </div>
+        <label style="display:flex;align-items:center;cursor:pointer;font-size:0.68rem;color:#0aa;margin-top:6px;">
+          <input type="checkbox" id="schematicToggle" style="margin-right:6px;">
+          <span>Schematic overlay</span>
+        </label>
       </div>
 
       <!-- Simulation mode -->
@@ -509,11 +531,24 @@
         </div>
       </div>
 
-      <!-- Info -->
+      <!-- About this unit -->
       <div class="panel-section">
-        <h3>Info</h3>
+        <h3>About This Unit</h3>
         <div id="info" style="font-size:0.72rem;color:#0aa;line-height:1.5;">
           3 concentric rings of 12/22/32 magnetic rollers with alternating copper/neodymium pole bands orbiting around central stator rings.
+        </div>
+        <button type="button" class="seg-op-about-toggle" id="segAboutToggle">Reference specs ▸</button>
+        <div class="seg-op-about" id="seg-op-about">
+          <dl>
+            <dt>B<sub>surface</sub> (ref)</dt><dd>0.705 T</dd>
+            <dt>Claimed RPM</dt><dd>~2850 inner</dd>
+            <dt>Rollers (Searl)</dt><dd>10 / 25 / 35</dd>
+            <dt>NdFeB B<sub>r</sub></dt><dd>1.48 T</dd>
+          </dl>
+          <p style="margin:6px 0 0;font-size:0.55rem;color:#5a7a8a;">
+            <span class="seg-src-badge spec">SPEC</span> = literature reference ·
+            <span class="seg-src-badge sim">SIM</span> = live simulation model
+          </p>
         </div>
       </div>
 
@@ -542,6 +577,11 @@
       <div class="corner-label" id="corner-tl">SEG WebGPU v2.0</div>
       <div class="corner-label" id="corner-tr">Drag to orbit · Scroll to zoom</div>
       <div class="corner-label" id="corner-bl">Mode: <span id="modeLabel">SEG</span></div>
+      <div id="seg-schematic-overlay" role="dialog" aria-label="SEG cross-section schematic">
+        <div class="seg-schematic-title">SEG Cross-Section</div>
+        <div class="seg-schematic-svg"></div>
+        <span>Stator hub · three roller rings · pole-banded NdFeB/Cu rollers</span>
+      </div>
       <!-- Tachometer: shows current simulation speed multiplier -->
       <div id="tachometer">
         <div class="tach-title">Sim Speed</div>
@@ -554,70 +594,70 @@
 
     <!-- Right telemetry panel -->
     <div id="right-panel">
+      <button type="button" class="seg-panel-collapse-btn" id="collapse-right" title="Collapse instrumentation" aria-label="Collapse instrumentation">›</button>
 
-      <!-- Performance group -->
-      <div class="telem-section">Performance</div>
+      <div class="seg-op-unit-id">UNIT <strong>SEG-α</strong> · TEST BENCH <strong>TB-01</strong></div>
 
-      <!-- RPM -->
+      <!-- RPM gauge -->
       <div class="reading-card">
-        <div class="reading-label">Inner Ring RPM</div>
-        <div class="rpm-ring">
-          <div>
-            <div class="rpm-value" id="rpm-inner">0</div>
-            <div class="rpm-unit">RPM</div>
+        <div class="reading-label">Inner Ring Speed <span class="seg-src-badge sim">SIM</span></div>
+        <div class="seg-rpm-gauge-wrap">
+          <div id="seg-rpm-gauge"></div>
+          <div class="seg-rpm-digital">
+            <div class="rpm-num" id="rpm-inner">0</div>
+            <div class="rpm-lbl">RPM</div>
           </div>
         </div>
       </div>
 
       <!-- Efficiency -->
       <div class="reading-card">
-        <div class="reading-label">Efficiency</div>
+        <div class="reading-label">Conversion Efficiency <span class="seg-src-badge sim">SIM</span></div>
         <div class="reading-value" id="efficiency">0.0%</div>
         <div class="mini-bar"><div class="mini-bar-fill" id="efficiency-bar" style="width:0%"></div></div>
       </div>
 
-      <!-- Electrical group -->
-      <div class="telem-section">Electrical</div>
+      <div class="telem-section">Electrical Output</div>
 
-      <!-- Voltage -->
-      <div class="reading-card">
-        <div class="reading-label">Output Voltage</div>
-        <div class="reading-value" id="voltage">0.000 V</div>
+      <div class="seg-led-readout">
+        <div class="seg-led-cell">
+          <div class="seg-led-label">Voltage <span class="seg-src-badge sim">SIM</span></div>
+          <div class="seg-led-value" id="voltage">0.00 V</div>
+        </div>
+        <div class="seg-led-cell">
+          <div class="seg-led-label">Current <span class="seg-src-badge sim">SIM</span></div>
+          <div class="seg-led-value" id="current">0.000 A</div>
+        </div>
+        <div class="seg-led-cell full-width">
+          <div class="seg-led-label">Power <span class="seg-src-badge sim">SIM</span></div>
+          <div class="seg-led-value" id="power">0.0 W</div>
+        </div>
       </div>
 
-      <!-- Current -->
-      <div class="reading-card">
-        <div class="reading-label">Output Current</div>
-        <div class="reading-value" id="current">0.000 A</div>
-      </div>
-
-      <!-- Power -->
-      <div class="reading-card">
-        <div class="reading-label">Output Power</div>
-        <div class="reading-value" id="power">0.000 W</div>
-      </div>
-
-      <!-- Physical group -->
       <div class="telem-section">Physical</div>
 
-      <!-- Magnetic field -->
-      <div class="reading-card">
-        <div class="reading-label">Magnetic Field</div>
-        <div class="reading-value" id="magnetic-field">0.000 T</div>
+      <div class="seg-led-readout">
+        <div class="seg-led-cell">
+          <div class="seg-led-label">B-Field <span class="seg-src-badge sim">SIM</span></div>
+          <div class="seg-led-value" id="magnetic-field">0.000 T</div>
+        </div>
+        <div class="seg-led-cell">
+          <div class="seg-led-label">Corona <span class="seg-src-badge sim">SIM</span></div>
+          <div class="seg-led-value" id="seg-corona-val">0%</div>
+        </div>
       </div>
 
-      <!-- Temperature -->
       <div class="reading-card">
-        <div class="reading-label">Temperature</div>
-        <div class="reading-value" id="temperature">25.0 °C</div>
+        <div class="reading-label">Thermal Load <span class="seg-src-badge sim">SIM</span></div>
+        <div class="seg-led-value" id="seg-thermal-val">25.0 °C</div>
+        <div class="seg-thermal-bar"><div class="seg-thermal-fill" id="seg-thermal-fill"></div></div>
+        <div class="reading-value" id="temperature" style="display:none">25.0 °C</div>
       </div>
 
-      <!-- Energy group -->
       <div class="telem-section">Energy</div>
 
-      <!-- Energy -->
       <div class="reading-card">
-        <div class="reading-label">Total Energy</div>
+        <div class="reading-label">Integrated Output <span class="seg-src-badge sim">SIM</span></div>
         <div class="reading-value" id="energy">0.0000 kWh</div>
       </div>
 

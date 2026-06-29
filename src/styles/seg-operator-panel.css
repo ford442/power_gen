@@ -1,0 +1,397 @@
+/**
+ * SEG Operator Panel — SCADA / test-bench instrumentation styling
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+:root {
+  --op-bg: #0a0e12;
+  --op-panel: #0d1218;
+  --op-border: #1a3a4a;
+  --op-border-bright: #2a6a7a;
+  --op-cyan: #4ecdc4;
+  --op-green: #3dffa0;
+  --op-amber: #ffb020;
+  --op-red: #ff4444;
+  --op-dim: #5a7a8a;
+  --op-mono: 'Share Tech Mono', 'Courier New', monospace;
+  --op-ui: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+}
+
+/* ── Panel chrome ─────────────────────────────────────────────── */
+.seg-op-panel {
+  font-family: var(--op-ui);
+}
+
+#right-panel.seg-op-instrument {
+  width: 240px;
+  background: linear-gradient(180deg, #0a1018 0%, #060a0f 100%);
+  border-left: 1px solid var(--op-border-bright);
+  padding: 10px;
+  gap: 6px;
+}
+
+#left-panel.seg-op-controls {
+  width: 240px;
+  background: linear-gradient(180deg, #0a1018 0%, #060a0f 100%);
+}
+
+.seg-op-panel .panel-section {
+  border-color: var(--op-border);
+  background: rgba(8, 16, 24, 0.85);
+  border-radius: 4px;
+}
+
+.seg-op-panel .panel-section h3 {
+  font-family: var(--op-mono);
+  font-size: 0.58rem;
+  color: var(--op-dim);
+  letter-spacing: 2.5px;
+}
+
+/* ── Unit ID header strip ─────────────────────────────────────── */
+.seg-op-unit-id {
+  font-family: var(--op-mono);
+  font-size: 0.55rem;
+  color: var(--op-dim);
+  letter-spacing: 1.5px;
+  padding: 4px 2px 6px;
+  border-bottom: 1px dashed var(--op-border);
+  margin-bottom: 4px;
+}
+
+.seg-op-unit-id strong {
+  color: var(--op-cyan);
+  font-weight: 400;
+}
+
+/* ── RPM gauge (SVG arc) ──────────────────────────────────────── */
+.seg-rpm-gauge-wrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 8px;
+}
+
+.seg-rpm-gauge-wrap svg {
+  width: 100%;
+  max-width: 200px;
+  height: auto;
+  display: block;
+}
+
+.seg-rpm-digital {
+  position: absolute;
+  bottom: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.seg-rpm-digital .rpm-num {
+  font-family: var(--op-mono);
+  font-size: 1.65rem;
+  font-weight: 400;
+  color: var(--op-cyan);
+  text-shadow: 0 0 12px rgba(78, 205, 196, 0.5);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.seg-rpm-digital .rpm-lbl {
+  font-size: 0.55rem;
+  color: var(--op-dim);
+  letter-spacing: 3px;
+  margin-top: 2px;
+}
+
+/* ── LED readouts ─────────────────────────────────────────────── */
+.seg-led-readout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.seg-led-cell {
+  background: #040810;
+  border: 1px solid var(--op-border);
+  border-radius: 3px;
+  padding: 5px 7px;
+}
+
+.seg-led-cell.full-width {
+  grid-column: 1 / -1;
+}
+
+.seg-led-label {
+  font-family: var(--op-mono);
+  font-size: 0.5rem;
+  color: var(--op-dim);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.seg-src-badge {
+  font-size: 0.45rem;
+  padding: 1px 4px;
+  border-radius: 2px;
+  border: 1px solid;
+  letter-spacing: 0.5px;
+}
+
+.seg-src-badge.sim {
+  color: var(--op-amber);
+  border-color: rgba(255, 176, 32, 0.4);
+}
+
+.seg-src-badge.spec {
+  color: var(--op-green);
+  border-color: rgba(61, 255, 160, 0.35);
+}
+
+.seg-led-value {
+  font-family: var(--op-mono);
+  font-size: 0.95rem;
+  color: var(--op-cyan);
+  font-variant-numeric: tabular-nums;
+}
+
+.seg-led-value.warning { color: var(--op-amber); }
+.seg-led-value.critical { color: var(--op-red); }
+
+/* ── Thermal bar ──────────────────────────────────────────────── */
+.seg-thermal-bar {
+  height: 10px;
+  background: #040810;
+  border: 1px solid var(--op-border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 3px;
+}
+
+.seg-thermal-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #1a5a4a, var(--op-amber), var(--op-red));
+  transition: width 0.35s ease;
+  border-radius: 1px;
+}
+
+/* ── Control buttons ──────────────────────────────────────────── */
+.seg-op-btn-row {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.seg-op-btn {
+  flex: 1;
+  min-width: 60px;
+  padding: 10px 4px;
+  border-radius: 3px;
+  font-family: var(--op-mono);
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 1px;
+  cursor: pointer;
+  border: 1px solid;
+  transition: all 0.15s;
+  text-transform: uppercase;
+  touch-action: manipulation;
+}
+
+.seg-op-btn:focus-visible {
+  outline: 2px solid var(--op-cyan);
+  outline-offset: 2px;
+}
+
+.seg-op-btn-start {
+  background: linear-gradient(180deg, #0a2a18, #061a10);
+  color: var(--op-green);
+  border-color: rgba(61, 255, 160, 0.5);
+  box-shadow: inset 0 1px 0 rgba(61, 255, 160, 0.15);
+}
+
+.seg-op-btn-start:hover:not(:disabled) {
+  background: linear-gradient(180deg, #0f3a22, #0a2a18);
+  box-shadow: 0 0 12px rgba(61, 255, 160, 0.25);
+}
+
+.seg-op-btn-start.active {
+  background: linear-gradient(180deg, #0f4028, #0a3020);
+  box-shadow: 0 0 16px rgba(61, 255, 160, 0.35);
+}
+
+.seg-op-btn-estop {
+  background: linear-gradient(180deg, #3a0a0a, #200606);
+  color: var(--op-red);
+  border-color: rgba(255, 68, 68, 0.6);
+  flex: 1.2;
+}
+
+.seg-op-btn-estop:hover {
+  background: linear-gradient(180deg, #500e0e, #300808);
+  box-shadow: 0 0 16px rgba(255, 68, 68, 0.4);
+}
+
+.seg-op-btn-estop.latched {
+  animation: estopPulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes estopPulse {
+  from { box-shadow: 0 0 8px rgba(255, 68, 68, 0.4); }
+  to   { box-shadow: 0 0 20px rgba(255, 68, 68, 0.8); }
+}
+
+.seg-op-btn-reset {
+  background: #0a1018;
+  color: var(--op-dim);
+  border-color: var(--op-border);
+}
+
+.seg-op-btn-reset:hover {
+  color: var(--op-cyan);
+  border-color: var(--op-border-bright);
+}
+
+.seg-op-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Schematic overlay ────────────────────────────────────────── */
+#seg-schematic-overlay {
+  position: absolute;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(320px, 90%);
+  background: rgba(6, 10, 16, 0.92);
+  border: 1px solid var(--op-border-bright);
+  border-radius: 4px;
+  padding: 10px;
+  z-index: 50;
+  pointer-events: auto;
+  display: none;
+  font-family: var(--op-mono);
+  font-size: 0.6rem;
+  color: var(--op-dim);
+}
+
+#seg-schematic-overlay.visible {
+  display: block;
+}
+
+#seg-schematic-overlay svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 6px 0;
+}
+
+.seg-schematic-title {
+  color: var(--op-cyan);
+  letter-spacing: 2px;
+  font-size: 0.58rem;
+  text-transform: uppercase;
+}
+
+/* ── Collapse toggles ─────────────────────────────────────────── */
+.seg-panel-collapse-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 48px;
+  background: rgba(8, 16, 24, 0.95);
+  border: 1px solid var(--op-border);
+  color: var(--op-dim);
+  cursor: pointer;
+  font-size: 0.55rem;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  touch-action: manipulation;
+}
+
+.seg-panel-collapse-btn:hover {
+  color: var(--op-cyan);
+  border-color: var(--op-border-bright);
+}
+
+#collapse-left  { right: -14px; border-radius: 0 3px 3px 0; }
+#collapse-right { left: -14px;  border-radius: 3px 0 0 3px; }
+
+#main.left-collapsed  #left-panel  { width: 0; padding: 0; overflow: hidden; border: none; }
+#main.right-collapsed #right-panel { width: 0; padding: 0; overflow: hidden; border: none; }
+
+#left-panel, #right-panel {
+  position: relative;
+  transition: width 0.25s ease, padding 0.25s ease;
+}
+
+/* ── About / specs drawer ─────────────────────────────────────── */
+.seg-op-about {
+  font-size: 0.62rem;
+  color: var(--op-dim);
+  line-height: 1.55;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.seg-op-about.expanded {
+  max-height: 200px;
+}
+
+.seg-op-about-toggle {
+  background: none;
+  border: none;
+  color: var(--op-cyan);
+  font-family: var(--op-mono);
+  font-size: 0.58rem;
+  cursor: pointer;
+  padding: 4px 0;
+  letter-spacing: 1px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.seg-op-about dl {
+  margin: 6px 0 0;
+}
+
+.seg-op-about dt {
+  color: var(--op-dim);
+  float: left;
+  clear: left;
+  width: 42%;
+}
+
+.seg-op-about dd {
+  margin: 0 0 3px 44%;
+  color: var(--op-cyan);
+  font-family: var(--op-mono);
+  font-size: 0.58rem;
+}
+
+/* ── Header status colours ────────────────────────────────────── */
+#status.status-spinup      { color: var(--op-amber); }
+#status.status-operational { color: var(--op-green); }
+#status.status-estop       { color: var(--op-red); }
+
+@media (max-width: 768px) {
+  #left-panel.seg-op-controls,
+  #right-panel.seg-op-instrument {
+    width: 180px;
+  }
+  .seg-rpm-digital .rpm-num { font-size: 1.3rem; }
+}

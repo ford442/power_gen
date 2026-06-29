@@ -152,7 +152,7 @@ export function getSegRollerComputeShader() {
         time:      f32,
         speedMult: f32,
         prototypePreset: f32,
-        pad1:      f32,
+        segOmega:  f32,
       }
 
       struct SEGLayoutRing {
@@ -228,7 +228,7 @@ export function getSegRollerComputeShader() {
         let t = uniforms.time;
         let lab = uniforms.prototypePreset > 0.5;
 
-        let startupRamp = min(t * (0.25 + f32(ringIdx) * 0.1), 1.0);
+        let startupRamp = min(t * (0.25 + f32(ringIdx) * 0.1), 1.0) * max(uniforms.segOmega, 0.02);
         let jitterSeed = f32(idx) * 127.3 + f32(ringIdx) * 53.7;
         let speedJitter = 1.0 + 0.04 * sin(t * 1.3 + sin(jitterSeed) * 12.7);
 
@@ -247,7 +247,8 @@ export function getSegRollerComputeShader() {
 
         let isNorth = ((localI + ringIdx) & 1u) == 0u;
         let baseEmit = select(0.0, 0.08, isNorth);
-        let emissive = min(baseEmit * max(1.0, uniforms.speedMult * 0.5) + uniforms.speedMult * 0.02, 1.0);
+        let emissive = min(baseEmit * max(1.0, uniforms.speedMult * 0.5) + uniforms.speedMult * 0.02
+          + uniforms.segOmega * 0.35, 1.0);
 
         var r: RollerInstance;
         r.position = vec3f(x, 0.0, z);

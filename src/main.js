@@ -7,6 +7,8 @@ import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 
 import { SEGVisualizerGeometry } from './app/seg-visualizer-geometry.js';
 import { SEGVisualizerMath } from './app/seg-visualizer-physics.js';
+import { initSEGOperatorPanel } from './seg-operator-panel.js';
+import { segOperator } from './seg-operator-state.js';
 
 // Legacy shader stubs (SEGVisualizer fallback only; modern path uses MultiDeviceShaders + generators)
 const rollerShaderCode = '';
@@ -570,51 +572,8 @@ class SEGVisualizer {
       this.camera.distance = Math.max(5, Math.min(20, this.camera.distance + e.deltaY * 0.01));
     });
 
-    // Dashboard: START button
-    document.getElementById('startBtn').addEventListener('click', () => {
-      this.isRunning = true;
-      this.targetSpeed = parseInt(document.getElementById('speedControl').value);
-      document.getElementById('status').textContent = 'OPERATIONAL';
-      document.getElementById('status').style.color = '#00ff88';
-      document.getElementById('statusDot').className = 'status-indicator status-active';
-    });
-
-    // Dashboard: STOP button
-    document.getElementById('stopBtn').addEventListener('click', () => {
-      this.isRunning = false;
-      this.targetSpeed = 0;
-      document.getElementById('status').textContent = 'STOPPING';
-      document.getElementById('status').style.color = '#ffaa00';
-      document.getElementById('statusDot').className = 'status-indicator status-inactive';
-    });
-
-    // Dashboard: speed slider
-    document.getElementById('speedControl').addEventListener('input', (e) => {
-      document.getElementById('speedVal').textContent = e.target.value;
-      if (this.isRunning) this.targetSpeed = parseInt(e.target.value);
-    });
-
-    // Dashboard: magnetic field slider
-    document.getElementById('fieldControl').addEventListener('input', (e) => {
-      document.getElementById('fieldVal').textContent = e.target.value;
-      this.magneticFieldStrength = parseInt(e.target.value) / 100;
-    });
-
-    // Dashboard: load resistance slider
-    document.getElementById('loadControl').addEventListener('input', (e) => {
-      document.getElementById('loadVal').textContent = e.target.value;
-      this.loadResistance = parseInt(e.target.value);
-    });
-
-    // Particle count slider
-    document.getElementById('particleSlider').addEventListener('input', (e) => {
-      const count = parseInt(e.target.value);
-      document.getElementById('particleVal').textContent = count;
-      if (count !== this.particleCount) {
-        this.particleCount = count;
-        this.updateParticles();
-      }
-    });
+    // Dashboard controls are owned by SEGOperatorPanel (seg-operator-panel.js).
+    // Particle count slider is also wired there via onParticleCountChange.
   }
 
   updateReadings(deltaTime) {
@@ -723,27 +682,27 @@ class SEGVisualizer {
     this.dt = dt;
     this.simClock += dt;
 
-    // Drive setting (0–1) from the speed slider, gated by Start/Stop. This
-    // sets the SEG drive torque, the Heron pump, the Kelvin charging current
-    // and the LED power; the integrators do the rest.
-    const drive = (this.isRunning ? this.targetSpeed : 0) / 100;
+    // Shared operator plant state (RK4 roller dynamics + excitation)
+    segOperator.step(dt);
+    this.segOmega = segOperator.physics.segOmega;
+    this.corona = segOperator.physics.corona;
+    this.rotationSpeed = segOperator.rotationSpeed;
+    this.isRunning = segOperator.isRunning;
+    this.magneticFieldStrength = segOperator.magneticFieldStrength;
+    this.loadResistance = segOperator.loadResistance;
+    this.totalEnergy = segOperator.totalEnergy;
+
+    const drive = segOperator.getDrive();
     this.stepPhysics(dt, drive);
 
-    // Once the rotor has coasted to rest (eddy braking + drag), settle to STANDBY.
-    if (!this.isRunning && this.rotationSpeed < 0.5) {
-      const statusEl = document.getElementById('status');
-      if (statusEl.textContent === 'STOPPING') {
-        statusEl.textContent = 'STANDBY';
-        statusEl.style.color = '#00d4ff';
-        document.getElementById('statusDot').className = 'status-indicator status-standby';
-      }
+    // Once the rotor has coasted to rest (eddy braking + drag), panel updates status.
+    if (!segOperator.isRunning && this.rotationSpeed < 0.5 && segOperator.status === 'stopping') {
+      // segOperator.step already transitions to standby
     }
 
-    // The roller geometry spins at the integrated angular velocity, so its
-    // visual spin-up inherits the same momentum lag and terminal plateau.
+    // The roller geometry spins at the integrated angular velocity
     this.time += dt * this.segOmega * 5.0;
 
-    // Update footer battery display
     const batteryEl = document.getElementById('batteryFooter');
     if (this.mode === 'solar') {
       batteryEl.textContent = Math.round(this.batteryCharge * 100) + '%';
@@ -751,7 +710,7 @@ class SEGVisualizer {
       batteryEl.textContent = '--';
     }
 
-    this.updateReadings(deltaTime);
+    window.segOperatorPanel?.tick(deltaTime);
     this.updateUniforms();
 
     // Compute pass
@@ -1181,6 +1140,20 @@ window.setRenderer = (name) => {
 
 window.addEventListener('load', () => {
   initWasm();
+
+  initSEGOperatorPanel({
+    onParticleCountChange(count) {
+      const v = window.multiVisualizer;
+      if (v?.setParticleCount) {
+        v.setParticleCount(count);
+        return;
+      }
+      if (visualizer && count !== visualizer.particleCount) {
+        visualizer.particleCount = count;
+        visualizer.updateParticles();
+      }
+    }
+  });
 
   bootstrapVisualizer().then(() => {
     wireSEGLayoutControls();

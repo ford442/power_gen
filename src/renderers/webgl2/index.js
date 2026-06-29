@@ -28,6 +28,7 @@ import { ParticleRenderer } from './particle-renderer.js';
 import { WebGL2DebugControls } from './debug-controls.js';
 import { parseSegFrameLevel } from '../../seg-frame-model.js';
 import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets.js';
+import { segOperator } from '../../seg-operator-state.js';
 
 class WebGL2DeviceState {
   constructor(id, config) {
@@ -150,7 +151,13 @@ export class WebGL2MultiDeviceVisualizer {
     const rawSpeed = parseFloat(document.getElementById('speedControl')?.value) ?? 50;
     const speed = 0.05 * Math.pow(400, rawSpeed / 100);
     this.speedMult = speed;
-    this.simRateController.tick(deltaTime, speed);
+    const simSteps = this.simRateController.tick(deltaTime, speed);
+    for (const subDt of simSteps) {
+      if (subDt > 0) segOperator.step(subDt);
+    }
+    this.segOmega = segOperator.physics.segOmega;
+    this.corona = segOperator.physics.corona;
+    window.segOperatorPanel?.tick(deltaTime);
     this.time += deltaTime * speed;
     this.simClock += deltaTime;
 
@@ -161,15 +168,26 @@ export class WebGL2MultiDeviceVisualizer {
     const viewProj = this.cameraController.getViewProjMatrix();
     const cameraPos = this.camera.camera.position;
 
-    const drive = rawSpeed / 100;
+    const drive = segOperator.getDrive();
     const qualityScale = 1.0;
-    const substeps = this.simRateController.substeps || 1;
+    const substeps = simSteps.length || 1;
     const subDt = deltaTime / Math.max(substeps, 1);
 
     for (const device of Object.values(this.devices)) {
       if (!this.devicesEnabled[device.id]) continue;
+
+      if (device.id === 'seg') {
+        device.physics.segOmega = segOperator.physics.segOmega;
+        device.physics.corona = segOperator.physics.corona;
+        device.physics.magneticFieldStrength = segOperator.magneticFieldStrength;
+        device.physics.energyLevel = segOperator.physics.segOmega;
+      } else {
+        for (let s = 0; s < substeps; s++) {
+          stepDevicePhysics(device.physics, subDt, drive);
+        }
+      }
+
       for (let s = 0; s < substeps; s++) {
-        stepDevicePhysics(device.physics, subDt, drive);
         const mode = deviceModeIndex(device.id);
         const scaledCount = Math.floor(device.particleCount * qualityScale);
         stepParticles(device.particles, {
@@ -211,7 +229,7 @@ export class WebGL2MultiDeviceVisualizer {
       const scaledCount = Math.floor(device.particleCount * qualityScale);
 
       if (device.id === 'seg') {
-        const rollers = computeRollerPositions(this.time, speed);
+        const rollers = computeRollerPositions(this.time, speed * Math.max(0.05, this.segOmega || 0));
         this.meshRenderer.drawSegStructure(viewProj, pos, {
           ...renderOpts,
           frameLevel: this.segFrameLevel
