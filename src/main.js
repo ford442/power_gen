@@ -9,6 +9,7 @@ import { SEGVisualizerGeometry } from './app/seg-visualizer-geometry.js';
 import { SEGVisualizerMath } from './app/seg-visualizer-physics.js';
 import { initSEGOperatorPanel } from './seg-operator-panel.js';
 import { segOperator } from './seg-operator-state.js';
+import { initSEGDiagram2D } from './seg-diagram-2d.js';
 
 // Legacy shader stubs (SEGVisualizer fallback only; modern path uses MultiDeviceShaders + generators)
 const rollerShaderCode = '';
@@ -1157,6 +1158,13 @@ window.addEventListener('load', () => {
 
   bootstrapVisualizer().then(() => {
     wireSEGLayoutControls();
+
+    // 2D top-down plan view overlay (toggle: button, "D" key, window.toggleSEGDiagram()).
+    try {
+      initSEGDiagram2D(() => window.multiVisualizer);
+    } catch (e) {
+      console.warn('[main] SEG 2D diagram init failed:', e);
+    }
 
     const anomalyToggle = document.getElementById('anomalyToggle');
     const v = window.multiVisualizer;
