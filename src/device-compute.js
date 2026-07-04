@@ -22,15 +22,15 @@ class DeviceComputeManager {
     this.computePipeline = this.pipelineManager.computePipeline;
     if (!this.computePipeline) return;
 
-    // Compute uniform buffer: time, mode, particleCount, speedMult (16 bytes)
+    // Compute uniform buffer: time, mode, particleCount, speedMult, physics×4 (32 bytes)
     this.computeUniformBuffer = this.device.createBuffer({
-      size: 16,
+      size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
     // Track buffer for profiling if visualizer is available (optional)
     if (this.pipelineManager.visualizer && this.pipelineManager.visualizer.profiler) {
-      this.pipelineManager.visualizer.profiler.trackBuffer(`device-${this.id}-compute-uniforms`, 16, GPUBufferUsage.UNIFORM);
+      this.pipelineManager.visualizer.profiler.trackBuffer(`device-${this.id}-compute-uniforms`, 32, GPUBufferUsage.UNIFORM);
     }
 
     // Compute bind group: binding 0 = particles storage, binding 1 = uniforms
@@ -43,25 +43,30 @@ class DeviceComputeManager {
     });
   }
 
-  updateComputeUniforms(time, mode, particleCount, speedMult = 1.0) {
+  updateComputeUniforms(time, mode, particleCount, speedMult = 1.0, physicsState = null) {
     if (!this.computeUniformBuffer) return;
 
     this.scaledParticleCount = particleCount;
     this.speedMult = speedMult;
 
-    // Pack into 16 bytes: time (f32), mode (u32), particleCount (u32), speedMult (f32)
-    const computeData = new Float32Array(4);
-    computeData[0] = time;
-    
-    // Encode mode and particleCount as floats that will be reinterpreted
-    const modeView = new Uint32Array(computeData.buffer, 4, 1);
-    const countView = new Uint32Array(computeData.buffer, 8, 1);
-    modeView[0] = mode;
-    countView[0] = particleCount;
-    
-    computeData[3] = speedMult;
+    let p0 = 0, p1 = 0, p2 = 0, p3 = 0;
+    if (physicsState) {
+      if (physicsState.deviceId === 'heron') {
+        p0 = physicsState.heronHead / Math.max(0.01, physicsState.heronHeadMax);
+        p1 = physicsState.heronVExit / 8;
+      } else if (physicsState.deviceId === 'kelvin') {
+        p0 = physicsState.kelvinVoltageN;
+        p1 = physicsState.kelvinSparkTimer > 0 ? 1 : 0;
+        p2 = physicsState.kelvinE;
+      } else if (physicsState.deviceId === 'solar') {
+        p0 = physicsState.batteryCharge;
+      }
+    }
 
-    this.device.queue.writeBuffer(this.computeUniformBuffer, 0, computeData);
+    this.device.queue.writeBuffer(
+      this.computeUniformBuffer, 0,
+      new Float32Array([time, mode, particleCount, speedMult, p0, p1, p2, p3])
+    );
   }
 
   /**

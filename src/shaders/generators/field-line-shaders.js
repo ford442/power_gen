@@ -55,10 +55,21 @@ export function getFieldLineVertShader() {
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
         
-        // Green energy field lines
-        let copper = vec3f(0.85, 0.48, 0.25);
-        let greenEnergy = vec3f(0.2, 1.0, 0.5);
-        output.color = mix(copper, greenEnergy, particle.strength);
+        // Mode-tinted flow paths
+        let mode = device.ringIndex;
+        var color: vec3f;
+        if (mode > 2.5 && mode < 3.5) {
+          color = mix(vec3f(1.0, 0.85, 0.35), vec3f(0.45, 0.75, 1.0), particle.strength);
+        } else if (mode > 1.5 && mode < 2.5) {
+          color = mix(vec3f(0.55, 0.35, 0.95), vec3f(0.75, 0.9, 1.0), particle.strength);
+        } else if (mode > 0.5 && mode < 1.5) {
+          color = mix(vec3f(0.2, 0.45, 0.85), vec3f(0.65, 0.9, 1.0), particle.strength);
+        } else {
+          let copper = vec3f(0.85, 0.48, 0.25);
+          let greenEnergy = vec3f(0.2, 1.0, 0.5);
+          color = mix(copper, greenEnergy, particle.strength);
+        }
+        output.color = color;
         output.alpha = particle.life * particle.strength;
         
         return output;
@@ -125,6 +136,7 @@ export function getFluxSegmentVertShader() {
         @builtin(position) position: vec4f,
         @location(0) strength: f32,
         @location(1) alpha: f32,
+        @location(2) phase: f32,
       }
 
       @vertex
@@ -147,9 +159,10 @@ export function getFluxSegmentVertShader() {
         let unitDir = select(vec2f(1.0, 0.0), dir / len, len > 0.0001);
         let perp = vec2f(-unitDir.y, unitDir.x);
 
-        // Half-width: 0.002..0.008 px driven by field strength (sqrt scale)
+        // Half-width: scales with |B| and live energy level
         let t = clamp(sqrt(seg.strength * 2.0e6), 0.0, 1.0);
-        let halfWidth = 0.002 + t * 0.006;
+        let energy = clamp(device.timeScale, 0.0, 1.0);
+        let halfWidth = 0.0025 + t * 0.009 + energy * 0.003;
 
         // Vertices 0,1 at start; 2,3 at end.  Sides alternate left/right.
         let atEnd = (vertIdx >= 2u);
@@ -159,14 +172,16 @@ export function getFluxSegmentVertShader() {
         pos.x  += perp.x * halfWidth * side * pos.w;
         pos.y  += perp.y * halfWidth * side * pos.w;
 
-        // Age-pulsed alpha: crawling tesla-bug effect
-        let agePulse = 0.5 + 0.5 * sin(seg.age * 6.2832);
-        let alpha = clamp(t * 0.8 + 0.1, 0.1, 0.9) * agePulse;
+        // Traveling pulse along the line + energy breathing
+        let travelPhase = fract(seg.age * 0.18 + uniforms.time * 0.35);
+        let pulse = 0.55 + 0.45 * sin(travelPhase * 6.2832);
+        let alpha = clamp(t * 0.85 + 0.12 + energy * 0.25, 0.12, 1.0) * pulse;
 
         var out: VertexOutput;
         out.position = pos;
         out.strength = seg.strength;
         out.alpha    = alpha;
+        out.phase    = travelPhase;
         return out;
       }
     `;
@@ -177,26 +192,33 @@ export function getFluxSegmentFragShader() {
       struct FragInput {
         @location(0) strength: f32,
         @location(1) alpha: f32,
+        @location(2) phase: f32,
       }
 
-      // deep blue (0,0.1,0.8) → cyan (0,0.8,1) → soft white (0.8,1,1) → white-hot (1.2,1.2,1.2)
-      fn fluxColor(strength: f32) -> vec3f {
+      // deep blue → cyan → soft white → white-hot, biased by traveling phase
+      fn fluxColor(strength: f32, phase: f32) -> vec3f {
         let t = clamp(sqrt(strength * 2.0e6), 0.0, 1.0);
+        var col: vec3f;
         if (t < 0.33) {
           let s = t / 0.33;
-          return mix(vec3f(0.0, 0.1, 0.8), vec3f(0.0, 0.8, 1.0), s);
+          col = mix(vec3f(0.0, 0.12, 0.85), vec3f(0.0, 0.82, 1.0), s);
         } else if (t < 0.66) {
           let s = (t - 0.33) / 0.33;
-          return mix(vec3f(0.0, 0.8, 1.0), vec3f(0.8, 1.0, 1.0), s);
+          col = mix(vec3f(0.0, 0.82, 1.0), vec3f(0.75, 1.0, 1.0), s);
         } else {
           let s = (t - 0.66) / 0.34;
-          return mix(vec3f(0.8, 1.0, 1.0), vec3f(1.2, 1.2, 1.2), s);
+          col = mix(vec3f(0.75, 1.0, 1.0), vec3f(1.25, 1.2, 1.1), s);
         }
+        let pulse = 0.85 + 0.15 * sin(phase * 6.2832);
+        return col * pulse;
       }
 
       @fragment
       fn main(input: FragInput) -> @location(0) vec4f {
-        return vec4f(fluxColor(input.strength), input.alpha);
+        let core = fluxColor(input.strength, input.phase);
+        // Soft core falloff for tube-like appearance
+        let a = input.alpha;
+        return vec4f(core * (0.9 + a * 0.35), a);
       }
     `;
   }

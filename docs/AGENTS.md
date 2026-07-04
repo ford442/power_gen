@@ -10,7 +10,7 @@ This is a **SEG (Searl Effect Generator) WebGPU Visualizer** - a real-time 3D si
 3. **Kelvin's Thunderstorm**: Electrostatic induction simulation with falling charged droplets
 4. **LEDs + Solar Cells**: Photons traveling from LED array to solar panel with battery charge/discharge cycling
 
-**Live Demo**: https://ford442.github.io/seg-webgpu-visualizer/
+**Live Demo**: https://ford442.github.io/power_gen/
 
 ## Technology Stack
 
@@ -303,32 +303,34 @@ npm run deploy
 ### GitHub Pages (Primary)
 
 Automatic deployment on push to `main` branch via `.github/workflows/static.yml`:
-- **Deploys the entire repository root** (`.`), NOT the `dist/` directory
-- No build step in the workflow - files are served as-is
-- URL: https://ford442.github.io/seg-webgpu-visualizer/
+- Runs `npm run build:site` (Vite → `dist/`)
+- Uploads `dist/` as the Pages artifact
+- URL: https://ford442.github.io/power_gen/
 
 The workflow uses:
 - `actions/checkout@v4`
-- `actions/configure-pages@v5`
-- `actions/upload-pages-artifact@v3` (path: `.`)
+- `actions/setup-node@v4` + `npm ci` + `npm run build:site`
+- `actions/configure-pages@v5` (`enablement: true`)
+- `actions/upload-pages-artifact@v3` (path: `dist`)
 - `actions/deploy-pages@v4`
 
-### SFTP Deployment (Secondary)
+Enable Pages once: repo **Settings → Pages → Build and deployment → GitHub Actions**.
 
-Manual deployment to remote server:
+### Contabo bundle deploy (Secondary)
+
+Manual deployment to remote storage via HTTPS API:
 
 ```bash
-# Ensure dist/ exists first (npm run build creates it)
+npm run build:site
+export DEPLOY_TOKEN="your_token_from_vps"
 python deploy.py
 ```
 
 **Configuration in `deploy.py`**:
-- Host: `1ink.us`
-- Port: `22`
-- User: `ford442`
-- Remote path: `test.1ink.us/powergen`
+- Project: `powergen`
+- API: `https://storage.noahcohn.com/api/deploy/...`
 - Local source: `dist/` directory
-- **Password is hardcoded in plaintext on line 45**
+- Token: `DEPLOY_TOKEN` environment variable only (no secrets in repo)
 
 ## Code Organization
 
@@ -474,7 +476,6 @@ Full details in `WOLFRAM_DATA_SUMMARY.md`.
 ## Security Considerations
 
 ### Current Issues
-- **`deploy.py` contains hardcoded password in plaintext** (line 45)
 - No input sanitization (not applicable for this static visualization)
 
 ### WebGPU Security
@@ -483,9 +484,7 @@ Full details in `WOLFRAM_DATA_SUMMARY.md`.
 - No sensitive data processed in the application
 
 ### Recommendations
-- Move deployment credentials to environment variables
-- Use SSH keys instead of password authentication
-- Add `.env` to `.gitignore` if implementing credential files
+- Keep `DEPLOY_TOKEN` in environment variables or CI secrets only
 
 ## Future Extension Points
 

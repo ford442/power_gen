@@ -89,6 +89,51 @@ export function generateDisc(innerRadius, outerRadius, thickness, segments = 48)
   return { vertices: vertexData, indices: new Uint16Array(indices) };
 }
 
+/** Torus mesh (major/minor radii) — interleaved pos+normal, 6 floats/vertex. */
+export function generateTorus(majorRadius, minorRadius, majorSegments = 48, minorSegments = 14) {
+  const vertices = [], indices = [], normals = [];
+
+  for (let major = 0; major <= majorSegments; major++) {
+    const theta = (major / majorSegments) * Math.PI * 2;
+    const cx = Math.cos(theta) * majorRadius;
+    const cz = Math.sin(theta) * majorRadius;
+
+    for (let minor = 0; minor <= minorSegments; minor++) {
+      const phi = (minor / minorSegments) * Math.PI * 2;
+      const x = cx + Math.cos(phi) * Math.cos(theta) * minorRadius;
+      const y = Math.sin(phi) * minorRadius;
+      const z = cz + Math.cos(phi) * Math.sin(theta) * minorRadius;
+      vertices.push(x, y, z);
+      const nx = Math.cos(phi) * Math.cos(theta);
+      const ny = Math.sin(phi);
+      const nz = Math.cos(phi) * Math.sin(theta);
+      normals.push(nx, ny, nz);
+    }
+  }
+
+  for (let major = 0; major < majorSegments; major++) {
+    for (let minor = 0; minor < minorSegments; minor++) {
+      const a = major * (minorSegments + 1) + minor;
+      const b = a + 1;
+      const c = a + minorSegments + 1;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+
+  const vertexData = new Float32Array((vertices.length / 3) * 6);
+  for (let i = 0; i < vertices.length / 3; i++) {
+    vertexData[i * 6] = vertices[i * 3];
+    vertexData[i * 6 + 1] = vertices[i * 3 + 1];
+    vertexData[i * 6 + 2] = vertices[i * 3 + 2];
+    vertexData[i * 6 + 3] = normals[i * 3];
+    vertexData[i * 6 + 4] = normals[i * 3 + 1];
+    vertexData[i * 6 + 5] = normals[i * 3 + 2];
+  }
+
+  return { vertices: vertexData, indices: new Uint16Array(indices) };
+}
+
 /**
  * Upload interleaved pos+normal mesh to WebGL2 buffers.
  * @returns {{ vao: WebGLVertexArrayObject, indexCount: number }}

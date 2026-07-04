@@ -1,9 +1,17 @@
 import { linkProgram, getUniformLocations } from './shader-utils.js';
 import { MESH_VERT, MESH_FRAG, ROLLER_VERT, ROLLER_FRAG } from './shaders.js';
-import { generateCylinder, generateDisc, uploadMesh, uploadMeshWithUV } from '../shared/primitive-geometry.js';
+import { generateCylinder, generateDisc, generateTorus, uploadMesh, uploadMeshWithUV } from '../shared/primitive-geometry.js';
 import { buildDetailedRollerMesh, poleTintColor, isNorthPole } from '../../seg-roller-model.js';
 import { computeSEGLayout, SEG_LAYOUT_PRESETS } from '../../seg-layout.js';
 import { computeFrameDimensions, parseSegFrameLevel } from '../../seg-frame-model.js';
+import {
+  buildHeronInstances,
+  buildKelvinInstances,
+  buildKelvinRingInstances,
+  buildSolarLedInstances,
+  buildSolarBatteryInstance,
+  buildSolarPanelInstance,
+} from '../../device-mesh-layouts.js';
 
 /** Instance record: vec3 position + vec4 rgba — 28 bytes (matches MESH_VERT a_instanceColor). */
 const INSTANCE_STRIDE_FLOATS = 7;
@@ -29,6 +37,9 @@ export class MeshRenderer {
     ]);
 
     this.cylinder = uploadMesh(gl, generateCylinder(0.35, 0.9, 20));
+    this.deviceCylinder = uploadMesh(gl, generateCylinder(0.8, 2.5, 32));
+    this.kelvinRing = uploadMesh(gl, generateTorus(1.0, 0.14, 32, 12));
+    this.solarPanel = uploadMesh(gl, generateDisc(0.05, 5.5, 0.06, 48));
     this.disc = uploadMesh(gl, generateDisc(2.0, 2.6, 0.15, 48));
     this.statorDisc = uploadMesh(gl, generateDisc(2.2, 2.5, 0.08, 48));
     this.detailedRoller = uploadMeshWithUV(gl, buildDetailedRollerMesh());
@@ -306,6 +317,78 @@ export class MeshRenderer {
           [0.50, 0.54, 0.60], 0.82, 0.35
         );
       }
+    }
+  }
+
+  /**
+   * Draw Heron / Kelvin / Solar structural geometry (WebGL2 fallback).
+   */
+  drawAlternateDevice(viewProj, devicePos, deviceId, opts = {}) {
+    const gl = this.gl;
+    let instances = [];
+    let mesh = this.deviceCylinder;
+    let extraDraws = [];
+
+    if (deviceId === 'heron') {
+      instances = buildHeronInstances();
+    } else if (deviceId === 'kelvin') {
+      instances = buildKelvinInstances();
+      extraDraws.push({
+        mesh: this.kelvinRing,
+        instances: buildKelvinRingInstances(),
+        emissive: 0.35
+      });
+    } else if (deviceId === 'solar') {
+      instances = [...buildSolarLedInstances(), ...buildSolarBatteryInstance()];
+      extraDraws.push({
+        mesh: this.solarPanel,
+        instances: buildSolarPanelInstance(),
+        emissive: 0.08,
+        scale: [1, 1, 1]
+      });
+    } else {
+      return;
+    }
+
+    const drawSet = (m, instList, emissive = 0.1) => {
+      const flat = instList.flat();
+      const count = flat.length / 12;
+      const instanceData = new Float32Array(count * INSTANCE_STRIDE_FLOATS);
+      for (let i = 0; i < count; i++) {
+        const base = i * 12;
+        const pos = [flat[base], flat[base + 1], flat[base + 2]];
+        const rgb = [flat[base + 8], flat[base + 9], flat[base + 10]];
+        const em = flat[base + 11] + emissive;
+        this._packInstance(instanceData, i, pos, rgb, em);
+      }
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, instanceData, gl.DYNAMIC_DRAW);
+
+      gl.useProgram(this.program);
+      gl.uniformMatrix4fv(this.locs.u_viewProj, false, viewProj);
+      gl.uniformMatrix4fv(this.locs.u_model, false, new Float32Array(16).fill(0).map((_, i) => (i % 5 === 0 ? 1 : 0)));
+      gl.uniform3fv(this.locs.u_devicePos, devicePos);
+      this._applyLighting(this.locs, this.program);
+      gl.uniform3fv(this.locs.u_cameraPos, opts.cameraPos || [0, 8, 18]);
+      gl.uniform1f(this.locs.u_emissive, emissive);
+      gl.uniform1f(this.locs.u_metallic, deviceId === 'solar' ? 0.35 : 0.72);
+      gl.uniform1f(this.locs.u_roughness, deviceId === 'heron' ? 0.28 : 0.42);
+      gl.uniform1f(this.locs.u_wireframe, opts.wireframe ? 1 : 0);
+      gl.uniform1f(this.locs.u_debugMode, opts.debugMode || 0);
+
+      gl.bindVertexArray(m.vao);
+      this._bindInstanceAttribs(buf);
+      gl.drawElementsInstanced(gl.TRIANGLES, m.indexCount, gl.UNSIGNED_SHORT, 0, count);
+      gl.vertexAttribDivisor(2, 0);
+      gl.vertexAttribDivisor(3, 0);
+      gl.bindVertexArray(null);
+      gl.deleteBuffer(buf);
+    };
+
+    drawSet(mesh, instances, deviceId === 'solar' ? 0.2 : 0.12);
+    for (const extra of extraDraws) {
+      drawSet(extra.mesh, extra.instances, extra.emissive);
     }
   }
 }

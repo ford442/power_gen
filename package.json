@@ -10,7 +10,7 @@
     "build": "npm run wasm:build && vite build",
     "build_colab": "npm run wasm:build_colab && vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && python deploy.py",
+    "deploy": "npm run build:site && python deploy.py",
     "wasm:build": "cd /root/emsdk && . ./emsdk_env.sh && cd /root/power_gen/cpp && make wasm",
     "wasm:build_colab": "cd /content/build_space/emsdk && . ./emsdk_env.sh && cd /content/build_space/power_gen/cpp && make wasm",
     "wasm:build-debug": "cd cpp && make wasm-dbg",
@@ -27,5 +27,24 @@
   "devDependencies": {
     "typescript": "^5.9.3",
     "vite": "^5.0.0"
-  }
+  },
+  "directories": {
+    "doc": "docs"
+  },
+  "dependencies": {
+    "esbuild": "^0.21.5",
+    "nanoid": "^3.3.11",
+    "picocolors": "^1.1.1",
+    "postcss": "^8.5.8",
+    "rollup": "^4.59.0",
+    "source-map-js": "^1.2.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ford442/power_gen.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ford442/power_gen/issues"
+  },
+  "homepage": "https://github.com/ford442/power_gen#readme"
 }

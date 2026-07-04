@@ -69,10 +69,12 @@ export function getParticleVertShader() {
           let k = (cycleT - 0.82) / 0.18;
           return vec3f(side * 2.5 * (1.0 - k * 1.9), -3.2 + k * 1.4, 0.0);
         } else if (mode < 3.5) {
-          let angle = fract(phase + t * 0.2) * 6.28318;
-          let radius = 2.8 + fract(phase * 37.0) * 0.9;
-          let y = 3.1 + sin(t * 1.3 + phase * 17.0) * 0.25;
-          return vec3f(cos(angle) * radius, y, sin(angle) * radius);
+          let ledIdx = floor(fract(phase * 71.0) * 6.0);
+          let angle = (ledIdx / 6.0) * 6.28318;
+          let ledPos = vec3f(cos(angle) * 2.8, 3.5, sin(angle) * 2.8);
+          let u = fract(t * 0.22 + phase);
+          let panel = vec3f((fract(phase * 37.0) - 0.5) * 5.0, 0.12, (fract(phase * 23.0) - 0.5) * 5.0);
+          return mix(ledPos, panel, min(u * 1.05, 1.0));
         }
         let z = (phase * 2.0 - 1.0) * 3.0;
         let y = sin(t * 2.0 + phase * 11.0) * 0.8;
@@ -271,11 +273,13 @@ export function getParticleFragShader() {
           alpha = strand + haze;
           color = vec3f(0.7, 0.9, 1.0) + vec3f(0.25, 0.0, 0.45) * (0.5 + 0.5 * sin(t * 17.0 + phase * 29.0));
         } else if (effectType > 1.5 && effectType < 2.5) {
-          // Corona: broad soft additive sheath.
-          let shell = exp(-dist * dist * 2.6);
-          let core = exp(-dist * dist * 10.0) * 0.35;
-          alpha = (shell + core) * (0.45 + 0.55 * (0.5 + 0.5 * sin(t * 9.0 + phase * 11.0))) * (0.75 + overdrive);
-          color = mix(vec3f(0.15, 0.7, 1.0), vec3f(0.65, 0.95, 1.0), input.life);
+          // Corona: broad soft additive sheath (layered green plasma).
+          let shell = exp(-dist * dist * 2.2);
+          let core = exp(-dist * dist * 9.0) * 0.42;
+          let flicker = 0.5 + 0.5 * sin(t * 11.0 + phase * 13.0);
+          alpha = (shell * 0.85 + core) * flicker * (0.65 + overdrive * 0.9);
+          color = mix(vec3f(0.12, 0.82, 0.48), vec3f(0.55, 1.0, 0.92), input.life);
+          color += vec3f(0.08, 0.45, 0.95) * shell * 0.35;
         } else if (effectType > 0.5 && effectType < 1.5) {
           // Spark bursts: sharper, elongated, dangerous look.
           let line = exp(-abs(uv.x) * 8.0) * exp(-abs(uv.y) * 2.2);
@@ -292,9 +296,12 @@ export function getParticleFragShader() {
           alpha = (core + halo) * 2.2;
         
           if (mode < 0.5) {
-            // SEG: cyan / electric-blue magnetic field lines
-            let pulse = 0.6 + 0.4 * sin(t * 5.0 + phase * 6.28);
-            color = mix(vec3f(0.0, 0.65, 1.0), vec3f(0.3, 1.0, 0.85), pulse);
+            // SEG: spiral flux particles — cyan core + green magnetic fringe
+            let pulse = 0.55 + 0.45 * sin(t * 5.0 + phase * 6.28);
+            let magFringe = 0.5 + 0.5 * sin(phase * 12.56 + t * 2.5);
+            color = mix(vec3f(0.0, 0.55, 1.0), vec3f(0.25, 1.0, 0.62), pulse);
+            color += vec3f(0.05, 0.35, 0.18) * magFringe * energy;
+            alpha *= 0.85 + energy * 0.55 + overdrive * 0.35;
           } else if (mode < 1.5) {
             // Heron: blue water droplets with slight white specular centre
             let h = clamp(input.uv.y * 0.5 + 0.5, 0.0, 1.0);

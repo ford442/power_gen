@@ -3,7 +3,7 @@
 ## Project Overview
 This project is a real-time WebGPU simulation of the Searl Effect Generator (SEG) with extensible architecture for future additions like Heron's Fountain and Kelvin's Thunderstorm.
 
-**Live Demo:** https://ford442.github.io/seg-webgpu-visualizer/
+**Live Demo:** https://ford442.github.io/power_gen/
 
 ## Key Features
 - Multi-device layout: SEG, Heron, Kelvin, Solar, Peltier, MHD (6 `DeviceInstance`s)
@@ -153,7 +153,7 @@ Vite will:
 git push origin main
 ```
 - Triggered by `.github/workflows/static.yml`
-- Builds and deploys to: https://ford442.github.io/seg-webgpu-visualizer/
+- Builds and deploys to: https://ford442.github.io/power_gen/
 
 ### Manual SFTP Deployment to 1ink.us
 ```bash
@@ -322,4 +322,4 @@ ls dist/
 
 ## Contact & Resources
 - Repository: https://github.com/ford442/power_gen
-- Live Demo: https://ford442.github.io/seg-webgpu-visualizer/
+- Live Demo: https://ford442.github.io/power_gen/

@@ -168,7 +168,9 @@ export function getRollerFragShader() {
         if (renderMode == 2) { return MAT_ALUMINUM; }  // SEG stator rings
         if (renderMode == 3) { return 0u; }  // Wiring copper
         if (ringIndex < -0.5) { return 1u; } // Shaft
-        if (ringIndex > 10.0) { return MAT_ALUMINUM; } // Outer ring
+        if (ringIndex > 99.0 && ringIndex < 101.0) { return 10u; } // Kelvin induction ring
+        if (ringIndex > 199.0 && ringIndex < 201.0) { return 7u; } // Solar panel
+        if (ringIndex > 10.0) { return MAT_ALUMINUM; } // Structural plate
         return 0u;
       }
 
@@ -237,11 +239,30 @@ export function getRollerFragShader() {
           let dripTip = smoothstep(0.86, 0.90, cylUV.y) * (1.0 - smoothstep(0.95, 0.99, cylUV.y));
           baseColor = mix(baseColor, vec3f(0.78, 0.82, 0.88), dripTip * (0.35 + energy * 0.45));
         } else if (mode == 3) {
-          let lens = sin(cylUV.x * 180.0) * sin(cylUV.y * 160.0);
-          detailN = normalize(detailN + vec3f(0.0, lens * 0.14, 0.0));
-          baseColor += vec3f(0.05, 0.08, 0.11) * (lens * 0.5 + 0.5);
-          let thermalGradient = clamp(cylUV.y * 1.15 - 0.1, 0.0, 1.0);
-          baseColor = mix(baseColor, vec3f(0.35, 0.16, 0.08), thermalGradient * device.batteryCharge * 0.33);
+          if (input.ringIndex > 199.0 && input.ringIndex < 201.0) {
+            // Solar panel: grid cells + anti-reflection sheen
+            let grid = fract(cylUV * vec2f(24.0, 24.0));
+            let cell = step(0.88, grid.x) + step(0.88, grid.y);
+            let sheen = pow(1.0 - NdotV, 3.0);
+            baseColor = mix(vec3f(0.06, 0.10, 0.18), vec3f(0.12, 0.18, 0.28), cell * 0.35);
+            baseColor += vec3f(0.15, 0.25, 0.45) * sheen * (0.2 + device.batteryCharge * 0.5);
+            metallic = 0.35;
+            roughness = 0.22;
+          } else if (input.ringIndex > 99.0 && input.ringIndex < 101.0) {
+            // Kelvin torus ring: copper induction glow
+            let pulse = 0.5 + 0.5 * sin(uniforms.time * 5.0 + localPos.y * 3.0);
+            baseColor = mix(vec3f(0.85, 0.52, 0.22), vec3f(1.0, 0.72, 0.35), pulse * energy);
+            metallic = 0.88;
+            roughness = 0.18;
+          } else {
+            let lens = sin(cylUV.x * 180.0) * sin(cylUV.y * 160.0);
+            detailN = normalize(detailN + vec3f(0.0, lens * 0.14, 0.0));
+            baseColor += vec3f(0.05, 0.08, 0.11) * (lens * 0.5 + 0.5);
+            let thermalGradient = clamp(cylUV.y * 1.15 - 0.1, 0.0, 1.0);
+            baseColor = mix(baseColor, vec3f(0.35, 0.16, 0.08), thermalGradient * device.batteryCharge * 0.33);
+            baseColor = mix(baseColor, input.copperColor, 0.55);
+            baseColor += input.copperColor * input.greenEmissive * 0.85;
+          }
         } else if (mode == 4) {
           let grid = fract(cylUV * vec2f(18.0, 10.0));
           let junction = step(0.92, grid.x) + step(0.92, grid.y);

@@ -2,6 +2,7 @@ import { DeviceGeometry } from './device-geometry.js';
 import { DevicePipelineManager } from './device-pipeline-manager.js';
 import { DeviceUniformManager } from './device-uniforms.js';
 import { DeviceComputeManager } from './device-compute.js';
+import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts.js';
 
 import { DeviceSetupMixin } from './devices/device-setup.js';
 import { DeviceRenderMixin } from './devices/device-render.js';
@@ -29,6 +30,7 @@ export class DeviceInstance {
     this.setupEffectsParticles = DeviceSetupMixin.setupEffectsParticles.bind(this);
     this.render = DeviceRenderMixin.render.bind(this);
     this.renderBase = DeviceRenderMixin.renderBase.bind(this);
+    this.renderDeviceMesh = DeviceRenderMixin.renderDeviceMesh.bind(this);
     this.renderStatorRings = DeviceRenderMixin.renderStatorRings.bind(this);
     this.renderWiring = DeviceRenderMixin.renderWiring.bind(this);
     this.renderCore = DeviceRenderMixin.renderCore.bind(this);
@@ -174,6 +176,8 @@ export class DeviceInstance {
       await this.setupRollerCompute();
       await this.setupFieldAdvect();
       await this.setupFluxLineTracer();
+    } else if (DEVICE_MESH_LAYOUTS[this.id]) {
+      await this.geometry.initializeDeviceMesh();
     }
   }
 

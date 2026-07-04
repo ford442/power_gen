@@ -215,7 +215,7 @@ export function getSegEnhancedFragShader() {
         }
       }
 
-      fn rollerCapShading(localPos: vec3f, energy: f32, lab: bool) -> RollerSurface {
+      fn rollerCapShading(localPos: vec3f, energy: f32, lab: bool, poleTint: vec3f) -> RollerSurface {
         let radial = length(localPos.xz) / ROLLER_RADIUS;
         var layerId: u32 = 3u;
         if (radial < LAYER_R1) { layerId = 0u; }
@@ -233,6 +233,18 @@ export function getSegEnhancedFragShader() {
         let layerOffset = vec3f(f32(layerId + 1u) * 7.31, radial * 11.73, 0.0);
         let brushed = fbm(localPos * 4.5 + layerOffset);
         surf.color *= 0.90 + brushed * 0.12;
+
+        // N/S pole wedge markers on end faces (educational)
+        let theta = atan2(localPos.z, localPos.x);
+        let warm = dot(normalize(poleTint + vec3f(0.001)), vec3f(0.88, 0.58, 0.38));
+        let isNorth = warm > 0.62;
+        let markCenter = select(PI, 0.0, isNorth);
+        let dAng = abs(atan2(sin(theta - markCenter), cos(theta - markCenter)));
+        let wedge = smoothstep(0.42, 0.18, dAng) * smoothstep(LAYER_R1 * 0.9, LAYER_R3, radial);
+        let nTint = vec3f(1.0, 0.58, 0.32);
+        let sTint = vec3f(0.38, 0.48, 0.78);
+        surf.color = mix(surf.color, select(sTint, nTint, isNorth), wedge * 0.55);
+        if (wedge > 0.5) { surf.emissive = max(surf.emissive, 0.12 * energy); }
         return surf;
       }
 
@@ -247,11 +259,14 @@ export function getSegEnhancedFragShader() {
                        yRel > ROLLER_GROOVE_WIDTH && yRel < ROLLER_HEIGHT - ROLLER_GROOVE_WIDTH;
 
         let theta = atan2(localPos.z, localPos.x);
-        let poleBand = step(0.0, cos(theta));
+        let poleBand = cos(theta * 2.0);
         let northColor = select(vec3f(0.92, 0.58, 0.35), vec3f(0.78, 0.80, 0.82), lab);
         let southColor = select(vec3f(0.38, 0.45, 0.68), vec3f(0.48, 0.50, 0.54), lab);
-        var baseColor = mix(southColor, northColor, poleBand);
-        baseColor = mix(baseColor, poleTint, 0.45);
+        var baseColor = mix(southColor, northColor, smoothstep(-0.15, 0.15, poleBand));
+        baseColor = mix(baseColor, poleTint, 0.55);
+        // Visible N/S stripe on barrel equator
+        let stripe = smoothstep(0.92, 0.98, abs(sin(theta * 4.0 + yRel * 0.4)));
+        baseColor = mix(baseColor, mix(northColor, southColor, step(0.0, poleBand)), stripe * 0.35);
 
         var surf: RollerSurface;
         surf.color = baseColor;
@@ -321,7 +336,7 @@ export function getSegEnhancedFragShader() {
                             radial > ROLLER_RADIUS * 1.006 && abs(input.normal.y) < 0.85;
 
         if (renderMode == 0 && isCap) {
-          let cap = rollerCapShading(localPos, energy, lab);
+          let cap = rollerCapShading(localPos, energy, lab, input.copperColor);
           baseColor = cap.color; metallic = cap.metallic; roughness = cap.roughness; emissive = cap.emissive;
         } else if (renderMode == 0 && isShaft) {
           baseColor = vec3f(0.68, 0.70, 0.73); metallic = 0.97; roughness = 0.14;
@@ -396,6 +411,10 @@ export function getSegEnhancedFragShader() {
         }
         let energyArc = smoothstep(0.65, 1.0, input.greenEmissive) * (0.20 + overdrive * 0.65);
         color += vec3f(0.3, 0.8, 1.0) * energyArc * NdotV;
+
+        // Layered corona halo (rim-weighted, energy-driven)
+        let coronaHalo = pow(1.0 - NdotV, 3.5) * (energy * 0.55 + input.greenEmissive * 0.85);
+        color += vec3f(0.06, 0.92, 0.42) * coronaHalo * (0.35 + overdrive * 0.55);
 
         let contactAO = 0.52 + 0.48 * smoothstep(0.0, 2.4, abs(input.worldPos.y - devicePos.y));
         color *= contactAO;

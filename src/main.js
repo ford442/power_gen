@@ -1165,6 +1165,7 @@ window.addEventListener('load', () => {
     } catch (e) {
       console.warn('[main] SEG 2D diagram init failed:', e);
     }
+    // 3D annotations are initialized by MultiDeviceVisualizer; expose hint only.
 
     const anomalyToggle = document.getElementById('anomalyToggle');
     const v = window.multiVisualizer;

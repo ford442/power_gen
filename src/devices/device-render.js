@@ -15,6 +15,60 @@ export const DeviceRenderMixin = {
     });
   },
 
+  _rollerBindGroup: function (globalUniformBuffer, instanceBuffer) {
+    return this.device.createBindGroup({
+      layout: this.rollerPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: instanceBuffer } },
+        { binding: 3, resource: { buffer: this.materialUniformBuffer } },
+        { binding: 5, resource: { buffer: this.visualizer.materialTableBuffer } }
+      ]
+    });
+  },
+
+  renderDeviceMesh: function (renderPass, globalUniformBuffer) {
+    const v = this.visualizer;
+    if (!v.cylinderBuffer || !this.rollerPipeline || !this.rollerInstances) return;
+
+    this.renderMode = 0;
+    const deviceData = this._buildDeviceUniformData(this.renderMode);
+    this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
+
+    const cyl = v.cylinderBuffer;
+    const count = this.geometry.meshCylinderCount || 0;
+    if (count > 0) {
+      renderPass.setPipeline(this.rollerPipeline);
+      renderPass.setBindGroup(0, this._rollerBindGroup(globalUniformBuffer, this.rollerInstances));
+      renderPass.setVertexBuffer(0, cyl.vertexBuffer);
+      renderPass.setIndexBuffer(cyl.indexBuffer, 'uint16');
+      renderPass.drawIndexed(cyl.indexCount, count);
+    }
+
+    if (this.id === 'kelvin' && this.geometry.ringInstances && v.kelvinRingBuffer) {
+      const ring = v.kelvinRingBuffer;
+      const ringCount = this.geometry.meshRingCount || 0;
+      if (ringCount > 0) {
+        renderPass.setBindGroup(0, this._rollerBindGroup(globalUniformBuffer, this.geometry.ringInstances));
+        renderPass.setVertexBuffer(0, ring.vertexBuffer);
+        renderPass.setIndexBuffer(ring.indexBuffer, 'uint16');
+        renderPass.drawIndexed(ring.indexCount, ringCount);
+      }
+    }
+
+    if (this.id === 'solar' && this.geometry.panelInstances && v.solarPanelBuffer) {
+      const panel = v.solarPanelBuffer;
+      const panelCount = this.geometry.meshPanelCount || 0;
+      if (panelCount > 0) {
+        renderPass.setBindGroup(0, this._rollerBindGroup(globalUniformBuffer, this.geometry.panelInstances));
+        renderPass.setVertexBuffer(0, panel.vertexBuffer);
+        renderPass.setIndexBuffer(panel.indexBuffer, 'uint16');
+        renderPass.drawIndexed(panel.indexCount, panelCount);
+      }
+    }
+  },
+
   render: function (renderPass, globalUniformBuffer, skipEffects = false) {
     const scaledCount = Math.floor(this.particleCount * this.visualizer.profiler.qualityLevel);
 
@@ -48,6 +102,11 @@ export const DeviceRenderMixin = {
     // Render pickup coils (outside the roller ring)
     if (this.id === 'seg' && !skipEffects) {
       this.renderPickupCoils(renderPass, globalUniformBuffer);
+    }
+
+    // Heron / Kelvin / Solar structural meshes (instanced cylinders + extras)
+    if (this.id !== 'seg' && this.rollerInstances && this.rollerPipeline) {
+      this.renderDeviceMesh(renderPass, globalUniformBuffer);
     }
 
     // Render wire harnesses between coils
@@ -108,7 +167,7 @@ export const DeviceRenderMixin = {
       coilMaterialBuffer.destroy();
     }
 
-    // Render battery gauge (solar device only)
+    // Battery gauge (solar device only) — drawn after panel so it sits on top
     if (this.id === 'solar' && this.gaugeInstanceBuffer) {
       const gaugeBindGroup = this.device.createBindGroup({
         layout: this.rollerPipeline.getBindGroupLayout(0),
@@ -176,6 +235,21 @@ export const DeviceRenderMixin = {
         renderPass.setBindGroup(0, arcBindGroup);
         renderPass.draw(4, arcCount * 2);
       }
+    }
+
+    // Device-specific flow paths (siphon / electrostatic / photon beams)
+    if (this.geometry.flowPathParticles && this.fieldLinePipeline && !skipEffects) {
+      const flowBindGroup = this.device.createBindGroup({
+        layout: this.fieldLinePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: globalUniformBuffer } },
+          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+          { binding: 4, resource: { buffer: this.geometry.flowPathParticles } }
+        ]
+      });
+      renderPass.setPipeline(this.fieldLinePipeline);
+      renderPass.setBindGroup(0, flowBindGroup);
+      renderPass.draw(4, this.geometry.flowPathCount);
     }
 
     const particleBindGroup = this.device.createBindGroup({

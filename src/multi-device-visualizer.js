@@ -38,6 +38,9 @@ import {
   packPostUniforms
 } from './seg-lighting-presets.js';
 import { segOperator } from './seg-operator-state.js';
+import { initSEGAnnotations } from './seg-annotations.js';
+import { generateTorus } from './renderers/shared/primitive-geometry.js';
+import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts.js';
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -195,6 +198,12 @@ export class MultiDeviceVisualizer {
       this.render(0);
 
       window.runSEGSpeedTest = (speeds, durationMs) => this.runSpeedTest(speeds, durationMs);
+
+      try {
+        this.segAnnotations = initSEGAnnotations(() => this);
+      } catch (e) {
+        console.warn('[MultiDeviceVisualizer] SEG annotations init failed:', e);
+      }
 
       window.addEventListener('resize', () => this._syncCanvasSize());
       this._observeCanvasLayout();
@@ -395,12 +404,39 @@ export class MultiDeviceVisualizer {
       { from: 'seg', to: 'mhd', speed: 1.6 },
       { from: 'mhd', to: 'peltier', speed: 2.0 }
     ];
-    
+
     for (const config of pipeConfigs) {
-      const pipe = new EnergyPipe(this.device, config);
+      const pipe = new EnergyPipe(this.device, config, this);
       await pipe.init();
       this.energyPipes.push(pipe);
     }
+    await this.setupEnergyPipePipeline();
+  }
+
+  async setupEnergyPipePipeline() {
+    const depthFormat = this.webgpu.depthFormat || 'depth24plus-stencil8';
+    this.energyPipePipeline = this.device.createRenderPipeline({
+      label: 'energyPipePipeline',
+      layout: 'auto',
+      vertex: {
+        module: this.device.createShaderModule({ code: this.shaders.energyPipeVertShader }),
+        entryPoint: 'main',
+        buffers: []
+      },
+      fragment: {
+        module: this.device.createShaderModule({ code: this.shaders.energyPipeFragShader }),
+        entryPoint: 'main',
+        targets: [{
+          format: this.context.getCurrentTexture().format,
+          blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
+          }
+        }]
+      },
+      primitive: { topology: 'triangle-strip' },
+      depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
+    });
   }
   
   generateCylinder(radius, height, segments) {
@@ -669,6 +705,7 @@ export class MultiDeviceVisualizer {
 
     // Per-device hooks — never call undefined builders (peltier/mhd are compute-only).
     for (const [deviceId, config] of Object.entries(DEVICE_CONFIG)) {
+      if (DEVICE_MESH_LAYOUTS[deviceId]) continue;
       const targetBuilderName = `build${deviceId.toUpperCase()}Geometry`;
       const builderMethod = this[targetBuilderName];
 
@@ -680,7 +717,56 @@ export class MultiDeviceVisualizer {
       }
     }
 
+    await this._setupAlternateDeviceSharedMeshes();
     await this._setupCoreSEGSharedMeshes();
+  }
+
+  /**
+   * Shared cylinder / torus / disc meshes for Heron, Kelvin, and Solar devices.
+   */
+  async _setupAlternateDeviceSharedMeshes() {
+    const cylData = this.generateCylinder(0.8, 2.5, 64);
+    const cylVB = this.device.createBuffer({
+      size: cylData.vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(cylVB, 0, cylData.vertices);
+    const cylIB = this.device.createBuffer({
+      size: cylData.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(cylIB, 0, cylData.indices);
+    this.cylinderBuffer = { vertexBuffer: cylVB, indexBuffer: cylIB, indexCount: cylData.indices.length };
+    this.profiler.trackBuffer('shared-cylinder-vertices', cylData.vertices.byteLength, GPUBufferUsage.VERTEX);
+    this.profiler.trackBuffer('shared-cylinder-indices', cylData.indices.byteLength, GPUBufferUsage.INDEX);
+
+    const torusData = generateTorus(1.0, 0.14, 48, 14);
+    const torusVB = this.device.createBuffer({
+      size: torusData.vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(torusVB, 0, torusData.vertices);
+    const torusIB = this.device.createBuffer({
+      size: torusData.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(torusIB, 0, torusData.indices);
+    this.kelvinRingBuffer = { vertexBuffer: torusVB, indexBuffer: torusIB, indexCount: torusData.indices.length };
+    this.profiler.trackBuffer('kelvin-ring-vertices', torusData.vertices.byteLength, GPUBufferUsage.VERTEX);
+
+    const panelData = this.generateDisc(0.05, 5.5, 0.06, 64);
+    const panelVB = this.device.createBuffer({
+      size: panelData.vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(panelVB, 0, panelData.vertices);
+    const panelIB = this.device.createBuffer({
+      size: panelData.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(panelIB, 0, panelData.indices);
+    this.solarPanelBuffer = { vertexBuffer: panelVB, indexBuffer: panelIB, indexCount: panelData.indices.length };
+    this.profiler.trackBuffer('solar-panel-vertices', panelData.vertices.byteLength, GPUBufferUsage.VERTEX);
   }
 
   /**
@@ -1357,6 +1443,7 @@ export class MultiDeviceVisualizer {
 
     // Update tachometer overlay
     this._updateTachometer();
+    this._updateDeviceTelemetry();
 
     // Update hardware bridge comms (send phase commands, parse sensor data)
     if (this.hardwareBridge?.isConnected) {
@@ -1471,6 +1558,10 @@ export class MultiDeviceVisualizer {
       }
     }
 
+    for (const pipe of this.energyPipes) {
+      pipe.update(deltaTime, this.devices, this.time);
+    }
+
     const enabledDevices = Object.values(this.devices).filter((d) => this.devicesEnabled[d.id]);
     const targetGlobalEnergy = enabledDevices.length
       ? enabledDevices.reduce((sum, d) => sum + (d.energyLevel || 0), 0) / enabledDevices.length
@@ -1478,6 +1569,10 @@ export class MultiDeviceVisualizer {
     const globalSmooth = 1.0 - Math.exp(-Math.max(0.0, deltaTime) * 10.0);
     this.globalEnergyLevel += (targetGlobalEnergy - this.globalEnergyLevel) * globalSmooth;
     this._uploadSkyUniforms(this.globalEnergyLevel);
+
+    if (this.segAnnotations?.enabled) {
+      this.segAnnotations.update();
+    }
     
     // Begin command encoding
     const encoder = this.device.createCommandEncoder();
@@ -1506,18 +1601,6 @@ export class MultiDeviceVisualizer {
 
     for (const device of Object.values(this.devices)) {
       if (this.devicesEnabled[device.id] && device.computePipeline && device.computeBindGroup) {
-        // Write compute uniforms: time, mode, particleCount, speedMult
-        const modeIndex = device.id === 'heron' ? 1.0 : (device.id === 'kelvin' ? 2.0 : (device.id === 'solar' ? 3.0 : (device.id === 'peltier' ? 4.0 : (device.id === 'mhd' ? 5.0 : 0.0))));
-        const computeUniforms = new Float32Array([
-          this.time,
-          modeIndex,
-          device.scaledParticleCount || device.particleCount,
-          device.id === 'seg'
-            ? (device.speedMult || 1.0) * (0.15 + 0.85 * (this.segOmega || 0))
-            : (device.speedMult || 1.0)
-        ]);
-        this.device.queue.writeBuffer(device.computeUniformBuffer, 0, computeUniforms);
-        
         computePass.setPipeline(device.computePipeline);
         computePass.setBindGroup(0, device.computeBindGroup);
         const workgroups = Math.ceil((device.scaledParticleCount || device.particleCount) / 64);
@@ -1569,8 +1652,8 @@ export class MultiDeviceVisualizer {
     const scaledQuality = this.profiler.qualityLevel;
     for (const device of Object.values(this.devices)) {
       if (this.devicesEnabled[device.id]) {
-        // Skip expensive SEG VFX (field lines, arcs, flux) at low quality — keep core mesh visible.
-        const skipEffects = scaledQuality < 0.5 && device.id === 'seg';
+        // Skip expensive VFX at low quality — keep core meshes visible.
+        const skipEffects = scaledQuality < 0.5;
         device.render(renderPass, this.globalUniformBuffer, skipEffects);
       }
     }
@@ -1578,6 +1661,13 @@ export class MultiDeviceVisualizer {
     // Roschin–Godin magnetic wall shells (drawn after SEG so they overlay the scene).
     if (segDevice && this.devicesEnabled['seg']) {
       this.renderAnomalyWalls(renderPass, this.globalUniformBuffer, segDevice);
+    }
+
+    // Energy transfer pipes between devices (world-space Bézier arcs).
+    if (this.energyPipePipeline && scaledQuality > 0.35) {
+      for (const pipe of this.energyPipes) {
+        pipe.render(renderPass, this.globalUniformBuffer, this.energyPipePipeline);
+      }
     }
 
     renderPass.end();
@@ -1599,7 +1689,8 @@ export class MultiDeviceVisualizer {
         const w = this.canvas.width || 1;
         const h = this.canvas.height || 1;
         const speedEnergy = Math.min(1.0, this.simRateController.speedMult / 20.0);
-        const energy = Math.min(1.0, Math.max(speedEnergy, this.globalEnergyLevel));
+        const coronaBoost = (this.corona || 0) * 0.4;
+        const energy = Math.min(1.0, Math.max(speedEnergy, this.globalEnergyLevel) + coronaBoost);
         const motionBlur = smoothstep(7.0, 20.0, this.simRateController.speedMult) * 0.12;
         const preset = {
           ...this.postPreset,
@@ -1724,7 +1815,11 @@ export class MultiDeviceVisualizer {
    * Focuses the camera on the named device, matching the single-device API.
    */
   onModeChange(mode) {
+    this.currentView = mode;
     if (this.cameraController) this.cameraController.focusOnDevice(mode);
+    document.querySelectorAll('.mode-btn').forEach((btn) => btn.classList.remove('active'));
+    const activeBtn = document.getElementById(`btn-${mode}`);
+    if (activeBtn) activeBtn.classList.add('active');
   }
 
   /** Adjust SEG particle count from the operator panel slider */
@@ -1753,6 +1848,57 @@ export class MultiDeviceVisualizer {
     if (label) {
       label.textContent = `${src.speedMult.toFixed(2)}×`;
       label.style.color = `hsl(${src.tachHue}, 100%, 65%)`;
+    }
+  }
+
+  /** Footer + panel hints for alternate device physics (Heron head, Kelvin V, solar battery). */
+  _updateDeviceTelemetry() {
+    const modeFooter = document.getElementById('modeFooter');
+    const batteryFooter = document.getElementById('batteryFooter');
+    const view = this.currentView || 'overview';
+    const modeLabels = {
+      seg: 'SEG',
+      heron: "Heron's Fountain",
+      kelvin: "Kelvin's Thunderstorm",
+      solar: 'LEDs + Solar',
+      overview: 'Multi-Device Overview'
+    };
+    if (modeFooter) modeFooter.textContent = modeLabels[view] || view.toUpperCase();
+
+    const heron = this.devices.heron;
+    const kelvin = this.devices.kelvin;
+    const solar = this.devices.solar;
+    const ps = (d) => d?.physicsState;
+
+    if (batteryFooter) {
+      if (view === 'heron' && ps(heron)) {
+        const head = ps(heron).heronHead;
+        const vmax = ps(heron).heronHeadMax;
+        batteryFooter.textContent = `Head ${head.toFixed(2)} m · v_exit ${ps(heron).heronVExit.toFixed(2)}`;
+      } else if (view === 'kelvin' && ps(kelvin)) {
+        const vn = ps(kelvin).kelvinVoltageN;
+        const spark = ps(kelvin).kelvinSparkTimer > 0 ? ' ⚡' : '';
+        batteryFooter.textContent = `V ${(vn * ps(kelvin).kelvinVbreak).toFixed(0)} V (${(vn * 100).toFixed(0)}%)${spark}`;
+      } else if (view === 'solar' && solar) {
+        batteryFooter.textContent = `${Math.round((solar.batteryCharge || 0) * 100)}%`;
+      } else if (solar) {
+        batteryFooter.textContent = `${Math.round((solar.batteryCharge || 0) * 100)}%`;
+      } else {
+        batteryFooter.textContent = '—';
+      }
+    }
+
+    const voltageEl = document.getElementById('voltage');
+    if (voltageEl && view === 'kelvin' && ps(kelvin)) {
+      voltageEl.textContent = `${(ps(kelvin).kelvinVoltageN * ps(kelvin).kelvinVbreak).toFixed(1)} V`;
+    }
+
+    const efficiencyEl = document.getElementById('efficiency');
+    if (efficiencyEl && view === 'heron' && ps(heron)) {
+      const pct = Math.min(100, (ps(heron).heronVExit / 8) * 100);
+      efficiencyEl.textContent = `${pct.toFixed(1)}%`;
+      const bar = document.getElementById('efficiency-bar');
+      if (bar) bar.style.width = `${pct}%`;
     }
   }
 

@@ -127,6 +127,32 @@ export class DevicePipelineManager {
       });
     }
 
+    // Device flow-path billboards (Heron siphon / Kelvin field / Solar photons)
+    if (['heron', 'kelvin', 'solar'].includes(this.id)) {
+      this.fieldLinePipeline = this.device.createRenderPipeline({
+        label: `fieldLinePipeline-${this.id}`,
+        layout: 'auto',
+        vertex: {
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.fieldLineVertShader }),
+          entryPoint: 'main',
+          buffers: []
+        },
+        fragment: {
+          module: this.device.createShaderModule({ code: this.visualizer.shaders.fieldLineFragShader }),
+          entryPoint: 'main',
+          targets: [{
+            format: this.visualizer.context.getCurrentTexture().format,
+            blend: {
+              color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+              alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
+            }
+          }]
+        },
+        primitive: { topology: 'triangle-strip' },
+        depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
+      });
+    }
+
   }
 
   async setupComputePipeline() {

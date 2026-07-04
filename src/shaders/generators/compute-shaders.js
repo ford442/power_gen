@@ -5,6 +5,10 @@ export function getComputeShader() {
         mode: f32,
         particleCount: f32,
         speedMult: f32,
+        physics0: f32,
+        physics1: f32,
+        physics2: f32,
+        physics3: f32,
       }
 
       @binding(0) @group(0) var<storage, read_write> particles: array<vec4f>;
@@ -30,54 +34,74 @@ export function getComputeShader() {
       }
 
       fn posHeron(phase: f32, t: f32, idx: u32) -> vec3f {
-        let cycleT  = fract(t * 0.22 + phase);
+        let headN = uniforms.physics0;
+        let vExit = uniforms.physics1;
+        let cycleT  = fract(t * (0.18 + vExit * 0.08) + phase);
         let spread  = phase * 6.28318;
         let spreadR = fract(f32(idx) * 0.618034) * 0.55;
+        let apexY = 5.2 + headN * 2.2;
         var pos: vec3f;
         if (cycleT < 0.35) {
           let k = cycleT / 0.35;
           pos = vec3f(sin(spread) * spreadR * k * 1.4,
-                      5.6 + k * 3.1 - k * k * 1.2,
+                      apexY - 0.8 + k * 0.4 - k * k * 0.3,
                       cos(spread) * spreadR * k * 1.4);
         } else if (cycleT < 0.72) {
           let k = (cycleT - 0.35) / 0.37;
           pos = vec3f(sin(spread) * spreadR * (1.4 - k * 0.9),
-                      8.5 - k * 4.2,
+                      apexY - k * (2.8 + headN * 1.2),
                       cos(spread) * spreadR * (1.4 - k * 0.9));
         } else {
           let k = (cycleT - 0.72) / 0.28;
-          pos = vec3f(sin(spread) * spreadR * (0.5 - k * 0.5),
+          let bunch = sin(spread * 3.0 + t * 4.0) * 0.15 * headN;
+          pos = vec3f(sin(spread) * spreadR * (0.5 - k * 0.5) + bunch,
                       4.5 - k * 6.5,
-                      cos(spread) * spreadR * (0.5 - k * 0.5));
+                      cos(spread) * spreadR * (0.5 - k * 0.5) + bunch);
         }
         return pos;
       }
 
       fn posKelvin(phase: f32, t: f32, idx: u32) -> vec3f {
-        let cycleT = fract(t * 0.32 + phase);
+        let voltN = uniforms.physics0;
+        let spark = uniforms.physics1;
+        let qE = uniforms.physics2;
+        let cycleT = fract(t * (0.28 + voltN * 0.12) + phase);
         let side   = select(-1.0, 1.0, (idx & 1u) == 1u);
-        let wobble = sin(t * 4.0 + phase * 20.0) * 0.09;
+        let wobble = sin(t * 4.0 + phase * 20.0) * (0.06 + voltN * 0.12);
+        let levitate = select(0.0, sin(t * 9.0 + phase * 24.0) * voltN * 0.45, voltN > 0.72);
         var pos: vec3f;
         if (cycleT < 0.82) {
           let k = cycleT / 0.82;
-          pos = vec3f(side * 2.5 + wobble, 5.5 - k * 8.8, wobble * 0.4);
+          pos = vec3f(side * 2.5 + wobble, 5.5 - k * 8.8 + levitate + qE * 0.02, wobble * 0.4);
         } else {
           let k = (cycleT - 0.82) / 0.18;
-          pos = vec3f(side * 2.5 * (1.0 - k * 1.9), -3.2 + k * 1.4, 0.0);
+          let scatter = spark * sin(phase * 62.83 + t * 22.0) * 0.9;
+          pos = vec3f(side * 2.5 * (1.0 - k * 1.9) + scatter, -3.2 + k * 1.4, scatter * 0.5);
         }
         return pos;
       }
 
+      fn ledHexPos(ledIdx: u32) -> vec3f {
+        let angle = (f32(ledIdx) / 6.0) * 6.28318;
+        let r = 3.0;
+        return vec3f(cos(angle) * r, 3.5, sin(angle) * r);
+      }
+
       fn posSolar(phase: f32, t: f32, idx: u32, speedMult: f32) -> vec3f {
         let ledIdx = idx % 6u;
-        let ledX   = (f32(ledIdx) - 2.5) * 1.6;
-        let ledPos = vec3f(ledX, 3.5, 1.5);
+        let ledPos = ledHexPos(ledIdx);
         let panelX = (fract(f32(idx) * 0.61803) - 0.5) * 9.0;
         let panelZ = (fract(f32(idx) * 0.38490) - 0.5) * 9.0;
         let panelPos = vec3f(panelX, 0.05, panelZ);
-        let speed = 1.0 + speedMult * 1.5;
+        let charge = uniforms.physics0;
+        let speed = 1.0 + speedMult * 1.5 + charge * 0.8;
         let life  = fract(t * speed * 0.18 + phase);
-        return mix(ledPos, panelPos, min(life * 1.05, 1.0));
+        var pos = mix(ledPos, panelPos, min(life * 1.05, 1.0));
+        if (life > 0.92) {
+          let refract = sin(phase * 40.0 + t * 6.0) * 0.15;
+          pos = vec3f(pos.x + refract, pos.y, pos.z + refract * 0.5);
+        }
+        return pos;
       }
 
       fn posPeltier(phase: f32, t: f32, idx: u32) -> vec3f {
@@ -248,7 +272,7 @@ export function getSegRollerComputeShader() {
         let isNorth = ((localI + ringIdx) & 1u) == 0u;
         let baseEmit = select(0.0, 0.08, isNorth);
         let emissive = min(baseEmit * max(1.0, uniforms.speedMult * 0.5) + uniforms.speedMult * 0.02
-          + uniforms.segOmega * 0.35, 1.0);
+          + uniforms.segOmega * 0.55, 1.0);
 
         var r: RollerInstance;
         r.position = vec3f(x, 0.0, z);

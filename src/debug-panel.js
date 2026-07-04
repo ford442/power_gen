@@ -93,6 +93,12 @@ export class DebugPanel {
         <input type="range" id="bloomSlider" min="0.5" max="2.2" step="0.05" value="1.15" style="width: 100%; margin-top: 4px;">
       </div>
       <div style="margin-bottom: 10px;">
+        <label style="display: flex; align-items: center; cursor: pointer;">
+          <input type="checkbox" id="segAnnotationsToggle" style="margin-right: 8px;">
+          <span>SEG component labels (L)</span>
+        </label>
+      </div>
+      <div style="margin-bottom: 10px;">
         <label style="display: block; margin-bottom: 4px; color: #888;">SEG frame complexity</label>
         <select id="segFrameLevelSelect" style="width: 100%; padding: 6px; background: #111; color: #0ff; border: 1px solid #0ff; border-radius: 4px;">
           <option value="full">Full (bench + cage + control box)</option>
@@ -115,6 +121,8 @@ export class DebugPanel {
     scientificDiv.innerHTML = `
       <div style="color: #0ff; margin-bottom: 8px; font-weight: bold;">📊 Wolfram Scientific Data</div>
       <div id="wolframData" style="max-height: 200px; overflow-y: auto;"></div>
+      <div style="color: #0ff; margin: 12px 0 6px; font-weight: bold;">⚙ Device Physics</div>
+      <div id="devicePhysicsData" style="font-size: 10px; line-height: 1.5; color: #8cf;"></div>
     `;
     container.appendChild(scientificDiv);
 
@@ -181,6 +189,11 @@ export class DebugPanel {
     };
     exposureSlider?.addEventListener('input', applyPost);
     bloomSlider?.addEventListener('input', applyPost);
+
+    const annToggle = document.getElementById('segAnnotationsToggle');
+    annToggle?.addEventListener('change', (e) => {
+      window.segAnnotations?.setEnabled(e.target.checked);
+    });
 
     this.panel = container;
   }
@@ -294,6 +307,40 @@ export class DebugPanel {
 
     // Update scientific data
     this.updateScientificData();
+    this.updateDevicePhysicsData();
+  }
+
+  updateDevicePhysicsData() {
+    const el = document.getElementById('devicePhysicsData');
+    const viz = window.multiVisualizer;
+    if (!el || !viz?.devices) return;
+
+    const row = (label, value) =>
+      `<div><span style="color:#666">${label}:</span> ${value}</div>`;
+
+    const parts = [];
+    for (const id of ['heron', 'kelvin', 'solar']) {
+      const d = viz.devices[id];
+      const ps = d?.physicsState;
+      if (!d || !ps) continue;
+      parts.push(`<div style="color:#0cc;margin-top:4px;text-transform:uppercase">${id}</div>`);
+      if (id === 'heron') {
+        parts.push(row('Head', `${ps.heronHead.toFixed(2)} m`));
+        parts.push(row('v_exit', ps.heronVExit.toFixed(2)));
+        parts.push(row('Flow E', `${(d.flowEnergyLevel * 100).toFixed(0)}%`));
+      } else if (id === 'kelvin') {
+        parts.push(row('Voltage', `${(ps.kelvinVoltageN * ps.kelvinVbreak).toFixed(0)} V`));
+        parts.push(row('Spark', ps.kelvinSparkTimer > 0 ? 'ACTIVE' : 'idle'));
+      } else if (id === 'solar') {
+        parts.push(row('Battery', `${(ps.batteryCharge * 100).toFixed(0)}%`));
+      }
+    }
+
+    const pipeFlow = viz.energyPipes?.reduce((s, p) => s + (p.flowLevel || 0), 0) ?? 0;
+    parts.push(`<div style="color:#0cc;margin-top:6px">ENERGY PIPES</div>`);
+    parts.push(row('Total flow', `${(pipeFlow / Math.max(1, viz.energyPipes?.length || 1) * 100).toFixed(0)}% avg`));
+
+    el.innerHTML = parts.join('') || '<div style="color:#666">No alternate devices active</div>';
   }
 
   drawFPSGraph() {

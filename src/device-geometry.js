@@ -1,8 +1,12 @@
 import { MAX_ROLLERS } from './seg-layout.js';
+import {
+  DEVICE_MESH_LAYOUTS,
+  instancesToBufferData
+} from './device-mesh-layouts.js';
 
 // Matches TOTAL_FLUX_LINES × SEGMENTS_PER_LINE constants in flux-lines.wgsl
-// (108 lines × 100 segments). Update both if the WGSL constants change.
-const FLUX_TOTAL_SEGMENTS = 10800;
+// (144 lines × 100 segments). Update both if the WGSL constants change.
+const FLUX_TOTAL_SEGMENTS = 14400;
 
 // Legacy circular-path field-line particles. Must match `fieldLineCount` in
 // DeviceInstance. Each FieldParticle is 8 × f32 (pos3 + vel3 + life + strength)
@@ -33,6 +37,88 @@ export class DeviceGeometry {
     await this.setupEnergyArcs();
     await this.setupWiring();
     await this.setupElectromagnets();
+  }
+
+  /**
+   * Initialize instanced cylinder / disc geometry for Heron, Kelvin, or Solar.
+   */
+  async initializeDeviceMesh() {
+    const layout = DEVICE_MESH_LAYOUTS[this.id];
+    if (!layout) return;
+
+    const instanceParts = [];
+    if (layout.cylinders) {
+      const cylInstances = layout.cylinders();
+      instanceParts.push(cylInstances);
+      this.meshCylinderCount = cylInstances.length;
+    }
+
+    if (layout.rings) {
+      const ringData = layout.rings();
+      this.ringInstances = this._createInstanceBuffer(() => ringData);
+      this.meshRingCount = ringData.length;
+    }
+
+    if (layout.panel) {
+      const panelData = layout.panel();
+      this.panelInstances = this._createInstanceBuffer(() => panelData);
+      this.meshPanelCount = panelData.length;
+    }
+
+    if (layout.platform) {
+      instanceParts.push(layout.platform());
+      this.meshCylinderCount = (this.meshCylinderCount || 0) + layout.platform().length;
+    }
+
+    if (instanceParts.length > 0) {
+      const data = instancesToBufferData(instanceParts);
+      this.rollerInstances = this.device.createBuffer({
+        size: data.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      });
+      this.device.queue.writeBuffer(this.rollerInstances, 0, data);
+      this.visualizer.profiler.trackBuffer(
+        `device-${this.id}-mesh-instances`,
+        data.byteLength,
+        GPUBufferUsage.STORAGE
+      );
+    }
+
+    await this.setupDeviceFlowPaths();
+  }
+
+  /** Local-space flow visualization paths (siphon, electrostatic, photon beams). */
+  async setupDeviceFlowPaths() {
+    if (!['heron', 'kelvin', 'solar'].includes(this.id)) return;
+
+    this.flowPathCount = this.id === 'kelvin' ? 72 : this.id === 'solar' ? 42 : 56;
+    const bytes = this.flowPathCount * 32;
+    this.flowPathParticles = this.device.createBuffer({
+      label: `device-${this.id}-flow-paths`,
+      size: bytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(
+      `device-${this.id}-flow-paths`,
+      bytes,
+      GPUBufferUsage.STORAGE
+    );
+  }
+
+  _createInstanceBuffer(buildFn) {
+    const built = buildFn();
+    const data = instancesToBufferData([built]);
+    const buf = this.device.createBuffer({
+      size: data.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(buf, 0, data);
+    this.visualizer.profiler.trackBuffer(
+      `device-${this.id}-extra-instances`,
+      data.byteLength,
+      GPUBufferUsage.STORAGE
+    );
+    return buf;
   }
 
   async setupFieldLineBuffer() {

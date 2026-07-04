@@ -1,4 +1,8 @@
 import { frameVibrationOffset } from '../seg-frame-model.js';
+import {
+  createDevicePhysicsState,
+  stepDevicePhysics
+} from '../renderers/shared/device-physics.js';
 
 export const DeviceUpdateMixin = {
   update: function (deltaTime, qualityScale) {
@@ -9,15 +13,37 @@ export const DeviceUpdateMixin = {
     const ringIndex = this.getRingIndex();
     this.scaledParticleCount = scaledParticleCount;
 
-    // Update battery charge for solar device (0..1)
-    if (this.id === 'solar') {
-      this.uniformManager.updateBatteryCharge(deltaTime);
-      this.visualizer.updateBatteryGaugeMesh(this.batteryCharge);
-      this.uniformManager.updateGaugeBuffer(this.position, ringIndex);
+    // Update compute uniforms for shader (mode as f32: 0=SEG … 5=MHD)
+    let computeSpeed = this.speedMult || 1.0;
+    if (this.id === 'seg') {
+      computeSpeed *= 0.15 + 0.85 * (this.visualizer.segOmega ?? 0);
     }
+    this.computeManager.updateComputeUniforms(
+      this.visualizer.time,
+      this.getRingIndex(),
+      scaledParticleCount,
+      computeSpeed,
+      this.physicsState
+    );
 
-    // Update compute uniforms for shader
-    this.computeManager.updateComputeUniforms(this.visualizer.time, ringIndex, scaledParticleCount, this.speedMult);
+    // Per-device physics integrators (Heron head, Kelvin voltage, solar battery)
+    if (!this.physicsState && ['heron', 'kelvin', 'solar'].includes(this.id)) {
+      this.physicsState = createDevicePhysicsState(this.id);
+    }
+    if (this.physicsState) {
+      const drive = Math.min(1, Math.log2((this.speedMult || 1) + 1) / Math.log2(21));
+      stepDevicePhysics(this.physicsState, deltaTime, drive);
+      if (this.id === 'heron') {
+        this.flowEnergyLevel = this.physicsState.energyLevel;
+      } else if (this.id === 'kelvin') {
+        this.voltageEnergyLevel = this.physicsState.kelvinVoltageN;
+      } else if (this.id === 'solar') {
+        this.batteryCharge = this.physicsState.batteryCharge;
+        this.uniformManager.batteryCharge = this.physicsState.batteryCharge;
+        this.visualizer.updateBatteryGaugeMesh(this.batteryCharge);
+        this.uniformManager.updateGaugeBuffer(this.position, ringIndex);
+      }
+    }
 
     if (this.id === 'seg' && this.rollerInstances) {
       const time = this.visualizer.time;
@@ -43,9 +69,12 @@ export const DeviceUpdateMixin = {
       // Write RK4 flux tracer uniforms: time, deltaTime, integrationStep,
       // lineOpacity, seedRadius, followStrength, _pad, _pad
       if (this.fluxTracerUniformBuffer) {
+        const corona = this.visualizer.corona ?? 0;
+        const lineOpacity = 1.0 + this.energyLevel * 0.45 + corona * 0.35;
+        const follow = 1.0 + Math.min(0.25, this.energyLevel * 0.2);
         this.device.queue.writeBuffer(
           this.fluxTracerUniformBuffer, 0,
-          new Float32Array([time, deltaTime, 0.02, 1.0, 0.06, 1.0, 0.0, 0.0])
+          new Float32Array([time, deltaTime, 0.018, lineOpacity, 0.06, follow, 0.0, 0.0])
         );
       }
 
@@ -120,7 +149,93 @@ export const DeviceUpdateMixin = {
 
     this._computeEnergyLevel(deltaTime);
     this.uniformManager.updateUniforms(this.position, this.rotation, this.renderMode, this.energyLevel);
+    this.updateDeviceFlowPaths(deltaTime);
     this.updateEmitterEffects(deltaTime, qualityScale);
+  },
+
+  updateDeviceFlowPaths: function (deltaTime) {
+    const paths = this.geometry.flowPathParticles;
+    const count = this.geometry.flowPathCount;
+    if (!paths || !count || !this.fieldLinePipeline) return;
+
+    const t = this.visualizer.time;
+    const energy = this.energyLevel;
+    const data = this._flowPathData || (this._flowPathData = new Float32Array(count * 8));
+
+    const writePath = (i, x, y, z, strength, life) => {
+      const idx = i * 8;
+      data[idx] = x;
+      data[idx + 1] = y;
+      data[idx + 2] = z;
+      data[idx + 3] = 0;
+      data[idx + 4] = 0;
+      data[idx + 5] = 0;
+      data[idx + 6] = life;
+      data[idx + 7] = strength;
+    };
+
+    if (this.id === 'heron') {
+      const headN = this.physicsState
+        ? this.physicsState.heronHead / Math.max(0.01, this.physicsState.heronHeadMax)
+        : this.flowEnergyLevel;
+      const apexY = 5.2 + headN * 1.8;
+      for (let i = 0; i < count; i++) {
+        const phase = i / count;
+        const side = i % 2 === 0 ? -1 : 1;
+        const u = (t * 0.35 * (0.4 + energy) + phase) % 1;
+        let x, y, z;
+        if (u < 0.25) {
+          const k = u / 0.25;
+          x = side * 1.1 * (1 - k * 0.3);
+          y = 3.2 + k * (apexY - 3.2);
+          z = 0;
+        } else if (u < 0.55) {
+          const k = (u - 0.25) / 0.3;
+          x = side * (0.8 + Math.sin(k * Math.PI) * 0.6);
+          y = apexY - k * 2.5;
+          z = Math.sin(k * Math.PI * 2 + t) * 0.25;
+        } else {
+          const k = (u - 0.55) / 0.45;
+          x = Math.sin(phase * 12.566 + t) * (0.4 + k);
+          y = (apexY - 2.5) - k * 5.5;
+          z = Math.cos(phase * 9.42 + t * 1.2) * 0.3;
+        }
+        writePath(i, x, y, z, energy * (0.4 + headN * 0.6), 0.5 + 0.5 * Math.sin(t * 4 + phase * 20));
+      }
+    } else if (this.id === 'kelvin') {
+      const voltN = this.physicsState?.kelvinVoltageN ?? this.voltageEnergyLevel;
+      const spark = this.physicsState?.kelvinSparkTimer > 0 ? 1 : 0;
+      for (let i = 0; i < count; i++) {
+        const side = i % 2 === 0 ? -2.5 : 2.5;
+        const phase = i / count;
+        const u = (t * 0.22 + phase * 0.8) % 1;
+        const y = 5.5 - u * 9.2;
+        const wobble = Math.sin(t * 6 + phase * 31) * (0.05 + voltN * 0.18);
+        const lift = voltN > 0.7 ? Math.sin(t * 8 + phase * 17) * voltN * 0.35 : 0;
+        const branch = spark > 0 ? (Math.random() - 0.5) * 1.2 : 0;
+        writePath(i, side + wobble + branch, y + lift, wobble * 0.5, voltN * 0.85 + spark * 0.4, 0.35 + voltN * 0.65);
+      }
+    } else if (this.id === 'solar') {
+      const charge = this.physicsState?.batteryCharge ?? this.batteryCharge ?? 0;
+      for (let i = 0; i < count; i++) {
+        const led = i % 6;
+        const angle = (led / 6) * Math.PI * 2;
+        const r = 3.0;
+        const ledX = Math.cos(angle) * r;
+        const ledZ = Math.sin(angle) * r;
+        const ledY = 3.5;
+        const u = (t * 0.28 * (0.35 + charge) + i * 0.017) % 1;
+        const panelX = (Math.sin(i * 2.17) * 0.5) * 4.5;
+        const panelZ = (Math.cos(i * 1.83) * 0.5) * 4.5;
+        const x = ledX + (panelX - ledX) * u;
+        const y = ledY + (0.12 - ledY) * u;
+        const z = ledZ + (panelZ - ledZ) * u;
+        const strength = charge * 0.7 + energy * 0.3;
+        writePath(i, x, y, z, strength, 0.45 + 0.55 * (1 - Math.abs(u - 0.5) * 2));
+      }
+    }
+
+    this.device.queue.writeBuffer(paths, 0, data);
   },
 
   _computeEnergyLevel: function (deltaTime) {
@@ -139,13 +254,19 @@ export const DeviceUpdateMixin = {
       const opCorona = this.visualizer.corona ?? 0;
       deviceEnergy = opOmega * 0.45 + coilNorm * 0.30 + this.pwmEnergyLevel * 0.25 + opCorona * 0.2;
     } else if (this.id === 'kelvin') {
-      this.voltageEnergyLevel = Math.min(1.0, speedNorm * 0.65 + (0.5 + 0.5 * Math.sin(this.visualizer.time * 3.2)) * 0.35);
+      const fromPhysics = this.physicsState?.kelvinVoltageN;
+      this.voltageEnergyLevel = fromPhysics != null
+        ? fromPhysics
+        : Math.min(1.0, speedNorm * 0.65 + (0.5 + 0.5 * Math.sin(this.visualizer.time * 3.2)) * 0.35);
       deviceEnergy = this.voltageEnergyLevel;
     } else if (this.id === 'heron') {
-      this.flowEnergyLevel = Math.min(1.0, speedNorm * 0.7 + (0.5 + 0.5 * Math.sin(this.visualizer.time * 1.6)) * 0.3);
+      const fromPhysics = this.physicsState?.energyLevel;
+      this.flowEnergyLevel = fromPhysics != null
+        ? fromPhysics
+        : Math.min(1.0, speedNorm * 0.7 + (0.5 + 0.5 * Math.sin(this.visualizer.time * 1.6)) * 0.3);
       deviceEnergy = this.flowEnergyLevel;
     } else if (this.id === 'solar') {
-      const battery = Math.min(1.0, Math.max(0.0, this.batteryCharge || 0.0));
+      const battery = Math.min(1.0, Math.max(0.0, this.physicsState?.batteryCharge ?? this.batteryCharge ?? 0.0));
       deviceEnergy = battery * 0.65 + speedNorm * 0.35;
     } else if (this.id === 'peltier') {
       deviceEnergy = Math.min(1.0, speedNorm * 0.6 + overdriveBoost * 0.4);

@@ -239,6 +239,8 @@ export class WebGL2MultiDeviceVisualizer {
           ...renderOpts,
           corona: device.physics.corona
         });
+      } else if (device.id === 'heron' || device.id === 'kelvin' || device.id === 'solar') {
+        this.meshRenderer.drawAlternateDevice(viewProj, pos, device.id, renderOpts);
       }
 
       this.particleRenderer.draw(

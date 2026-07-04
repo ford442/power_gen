@@ -2,7 +2,9 @@
 
 Real-time WebGPU simulation of the Searl Effect Generator (SEG) with extensible architecture for Heron's Fountain and Kelvin's Thunderstorm.
 
-**Live Demo:** https://ford442.github.io/seg-webgpu-visualizer/
+**Live Demo:** https://ford442.github.io/power_gen/
+
+WebGL2 fallback (no WebGPU required): [open with `?renderer=webgl2`](https://ford442.github.io/power_gen/?renderer=webgl2)
 
 ## Features
 - Three concentric rings of instanced magnetic rollers in toroidal formation
@@ -67,4 +69,27 @@ npm install
 npm run dev
 # WebGL2: http://localhost:5173/?renderer=webgl2
 # WebGPU: http://localhost:5173/
+```
+
+## Deployment (GitHub Pages)
+
+The live demo is deployed automatically on every push to `main` via [`.github/workflows/static.yml`](.github/workflows/static.yml):
+
+1. `npm ci` and `npm run build:site` (Vite → `dist/`)
+2. GitHub Actions uploads `dist/` and publishes to Pages
+
+**Demo URL:** https://ford442.github.io/power_gen/ (repo name is `power_gen`; the old `seg-webgpu-visualizer` path no longer applies.)
+
+**One-time setup** (already done for this repo): In GitHub → Settings → Pages, set **Source** to **GitHub Actions**. The workflow uses `configure-pages` with `enablement: true` so future clones can enable Pages from CI.
+
+**Manual redeploy:** Actions → “Deploy static content to Pages” → Run workflow.
+
+### Optional Contabo deploy
+
+For the separate `storage.1ink.us` host, build then run `deploy.py` with a token from the environment (never commit tokens):
+
+```bash
+npm run build:site
+export DEPLOY_TOKEN="your_token_from_vps"
+python deploy.py
 ```
