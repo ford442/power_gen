@@ -4,7 +4,17 @@ Real-time WebGPU simulation of the Searl Effect Generator (SEG) with extensible 
 
 **Live Demo:** https://ford442.github.io/power_gen/
 
+> **Note:** The old URL `https://ford442.github.io/seg-webgpu-visualizer/` now redirects here (see [ford442/seg-webgpu-visualizer](https://github.com/ford442/seg-webgpu-visualizer)).
+
 WebGL2 fallback (no WebGPU required): [open with `?renderer=webgl2`](https://ford442.github.io/power_gen/?renderer=webgl2)
+
+## Preview
+
+| SEG overview (WebGL2) | Multi-device modes |
+|---------------------|-------------------|
+| ![SEG visualization](docs/images/seg-overview.png) | ![Multi-device view](docs/images/multi-device.png) |
+
+*Screenshots use the WebGL2 fallback (`?renderer=webgl2`) for broad browser compatibility.*
 
 ## Features
 - Three concentric rings of instanced magnetic rollers in toroidal formation

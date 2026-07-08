@@ -68,7 +68,7 @@ This is a **SEG (Searl Effect Generator) WebGPU Visualizer** - a real-time 3D si
 ├── tsconfig.json               # TypeScript: ES2020, strict, outDir=./dist
 ├── deploy.py                   # Python SFTP deployment script
 ├── git.sh                      # Quick git commit/push helper
-├── .github/workflows/static.yml # GitHub Actions: deploys repo root to Pages
+├── .github/workflows/static.yml # GitHub Actions: build:site → dist/ → Pages
 ├── WOLFRAM_DATA_SUMMARY.md     # Scientific data from 4-agent Wolfram swarm
 ├── claude.md                   # Claude-specific development guide
 └── README.md                   # Human-readable project description

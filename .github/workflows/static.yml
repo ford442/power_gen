@@ -14,7 +14,7 @@ jobs:
   deploy:
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,6 +30,9 @@ jobs:
         run: npm ci
 
       - name: Build site
+        env:
+          # Explicit subpath for project Pages (ford442.github.io/power_gen/)
+          VITE_BASE_PATH: /power_gen/
         run: npm run build:site
 
       - name: Setup Pages
@@ -45,3 +48,21 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Retry Pages deploy after transient failure
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 45
+
+      - name: Deploy to GitHub Pages (retry)
+        if: steps.deployment.outcome == 'failure'
+        id: deployment_retry
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Verify deployment
+        run: |
+          if [ "${{ steps.deployment.outcome }}" != "success" ] && [ "${{ steps.deployment_retry.outcome }}" != "success" ]; then
+            echo "Pages deployment failed after retry"
+            exit 1
+          fi
