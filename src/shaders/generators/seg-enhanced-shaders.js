@@ -181,6 +181,7 @@ export function getSegEnhancedFragShader() {
         @location(7) scaleY: f32
       }
 
+      const PI: f32 = 3.14159265359;
       const ROLLER_RADIUS: f32 = 0.75;
       const ROLLER_HEIGHT: f32 = 2.8;
       const ROLLER_SEGMENTS: f32 = 8.0;
@@ -249,7 +250,7 @@ export function getSegEnhancedFragShader() {
       }
 
       fn rollerBarrelShading(localPos: vec3f, poleTint: vec3f, energy: f32, lab: bool,
-                             isMagnetStrip: bool) -> RollerSurface {
+                             isMagnetStrip: bool, spinProxy: f32, time: f32) -> RollerSurface {
         let yRel = localPos.y + ROLLER_HEIGHT * 0.5;
         let segmentPitch = ROLLER_HEIGHT / ROLLER_SEGMENTS;
         let cyclePos = fract(yRel / segmentPitch) * segmentPitch;
@@ -291,6 +292,11 @@ export function getSegEnhancedFragShader() {
         let oxidation = fbm(localPos * 5.5 + layerOffset * 1.3);
         surf.color = mix(surf.color, vec3f(0.35, 0.28, 0.22), oxidation * 0.22);
         surf.color *= 0.88 + brushed * 0.14;
+
+        // Spin-synced groove catchlight (physics-driven via greenEmissive proxy)
+        let spinRate = 0.4 + spinProxy * 2.2;
+        let grooveGlint = smoothstep(0.88, 0.98, abs(sin(theta * 8.0 + yRel * 1.6 - time * spinRate)));
+        surf.color += vec3f(0.95, 0.92, 0.85) * grooveGlint * 0.08 * (0.3 + energy);
         return surf;
       }
 
@@ -344,7 +350,8 @@ export function getSegEnhancedFragShader() {
           baseColor = vec3f(0.78, 0.80, 0.83); metallic = 0.96; roughness = 0.12;
           useBrush = true;
         } else if (renderMode == 0 && !isShaft) {
-          let barrel = rollerBarrelShading(localPos, input.copperColor, energy, lab, isMagnetStrip);
+          let barrel = rollerBarrelShading(localPos, input.copperColor, energy, lab, isMagnetStrip,
+                                           input.greenEmissive, uniforms.time);
           baseColor = barrel.color; emissive = barrel.emissive; metallic = barrel.metallic;
           roughness = barrel.roughness; isCopper = !isMagnetStrip; useAniso = true; useBrush = true;
         } else if (renderMode == 2) {
@@ -412,9 +419,13 @@ export function getSegEnhancedFragShader() {
         let energyArc = smoothstep(0.65, 1.0, input.greenEmissive) * (0.20 + overdrive * 0.65);
         color += vec3f(0.3, 0.8, 1.0) * energyArc * NdotV;
 
-        // Layered corona halo (rim-weighted, energy-driven)
+        // Layered corona halo (rim-weighted, energy-driven) + magnetic Fresnel sheen
         let coronaHalo = pow(1.0 - NdotV, 3.5) * (energy * 0.55 + input.greenEmissive * 0.85);
         color += vec3f(0.06, 0.92, 0.42) * coronaHalo * (0.35 + overdrive * 0.55);
+        if (renderMode == 0 && !isCap && !isShaft) {
+          let magSheen = pow(1.0 - NdotV, 2.2) * input.greenEmissive * (0.25 + energy * 0.45);
+          color += vec3f(0.12, 0.55, 0.95) * magSheen;
+        }
 
         let contactAO = 0.52 + 0.48 * smoothstep(0.0, 2.4, abs(input.worldPos.y - devicePos.y));
         color *= contactAO;

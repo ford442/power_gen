@@ -1,12 +1,13 @@
 import { MAX_ROLLERS } from './seg-layout.js';
 import {
   DEVICE_MESH_LAYOUTS,
-  instancesToBufferData
+  instancesToBufferData,
+  countInstances
 } from './device-mesh-layouts.js';
 
 // Matches TOTAL_FLUX_LINES × SEGMENTS_PER_LINE constants in flux-lines.wgsl
-// (144 lines × 100 segments). Update both if the WGSL constants change.
-const FLUX_TOTAL_SEGMENTS = 14400;
+// (168 lines × 120 segments). Update both if the WGSL constants change.
+const FLUX_TOTAL_SEGMENTS = 20160;
 
 // Legacy circular-path field-line particles. Must match `fieldLineCount` in
 // DeviceInstance. Each FieldParticle is 8 × f32 (pos3 + vel3 + life + strength)
@@ -43,48 +44,102 @@ export class DeviceGeometry {
    * Initialize instanced cylinder / disc geometry for Heron, Kelvin, or Solar.
    */
   async initializeDeviceMesh() {
-    const layout = DEVICE_MESH_LAYOUTS[this.id];
-    if (!layout) return;
+    const layoutDef = DEVICE_MESH_LAYOUTS[this.id];
+    if (!layoutDef) return;
+
+    if (this.id === 'heron' && layoutDef.build) {
+      await this.applyHeronLayout(this.visualizer.heronLayoutPreset);
+      return;
+    }
 
     const instanceParts = [];
-    if (layout.cylinders) {
-      const cylInstances = layout.cylinders();
+    if (layoutDef.cylinders) {
+      const cylInstances = layoutDef.cylinders();
       instanceParts.push(cylInstances);
-      this.meshCylinderCount = cylInstances.length;
+      this.meshCylinderCount = countInstances(cylInstances.flat());
     }
 
-    if (layout.rings) {
-      const ringData = layout.rings();
+    if (layoutDef.rings) {
+      const ringData = layoutDef.rings();
       this.ringInstances = this._createInstanceBuffer(() => ringData);
-      this.meshRingCount = ringData.length;
+      this.meshRingCount = countInstances(ringData.flat());
     }
 
-    if (layout.panel) {
-      const panelData = layout.panel();
+    if (layoutDef.tubes) {
+      const tubeData = layoutDef.tubes();
+      this.tubeInstances = this._createInstanceBuffer(() => tubeData);
+      this.meshTubeCount = countInstances(tubeData.flat());
+    }
+
+    if (layoutDef.panel) {
+      const panelData = layoutDef.panel();
       this.panelInstances = this._createInstanceBuffer(() => panelData);
-      this.meshPanelCount = panelData.length;
+      this.meshPanelCount = countInstances(panelData.flat());
     }
 
-    if (layout.platform) {
-      instanceParts.push(layout.platform());
-      this.meshCylinderCount = (this.meshCylinderCount || 0) + layout.platform().length;
+    if (layoutDef.platform) {
+      const platformData = layoutDef.platform();
+      instanceParts.push(platformData);
+      this.meshCylinderCount = (this.meshCylinderCount || 0) + countInstances(platformData.flat());
     }
 
     if (instanceParts.length > 0) {
-      const data = instancesToBufferData(instanceParts);
+      this._writeRollerInstances(instanceParts);
+    }
+
+    await this.setupDeviceFlowPaths();
+  }
+
+  /**
+   * Hot-swap Heron vessel + plumbing geometry when the build-shape preset changes.
+   */
+  async applyHeronLayout(presetId) {
+    const layoutDef = DEVICE_MESH_LAYOUTS.heron;
+    if (!layoutDef?.build) return;
+
+    const mesh = layoutDef.build(presetId);
+    this.heronFlow = mesh.flow;
+    this.heronLayoutId = presetId;
+
+    this._writeRollerInstances([mesh.cylinders]);
+    this.meshCylinderCount = countInstances(mesh.cylinders.flat());
+
+    if (mesh.tubes?.length) {
+      const tubeData = instancesToBufferData([mesh.tubes]);
+      if (!this.tubeInstances || this.tubeInstances.size < tubeData.byteLength) {
+        this.tubeInstances?.destroy?.();
+        this.tubeInstances = this.device.createBuffer({
+          size: tubeData.byteLength,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        this.visualizer.profiler.trackBuffer(
+          `device-${this.id}-tubes`,
+          tubeData.byteLength,
+          GPUBufferUsage.STORAGE
+        );
+      }
+      this.device.queue.writeBuffer(this.tubeInstances, 0, tubeData);
+      this.meshTubeCount = countInstances(mesh.tubes.flat());
+    }
+
+    await this.setupDeviceFlowPaths();
+  }
+
+  _writeRollerInstances(instanceParts) {
+    const data = instancesToBufferData(instanceParts);
+    if (!this.rollerInstances || this.rollerInstances.size < data.byteLength) {
+      this.rollerInstances?.destroy?.();
       this.rollerInstances = this.device.createBuffer({
         size: data.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
-      this.device.queue.writeBuffer(this.rollerInstances, 0, data);
       this.visualizer.profiler.trackBuffer(
         `device-${this.id}-mesh-instances`,
         data.byteLength,
         GPUBufferUsage.STORAGE
       );
     }
-
-    await this.setupDeviceFlowPaths();
+    this.device.queue.writeBuffer(this.rollerInstances, 0, data);
   }
 
   /** Local-space flow visualization paths (siphon, electrostatic, photon beams). */
@@ -140,7 +195,7 @@ export class DeviceGeometry {
   }
 
   async setupFluxLineBuffer() {
-    // 108 lines × 100 segments × 32 bytes per FluxSegment
+    // 168 lines × 120 segments × 32 bytes per FluxSegment
     // (FluxSegment: 6 x f32 position scalars + strength f32 + age f32 = 32 B)
     this.fluxTotalSegments = FLUX_TOTAL_SEGMENTS;
     this.fluxSegmentBuffer = this.device.createBuffer({
@@ -246,12 +301,18 @@ export class DeviceGeometry {
       GPUBufferUsage.STORAGE
     );
 
+    this.reseedParticles();
+  }
+
+  /** Re-seed particle buffer (phase + initial xyz) — called on init and mode entry. */
+  reseedParticles() {
+    if (!this.particles) return;
+
     const particleData = new Float32Array(this.particleCount * 4);
     for (let i = 0; i < this.particleCount; i++) {
       const idx = i * 4;
-      // Phase is the only persistent data; position is computed each frame by GPU
-      particleData[idx + 3] = Math.random(); // phase (w component)
-      
+      particleData[idx + 3] = Math.random();
+
       if (this.id === 'seg') {
         const theta = Math.random() * Math.PI * 2;
         const r = 2 + Math.random() * 4;
@@ -267,8 +328,6 @@ export class DeviceGeometry {
         particleData[idx + 1] = 3.0 + Math.random() * 0.5;
         particleData[idx + 2] = Math.sin(ledAngle) * ledRadius;
       } else if (this.id === 'peltier') {
-        // Phase regions: 0.0-0.4 = hot, 0.4-0.8 = cold, 0.8-1.0 = electricity
-        // Position is fully compute-driven; seed only matters for randomness
         particleData[idx] = 0.0;
         particleData[idx + 1] = 0.0;
         particleData[idx + 2] = 0.0;

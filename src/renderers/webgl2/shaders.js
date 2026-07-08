@@ -73,6 +73,7 @@ layout(location=0) in vec3 a_pos;
 layout(location=1) in vec3 a_normal;
 layout(location=2) in vec3 a_instancePos;
 layout(location=3) in vec4 a_instanceColor;
+layout(location=5) in vec4 a_instanceRot; // quaternion (xyzw)
 uniform mat4 u_viewProj;
 uniform mat4 u_model;
 uniform vec3 u_devicePos;
@@ -81,13 +82,19 @@ uniform float u_debugMode; // 0=lit, 1=normals, 2=uv
 out vec3 v_normal;
 out vec3 v_color;
 out vec3 v_worldPos;
+vec3 quatRotate(vec4 q, vec3 v) {
+  vec3 t = 2.0 * cross(q.xyz, v);
+  return v + q.w * t + cross(q.xyz, t);
+}
 void main() {
-  vec3 worldPos = a_pos + a_instancePos + u_devicePos;
+  vec3 rotatedPos = quatRotate(a_instanceRot, a_pos);
+  vec3 rotatedNormal = quatRotate(a_instanceRot, a_normal);
+  vec3 worldPos = rotatedPos + a_instancePos + u_devicePos;
   v_worldPos = worldPos;
-  v_normal = a_normal;
+  v_normal = rotatedNormal;
   v_color = a_instanceColor.rgb;
   if (u_debugMode > 0.5 && u_debugMode < 1.5) {
-    v_color = normalize(a_normal) * 0.5 + 0.5;
+    v_color = normalize(rotatedNormal) * 0.5 + 0.5;
   }
   gl_Position = u_viewProj * vec4(worldPos, 1.0);
 }`;
@@ -387,9 +394,20 @@ void main() {
     col = mix(vec3(0.0, 0.7, 1.0), vec3(0.2, 1.0, 0.6), v_phase);
     col += vec3(0.0, 0.4, 0.6) * v_speed * 0.3;
   } else if (u_mode < 1.5) {
-    col = vec3(0.3, 0.6, 1.0);
+    // Heron: water droplets — cyan core, white specular highlight
+    float h = clamp(v_uv.y * 0.5 + 0.5, 0.0, 1.0);
+    col = mix(vec3(0.0, 0.22, 0.70), vec3(0.55, 0.82, 1.0), h * (1.0 - d));
+    alpha *= 1.0 + v_speed * 0.15;
   } else if (u_mode < 2.5) {
-    col = mix(vec3(0.6, 0.4, 1.0), vec3(1.0, 0.8, 0.3), abs(v_aux));
+    // Kelvin: translucent drops with rare violet spark particles
+    float spark = step(0.97, fract(sin(v_phase * 3137.1) * 43758.5453));
+    col = mix(vec3(0.72, 0.82, 0.96), vec3(0.85, 0.15, 1.0), spark);
+    alpha *= 0.85 + abs(v_aux) * 0.3;
+  } else if (u_mode < 3.5) {
+    // Solar: warm photon beams toward panel
+    float intensity = 0.55 + 0.45 * u_battery;
+    col = vec3(1.0, 0.88, 0.28) * intensity;
+    alpha *= 0.7 + intensity * 0.3;
   } else if (u_mode < 4.5) {
     col = v_aux > 0.5 ? vec3(1.0, 0.95, 0.7) : vec3(1.0, 0.9, 0.2);
     alpha *= 0.7 + u_battery * 0.3;

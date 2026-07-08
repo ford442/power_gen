@@ -4,8 +4,13 @@
  */
 
 import { ValidatedConstants } from '../../ValidatedConstants';
+import {
+  computeHeronHydraulics,
+  getHeronLayout,
+  HERON_LAYOUT_PRESETS
+} from '../../heron-layout.js';
 
-export function createDevicePhysicsState(deviceId) {
+export function createDevicePhysicsState(deviceId, opts = {}) {
   const roller = ValidatedConstants.computeRollerInertia();
   const rhoCu = 8960;
   const R = ValidatedConstants.SEG_CONFIG.rollerRadius;
@@ -13,13 +18,21 @@ export function createDevicePhysicsState(deviceId) {
   const inertiaSolidCu = 0.5 * Math.PI * rhoCu * h * R * R * R * R;
   const gap = 0.02;
 
+  const heronLayout = deviceId === 'heron'
+    ? (opts.heronLayout || getHeronLayout(opts.heronLayoutId || HERON_LAYOUT_PRESETS.classic))
+    : null;
+
   return {
     deviceId,
     segOmega: 0,
     corona: 0,
     heronHead: 0,
     heronVExit: 0,
-    heronHeadMax: 4.5,
+    heronHeadMax: heronLayout?.headMaxM ?? 4.5,
+    heronLayoutId: heronLayout?.id ?? HERON_LAYOUT_PRESETS.classic,
+    heronFlowRateLmin: 0,
+    heronPressureKPa: 0,
+    heronReynolds: 0,
     kelvinV: 0,
     kelvinSparkTimer: 0,
     kelvinSparkDur: 0.18,
@@ -34,22 +47,13 @@ export function createDevicePhysicsState(deviceId) {
   };
 }
 
-function heronExitVelocity(head) {
-  const g = 9.81;
-  const L = 4.0, D = 0.08, f = 0.02;
-  const vIdeal = Math.sqrt(2 * g * Math.max(head, 0));
-  const Re = vIdeal * D / 1e-6;
-  const fSwamee = 0.25 / Math.pow(Math.log10(f / 3.7 + 5.74 / Math.pow(Math.max(Re, 1), 0.9)), 2);
-  const headLoss = fSwamee * (L / D) * (vIdeal * vIdeal / (2 * g));
-  return Math.sqrt(2 * g * Math.max(head - headLoss, 0)) * 0.35;
-}
-
 /**
  * @param {ReturnType<createDevicePhysicsState>} state
  * @param {number} dt
  * @param {number} drive 0..1 from speed slider
+ * @param {{ heronLayout?: object }} [opts]
  */
-export function stepDevicePhysics(state, dt, drive) {
+export function stepDevicePhysics(state, dt, drive, opts = {}) {
   const field = 0.4 + 0.6 * state.magneticFieldStrength;
 
   if (state.deviceId === 'seg') {
@@ -61,11 +65,20 @@ export function stepDevicePhysics(state, dt, drive) {
     state.corona = Math.max(0, Math.min(1, (state.segOmega - 0.6) / 0.4)) * field;
     state.energyLevel = state.segOmega;
   } else if (state.deviceId === 'heron') {
-    const pump = 2.2, drain = 0.30;
+    const layout = opts.heronLayout || getHeronLayout(state.heronLayoutId);
+    state.heronHeadMax = layout.headMaxM;
+    state.heronLayoutId = layout.id;
+    const pump = layout.pumpRate ?? 2.2;
+    const drain = layout.drainCoeff ?? 0.30;
     state.heronHead = Math.max(0, Math.min(state.heronHeadMax,
       state.heronHead + (pump * drive - drain * state.heronVExit) * dt));
-    state.heronVExit = heronExitVelocity(state.heronHead);
-    state.energyLevel = Math.min(1, state.heronVExit / 8);
+    const hydro = computeHeronHydraulics(state.heronHead, layout);
+    state.heronVExit = hydro.vExit;
+    state.heronFlowRateLmin = hydro.flowLmin;
+    state.heronPressureKPa = hydro.pressureKPa;
+    state.heronReynolds = hydro.Re;
+    const vRef = Math.sqrt(2 * 9.81 * layout.headMaxM) * (layout.dischargeCoeff ?? 0.35);
+    state.energyLevel = Math.min(1, state.heronVExit / Math.max(vRef, 0.5));
   } else if (state.deviceId === 'kelvin') {
     const chargeRate = 8000, feedback = 2.0, leak = 0.3;
     state.kelvinV += (drive * (chargeRate + feedback * state.kelvinV) - leak * state.kelvinV) * dt;

@@ -137,6 +137,8 @@ export function getFluxSegmentVertShader() {
         @location(0) strength: f32,
         @location(1) alpha: f32,
         @location(2) phase: f32,
+        @location(3) edge: f32,
+        @location(4) ringHue: f32,
       }
 
       @vertex
@@ -162,7 +164,12 @@ export function getFluxSegmentVertShader() {
         // Half-width: scales with |B| and live energy level
         let t = clamp(sqrt(seg.strength * 2.0e6), 0.0, 1.0);
         let energy = clamp(device.timeScale, 0.0, 1.0);
-        let halfWidth = 0.0025 + t * 0.009 + energy * 0.003;
+        let halfWidth = 0.0028 + t * 0.011 + energy * 0.004;
+
+        // Ring index tint (inner=cyan, mid=blue, outer=amber)
+        let lineIdx = instIdx / 120u;
+        let ringIdx = min(2u, lineIdx / 56u);
+        let ringHue = f32(ringIdx) / 3.0;
 
         // Vertices 0,1 at start; 2,3 at end.  Sides alternate left/right.
         let atEnd = (vertIdx >= 2u);
@@ -173,15 +180,17 @@ export function getFluxSegmentVertShader() {
         pos.y  += perp.y * halfWidth * side * pos.w;
 
         // Traveling pulse along the line + energy breathing
-        let travelPhase = fract(seg.age * 0.18 + uniforms.time * 0.35);
-        let pulse = 0.55 + 0.45 * sin(travelPhase * 6.2832);
-        let alpha = clamp(t * 0.85 + 0.12 + energy * 0.25, 0.12, 1.0) * pulse;
+        let travelPhase = fract(seg.age * 0.22 + uniforms.time * 0.42);
+        let pulse = 0.50 + 0.50 * sin(travelPhase * 6.2832);
+        let alpha = clamp(t * 0.90 + 0.10 + energy * 0.30, 0.14, 1.0) * pulse;
 
         var out: VertexOutput;
         out.position = pos;
         out.strength = seg.strength;
         out.alpha    = alpha;
         out.phase    = travelPhase;
+        out.edge     = abs(side);
+        out.ringHue  = ringHue;
         return out;
       }
     `;
@@ -193,10 +202,12 @@ export function getFluxSegmentFragShader() {
         @location(0) strength: f32,
         @location(1) alpha: f32,
         @location(2) phase: f32,
+        @location(3) edge: f32,
+        @location(4) ringHue: f32,
       }
 
-      // deep blue → cyan → soft white → white-hot, biased by traveling phase
-      fn fluxColor(strength: f32, phase: f32) -> vec3f {
+      // deep blue → cyan → soft white → white-hot, biased by traveling phase + ring
+      fn fluxColor(strength: f32, phase: f32, ringHue: f32) -> vec3f {
         let t = clamp(sqrt(strength * 2.0e6), 0.0, 1.0);
         var col: vec3f;
         if (t < 0.33) {
@@ -209,16 +220,20 @@ export function getFluxSegmentFragShader() {
           let s = (t - 0.66) / 0.34;
           col = mix(vec3f(0.75, 1.0, 1.0), vec3f(1.25, 1.2, 1.1), s);
         }
-        let pulse = 0.85 + 0.15 * sin(phase * 6.2832);
+        // Per-ring hue shift (inner cyan → outer warm)
+        let ringTint = mix(vec3f(0.0, 0.15, 0.35), vec3f(0.35, 0.22, 0.0), ringHue);
+        col = mix(col, col + ringTint, 0.28);
+        let pulse = 0.82 + 0.18 * sin(phase * 6.2832);
         return col * pulse;
       }
 
       @fragment
       fn main(input: FragInput) -> @location(0) vec4f {
-        let core = fluxColor(input.strength, input.phase);
-        // Soft core falloff for tube-like appearance
-        let a = input.alpha;
-        return vec4f(core * (0.9 + a * 0.35), a);
+        let core = fluxColor(input.strength, input.phase, input.ringHue);
+        // Soft tube profile: brighter core, softer edges
+        let edgeFalloff = 1.0 - smoothstep(0.35, 1.0, input.edge);
+        let a = input.alpha * (0.55 + 0.45 * edgeFalloff);
+        return vec4f(core * (0.85 + a * 0.45), a);
       }
     `;
   }

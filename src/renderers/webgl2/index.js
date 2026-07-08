@@ -21,6 +21,7 @@ import {
   deviceModeIndex,
   computeRollerPositions
 } from '../shared/device-physics.js';
+import { isDeviceActive as isDeviceVisible } from '../shared/device-view.js';
 import { WebGL2Context } from './webgl2-context.js';
 import { SkyGridRenderer } from './sky-grid-renderer.js';
 import { MeshRenderer } from './mesh-renderer.js';
@@ -29,15 +30,32 @@ import { WebGL2DebugControls } from './debug-controls.js';
 import { parseSegFrameLevel } from '../../seg-frame-model.js';
 import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets.js';
 import { segOperator } from '../../seg-operator-state.js';
+import {
+  getHeronLayout,
+  HERON_LAYOUT_PRESETS,
+  parseHeronLayoutPreset
+} from '../../heron-layout.js';
 
 class WebGL2DeviceState {
-  constructor(id, config) {
+  constructor(id, config, visualizer) {
     this.id = id;
     this.config = config;
+    this.visualizer = visualizer;
     this.particleCount = config.particleCount || 10000;
     this.particles = new Float32Array(this.particleCount * 8);
-    this.physics = createDevicePhysicsState(id);
+    const heronLayout = id === 'heron'
+      ? (visualizer?.heronLayout || getHeronLayout(visualizer?.heronLayoutPreset))
+      : null;
+    this.physics = createDevicePhysicsState(id, { heronLayout });
     seedParticles(this.particles, id, this.particleCount);
+  }
+
+  resetForModeEntry() {
+    const heronLayout = this.id === 'heron'
+      ? (this.visualizer?.heronLayout || getHeronLayout(this.visualizer?.heronLayoutPreset))
+      : null;
+    this.physics = createDevicePhysicsState(this.id, { heronLayout });
+    seedParticles(this.particles, this.id, this.particleCount);
   }
 }
 
@@ -61,6 +79,16 @@ export class WebGL2MultiDeviceVisualizer {
     this.segFrameLevel = parseSegFrameLevel();
     this.lightingLook = parseLightingLook();
     this.lightingPreset = getLightingPreset(this.lightingLook);
+
+    const params = new URLSearchParams(window.location.search);
+    this.heronLayoutPreset = parseHeronLayoutPreset(params);
+    try {
+      const storedHeron = localStorage.getItem('heron-layout');
+      if (storedHeron && Object.values(HERON_LAYOUT_PRESETS).includes(storedHeron)) {
+        this.heronLayoutPreset = storedHeron;
+      }
+    } catch (_) { /* ignore */ }
+    this.heronLayout = getHeronLayout(this.heronLayoutPreset);
 
     exposeRenderer(this.canvas, RENDERER_WEBGL2);
     this._exposeScreenshotHooks();
@@ -97,11 +125,13 @@ export class WebGL2MultiDeviceVisualizer {
       this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
 
       for (const [id, config] of Object.entries(DEVICE_CONFIG)) {
-        this.devices[id] = new WebGL2DeviceState(id, config);
+        this.devices[id] = new WebGL2DeviceState(id, config, this);
       }
 
       this.render(0);
       window.addEventListener('resize', () => this.ctx.resize());
+      if (typeof window.syncHeronLayoutUI === 'function') window.syncHeronLayoutUI();
+      if (typeof window.syncLayoutPanelsVisibility === 'function') window.syncLayoutPanelsVisibility();
       console.log('[webgl2] Ready. Keys: W=wireframe P=particle debug N=normals Space=pause .=step [/]=slow-mo');
     } catch (e) {
       console.error(e);
@@ -114,10 +144,57 @@ export class WebGL2MultiDeviceVisualizer {
   }
 
   onModeChange(mode) {
+    const prev = this.currentView;
     this.currentView = mode;
     const el = document.getElementById('currentView');
     if (el) el.textContent = mode.toUpperCase();
-    this.cameraController.focusOnDevice(mode);
+    if (mode === 'overview') {
+      this.cameraController.showOverview();
+    } else {
+      this.cameraController.focusOnDevice(mode);
+    }
+
+    if (mode && mode !== 'overview' && mode !== prev) {
+      this.devices[mode]?.resetForModeEntry?.();
+    }
+    if (typeof window.syncLayoutPanelsVisibility === 'function') {
+      window.syncLayoutPanelsVisibility();
+    }
+    if (mode === 'heron' && typeof window.syncHeronLayoutUI === 'function') {
+      window.syncHeronLayoutUI();
+    }
+  }
+
+  getHeronLayoutPreset() {
+    return this.heronLayoutPreset;
+  }
+
+  async setHeronLayoutPreset(presetName) {
+    if (!Object.values(HERON_LAYOUT_PRESETS).includes(presetName)) return null;
+    if (this.heronLayoutPreset === presetName) return this.heronLayout;
+    this.heronLayoutPreset = presetName;
+    this.heronLayout = getHeronLayout(presetName);
+    const heron = this.devices.heron;
+    if (heron?.physics) {
+      heron.physics.heronLayoutId = presetName;
+      heron.physics.heronHeadMax = this.heronLayout.headMaxM;
+      heron.physics.heronHead = Math.min(heron.physics.heronHead, this.heronLayout.headMaxM);
+    }
+    try { localStorage.setItem('heron-layout', presetName); } catch (_) { /* ignore */ }
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('heronLayout', presetName);
+      window.history.replaceState(null, '', url);
+    } catch (_) { /* ignore */ }
+    return this.heronLayout;
+  }
+
+  isDeviceActive(deviceId) {
+    return isDeviceVisible(this.currentView, this.devicesEnabled, deviceId);
+  }
+
+  isOverviewMode() {
+    return !this.currentView || this.currentView === 'overview';
   }
 
   setSegFrameLevel(level) {
@@ -174,7 +251,7 @@ export class WebGL2MultiDeviceVisualizer {
     const subDt = deltaTime / Math.max(substeps, 1);
 
     for (const device of Object.values(this.devices)) {
-      if (!this.devicesEnabled[device.id]) continue;
+      if (!this.isDeviceActive(device.id)) continue;
 
       if (device.id === 'seg') {
         device.physics.segOmega = segOperator.physics.segOmega;
@@ -183,7 +260,8 @@ export class WebGL2MultiDeviceVisualizer {
         device.physics.energyLevel = segOperator.physics.segOmega;
       } else {
         for (let s = 0; s < substeps; s++) {
-          stepDevicePhysics(device.physics, subDt, drive);
+          const heronLayout = device.id === 'heron' ? this.heronLayout : null;
+          stepDevicePhysics(device.physics, subDt, drive, { heronLayout });
         }
       }
 
@@ -222,7 +300,7 @@ export class WebGL2MultiDeviceVisualizer {
     };
 
     for (const device of Object.values(this.devices)) {
-      if (!this.devicesEnabled[device.id]) continue;
+      if (!this.isDeviceActive(device.id)) continue;
       const pos = device.config.position;
       const tint = device.config.color || [0.5, 0.8, 1.0];
       const mode = deviceModeIndex(device.id);
@@ -240,7 +318,10 @@ export class WebGL2MultiDeviceVisualizer {
           corona: device.physics.corona
         });
       } else if (device.id === 'heron' || device.id === 'kelvin' || device.id === 'solar') {
-        this.meshRenderer.drawAlternateDevice(viewProj, pos, device.id, renderOpts);
+        this.meshRenderer.drawAlternateDevice(viewProj, pos, device.id, {
+          ...renderOpts,
+          heronLayoutPreset: device.id === 'heron' ? this.heronLayoutPreset : undefined
+        });
       }
 
       this.particleRenderer.draw(

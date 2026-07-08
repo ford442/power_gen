@@ -25,6 +25,11 @@ import {
   buildRollerCutouts,
   MAX_ROLLERS
 } from './seg-layout.js';
+import {
+  getHeronLayout,
+  HERON_LAYOUT_PRESETS,
+  parseHeronLayoutPreset
+} from './heron-layout.js';
 import { createDetailedRollerBuffers, ROLLER_DEFAULTS } from './seg-roller-model.js';
 import {
   parseSegFrameLevel,
@@ -40,7 +45,8 @@ import {
 import { segOperator } from './seg-operator-state.js';
 import { initSEGAnnotations } from './seg-annotations.js';
 import { generateTorus } from './renderers/shared/primitive-geometry.js';
-import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts.js';
+import { DEVICE_MESH_LAYOUTS, TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT } from './device-mesh-layouts.js';
+import { isDeviceActive as isDeviceVisible } from './renderers/shared/device-view.js';
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -86,6 +92,19 @@ export class MultiDeviceVisualizer {
     /** Integrated SEG spin state (from segOperator physics) */
     this.segOmega = 0;
     this.corona = 0;
+
+    const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
+
+    // Prototype-accuracy preset for SEG rollers (parse before lighting / layout).
+    const protoParam = params.get('prototype');
+    this.prototypePreset = 'showroom';
+    if (protoParam === 'lab' || protoParam === 'roschin' || protoParam === 'godin') {
+      this.prototypePreset = 'lab';
+    } else if (protoParam === 'showroom' || protoParam === 'searl') {
+      this.prototypePreset = 'showroom';
+    } else if (typeof window !== 'undefined' && window.SEG_PROTOTYPE_PRESET) {
+      this.prototypePreset = window.SEG_PROTOTYPE_PRESET;
+    }
     this.anomalousEffectsEnabled = (this.prototypePreset === 'lab');
 
     // SimRateController for speed-scaled physics and visuals
@@ -100,20 +119,6 @@ export class MultiDeviceVisualizer {
     this.postPreset = lookPreset;
     this.postExposure = lookPreset.post.exposure;
     this.postBloomStrength = lookPreset.post.bloomStrength;
-
-    // Prototype-accuracy preset for SEG rollers.
-    //   'showroom' = Searl mock-up (nickel/brass/copper showroom finish)
-    //   'lab'      = Roschin-Godin lab rig (aluminum sleeves, ceramic, wear)
-    const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-    const protoParam = params.get('prototype');
-    this.prototypePreset = 'showroom';
-    if (protoParam === 'lab' || protoParam === 'roschin' || protoParam === 'godin') {
-      this.prototypePreset = 'lab';
-    } else if (protoParam === 'showroom' || protoParam === 'searl') {
-      this.prototypePreset = 'showroom';
-    } else if (typeof window !== 'undefined' && window.SEG_PROTOTYPE_PRESET) {
-      this.prototypePreset = window.SEG_PROTOTYPE_PRESET;
-    }
 
     // Literature-grounded SEG layout preset (roller counts, gap rule, scale).
   //   searl    = documented 10/25/35 three-ring device
@@ -133,6 +138,15 @@ export class MultiDeviceVisualizer {
       this.segLayoutPreset = window.SEG_LAYOUT_PRESET;
     }
     this.segLayout = null;
+
+    this.heronLayoutPreset = parseHeronLayoutPreset(params);
+    try {
+      const storedHeron = localStorage.getItem('heron-layout');
+      if (storedHeron && Object.values(HERON_LAYOUT_PRESETS).includes(storedHeron)) {
+        this.heronLayoutPreset = storedHeron;
+      }
+    } catch (_) { /* ignore */ }
+    this.heronLayout = getHeronLayout(this.heronLayoutPreset);
 
     this.segFrameLevel = parseSegFrameLevel(params);
     this.segFrameBuffers = null;
@@ -213,6 +227,12 @@ export class MultiDeviceVisualizer {
 
       if (typeof window.syncSEGLayoutUI === 'function') {
         window.syncSEGLayoutUI();
+      }
+      if (typeof window.syncHeronLayoutUI === 'function') {
+        window.syncHeronLayoutUI();
+      }
+      if (typeof window.syncLayoutPanelsVisibility === 'function') {
+        window.syncLayoutPanelsVisibility();
       }
 
     } catch (e) {
@@ -304,6 +324,53 @@ export class MultiDeviceVisualizer {
     return layout;
   }
 
+  getHeronLayoutPreset() {
+    return this.heronLayoutPreset;
+  }
+
+  /**
+   * Switch Heron's Fountain build shape (vessels, plumbing, hydraulic params).
+   * @param {string} presetName - classic, compact, tower, wide, spiral
+   */
+  async setHeronLayoutPreset(presetName) {
+    const presets = Object.values(HERON_LAYOUT_PRESETS);
+    if (!presets.includes(presetName)) {
+      console.warn('[Heron] Unknown layout preset:', presetName);
+      return null;
+    }
+    if (this.heronLayoutPreset === presetName) {
+      return this.heronLayout;
+    }
+
+    this.heronLayoutPreset = presetName;
+    this.heronLayout = getHeronLayout(presetName);
+
+    const heron = this.devices.heron;
+    if (heron?.geometry?.applyHeronLayout) {
+      await heron.geometry.applyHeronLayout(presetName);
+    }
+    if (heron?.physicsState) {
+      heron.physicsState.heronLayoutId = presetName;
+      heron.physicsState.heronHeadMax = this.heronLayout.headMaxM;
+      heron.physicsState.heronHead = Math.min(heron.physicsState.heronHead, this.heronLayout.headMaxM);
+    }
+
+    try {
+      localStorage.setItem('heron-layout', presetName);
+    } catch (_) { /* ignore */ }
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('heronLayout', presetName);
+      window.history.replaceState(null, '', url);
+    } catch (_) { /* ignore */ }
+
+    if (this.currentView === 'heron' && this.cameraController) {
+      this.cameraController.focusOnDevice('heron');
+    }
+
+    return this.heronLayout;
+  }
+
   showOptimalSettingsHint() {
     const settings = this.profiler.getOptimalSettings();
     console.log('Detected GPU Tier:', this.profiler.gpuTier);
@@ -373,6 +440,19 @@ export class MultiDeviceVisualizer {
 
   switchMode(mode) {
     this.onModeChange(mode);
+  }
+
+  /**
+   * Whether a device should simulate and render this frame.
+   * Overview shows all enabled devices; focused mode shows only the active device.
+   */
+  isDeviceActive(deviceId) {
+    return isDeviceVisible(this.currentView, this.devicesEnabled, deviceId);
+  }
+
+  /** True when the multi-device overview (all devices) is active. */
+  isOverviewMode() {
+    return !this.currentView || this.currentView === 'overview';
   }
 
   async setupDevices() {
@@ -739,6 +819,20 @@ export class MultiDeviceVisualizer {
     this.cylinderBuffer = { vertexBuffer: cylVB, indexBuffer: cylIB, indexCount: cylData.indices.length };
     this.profiler.trackBuffer('shared-cylinder-vertices', cylData.vertices.byteLength, GPUBufferUsage.VERTEX);
     this.profiler.trackBuffer('shared-cylinder-indices', cylData.indices.byteLength, GPUBufferUsage.INDEX);
+
+    const tubeData = this.generateCylinder(TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT, 12);
+    const tubeVB = this.device.createBuffer({
+      size: tubeData.vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(tubeVB, 0, tubeData.vertices);
+    const tubeIB = this.device.createBuffer({
+      size: tubeData.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(tubeIB, 0, tubeData.indices);
+    this.deviceTubeBuffer = { vertexBuffer: tubeVB, indexBuffer: tubeIB, indexCount: tubeData.indices.length };
+    this.profiler.trackBuffer('device-tube-vertices', tubeData.vertices.byteLength, GPUBufferUsage.VERTEX);
 
     const torusData = generateTorus(1.0, 0.14, 48, 14);
     const torusVB = this.device.createBuffer({
@@ -1459,7 +1553,9 @@ export class MultiDeviceVisualizer {
     this.cameraController.updateCamera(deltaTime);
     
     // Record frame in profiler
-    const totalParticles = Object.values(this.devices).reduce((sum, d) => sum + (this.devicesEnabled[d.id] ? d.particleCount : 0), 0);
+    const totalParticles = Object.values(this.devices).reduce(
+      (sum, d) => sum + (this.isDeviceActive(d.id) ? d.particleCount : 0), 0
+    );
     this.profiler.recordFrame(deltaTime, totalParticles);
 
     // Update solar battery UI (only shown when viewing the solar device)
@@ -1553,16 +1649,18 @@ export class MultiDeviceVisualizer {
     const qualityScale = this.profiler.qualityLevel;
     this.refreshSEGLayout(qualityScale);
     for (const device of Object.values(this.devices)) {
-      if (this.devicesEnabled[device.id]) {
+      if (this.isDeviceActive(device.id)) {
         device.update(deltaTime * speed, qualityScale);
       }
     }
 
-    for (const pipe of this.energyPipes) {
-      pipe.update(deltaTime, this.devices, this.time);
+    if (this.isOverviewMode()) {
+      for (const pipe of this.energyPipes) {
+        pipe.update(deltaTime, this.devices, this.time);
+      }
     }
 
-    const enabledDevices = Object.values(this.devices).filter((d) => this.devicesEnabled[d.id]);
+    const enabledDevices = Object.values(this.devices).filter((d) => this.isDeviceActive(d.id));
     const targetGlobalEnergy = enabledDevices.length
       ? enabledDevices.reduce((sum, d) => sum + (d.energyLevel || 0), 0) / enabledDevices.length
       : 0.0;
@@ -1583,7 +1681,7 @@ export class MultiDeviceVisualizer {
     // SEG-specific compute: roller kinematics + RK4 flux line tracing.
     // These run first so rendering reads the freshly updated buffers.
     const segDevice = this.devices['seg'];
-    if (segDevice && this.devicesEnabled['seg']) {
+    if (segDevice && this.isDeviceActive('seg')) {
       if (segDevice.rollerComputePipeline && segDevice.rollerComputeBindGroup) {
         computePass.setPipeline(segDevice.rollerComputePipeline);
         computePass.setBindGroup(0, segDevice.rollerComputeBindGroup);
@@ -1591,16 +1689,16 @@ export class MultiDeviceVisualizer {
       }
       // RK4 flux line tracer: one thread per flux line (up to 108).
       if (segDevice.fluxTracerPipeline && segDevice.fluxTracerBindGroup &&
-          this.profiler.qualityLevel > 0.4) {
+          this.profiler.qualityLevel > 0.32) {
         computePass.setPipeline(segDevice.fluxTracerPipeline);
         computePass.setBindGroup(0, segDevice.fluxTracerBindGroup);
-        const fluxLines = this.segLayout?.totalFluxLines ?? 108;
+        const fluxLines = this.segLayout?.totalFluxLines ?? 168;
         computePass.dispatchWorkgroups(Math.ceil(fluxLines / 64));
       }
     }
 
     for (const device of Object.values(this.devices)) {
-      if (this.devicesEnabled[device.id] && device.computePipeline && device.computeBindGroup) {
+      if (this.isDeviceActive(device.id) && device.computePipeline && device.computeBindGroup) {
         computePass.setPipeline(device.computePipeline);
         computePass.setBindGroup(0, device.computeBindGroup);
         const workgroups = Math.ceil((device.scaledParticleCount || device.particleCount) / 64);
@@ -1651,7 +1749,7 @@ export class MultiDeviceVisualizer {
     // Render devices (scaled by quality)
     const scaledQuality = this.profiler.qualityLevel;
     for (const device of Object.values(this.devices)) {
-      if (this.devicesEnabled[device.id]) {
+      if (this.isDeviceActive(device.id)) {
         // Skip expensive VFX at low quality — keep core meshes visible.
         const skipEffects = scaledQuality < 0.5;
         device.render(renderPass, this.globalUniformBuffer, skipEffects);
@@ -1659,12 +1757,12 @@ export class MultiDeviceVisualizer {
     }
 
     // Roschin–Godin magnetic wall shells (drawn after SEG so they overlay the scene).
-    if (segDevice && this.devicesEnabled['seg']) {
+    if (segDevice && this.isDeviceActive('seg')) {
       this.renderAnomalyWalls(renderPass, this.globalUniformBuffer, segDevice);
     }
 
-    // Energy transfer pipes between devices (world-space Bézier arcs).
-    if (this.energyPipePipeline && scaledQuality > 0.35) {
+    // Energy transfer pipes between devices (overview only).
+    if (this.isOverviewMode() && this.energyPipePipeline && scaledQuality > 0.35) {
       for (const pipe of this.energyPipes) {
         pipe.render(renderPass, this.globalUniformBuffer, this.energyPipePipeline);
       }
@@ -1815,11 +1913,32 @@ export class MultiDeviceVisualizer {
    * Focuses the camera on the named device, matching the single-device API.
    */
   onModeChange(mode) {
+    const prev = this.currentView;
     this.currentView = mode;
-    if (this.cameraController) this.cameraController.focusOnDevice(mode);
+    if (mode === 'overview') {
+      this.cameraController?.showOverview();
+    } else if (this.cameraController) {
+      this.cameraController.focusOnDevice(mode);
+    }
     document.querySelectorAll('.mode-btn').forEach((btn) => btn.classList.remove('active'));
     const activeBtn = document.getElementById(`btn-${mode}`);
     if (activeBtn) activeBtn.classList.add('active');
+
+    // Re-initialize focused device simulation when entering from another view.
+    if (mode && mode !== 'overview' && mode !== prev) {
+      const device = this.devices[mode];
+      device?.resetForModeEntry?.();
+    }
+
+    this._updateDeviceTelemetry();
+    if (typeof window.syncLayoutPanelsVisibility === 'function') {
+      window.syncLayoutPanelsVisibility();
+    }
+    if (mode === 'heron' && typeof window.syncHeronLayoutUI === 'function') {
+      window.syncHeronLayoutUI();
+    } else if (mode === 'seg' && typeof window.syncSEGLayoutUI === 'function') {
+      window.syncSEGLayoutUI();
+    }
   }
 
   /** Adjust SEG particle count from the operator panel slider */
@@ -1872,9 +1991,14 @@ export class MultiDeviceVisualizer {
 
     if (batteryFooter) {
       if (view === 'heron' && ps(heron)) {
-        const head = ps(heron).heronHead;
-        const vmax = ps(heron).heronHeadMax;
-        batteryFooter.textContent = `Head ${head.toFixed(2)} m · v_exit ${ps(heron).heronVExit.toFixed(2)}`;
+        const h = ps(heron);
+        const head = h.heronHead;
+        batteryFooter.textContent = [
+          `Head ${head.toFixed(2)}/${h.heronHeadMax.toFixed(1)} m`,
+          `v ${h.heronVExit.toFixed(2)} m/s`,
+          `Q ${h.heronFlowRateLmin.toFixed(1)} L/min`,
+          `P ${h.heronPressureKPa.toFixed(1)} kPa`
+        ].join(' · ');
       } else if (view === 'kelvin' && ps(kelvin)) {
         const vn = ps(kelvin).kelvinVoltageN;
         const spark = ps(kelvin).kelvinSparkTimer > 0 ? ' ⚡' : '';
@@ -1895,10 +2019,16 @@ export class MultiDeviceVisualizer {
 
     const efficiencyEl = document.getElementById('efficiency');
     if (efficiencyEl && view === 'heron' && ps(heron)) {
-      const pct = Math.min(100, (ps(heron).heronVExit / 8) * 100);
+      const layout = this.heronLayout || getHeronLayout(ps(heron).heronLayoutId);
+      const vRef = Math.sqrt(2 * 9.81 * layout.headMaxM) * (layout.dischargeCoeff ?? 0.35);
+      const pct = Math.min(100, (ps(heron).heronVExit / Math.max(vRef, 0.5)) * 100);
       efficiencyEl.textContent = `${pct.toFixed(1)}%`;
       const bar = document.getElementById('efficiency-bar');
       if (bar) bar.style.width = `${pct}%`;
+    }
+
+    if (view === 'heron' && typeof window.syncHeronLayoutUI === 'function') {
+      window.syncHeronLayoutUI();
     }
   }
 

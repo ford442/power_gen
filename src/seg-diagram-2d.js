@@ -150,6 +150,12 @@ export class SEGDiagram2D {
 
   toggle() { this.visible ? this.hide() : this.show(); }
 
+  /** Sync visibility from UI checkbox (schematic overlay). */
+  setVisible(on) {
+    if (on) this.show();
+    else this.hide();
+  }
+
   // --- Live state pulled read-only from the visualizer, with safe fallbacks ---
   _readState() {
     const v = this.getViz && this.getViz();

@@ -23,10 +23,10 @@ const ROLLER_MOMENT: f32 = 18.5;  // A·m²
 
 const MAX_RINGS: i32 = 3;
 const MAX_ROLLERS: i32 = 72;
-const FLUX_LINES_PER_RING_MAX: i32 = 48;
-const TOTAL_FLUX_LINES_MAX: i32 = 144;    // 3 rings × 48 lines
-const SEGMENTS_PER_LINE: i32 = 100;   // Resolution of each line
-const TOTAL_SEGMENTS: i32 = 14400;    // 144 lines × 100 segments
+const FLUX_LINES_PER_RING_MAX: i32 = 56;
+const TOTAL_FLUX_LINES_MAX: i32 = 168;    // 3 rings × 56 lines
+const SEGMENTS_PER_LINE: i32 = 120;   // Resolution of each line (smoother helices)
+const TOTAL_SEGMENTS: i32 = 20160;    // 168 lines × 120 segments
 
 // Integration parameters
 const INTEGRATION_STEP: f32 = 0.02;   // Step size for RK4 (meters)

@@ -3,6 +3,8 @@ import { DevicePipelineManager } from './device-pipeline-manager.js';
 import { DeviceUniformManager } from './device-uniforms.js';
 import { DeviceComputeManager } from './device-compute.js';
 import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts.js';
+import { createDevicePhysicsState } from './renderers/shared/device-physics.js';
+import { getHeronLayout } from './heron-layout.js';
 
 import { DeviceSetupMixin } from './devices/device-setup.js';
 import { DeviceRenderMixin } from './devices/device-render.js';
@@ -213,6 +215,30 @@ export class DeviceInstance {
     if (this.id === 'peltier') return 4;
     if (this.id === 'mhd') return 5;
     return 0;
+  }
+
+  /**
+   * Reset simulation accumulators when the user enters this device's focused view.
+   * Mirrors the legacy SEGVisualizer.onModeChange behaviour.
+   */
+  resetForModeEntry() {
+    if (['heron', 'kelvin', 'solar', 'peltier', 'mhd'].includes(this.id)) {
+      const heronLayout = this.id === 'heron'
+        ? (this.visualizer.heronLayout || getHeronLayout(this.visualizer.heronLayoutPreset))
+        : null;
+      this.physicsState = createDevicePhysicsState(this.id, { heronLayout });
+      if (this.id === 'solar') {
+        this.batteryCharge = this.physicsState.batteryCharge;
+        this.uniformManager.batteryCharge = this.physicsState.batteryCharge;
+        this.visualizer.updateBatteryGaugeMesh(this.batteryCharge);
+      }
+      this.flowEnergyLevel = 0;
+      this.voltageEnergyLevel = 0;
+      this.energyLevel = 0;
+    }
+
+    this.effectParticleCount = 0;
+    this.geometry.reseedParticles?.();
   }
 
 

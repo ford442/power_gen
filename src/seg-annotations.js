@@ -24,6 +24,14 @@ export class SEGAnnotations {
     this._layer.id = 'seg-annotations-layer';
     this._host.appendChild(this._layer);
 
+    this._svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    Object.assign(this._svg.style, {
+      position: 'absolute', inset: '0', width: '100%', height: '100%',
+      pointerEvents: 'none', overflow: 'visible'
+    });
+    this._layer.appendChild(this._svg);
+    this._leaderPaths = new Map();
+
     this._onKey = (e) => {
       if (e.key !== 'l' && e.key !== 'L') return;
       const t = e.target;
@@ -55,24 +63,41 @@ export class SEGAnnotations {
   _clearLabels() {
     for (const el of this._els.values()) el.remove();
     this._els.clear();
+    for (const p of this._leaderPaths.values()) p.remove();
+    this._leaderPaths.clear();
+    while (this._svg.firstChild) this._svg.removeChild(this._svg.firstChild);
   }
 
-  _ensureLabel(id, text) {
+  _ensureLabel(id, text, hint = '') {
     if (!this._els.has(id)) {
       const el = document.createElement('div');
       Object.assign(el.style, {
         position: 'absolute', transform: 'translate(-50%, -100%)',
         font: '0.62rem/1.2 monospace', letterSpacing: '0.4px',
         color: INK, textShadow: '0 0 8px rgba(0,255,255,0.6)',
-        whiteSpace: 'nowrap', padding: '2px 6px',
-        background: 'rgba(0,10,20,0.72)', border: `1px solid ${INK_DIM}`,
+        whiteSpace: 'nowrap', padding: '3px 7px',
+        background: 'rgba(0,10,20,0.78)', border: `1px solid ${INK_DIM}`,
         borderRadius: '3px', pointerEvents: 'none'
       });
-      el.textContent = text;
+      el.innerHTML = hint
+        ? `<strong>${text}</strong><span style="display:block;font-size:0.55rem;color:${INK_DIM};margin-top:2px">${hint}</span>`
+        : text;
       this._layer.appendChild(el);
       this._els.set(id, el);
     }
     return this._els.get(id);
+  }
+
+  _ensureLeader(id) {
+    if (!this._leaderPaths.has(id)) {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      path.setAttribute('stroke', INK_DIM);
+      path.setAttribute('stroke-width', '1');
+      path.setAttribute('stroke-dasharray', '3 3');
+      this._svg.appendChild(path);
+      this._leaderPaths.set(id, path);
+    }
+    return this._leaderPaths.get(id);
   }
 
   /** Build annotation anchors from live layout (SEG-local metres × worldScale). */
@@ -80,18 +105,42 @@ export class SEGAnnotations {
     if (!layout?.rings?.length) return [];
     const ws = layout.worldScale;
     const outerR = layout.outerRadiusM * ws;
-    const shaftR = (layout.shaftRadiusM || 0.15) * ws;
-    const plateY = layout.rings[0]?.statorOuterM ? layout.statorHeightM * ws * 0.5 : 2.5;
     const innerR = layout.rings[0].orbitRadiusM * ws;
+    const midR = layout.rings.length > 1 ? layout.rings[1].orbitRadiusM * ws : innerR * 1.5;
+    const plateY = layout.statorHeightM * ws * 0.5;
+    const baseY = -plateY * 1.2;
 
-    return [
-      { id: 'shaft', label: 'Central Shaft', pos: [0, 0, 0] },
-      { id: 'inner-ring', label: `Inner Rollers (${layout.rings[0].count}×)`, pos: [innerR * 0.85, 0.4, 0] },
-      { id: 'stator', label: 'Stator Rings', pos: [outerR * 0.55, plateY * 0.3, 0] },
-      { id: 'base', label: 'Base Plate', pos: [outerR * 0.9, -plateY * 0.8, outerR * 0.35] },
-      { id: 'coil', label: 'Pickup Coils', pos: [outerR * 1.12, 0.2, 0] },
-      { id: 'flux', label: 'Magnetic Flux (B)', pos: [outerR * 0.4, 1.8, outerR * 0.4] }
+    const anchors = [
+      { id: 'shaft', label: 'Central Shaft', hint: 'Bearing axis', pos: [0, 0, 0], labelOffset: [0, -42] },
+      { id: 'inner-ring', label: `Inner Rollers (${layout.rings[0].count}×)`, hint: 'NdFeB segments', pos: [innerR * 0.9, 0.35, 0], labelOffset: [48, -28] },
+      { id: 'stator', label: 'Stator Rings', hint: 'Copper windings', pos: [outerR * 0.5, plateY * 0.25, 0], labelOffset: [-58, -22] },
+      { id: 'base', label: 'Base Plate', hint: 'Structural mount', pos: [outerR * 0.85, baseY, outerR * 0.3], labelOffset: [52, 18] },
+      { id: 'coil', label: 'Pickup Coils', hint: 'EMF induction', pos: [outerR * 1.1, 0.15, 0], labelOffset: [62, -8] },
+      { id: 'flux', label: 'Magnetic Flux (B)', hint: 'RK4 field lines', pos: [midR * 0.55, 1.6, midR * 0.45], labelOffset: [-70, -36] }
     ];
+
+    if (layout.rings.length > 1) {
+      const outerCount = layout.rings[layout.rings.length - 1].count;
+      anchors.push({
+        id: 'outer-ring',
+        label: `Outer Rollers (${outerCount}×)`,
+        hint: 'Toroidal orbit',
+        pos: [outerR * 0.92, 0.2, outerR * 0.35],
+        labelOffset: [44, 24]
+      });
+    }
+
+    if (layout.ringCount >= 2) {
+      anchors.push({
+        id: 'separator',
+        label: 'Ring Separator',
+        hint: 'Insulated gap',
+        pos: [midR, -plateY * 0.15, midR * 0.7],
+        labelOffset: [-64, 12]
+      });
+    }
+
+    return anchors;
   }
 
   _project(worldPos, viewProj, canvas, devicePos) {
@@ -104,7 +153,7 @@ export class SEGAnnotations {
     if (clipW <= 0.01) return null;
     const ndcX = clipX / clipW;
     const ndcY = clipY / clipW;
-    if (ndcX < -1.1 || ndcX > 1.1 || ndcY < -1.1 || ndcY > 1.1) return null;
+    if (ndcX < -1.15 || ndcX > 1.15 || ndcY < -1.15 || ndcY > 1.15) return null;
     const rect = canvas.getBoundingClientRect();
     const hostRect = this._host.getBoundingClientRect();
     const px = ((ndcX + 1) * 0.5) * canvas.width;
@@ -138,21 +187,40 @@ export class SEGAnnotations {
     const seen = new Set();
 
     for (const a of anchors) {
-      const screen = this._project(a.pos, viewProj, v.canvas, devicePos);
-      const el = this._ensureLabel(a.id, a.label);
+      const anchor = this._project(a.pos, viewProj, v.canvas, devicePos);
+      const el = this._ensureLabel(a.id, a.label, a.hint || '');
       seen.add(a.id);
-      if (!screen) {
+
+      if (!anchor) {
         el.style.display = 'none';
+        const leader = this._leaderPaths.get(a.id);
+        if (leader) leader.style.display = 'none';
         continue;
       }
+
+      const off = a.labelOffset || [0, -32];
+      const lx = anchor.x + off[0];
+      const ly = anchor.y + off[1];
+
       el.style.display = 'block';
-      el.style.left = `${screen.x}px`;
-      el.style.top = `${screen.y - 6}px`;
-      el.style.opacity = String(Math.max(0.35, Math.min(1, 1.2 - screen.depth * 0.02)));
+      el.style.left = `${lx}px`;
+      el.style.top = `${ly}px`;
+      el.style.opacity = String(Math.max(0.38, Math.min(1, 1.15 - anchor.depth * 0.018)));
+
+      const line = this._ensureLeader(a.id);
+      line.style.display = 'block';
+      line.setAttribute('x1', String(anchor.x));
+      line.setAttribute('y1', String(anchor.y));
+      line.setAttribute('x2', String(lx));
+      line.setAttribute('y2', String(ly + 4));
+      line.setAttribute('opacity', String(0.35 + (1 - anchor.depth * 0.015) * 0.45));
     }
 
     for (const [id, el] of this._els) {
       if (!seen.has(id)) el.style.display = 'none';
+    }
+    for (const [id, line] of this._leaderPaths) {
+      if (!seen.has(id)) line.style.display = 'none';
     }
   }
 

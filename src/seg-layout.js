@@ -27,7 +27,7 @@
 
 export const MAX_RINGS = 3;
 export const MAX_ROLLERS = 72; // next multiple of 8 above 70 (10+25+35)
-export const MAX_FLUX_LINES = 144; // 3 rings × 48 lines (dense RK4 field viz)
+export const MAX_FLUX_LINES = 168; // 3 rings × 56 lines (dense RK4 field viz)
 
 // Canonical roller mesh dimensions (generatePoleBandedRoller reference).
 export const REF_ROLLER_RADIUS = 0.75;
@@ -55,7 +55,7 @@ const PRESET_DEFS = {
     // Searl device is ~3 m diameter; show it a bit larger than Roschin–Godin.
     worldScale: 2.0,
     rollerHeightRatio: 1.15, // rollers stand slightly taller than stator
-    fluxLinesPerRing: 48,
+    fluxLinesPerRing: 56,
     name: 'Searl 10/25/35'
   },
   [SEG_LAYOUT_PRESETS.roschin]: {
@@ -65,7 +65,7 @@ const PRESET_DEFS = {
     targetOuterRadiusM: 0.5,
     worldScale: 4.0,      // 1 m device still visible, smaller than Searl
     rollerHeightRatio: 1.15,
-    fluxLinesPerRing: 48,
+    fluxLinesPerRing: 56,
     name: 'Roschin–Godin 12'
   },
   [SEG_LAYOUT_PRESETS.legacy]: {
@@ -76,7 +76,7 @@ const PRESET_DEFS = {
     targetOuterRadiusM: 5.5,
     worldScale: 1.0,
     rollerHeightRatio: 3.5, // legacy tall rollers
-    fluxLinesPerRing: 48,
+    fluxLinesPerRing: 56,
     name: 'Legacy 8/12/16'
   }
 };

@@ -152,12 +152,6 @@ export function getRollerFragShader() {
         return nx * w.x + ny * w.y + nz * w.z;
       }
 
-      fn blackbody(temp: f32) -> vec3f {
-        let t = clamp(temp, 800.0, 3500.0) / 1000.0;
-        let warm = vec3f(1.0, 0.4 + t * 0.3, 0.1 + t * 0.6);
-        return warm * max(0.0, t - 0.8);
-      }
-
       fn getMaterialId(mode: i32, renderMode: i32, ringIndex: f32) -> u32 {
         if (mode == 1) { return 8u; }   // Heron vessel
         if (mode == 2) { return 10u; }  // Kelvin cans
@@ -193,6 +187,8 @@ export function getRollerFragShader() {
         var baseColor = mat.baseMetal.rgb;
         var metallic = mat.baseMetal.a;
         var roughness = clamp(mat.accentRough.a, 0.05, 1.0);
+
+        let V = normalize(uniforms.cameraPos - input.worldPos);
 
         if (mode == 0 && materialId == 0u) {
           baseColor = mix(baseColor, input.copperColor, 0.55);
@@ -243,7 +239,7 @@ export function getRollerFragShader() {
             // Solar panel: grid cells + anti-reflection sheen
             let grid = fract(cylUV * vec2f(24.0, 24.0));
             let cell = step(0.88, grid.x) + step(0.88, grid.y);
-            let sheen = pow(1.0 - NdotV, 3.0);
+            let sheen = pow(1.0 - max(dot(detailN, V), 0.0), 3.0);
             baseColor = mix(vec3f(0.06, 0.10, 0.18), vec3f(0.12, 0.18, 0.28), cell * 0.35);
             baseColor += vec3f(0.15, 0.25, 0.45) * sheen * (0.2 + device.batteryCharge * 0.5);
             metallic = 0.35;
@@ -283,7 +279,6 @@ export function getRollerFragShader() {
         baseColor = mix(baseColor, vec3f(0.93, 0.93, 0.90), decalMask * 0.35);
         roughness = clamp(roughness - decalMask * 0.08, 0.05, 1.0);
 
-        let V = normalize(uniforms.cameraPos - input.worldPos);
         let NdotV = max(dot(detailN, V), 0.0);
         let edgeWear = pow(1.0 - NdotV, 2.0) * mat.detailParams.z;
         baseColor = mix(baseColor, mat.accentRough.rgb, edgeWear * 0.65);

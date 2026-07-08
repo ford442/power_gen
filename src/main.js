@@ -10,6 +10,10 @@ import { SEGVisualizerMath } from './app/seg-visualizer-physics.js';
 import { initSEGOperatorPanel } from './seg-operator-panel.js';
 import { segOperator } from './seg-operator-state.js';
 import { initSEGDiagram2D } from './seg-diagram-2d.js';
+import {
+  HERON_LAYOUT_DESCRIPTIONS,
+  getHeronLayout
+} from './heron-layout.js';
 
 // Legacy shader stubs (SEGVisualizer fallback only; modern path uses MultiDeviceShaders + generators)
 const rollerShaderCode = '';
@@ -1082,6 +1086,69 @@ window.setLightingLook = (look) => {
 
 window.syncSEGLayoutUI = syncSEGLayoutUI;
 
+function syncLayoutPanelsVisibility() {
+  const view = window.multiVisualizer?.currentView || 'overview';
+  const segSec = document.getElementById('seg-layout-section');
+  const heronSec = document.getElementById('heron-layout-section');
+  if (segSec) segSec.style.display = view === 'seg' ? '' : 'none';
+  if (heronSec) heronSec.style.display = view === 'heron' ? '' : 'none';
+}
+
+window.syncLayoutPanelsVisibility = syncLayoutPanelsVisibility;
+
+function syncHeronLayoutUI() {
+  const v = window.multiVisualizer;
+  const buttons = document.querySelectorAll('[data-heron-layout]');
+  const infoEl = document.getElementById('heron-layout-info');
+  if (!v || typeof v.getHeronLayoutPreset !== 'function') return;
+
+  const preset = v.getHeronLayoutPreset();
+  buttons.forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.heronLayout === preset);
+  });
+
+  const layout = v.heronLayout || getHeronLayout(preset);
+  if (infoEl) {
+    const ps = v.devices?.heron?.physicsState;
+    if (ps && v.currentView === 'heron') {
+      infoEl.textContent = [
+        layout.name,
+        HERON_LAYOUT_DESCRIPTIONS[preset] || '',
+        `L=${layout.pipeLengthM} m · D=${(layout.pipeDiameterM * 1000).toFixed(0)} mm`,
+        `Head ${ps.heronHead.toFixed(2)}/${layout.headMaxM} m · Q ${ps.heronFlowRateLmin.toFixed(1)} L/min · P ${ps.heronPressureKPa.toFixed(1)} kPa`
+      ].filter(Boolean).join(' — ');
+    } else {
+      infoEl.textContent = `${layout.name} — ${HERON_LAYOUT_DESCRIPTIONS[preset] || ''}`;
+    }
+  }
+
+  if (v.currentView === 'heron') {
+    const info = document.getElementById('info');
+    if (info) info.textContent = HERON_LAYOUT_DESCRIPTIONS[preset] || info.textContent;
+  }
+}
+
+window.setHeronLayout = async (preset) => {
+  const v = window.multiVisualizer;
+  if (!v?.setHeronLayoutPreset) {
+    console.warn('[main] Heron layout switching requires multi-device visualizer');
+    return;
+  }
+  await v.setHeronLayoutPreset(preset);
+  syncHeronLayoutUI();
+};
+
+window.syncHeronLayoutUI = syncHeronLayoutUI;
+
+function wireHeronLayoutControls() {
+  document.querySelectorAll('[data-heron-layout]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      window.setHeronLayout(btn.dataset.heronLayout);
+    });
+  });
+  syncHeronLayoutUI();
+}
+
 function wireSEGLayoutControls() {
   document.querySelectorAll('[data-seg-layout]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -1158,6 +1225,8 @@ window.addEventListener('load', () => {
 
   bootstrapVisualizer().then(() => {
     wireSEGLayoutControls();
+    wireHeronLayoutControls();
+    syncLayoutPanelsVisibility();
 
     // 2D top-down plan view overlay (toggle: button, "D" key, window.toggleSEGDiagram()).
     try {

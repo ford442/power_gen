@@ -325,8 +325,11 @@ export class DebugPanel {
       if (!d || !ps) continue;
       parts.push(`<div style="color:#0cc;margin-top:4px;text-transform:uppercase">${id}</div>`);
       if (id === 'heron') {
-        parts.push(row('Head', `${ps.heronHead.toFixed(2)} m`));
-        parts.push(row('v_exit', ps.heronVExit.toFixed(2)));
+        parts.push(row('Head', `${ps.heronHead.toFixed(2)} / ${ps.heronHeadMax.toFixed(1)} m`));
+        parts.push(row('v_exit', `${ps.heronVExit.toFixed(2)} m/s`));
+        parts.push(row('Flow', `${ps.heronFlowRateLmin.toFixed(1)} L/min`));
+        parts.push(row('Pressure', `${ps.heronPressureKPa.toFixed(1)} kPa`));
+        parts.push(row('Re', `${ps.heronReynolds.toFixed(0)}`));
         parts.push(row('Flow E', `${(d.flowEnergyLevel * 100).toFixed(0)}%`));
       } else if (id === 'kelvin') {
         parts.push(row('Voltage', `${(ps.kelvinVoltageN * ps.kelvinVbreak).toFixed(0)} V`));

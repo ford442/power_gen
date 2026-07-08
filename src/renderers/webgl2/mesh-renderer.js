@@ -5,16 +5,24 @@ import { buildDetailedRollerMesh, poleTintColor, isNorthPole } from '../../seg-r
 import { computeSEGLayout, SEG_LAYOUT_PRESETS } from '../../seg-layout.js';
 import { computeFrameDimensions, parseSegFrameLevel } from '../../seg-frame-model.js';
 import {
-  buildHeronInstances,
+  buildHeronMesh,
+  HERON_LAYOUT_PRESETS
+} from '../../heron-layout.js';
+import {
   buildKelvinInstances,
+  buildKelvinBucketInstances,
   buildKelvinRingInstances,
+  buildKelvinTubeInstances,
   buildSolarLedInstances,
   buildSolarBatteryInstance,
   buildSolarPanelInstance,
+  buildSolarTubeInstances,
+  TUBE_MESH_RADIUS,
+  TUBE_MESH_HEIGHT,
 } from '../../device-mesh-layouts.js';
 
-/** Instance record: vec3 position + vec4 rgba — 28 bytes (matches MESH_VERT a_instanceColor). */
-const INSTANCE_STRIDE_FLOATS = 7;
+/** Instance record: vec3 position + vec4 rgba + vec4 rotation quat — 44 bytes. */
+const INSTANCE_STRIDE_FLOATS = 11;
 
 /**
  * Instanced mesh renderer for rollers, stator rings, and simple device geometry.
@@ -38,6 +46,7 @@ export class MeshRenderer {
 
     this.cylinder = uploadMesh(gl, generateCylinder(0.35, 0.9, 20));
     this.deviceCylinder = uploadMesh(gl, generateCylinder(0.8, 2.5, 32));
+    this.deviceTube = uploadMesh(gl, generateCylinder(TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT, 10));
     this.kelvinRing = uploadMesh(gl, generateTorus(1.0, 0.14, 32, 12));
     this.solarPanel = uploadMesh(gl, generateDisc(0.05, 5.5, 0.06, 48));
     this.disc = uploadMesh(gl, generateDisc(2.0, 2.6, 0.15, 48));
@@ -88,9 +97,22 @@ export class MeshRenderer {
     gl.vertexAttribPointer(3, 4, gl.FLOAT, false, stride, 12);
     gl.enableVertexAttribArray(3);
     gl.vertexAttribDivisor(3, 1);
+    gl.vertexAttribPointer(5, 4, gl.FLOAT, false, stride, 28);
+    gl.enableVertexAttribArray(5);
+    gl.vertexAttribDivisor(5, 1);
   }
 
-  _packInstance(out, index, pos, rgb, emissive) {
+  _unbindInstanceAttribs() {
+    const gl = this.gl;
+    gl.vertexAttribDivisor(2, 0);
+    gl.vertexAttribDivisor(3, 0);
+    gl.vertexAttribDivisor(5, 0);
+    gl.disableVertexAttribArray(5);
+    // Identity quaternion for programs that read location 5 without an array bound
+    gl.vertexAttrib4f(5, 0, 0, 0, 1);
+  }
+
+  _packInstance(out, index, pos, rgb, emissive, rot = [0, 0, 0, 1]) {
     const base = index * INSTANCE_STRIDE_FLOATS;
     out[base] = pos[0];
     out[base + 1] = pos[1];
@@ -99,6 +121,10 @@ export class MeshRenderer {
     out[base + 4] = rgb[1];
     out[base + 5] = rgb[2];
     out[base + 6] = emissive;
+    out[base + 7] = rot[0];
+    out[base + 8] = rot[1];
+    out[base + 9] = rot[2];
+    out[base + 10] = rot[3];
   }
 
   _drawInstanced(mesh, instanceBuffer, instanceCount, program = this.program, locs = this.locs) {
@@ -107,8 +133,7 @@ export class MeshRenderer {
     this._bindInstanceAttribs(instanceBuffer);
     gl.useProgram(program);
     gl.drawElementsInstanced(gl.TRIANGLES, mesh.indexCount, gl.UNSIGNED_SHORT, 0, instanceCount);
-    gl.vertexAttribDivisor(2, 0);
-    gl.vertexAttribDivisor(3, 0);
+    this._unbindInstanceAttribs();
     gl.bindVertexArray(null);
   }
 
@@ -157,8 +182,7 @@ export class MeshRenderer {
     gl.bindVertexArray(this.detailedRoller.vao);
     this._bindInstanceAttribs(this._rollerInstanceBuf);
     gl.drawElementsInstanced(gl.TRIANGLES, this.detailedRoller.indexCount, gl.UNSIGNED_SHORT, 0, count);
-    gl.vertexAttribDivisor(2, 0);
-    gl.vertexAttribDivisor(3, 0);
+    this._unbindInstanceAttribs();
     gl.bindVertexArray(null);
   }
 
@@ -200,8 +224,7 @@ export class MeshRenderer {
       gl.uniformMatrix4fv(this.locs.u_model, false, model);
       gl.drawElementsInstanced(gl.TRIANGLES, this.statorDisc.indexCount, gl.UNSIGNED_SHORT, 0, 1);
       gl.deleteBuffer(buf);
-      gl.vertexAttribDivisor(2, 0);
-      gl.vertexAttribDivisor(3, 0);
+      this._unbindInstanceAttribs();
       gl.bindVertexArray(null);
     }
   }
@@ -231,8 +254,7 @@ export class MeshRenderer {
     gl.bindVertexArray(this.disc.vao);
     this._bindInstanceAttribs(this._baseBuf);
     gl.drawElementsInstanced(gl.TRIANGLES, this.disc.indexCount, gl.UNSIGNED_SHORT, 0, 1);
-    gl.vertexAttribDivisor(2, 0);
-    gl.vertexAttribDivisor(3, 0);
+    this._unbindInstanceAttribs();
     gl.bindVertexArray(null);
   }
 
@@ -269,8 +291,7 @@ export class MeshRenderer {
       gl.bindVertexArray(this.disc.vao);
       this._bindInstanceAttribs(buf);
       gl.drawElementsInstanced(gl.TRIANGLES, this.disc.indexCount, gl.UNSIGNED_SHORT, 0, 1);
-      gl.vertexAttribDivisor(2, 0);
-      gl.vertexAttribDivisor(3, 0);
+      this._unbindInstanceAttribs();
       gl.bindVertexArray(null);
       gl.deleteBuffer(buf);
     };
@@ -330,13 +351,25 @@ export class MeshRenderer {
     let extraDraws = [];
 
     if (deviceId === 'heron') {
-      instances = buildHeronInstances();
+      const preset = opts.heronLayoutPreset || HERON_LAYOUT_PRESETS.classic;
+      const mesh = buildHeronMesh(preset);
+      instances = mesh.cylinders;
+      extraDraws.push({
+        mesh: this.deviceTube,
+        instances: mesh.tubes,
+        emissive: 0.08
+      });
     } else if (deviceId === 'kelvin') {
-      instances = buildKelvinInstances();
+      instances = [...buildKelvinInstances(), ...buildKelvinBucketInstances()];
       extraDraws.push({
         mesh: this.kelvinRing,
         instances: buildKelvinRingInstances(),
         emissive: 0.35
+      });
+      extraDraws.push({
+        mesh: this.deviceTube,
+        instances: buildKelvinTubeInstances(),
+        emissive: 0.12
       });
     } else if (deviceId === 'solar') {
       instances = [...buildSolarLedInstances(), ...buildSolarBatteryInstance()];
@@ -345,6 +378,11 @@ export class MeshRenderer {
         instances: buildSolarPanelInstance(),
         emissive: 0.08,
         scale: [1, 1, 1]
+      });
+      extraDraws.push({
+        mesh: this.deviceTube,
+        instances: buildSolarTubeInstances(),
+        emissive: 0.03
       });
     } else {
       return;
@@ -357,9 +395,10 @@ export class MeshRenderer {
       for (let i = 0; i < count; i++) {
         const base = i * 12;
         const pos = [flat[base], flat[base + 1], flat[base + 2]];
+        const rot = [flat[base + 4], flat[base + 5], flat[base + 6], flat[base + 7]];
         const rgb = [flat[base + 8], flat[base + 9], flat[base + 10]];
         const em = flat[base + 11] + emissive;
-        this._packInstance(instanceData, i, pos, rgb, em);
+        this._packInstance(instanceData, i, pos, rgb, em, rot);
       }
       const buf = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -380,8 +419,7 @@ export class MeshRenderer {
       gl.bindVertexArray(m.vao);
       this._bindInstanceAttribs(buf);
       gl.drawElementsInstanced(gl.TRIANGLES, m.indexCount, gl.UNSIGNED_SHORT, 0, count);
-      gl.vertexAttribDivisor(2, 0);
-      gl.vertexAttribDivisor(3, 0);
+      this._unbindInstanceAttribs();
       gl.bindVertexArray(null);
       gl.deleteBuffer(buf);
     };

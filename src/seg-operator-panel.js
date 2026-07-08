@@ -123,6 +123,7 @@ export class SEGOperatorPanel {
     this.els.schematicToggle?.addEventListener('change', (e) => {
       this._schematicVisible = e.target.checked;
       this.els.schematicOverlay?.classList.toggle('visible', this._schematicVisible);
+      window.segDiagram2D?.setVisible?.(this._schematicVisible);
     });
 
     this.els.aboutToggle?.addEventListener('click', () => {

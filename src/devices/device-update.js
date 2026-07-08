@@ -3,6 +3,7 @@ import {
   createDevicePhysicsState,
   stepDevicePhysics
 } from '../renderers/shared/device-physics.js';
+import { getHeronLayout } from '../heron-layout.js';
 
 export const DeviceUpdateMixin = {
   update: function (deltaTime, qualityScale) {
@@ -28,11 +29,17 @@ export const DeviceUpdateMixin = {
 
     // Per-device physics integrators (Heron head, Kelvin voltage, solar battery)
     if (!this.physicsState && ['heron', 'kelvin', 'solar'].includes(this.id)) {
-      this.physicsState = createDevicePhysicsState(this.id);
+      const heronLayout = this.id === 'heron'
+        ? (this.visualizer.heronLayout || getHeronLayout(this.visualizer.heronLayoutPreset))
+        : null;
+      this.physicsState = createDevicePhysicsState(this.id, { heronLayout });
     }
     if (this.physicsState) {
       const drive = Math.min(1, Math.log2((this.speedMult || 1) + 1) / Math.log2(21));
-      stepDevicePhysics(this.physicsState, deltaTime, drive);
+      const heronLayout = this.id === 'heron'
+        ? (this.visualizer.heronLayout || getHeronLayout(this.physicsState.heronLayoutId))
+        : null;
+      stepDevicePhysics(this.physicsState, deltaTime, drive, { heronLayout });
       if (this.id === 'heron') {
         this.flowEnergyLevel = this.physicsState.energyLevel;
       } else if (this.id === 'kelvin') {
@@ -70,11 +77,12 @@ export const DeviceUpdateMixin = {
       // lineOpacity, seedRadius, followStrength, _pad, _pad
       if (this.fluxTracerUniformBuffer) {
         const corona = this.visualizer.corona ?? 0;
-        const lineOpacity = 1.0 + this.energyLevel * 0.45 + corona * 0.35;
-        const follow = 1.0 + Math.min(0.25, this.energyLevel * 0.2);
+        const segOmega = Math.max(0.02, this.visualizer.segOmega ?? 0);
+        const lineOpacity = 1.0 + this.energyLevel * 0.55 + corona * 0.45;
+        const follow = 1.0 + Math.min(0.35, this.energyLevel * 0.25 + segOmega * 0.15);
         this.device.queue.writeBuffer(
           this.fluxTracerUniformBuffer, 0,
-          new Float32Array([time, deltaTime, 0.018, lineOpacity, 0.06, follow, 0.0, 0.0])
+          new Float32Array([time, deltaTime, 0.016, lineOpacity, 0.055, follow, 0.0, 0.0])
         );
       }
 
@@ -178,7 +186,10 @@ export const DeviceUpdateMixin = {
       const headN = this.physicsState
         ? this.physicsState.heronHead / Math.max(0.01, this.physicsState.heronHeadMax)
         : this.flowEnergyLevel;
-      const apexY = 5.2 + headN * 1.8;
+      const flow = this.geometry.heronFlow || { apexY: 6.1, supplyX: 1.6, drainBasinY: -2.2 };
+      const jetTop = flow.apexY + headN * 0.35;
+      const reservoirY = jetTop - (flow.apexY - flow.drainBasinY) * 0.42;
+      const supplyX = flow.supplyX;
       for (let i = 0; i < count; i++) {
         const phase = i / count;
         const side = i % 2 === 0 ? -1 : 1;
@@ -186,18 +197,18 @@ export const DeviceUpdateMixin = {
         let x, y, z;
         if (u < 0.25) {
           const k = u / 0.25;
-          x = side * 1.1 * (1 - k * 0.3);
-          y = 3.2 + k * (apexY - 3.2);
+          x = side * supplyX * 0.7 * (1 - k * 0.3);
+          y = reservoirY + k * (jetTop - reservoirY);
           z = 0;
         } else if (u < 0.55) {
           const k = (u - 0.25) / 0.3;
-          x = side * (0.8 + Math.sin(k * Math.PI) * 0.6);
-          y = apexY - k * 2.5;
+          x = side * (supplyX * 0.5 + Math.sin(k * Math.PI) * supplyX * 0.35);
+          y = jetTop - k * (jetTop - flow.drainBasinY) * 0.35;
           z = Math.sin(k * Math.PI * 2 + t) * 0.25;
         } else {
           const k = (u - 0.55) / 0.45;
           x = Math.sin(phase * 12.566 + t) * (0.4 + k);
-          y = (apexY - 2.5) - k * 5.5;
+          y = jetTop - (jetTop - flow.drainBasinY) * 0.35 - k * (jetTop - flow.drainBasinY) * 0.65;
           z = Math.cos(phase * 9.42 + t * 1.2) * 0.3;
         }
         writePath(i, x, y, z, energy * (0.4 + headN * 0.6), 0.5 + 0.5 * Math.sin(t * 4 + phase * 20));
@@ -343,21 +354,51 @@ export const DeviceUpdateMixin = {
       const opCorona = this.visualizer.corona ?? 0;
       const coronaStrength = Math.max(0.0, Math.min(1.0,
         opCorona * 0.85 + (speedMult - 1.0) * 0.15 + coilEnergy * 0.5 + Math.pow(energy, 1.4) * 0.6));
-      const coronaCount = Math.floor((24 + budget * 0.5) * coronaStrength);
+      const layout = this.visualizer.segLayout;
+      const ws = layout?.worldScale ?? 1.0;
+      const coronaCount = Math.floor((28 + budget * 0.55) * coronaStrength);
+
       for (let i = 0; i < coronaCount; i++) {
         const a = (i / Math.max(1, coronaCount)) * Math.PI * 2 + t * (0.35 + coronaStrength);
-        const ring = i % 3;
-        const radius = (ring === 0 ? 2.4 : ring === 1 ? 3.9 : 5.4) + Math.sin(i * 2.31 + t) * 0.16;
-        const y = (Math.sin(i * 1.93 + t * 1.9) * 0.8 + (Math.random() - 0.5) * 0.3) * (0.8 + coronaStrength * 1.4);
+        let radius = 3.0;
+        let y = 0.0;
+        if (layout?.rings?.length) {
+          const ring = layout.rings[i % layout.rings.length];
+          radius = ring.orbitRadiusM * ws + Math.sin(i * 2.31 + t) * 0.12;
+          y = (Math.sin(i * 1.93 + t * 1.9) * 0.6 + (Math.random() - 0.5) * 0.25) * (0.8 + coronaStrength * 1.2);
+        } else {
+          const ring = i % 3;
+          radius = (ring === 0 ? 2.4 : ring === 1 ? 3.9 : 5.4) + Math.sin(i * 2.31 + t) * 0.16;
+          y = (Math.sin(i * 1.93 + t * 1.9) * 0.8 + (Math.random() - 0.5) * 0.3) * (0.8 + coronaStrength * 1.4);
+        }
         pushParticle(Math.cos(a) * radius, y, Math.sin(a) * radius, 2.0 + Math.random());
       }
 
-      const burstBase = Math.floor(budget * (0.06 + coronaStrength * 0.30));
+      // Inner corona sheath (broader, softer billboards hugging rollers)
+      const sheathCount = Math.floor(budget * 0.22 * coronaStrength);
+      for (let i = 0; i < sheathCount; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = 2.0 + Math.random() * 4.5;
+        const y = (Math.random() - 0.5) * 1.2;
+        pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 2.5 + Math.random() * 0.3);
+      }
+
+      const burstBase = Math.floor(budget * (0.08 + coronaStrength * 0.35));
       for (let i = 0; i < burstBase; i++) {
         const a = Math.random() * Math.PI * 2;
-        const radius = 3.0 + Math.random() * 2.6;
-        const y = (Math.random() - 0.5) * 1.8;
+        const radius = 2.8 + Math.random() * 3.2;
+        const y = (Math.random() - 0.5) * 1.6;
         pushParticle(Math.cos(a) * radius, y, Math.sin(a) * radius, 1.0 + Math.random());
+      }
+
+      // Roller-gap micro-sparks at high corona (discharge accents)
+      if (coronaStrength > 0.45) {
+        const sparkCount = Math.floor(budget * 0.12 * (coronaStrength - 0.45) * 1.8);
+        for (let i = 0; i < sparkCount; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const r = 2.2 + Math.random() * 5.0;
+          pushParticle(Math.cos(a) * r, (Math.random() - 0.5) * 0.9, Math.sin(a) * r, 1.0 + Math.random());
+        }
       }
     } else if (this.id === 'kelvin') {
       const voltageProxy = Math.max(0.0, Math.min(1.0, this.voltageEnergyLevel * 0.7 + Math.pow(energy, 1.2) * 0.5));
@@ -388,9 +429,15 @@ export const DeviceUpdateMixin = {
     } else if (this.id === 'heron') {
       const flowGate = Math.pow(gate(this.flowEnergyLevel, 0.18, 0.58), 1.2);
       const impactGate = Math.pow(gate(this.flowEnergyLevel, 0.55, 0.90), 1.6);
+      const flow = this.geometry.heronFlow || { apexY: 6.1, drainBasinY: -2.2 };
+      const headN = this.physicsState
+        ? this.physicsState.heronHead / Math.max(0.01, this.physicsState.heronHeadMax)
+        : this.flowEnergyLevel;
+      const jetY = flow.apexY + headN * 0.25;
+      const basinY = flow.drainBasinY;
       const mistCount = Math.floor(budget * 0.56 * flowGate);
-      const clusterA = [Math.sin(t * 0.8) * 0.25, 5.2 + Math.sin(t * 1.2) * 0.12, Math.cos(t * 0.9) * 0.25];
-      const clusterB = [-clusterA[0], 5.7 + Math.cos(t * 1.1) * 0.12, -clusterA[2]];
+      const clusterA = [Math.sin(t * 0.8) * 0.25, jetY - 0.9 + Math.sin(t * 1.2) * 0.12, Math.cos(t * 0.9) * 0.25];
+      const clusterB = [-clusterA[0], jetY - 0.4 + Math.cos(t * 1.1) * 0.12, -clusterA[2]];
       for (let i = 0; i < mistCount; i++) {
         const c = i % 2 === 0 ? clusterA : clusterB;
         const r = Math.random() * 1.1;
@@ -401,7 +448,7 @@ export const DeviceUpdateMixin = {
       for (let i = 0; i < rippleCount; i++) {
         const a = Math.random() * Math.PI * 2;
         const r = 0.3 + Math.random() * 1.3;
-        const y = -1.9 + Math.random() * 0.35;
+        const y = basinY + 0.3 + Math.random() * 0.35;
         pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 5.0 + Math.random());
       }
     } else if (this.id === 'solar') {

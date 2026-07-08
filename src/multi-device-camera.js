@@ -22,7 +22,8 @@ export class MultiDeviceCamera {
     if (!config) return;
     
     this.visualizer.currentView = deviceId;
-    document.getElementById('currentView').textContent = deviceId.toUpperCase();
+    const viewEl = document.getElementById('currentView');
+    if (viewEl) viewEl.textContent = deviceId.toUpperCase();
     
     const devicePos = config.position;
     const offset = config.cameraOffset;
@@ -37,7 +38,8 @@ export class MultiDeviceCamera {
   
   showOverview() {
     this.visualizer.currentView = 'overview';
-    document.getElementById('currentView').textContent = 'Overview';
+    const viewEl = document.getElementById('currentView');
+    if (viewEl) viewEl.textContent = 'Overview';
     this.startCameraTransition([0, 8, 18], [0, 0, 0]);
   }
   

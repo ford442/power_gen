@@ -57,6 +57,17 @@ export const DeviceRenderMixin = {
       }
     }
 
+    if (this.geometry.tubeInstances && v.deviceTubeBuffer) {
+      const tube = v.deviceTubeBuffer;
+      const tubeCount = this.geometry.meshTubeCount || 0;
+      if (tubeCount > 0) {
+        renderPass.setBindGroup(0, this._rollerBindGroup(globalUniformBuffer, this.geometry.tubeInstances));
+        renderPass.setVertexBuffer(0, tube.vertexBuffer);
+        renderPass.setIndexBuffer(tube.indexBuffer, 'uint16');
+        renderPass.drawIndexed(tube.indexCount, tubeCount);
+      }
+    }
+
     if (this.id === 'solar' && this.geometry.panelInstances && v.solarPanelBuffer) {
       const panel = v.solarPanelBuffer;
       const panelCount = this.geometry.meshPanelCount || 0;
