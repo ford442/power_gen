@@ -12,16 +12,17 @@ built with **Vite**. There is no backend, database, or server-side service.
 
 - **Dev server (only required service):** `npm run dev` serves the app at
   `http://localhost:5173/`. Vite's root is `src/`, so the dev server serves
-  `src/index.html` (the dashboard / "old" architecture).
-- **Build:** `npm run build:site` (plain `vite build`). Do NOT use `npm run build`
-  for routine checks — it runs `wasm:build` first, whose script has hardcoded
-  absolute paths (`/root/emsdk`, `/root/power_gen/cpp`) that do not exist here and
-  will fail. Prebuilt WASM is already committed under `src/public/wasm/`, so it is
-  not needed to run or build the site.
-- **Lint / tests:** There is no `lint` or `test` npm script and no automated test
-  suite. Type-checking via `npx tsc --noEmit` currently reports errors (missing
-  `@webgpu/types`); it is pre-existing and not wired into any script, so do not
-  treat it as a gating check.
+  `src/index.html` (the multi-device dashboard).
+- **Build (site / Pages):** `npm run build:site` (plain `vite build`). Use this
+  for routine checks and deploys. Prebuilt WASM is committed under
+  `src/public/wasm/`.
+- **Build (full, needs Emscripten):** `npm run build` → `wasm:build` then
+  `build:site`. `wasm:build` runs `scripts/build-wasm.sh`, which finds `emcc`
+  on PATH or via `EMSDK=/path/to/emsdk` (no hardcoded machine paths).
+- **Validate:** `npm run validate` → typecheck + native C++ smoke + WGSL (naga
+  if installed). CI: `.github/workflows/validate.yml`.
+- **Typecheck:** `npm run typecheck` (`tsc --noEmit` over `src/**/*.ts` with
+  `@webgpu/types`). Also runs in Pages deploy (`static.yml`) and `validate.yml`.
 
 ### Browser testing caveat (important)
 
@@ -29,14 +30,15 @@ built with **Vite**. There is no backend, database, or server-side service.
   default `http://localhost:5173/` shows a "WebGPU init failed: No adapter" alert
   and renders a black canvas.
 - For any browser-based testing, use the **WebGL2 fallback**:
-  `http://localhost:5173/?renderer=webgl2`. This renders the live 3D scene
-  (rollers, particles, grid) and supports the orbital camera (mouse drag) plus
-  debug keys (`W` wireframe, `P` particle debug, `N` normals, `Space` pause,
-  `.` step, `[` / `]` slow-mo).
-- The WebGL2 path is a **visual-only fallback**. The dashboard's telemetry
-  (RPM/Voltage/Current/Power), the `START`/`STOP` buttons, mode switching, and
-  SEG layout switching are driven by the WebGPU visualizer and will **not** update
-  under WebGL2 (values stay at 0). This is expected, not a bug.
+  `http://localhost:5173/?renderer=webgl2`. Full operator workflow works:
+  START → non-zero RPM/V/I/P (TelemetryHub), mode buttons focus devices,
+  SEG/Heron layout presets, optional `?wasmPhysics=1`. Debug keys: `W` wireframe,
+  `P` particle debug, `N` normals, `Space` pause, `.` step, `[` / `]` slow-mo.
+- CI hooks: `window.getRendererInfo()`, `window.captureCanvasFrame({ flipY: true })`.
+- **Intentional WebGL2 visual gaps** (bloom, RK4 flux, energy arcs, enhanced PBR):
+  see **`docs/WEBGL2.md`**.
+- Dashboard telemetry is **TelemetryHub** only (`src/telemetry-hub.js`); both
+  renderers call `publishFrame` after physics.
 - Because the WebGPU path can't run here, you cannot catch WGSL compile/validation
   errors in a browser. To check WGSL offline, validate with `naga` (e.g.
   `cargo install naga-cli --version 0.19.0 --locked`, then `naga shader.wgsl`).
@@ -47,10 +49,25 @@ built with **Vite**. There is no backend, database, or server-side service.
 
 ### C++ WASM physics path
 
-A high-precision C++ (Emscripten) SEG physics core (`cpp/sim_core.cpp`, RK4 rollers)
-is available alongside the JS/WebGPU path. The bridge at `src/wasm/seg-physics-bridge.js`
-is the recommended API (`init()`, `getRollerState()`, `runBenchmark()`, `setEnabled()`).
-Enable via `?wasmPhysics=1` or the debug panel "Use C++ WASM Physics (RK4)" toggle
-(localStorage persisted). Currently focused on SEG rollers + RK4; a mode enum skeleton
-(SEG/Heron/Kelvin) and particle buffer export exist for future expansion. The WebGL2
-fallback (`?renderer=webgl2`) does not drive telemetry from the WASM path.
+High-precision C++ core: `cpp/src/sim_core.cpp` (v1.1). Bridge: `src/wasm/seg-physics-bridge.js`.
+
+| Mode | Plant state |
+|------|-------------|
+| SEG | RK4 rollers (66) |
+| Heron | head / Bernoulli+Swamee–Jain vExit |
+| Kelvin | capacitive V, spark, E |
+| Solar | battery SOC |
+
+Enable: `?wasmPhysics=1` or debug panel toggle (localStorage). Multi-device calls
+`segWasm.step` + mode switch when enabled. **Zero-copy:** `getParticleFloatView()` /
+`getRollerStateFloatView()` via `HEAPF32` (live metric: `lastRollerMeanOmega`).
+Debug panel: JS vs WASM step/s benchmark + optional particle radius diff.
+Docs: `cpp/README.md`.
+### Hardware digital twin
+
+- Bridge: `src/hardware-bridge.js` (Web Serial + **Mock** transport)
+- UI: **Hardware Twin** left-sidebar panel (`src/hardware-panel.js`)
+- Modes: open-loop (sim→HW), closed-loop (HW→rollers), shadow (Δφ/ΔRPM)
+- Safety: disconnect coasts coils (`P0,0,2` + `C0,0,0`); host timeout → coast
+- Demo: `?mockHardware=1` or panel **Mock** button
+- Spec: `docs/hardware_connection.md`

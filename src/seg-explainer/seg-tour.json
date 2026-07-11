@@ -1,0 +1,118 @@
+{
+  "tourVersion": 1,
+  "id": "seg-intro",
+  "title": "SEG Generator Tour",
+  "description": "Guided walkthrough of rings, stator windings, flux lines, and the ionization torus.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 7,
+      "view": "overview",
+      "camera": { "position": [0, 14, 24], "target": [0, 0, 0] },
+      "title": "Welcome to the SEG lab",
+      "body": "This instrument models the Searl Effect Generator — three concentric roller rings, stator guides, and pickup coils. Energy pipes link it to companion physics demos in the overview.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "focus-seg",
+      "durationSec": 6,
+      "view": "seg",
+      "camera": { "position": [6, 5, 2], "target": [0, 1, -8] },
+      "title": "Enter the generator",
+      "body": "We focus on the SEG unit. Rollers orbit in the horizontal plane; the central shaft carries the bearing stack. The 2D plan view (D key) mirrors this motion.",
+      "highlights": ["shaft"],
+      "showDiagram": true,
+      "showAnnotations": true,
+      "glossaryTerm": "B-field"
+    },
+    {
+      "id": "inner-ring",
+      "durationSec": 8,
+      "view": "seg",
+      "camera": { "position": [3.5, 3.5, -4], "target": [0, 0.5, -8] },
+      "title": "Inner roller ring",
+      "body": "Innermost NdFeB/Cu rollers — 10× in the Searl 10/25/35 preset. Pole bands alternate N/S for magnetic coupling to the stator.",
+      "highlights": ["inner-ring"],
+      "showDiagram": true,
+      "showAnnotations": true,
+      "glossaryTerm": "NdFeB"
+    },
+    {
+      "id": "stator",
+      "durationSec": 7,
+      "view": "seg",
+      "camera": { "position": [-5, 4, -10], "target": [0, 0.3, -8] },
+      "title": "Stator rings & separators",
+      "body": "Copper stator bands guide each roller orbit. Insulated ring separators maintain the air gap — typically ~3 mm in literature-derived layouts.",
+      "highlights": ["stator", "separator"],
+      "showDiagram": true,
+      "showAnnotations": true,
+      "glossaryTerm": "stator"
+    },
+    {
+      "id": "outer-ring",
+      "durationSec": 7,
+      "view": "seg",
+      "camera": { "position": [8, 4.5, -12], "target": [0, 0.4, -8] },
+      "title": "Outer roller ring",
+      "body": "The outer ring carries the highest roller count (35× Searl). Toroidal motion feeds energy into pickup coils at the perimeter.",
+      "highlights": ["outer-ring"],
+      "showDiagram": true,
+      "showAnnotations": true,
+      "glossaryTerm": "NdFeB"
+    },
+    {
+      "id": "pickup-coils",
+      "durationSec": 7,
+      "view": "seg",
+      "camera": { "position": [0, 3, -2], "target": [0, 0.2, -8] },
+      "title": "Pickup coils (C-cores)",
+      "body": "24 outer pickup coils sense passing rollers. Coil energy lights up in the operator panel as RPM rises — a simplified EMF induction model.",
+      "highlights": ["coil"],
+      "showDiagram": true,
+      "showAnnotations": true,
+      "glossaryTerm": "pickup-coil"
+    },
+    {
+      "id": "flux-lines",
+      "durationSec": 8,
+      "view": "seg",
+      "camera": { "position": [4, 6, -14], "target": [0, 1.2, -8] },
+      "title": "Magnetic flux (RK4)",
+      "body": "WebGPU path traces bidirectional flux lines via RK4 integration around roller rings. Try the B-field experiment slider to see flux and particles respond.",
+      "highlights": ["flux"],
+      "showDiagram": true,
+      "showAnnotations": true,
+      "glossaryTerm": "flux"
+    },
+    {
+      "id": "ionization",
+      "durationSec": 8,
+      "view": "seg",
+      "camera": { "position": [0, 7, -16], "target": [0, 1.5, -8] },
+      "title": "Ionization torus",
+      "body": "At high spin (press START), corona particles form a toroidal sheath — an educational air-breakdown proxy, not a claim of aneutronic fusion.",
+      "highlights": ["ionization"],
+      "showDiagram": true,
+      "showAnnotations": true,
+      "glossaryTerm": "ionization",
+      "startPlant": true
+    },
+    {
+      "id": "layouts",
+      "durationSec": 10,
+      "view": "seg",
+      "camera": { "position": [10, 8, -6], "target": [0, 0, -8] },
+      "title": "Compare layouts",
+      "body": "Searl 10/25/35 vs Roschin–Godin 12-roller vs Legacy 8/12/16 — use SEG Layout presets in the sidebar. Share your experiment with Copy Lab Link.",
+      "highlights": ["inner-ring", "outer-ring"],
+      "showDiagram": true,
+      "showAnnotations": true,
+      "glossaryTerm": "air-gap",
+      "layoutHint": "Try Roschin preset from the sidebar"
+    }
+  ]
+}

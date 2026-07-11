@@ -396,6 +396,28 @@
     }
     #footer span { color: #0ff; }
 
+    /* SEG explainer / classroom */
+    .seg-explainer-glossary {
+      margin: 8px 0 0; font-size: 0.58rem; color: #5a8;
+      display: grid; grid-template-columns: auto 1fr; gap: 2px 8px;
+    }
+    .seg-explainer-glossary dt { color: #0aa; }
+    .seg-explainer-glossary dd { margin: 0; color: #0ff; }
+    body.seg-classroom-mode #left-panel .panel-section:not(#seg-explainer-section):not(:first-child) {
+      opacity: 0.35; pointer-events: none;
+    }
+    body.seg-classroom-mode #seg-explainer-section,
+    body.seg-classroom-mode .panel-section:first-child {
+      opacity: 1; pointer-events: auto;
+    }
+    body.seg-classroom-mode #debug-panel,
+    body.seg-classroom-mode .corner-label#corner-tr {
+      display: none !important;
+    }
+    body.seg-tour-active #seg-tour-overlay {
+      display: block;
+    }
+
     /* Scrollbar styling */
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: #050a0f; }
@@ -505,6 +527,7 @@
         <button class="mode-btn"        id="btn-kelvin" onclick="setMode('kelvin')">⚡ Kelvin Thunderstorm</button>
         <button class="mode-btn"        id="btn-solar"  onclick="setMode('solar')">☀️ LEDs + Solar</button>
         <button class="mode-btn"        id="btn-mhd"    onclick="setMode('mhd')">🌊 MHD Generator</button>
+        <button class="mode-btn"        id="btn-maglev" onclick="setMode('maglev')">🧲 Mag Levitation</button>
       </div>
 
       <!-- SEG roller/stator layout preset -->
@@ -561,6 +584,59 @@
             <span class="seg-src-badge sim">SIM</span> = live simulation model
           </p>
         </div>
+      </div>
+
+      <!-- SEG Learning / tour -->
+      <div class="panel-section" id="seg-explainer-section">
+        <h3>SEG Learning</h3>
+        <div class="ctrl-row" style="flex-wrap:wrap;gap:4px;">
+          <button class="ctrl-btn" id="explainerTourBtn" type="button" style="font-size:0.68rem;">▶ Guided Tour</button>
+          <button class="ctrl-btn" id="explainerShareBtn" type="button" style="font-size:0.68rem;">⎘ Lab Link</button>
+        </div>
+        <div class="slider-row">
+          <label>B-field experiment <span id="explainerBMultVal">×1.0</span></label>
+          <input type="range" id="explainerBMult" min="0.5" max="2" step="0.1" value="1" aria-label="B-field multiplier experiment">
+        </div>
+        <div class="ctrl-row" style="flex-wrap:wrap;gap:4px;margin-top:4px;">
+          <button class="ctrl-btn" id="explainerLayoutSearl" type="button" style="font-size:0.65rem;">Searl 10/25/35</button>
+          <button class="ctrl-btn" id="explainerLayoutRoschin" type="button" style="font-size:0.65rem;">Roschin 12</button>
+        </div>
+        <label style="display:flex;align-items:center;cursor:pointer;font-size:0.68rem;color:#0aa;margin-top:8px;">
+          <input type="checkbox" id="explainerClassroom" style="margin-right:6px;">
+          Classroom mode (large labels)
+        </label>
+        <label style="display:flex;align-items:center;cursor:pointer;font-size:0.68rem;color:#0aa;margin-top:4px;">
+          <input type="checkbox" id="explainerReducedMotion" style="margin-right:6px;">
+          Reduced motion
+        </label>
+        <dl id="explainerGlossary" class="seg-explainer-glossary"></dl>
+        <div id="explainerStatus" style="font-size:0.62rem;color:#0aa;margin-top:6px;line-height:1.4;">Arrow keys orbit · L labels · D plan view</div>
+      </div>
+
+      <!-- Telemetry export -->
+      <div class="panel-section">
+        <h3>Telemetry Export</h3>
+        <div class="slider-row">
+          <label>Sample rate <span id="telemetryHzVal">10</span> Hz</label>
+          <input type="range" id="telemetrySampleHz" min="1" max="60" step="1" value="10" aria-label="Telemetry sample rate">
+        </div>
+        <div class="slider-row">
+          <label>RNG seed <input type="number" id="telemetrySeed" placeholder="optional" style="width:72px;margin-left:6px;background:#07101a;border:1px solid #0ff3;color:#0cc;font-size:0.68rem;"></label>
+        </div>
+        <div class="ctrl-row" style="flex-wrap:wrap;gap:4px;">
+          <button class="ctrl-btn" id="telemetryRecordBtn" type="button" style="font-size:0.68rem;">● Record 10s</button>
+          <button class="ctrl-btn" id="telemetryCsvBtn" type="button" style="font-size:0.68rem;">CSV</button>
+          <button class="ctrl-btn" id="telemetryJsonBtn" type="button" style="font-size:0.68rem;">JSON</button>
+        </div>
+        <div class="ctrl-row" style="flex-wrap:wrap;gap:4px;margin-top:4px;">
+          <button class="ctrl-btn" id="telemetryOfflineBtn" type="button" style="font-size:0.68rem;">WASM 10s</button>
+          <button class="ctrl-btn" id="telemetryReplayBtn" type="button" style="font-size:0.68rem;">Replay</button>
+          <button class="ctrl-btn" id="telemetryBenchExportBtn" type="button" style="font-size:0.68rem;">Bench</button>
+        </div>
+        <label style="display:block;font-size:0.65rem;color:#0aa;margin-top:6px;">
+          Load replay <input type="file" id="telemetryReplayFile" accept="application/json,.json" style="font-size:0.6rem;color:#0aa;">
+        </label>
+        <div id="telemetryExportStatus" style="font-size:0.65rem;color:#0aa;margin-top:6px;line-height:1.4;">Press START, then Record 10s</div>
       </div>
 
       <!-- WASM demo -->

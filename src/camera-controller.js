@@ -60,6 +60,19 @@ export class CameraController {
         onModeChange(mode);
       }
     });
+
+    // Keyboard orbit / zoom (accessibility) — arrow keys, +/- when not typing
+    document.addEventListener('keydown', (e) => {
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const step = e.shiftKey ? 0.04 : 0.02;
+      if (e.key === 'ArrowLeft') { this.orbit(step, 0); e.preventDefault(); }
+      else if (e.key === 'ArrowRight') { this.orbit(-step, 0); e.preventDefault(); }
+      else if (e.key === 'ArrowUp') { this.orbit(0, -step); e.preventDefault(); }
+      else if (e.key === 'ArrowDown') { this.orbit(0, step); e.preventDefault(); }
+      else if (e.key === '+' || e.key === '=') { this.zoom(-1); e.preventDefault(); }
+      else if (e.key === '-' || e.key === '_') { this.zoom(1); e.preventDefault(); }
+    });
   }
 
   orbit(deltaPhi, deltaTheta) {

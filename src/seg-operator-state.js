@@ -1,17 +1,32 @@
 /**
- * Shared SEG operator / plant state — drive setpoint, excitation, telemetry.
+ * Shared SEG operator / plant state — drive setpoint, excitation, physics step.
+ * Live dashboard numbers flow through TelemetryHub (publishFrame → subscribers).
  * Used by the operator panel and both WebGPU / WebGL2 render paths.
  */
 
 import { createDevicePhysicsState, stepDevicePhysics } from './renderers/shared/device-physics.js';
+import { ValidatedConstants } from './ValidatedConstants';
+import { SEG_DATA } from './scientific-data.js';
 
-/** Literature reference values (Wolfram-validated, see scientific-data.js) */
+/**
+ * Literature reference values aligned with ValidatedConstants / scientific-data.
+ * Prefer these (or TelemetryHub meta) over hardcoding in UI code.
+ */
 export const SEG_SPEC = {
-  B_SURFACE_T: 0.7048,
+  B_SURFACE_T: SEG_DATA?.B_FIELD?.surface
+    ?? ValidatedConstants.SEG_PHYSICS.B_FIELD_SURFACE?.value
+    ?? 0.7048,
+  ENERGY_DENSITY_SURFACE_JM3: SEG_DATA?.ENERGY_DENSITY?.surface
+    ?? ValidatedConstants.SEG_PHYSICS.ENERGY_DENSITY_SURFACE?.value
+    ?? 1.976e6,
   CLAIMED_INNER_RPM: 2850,
   CLAIMED_OUTPUT_KW: 15,
-  NdFeB_REMANENCE_T: 1.48,
+  NdFeB_REMANENCE_T: SEG_DATA?.MAGNET?.Br
+    ?? ValidatedConstants.SEG_MAGNET?.Br
+    ?? 1.48,
   ROLLER_COUNT_SEARL: '10 / 25 / 35',
+  B_SURFACE_UNCERTAINTY: ValidatedConstants.SEG_PHYSICS.B_FIELD_SURFACE?.uncertainty ?? 0.05,
+  B_SURFACE_VALIDATED: ValidatedConstants.SEG_PHYSICS.B_FIELD_SURFACE?.isValidated ?? true,
 };
 
 const STATUS = {

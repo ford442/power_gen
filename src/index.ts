@@ -86,7 +86,12 @@ export {
 // Integration Manager
 // ============================================
 
-export { SEGIntegrationManager } from './integration';
+export {
+  SEGIntegrationManager,
+  PHYSICS_UNIFORM_FLOAT_COUNT,
+  PHYSICS_UNIFORM_BYTES,
+} from './integration';
+export type { SEGIntegrationOptions } from './integration';
 
 // ============================================
 // LED/Solar Integration
@@ -118,6 +123,7 @@ import { ValidatedConstants } from './ValidatedConstants';
 import { FallbackPhysics } from './fallback-physics';
 import { WolframMCPManager, getWolframMCPManager } from './mcp-manager';
 import { SEGIntegrationManager } from './integration';
+import type { SEGIntegrationOptions } from './integration';
 import { LEDSolarIntegration, LEDSolarSimulation, DEFAULT_BATTERY_CAPACITY } from './led-solar-integration';
 import { LEDSolarConstants, LEDSolarPhysics, IVCurveCalculator } from './led-solar-constants';
 
@@ -154,9 +160,10 @@ export const VERSION = '1.0.0';
  */
 export async function initializeSEGIntegration(
   device: GPUDevice,
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
+  options?: SEGIntegrationOptions
 ): Promise<SEGIntegrationManager> {
-  const manager = new SEGIntegrationManager(device, canvas);
+  const manager = new SEGIntegrationManager(device, canvas, options);
   
   // Give it a moment to initialize async components
   await new Promise(resolve => setTimeout(resolve, 100));

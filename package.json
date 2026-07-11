@@ -7,14 +7,15 @@
   "scripts": {
     "dev": "vite",
     "build:site": "vite build",
-    "build": "npm run wasm:build && vite build",
-    "build_colab": "npm run wasm:build_colab && vite build",
+    "build": "npm run wasm:build && npm run build:site",
     "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "check:wgsl": "bash scripts/check-wgsl.sh",
+    "validate": "npm run typecheck && npm run wasm:native && npm run check:wgsl",
     "deploy": "npm run build:site && python deploy.py",
-    "wasm:build": "cd /root/emsdk && . ./emsdk_env.sh && cd /root/power_gen/cpp && make wasm",
-    "wasm:build_colab": "cd /content/build_space/emsdk && . ./emsdk_env.sh && cd /content/build_space/power_gen/cpp && make wasm",
-    "wasm:build-debug": "cd cpp && make wasm-dbg",
-    "wasm:native": "cd cpp && make native"
+    "wasm:build": "bash scripts/build-wasm.sh",
+    "wasm:build-debug": "bash scripts/build-wasm.sh --debug",
+    "wasm:native": "bash scripts/build-wasm.sh --native"
   },
   "keywords": [
     "webgpu",
@@ -25,19 +26,12 @@
   "author": "ford442",
   "license": "MIT",
   "devDependencies": {
+    "@webgpu/types": "^0.1.71",
     "typescript": "^5.9.3",
     "vite": "^5.0.0"
   },
   "directories": {
     "doc": "docs"
-  },
-  "dependencies": {
-    "esbuild": "^0.21.5",
-    "nanoid": "^3.3.11",
-    "picocolors": "^1.1.1",
-    "postcss": "^8.5.8",
-    "rollup": "^4.59.0",
-    "source-map-js": "^1.2.1"
   },
   "repository": {
     "type": "git",

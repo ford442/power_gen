@@ -1,51 +1,24 @@
 /**
- * Scientific UI Module
- * Modular scientific visualization components for SEG WebGPU Visualizer
- * 
- * @module scientific-ui
+ * Scientific UI package entry — gauges + manager.
+ *
+ * Live values come from TelemetryHub only (see src/telemetry-hub.js).
+ * Prefer: import { ScientificUIManager, MagneticFieldGauge, ... } from './scientific-ui/index.js'
  */
 
-// Re-export utilities
+// Utilities
 export * from './utils/index.js';
 
-// Re-export core classes (when extracted)
-// export { ScientificUIManager } from './core/ScientificUIManager.js';
+// Gauge widgets (fully extracted under gauges/)
+export { MagneticFieldGauge } from './gauges/magnetic-field-gauge.js';
+export { EnergyDensityGauge } from './gauges/energy-density-gauge.js';
+export { TorqueGauge } from './gauges/torque-gauge.js';
+export { ParticleFluxGauge } from './gauges/particle-flux-gauge.js';
+export { BatteryGauge } from './gauges/battery-gauge.js';
+export { SolarPanelGauge } from './gauges/solar-panel-gauge.js';
+export { LEDArrayGauge } from './gauges/ledarray-gauge.js';
+export { EnergyBalanceDisplay } from './gauges/energy-balance-display.js';
+export { WolframStatusPanel } from './gauges/wolfram-status-panel.js';
 
-// Re-export gauges (when extracted)
-// export { MagneticFieldGauge } from './gauges/MagneticFieldGauge.js';
-// export { EnergyDensityGauge } from './gauges/EnergyDensityGauge.js';
-// export { TorqueGauge } from './gauges/TorqueGauge.js';
-// export { ParticleFluxGauge } from './gauges/ParticleFluxGauge.js';
-// export { BatteryGauge } from './gauges/BatteryGauge.js';
-// export { SolarPanelGauge } from './gauges/SolarPanelGauge.js';
-// export { LEDArrayGauge } from './gauges/LEDArrayGauge.js';
-// export { EnergyBalanceDisplay } from './gauges/EnergyBalanceDisplay.js';
-
-// Re-export panels (when extracted)
-// export { WolframStatusPanel } from './panels/WolframStatusPanel.js';
-
-/**
- * NOTE: During the refactoring phase, the main implementation
- * is still in ../scientific-ui.js. Once all components are
- * extracted, this module will become the primary entry point.
- * 
- * For now, import from '../scientific-ui.js' for the full implementation.
- */
-
-// Temporary re-export from original file for backward compatibility
-export { 
-  ScientificUIManager,
-  MagneticFieldGauge,
-  EnergyDensityGauge,
-  TorqueGauge,
-  ParticleFluxGauge,
-  WolframStatusPanel,
-  BatteryGauge,
-  SolarPanelGauge,
-  LEDArrayGauge,
-  EnergyBalanceDisplay,
-  LED_SOLAR_CONSTANTS
-} from '../scientific-ui.js';
-
-// Default export
+// Orchestrator (panel + TelemetryHub subscription)
+export { ScientificUIManager, LED_SOLAR_CONSTANTS } from '../scientific-ui.js';
 export { ScientificUIManager as default } from '../scientific-ui.js';

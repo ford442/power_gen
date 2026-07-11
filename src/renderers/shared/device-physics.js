@@ -4,6 +4,7 @@
  */
 
 import { ValidatedConstants } from '../../ValidatedConstants';
+import { extendPhysicsState, getDeviceModeIndex, stepPluginPhysics } from '../../devices/device-registry.js';
 import {
   computeHeronHydraulics,
   getHeronLayout,
@@ -22,7 +23,7 @@ export function createDevicePhysicsState(deviceId, opts = {}) {
     ? (opts.heronLayout || getHeronLayout(opts.heronLayoutId || HERON_LAYOUT_PRESETS.classic))
     : null;
 
-  return {
+  const base = {
     deviceId,
     segOmega: 0,
     corona: 0,
@@ -45,6 +46,7 @@ export function createDevicePhysicsState(deviceId, opts = {}) {
     energyLevel: 0,
     magneticFieldStrength: 0.5
   };
+  return extendPhysicsState(deviceId, base);
 }
 
 /**
@@ -54,6 +56,8 @@ export function createDevicePhysicsState(deviceId, opts = {}) {
  * @param {{ heronLayout?: object }} [opts]
  */
 export function stepDevicePhysics(state, dt, drive, opts = {}) {
+  if (stepPluginPhysics(state, dt, drive, opts)) return;
+
   const field = 0.4 + 0.6 * state.magneticFieldStrength;
 
   if (state.deviceId === 'seg') {
@@ -103,10 +107,9 @@ export function stepDevicePhysics(state, dt, drive, opts = {}) {
   }
 }
 
-/** Mode index matching WGSL: 0=SEG 1=Heron 2=Kelvin 3=Solar 4=Peltier 5=MHD */
+/** Mode index matching WGSL particle/roller shaders. */
 export function deviceModeIndex(deviceId) {
-  const map = { seg: 0, heron: 1, kelvin: 2, solar: 3, peltier: 4, mhd: 5 };
-  return map[deviceId] ?? 0;
+  return getDeviceModeIndex(deviceId);
 }
 
 /**

@@ -3,6 +3,9 @@
  * Physics types, Wolfram MCP types, and Shader types
  */
 
+/// <reference types="@webgpu/types" />
+
+
 // ============================================
 // Physics types
 // ============================================

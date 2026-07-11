@@ -24,90 +24,159 @@ This is a **SEG (Searl Effect Generator) WebGPU Visualizer** - a real-time 3D si
 
 ## Project Structure
 
+Vite root is `src/` (see `vite.config.js`). There is **one** application architecture —
+no root-level parallel tree and no legacy `SEGVisualizer` class.
+
 ```
 /root/power_gen/
-├── src/                        # OLD monolithic architecture (still present)
-│   ├── main.js                 # SEGVisualizer class (~920 lines)
-│   ├── index.html              # Dashboard UI with left/right panels
-│   ├── shaders/                # WGSL shaders (imported via ?raw)
-│   │   ├── roller.wgsl         # Roller geometry + lighting
-│   │   ├── particles.wgsl      # Particle billboard rendering
-│   │   ├── compute.wgsl        # GPU compute physics
-│   │   ├── flux-lines.wgsl     # Magnetic field line visualization
-│   │   ├── magnetic-field.wgsl # Magnetic field calculations
-│   │   └── led-solar.wgsl      # LED/Solar specific shaders
-│   ├── scientific-ui.js        # Scientific UI components (~1990 lines)
-│   ├── scientific-ui.css       # Scientific panel styles
-│   ├── scientific-ui/          # Modular UI exports (re-exports from ../scientific-ui.js)
-│   ├── styles/                 # Additional styles
-│   ├── types.ts                # Core TypeScript type definitions
-│   ├── ValidatedConstants.ts   # Physics constants with validation metadata
-│   ├── fallback-physics.ts     # Analytical physics formulas with uncertainty
-│   ├── mcp-manager.ts          # Wolfram Alpha MCP client
-│   ├── integration.ts          # SEGIntegrationManager hub
-│   ├── led-solar-integration.ts # LED/Solar/Battery simulation
-│   ├── led-solar-constants.ts  # LED/Solar physics constants
-│   └── index.ts                # Module exports + initialization helper
+├── src/                              # Application source (Vite root)
+│   ├── index.html                    # Multi-device dashboard UI
+│   ├── main.js                       # Bootstrap: renderer select, window API, control wiring
+│   ├── multi-device-visualizer.js    # WebGPU orchestrator (MultiDeviceVisualizer)
+│   ├── multi-device-camera.js
+│   ├── multi-device-shaders.js       # Inline WGSL getters for multi-device path
+│   ├── webgpu-manager.js             # Adapter / device / canvas / depth
+│   ├── camera-controller.js          # Orbital camera
+│   ├── device-instance.js            # Per-device state + geometry/pipeline hooks
+│   ├── device-geometry.js
+│   ├── device-pipeline-manager.js
+│   ├── device-uniforms.js
+│   ├── device-compute.js
+│   ├── device-mesh-layouts.js
+│   ├── devices/                      # Setup / update / render helpers
+│   ├── energy-pipe.js
+│   ├── performance-profiler.js
+│   ├── debug-panel.js
+│   ├── scientific-data.js
+│   ├── scientific-ui.js / scientific-ui/  # Gauges and scientific overlay
+│   ├── seg-*.js                      # SEG layout, materials, operator panel, diagram
+│   ├── heron-layout.js
+│   ├── renderers/
+│   │   ├── renderer-selector.js      # ?renderer=webgpu|webgl2 resolution
+│   │   ├── shared/                  # CPU physics + primitive geometry (both backends)
+│   │   │   ├── device-physics.js
+│   │   │   ├── particle-physics.js
+│   │   │   ├── primitive-geometry.js
+│   │   │   └── device-view.js
+│   │   └── webgl2/                   # WebGL2MultiDeviceVisualizer + GLSL
+│   ├── shaders/                      # WGSL (+ generators/ for multi-device)
+│   ├── wasm/                         # Emscripten sim_core bridge (optional RK4)
+│   ├── integration.ts                # SEGIntegrationManager (TS physics / UI hub)
+│   ├── ValidatedConstants.ts
+│   ├── fallback-physics.ts
+│   └── public/wasm/                  # Prebuilt sim_core.js / .wasm
 │
-├── main.js                     # NEW architecture entry point
-├── index.html                  # NEW multi-device UI
-├── multi-device-visualizer.js  # MultiDeviceVisualizer class (~1000 lines)
-├── webgpu-manager.js           # WebGPUManager class (~98 lines)
-├── camera-controller.js        # CameraController class (~151 lines)
-├── device-instance.js          # DeviceInstance class (~751 lines)
-├── device-geometry.js          # DeviceGeometry class (~252 lines)
-├── device-pipeline-manager.js  # DevicePipelineManager class (~104 lines)
-├── energy-pipe.js              # EnergyPipe class (~21 lines)
-├── performance-profiler.js     # PerformanceProfiler class (~400 lines)
-├── debug-panel.js              # DebugPanel class (~489 lines)
-├── scientific-data.js          # Wolfram-derived constants and formulas (~636 lines)
-├── shaders/seg-magnetic.wgsl   # Magnetic field utility functions (reference)
-│
-├── package.json                # NPM config: vite, typescript
-├── vite.config.js              # Vite: root=src, outDir=../dist, HTTPS dev server
-├── tsconfig.json               # TypeScript: ES2020, strict, outDir=./dist
-├── deploy.py                   # Python SFTP deployment script
-├── git.sh                      # Quick git commit/push helper
-├── .github/workflows/static.yml # GitHub Actions: build:site → dist/ → Pages
-├── WOLFRAM_DATA_SUMMARY.md     # Scientific data from 4-agent Wolfram swarm
-├── claude.md                   # Claude-specific development guide
-└── README.md                   # Human-readable project description
+├── package.json
+├── vite.config.js                    # root=src, outDir=../dist
+├── tsconfig.json
+├── deploy.py
+├── .github/workflows/static.yml      # build:site → Pages
+├── docs/AGENTS.md                    # This file
+├── claude.md
+└── README.md
 ```
 
-### Critical Architectural Note: Dual Codebases
+### Architecture (single source of truth)
 
-The project currently contains **two parallel architectures**:
+| Path | Entry | Backend |
+|------|-------|---------|
+| Primary | `src/main.js` → `MultiDeviceVisualizer` | WebGPU (`webgpu-manager.js`) |
+| Fallback | `src/main.js` → `WebGL2MultiDeviceVisualizer` | WebGL2 (`renderers/webgl2/`) |
 
-1. **Old architecture** (`src/main.js`, `src/index.html`): A monolithic `SEGVisualizer` class that handles all WebGPU setup, geometry, pipelines, and rendering in one file. It imports shaders from `src/shaders/*.wgsl?raw`. This was the original implementation.
+**Bootstrap:** `bootstrapVisualizer()` uses `resolveRenderer()` (`?renderer=`,
+`localStorage seg-renderer`, `window.DEBUG_RENDERER`, or `navigator.gpu`). Prefer
+WebGPU; fall back to WebGL2. There is no third legacy visualizer.
 
-2. **New architecture** (`main.js`, `index.html`, `multi-device-visualizer.js`, etc.): A modular system using `MultiDeviceVisualizer` which delegates to specialized managers (`WebGPUManager`, `CameraController`, `DeviceInstance`, `DeviceGeometry`, `DevicePipelineManager`, `PerformanceProfiler`, `DebugPanel`). This supports multiple simultaneous devices, energy transfer pipes between them, and an overview camera mode.
+**Shared simulation:** CPU physics and mesh primitives live in `renderers/shared/`
+and are used by both backends. GPU particle integration for WebGPU is in
+`shaders/compute.wgsl` / shader generators; WebGL2 uses `particle-physics.js`.
 
-**The root `index.html` loads `main.js` and uses the new architecture.** The `src/index.html` is the old dashboard. When making changes, be aware of which architecture you are modifying. Both share the same shader files in `src/shaders/`.
+**`src/main.js` responsibilities only:** renderer bootstrap, `window.*` control API
+(mode, SEG/Heron layouts, lighting, frame level), WASM badge/benchmark wiring,
+operator panel + 2D diagram init. Geometry, pipelines, and the frame loop live
+elsewhere.
+
+**Telemetry:** one write path via `src/telemetry-hub.js` (`publishFrame` from
+WebGPU or WebGL2 after physics). Operator panel and scientific gauges subscribe.
+See **`docs/TELEMETRY.md`**.
+
+### Language ownership (JS vs TypeScript)
+
+| Layer | Language | Paths | Notes |
+|-------|----------|-------|-------|
+| Physics constants & formulas | **TypeScript** | `ValidatedConstants.ts`, `fallback-physics.ts`, `scientific-data.js` (legacy JS data), `led-solar-constants.ts` | Authoritative numeric sources + uncertainty metadata |
+| Integration / protocol types | **TypeScript** | `types.ts`, `integration.ts`, `mcp-manager.ts`, `led-solar-integration.ts`, `index.ts` | `SEGIntegrationManager` owns typed physics uniforms |
+| WASM bridge | **TypeScript** (+ thin JS) | `wasm/sim.ts`, `wasm/types.ts`, `wasm/index.ts`, `wasm/seg-physics-bridge.js` | Embind API + optional debug toggle |
+| Bootstrap & dashboard wiring | **JavaScript** | `main.js`, `index.html` | No simulation logic |
+| WebGPU / WebGL2 orchestration | **JavaScript** (gradual TS later) | `multi-device-visualizer.js`, `webgpu-manager.js`, `device-*.js`, `renderers/**` | Vite imports TS physics modules directly |
+| Shared CPU sim (both backends) | **JavaScript** | `renderers/shared/*` | Imports `ValidatedConstants` from TS |
+
+**Rules of thumb**
+- New physics math, buffer layouts, and public numeric APIs → **TypeScript**.
+- New render passes, geometry buffers, and UI wiring → **JavaScript** until a module is migrated.
+- `npm run typecheck` checks **only** `src/**/*.ts` (`allowJs: false`). JS is not typechecked in CI.
+- Optional `// @ts-check` on individual managers is allowed but not required.
+- Runtime entry is `main.js`; `index.ts` is a **barrel** for typed exports, not the app entry.
+
+**Multi-device typed physics**
+- After WebGPU init, `MultiDeviceVisualizer` constructs `SEGIntegrationManager`
+  (`enableScientificOverlay: false` so dashboard telemetry stays the sole UI).
+- Each frame: `syncFromVisualizer(...)` → `update(dtMs)` → `writeUniformsToBuffer()`.
+- Consumers: `visualizer.integration`, `visualizer.physicsUniformBuffer`
+  (96-byte UNIFORM), or `window.SEGIntegration.manager`.
+- Layout: see `PHYSICS_UNIFORM_FLOAT_COUNT` / `getPhysicsUniformArray()` in `integration.ts`.
+
+**Typecheck / CI / builds**
+```bash
+npm run typecheck    # tsc --noEmit (requires @webgpu/types)
+npm run validate     # typecheck + native C++ smoke + WGSL (naga if present)
+npm run build:site   # Vite → dist/ (uses committed WASM; no Emscripten)
+npm run build        # wasm:build then build:site (requires emcc or EMSDK)
+npm run wasm:build   # scripts/build-wasm.sh — PATH emcc or $EMSDK
+npm run wasm:native  # g++ smoke test, no Emscripten
+npm run check:wgsl   # naga on standalone src/shaders/*.wgsl
+```
+- Pages deploy (`.github/workflows/static.yml`): typecheck + `build:site`
+- Validation (`.github/workflows/validate.yml`): typecheck, site build, native C++, WGSL
+- WASM rebuild (`.github/workflows/build-wasm.yml`): native smoke + `scripts/build-wasm.sh`
 
 ## Key Files Explained
 
-### New Architecture (Root Level)
+### Application core (`src/`)
 
-#### `main.js` (17 lines)
-Entry point for the new architecture. Imports all modular managers and initializes `MultiDeviceVisualizer` on window load.
+#### `main.js` (~300 lines)
+Bootstrap only: imports visualizers, selects WebGPU vs WebGL2, exposes window APIs
+for dashboard controls, initializes WASM status and SEG operator / 2D diagram UI.
 
-#### `multi-device-visualizer.js` (~1000 lines)
-The core of the new architecture. `MultiDeviceVisualizer` class:
+#### `multi-device-visualizer.js` (~2000 lines)
+The WebGPU orchestrator. `MultiDeviceVisualizer` class:
 - Initializes `WebGPUManager`, `CameraController`, `PerformanceProfiler`, `DebugPanel`
-- Manages four device instances (seg, heron, kelvin, solar) via `DeviceInstance`
+- Attaches `SEGIntegrationManager` for typed physics uniforms each frame
+- Manages device instances (seg, heron, kelvin, solar, peltier, mhd) via `DeviceInstance`
 - Sets up energy pipes connecting devices in a cycle: SEG→Heron→Kelvin→SEG
 - Renders a floor grid
 - Handles view switching (overview, per-device focus)
 - Runs the render loop with FPS counter
 - Auto-quality adjustment based on GPU tier and frame rate
 
-#### `webgpu-manager.js` (~98 lines)
-`WebGPUManager` class:
-- Requests WebGPU adapter with `powerPreference: "high-performance"`
-- Requests device with optional `timestamp-query` feature
-- Configures canvas context with preferred format and premultiplied alpha
-- Creates depth texture (`depth24plus-stencil8`) and global uniform buffer
-- Handles resize with device pixel ratio awareness
+#### `webgpu-manager.js`
+`WebGPUManager` class — **single** `requestAdapter` path for the app:
+- Adapter: `powerPreference: "high-performance"`; info logged once
+- Device: optional features (`float32-filterable`, etc.); `timestamp-query` only with `?gpuTiming=1`
+- Soft `requiredLimits` from preferred caps when the adapter allows
+- Canvas: preferred format, `alphaMode: 'opaque'`, `RENDER_ATTACHMENT | COPY_SRC`
+- Depth: **`depth24plus`** (no stencil); see `DEPTH_FORMAT` / `depthStencilAttachment()`
+- `device.lost` → reload UI; `uncapturederror` logged
+- Passes `adapter` / `adapterInfo` into `PerformanceProfiler` (no second adapter request)
+
+Full feature/limit matrix: **`docs/WEBGPU.md`**.
+
+#### `pipeline-layout-cache.js`
+Explicit `GPUBindGroupLayout` / `GPUPipelineLayout` factory and **shared** pipeline cache:
+- No production `layout: 'auto'`
+- Bind groups via `pipelineCache.createBindGroup(name, entries)`
+- Device pipelines compiled once, reused by all `DeviceInstance`s
+- Binding numbers: **`docs/BINDINGS.md`**
 
 #### `camera-controller.js` (~151 lines)
 `CameraController` class:
@@ -171,28 +240,19 @@ Exports Wolfram-derived physics data as ES modules:
 - `MICROVOLT_DATA` (thermal noise, single-electron effects)
 - `UNIFIED_PHYSICS_WGSL` (combined shader constants string)
 
-### Old Architecture (`src/`)
+### Dashboard and scientific UI
 
-#### `src/main.js` (~920 lines)
-The original monolithic `SEGVisualizer` class:
-- Initializes WebGPU device and context
-- Creates render pipelines for rollers and particles
-- Sets up compute pipeline for GPU particle physics
-- Handles user interaction (mouse drag, scroll zoom, sliders)
-- Runs the render loop with FPS counter
-- Integrates TypeScript physics layer via `SEGIntegrationManager`
-- Supports four modes: seg, heron, kelvin, solar
-
-#### `src/index.html` (~446 lines)
-Original single-page dashboard with:
-- Top header bar with status indicator and FPS
-- Left sidebar: power controls, drive parameters (speed, magnetic field, load), mode buttons, particle slider
-- Center: fullscreen canvas
-- Right panel: telemetry (RPM, voltage, current, power, magnetic field, temperature, efficiency, energy)
+#### `src/index.html`
+Multi-device dashboard:
+- Header with status / FPS / WASM badge
+- Left sidebar: power controls, drive parameters, mode buttons, layout presets, particle slider
+- Center: fullscreen canvas (`#gpuCanvas`)
+- Right panel: telemetry gauges
 - Footer: mode and battery status
+- Entry: `<script type="module" src="/main.js">` (Vite root = `src/`)
 
-#### `src/scientific-ui.js` (~1990 lines)
-Comprehensive scientific UI components:
+#### `src/scientific-ui.js` + `src/scientific-ui/`
+Scientific UI components:
 - `ScientificUIManager`: Main panel controller (collapsible, Ctrl+Shift+S toggle)
 - `MagneticFieldGauge`: Circular gauge (0-3 Tesla) with color zones
 - `EnergyDensityGauge`: Gauge for energy density
@@ -334,7 +394,7 @@ python deploy.py
 
 ## Code Organization
 
-### Main Classes (New Architecture)
+### Main Classes
 
 ```javascript
 class MultiDeviceVisualizer {
@@ -387,9 +447,10 @@ Shaders are written in WGSL and loaded via Vite `?raw` imports:
 
 6. **`led-solar.wgsl`** (~1544 lines): LED/Solar specific shaders
 
-7. **`multi-device-shaders.js`** (new architecture): Inline WGSL getters for the multi-device renderer
+7. **`multi-device-shaders.js`**: Inline WGSL getters for the multi-device WebGPU renderer
    - `segEnhancedVertShader` / `segEnhancedFragShader`: Default PBR path for SEG rollers, stator rings, wiring, and core plates (uses UV-bearing geometry from `seg-enhanced-geometry.js`)
-   - Legacy `rollerVertShader` / `rollerFragShader`: Retained as a material fallback for the SEG base, the solar battery gauge, and any future non-SEG device geometry
+   - `rollerVertShader` / `rollerFragShader`: Material fallback for the SEG base, solar battery gauge, and non-SEG device geometry
+   - Prefer `shaders/generators/*` when editing; keep generators and any still-used `.wgsl` files in sync
 
 ### Mode System
 
@@ -430,7 +491,7 @@ Full details in `WOLFRAM_DATA_SUMMARY.md`.
 
 ## Performance Notes
 
-- Particle count per device: 1,000 to 20,000 (new architecture) or 1,000 to 50,000 (old)
+- Particle count per device: typically 1,000 to 20,000 (auto-quality may scale further)
 - Workgroup size: 64 threads per compute dispatch
 - Auto-quality: Drops particle multiplier to maintain 45+ FPS
 - GPU tier detection: NVIDIA/AMD Ampere/RDNA3 = high, Intel = low

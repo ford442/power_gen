@@ -41,6 +41,12 @@ This project is a real-time WebGPU simulation of the Searl Effect Generator (SEG
 
 Agent hooks: `window.currentRenderer`, `canvas.dataset.renderer`, `window.captureCanvasFrame()`, `window.getRendererInfo()`.
 
+### WebGPU device notes
+
+- One adapter request (`WebGPUManager`); profiler reuses `adapterInfo`.
+- Depth: `depth24plus` (no stencil). GPU timing: opt-in `?gpuTiming=1` only.
+- Device-lost shows reload UI. Details: [`docs/WEBGPU.md`](docs/WEBGPU.md).
+
 ## Project Structure
 ```
 power_gen/
@@ -58,6 +64,28 @@ power_gen/
 └── dist/
 ```
 
+## Language ownership (JS vs TypeScript)
+
+| Use **TypeScript** for | Use **JavaScript** for |
+|------------------------|------------------------|
+| Physics constants (`ValidatedConstants.ts`) | Bootstrap (`main.js`) |
+| Fallback formulas (`fallback-physics.ts`) | Multi-device / WebGL2 renderers |
+| Integration hub (`integration.ts`) | Device geometry & pipelines |
+| WASM bridge (`wasm/sim.ts`, `wasm/types.ts`) | Dashboard HTML/CSS wiring |
+| LED/Solar protocol (`led-solar-*.ts`) | Shared CPU particle loop (until migrated) |
+
+`MultiDeviceVisualizer` constructs `SEGIntegrationManager` after WebGPU init and
+uploads typed physics uniforms each frame (`physicsUniformBuffer`, 96 bytes).
+
+```bash
+npm run typecheck   # tsc --noEmit — CI gate
+npm run validate    # typecheck + native C++ + WGSL
+npm run build:site  # Pages / routine builds (no Emscripten)
+# Full WASM rebuild only when emcc is available:
+#   export EMSDK=/path/to/emsdk   # optional if emcc not on PATH
+#   npm run build
+```
+
 ## Local Development
 
 ### Prerequisites
@@ -68,6 +96,9 @@ power_gen/
 ```bash
 # Install dependencies
 npm install
+
+# Typecheck TS physics/integration layer
+npm run typecheck
 
 # Development server (with hot reload)
 npm run dev
@@ -82,13 +113,12 @@ The dev server provides:
 ## Key Files and Their Purposes
 
 ### src/main.js
-The core application logic containing:
-- SEGVisualizer class managing WebGPU state
-- Geometry generation (cylinder rollers)
-- Pipeline setup and rendering loop
-- Camera controls and interaction handling
-- Particle system initialization and updates
-- Imports shaders from src/shaders/ with `?raw` directive
+Bootstrap only (~300 lines):
+- Renderer selection (`resolveRenderer` → WebGPU or WebGL2)
+- Instantiates `MultiDeviceVisualizer` or `WebGL2MultiDeviceVisualizer`
+- Window API: `setMode`, `setSEGLayout`, `setHeronLayout`, `setRenderer`, etc.
+- WASM badge/benchmark wiring and SEG operator / 2D diagram init
+- No geometry, pipelines, or frame loop (those live in multi-device modules)
 
 ### src/shaders/roller.wgsl
 Vertex and fragment shaders for:
@@ -113,8 +143,8 @@ aux scalar) advanced each frame by real forces, then recycled at a mode-specific
 - Solar/LED: ballistic photons; Snell + Fresnel decide specular reflection vs absorption
 
 Global per-device state (roller ω, reservoir head, bucket voltage, battery) is integrated
-on the CPU in `main.js` (`stepPhysics`) and passed to the shaders via the shared uniform
-buffer. `src/shaders/lightning.wgsl` renders the Kelvin discharge bolt.
+on the CPU in `renderers/shared/device-physics.js` (and device update paths) and passed
+to the shaders via shared uniforms. `src/shaders/lightning.wgsl` renders the Kelvin discharge bolt.
 
 ### src/index.html
 HTML template containing:
@@ -225,21 +255,22 @@ The simulation uses:
 ## Common Tasks
 
 ### Adding a New Visualization Mode
-1. **Update src/shaders/compute.wgsl** - Add new mode physics
-2. **Update src/shaders/roller.wgsl** - Add fragment shader color/effect logic
-3. **Update src/main.js** - Add mode to modeMap in updateUniforms()
-4. **Update src/index.html** - Add button for new mode
-5. Test with `npm run dev`
-6. Rebuild with `npm run build` before deployment
+1. **Update compute / particle physics** — `src/shaders/compute.wgsl` and/or
+   `src/renderers/shared/particle-physics.js` (+ `device-physics.js` for CPU ODEs)
+2. **Update device visuals** — `multi-device-shaders.js` / `shaders/generators/*`,
+   and WebGL2 `renderers/webgl2/shaders.js` if the fallback should match
+3. **Wire device instance** — `device-instance.js`, geometry, and
+   `multi-device-visualizer.js` device list / energy pipes as needed
+4. **Update src/index.html** — mode button and `window.setMode` descriptions in `main.js`
+5. Test with `npm run dev` (and `?renderer=webgl2` on headless / no-GPU hosts)
+6. Rebuild with `npm run build:site` before deployment (not `npm run build` unless WASM rebuild is intended)
 
 ### Modifying Particle System
-```javascript
-// In src/main.js, line 54:
-this.particleCount = 10000;  // Change this value
-```
-- Range: 1,000 to 50,000
+- Prefer `device-instance` / visualizer `setParticleCount` and auto-quality in
+  `performance-profiler.js` rather than hardcoding in `main.js`
+- Range is typically 1k–20k per device (auto-quality may scale)
 - Higher counts reduce frame rate on low-end GPUs
-- Test performance with `npm run preview`
+- Test with `npm run preview` or `npm run dev`
 
 ### Updating Shader Code
 1. Edit files in `src/shaders/*.wgsl`

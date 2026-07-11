@@ -1,0 +1,88 @@
+# =============================================================
+# validate.yml — non-deploy CI: typecheck, native C++ smoke, WGSL
+#
+# Runs on PRs and pushes (does not deploy Pages).
+# Pages deploy remains in static.yml (typecheck + build:site).
+# =============================================================
+
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  js-ts:
+    name: Typecheck + site build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build site (no WASM rebuild)
+        run: npm run build:site
+
+  native-cpp:
+    name: C++ native smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y g++ make
+
+      - name: Native sim_core smoke test
+        run: npm run wasm:native
+
+  wgsl:
+    name: WGSL (naga)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo bin (naga)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: naga-cli-0.19.0-${{ runner.os }}
+
+      - name: Install naga-cli
+        run: |
+          if ! command -v naga >/dev/null 2>&1; then
+            cargo install naga-cli --version 0.19.0 --locked
+          fi
+          naga --version || true
+
+      - name: Check WGSL modules
+        env:
+          REQUIRE_NAGA: '1'
+        run: npm run check:wgsl

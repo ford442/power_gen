@@ -24,7 +24,7 @@ EMCC_FLAGS := \
   -s WASM=1 \
   -s MODULARIZE=1 \
   -s EXPORT_NAME=SimCore \
-  -s EXPORTED_RUNTIME_METHODS="['ccall','cwrap']" \
+  -s EXPORTED_RUNTIME_METHODS="['ccall','cwrap','HEAPF32','HEAPU8']" \
   -s ALLOW_MEMORY_GROWTH=1 \
   -s INITIAL_MEMORY=16777216 \
   -s ENVIRONMENT=web \
@@ -47,8 +47,11 @@ wasm-dbg: $(OUT_DIR)
 	@echo "✓  Debug WASM build complete → $(OUT_DIR)/sim_core_dbg.js"
 
 native:
+	mkdir -p build
 	$(CXX) -std=c++17 -O2 -DSIM_CORE_STANDALONE -I src $(SRC) -o build/sim_core_test
 	./build/sim_core_test
+	./build/sim_core_test --export-csv 10 build/seg_telemetry.csv 10
+	@echo "✓  CSV export smoke → build/seg_telemetry.csv"
 
 $(OUT_DIR):
 	mkdir -p $(OUT_DIR)

@@ -1,8 +1,11 @@
 // ============================================================================
 // SEG 3D Component Annotations — educational HUD callouts
 // ============================================================================
-// Projects labeled anchors from SEG-local space onto the canvas. Off by default;
-// toggle via debug panel, `L` key, or window.toggleSEGAnnotations().
+// Projects labeled anchors from SEG-local space onto the canvas. Synced with
+// 2D diagram via explainerState.highlightId (tour + experiments).
+
+import { explainerState } from './seg-explainer/explainer-state.js';
+import { glossaryForHighlight } from './seg-explainer/seg-glossary.js';
 
 const INK = '#46f0ff';
 const INK_DIM = 'rgba(70,240,255,0.55)';
@@ -31,6 +34,7 @@ export class SEGAnnotations {
     });
     this._layer.appendChild(this._svg);
     this._leaderPaths = new Map();
+    this._unsub = explainerState.subscribe(() => this._syncClassroomStyles());
 
     this._onKey = (e) => {
       if (e.key !== 'l' && e.key !== 'L') return;
@@ -68,6 +72,14 @@ export class SEGAnnotations {
     while (this._svg.firstChild) this._svg.removeChild(this._svg.firstChild);
   }
 
+  _syncClassroomStyles() {
+    const large = explainerState.classroomMode;
+    for (const el of this._els.values()) {
+      el.style.fontSize = large ? '0.82rem' : '0.62rem';
+      el.style.padding = large ? '6px 10px' : '3px 7px';
+    }
+  }
+
   _ensureLabel(id, text, hint = '') {
     if (!this._els.has(id)) {
       const el = document.createElement('div');
@@ -77,11 +89,13 @@ export class SEGAnnotations {
         color: INK, textShadow: '0 0 8px rgba(0,255,255,0.6)',
         whiteSpace: 'nowrap', padding: '3px 7px',
         background: 'rgba(0,10,20,0.78)', border: `1px solid ${INK_DIM}`,
-        borderRadius: '3px', pointerEvents: 'none'
+        borderRadius: '3px', pointerEvents: 'none',
+        transition: 'opacity 0.2s, box-shadow 0.2s, transform 0.2s'
       });
+      el.dataset.annotationId = id;
       el.innerHTML = hint
-        ? `<strong>${text}</strong><span style="display:block;font-size:0.55rem;color:${INK_DIM};margin-top:2px">${hint}</span>`
-        : text;
+        ? `<strong>${text}</strong><span class="seg-ann-hint" style="display:block;font-size:0.55rem;color:${INK_DIM};margin-top:2px">${hint}</span>`
+        : `<strong>${text}</strong>`;
       this._layer.appendChild(el);
       this._els.set(id, el);
     }
@@ -116,7 +130,14 @@ export class SEGAnnotations {
       { id: 'stator', label: 'Stator Rings', hint: 'Copper windings', pos: [outerR * 0.5, plateY * 0.25, 0], labelOffset: [-58, -22] },
       { id: 'base', label: 'Base Plate', hint: 'Structural mount', pos: [outerR * 0.85, baseY, outerR * 0.3], labelOffset: [52, 18] },
       { id: 'coil', label: 'Pickup Coils', hint: 'EMF induction', pos: [outerR * 1.1, 0.15, 0], labelOffset: [62, -8] },
-      { id: 'flux', label: 'Magnetic Flux (B)', hint: 'RK4 field lines', pos: [midR * 0.55, 1.6, midR * 0.45], labelOffset: [-70, -36] }
+      { id: 'flux', label: 'Magnetic Flux (B)', hint: 'RK4 field lines', pos: [midR * 0.55, 1.6, midR * 0.45], labelOffset: [-70, -36] },
+      {
+        id: 'ionization',
+        label: 'Ionization Torus',
+        hint: 'Corona @ high RPM',
+        pos: [outerR * 0.75, 2.2, outerR * 0.55],
+        labelOffset: [0, -52]
+      }
     ];
 
     if (layout.rings.length > 1) {
@@ -185,13 +206,30 @@ export class SEGAnnotations {
     const devicePos = seg.config?.position || [0, 0, 0];
     const anchors = this._anchors(layout);
     const seen = new Set();
+    const highlightId = explainerState.highlightId;
+    const corona = v.corona ?? v.segOmega ?? 0;
+    const ionBoost = highlightId === 'ionization' ? 1 : 0;
 
     for (const a of anchors) {
       const anchor = this._project(a.pos, viewProj, v.canvas, devicePos);
-      const el = this._ensureLabel(a.id, a.label, a.hint || '');
+      const gloss = glossaryForHighlight(a.id);
+      let hint = a.hint || '';
+      if (gloss && (highlightId === a.id || explainerState.classroomMode)) {
+        hint = gloss.body.slice(0, 72) + (gloss.body.length > 72 ? '…' : '');
+      }
+      const el = this._ensureLabel(a.id, a.label, hint);
       seen.add(a.id);
+      const isHi = highlightId === a.id;
 
       if (!anchor) {
+        el.style.display = 'none';
+        const leader = this._leaderPaths.get(a.id);
+        if (leader) leader.style.display = 'none';
+        continue;
+      }
+
+      // Occlusion fade: depth-based + hide ionization when corona low
+      if (a.id === 'ionization' && corona < 0.15 && !isHi) {
         el.style.display = 'none';
         const leader = this._leaderPaths.get(a.id);
         if (leader) leader.style.display = 'none';
@@ -201,11 +239,18 @@ export class SEGAnnotations {
       const off = a.labelOffset || [0, -32];
       const lx = anchor.x + off[0];
       const ly = anchor.y + off[1];
+      const depthFade = Math.max(0.12, Math.min(1, 1.2 - anchor.depth * 0.02));
+      const alpha = isHi ? 1 : depthFade * 0.85;
 
       el.style.display = 'block';
       el.style.left = `${lx}px`;
       el.style.top = `${ly}px`;
-      el.style.opacity = String(Math.max(0.38, Math.min(1, 1.15 - anchor.depth * 0.018)));
+      el.style.opacity = String(alpha);
+      el.style.borderColor = isHi ? '#0ff' : INK_DIM;
+      el.style.boxShadow = isHi
+        ? '0 0 16px rgba(0,255,255,0.55), 0 0 4px rgba(0,255,255,0.8)'
+        : 'none';
+      el.style.transform = isHi ? 'translate(-50%, -100%) scale(1.06)' : 'translate(-50%, -100%)';
 
       const line = this._ensureLeader(a.id);
       line.style.display = 'block';
@@ -213,7 +258,9 @@ export class SEGAnnotations {
       line.setAttribute('y1', String(anchor.y));
       line.setAttribute('x2', String(lx));
       line.setAttribute('y2', String(ly + 4));
-      line.setAttribute('opacity', String(0.35 + (1 - anchor.depth * 0.015) * 0.45));
+      line.setAttribute('stroke', isHi ? '#0ff' : INK_DIM);
+      line.setAttribute('stroke-width', isHi ? '1.5' : '1');
+      line.setAttribute('opacity', String((isHi ? 0.85 : 0.35) * alpha + ionBoost * 0.1));
     }
 
     for (const [id, el] of this._els) {
@@ -226,6 +273,7 @@ export class SEGAnnotations {
 
   destroy() {
     window.removeEventListener('keydown', this._onKey);
+    this._unsub?.();
     this._clearLabels();
     this._layer?.remove();
   }

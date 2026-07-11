@@ -36,7 +36,10 @@ WebGL2 fallback (no WebGPU required): [open with `?renderer=webgl2`](https://for
 - Interactive orbital camera (drag to rotate, scroll to zoom)
 
 ## Future Plans
-- Add Quanta Magnetics devices to the visualization suite
+- **Quanta Magnetics catalog** — plugin-registered research apparatuses (first: [Magnetic Levitation](docs/DEVICE_GALLERY.md#maglev)); more candidates: homopolar generator, Halbach field visualizer, pulse-coil educational demo
+- Hardware bridge hooks for Quanta product twins when specs are available
+
+See the [Device Gallery](docs/DEVICE_GALLERY.md) for screenshots and literature links.
 
 ## Browser Support
 - **WebGPU (default):** Chrome/Edge 113+ with WebGPU enabled. Requires HTTPS or localhost.
@@ -73,25 +76,58 @@ Switch back: `?renderer=webgpu` or `setRenderer('webgpu')`.
 ```js
 window.currentRenderer          // 'webgpu' | 'webgl2'
 document.querySelector('#gpuCanvas').dataset.renderer
-window.captureCanvasFrame()     // { width, height, pixels } — WebGL2
-window.getRendererInfo()        // fps, particle count, debug state
+// WebGL2:
+window.captureCanvasFrame({ flipY: true })  // RGBA pixels + view
+window.getRendererInfo()        // fps, view, telemetry snapshot, intentionalGaps
+window.setMode('seg')           // focus device (both renderers)
+// START via UI or: window.segOperator.start()
 ```
+
+WebGL2 parity notes: [`docs/WEBGL2.md`](docs/WEBGL2.md).
+## Architecture
+
+Single client-side app under `src/` (Vite root). No dual legacy tree.
+
+| Path | Module | Backend |
+|------|--------|---------|
+| Primary | `MultiDeviceVisualizer` | WebGPU |
+| Fallback | `WebGL2MultiDeviceVisualizer` | WebGL2 (`?renderer=webgl2`) |
+
+`src/main.js` is bootstrap + window API only. Shared CPU physics/geometry lives in
+`src/renderers/shared/`. Agent/dev details: [`docs/AGENTS.md`](docs/AGENTS.md).
+WebGPU adapter/device setup: [`docs/WEBGPU.md`](docs/WEBGPU.md).
 
 ## Local Development
 ```bash
 npm install
+npm run typecheck   # TypeScript physics/integration layer
+npm run validate    # typecheck + native C++ smoke + WGSL (naga optional)
 npm run dev
 # WebGL2: http://localhost:5173/?renderer=webgl2
 # WebGPU: http://localhost:5173/
 ```
 
+### Build scripts
+
+| Command | When to use |
+|---------|-------------|
+| `npm run build:site` | **Default** — Vite → `dist/` using committed WASM under `src/public/wasm/` |
+| `npm run build` | Full rebuild: recompile WASM (needs `emcc`) then site |
+| `npm run wasm:build` | WASM only via `scripts/build-wasm.sh` (`emcc` on PATH or `EMSDK=...`) |
+| `npm run wasm:native` | C++ smoke test (g++, no Emscripten) |
+| `npm run check:wgsl` | Offline WGSL check with `naga` if installed |
+
+Vite toolchain packages (`esbuild`, `rollup`, …) come **transitively** from `vite`; they are not direct dependencies.
+
 ## Deployment (GitHub Pages)
 
 The live demo is deployed automatically on every push to `main` via [`.github/workflows/static.yml`](.github/workflows/static.yml):
 
-1. `npm ci` and `npm run build:site` (Vite → `dist/`)
+1. `npm ci`, `npm run typecheck`, `npm run build:site` (Vite → `dist/`)
 2. GitHub Actions uploads `dist/` and publishes to Pages
 
+Non-deploy validation (typecheck, native C++, WGSL) runs on PRs via
+[`.github/workflows/validate.yml`](.github/workflows/validate.yml).
 **Demo URL:** https://ford442.github.io/power_gen/ (repo name is `power_gen`; the old `seg-webgpu-visualizer` path no longer applies.)
 
 **One-time setup** (already done for this repo): In GitHub → Settings → Pages, set **Source** to **GitHub Actions**. The workflow uses `configure-pages` with `enablement: true` so future clones can enable Pages from CI.

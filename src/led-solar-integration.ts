@@ -703,6 +703,6 @@ class LEDSolarIntegration {
 // Exports
 // ============================================
 
-export type { LEDSolarSystemState };
+// LEDSolarSystemState is already exported via `export interface` above.
 export { LEDSolarSimulation, LEDSolarIntegration, DEFAULT_BATTERY_CAPACITY };
 export default LEDSolarIntegration;

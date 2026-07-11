@@ -3,7 +3,7 @@
  * Manages orbital camera controls, device focus transitions, and view animations.
  * Depends on: canvas, camera state, visualizer instance (for devicesEnabled, debugPanel, currentView)
  */
-import { DEVICE_CONFIG } from './debug-panel.js';
+import { getMergedDeviceConfig } from './devices/device-registry.js';
 
 export class MultiDeviceCamera {
   constructor(canvas, camera, visualizer) {
@@ -18,7 +18,7 @@ export class MultiDeviceCamera {
   }
 
   focusOnDevice(deviceId) {
-    const config = DEVICE_CONFIG[deviceId];
+    const config = getMergedDeviceConfig()[deviceId];
     if (!config) return;
     
     this.visualizer.currentView = deviceId;

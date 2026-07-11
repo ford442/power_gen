@@ -29,30 +29,57 @@ source ./emsdk_env.sh
 ### Build WASM
 
 ```bash
-# from repository root
+# from repository root — portable wrapper (PATH or EMSDK)
 npm run wasm:build
-# or directly
+
+# or with explicit SDK root
+export EMSDK=/path/to/emsdk
+npm run wasm:build
+
+# or directly once emcc is on PATH
 cd cpp && make wasm
 ```
 
+`scripts/build-wasm.sh` resolves Emscripten in order: `emcc` on PATH →
+`$EMSDK/emsdk_env.sh` → `$HOME/emsdk/emsdk_env.sh`.
+
 Output: `src/public/wasm/sim_core.js` + `src/public/wasm/sim_core.wasm`
+
+**Site deploy does not require Emscripten** — use `npm run build:site` and the
+committed prebuilt WASM. Full `npm run build` rebuilds WASM first.
 
 ### Native smoke-test (no Emscripten needed)
 
 ```bash
+npm run wasm:native
+# or
 cd cpp && make native
-# or manually:
-g++ -std=c++17 -O2 -DSIM_CORE_STANDALONE -I src src/sim_core.cpp -o build/sim_core_test
-./build/sim_core_test
 ```
 
+Native smoke exercises **SEG**, **Heron**, **Kelvin**, and **Solar** plant modes plus
+zero-copy buffer packing (`getRollerStateFloatCount == 66*4`).
+
+### Zero-copy particle / roller buffers
+
+After `sim.step` / `packRollerState`:
+
+```js
+import { segWasm } from './wasm/seg-physics-bridge.js';
+await segWasm.init();
+// HEAPF32 view (invalidated if WASM heap grows — re-fetch each frame)
+const particles = segWasm.getParticleFloatView(); // Float32Array, 8 floats/particle
+const rollers   = segWasm.getRollerStateFloatView(); // [angle, omega, radius, height] × N
+// Live metric used by MultiDevice when ?wasmPhysics=1:
+console.log('mean |ω|', segWasm.lastRollerMeanOmega);
+```
+
+Enable live WASM plant: `?wasmPhysics=1` or debug panel toggle (persists to localStorage).
 ### Debug WASM build
 
 ```bash
 npm run wasm:build-debug
 # → src/public/wasm/sim_core_dbg.js (with DWARF debug info)
 ```
-
 ## File Structure
 
 ```

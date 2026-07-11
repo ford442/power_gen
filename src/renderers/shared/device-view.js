@@ -8,5 +8,7 @@ export function isDeviceActive(currentView, devicesEnabled, deviceId) {
   return currentView === deviceId;
 }
 
+import { getAllSimDeviceIds } from '../../devices/device-registry.js';
+
 /** Device ids that participate in the multi-device simulation loop. */
-export const SIM_DEVICE_IDS = ['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd'];
+export const SIM_DEVICE_IDS = getAllSimDeviceIds();

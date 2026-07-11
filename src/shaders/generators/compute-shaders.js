@@ -134,6 +134,15 @@ export function getComputeShader() {
         return pos;
       }
 
+      fn posMagLev(phase: f32, t: f32, idx: u32) -> vec3f {
+        let gap = uniforms.physics0;
+        let field = uniforms.physics1;
+        let angle = phase * 6.28318 + t * (0.7 + field * 0.5) + f32(idx) * 0.017;
+        let r = 0.9 + fract(f32(idx) * 0.131) * 2.0;
+        let y = 0.55 + gap + sin(t * 3.2 + phase * 11.0) * 0.07 * (0.4 + field);
+        return vec3f(cos(angle) * r, y, sin(angle) * r);
+      }
+
       @compute @workgroup_size(64)
       fn main(@builtin(global_invocation_id) id: vec3u) {
         let idx = id.x;
@@ -153,8 +162,10 @@ export function getComputeShader() {
           newPos = posKelvin(phase, t, idx);
         } else if (mode < 3.5) {
           newPos = posSolar(phase, t, idx, uniforms.speedMult);
-        } else {
+        } else if (mode < 6.5) {
           newPos = posPeltier(phase, t, idx);
+        } else {
+          newPos = posMagLev(phase, t, idx);
         }
 
         particles[idx] = vec4f(newPos, phase);

@@ -1,8 +1,11 @@
 /**
- * SEG Operator Panel — SCADA instrumentation UI wired to segOperator state.
+ * SEG Operator Panel — SCADA instrumentation UI.
+ * Reads live numbers only from TelemetryHub (no visualizer digs).
+ * Control setpoints still write to segOperator plant state.
  */
 
 import { segOperator, SEG_SPEC, OPERATOR_STATUS } from './seg-operator-state.js';
+import { telemetryHub } from './telemetry-hub.js';
 
 const RPM_GAUGE_MAX = 3200;
 
@@ -13,6 +16,7 @@ export class SEGOperatorPanel {
     this._rafPending = false;
     this._lastTelemetry = null;
     this._schematicVisible = false;
+    this._unsubHub = null;
 
     this._bindDom();
     this._wireControls();
@@ -20,6 +24,11 @@ export class SEGOperatorPanel {
     this._renderRpmGaugeSvg();
     this._renderSchematicSvg();
     this.updateStatusUi();
+
+    // Single update path: hub publishes; panel paints DOM
+    this._unsubHub = telemetryHub.subscribe((snap) => this.applySnapshot(snap), {
+      immediate: true
+    });
   }
 
   _bindDom() {
@@ -265,18 +274,28 @@ export class SEGOperatorPanel {
     }
   }
 
-  /** Call once per frame from the visualizer render loop */
+  /**
+   * Legacy per-frame hook. Prefer visualizers calling telemetryHub.publishFrame().
+   * If the hub was not updated this frame, publishes SEG-only telemetry so gauges move.
+   */
   tick(deltaTime) {
     if (this._rafPending) return;
     this._rafPending = true;
     requestAnimationFrame(() => {
       this._rafPending = false;
-      this.refreshTelemetry(deltaTime);
+      // Fallback publish when a renderer forgot to call the hub (keeps START→RPM working)
+      const snap = telemetryHub.getSnapshot();
+      const stale = !snap.seg || (performance.now() - (snap.timeMs || 0)) > 100;
+      if (stale) {
+        telemetryHub.publishFrame({ dt: deltaTime, view: snap.view || 'overview' });
+      }
     });
   }
 
-  refreshTelemetry(deltaTime = 0.016) {
-    const t = this.state.computeTelemetry(deltaTime);
+  /** Apply a TelemetryHub snapshot to the dashboard DOM (SEG primary gauges). */
+  applySnapshot(snap) {
+    const t = snap?.seg;
+    if (!t) return;
     this._lastTelemetry = t;
     this.updateStatusUi();
 
@@ -286,6 +305,8 @@ export class SEGOperatorPanel {
 
     this._updateRpmGauge(t.rpmDisplay);
 
+    // SEG electrical model is the authority for voltage/current/power on the main LEDs.
+    // View-specific footers use device snapshots separately.
     if (this.els.voltage) this.els.voltage.textContent = `${t.voltage.toFixed(2)} V`;
     if (this.els.current) this.els.current.textContent = `${t.current.toFixed(3)} A`;
     if (this.els.power) {
@@ -294,7 +315,14 @@ export class SEGOperatorPanel {
     }
 
     if (this.els.magneticField) {
-      this.els.magneticField.textContent = `${t.fieldSim.toFixed(3)} T`;
+      const unc = snap.meta?.B_surface;
+      const mark = unc?.isValidated ? '' : ' ~';
+      this.els.magneticField.textContent = `${t.fieldSim.toFixed(3)} T${mark}`;
+      if (this.els.magneticField.title !== undefined) {
+        this.els.magneticField.title = unc
+          ? `B_surface ref ${unc.value.toFixed(3)} T (±${((unc.uncertainty || 0) * 100).toFixed(0)}%)`
+          : '';
+      }
     }
 
     if (this.els.temperature) {
@@ -324,6 +352,68 @@ export class SEGOperatorPanel {
 
     if (this.els.energy) {
       this.els.energy.textContent = `${t.totalEnergy.toFixed(4)} kWh`;
+    }
+
+    this._updateFooterFromSnapshot(snap);
+  }
+
+  /** Footer / battery strip from multi-device physics on the hub */
+  _updateFooterFromSnapshot(snap) {
+    const modeFooter = document.getElementById('modeFooter');
+    const batteryFooter = document.getElementById('batteryFooter');
+    const view = snap.view || 'overview';
+    const modeLabels = {
+      seg: 'SEG',
+      heron: "Heron's Fountain",
+      kelvin: "Kelvin's Thunderstorm",
+      solar: 'LEDs + Solar',
+      overview: 'Multi-Device Overview',
+      peltier: 'Peltier',
+      mhd: 'MHD',
+      maglev: 'Mag Levitation'
+    };
+    if (modeFooter) modeFooter.textContent = modeLabels[view] || view.toUpperCase();
+
+    const heron = snap.devices?.heron;
+    const kelvin = snap.devices?.kelvin;
+    const solar = snap.devices?.solar;
+
+    if (batteryFooter) {
+      if (view === 'heron' && heron) {
+        batteryFooter.textContent = [
+          `Head ${heron.heronHead.toFixed(2)}/${heron.heronHeadMax.toFixed(1)} m`,
+          `v ${heron.heronVExit.toFixed(2)} m/s`,
+          `Q ${heron.heronFlowRateLmin.toFixed(1)} L/min`,
+          `P ${heron.heronPressureKPa.toFixed(1)} kPa`
+        ].join(' · ');
+      } else if (view === 'kelvin' && kelvin) {
+        const spark = kelvin.kelvinSparkTimer > 0 ? ' ⚡' : '';
+        const v = kelvin.kelvinVoltageN * (kelvin.kelvinVbreak || 1);
+        batteryFooter.textContent = `V ${v.toFixed(0)} V (${(kelvin.kelvinVoltageN * 100).toFixed(0)}%)${spark}`;
+      } else if (solar) {
+        batteryFooter.textContent = `${Math.round((solar.batteryCharge || 0) * 100)}%`;
+      } else {
+        batteryFooter.textContent = '—';
+      }
+    }
+
+    const batteryEl = document.getElementById('batteryCharge');
+    const batteryStat = document.getElementById('batteryStat');
+    if (batteryEl && batteryStat && solar) {
+      batteryEl.textContent = `${Math.round((solar.batteryCharge || 0) * 100)}%`;
+      batteryStat.style.display = view === 'solar' ? 'flex' : 'none';
+    }
+  }
+
+  /** Force a SEG-only refresh (e.g. after reset) */
+  refreshTelemetry(deltaTime = 0.016) {
+    telemetryHub.publishFrame({ dt: deltaTime });
+  }
+
+  destroy() {
+    if (this._unsubHub) {
+      this._unsubHub();
+      this._unsubHub = null;
     }
   }
 

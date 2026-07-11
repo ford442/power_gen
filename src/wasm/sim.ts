@@ -1,37 +1,18 @@
 // =============================================================
 // sim.ts  –  High-level TypeScript API wrapping the sim_core WASM
-//
-// This module provides a clean, ergonomic interface that hides the
-// Emscripten Module details and provides automatic fallback to the
-// existing JS physics when WASM is unavailable.
-//
-// Usage:
-//   import { SEGSim } from './wasm/sim';
-//
-//   const sim = await SEGSim.create();
-//   const state = sim.stepAndRead(1/60, 0.01);
-//   console.log(state.rpm, state.powerW);
-//   sim.dispose();
 // =============================================================
 
-import { loadSimCore } from './index';
-import type { SEGSimulatorInstance, Vec3 } from './types';
-
-// ─────────────────────────────────────────────────────────────
-// Exported result types
-// ─────────────────────────────────────────────────────────────
+import { loadSimCore, getSimCore } from './index';
+import type { SEGSimulatorInstance, Vec3, SimParticle } from './types';
 
 export interface SEGStepResult {
-  /** Angular velocity of roller ring 0 (rad s⁻¹). */
   omega: number;
-  /** Revolutions per minute of ring 0. */
   rpm: number;
-  /** Instantaneous power estimate for the given load torque (W). */
   powerW: number;
-  /** Magnetic energy density at the average ring radius (J m⁻³). */
   energyDensityJm3: number;
-  /** Elapsed simulation time (s). */
   simTimeS: number;
+  energyLevel?: number;
+  mode?: number;
 }
 
 export interface SEGBenchmarkResult {
@@ -42,25 +23,33 @@ export interface SEGBenchmarkResult {
   wasmAvailable: boolean;
 }
 
-// ─────────────────────────────────────────────────────────────
-// SEGSim wrapper class
-// ─────────────────────────────────────────────────────────────
+export interface JsVsWasmBenchmark {
+  wasmStepsPerSecond: number;
+  jsStepsPerSecond: number;
+  ratio: number;
+  wasmAvailable: boolean;
+  durationMs: number;
+}
 
 export class SEGSim {
   private _sim: SEGSimulatorInstance | null = null;
   private _simTimeS = 0;
+  private _heapF32: Float32Array | null = null;
 
-  /** Whether the underlying WASM module is available. */
-  get wasmAvailable(): boolean { return this._sim !== null; }
+  get wasmAvailable(): boolean {
+    return this._sim !== null;
+  }
 
   private constructor(sim: SEGSimulatorInstance | null) {
     this._sim = sim;
+    this._refreshHeap();
   }
 
-  /**
-   * Create an SEGSim instance, loading the WASM module if available.
-   * Falls back gracefully to a no-op stub when WASM is not built.
-   */
+  private _refreshHeap() {
+    const mod = getSimCore() as { HEAPF32?: Float32Array } | null;
+    this._heapF32 = mod?.HEAPF32 ?? null;
+  }
+
   static async create(): Promise<SEGSim> {
     const mod = await loadSimCore();
     let sim: SEGSimulatorInstance | null = null;
@@ -74,144 +63,252 @@ export class SEGSim {
     return new SEGSim(sim);
   }
 
-  /**
-   * Advance the simulation by one frame and return a snapshot of key state.
-   * @param dt         Physics time step (seconds; typically 1/60).
-   * @param loadTorque Braking torque opposing rotation (N·m, scene-scaled).
-   */
   step(dt: number, loadTorque: number): SEGStepResult {
     if (this._sim) {
       this._sim.step(dt, loadTorque);
       this._simTimeS += dt;
       return {
-        omega:             this._sim.getOmega(),
-        rpm:               this._sim.getRPM(),
-        powerW:            this._sim.estimatePower(loadTorque),
-        energyDensityJm3:  this._sim.magneticEnergyDensity(),
-        simTimeS:          this._simTimeS,
+        omega: this._sim.getOmega(),
+        rpm: this._sim.getRPM(),
+        powerW: this._sim.estimatePower(loadTorque),
+        energyDensityJm3: this._sim.magneticEnergyDensity(),
+        simTimeS: this._simTimeS,
+        energyLevel: this._sim.getEnergyLevel?.() ?? 0,
+        mode: this._sim.getMode?.() ?? 0
       };
     }
-    // Fallback: return zeroed result
     this._simTimeS += dt;
     return { omega: 0, rpm: 0, powerW: 0, energyDensityJm3: 0, simTimeS: this._simTimeS };
   }
 
-  /**
-   * Seed the internal CPU particle array (call when entering SEG mode).
-   * @param count Number of particles (max 50 000).
-   */
   seedParticles(count: number): void {
     this._sim?.seedParticles(count);
   }
 
-  /**
-   * Advance CPU-side particles by one frame.
-   * Useful for deterministic replay or CPU-side data export.
-   */
   stepParticles(dt: number): void {
     this._sim?.stepParticles(dt);
   }
 
-  /**
-   * Sample the net B-field vector at a world position from all 66 rollers.
-   */
   sampleBField(x: number, y: number, z: number): Vec3 {
     if (!this._sim) return { x: 0, y: 0, z: 0 };
     return this._sim.sampleBField({ x, y, z });
   }
 
-  /**
-   * Run a benchmark: n steps at dt=1/60 with a fixed load torque.
-   * Returns steps/second and final simulation state.
-   */
   async benchmark(steps = 1000, loadTorque = 0.01): Promise<SEGBenchmarkResult> {
-    const dt = 1 / 60; // standard 60 Hz physics time step (seconds)
+    const dt = 1 / 60;
     const t0 = performance.now();
     let finalOmega = 0;
-    let finalRPM   = 0;
+    let finalRPM = 0;
     for (let i = 0; i < steps; i++) {
       const r = this.step(dt, loadTorque);
       finalOmega = r.omega;
-      finalRPM   = r.rpm;
+      finalRPM = r.rpm;
     }
-    const durationMs    = performance.now() - t0;
-    const stepsPerSecond = steps / (durationMs / 1000);
-    return { stepsPerSecond, durationMs, finalOmega, finalRPM, wasmAvailable: this.wasmAvailable };
-  }
-
-  /** Free WASM heap memory. Call when done with this instance. */
-  dispose(): void {
-    this._sim?.delete();
-    this._sim = null;
-  }
-
-  // ── Per-ring torque (thin wrappers; safe no-ops if WASM absent) ──
-
-  setRingLoadTorque(ring: number, torque: number): void {
-    (this._sim as any)?.setRingLoadTorque?.(ring, torque);
-  }
-
-  setRingLoadTorques(t0: number, t1: number, t2: number): void {
-    (this._sim as any)?.setRingLoadTorques?.(t0, t1, t2);
+    const durationMs = performance.now() - t0;
+    return {
+      stepsPerSecond: steps / (durationMs / 1000),
+      durationMs,
+      finalOmega,
+      finalRPM,
+      wasmAvailable: this.wasmAvailable
+    };
   }
 
   /**
-   * Step using the per-ring torques configured via the setters.
-   * Returns the same shape as step() for convenience.
+   * Compare WASM step throughput vs a pure-JS plant-physics loop.
    */
+  async benchmarkJsVsWasm(steps = 2000): Promise<JsVsWasmBenchmark> {
+    const dt = 1 / 60;
+    // JS micro-benchmark mirroring device-physics SEG step
+    let w = 0;
+    const tJs0 = performance.now();
+    for (let i = 0; i < steps; i++) {
+      const drive = 0.5;
+      const field = 0.7;
+      const tauDrive = drive * field;
+      const wArm = 2.5, eddyK = 1.33, visc = 0.05, tScale = 2.5, heft = 1.0;
+      const tauEddy = eddyK * w / (1 + w / wArm) + visc * w;
+      w = Math.max(0, w + (tauDrive - tauEddy) / (heft * tScale) * dt);
+    }
+    const jsMs = performance.now() - tJs0;
+    const jsStepsPerSecond = steps / (jsMs / 1000);
+
+    let wasmStepsPerSecond = 0;
+    if (this.wasmAvailable) {
+      this.setMode(0);
+      const tW0 = performance.now();
+      for (let i = 0; i < steps; i++) {
+        this.step(dt, 0.01);
+      }
+      const wasmMs = performance.now() - tW0;
+      wasmStepsPerSecond = steps / (wasmMs / 1000);
+    }
+
+    return {
+      wasmStepsPerSecond,
+      jsStepsPerSecond,
+      ratio: jsStepsPerSecond > 0 ? wasmStepsPerSecond / jsStepsPerSecond : 0,
+      wasmAvailable: this.wasmAvailable,
+      durationMs: jsMs
+    };
+  }
+
+  dispose(): void {
+    this._sim?.delete();
+    this._sim = null;
+    this._heapF32 = null;
+  }
+
+  setRingLoadTorque(ring: number, torque: number): void {
+    this._sim?.setRingLoadTorque?.(ring, torque);
+  }
+
+  setRingLoadTorques(t0: number, t1: number, t2: number): void {
+    this._sim?.setRingLoadTorques?.(t0, t1, t2);
+  }
+
   stepWithPerRingTorques(dt: number): SEGStepResult {
     if (this._sim) {
-      (this._sim as any).stepWithPerRingTorques?.(dt);
+      this._sim.stepWithPerRingTorques?.(dt);
       this._simTimeS += dt;
-      // power estimate still needs a representative load; use 0 for the
-      // per-ring path (caller can compute from current state if needed).
-      const lt = 0;
       return {
         omega: this._sim.getOmega(),
         rpm: this._sim.getRPM(),
-        powerW: this._sim.estimatePower(lt),
+        powerW: this._sim.estimatePower(0),
         energyDensityJm3: this._sim.magneticEnergyDensity(),
         simTimeS: this._simTimeS,
+        energyLevel: this._sim.getEnergyLevel?.() ?? 0,
+        mode: this._sim.getMode?.() ?? 0
       };
     }
     this._simTimeS += dt;
     return { omega: 0, rpm: 0, powerW: 0, energyDensityJm3: 0, simTimeS: this._simTimeS };
   }
-
-  // ── Mode (skeleton) ──────────────────────────────────────────
 
   setMode(mode: number): void {
     this._sim?.setMode?.(mode);
   }
 
   getMode(): number {
-    return (this._sim as any)?.getMode?.() ?? 0;
+    return this._sim?.getMode?.() ?? 0;
   }
 
-  // ── Bulk particle export ─────────────────────────────────────
+  setDrive(drive: number): void {
+    this._sim?.setDrive?.(drive);
+  }
 
-  /**
-   * Return up to maxCount particles (or all if omitted/negative).
-   * Falls back to elementwise getParticle when bulk binding absent.
-   */
-  getParticles(maxCount = -1): import('./types').SimParticle[] {
+  getDrive(): number {
+    return this._sim?.getDrive?.() ?? 0;
+  }
+
+  getModePlant() {
+    if (!this._sim) return null;
+    const m = this.getMode();
+    if (m === 1) {
+      return {
+        mode: 'heron',
+        head: this._sim.getHeronHead?.() ?? 0,
+        vExit: this._sim.getHeronVExit?.() ?? 0,
+        flowLmin: this._sim.getHeronFlowLmin?.() ?? 0,
+        pressureKPa: this._sim.getHeronPressureKPa?.() ?? 0
+      };
+    }
+    if (m === 2) {
+      return {
+        mode: 'kelvin',
+        voltage: this._sim.getKelvinVoltage?.() ?? 0,
+        voltageN: this._sim.getKelvinVoltageN?.() ?? 0,
+        E: this._sim.getKelvinE?.() ?? 0,
+        sparkTimer: this._sim.getKelvinSparkTimer?.() ?? 0
+      };
+    }
+    if (m === 3) {
+      return {
+        mode: 'solar',
+        battery: this._sim.getSolarBattery?.() ?? 0
+      };
+    }
+    return {
+      mode: 'seg',
+      omega: this._sim.getOmega(),
+      rpm: this._sim.getRPM(),
+      omegaF64: this._sim.getOmegaF64?.() ?? this._sim.getOmega()
+    };
+  }
+
+  getParticles(maxCount = -1): SimParticle[] {
     if (!this._sim) return [];
-    const raw = (this._sim as any);
-    if (typeof raw.getParticles === 'function') {
-      const arr = raw.getParticles(maxCount);
+    if (typeof this._sim.getParticles === 'function') {
+      const arr = this._sim.getParticles(maxCount);
       return Array.isArray(arr) ? arr : [];
     }
-    // Fallback path using the pre-existing single-particle accessor
     const total = this._sim.numParticles();
-    const n = (maxCount >= 0 && maxCount < total) ? maxCount : total;
-    const out: import('./types').SimParticle[] = [];
-    for (let i = 0; i < n; i++) {
-      out.push(this._sim.getParticle(i));
-    }
+    const n = maxCount >= 0 && maxCount < total ? maxCount : total;
+    const out: SimParticle[] = [];
+    for (let i = 0; i < n; i++) out.push(this._sim.getParticle(i));
     return out;
   }
 
-  /** Static version string from the WASM module (or fallback). */
+  /**
+   * Zero-copy Float32Array view of particle buffer (x,y,z,phase,vx,vy,vz,aux).
+   * Invalidated after next WASM heap growth — call again each frame.
+   */
+  getParticleFloatView(): Float32Array | null {
+    if (!this._sim) return null;
+    this._refreshHeap();
+    if (!this._heapF32) return null;
+    const ptr = Number(this._sim.getParticleBufferPtr?.() ?? 0);
+    const floats = this._sim.getParticleFloatCount?.() ?? 0;
+    if (!ptr || floats <= 0) return null;
+    const byteOffset = ptr;
+    const index = byteOffset / 4;
+    if (!Number.isInteger(index)) return null;
+    try {
+      return this._heapF32.subarray(index, index + floats);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Zero-copy view of packed roller state [angle, omega, radius, height] × N.
+   */
+  getRollerStateFloatView(): Float32Array | null {
+    if (!this._sim) return null;
+    this._sim.packRollerState?.();
+    this._refreshHeap();
+    if (!this._heapF32) return null;
+    const ptr = Number(this._sim.getRollerStatePtr?.() ?? 0);
+    const floats = this._sim.getRollerStateFloatCount?.() ?? 0;
+    if (!ptr || floats <= 0) return null;
+    const index = ptr / 4;
+    if (!Number.isInteger(index)) return null;
+    try {
+      return this._heapF32.subarray(index, index + floats);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Mean particle |position| for WASM vs GPU diff metrics */
+  meanParticleRadius(sample = 256): number {
+    const view = this.getParticleFloatView();
+    if (!view || view.length < 8) {
+      const parts = this.getParticles(sample);
+      if (!parts.length) return 0;
+      let s = 0;
+      for (const p of parts) s += Math.hypot(p.x, p.y, p.z);
+      return s / parts.length;
+    }
+    const n = Math.min(sample, view.length / 8);
+    let s = 0;
+    for (let i = 0; i < n; i++) {
+      const o = i * 8;
+      s += Math.hypot(view[o], view[o + 1], view[o + 2]);
+    }
+    return s / Math.max(1, n);
+  }
+
   static async getVersion(): Promise<string> {
     const mod = await loadSimCore();
     return mod ? mod.sim_core_version() : 'sim_core (WASM not built)';

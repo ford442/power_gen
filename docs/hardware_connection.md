@@ -133,10 +133,38 @@ More sensors can use pin-change interrupts on other digital pins.
 - **Flyback diode**: Required across every coil.
 
 ## Safety Rules
-1. **Watchdog**: If no `P` command for >100ms, Arduino disables all coils.
-2. **Current limiting**: Use PWM or series resistors to stay within driver/coil ratings.
-3. **Thermal**: Monitor coil temperature; duty cycle should not exceed ratings.
-4. **Back-EMF**: Flyback diodes mandatory. Without them, MOSFETs will fail.
+1. **Watchdog (firmware)**: If no `P` command for >100ms, Arduino disables all coils.
+2. **Browser disconnect**: `HardwareBridge.disconnect()` sends `P0,0,2` (coast) then `C0,0,0` before closing the port.
+3. **Host timeout**: If `update()` is not called for >200ms while connected, the bridge forces coast + coils off.
+4. **Current limiting**: Use PWM or series resistors to stay within driver/coil ratings.
+5. **Thermal**: Monitor coil temperature; duty cycle should not exceed ratings.
+6. **Back-EMF**: Flyback diodes mandatory. Without them, MOSFETs will fail.
+
+## Browser digital twin UI
+
+| Piece | Path |
+|-------|------|
+| Bridge | `src/hardware-bridge.js` |
+| Panel | `src/hardware-panel.js` (left sidebar) |
+| Commutation preview | `src/electromagnet-controller.js` |
+
+### Connect
+1. Chrome/Edge with Web Serial.
+2. Open the multi-device dashboard → **Hardware Twin** section.
+3. **Connect** (pick serial port) or **Mock** (no hardware).
+4. Choose twin mode:
+   - **Open-loop**: sim phase/RPM → coils; visualize sim
+   - **Closed-loop**: measured HW phase/RPM drive on-screen rollers
+   - **Shadow**: open-loop drive + show Δφ / ΔRPM vs hardware
+
+### Mock / demos / CI
+```
+?mockHardware=1
+```
+or click **Mock**. Streams synthetic `S` lines; accepts `P`/`C`/`CONF`.
+
+### Live metric
+`S` stream fields populate the panel; magnetometer magnitude feeds scientific B-field context when connected.
 
 ## Sensor Fusion Notes
 

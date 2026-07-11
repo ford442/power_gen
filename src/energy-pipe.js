@@ -9,7 +9,9 @@ const PIPE_COLORS = {
   'kelvin-peltier': [0.55, 0.35, 0.95],
   'peltier-solar': [1.0, 0.82, 0.25],
   'seg-mhd': [0.35, 0.88, 1.0],
-  'mhd-peltier': [0.45, 0.75, 1.0]
+  'mhd-peltier': [0.45, 0.75, 1.0],
+  'solar-maglev': [0.25, 0.92, 1.0],
+  'maglev-seg': [0.15, 0.85, 0.95]
 };
 
 const PARTICLE_BYTES = 32; // 8 floats per PipeParticle
@@ -144,14 +146,19 @@ class EnergyPipe {
   render(renderPass, globalUniformBuffer, pipeline) {
     if (!pipeline || !this.particles || this.flowLevel < 0.02) return;
 
-    const bindGroup = this.device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: globalUniformBuffer } },
-        { binding: 1, resource: { buffer: this.uniformBuffer } },
-        { binding: 2, resource: { buffer: this.particles } }
-      ]
-    });
+    // Prefer explicit layout from shared PipelineLayoutCache when available.
+    const cache = this.visualizer?.pipelineCache;
+    const entries = [
+      { binding: 0, resource: { buffer: globalUniformBuffer } },
+      { binding: 1, resource: { buffer: this.uniformBuffer } },
+      { binding: 2, resource: { buffer: this.particles } }
+    ];
+    const bindGroup = cache
+      ? cache.createBindGroup('energyPipe', entries, 'energy-pipe-bg')
+      : this.device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(0),
+          entries
+        });
 
     renderPass.setPipeline(pipeline);
     renderPass.setBindGroup(0, bindGroup);

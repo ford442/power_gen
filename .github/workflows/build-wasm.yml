@@ -53,21 +53,22 @@ jobs:
       - name: Verify emcc
         run: emcc --version
 
-      # ── 4. Build WASM ────────────────────────────────────────
-      - name: Build sim_core WASM
-        run: |
-          mkdir -p src/public/wasm
-          cd cpp
-          make wasm
+      # ── 4. Native smoke (no emcc; catches C++ regressions early)
+      - name: Native sim_core smoke test
+        run: bash scripts/build-wasm.sh --native
 
-      # ── 5. Verify output ─────────────────────────────────────
+      # ── 5. Build WASM via portable wrapper (emcc on PATH from setup-emsdk)
+      - name: Build sim_core WASM
+        run: bash scripts/build-wasm.sh
+
+      # ── 6. Verify output ─────────────────────────────────────
       - name: Verify artefacts
         run: |
           ls -lh src/public/wasm/
           test -f src/public/wasm/sim_core.js   || (echo "sim_core.js missing" && exit 1)
           test -f src/public/wasm/sim_core.wasm || (echo "sim_core.wasm missing" && exit 1)
 
-      # ── 6. Upload artefacts ──────────────────────────────────
+      # ── 7. Upload artefacts ──────────────────────────────────
       - name: Upload WASM artefacts
         uses: actions/upload-artifact@v4
         with:
@@ -77,7 +78,7 @@ jobs:
             src/public/wasm/sim_core.wasm
           retention-days: 30
 
-      # ── 7. Commit built files back on main (optional) ────────
+      # ── 8. Commit built files back on main (optional) ────────
       #    Enables the GitHub Pages deploy to serve the WASM without
       #    requiring a separate download / install step.
       - name: Commit WASM artefacts to main

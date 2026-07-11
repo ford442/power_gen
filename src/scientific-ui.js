@@ -1,7 +1,6 @@
 /**
  * SEG WebGPU Visualizer - Scientific UI Components
- * Orchestrator for real-time gauges and Wolfram MCP status indicators
- * Enhanced with LED + Solar Cell monitoring gauges
+ * Orchestrator for real-time gauges. Live data comes only from TelemetryHub.
  */
 
 import {
@@ -16,16 +15,18 @@ import {
   EnergyBalanceDisplay,
   LED_SOLAR_CONSTANTS
 } from './scientific-ui-gauges.js';
+import { telemetryHub } from './telemetry-hub.js';
 
 /**
  * Scientific UI Manager - Orchestrates all gauge components
- * Manages panel visibility, layout, and data updates
+ * Manages panel visibility, layout, and data updates via TelemetryHub.
  */
 class ScientificUIManager {
   constructor(options = {}) {
     this.options = {
       panelId: 'scientific-panel',
       showToggle: true,
+      subscribeToHub: true,
       ...options
     };
     
@@ -34,6 +35,7 @@ class ScientificUIManager {
     this.wolframPanel = null;
     this.isVisible = false;
     this.cache = new Map();
+    this._unsubHub = null;
     
     this.init();
   }
@@ -146,6 +148,59 @@ class ScientificUIManager {
     // NOTE: Wolfram MCP panel disabled - using pre-calculated physics values
     // Physics constants were validated during development using Wolfram Alpha
     this.wolframPanel = null;
+
+    if (this.options.subscribeToHub) {
+      this._unsubHub = telemetryHub.subscribe((snap) => this.applyHubSnapshot(snap), {
+        immediate: true
+      });
+    }
+  }
+
+  /**
+   * Map TelemetryHub snapshot → gauge widgets (single update path).
+   * Units: B in T, energy density in kJ/m³ for the density gauge, torque N·m, flux p/s.
+   */
+  applyHubSnapshot(snap) {
+    if (!snap) return;
+    const sci = snap.scientific || {};
+    const seg = snap.seg;
+    const meta = snap.meta || {};
+    const solar = snap.devices?.solar;
+
+    if (sci.maxFieldMagnitude !== undefined) {
+      this.updateMagneticField(sci.maxFieldMagnitude);
+    } else if (seg?.fieldSim !== undefined) {
+      this.updateMagneticField(seg.fieldSim);
+    }
+
+    if (sci.avgEnergyDensity !== undefined) {
+      // Gauge expects kJ/m³
+      this.updateEnergyDensity(sci.avgEnergyDensity / 1000);
+    }
+
+    this.updateTorque(
+      sci.innerRingTorque ?? 0,
+      sci.outerRingTorque ?? (sci.middleRingTorque ?? 0)
+    );
+
+    if (sci.particleFlux !== undefined) {
+      this.updateParticleFlux(sci.particleFlux);
+    }
+
+    if (solar && this.gauges.battery) {
+      const charge = solar.batteryCharge ?? 0.5;
+      // Li-ion approx 3.0–4.2 V from SOC
+      const voltage = 3.0 + charge * 1.2;
+      this.updateBatteryState({
+        chargePercent: charge * 100,
+        voltage,
+        current: seg?.current ?? 0,
+        temperature: seg?.temperature ?? 25
+      });
+    }
+
+    // Stash meta for tooltips / debug
+    this.cache.set('meta', meta);
   }
   
   show() {
@@ -369,6 +424,16 @@ class ScientificUIManager {
     if (this.gauges.energyFlow) {
       this.gauges.energyFlow.updateFlows(flows);
     }
+  }
+
+  destroy() {
+    if (this._unsubHub) {
+      this._unsubHub();
+      this._unsubHub = null;
+    }
+    this.hide();
+    this.panel?.remove();
+    document.getElementById('sci-panel-toggle')?.remove();
   }
 }
 

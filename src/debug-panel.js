@@ -106,6 +106,23 @@ export class DebugPanel {
           <option value="off">Off (rollers only)</option>
         </select>
       </div>
+      <div style="margin-bottom: 10px; padding: 8px; background: rgba(0,40,60,0.5); border-radius: 4px;">
+        <div style="color: #8cf; font-weight: bold; margin-bottom: 6px;">C++ WASM Physics</div>
+        <label style="display: flex; align-items: center; cursor: pointer; margin-bottom: 6px;">
+          <input type="checkbox" id="wasmPhysicsToggle" style="margin-right: 8px;">
+          <span>Use C++ WASM Physics (RK4 / multi-mode)</span>
+        </label>
+        <label style="display: flex; align-items: center; cursor: pointer; margin-bottom: 6px;">
+          <input type="checkbox" id="wasmDiffToggle" style="margin-right: 8px;">
+          <span>Diff mode: WASM vs GPU particle radius</span>
+        </label>
+        <div id="wasmPhysicsStatus" style="font-size: 10px; color: #888; margin-bottom: 6px;">WASM: —</div>
+        <div id="wasmDiffReadout" style="font-size: 10px; color: #8f8; margin-bottom: 6px;"></div>
+        <button id="wasmJsBenchBtn" style="width: 100%; padding: 6px; background: #111; color: #0ff; border: 1px solid #0ff; border-radius: 4px; cursor: pointer; font-size: 11px;">
+          Benchmark JS vs WASM
+        </button>
+        <div id="wasmBenchResults" style="margin-top: 6px; font-size: 10px; color: #aaa; display: none;"></div>
+      </div>
       <div style="display: flex; gap: 8px; margin-top: 15px;">
         <button id="startBenchmark" style="flex: 1; padding: 8px; background: #0ff; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Start Benchmark</button>
         <button id="applyOptimal" style="flex: 1; padding: 8px; background: #111; color: #0ff; border: 1px solid #0ff; border-radius: 4px; cursor: pointer;">Apply Optimal</button>
@@ -155,6 +172,7 @@ export class DebugPanel {
     });
     document.getElementById('startBenchmark').addEventListener('click', () => this.startBenchmark());
     document.getElementById('applyOptimal').addEventListener('click', () => this.applyOptimalSettings());
+    this._wireWasmControls();
     const frameSelect = document.getElementById('segFrameLevelSelect');
     if (frameSelect) {
       const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
@@ -198,10 +216,76 @@ export class DebugPanel {
     this.panel = container;
   }
 
+  _wireWasmControls() {
+    const statusEl = document.getElementById('wasmPhysicsStatus');
+    const toggle = document.getElementById('wasmPhysicsToggle');
+    const diffToggle = document.getElementById('wasmDiffToggle');
+    const benchBtn = document.getElementById('wasmJsBenchBtn');
+    const benchOut = document.getElementById('wasmBenchResults');
+
+    const refreshStatus = async () => {
+      try {
+        const { segWasm } = await import('./wasm/seg-physics-bridge.js');
+        await segWasm.init();
+        if (toggle) toggle.checked = segWasm.enabled;
+        if (statusEl) {
+          statusEl.textContent = segWasm.available
+            ? `WASM: available · ${segWasm.enabled ? 'ENABLED' : 'off'} · meanω=${segWasm.lastRollerMeanOmega.toFixed(3)}`
+            : 'WASM: not built (npm run wasm:build)';
+        }
+      } catch {
+        if (statusEl) statusEl.textContent = 'WASM: load error';
+      }
+    };
+    refreshStatus();
+
+    toggle?.addEventListener('change', async (e) => {
+      const { segWasm } = await import('./wasm/seg-physics-bridge.js');
+      await segWasm.init();
+      segWasm.setEnabled(e.target.checked);
+      // Reload so MultiDeviceVisualizer picks enabled flag at init paths cleanly
+      if (e.target.checked) {
+        const u = new URL(location.href);
+        u.searchParams.set('wasmPhysics', '1');
+        location.href = u.toString();
+      } else {
+        const u = new URL(location.href);
+        u.searchParams.delete('wasmPhysics');
+        try { localStorage.setItem('useWasmPhysics', 'false'); } catch { /* */ }
+        location.href = u.toString();
+      }
+    });
+
+    diffToggle?.addEventListener('change', (e) => {
+      this.wasmDiffEnabled = e.target.checked;
+    });
+
+    benchBtn?.addEventListener('click', async () => {
+      if (!benchOut) return;
+      benchOut.style.display = 'block';
+      benchOut.textContent = 'Running JS vs WASM benchmark…';
+      try {
+        const { segWasm } = await import('./wasm/seg-physics-bridge.js');
+        await segWasm.init();
+        const r = await segWasm.runJsVsWasmBenchmark(2000);
+        benchOut.innerHTML = r.wasmAvailable
+          ? `JS: <b>${r.jsStepsPerSecond.toFixed(0)}</b> step/s<br>` +
+            `WASM: <b>${r.wasmStepsPerSecond.toFixed(0)}</b> step/s<br>` +
+            `Ratio WASM/JS: <b>${r.ratio.toFixed(2)}×</b>`
+          : 'WASM unavailable — build with npm run wasm:build';
+      } catch (err) {
+        benchOut.textContent = 'Benchmark failed: ' + (err?.message || err);
+      }
+    });
+
+    this._wasmRefreshStatus = refreshStatus;
+  }
+
   show() {
     this.visible = true;
     this.panel.style.display = 'block';
     this.startUpdateLoop();
+    this._wasmRefreshStatus?.();
   }
 
   hide() {
@@ -231,8 +315,38 @@ export class DebugPanel {
     }
   }
 
+  async _updateWasmDiff() {
+    const el = document.getElementById('wasmDiffReadout');
+    if (!el) return;
+    const { segWasm } = await import('./wasm/seg-physics-bridge.js');
+    if (!segWasm.enabled) {
+      el.textContent = 'Diff: enable WASM physics first';
+      return;
+    }
+    // Seed + step a small CPU particle set if empty
+    if (segWasm.getParticleFloatView()?.length === 0) {
+      segWasm.seedParticles(512);
+      segWasm.stepParticles(1 / 60);
+    }
+    const wasmR = segWasm.meanParticleRadius(128);
+    // GPU path: sample SEG device particle buffer is not easily readable without
+    // staging; use energyLevel proxy from visualizer + published mean radius label.
+    const v = window.multiVisualizer;
+    const gpuProxy = v?.devices?.seg?.particleCount
+      ? (v.segOmega || 0) * 5.5 // characteristic ring radius * normalized ω proxy
+      : 0;
+    el.textContent =
+      `Diff: WASM mean |r|=${wasmR.toFixed(3)} · GPU proxy=${gpuProxy.toFixed(3)} · ` +
+      `Δ=${(wasmR - gpuProxy).toFixed(3)} · zero-copy ω̄=${segWasm.lastRollerMeanOmega.toFixed(4)}`;
+  }
+
   update() {
     const stats = this.profiler.getStats();
+
+    // WASM vs GPU particle radius diff (optional)
+    if (this.wasmDiffEnabled) {
+      this._updateWasmDiff().catch(() => {});
+    }
 
     // Update quality indicator in main UI
     const qualityEl = document.getElementById('qualityLevel');
@@ -321,7 +435,8 @@ export class DebugPanel {
     const parts = [];
     for (const id of ['heron', 'kelvin', 'solar']) {
       const d = viz.devices[id];
-      const ps = d?.physicsState;
+      // WebGPU: physicsState; WebGL2: physics (aliased as physicsState too)
+      const ps = d?.physicsState || d?.physics;
       if (!d || !ps) continue;
       parts.push(`<div style="color:#0cc;margin-top:4px;text-transform:uppercase">${id}</div>`);
       if (id === 'heron') {

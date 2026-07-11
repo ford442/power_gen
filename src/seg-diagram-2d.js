@@ -24,6 +24,7 @@ import {
   computeRollerPositionsXZ,
   SEG_LAYOUT_PRESETS
 } from './seg-layout.js';
+import { explainerState } from './seg-explainer/explainer-state.js';
 
 // Per-ring accent colours (inner → outer). Cyan-family to match the app skin,
 // shifted toward amber on the outer ring so the three rings stay legible.
@@ -54,6 +55,8 @@ export class SEGDiagram2D {
     // Fallback layout when no WebGPU visualizer is present (e.g. WebGL2 path
     // that doesn't expose segLayout).
     this._fallbackLayout = computeSEGLayout(SEG_LAYOUT_PRESETS.searl, 1.0);
+    this._highlightId = null;
+    this._unsub = explainerState.subscribe((s) => { this._highlightId = s.highlightId; });
 
     this._buildDom();
     this._onResize = () => this._resize();
@@ -194,7 +197,11 @@ export class SEGDiagram2D {
 
     // Ring guides + stator bands, inner → outer.
     layout.rings.forEach((ring, i) => {
-      this._drawRing(ctx, cx, cy, ring, RING_COLORS[i % RING_COLORS.length], ws, px, dpr, energy);
+      const annId = i === 0 ? 'inner-ring' : (i === layout.rings.length - 1 ? 'outer-ring' : 'separator');
+      const isHi = this._highlightId === annId
+        || (this._highlightId === 'stator' && i === 0)
+        || (this._highlightId === 'flux');
+      this._drawRing(ctx, cx, cy, ring, RING_COLORS[i % RING_COLORS.length], ws, px, dpr, energy, isHi);
     });
 
     // Live rollers off the shared clock — same motion model as the GPU path.
@@ -252,10 +259,18 @@ export class SEGDiagram2D {
     ctx.moveTo(cx - ch, cy); ctx.lineTo(cx + ch, cy);
     ctx.moveTo(cx, cy - ch); ctx.lineTo(cx, cy + ch);
     ctx.stroke();
+    if (this._highlightId === 'shaft' || this._highlightId === 'ionization') {
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(shaftR * 1.8, 8 * dpr), 0, Math.PI * 2);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2 * dpr;
+      ctx.globalAlpha = 0.75;
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
-  _drawRing(ctx, cx, cy, ring, color, ws, px, dpr, energy) {
+  _drawRing(ctx, cx, cy, ring, color, ws, px, dpr, energy, highlighted = false) {
     const orbitR = ring.orbitRadiusM * ws * px;
     const innerR = (ring.statorInnerM || 0) * ws * px;
     const outerR = (ring.statorOuterM || 0) * ws * px;
@@ -273,10 +288,18 @@ export class SEGDiagram2D {
     ctx.setLineDash([5 * dpr, 5 * dpr]);
     ctx.beginPath();
     ctx.arc(cx, cy, orbitR, 0, Math.PI * 2);
-    ctx.strokeStyle = color.stroke;
-    ctx.globalAlpha = 0.55 + energy * 0.4;
-    ctx.lineWidth = 1.25 * dpr;
+    ctx.strokeStyle = highlighted ? '#fff' : color.stroke;
+    ctx.globalAlpha = (highlighted ? 0.95 : 0.55) + energy * 0.4;
+    ctx.lineWidth = (highlighted ? 2.5 : 1.25) * dpr;
     ctx.stroke();
+    if (highlighted) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, orbitR, 0, Math.PI * 2);
+      ctx.strokeStyle = color.glow;
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = 5 * dpr;
+      ctx.stroke();
+    }
     ctx.setLineDash([]);
     ctx.restore();
   }
@@ -391,6 +414,7 @@ export class SEGDiagram2D {
 
   destroy() {
     this.hide();
+    this._unsub?.();
     window.removeEventListener('resize', this._onResize);
     window.removeEventListener('keydown', this._onKey);
     if (this._ro) this._ro.disconnect();

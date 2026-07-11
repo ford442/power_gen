@@ -24,6 +24,21 @@ import { LEDSolarSimulation, LEDSolarSystemState, DEFAULT_BATTERY_CAPACITY } fro
 // Physics Uniform Buffer Layout (matches WGSL)
 // ============================================
 
+/** Float count for {@link SEGIntegrationManager.getPhysicsUniforms} (96 bytes). */
+export const PHYSICS_UNIFORM_FLOAT_COUNT = 24;
+/** Byte size of the physics uniform buffer. */
+export const PHYSICS_UNIFORM_BYTES = PHYSICS_UNIFORM_FLOAT_COUNT * 4;
+
+export interface SEGIntegrationOptions {
+  /**
+   * When true, attach a small floating gauge overlay next to the canvas.
+   * Multi-device dashboard already has its own telemetry UI — leave false there.
+   */
+  enableScientificOverlay?: boolean;
+  /** Minimum ms between UI/MCP gauge refreshes (default 100). */
+  updateIntervalMs?: number;
+}
+
 interface PhysicsUniforms {
   // 64 bytes: B-field parameters (16 floats)
   mu0: number;              // Vacuum permeability
@@ -47,147 +62,27 @@ interface PhysicsUniforms {
 }
 
 // ============================================
-// Scientific UI Manager (minimal implementation)
+// UI surface (dashboard owns real gauges via TelemetryHub)
 // ============================================
 
-class ScientificUIManager {
-  private container: HTMLElement | null = null;
-  private gauges: Map<string, HTMLElement> = new Map();
-  private statusIndicator: HTMLElement | null = null;
+interface ScientificUISurface {
+  updateGauge(name: string, value: number | string, uncertainty?: number, isValidated?: boolean): void;
+  updateMCPStatus(status: MCPStatus): void;
+  showError(message: string): void;
+  destroy(): void;
+}
 
-  constructor(private canvas: HTMLCanvasElement) {
-    this.createUI();
-  }
-
-  private createUI(): void {
-    // Create floating UI container
-    this.container = document.createElement('div');
-    this.container.className = 'scientific-ui';
-    this.container.style.cssText = `
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: rgba(0, 0, 0, 0.7);
-      color: #0f0;
-      padding: 10px;
-      border-radius: 5px;
-      font-family: monospace;
-      font-size: 12px;
-      pointer-events: none;
-      z-index: 1000;
-    `;
-
-    // Create MCP status indicator
-    this.statusIndicator = document.createElement('div');
-    this.statusIndicator.className = 'mcp-status';
-    this.container.appendChild(this.statusIndicator);
-
-    // Create physics gauges
-    this.createGauge('Inner Torque', 'N·m');
-    this.createGauge('Middle Torque', 'N·m');
-    this.createGauge('Outer Torque', 'N·m');
-    this.createGauge('Max B-Field', 'T');
-    this.createGauge('Energy Density', 'J/m³');
-    this.createGauge('Particle Flux', 'p/s');
-
-    // Add to document
-    const parent = this.canvas.parentElement || document.body;
-    parent.style.position = 'relative';
-    parent.appendChild(this.container);
-  }
-
-  private createGauge(name: string, unit: string): void {
-    const gauge = document.createElement('div');
-    gauge.className = 'gauge';
-    gauge.style.cssText = 'margin: 5px 0; display: flex; justify-content: space-between;';
-    gauge.innerHTML = `
-      <span>${name}:</span>
-      <span class="value" data-unit="${unit}">--</span>
-    `;
-    this.container!.appendChild(gauge);
-    this.gauges.set(name, gauge.querySelector('.value')!);
-  }
-
-  updateGauge(name: string, value: number | string, uncertainty?: number, isValidated?: boolean): void {
-    const element = this.gauges.get(name);
-    if (!element) return;
-
-    let display: string;
-    if (typeof value === 'number') {
-      if (value >= 1e6) {
-        display = `${(value / 1e6).toFixed(2)}M`;
-      } else if (value >= 1e3) {
-        display = `${(value / 1e3).toFixed(2)}k`;
-      } else if (value >= 1) {
-        display = value.toFixed(2);
-      } else if (value >= 0.001) {
-        display = value.toFixed(4);
-      } else {
-        display = value.toExponential(2);
-      }
-    } else {
-      display = value;
-    }
-
-    // Add uncertainty indicator
-    let indicator = '';
-    if (uncertainty !== undefined) {
-      if (uncertainty === 0) {
-        indicator = ' ✓';  // Exact
-      } else if (uncertainty < 0.05) {
-        indicator = ' ~';  // Low uncertainty
-      } else if (uncertainty < 0.15) {
-        indicator = ' ≈';  // Medium uncertainty
-      } else {
-        indicator = ' ?';  // High uncertainty
-      }
-    }
-
-    // Add validation indicator
-    let validationIndicator = '';
-    if (isValidated === false) {
-      element.style.color = '#fa0';  // Orange for unvalidated
-    } else if (isValidated === true) {
-      element.style.color = '#0f0';  // Green for validated
-    } else {
-      element.style.color = '#fff';  // White for unknown
-    }
-
-    element.textContent = `${display}${indicator}`;
-  }
-
-  updateMCPStatus(status: MCPStatus): void {
-    if (!this.statusIndicator) return;
-    
-    const statusColors = {
-      connected: '#0f0',
-      disconnected: '#f00',
-      fallback: '#fa0',
-    };
-
-    const statusIcons = {
-      connected: '●',
-      disconnected: '○',
-      fallback: '◐',
-    };
-
-    this.statusIndicator.innerHTML = `
-      <span style="color: ${statusColors[status]}">${statusIcons[status]}</span>
-      MCP: ${status.toUpperCase()}
-    `;
-    this.statusIndicator.style.marginBottom = '10px';
-  }
-
+/**
+ * No-op surface. Dashboard telemetry is TelemetryHub → operator panel / scientific-ui.js.
+ * The former floating overlay ScientificUIManager was removed (duplicate implementation).
+ */
+class NoOpScientificUI implements ScientificUISurface {
+  updateGauge(): void { /* no-op — use TelemetryHub subscribers */ }
+  updateMCPStatus(): void { /* no-op */ }
   showError(message: string): void {
     console.error('[ScientificUI]', message);
-    // Could show a toast or other visual error indicator
   }
-
-  destroy(): void {
-    if (this.container && this.container.parentElement) {
-      this.container.parentElement.removeChild(this.container);
-    }
-  }
+  destroy(): void { /* no-op */ }
 }
 
 // ============================================
@@ -196,11 +91,12 @@ class ScientificUIManager {
 
 export class SEGIntegrationManager {
   private wolfram: WolframMCPManager;
-  private ui: ScientificUIManager;
+  private ui: ScientificUISurface;
   private physicsState: SEGPhysicsState;
   private device: GPUDevice;
   private canvas: HTMLCanvasElement;
   private uniformBuffer: GPUBuffer | null = null;
+  private physicsUniformBuffer: GPUBuffer | null = null;
   private lastUpdateTime: number = 0;
   private updateInterval: number = 100; // Update every 100ms
   private pendingQueries: Set<string> = new Set();
@@ -209,14 +105,34 @@ export class SEGIntegrationManager {
   private ledSolarSimulation: LEDSolarSimulation | null = null;
   private mode: 'seg' | 'ledsolar' | 'heron' | 'kelvin' = 'seg';
 
-  constructor(device: GPUDevice, canvas: HTMLCanvasElement) {
+  constructor(
+    device: GPUDevice,
+    canvas: HTMLCanvasElement,
+    options: SEGIntegrationOptions = {}
+  ) {
     this.device = device;
     this.canvas = canvas;
     this.wolfram = new WolframMCPManager();
-    this.ui = new ScientificUIManager(canvas);
+    // Dashboard owns UI; enableScientificOverlay is retained for API compatibility only.
+    this.ui = new NoOpScientificUI();
+    if (options.enableScientificOverlay) {
+      console.info(
+        '[SEGIntegration] enableScientificOverlay ignored — use scientific-ui.js + TelemetryHub'
+      );
+    }
+    if (typeof options.updateIntervalMs === 'number' && options.updateIntervalMs > 0) {
+      this.updateInterval = options.updateIntervalMs;
+    }
     
     // Initialize physics state with fallback values
     this.physicsState = this.initializePhysicsState();
+
+    // GPU buffer for multi-device / shader binding (always allocated)
+    this.physicsUniformBuffer = this.device.createBuffer({
+      label: 'seg-physics-uniforms',
+      size: PHYSICS_UNIFORM_BYTES,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
 
     // Initialize MCP and UI
     this.initialize();
@@ -328,11 +244,22 @@ export class SEGIntegrationManager {
   }
 
   /**
-   * Get shader uniform buffer data
+   * Get shader uniform buffer data (ArrayBuffer of 24 floats / 96 bytes).
    */
   getPhysicsUniforms(): ArrayBuffer {
-    const uniforms = new Float32Array(24);  // 24 floats = 96 bytes (aligned)
-    
+    const arr = this.getPhysicsUniformArray();
+    // Explicit ArrayBuffer for TS 5.x ArrayBufferLike / WebGPU queue typing.
+    return arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength) as ArrayBuffer;
+  }
+
+  /**
+   * Typed Float32Array of physics uniforms for CPU consumers and GPU upload.
+   * Layout: [0..7] B-field params, [8..15] live state, [16..23] extras/reserved.
+   */
+  getPhysicsUniformArray(): Float32Array {
+    // Own ArrayBuffer so .buffer is ArrayBuffer (not ArrayBufferLike) under TS 5.7+.
+    const uniforms = new Float32Array(new ArrayBuffer(PHYSICS_UNIFORM_BYTES));
+
     // First 8 floats: B-field parameters
     uniforms[0] = ValidatedConstants.PHYSICAL_CONSTANTS.MU_0;
     uniforms[1] = ValidatedConstants.SEG_MAGNET.Br;
@@ -363,15 +290,63 @@ export class SEGIntegrationManager {
     uniforms[22] = 0;  // reserved
     uniforms[23] = 0;  // reserved
 
-    return uniforms.buffer;
+    return uniforms;
   }
 
   /**
-   * Write physics uniforms to GPU buffer
+   * Write physics uniforms to a GPU buffer (defaults to the manager-owned buffer).
    */
-  writeUniformsToBuffer(buffer: GPUBuffer, offset = 0): void {
-    const uniforms = this.getPhysicsUniforms();
-    this.device.queue.writeBuffer(buffer, offset, uniforms);
+  writeUniformsToBuffer(buffer?: GPUBuffer, offset = 0): void {
+    const target = buffer ?? this.physicsUniformBuffer;
+    if (!target) return;
+    const data = this.getPhysicsUniforms();
+    this.device.queue.writeBuffer(target, offset, data);
+  }
+
+  /**
+   * Manager-owned physics uniform buffer (96 bytes) for bind-group attachment.
+   */
+  getPhysicsUniformBuffer(): GPUBuffer | null {
+    return this.physicsUniformBuffer;
+  }
+
+  /**
+   * Update live particle flux estimate from the visualizer (particles/s proxy).
+   */
+  setParticleFlux(flux: number): void {
+    this.physicsState.particleFlux = Math.max(0, flux);
+  }
+
+  /**
+   * Merge live multi-device simulation stats into typed physics state.
+   * Call once per frame (or throttled) before {@link writeUniformsToBuffer}.
+   */
+  syncFromVisualizer(stats: {
+    particleFlux?: number;
+    maxFieldMagnitude?: number;
+    avgEnergyDensity?: number;
+    innerRingTorque?: number;
+    middleRingTorque?: number;
+    outerRingTorque?: number;
+  }): void {
+    if (typeof stats.particleFlux === 'number') {
+      this.physicsState.particleFlux = Math.max(0, stats.particleFlux);
+    }
+    if (typeof stats.maxFieldMagnitude === 'number') {
+      this.physicsState.maxFieldMagnitude = stats.maxFieldMagnitude;
+    }
+    if (typeof stats.avgEnergyDensity === 'number') {
+      this.physicsState.avgEnergyDensity = stats.avgEnergyDensity;
+    }
+    if (typeof stats.innerRingTorque === 'number') {
+      this.physicsState.innerRingTorque = stats.innerRingTorque;
+    }
+    if (typeof stats.middleRingTorque === 'number') {
+      this.physicsState.middleRingTorque = stats.middleRingTorque;
+    }
+    if (typeof stats.outerRingTorque === 'number') {
+      this.physicsState.outerRingTorque = stats.outerRingTorque;
+    }
   }
 
   /**
@@ -642,6 +617,10 @@ export class SEGIntegrationManager {
     if (this.uniformBuffer) {
       this.uniformBuffer.destroy();
       this.uniformBuffer = null;
+    }
+    if (this.physicsUniformBuffer) {
+      this.physicsUniformBuffer.destroy();
+      this.physicsUniformBuffer = null;
     }
   }
 }

@@ -1,5 +1,11 @@
 export class PerformanceProfiler {
-  constructor(device, canvas) {
+  /**
+   * @param {GPUDevice} device
+   * @param {HTMLCanvasElement} canvas
+   * @param {{ adapter?: GPUAdapter | null, adapterInfo?: object | null }} [options]
+   *        Pass adapter/info from WebGPUManager — do not call requestAdapter again.
+   */
+  constructor(device, canvas, options = {}) {
     this.device = device;
     this.canvas = canvas;
 
@@ -49,9 +55,10 @@ export class PerformanceProfiler {
     this.benchmarkSamples = [];
     this.benchmarkDuration = 60; // seconds
 
-    // GPU Info
+    // GPU Info — prefer single adapter path from WebGPUManager
     this.gpuTier = 'unknown';
-    this.adapterInfo = null;
+    this.adapter = options.adapter || null;
+    this.adapterInfo = options.adapterInfo || options.adapter?.info || null;
     this._initPromise = null;
   }
 
@@ -62,14 +69,22 @@ export class PerformanceProfiler {
   }
 
   async _initInternal() {
-    // Check for timestamp query support
-    const adapter = await navigator.gpu.requestAdapter();
-    this.adapterInfo = adapter?.info || {};
+    // Reuse adapter info from WebGPUManager (no second requestAdapter).
+    if (!this.adapterInfo) {
+      this.adapterInfo = this.adapter?.info || {};
+      if (!this.adapterInfo.vendor && this.adapterInfo.device === undefined) {
+        console.warn(
+          '[PerformanceProfiler] No adapterInfo passed — GPU tier heuristics may be incomplete. ' +
+          'Pass { adapter, adapterInfo } from WebGPUManager.'
+        );
+      }
+    }
 
     // Detect GPU tier
     this.detectGPUTier();
 
     // Timestamp writes require the device feature, not just a query set allocation.
+    // Feature is only requested when ?gpuTiming=1 (see WebGPUManager.wantsGpuTiming).
     if (!this.device.features.has('timestamp-query')) {
       this.timingEnabled = false;
       return;
@@ -93,7 +108,7 @@ export class PerformanceProfiler {
 
       // Never auto-enable: writeTimestamp in the render encoder blanks the canvas on some GPUs.
       this.timingEnabled = false;
-      console.log('GPU timestamp queries available (off by default; add ?gpuTiming=1 and enable in debug panel)');
+      console.log('GPU timestamp queries available (off by default; enable in debug panel after ?gpuTiming=1)');
     } catch (e) {
       console.warn('GPU timestamp queries not supported:', e);
       this.timingEnabled = false;

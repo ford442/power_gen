@@ -1,10 +1,13 @@
 import { MultiDeviceShaders } from './multi-device-shaders.js';
+import './devices/register-plugins.js';
 import { MultiDeviceCamera } from './multi-device-camera.js';
 import { SimRateController } from './sim-rate-controller.js';
-import { WebGPUManager } from './webgpu-manager.js';
+import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager.js';
+import { PipelineLayoutCache } from './pipeline-layout-cache.js';
 import { CameraController } from './camera-controller.js';
 import { PerformanceProfiler } from './performance-profiler.js';
 import { DebugPanel, DEVICE_CONFIG } from './debug-panel.js';
+import { getMergedDeviceConfig, getAllSimDeviceIds } from './devices/device-registry.js';
 import { DeviceInstance } from './device-instance.js';
 import { EnergyPipe } from './energy-pipe.js';
 import { SEGMaterialPresets } from './seg-materials.js';
@@ -43,10 +46,20 @@ import {
   packPostUniforms
 } from './seg-lighting-presets.js';
 import { segOperator } from './seg-operator-state.js';
+import { telemetryHub, TelemetryHub } from './telemetry-hub.js';
+import { segWasm } from './wasm/seg-physics-bridge.js';
+import { HardwareBridge, TWIN_MODES } from './hardware-bridge.js';
+import { ElectromagnetController } from './electromagnet-controller.js';
+import { initHardwarePanel } from './hardware-panel.js';
 import { initSEGAnnotations } from './seg-annotations.js';
+import { explainerState } from './seg-explainer/explainer-state.js';
 import { generateTorus } from './renderers/shared/primitive-geometry.js';
 import { DEVICE_MESH_LAYOUTS, TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT } from './device-mesh-layouts.js';
 import { isDeviceActive as isDeviceVisible } from './renderers/shared/device-view.js';
+import {
+  SEGIntegrationManager,
+  PHYSICS_UNIFORM_BYTES
+} from './integration.ts';
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -58,11 +71,18 @@ export class MultiDeviceVisualizer {
     console.log('MultiDeviceVisualizer v5 starting - depthStencil fix applied');
     this.canvas = document.getElementById('gpuCanvas');
 
-    // Initialize managers
-    this.webgpu = new WebGPUManager(this.canvas);
+    // Initialize managers (single adapter path lives in WebGPUManager)
+    this.webgpu = new WebGPUManager(this.canvas, {
+      onDeviceLost: (info) => {
+        console.error('[MultiDeviceVisualizer] GPU device lost — prompting reload', info);
+        WebGPUManager.showDeviceLostUI(info);
+      }
+    });
     this.camera = new CameraController();
     this.profiler = null;
     this.debugPanel = null;
+    /** @type {string} Matches WebGPUManager.depthFormat (depth24plus, no stencil). */
+    this.depthFormat = DEPTH_FORMAT;
     
     // Initialize shader provider and camera controller
     this.shaders = new MultiDeviceShaders();
@@ -74,15 +94,23 @@ export class MultiDeviceVisualizer {
     Object.defineProperty(this, 'globalUniformBuffer', { get: () => this.webgpu.globalUniformBuffer });
 
     this.currentView = 'overview';
-    this.devicesEnabled = { seg: true, heron: true, kelvin: true, solar: true, peltier: true, mhd: true };
+    this.devicesEnabled = Object.fromEntries(getAllSimDeviceIds().map((id) => [id, true]));
     this.devices = {};
     this.energyPipes = [];
 
-    // Hardware integration hooks
-    this.hardwareBridge = null;
-    this.emController = null;
+    // Hardware digital twin (Web Serial / mock)
+    this.emController = new ElectromagnetController();
+    this.hardwareBridge = new HardwareBridge({
+      onError: (e) => console.error('[HardwareBridge]', e)
+    });
     this.hardwareTargetPhase = 0;
     this.hardwareTargetSpeed = 0;
+    this.hardwareShadow = { phaseError: 0, rpmError: 0 };
+
+    /** @type {import('./integration.ts').SEGIntegrationManager | null} */
+    this.integration = null;
+    /** @type {GPUBuffer | null} Manager-owned physics uniform buffer (alias). */
+    this.physicsUniformBuffer = null;
 
     this.time = 0;
     this.lastFrameTime = 0;
@@ -161,11 +189,46 @@ export class MultiDeviceVisualizer {
   async init() {
     try {
       await this.webgpu.init();
+      this.depthFormat = this.webgpu.depthFormat || DEPTH_FORMAT;
       this.webgpu.resize();
 
-      // Initialize profiler
-      this.profiler = new PerformanceProfiler(this.webgpu.device, this.canvas);
+      // Explicit bind-group / pipeline layouts + shared device pipelines (once)
+      this.pipelineCache = new PipelineLayoutCache(this.device, {
+        canvasFormat: this.webgpu.canvasFormat || navigator.gpu.getPreferredCanvasFormat(),
+        depthFormat: this.depthFormat
+      });
+      await this.pipelineCache.ensureDevicePipelines(this.shaders);
+      console.log(
+        `[MultiDeviceVisualizer] Pipeline cache: ${this.pipelineCache.stats.pipelineCreates} creates ` +
+        `(shared across all devices)`
+      );
+
+      // Typed physics hub (ValidatedConstants + fallback formulas → GPU uniforms)
+      try {
+        this.integration = new SEGIntegrationManager(this.device, this.canvas, {
+          enableScientificOverlay: false
+        });
+        this.physicsUniformBuffer = this.integration.getPhysicsUniformBuffer();
+        if (typeof window !== 'undefined') {
+          window.SEGIntegration = window.SEGIntegration || { manager: null, initialize: null };
+          window.SEGIntegration.manager = this.integration;
+        }
+        console.log('[MultiDeviceVisualizer] SEGIntegrationManager attached (typed physics uniforms)');
+      } catch (e) {
+        console.warn('[MultiDeviceVisualizer] SEGIntegrationManager init failed:', e);
+        this.integration = null;
+        this.physicsUniformBuffer = null;
+      }
+
+      // Profiler reuses the single adapter from WebGPUManager (no second requestAdapter)
+      this.profiler = new PerformanceProfiler(this.webgpu.device, this.canvas, {
+        adapter: this.webgpu.adapter,
+        adapterInfo: this.webgpu.adapterInfo
+      });
       await this.profiler.init();
+      if (this.integration) {
+        this.profiler.trackBuffer('physicsUniforms', PHYSICS_UNIFORM_BYTES, GPUBufferUsage.UNIFORM);
+      }
 
       // Initialize debug panel
       this.debugPanel = new DebugPanel(this.profiler);
@@ -224,6 +287,19 @@ export class MultiDeviceVisualizer {
 
       // Show optimal settings hint
       this.showOptimalSettingsHint();
+
+      // Hardware twin panel (feature-detects Web Serial; Mock always available)
+      try {
+        initHardwarePanel(this);
+      } catch (e) {
+        console.warn('[MultiDeviceVisualizer] Hardware panel init failed:', e);
+      }
+      // Auto mock when ?mockHardware=1
+      try {
+        if (new URLSearchParams(location.search).get('mockHardware') === '1') {
+          this.hardwareBridge.connectMock();
+        }
+      } catch (_) { /* ignore */ }
 
       if (typeof window.syncSEGLayoutUI === 'function') {
         window.syncSEGLayoutUI();
@@ -456,7 +532,8 @@ export class MultiDeviceVisualizer {
   }
 
   async setupDevices() {
-    for (const [deviceId, config] of Object.entries(DEVICE_CONFIG)) {
+    const deviceConfig = getMergedDeviceConfig();
+    for (const [deviceId, config] of Object.entries(deviceConfig)) {
       this.devices[deviceId] = new DeviceInstance(
         this.device,
         deviceId,
@@ -482,7 +559,9 @@ export class MultiDeviceVisualizer {
       { from: 'kelvin', to: 'peltier', speed: 1.8 },
       { from: 'peltier', to: 'solar', speed: 2.2 },
       { from: 'seg', to: 'mhd', speed: 1.6 },
-      { from: 'mhd', to: 'peltier', speed: 2.0 }
+      { from: 'mhd', to: 'peltier', speed: 2.0 },
+      { from: 'solar', to: 'maglev', speed: 1.4 },
+      { from: 'maglev', to: 'seg', speed: 1.9 }
     ];
 
     for (const config of pipeConfigs) {
@@ -494,29 +573,7 @@ export class MultiDeviceVisualizer {
   }
 
   async setupEnergyPipePipeline() {
-    const depthFormat = this.webgpu.depthFormat || 'depth24plus-stencil8';
-    this.energyPipePipeline = this.device.createRenderPipeline({
-      label: 'energyPipePipeline',
-      layout: 'auto',
-      vertex: {
-        module: this.device.createShaderModule({ code: this.shaders.energyPipeVertShader }),
-        entryPoint: 'main',
-        buffers: []
-      },
-      fragment: {
-        module: this.device.createShaderModule({ code: this.shaders.energyPipeFragShader }),
-        entryPoint: 'main',
-        targets: [{
-          format: this.context.getCurrentTexture().format,
-          blend: {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
-            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
-          }
-        }]
-      },
-      primitive: { topology: 'triangle-strip' },
-      depthStencil: { format: depthFormat, depthWriteEnabled: false, depthCompare: 'less' }
-    });
+    this.energyPipePipeline = await this.pipelineCache.ensureEnergyPipePipeline(this.shaders);
   }
   
   generateCylinder(radius, height, segments) {
@@ -784,7 +841,7 @@ export class MultiDeviceVisualizer {
     this.deviceGeometryBuffers = this.deviceGeometryBuffers || {};
 
     // Per-device hooks — never call undefined builders (peltier/mhd are compute-only).
-    for (const [deviceId, config] of Object.entries(DEVICE_CONFIG)) {
+    for (const [deviceId, config] of Object.entries(getMergedDeviceConfig())) {
       if (DEVICE_MESH_LAYOUTS[deviceId]) continue;
       const targetBuilderName = `build${deviceId.toUpperCase()}Geometry`;
       const builderMethod = this[targetBuilderName];
@@ -1195,22 +1252,7 @@ export class MultiDeviceVisualizer {
   }
 
   async setupFloorGrid() {
-    this.gridPipeline = this.device.createRenderPipeline({
-      label: 'gridPipeline',
-      layout: 'auto',
-      vertex: {
-        module: this.device.createShaderModule({ code: this.shaders.gridVertShader }),
-        entryPoint: 'main',
-        buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] }]
-      },
-      fragment: {
-        module: this.device.createShaderModule({ code: this.shaders.gridFragShader }),
-        entryPoint: 'main',
-        targets: [{ format: navigator.gpu.getPreferredCanvasFormat(), blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } } }]
-      },
-      primitive: { topology: 'triangle-list' },
-      depthStencil: { depthWriteEnabled: false, depthCompare: 'less', format: 'depth24plus-stencil8' }
-    });
+    this.gridPipeline = await this.pipelineCache.ensureGridPipeline(this.shaders);
 
     const gridVertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
     this.gridVertexBuffer = this.device.createBuffer({
@@ -1220,12 +1262,8 @@ export class MultiDeviceVisualizer {
     this.device.queue.writeBuffer(this.gridVertexBuffer, 0, gridVertices);
     this.profiler.trackBuffer('gridVertices', gridVertices.byteLength, GPUBufferUsage.VERTEX);
 
-    // Grid is screen-space and references no bindings; layout 'auto' yields an empty
-    // bind group layout, so the bind group must have no entries.
-    this.gridBindGroup = this.device.createBindGroup({
-      layout: this.gridPipeline.getBindGroupLayout(0),
-      entries: []
-    });
+    // Explicit empty bind group layout (grid shaders have no bindings)
+    this.gridBindGroup = this.pipelineCache.createBindGroup('empty', [], 'grid-bg');
   }
 
   async setupSkyGradient() {
@@ -1235,62 +1273,17 @@ export class MultiDeviceVisualizer {
     });
     this._uploadSkyUniforms();
 
-    this.skyPipeline = this.device.createRenderPipeline({
-      label: 'skyPipeline',
-      layout: 'auto',
-      vertex: {
-        module: this.device.createShaderModule({ code: this.shaders.skyVertShader }),
-        entryPoint: 'main'
-      },
-      fragment: {
-        module: this.device.createShaderModule({ code: this.shaders.skyFragShader }),
-        entryPoint: 'main',
-        targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }]
-      },
-      primitive: { topology: 'triangle-list' },
-      depthStencil: { depthWriteEnabled: false, depthCompare: 'always', format: 'depth24plus-stencil8' }
-    });
+    this.skyPipeline = await this.pipelineCache.ensureSkyPipeline(this.shaders);
 
-    this.skyBindGroup = this.device.createBindGroup({
-      layout: this.skyPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.skyUniformBuffer } }
-      ]
-    });
+    this.skyBindGroup = this.pipelineCache.createBindGroup(
+      'sky',
+      [{ binding: 0, resource: { buffer: this.skyUniformBuffer } }],
+      'sky-bg'
+    );
   }
 
   async setupAnomalyWallPipeline() {
-    const fmt = navigator.gpu.getPreferredCanvasFormat();
-
-    this.anomalyWallPipeline = this.device.createRenderPipeline({
-      label: 'anomalyWallPipeline',
-      layout: 'auto',
-      vertex: {
-        module: this.device.createShaderModule({ code: this.shaders.anomalyWallsShader }),
-        entryPoint: 'vsMain',
-        buffers: [{
-          arrayStride: 32,
-          attributes: [
-            { shaderLocation: 0, offset: 0,  format: 'float32x3' },
-            { shaderLocation: 1, offset: 12, format: 'float32x3' },
-            { shaderLocation: 2, offset: 24, format: 'float32x2' }
-          ]
-        }]
-      },
-      fragment: {
-        module: this.device.createShaderModule({ code: this.shaders.anomalyWallsShader }),
-        entryPoint: 'fsMain',
-        targets: [{
-          format: fmt,
-          blend: {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-            alpha: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }
-          }
-        }]
-      },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: { depthWriteEnabled: false, depthCompare: 'less', format: 'depth24plus-stencil8' }
-    });
+    this.anomalyWallPipeline = await this.pipelineCache.ensureAnomalyWallPipeline(this.shaders);
 
     this.anomalyWallParamsBuffer = this.device.createBuffer({
       label: 'anomaly-wall-params',
@@ -1366,19 +1359,21 @@ export class MultiDeviceVisualizer {
 
   async setupDepthBuffer() {
     const { width, height } = WebGPUManager.canvasPixelSize(this.canvas);
+    const depthFormat = this.depthFormat || this.webgpu.depthFormat || DEPTH_FORMAT;
     if (this.depthTexture) {
       this.profiler.textureAllocations = this.profiler.textureAllocations.filter(t => !t.name.includes('depth'));
       this.depthTexture.destroy();
     }
     this.depthTexture = this.device.createTexture({
+      label: 'scene-depth',
       size: [width, height, 1],
-      format: 'depth24plus-stencil8',
+      format: depthFormat,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
     });
     // Full aspect for render attachment; depth-only for shader sampling (bloom contact shadow).
     this.depthAttachmentView = this.depthTexture.createView();
     this.depthSampleView = this.depthTexture.createView({ aspect: 'depth-only' });
-    this.profiler.trackTexture('depthBuffer', width, height, 'depth24plus-stencil8');
+    this.profiler.trackTexture('depthBuffer', width, height, depthFormat);
   }
 
   setupBloomTextures() {
@@ -1436,31 +1431,10 @@ export class MultiDeviceVisualizer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
-    const vertModule    = this.device.createShaderModule({ code: this.shaders.bloomVertShader });
-    const extractModule = this.device.createShaderModule({ code: this.shaders.bloomExtractShader });
-    const blurModule    = this.device.createShaderModule({ code: this.shaders.bloomBlurShader });
-    const compModule    = this.device.createShaderModule({ code: this.shaders.bloomCompositeShader });
-
-    this.bloomExtractPipeline = this.device.createRenderPipeline({
-      layout: 'auto',
-      vertex:   { module: vertModule,    entryPoint: 'main' },
-      fragment: { module: extractModule, entryPoint: 'main', targets: [{ format: fmt }] },
-      primitive: { topology: 'triangle-list' }
-    });
-
-    this.bloomBlurPipeline = this.device.createRenderPipeline({
-      layout: 'auto',
-      vertex:   { module: vertModule, entryPoint: 'main' },
-      fragment: { module: blurModule, entryPoint: 'main', targets: [{ format: fmt }] },
-      primitive: { topology: 'triangle-list' }
-    });
-
-    this.bloomCompositePipeline = this.device.createRenderPipeline({
-      layout: 'auto',
-      vertex:   { module: vertModule,  entryPoint: 'main' },
-      fragment: { module: compModule,  entryPoint: 'main', targets: [{ format: fmt }] },
-      primitive: { topology: 'triangle-list' }
-    });
+    await this.pipelineCache.ensureBloomPipelines(this.shaders);
+    this.bloomExtractPipeline = this.pipelineCache.getPipeline('bloomExtract');
+    this.bloomBlurPipeline = this.pipelineCache.getPipeline('bloomBlur');
+    this.bloomCompositePipeline = this.pipelineCache.getPipeline('bloomComposite');
 
     this.device.queue.writeBuffer(this.bloomBlurDirXBuffer, 0, new Float32Array([1, 0, 0, 0]));
     this.device.queue.writeBuffer(this.bloomBlurDirYBuffer, 0, new Float32Array([0, 1, 0, 0]));
@@ -1483,13 +1457,14 @@ export class MultiDeviceVisualizer {
       new Float32Array([envelope, shellCount, 1.6, 0.55, 0.06, 8.0])
     );
 
-    const bindGroup = this.device.createBindGroup({
-      layout: this.anomalyWallPipeline.getBindGroupLayout(0),
-      entries: [
+    const bindGroup = this.pipelineCache.createBindGroup(
+      'anomalyWall',
+      [
         { binding: 0, resource: { buffer: globalUniformBuffer } },
         { binding: 1, resource: { buffer: this.anomalyWallParamsBuffer } }
-      ]
-    });
+      ],
+      'anomaly-wall-bg'
+    );
 
     renderPass.setPipeline(this.anomalyWallPipeline);
     renderPass.setBindGroup(0, bindGroup);
@@ -1518,12 +1493,59 @@ export class MultiDeviceVisualizer {
     const speed = 0.05 * Math.pow(400, rawSpeed / 100);
     this.speedMult = speed;
     const simSteps = this.simRateController.tick(deltaTime, speed);
-    for (const subDt of simSteps) {
-      if (subDt > 0) segOperator.step(subDt);
+    // Optional C++ WASM plant (?wasmPhysics=1) — drives SEG omega + mode plant
+    const useWasm = segWasm.enabled;
+    if (useWasm) {
+      const drive = segOperator.getDrive();
+      const loadT = 0.01 * (1 - drive * 0.5);
+      const focus = this.currentView === 'overview' ? 'seg' : this.currentView;
+      if (['seg', 'heron', 'kelvin', 'solar'].includes(focus)) {
+        segWasm.setMode(focus);
+      }
+      for (const subDt of simSteps) {
+        if (subDt <= 0) continue;
+        segOperator.step(subDt); // keep operator status machine in sync
+        const wr = segWasm.step(subDt, loadT, drive);
+        // Live metric from zero-copy roller buffer / plant
+        if (focus === 'seg' || focus === 'overview') {
+          // Map WASM ring omega (rad/s) into normalized plant ω used by shaders
+          const wNorm = Math.min(1, Math.abs(wr.meanOmega ?? wr.omega) / 50);
+          segOperator.physics.segOmega = Math.max(segOperator.physics.segOmega * 0.2, wNorm);
+          segOperator.physics.corona = Math.max(0, Math.min(1, (wNorm - 0.6) / 0.4));
+        } else if (focus === 'heron') {
+          const plant = segWasm.getModePlant();
+          const heron = this.devices.heron;
+          if (heron?.physicsState && plant) {
+            heron.physicsState.heronHead = plant.head ?? heron.physicsState.heronHead;
+            heron.physicsState.heronVExit = plant.vExit ?? heron.physicsState.heronVExit;
+            heron.physicsState.heronFlowRateLmin = plant.flowLmin ?? 0;
+            heron.physicsState.heronPressureKPa = plant.pressureKPa ?? 0;
+          }
+        } else if (focus === 'kelvin') {
+          const plant = segWasm.getModePlant();
+          const kelvin = this.devices.kelvin;
+          if (kelvin?.physicsState && plant) {
+            kelvin.physicsState.kelvinV = plant.voltage ?? 0;
+            kelvin.physicsState.kelvinVoltageN = plant.voltageN ?? 0;
+            kelvin.physicsState.kelvinE = plant.E ?? 0;
+            kelvin.physicsState.kelvinSparkTimer = plant.sparkTimer ?? 0;
+          }
+        } else if (focus === 'solar') {
+          const plant = segWasm.getModePlant();
+          const solar = this.devices.solar;
+          if (solar && plant && typeof plant.battery === 'number') {
+            solar.batteryCharge = plant.battery;
+            if (solar.physicsState) solar.physicsState.batteryCharge = plant.battery;
+          }
+        }
+      }
+    } else {
+      for (const subDt of simSteps) {
+        if (subDt > 0) segOperator.step(subDt);
+      }
     }
     this.segOmega = segOperator.physics.segOmega;
     this.corona = segOperator.physics.corona;
-    window.segOperatorPanel?.tick(deltaTime);
     this.time += deltaTime * speed;
 
     // Propagate current speedMult to all devices (needed by GPU compute uniforms)
@@ -1537,17 +1559,9 @@ export class MultiDeviceVisualizer {
 
     // Update tachometer overlay
     this._updateTachometer();
-    this._updateDeviceTelemetry();
 
-    // Update hardware bridge comms (send phase commands, parse sensor data)
-    if (this.hardwareBridge?.isConnected) {
-      this.hardwareBridge.update();
-      // If running in auto mode, integrate target phase from speed
-      if (!this.hardwareBridge.manualMode && this.hardwareBridge.controlMode === 0) {
-        this.hardwareTargetPhase += this.hardwareBridge.targetSpeed * 6.0 * deltaTime; // RPM -> deg/s
-      }
-      this.hardwareBridge.targetPhase = this.hardwareTargetPhase;
-    }
+    // Hardware twin: mirror segOperator plant → coils @ ~60 Hz; closed-loop viz
+    this._updateHardwareTwin(deltaTime);
 
     // Update camera
     this.cameraController.updateCamera(deltaTime);
@@ -1558,17 +1572,6 @@ export class MultiDeviceVisualizer {
     );
     this.profiler.recordFrame(deltaTime, totalParticles);
 
-    // Update solar battery UI (only shown when viewing the solar device)
-    const batteryEl = document.getElementById('batteryCharge');
-    const batteryStat = document.getElementById('batteryStat');
-    if (batteryEl && batteryStat) {
-      const solarDevice = this.devices['solar'];
-      if (solarDevice) {
-        batteryEl.textContent = `${Math.round((solarDevice.batteryCharge || 0) * 100)}%`;
-        batteryStat.style.display = this.currentView === 'solar' ? 'flex' : 'none';
-      }
-    }
-    
     // Update global uniforms with extended lighting data
     const viewProj = this.cameraController.getViewProjMatrix();
     const globalData = new Float32Array(128); // 512 bytes / 4 = 128 floats
@@ -1646,12 +1649,34 @@ export class MultiDeviceVisualizer {
     this.device.queue.writeBuffer(this.lightingUniformBuffer, 0, lightingData);
 
     // Update devices with quality scaling
-    const qualityScale = this.profiler.qualityLevel;
+    const qualityScale = this.profiler.qualityLevel * explainerState.getParticleCapScale();
     this.refreshSEGLayout(qualityScale);
     for (const device of Object.values(this.devices)) {
       if (this.isDeviceActive(device.id)) {
         device.update(deltaTime * speed, qualityScale);
       }
+    }
+
+    // Single telemetry write path after device physics (operator panel + gauges subscribe)
+    const omega = this.segOmega || 0;
+    const particleFlux = totalParticles * Math.max(0.05, this.speedMult);
+    const scientific = {
+      particleFlux,
+      maxFieldMagnitude: 0.7048 * (0.35 + 0.65 * Math.min(1, Math.abs(omega))),
+      avgEnergyDensity: 1.976e6 * (0.2 + 0.8 * Math.min(1, Math.abs(omega))),
+      middleRingTorque: (this.devices.seg?.energyLevel ?? omega) * 12.0
+    };
+    telemetryHub.publishFrame({
+      dt: deltaTime,
+      view: this.currentView || 'overview',
+      renderer: 'webgpu',
+      devicePhysics: TelemetryHub.collectDevicePhysics(this.devices),
+      scientific
+    });
+    if (this.integration) {
+      this.integration.syncFromVisualizer(scientific);
+      this.integration.update(deltaTime * 1000);
+      this.integration.writeUniformsToBuffer();
     }
 
     if (this.isOverviewMode()) {
@@ -1720,15 +1745,7 @@ export class MultiDeviceVisualizer {
         loadOp: 'clear',
         storeOp: 'store'
       }],
-      depthStencilAttachment: {
-        view: this.depthAttachmentView,
-        depthClearValue: 1.0,
-        depthLoadOp: 'clear',
-        depthStoreOp: 'store',
-        stencilClearValue: 0,
-        stencilLoadOp: 'clear',
-        stencilStoreOp: 'store'
-      }
+      depthStencilAttachment: WebGPUManager.depthStencilAttachment(this.depthAttachmentView)
     });
 
     // Render sky gradient first (fullscreen, before all geometry)
@@ -1820,14 +1837,11 @@ export class MultiDeviceVisualizer {
         }]
       });
       extractPass.setPipeline(this.bloomExtractPipeline);
-      extractPass.setBindGroup(0, this.device.createBindGroup({
-        layout: this.bloomExtractPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: this.bloomSceneTexture.createView() },
-          { binding: 1, resource: this.bloomSampler },
-          { binding: 2, resource: { buffer: this.bloomParamsBuffer } }
-        ]
-      }));
+      extractPass.setBindGroup(0, this.pipelineCache.createBindGroup('bloomExtract', [
+        { binding: 0, resource: this.bloomSceneTexture.createView() },
+        { binding: 1, resource: this.bloomSampler },
+        { binding: 2, resource: { buffer: this.bloomParamsBuffer } }
+      ], 'bloom-extract-bg'));
       extractPass.draw(3);
       extractPass.end();
 
@@ -1840,15 +1854,12 @@ export class MultiDeviceVisualizer {
         }]
       });
       blurXPass.setPipeline(this.bloomBlurPipeline);
-      blurXPass.setBindGroup(0, this.device.createBindGroup({
-        layout: this.bloomBlurPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: this.bloomTempTexture.createView() },
-          { binding: 1, resource: this.bloomSampler },
-          { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
-          { binding: 3, resource: { buffer: this.bloomBlurDirXBuffer } }
-        ]
-      }));
+      blurXPass.setBindGroup(0, this.pipelineCache.createBindGroup('bloomBlur', [
+        { binding: 0, resource: this.bloomTempTexture.createView() },
+        { binding: 1, resource: this.bloomSampler },
+        { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
+        { binding: 3, resource: { buffer: this.bloomBlurDirXBuffer } }
+      ], 'bloom-blur-x-bg'));
       blurXPass.draw(3);
       blurXPass.end();
 
@@ -1861,15 +1872,12 @@ export class MultiDeviceVisualizer {
         }]
       });
       blurYPass.setPipeline(this.bloomBlurPipeline);
-      blurYPass.setBindGroup(0, this.device.createBindGroup({
-        layout: this.bloomBlurPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: this.bloomBlurTexture.createView() },
-          { binding: 1, resource: this.bloomSampler },
-          { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
-          { binding: 3, resource: { buffer: this.bloomBlurDirYBuffer } }
-        ]
-      }));
+      blurYPass.setBindGroup(0, this.pipelineCache.createBindGroup('bloomBlur', [
+        { binding: 0, resource: this.bloomBlurTexture.createView() },
+        { binding: 1, resource: this.bloomSampler },
+        { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
+        { binding: 3, resource: { buffer: this.bloomBlurDirYBuffer } }
+      ], 'bloom-blur-y-bg'));
       blurYPass.draw(3);
       blurYPass.end();
 
@@ -1882,17 +1890,14 @@ export class MultiDeviceVisualizer {
         }]
       });
       compositePass.setPipeline(this.bloomCompositePipeline);
-      compositePass.setBindGroup(0, this.device.createBindGroup({
-        layout: this.bloomCompositePipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: this.bloomSceneTexture.createView() },
-          { binding: 1, resource: this.bloomTempTexture.createView() },
-          { binding: 2, resource: this.bloomSampler },
-          { binding: 3, resource: { buffer: this.bloomParamsBuffer } },
-          { binding: 4, resource: this.depthSampleView },
-          { binding: 5, resource: this.prevSceneTexture.createView() }
-        ]
-      }));
+      compositePass.setBindGroup(0, this.pipelineCache.createBindGroup('bloomComposite', [
+        { binding: 0, resource: this.bloomSceneTexture.createView() },
+        { binding: 1, resource: this.bloomTempTexture.createView() },
+        { binding: 2, resource: this.bloomSampler },
+        { binding: 3, resource: { buffer: this.bloomParamsBuffer } },
+        { binding: 4, resource: this.depthSampleView },
+        { binding: 5, resource: this.prevSceneTexture.createView() }
+      ], 'bloom-composite-bg'));
       compositePass.draw(3);
       compositePass.end();
     }
@@ -1970,64 +1975,63 @@ export class MultiDeviceVisualizer {
     }
   }
 
-  /** Footer + panel hints for alternate device physics (Heron head, Kelvin V, solar battery). */
-  _updateDeviceTelemetry() {
-    const modeFooter = document.getElementById('modeFooter');
-    const batteryFooter = document.getElementById('batteryFooter');
-    const view = this.currentView || 'overview';
-    const modeLabels = {
-      seg: 'SEG',
-      heron: "Heron's Fountain",
-      kelvin: "Kelvin's Thunderstorm",
-      solar: 'LEDs + Solar',
-      overview: 'Multi-Device Overview'
-    };
-    if (modeFooter) modeFooter.textContent = modeLabels[view] || view.toUpperCase();
+  /**
+   * Digital twin: drive HardwareBridge from segOperator; closed-loop feeds rollers from HW.
+   * Protocol P/C/CONF — see docs/hardware_connection.md.
+   */
+  _updateHardwareTwin(deltaTime) {
+    const hw = this.hardwareBridge;
+    if (!hw?.isConnected) return;
 
-    const heron = this.devices.heron;
-    const kelvin = this.devices.kelvin;
-    const solar = this.devices.solar;
-    const ps = (d) => d?.physicsState;
+    // Simulated electrical phase / RPM from operator plant
+    const tel = segOperator.computeTelemetry(0);
+    const simRpm = tel.rpmDisplay || 0;
+    // Integrate phase: deg/s = RPM * 6
+    if (!hw.manualMode && hw.controlMode === 0) {
+      this.hardwareTargetPhase += simRpm * 6.0 * Math.max(0, deltaTime);
+      this.hardwareTargetSpeed = simRpm;
+    }
+    const simPhase = ((this.hardwareTargetPhase % 360) + 360) % 360;
 
-    if (batteryFooter) {
-      if (view === 'heron' && ps(heron)) {
-        const h = ps(heron);
-        const head = h.heronHead;
-        batteryFooter.textContent = [
-          `Head ${head.toFixed(2)}/${h.heronHeadMax.toFixed(1)} m`,
-          `v ${h.heronVExit.toFixed(2)} m/s`,
-          `Q ${h.heronFlowRateLmin.toFixed(1)} L/min`,
-          `P ${h.heronPressureKPa.toFixed(1)} kPa`
-        ].join(' · ');
-      } else if (view === 'kelvin' && ps(kelvin)) {
-        const vn = ps(kelvin).kelvinVoltageN;
-        const spark = ps(kelvin).kelvinSparkTimer > 0 ? ' ⚡' : '';
-        batteryFooter.textContent = `V ${(vn * ps(kelvin).kelvinVbreak).toFixed(0)} V (${(vn * 100).toFixed(0)}%)${spark}`;
-      } else if (view === 'solar' && solar) {
-        batteryFooter.textContent = `${Math.round((solar.batteryCharge || 0) * 100)}%`;
-      } else if (solar) {
-        batteryFooter.textContent = `${Math.round((solar.batteryCharge || 0) * 100)}%`;
-      } else {
-        batteryFooter.textContent = '—';
+    // Open / shadow: sim commands hardware. Closed: still send setpoints as soft reference.
+    if (hw.twinMode === TWIN_MODES.OPEN || hw.twinMode === TWIN_MODES.SHADOW
+        || hw.twinMode === TWIN_MODES.CLOSED) {
+      const runMode = segOperator.isRunning ? 0 : 2; // run vs coast when plant stopped
+      if (!hw.manualMode) {
+        hw.setTarget(simPhase, segOperator.isRunning ? simRpm : 0, runMode);
       }
     }
 
-    const voltageEl = document.getElementById('voltage');
-    if (voltageEl && view === 'kelvin' && ps(kelvin)) {
-      voltageEl.textContent = `${(ps(kelvin).kelvinVoltageN * ps(kelvin).kelvinVbreak).toFixed(1)} V`;
+    hw.update({ simPhase, simRpm });
+
+    // Closed-loop: hardware is authority for visual roller spin
+    if (hw.twinMode === TWIN_MODES.CLOSED && !hw.isSensorStale) {
+      // Map HW RPM (~0–3000) into normalized segOmega 0–1
+      const wNorm = Math.min(1, Math.abs(hw.actualRpm) / 3000);
+      this.segOmega = wNorm;
+      this.corona = Math.max(0, Math.min(1, (wNorm - 0.6) / 0.4));
+      segOperator.physics.segOmega = wNorm;
+      segOperator.physics.corona = this.corona;
     }
 
-    const efficiencyEl = document.getElementById('efficiency');
-    if (efficiencyEl && view === 'heron' && ps(heron)) {
-      const layout = this.heronLayout || getHeronLayout(ps(heron).heronLayoutId);
-      const vRef = Math.sqrt(2 * 9.81 * layout.headMaxM) * (layout.dischargeCoeff ?? 0.35);
-      const pct = Math.min(100, (ps(heron).heronVExit / Math.max(vRef, 0.5)) * 100);
-      efficiencyEl.textContent = `${pct.toFixed(1)}%`;
-      const bar = document.getElementById('efficiency-bar');
-      if (bar) bar.style.width = `${pct}%`;
-    }
+    this.hardwareShadow = {
+      phaseError: hw.shadow.phaseErrorDeg,
+      rpmError: hw.shadow.rpmError
+    };
+  }
 
-    if (view === 'heron' && typeof window.syncHeronLayoutUI === 'function') {
+  /**
+   * View-change hook: re-publish telemetry so footers/gauges match the focused device.
+   * Live numbers are owned by TelemetryHub (see publishFrame in render()).
+   */
+  _updateDeviceTelemetry() {
+    telemetryHub.publishFrame({
+      dt: 0,
+      view: this.currentView || 'overview',
+      renderer: 'webgpu',
+      devicePhysics: TelemetryHub.collectDevicePhysics(this.devices)
+    });
+    if (this.currentView === 'heron' && typeof window.syncHeronLayoutUI === 'function') {
       window.syncHeronLayoutUI();
     }
   }
@@ -2087,5 +2091,43 @@ export class MultiDeviceVisualizer {
 
     console.table(results);
     console.log('[SpeedTest] complete');
+  }
+
+  /**
+   * Debug: read back first N GPU particles for WASM / CPU validation.
+   * Enable via ?debugParticles=1 or window.captureParticleSubset.
+   * @param {string} [deviceId='seg']
+   * @param {number} [maxCount=64]
+   */
+  async captureParticleSubset(deviceId = 'seg', maxCount = 64) {
+    const dev = this.devices?.[deviceId];
+    const buf = dev?.particles;
+    if (!buf || !this.device) return null;
+
+    const count = Math.min(
+      maxCount,
+      dev.scaledParticleCount || dev.particleCount || maxCount
+    );
+    const byteLen = count * 16;
+    const staging = this.device.createBuffer({
+      size: byteLen,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+    });
+    const enc = this.device.createCommandEncoder();
+    enc.copyBufferToBuffer(buf, 0, staging, 0, byteLen);
+    this.device.queue.submit([enc.finish()]);
+    await staging.mapAsync(GPUMapMode.READ);
+    const raw = new Float32Array(staging.getMappedRange().slice(0));
+    staging.unmap();
+    staging.destroy();
+
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const b = i * 4;
+      out.push({
+        x: raw[b], y: raw[b + 1], z: raw[b + 2], phase: raw[b + 3]
+      });
+    }
+    return { deviceId, count, particles: out, renderer: 'webgpu' };
   }
 }

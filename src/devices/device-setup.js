@@ -6,26 +6,19 @@ export const DeviceSetupMixin = {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
-    const module = this.device.createShaderModule({
-      label: 'seg-roller-compute-module',
-      code: this.visualizer.shaders.segRollerComputeShader
-    });
+    const cache = this.visualizer.pipelineCache;
+    const code = this.visualizer.shaders.segRollerComputeShader;
+    this.rollerComputePipeline = await cache.ensureRollerComputePipeline(code);
 
-    this.rollerComputePipeline = await this.device.createComputePipelineAsync({
-      label: 'seg-roller-compute-pipeline',
-      layout: 'auto',
-      compute: { module, entryPoint: 'main' }
-    });
-
-    this.rollerComputeBindGroup = this.device.createBindGroup({
-      label: 'seg-roller-compute-bg',
-      layout: this.rollerComputePipeline.getBindGroupLayout(0),
-      entries: [
+    this.rollerComputeBindGroup = cache.createBindGroup(
+      'rollerCompute',
+      [
         { binding: 0, resource: { buffer: this.geometry.rollerInstances } },
         { binding: 1, resource: { buffer: this.rollerComputeUniformBuffer } },
         { binding: 2, resource: { buffer: this.visualizer.segLayoutUniformBuffer } }
-      ]
-    });
+      ],
+      'seg-roller-compute-bg'
+    );
   },
 
   setupFieldAdvect: async function () {
@@ -35,25 +28,18 @@ export const DeviceSetupMixin = {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
-    const module = this.device.createShaderModule({
-      label: 'seg-field-advect-module',
-      code: this.visualizer.shaders.segFieldAdvectShader
-    });
+    const cache = this.visualizer.pipelineCache;
+    const code = this.visualizer.shaders.segFieldAdvectShader;
+    this.fieldAdvectPipeline = await cache.ensureFieldAdvectPipeline(code);
 
-    this.fieldAdvectPipeline = await this.device.createComputePipelineAsync({
-      label: 'seg-field-advect-pipeline',
-      layout: 'auto',
-      compute: { module, entryPoint: 'main' }
-    });
-
-    this.fieldAdvectBindGroup = this.device.createBindGroup({
-      label: 'seg-field-advect-bg',
-      layout: this.fieldAdvectPipeline.getBindGroupLayout(0),
-      entries: [
+    this.fieldAdvectBindGroup = cache.createBindGroup(
+      'fieldAdvect',
+      [
         { binding: 0, resource: { buffer: this.geometry.fieldLineParticles } },
         { binding: 1, resource: { buffer: this.fieldAdvectUniformBuffer } }
-      ]
-    });
+      ],
+      'seg-field-advect-bg'
+    );
   },
 
   setupFluxLineTracer: async function () {
@@ -66,50 +52,37 @@ export const DeviceSetupMixin = {
     });
 
     // Per-coil boost data (binding 2). 24 pickup coils max, 16 B each
-    // (vec3f pos + f32 energy). Currently coilBoostCount is held at 0 in the
-    // uniform write, so the shader's boost loop is inert — but the binding must
-    // still exist because the 'auto' pipeline layout derives all 4 bindings
-    // declared by traceBidirectional (segments, uniforms, coilBoost, segLayout).
     this.fluxCoilBoostBuffer = this.device.createBuffer({
       label: 'flux-coil-boost',
       size: 24 * 16,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
 
-    const module = this.device.createShaderModule({
-      label: 'flux-tracer-module',
-      code: this.visualizer.shaders.fluxLineTracerShader
-    });
+    const cache = this.visualizer.pipelineCache;
+    const code = this.visualizer.shaders.fluxLineTracerShader;
+    this.fluxTracerPipeline = await cache.ensureFluxTracerPipeline(code);
 
-    this.fluxTracerPipeline = await this.device.createComputePipelineAsync({
-      label: 'flux-tracer-pipeline',
-      layout: 'auto',
-      compute: { module, entryPoint: 'traceBidirectional' }
-    });
-
-    this.fluxTracerBindGroup = this.device.createBindGroup({
-      label: 'flux-tracer-bg',
-      layout: this.fluxTracerPipeline.getBindGroupLayout(0),
-      entries: [
+    this.fluxTracerBindGroup = cache.createBindGroup(
+      'fluxTracer',
+      [
         { binding: 0, resource: { buffer: this.geometry.fluxSegmentBuffer } },
         { binding: 1, resource: { buffer: this.fluxTracerUniformBuffer } },
         { binding: 2, resource: { buffer: this.fluxCoilBoostBuffer } },
         { binding: 3, resource: { buffer: this.visualizer.segLayoutUniformBuffer } }
-      ]
-    });
+      ],
+      'flux-tracer-bg'
+    );
 
     // Pre-create the render bind group so render() can reuse it every frame.
-    // globalUniformBuffer and deviceUniformBuffer never change buffer identity
-    // (only their contents are updated via writeBuffer), so this is safe.
-    this.fluxSegmentRenderBindGroup = this.device.createBindGroup({
-      label: 'flux-segment-render-bg',
-      layout: this.pipelineManager.fluxSegmentPipeline.getBindGroupLayout(0),
-      entries: [
+    this.fluxSegmentRenderBindGroup = cache.createBindGroup(
+      'fluxSegment',
+      [
         { binding: 0, resource: { buffer: this.visualizer.globalUniformBuffer } },
         { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
         { binding: 2, resource: { buffer: this.geometry.fluxSegmentBuffer } }
-      ]
-    });
+      ],
+      'flux-segment-render-bg'
+    );
   },
 
   setupEffectsParticles: function () {

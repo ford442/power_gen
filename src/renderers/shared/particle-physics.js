@@ -6,6 +6,7 @@
  */
 
 import { ValidatedConstants } from '../../ValidatedConstants';
+import { simRandom } from '../../telemetry/deterministic-rng.js';
 
 const PI = Math.PI;
 const TAU = Math.PI * 2;
@@ -88,6 +89,14 @@ function spawnSolar(idx, u) {
     vel: [dx / len * 6, dy / len * 6, dz / len * 6],
     aux: 0
   };
+}
+
+function integrateMagLev(p, idx, t, gap = 0.018, field = 0.5) {
+  const phase = p.phase;
+  const angle = phase * TAU + t * (0.7 + field * 0.5) + idx * 0.017;
+  const r = 0.9 + ((idx * 0.131) % 1) * 2.0;
+  const y = 0.55 + gap + Math.sin(t * 3.2 + phase * 11.0) * 0.07 * (0.4 + field);
+  return [Math.cos(angle) * r, y, Math.sin(angle) * r];
 }
 
 function integrateMHD(p, idx, t) {
@@ -243,6 +252,11 @@ export function stepParticles(particles, u) {
         vx = s.vel[0]; vy = s.vel[1]; vz = s.vel[2];
         aux = s.aux;
       }
+    } else if (mode >= 6.0) {
+      const gap = u.maglevGap ?? 0.018;
+      const field = u.maglevFieldT ?? 0.5;
+      const pos = integrateMagLev({ phase }, idx, u.time, gap, field);
+      px = pos[0]; py = pos[1]; pz = pos[2];
     } else {
       const pos = integrateMHD({ phase }, idx, u.time);
       px = pos[0]; py = pos[1]; pz = pos[2];
@@ -267,23 +281,29 @@ export function stepParticles(particles, u) {
 export function seedParticles(particles, deviceId, count) {
   for (let i = 0; i < count; i++) {
     const base = i * 8;
-    particles[base + 3] = Math.random();
+    particles[base + 3] = simRandom();
     if (deviceId === 'seg') {
-      const theta = Math.random() * Math.PI * 2;
-      const r = 2 + Math.random() * 4;
+      const theta = simRandom() * Math.PI * 2;
+      const r = 2 + simRandom() * 4;
       particles[base] = r * Math.cos(theta);
-      particles[base + 1] = (Math.random() - 0.5) * 6;
+      particles[base + 1] = (simRandom() - 0.5) * 6;
       particles[base + 2] = r * Math.sin(theta);
+    } else if (deviceId === 'maglev') {
+      const r = 0.8 + simRandom() * 2.2;
+      const a = simRandom() * Math.PI * 2;
+      particles[base] = Math.cos(a) * r;
+      particles[base + 1] = 0.6 + simRandom() * 0.8;
+      particles[base + 2] = Math.sin(a) * r;
     } else if (deviceId === 'solar' || deviceId === 'peltier') {
       const ledCount = 6;
-      const ledIdx = Math.floor(Math.random() * ledCount);
+      const ledIdx = Math.floor(simRandom() * ledCount);
       const ledAngle = (ledIdx / ledCount) * Math.PI * 2;
       const ledRadius = 3.0;
       particles[base] = Math.cos(ledAngle) * ledRadius;
-      particles[base + 1] = 3.0 + Math.random() * 0.5;
+      particles[base + 1] = 3.0 + simRandom() * 0.5;
       particles[base + 2] = Math.sin(ledAngle) * ledRadius;
     } else {
-      particles[base + 1] = (Math.random() - 0.5) * 6;
+      particles[base + 1] = (simRandom() - 0.5) * 6;
     }
     particles[base + 4] = 0;
     particles[base + 5] = 0;

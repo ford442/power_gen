@@ -34,13 +34,20 @@ class DeviceComputeManager {
     }
 
     // Compute bind group: binding 0 = particles storage, binding 1 = uniforms
-    this.computeBindGroup = this.device.createBindGroup({
-      layout: this.computePipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.geometry.particles } },
-        { binding: 1, resource: { buffer: this.computeUniformBuffer } }
-      ]
-    });
+    // Layout: docs/BINDINGS.md → particleCompute
+    const cache = this.pipelineManager.visualizer?.pipelineCache;
+    this.computeBindGroup = cache
+      ? cache.createBindGroup('particleCompute', [
+          { binding: 0, resource: { buffer: this.geometry.particles } },
+          { binding: 1, resource: { buffer: this.computeUniformBuffer } }
+        ], `device-${this.id}-compute-bg`)
+      : this.device.createBindGroup({
+          layout: this.computePipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: this.geometry.particles } },
+            { binding: 1, resource: { buffer: this.computeUniformBuffer } }
+          ]
+        });
   }
 
   updateComputeUniforms(time, mode, particleCount, speedMult = 1.0, physicsState = null) {
@@ -60,6 +67,9 @@ class DeviceComputeManager {
         p2 = physicsState.kelvinE;
       } else if (physicsState.deviceId === 'solar') {
         p0 = physicsState.batteryCharge;
+      } else if (physicsState.deviceId === 'maglev') {
+        p0 = physicsState.maglevGap ?? 0.018;
+        p1 = physicsState.maglevFieldT ?? 0.5;
       }
     }
 

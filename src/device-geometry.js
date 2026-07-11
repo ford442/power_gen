@@ -4,6 +4,8 @@ import {
   instancesToBufferData,
   countInstances
 } from './device-mesh-layouts.js';
+import { getPluginMeshLayouts } from './devices/device-registry.js';
+import { simRandom } from './telemetry/deterministic-rng.js';
 
 // Matches TOTAL_FLUX_LINES × SEGMENTS_PER_LINE constants in flux-lines.wgsl
 // (168 lines × 120 segments). Update both if the WGSL constants change.
@@ -44,7 +46,7 @@ export class DeviceGeometry {
    * Initialize instanced cylinder / disc geometry for Heron, Kelvin, or Solar.
    */
   async initializeDeviceMesh() {
-    const layoutDef = DEVICE_MESH_LAYOUTS[this.id];
+    const layoutDef = DEVICE_MESH_LAYOUTS[this.id] || getPluginMeshLayouts()[this.id];
     if (!layoutDef) return;
 
     if (this.id === 'heron' && layoutDef.build) {
@@ -311,28 +313,34 @@ export class DeviceGeometry {
     const particleData = new Float32Array(this.particleCount * 4);
     for (let i = 0; i < this.particleCount; i++) {
       const idx = i * 4;
-      particleData[idx + 3] = Math.random();
+      particleData[idx + 3] = simRandom();
 
       if (this.id === 'seg') {
-        const theta = Math.random() * Math.PI * 2;
-        const r = 2 + Math.random() * 4;
+        const theta = simRandom() * Math.PI * 2;
+        const r = 2 + simRandom() * 4;
         particleData[idx] = r * Math.cos(theta);
-        particleData[idx + 1] = (Math.random() - 0.5) * 6;
+        particleData[idx + 1] = (simRandom() - 0.5) * 6;
         particleData[idx + 2] = r * Math.sin(theta);
       } else if (this.id === 'solar') {
         const ledCount = 6;
-        const ledIdx = Math.floor(Math.random() * ledCount);
+        const ledIdx = Math.floor(simRandom() * ledCount);
         const ledAngle = (ledIdx / ledCount) * Math.PI * 2;
         const ledRadius = 3.0;
         particleData[idx] = Math.cos(ledAngle) * ledRadius;
-        particleData[idx + 1] = 3.0 + Math.random() * 0.5;
+        particleData[idx + 1] = 3.0 + simRandom() * 0.5;
         particleData[idx + 2] = Math.sin(ledAngle) * ledRadius;
+      } else if (this.id === 'maglev') {
+        const r = 0.8 + simRandom() * 2.2;
+        const a = simRandom() * Math.PI * 2;
+        particleData[idx] = Math.cos(a) * r;
+        particleData[idx + 1] = 0.6 + simRandom() * 0.8;
+        particleData[idx + 2] = Math.sin(a) * r;
       } else if (this.id === 'peltier') {
         particleData[idx] = 0.0;
         particleData[idx + 1] = 0.0;
         particleData[idx + 2] = 0.0;
       } else {
-        particleData[idx + 1] = (Math.random() - 0.5) * 6;
+        particleData[idx + 1] = (simRandom() - 0.5) * 6;
       }
     }
     this.device.queue.writeBuffer(this.particles, 0, particleData);

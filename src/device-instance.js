@@ -6,6 +6,7 @@ import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts.js';
 import { createDevicePhysicsState } from './renderers/shared/device-physics.js';
 import { getHeronLayout } from './heron-layout.js';
 
+import { getDeviceModeIndex } from './devices/device-registry.js';
 import { DeviceSetupMixin } from './devices/device-setup.js';
 import { DeviceRenderMixin } from './devices/device-render.js';
 import { DeviceUpdateMixin } from './devices/device-update.js';
@@ -178,7 +179,7 @@ export class DeviceInstance {
       await this.setupRollerCompute();
       await this.setupFieldAdvect();
       await this.setupFluxLineTracer();
-    } else if (DEVICE_MESH_LAYOUTS[this.id]) {
+    } else if (DEVICE_MESH_LAYOUTS[this.id] || getPluginMeshLayouts()[this.id]) {
       await this.geometry.initializeDeviceMesh();
     }
   }
@@ -209,20 +210,14 @@ export class DeviceInstance {
 
 
   getRingIndex() {
-    if (this.id === 'heron') return 1;
-    if (this.id === 'kelvin') return 2;
-    if (this.id === 'solar') return 3;
-    if (this.id === 'peltier') return 4;
-    if (this.id === 'mhd') return 5;
-    return 0;
+    return getDeviceModeIndex(this.id);
   }
 
   /**
    * Reset simulation accumulators when the user enters this device's focused view.
-   * Mirrors the legacy SEGVisualizer.onModeChange behaviour.
    */
   resetForModeEntry() {
-    if (['heron', 'kelvin', 'solar', 'peltier', 'mhd'].includes(this.id)) {
+    if (['heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev'].includes(this.id)) {
       const heronLayout = this.id === 'heron'
         ? (this.visualizer.heronLayout || getHeronLayout(this.visualizer.heronLayoutPreset))
         : null;
