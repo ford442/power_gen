@@ -339,11 +339,13 @@ window.addEventListener('load', () => {
     console.warn('[main] scientific-ui init skipped:', e);
   }
 
-  bootstrapVisualizer().then(() => {
+  bootstrapVisualizer().then(async () => {
     wireSEGLayoutControls();
     wireHeronLayoutControls();
     syncLayoutPanelsVisibility();
     initTelemetryExportPanel();
+    const explainer = initExplainerUI();
+    await explainer.applyLabFromHash();
 
     const hzSlider = document.getElementById('telemetrySampleHz');
     const hzVal = document.getElementById('telemetryHzVal');
@@ -391,3 +393,5 @@ window.exportBenchmarkPack = () => {
   downloadBenchmarkPack(bench);
   return bench;
 };
+window.startSEGTour = () => window.segTour?.start(0);
+window.shareLabLink = () => import('./seg-explainer/lab-url.js').then((m) => m.shareLabLink());

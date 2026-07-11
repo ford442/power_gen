@@ -39,6 +39,8 @@ WebGL2 fallback (no WebGPU required): [open with `?renderer=webgl2`](https://for
 - **Quanta Magnetics catalog** — plugin-registered research apparatuses (first: [Magnetic Levitation](docs/DEVICE_GALLERY.md#maglev)); more candidates: homopolar generator, Halbach field visualizer, pulse-coil educational demo
 - Hardware bridge hooks for Quanta product twins when specs are available
 
+**SEG Explainer** (shipped): [guided tour](docs/SEG_EXPLAINER.md), B-field experiments, shareable `#lab=` URLs, classroom mode — sidebar **SEG Learning**.
+
 See the [Device Gallery](docs/DEVICE_GALLERY.md) for screenshots and literature links.
 
 ## Browser Support
