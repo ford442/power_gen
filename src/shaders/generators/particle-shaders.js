@@ -1,26 +1,16 @@
+import frameUniformsWgsl from '../common/frame-uniforms.wgsl?raw';
+import deviceUniformsWgsl from '../common/device-uniforms.wgsl?raw';
+import particleStructsWgsl from '../common/particle.wgsl?raw';
+
 export function getParticleVertShader() {
     return /* wgsl */ `
-      struct Uniforms {
-        viewProj: mat4x4f,
-        time: f32,
-        cameraPos: vec3f
-      }
-      
-      struct DeviceUniforms {
-        renderMode: f32,
-        posX: f32,
-        posY: f32,
-        posZ: f32,
-        rotation: vec4f,
-        timeScale: f32,
-        ringIndex: f32,
-        batteryCharge: f32,
-        isSolar: f32
-      }
-      
+${frameUniformsWgsl}
+${deviceUniformsWgsl}
+${particleStructsWgsl}
+
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
       @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(4) @group(0) var<storage, read> particles: array<vec4f>;
+      @binding(4) @group(0) var<storage, read> particles: array<GpuParticle>;
       
       struct VertexOutput {
         @builtin(position) position: vec4f,
@@ -114,8 +104,8 @@ export function getParticleVertShader() {
         @builtin(instance_index) instIdx: u32
       ) -> VertexOutput {
         let particle = particles[instIdx];
-        let pos = particle.xyz;
-        let encodedPhase = particle.w;
+        let pos = particle.pos;
+        let encodedPhase = particle.phase;
         let effectType = floor(encodedPhase);
         let phase = fract(encodedPhase);
         let quadPos = quadVerts[vertIdx];
@@ -187,23 +177,8 @@ export function getParticleVertShader() {
 
 export function getParticleFragShader() {
     return /* wgsl */ `
-      struct Uniforms {
-        viewProj: mat4x4f,
-        time: f32,
-        cameraPos: vec3f
-      }
-
-      struct DeviceUniforms {
-        renderMode: f32,
-        posX: f32,
-        posY: f32,
-        posZ: f32,
-        rotation: vec4f,
-        timeScale: f32,
-        ringIndex: f32,
-        batteryCharge: f32,
-        isSolar: f32
-      }
+${frameUniformsWgsl}
+${deviceUniformsWgsl}
 
       struct MaterialUniforms {
         baseColor: vec3f,

@@ -6,6 +6,9 @@
  * render frame.  Above 3× it switches to fixed substeps (1/60 s each, up to
  * MAX_SUBSTEPS per frame) so physics and visuals scale smoothly without
  * introducing large discontinuities.
+ *
+ * Optional load hints (qualityLevel, frameTimeMs, gpuTimeMs) reduce substeps
+ * when the frame is already expensive so 5–20× speed doesn't thrash mid-tier GPUs.
  */
 export class SimRateController {
   constructor() {
@@ -13,32 +16,67 @@ export class SimRateController {
     this._accumulator = 0;
     this.FIXED_DT = 1 / 60;
     this.MAX_SUBSTEPS = 6;
+    /** Effective substep budget after quality/frame-time scaling (debug). */
+    this.lastMaxSubsteps = 6;
+  }
+
+  /**
+   * Cap fixed substeps from quality tier and recent frame cost.
+   * @param {{ qualityLevel?: number, frameTimeMs?: number, gpuTimeMs?: number }} [load]
+   */
+  _effectiveMaxSubsteps(load = {}) {
+    let max = this.MAX_SUBSTEPS;
+    const q = load.qualityLevel;
+    if (typeof q === 'number') {
+      if (q < 0.45) max = Math.min(max, 2);
+      else if (q < 0.7) max = Math.min(max, 3);
+      else if (q < 0.9) max = Math.min(max, 4);
+    }
+    const frameMs = load.frameTimeMs;
+    if (typeof frameMs === 'number' && frameMs > 0) {
+      if (frameMs > 28) max = Math.min(max, 1);       // < ~35 FPS
+      else if (frameMs > 22) max = Math.min(max, 2);  // < ~45 FPS
+      else if (frameMs > 18) max = Math.min(max, 3);
+    }
+    const gpuMs = load.gpuTimeMs;
+    if (typeof gpuMs === 'number' && gpuMs > 12) {
+      max = Math.min(max, 2);
+    }
+    this.lastMaxSubsteps = Math.max(1, max);
+    return this.lastMaxSubsteps;
   }
 
   /**
    * Call once per render frame.
    * @param {number} wallDt  Real elapsed time in seconds.
    * @param {number} speedMult  Current simulation speed multiplier.
+   * @param {{ qualityLevel?: number, frameTimeMs?: number, gpuTimeMs?: number }} [load]
    * @returns {number[]}  Array of dt values (seconds) to simulate this frame.
    */
-  tick(wallDt, speedMult) {
+  tick(wallDt, speedMult, load = {}) {
     this._speedMult = speedMult;
+    const maxSub = this._effectiveMaxSubsteps(load);
 
     if (speedMult <= 3) {
-      return [wallDt * speedMult];
+      // Under load, clamp the single step so physics doesn't run away while rendering stalls.
+      let dt = wallDt * speedMult;
+      if (typeof load.frameTimeMs === 'number' && load.frameTimeMs > 28) {
+        dt = Math.min(dt, this.FIXED_DT * 2);
+      }
+      return [dt];
     }
 
     // Fixed-substep regime: accumulate scaled time and drain in FIXED_DT chunks
     this._accumulator += wallDt * speedMult;
     const steps = [];
     let count = 0;
-    while (this._accumulator >= this.FIXED_DT && count < this.MAX_SUBSTEPS) {
+    while (this._accumulator >= this.FIXED_DT && count < maxSub) {
       steps.push(this.FIXED_DT);
       this._accumulator -= this.FIXED_DT;
       count++;
     }
     // Prevent spiral-of-death: discard excess accumulation
-    if (this._accumulator > this.FIXED_DT * this.MAX_SUBSTEPS) {
+    if (this._accumulator > this.FIXED_DT * maxSub) {
       this._accumulator = 0;
     }
     return steps.length ? steps : [];

@@ -48,6 +48,20 @@ export class PerformanceProfiler {
     this.consecutiveLowFPSFrames = 0;
     this.consecutiveHighFPSFrames = 0;
 
+    // Per-device CPU time (ms) — last completed frame
+    /** @type {Record<string, number>} */
+    this.deviceTimesMs = {};
+    /** @type {Record<string, number>} */
+    this._deviceTimesAcc = {};
+    this._deviceScopeStack = [];
+    this.frameCpuMs = 0;
+    this._frameCpuStart = 0;
+    this.lastFrameTimeMs = 16.67;
+    this.lastGpuTimeMs = 0;
+
+    // Quality tier label derived from qualityLevel (for SimRate / UI)
+    this.qualityTier = 'high'; // high | medium | low | critical
+
     // Benchmark mode
     this.benchmarkMode = false;
     this.benchmarkStartTime = 0;
@@ -212,15 +226,68 @@ export class PerformanceProfiler {
     return result;
   }
 
+  /** Start of CPU work for the current frame (call once near top of render). */
+  beginFrameCpu() {
+    this._frameCpuStart = performance.now();
+    this._deviceTimesAcc = {};
+    this._deviceScopeStack.length = 0;
+  }
+
+  /** End CPU work; promotes accumulated per-device times for the UI. */
+  endFrameCpu() {
+    while (this._deviceScopeStack.length) this.endDevice();
+    this.frameCpuMs = performance.now() - (this._frameCpuStart || performance.now());
+    this.deviceTimesMs = this._deviceTimesAcc;
+    this._deviceTimesAcc = {};
+  }
+
+  /**
+   * Time a named device (or subsystem) on the CPU.
+   * Nested scopes are supported; times attribute only to the innermost name.
+   * @param {string} deviceId
+   */
+  beginDevice(deviceId) {
+    this._deviceScopeStack.push({ id: deviceId, t0: performance.now() });
+  }
+
+  endDevice() {
+    const scope = this._deviceScopeStack.pop();
+    if (!scope) return 0;
+    const dt = performance.now() - scope.t0;
+    this._deviceTimesAcc[scope.id] = (this._deviceTimesAcc[scope.id] || 0) + dt;
+    return dt;
+  }
+
+  /** @param {string} deviceId @param {() => T} fn @returns {T} */
+  measureDevice(deviceId, fn) {
+    this.beginDevice(deviceId);
+    try {
+      return fn();
+    } finally {
+      this.endDevice();
+    }
+  }
+
+  _updateQualityTier() {
+    const q = this.qualityLevel;
+    if (q < 0.4) this.qualityTier = 'critical';
+    else if (q < 0.6) this.qualityTier = 'low';
+    else if (q < 0.85) this.qualityTier = 'medium';
+    else this.qualityTier = 'high';
+  }
+
   // Record frame metrics
   recordFrame(deltaTime, particleCount, encoder) {
-    const fps = 1.0 / deltaTime;
+    const safeDt = Math.max(1e-6, deltaTime || 0.016);
+    const fps = 1.0 / safeDt;
+    const frameMs = safeDt * 1000;
+    this.lastFrameTimeMs = frameMs;
 
     // Store in history
     this.fpsHistory[this.fpsIndex] = fps;
-    this.frameTimeHistory[this.fpsIndex] = deltaTime * 1000;
+    this.frameTimeHistory[this.fpsIndex] = frameMs;
     this.particleHistory[this.fpsIndex] = particleCount;
-    this.gpuTimeHistory[this.fpsIndex] = 0; // Will be updated async
+    this.gpuTimeHistory[this.fpsIndex] = this.lastGpuTimeMs;
 
     this.fpsIndex = (this.fpsIndex + 1) % this.fpsHistory.length;
     if (this.fpsIndex === 0) this.fpsHistoryFilled = true;
@@ -244,6 +311,7 @@ export class PerformanceProfiler {
     if (this.autoQualityEnabled && !this.benchmarkMode) {
       this.adjustQuality(fps);
     }
+    this._updateQualityTier();
 
     return this.fpsIndex;
   }
@@ -333,13 +401,24 @@ export class PerformanceProfiler {
     }
     avgFPS /= recentCount;
 
+    // Sort device times descending for the debug panel
+    const deviceTimes = Object.entries(this.deviceTimesMs || {})
+      .map(([id, ms]) => ({ id, ms }))
+      .sort((a, b) => b.ms - a.ms);
+
     return {
       currentFPS: this.fpsHistory[(this.fpsIndex - 1 + this.fpsHistory.length) % this.fpsHistory.length],
       averageFPS: avgFPS,
       minFPS: minFPS === Infinity ? 0 : minFPS,
       maxFPS,
       qualityLevel: this.qualityLevel,
+      qualityTier: this.qualityTier,
       gpuTier: this.gpuTier,
+      frameTimeMs: this.lastFrameTimeMs,
+      frameCpuMs: this.frameCpuMs,
+      lastGpuTimeMs: this.lastGpuTimeMs,
+      deviceTimes,
+      deviceTimesMs: { ...this.deviceTimesMs },
       bufferMemoryMB: (this.totalBufferMemory / 1024 / 1024).toFixed(2),
       textureMemoryMB: (this.totalTextureMemory / 1024 / 1024).toFixed(2),
       totalMemoryMB: ((this.totalBufferMemory + this.totalTextureMemory) / 1024 / 1024).toFixed(2),
@@ -347,8 +426,18 @@ export class PerformanceProfiler {
       textureCount: this.textureAllocations.length,
       timingEnabled: this.timingEnabled,
       benchmarkMode: this.benchmarkMode,
-      autoQualityEnabled: this.autoQualityEnabled
+      autoQualityEnabled: this.autoQualityEnabled,
+      /** Adapter info snippet for documenting mid-tier hardware in acceptance notes */
+      adapterSummary: this._adapterSummary()
     };
+  }
+
+  _adapterSummary() {
+    const info = this.adapterInfo || {};
+    const parts = [info.vendor, info.architecture || info.device, this.gpuTier]
+      .filter(Boolean)
+      .map(String);
+    return parts.length ? parts.join(' / ') : `tier:${this.gpuTier}`;
   }
 
   // Write timestamp to encoder
@@ -398,6 +487,7 @@ export class PerformanceProfiler {
 
     // Convert to milliseconds (nanoseconds to ms)
     const gpuTimeMs = Number(timestamps[1] - timestamps[0]) / 1_000_000;
+    this.lastGpuTimeMs = gpuTimeMs;
 
     // Update history
     const idx = (this.fpsIndex - 1 + this.gpuTimeHistory.length) % this.gpuTimeHistory.length;

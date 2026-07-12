@@ -1,73 +1,46 @@
 # AGENTS.md
 
-A detailed architecture/code guide lives in `docs/AGENTS.md`. This file adds
-environment-specific notes for agents working in Cursor Cloud.
+**Full architecture map:** [`docs/AGENTS.md`](docs/AGENTS.md)  
+**ADRs:** [`docs/adr/`](docs/adr/)  
+**Short checklist:** [`claude.md`](claude.md)
+
+This file adds **Cursor Cloud / headless VM** notes only.
 
 ## Cursor Cloud specific instructions
 
-This is a single-product, client-side web app (the **SEG WebGPU Visualizer**)
-built with **Vite**. There is no backend, database, or server-side service.
+Single-product, client-side app (**SEG WebGPU Visualizer**), Vite `root: 'src/'`.
+No backend, database, or server-side service.
 
 ### Services & commands
 
-- **Dev server (only required service):** `npm run dev` serves the app at
-  `http://localhost:5173/`. Vite's root is `src/`, so the dev server serves
-  `src/index.html` (the multi-device dashboard).
-- **Build (site / Pages):** `npm run build:site` (plain `vite build`). Use this
-  for routine checks and deploys. Prebuilt WASM is committed under
-  `src/public/wasm/`.
-- **Build (full, needs Emscripten):** `npm run build` → `wasm:build` then
-  `build:site`. `wasm:build` runs `scripts/build-wasm.sh`, which finds `emcc`
-  on PATH or via `EMSDK=/path/to/emsdk` (no hardcoded machine paths).
-- **Validate:** `npm run validate` → typecheck + native C++ smoke + WGSL (naga
-  if installed). CI: `.github/workflows/validate.yml`.
-- **Typecheck:** `npm run typecheck` (`tsc --noEmit` over `src/**/*.ts` with
-  `@webgpu/types`). Also runs in Pages deploy (`static.yml`) and `validate.yml`.
+- **Dev server:** `npm run dev` → **`http://localhost:5173/`** (not HTTPS; Vite
+  `server.https: false`). Serves `src/index.html`.
+- **Build (Pages):** `npm run build:site`. Prebuilt WASM: `src/public/wasm/`.
+- **Build (full):** `npm run build` (needs `emcc` or `EMSDK`).
+- **Validate:** `npm run validate` → typecheck + native C++ + WGSL.
+- **Typecheck:** `npm run typecheck` (`src/**/*.ts` only).
 
 ### Browser testing caveat (important)
 
-- This VM has **no GPU adapter**, so **WebGPU does not work** here. Loading the
-  default `http://localhost:5173/` shows a "WebGPU init failed: No adapter" alert
-  and renders a black canvas.
-- For any browser-based testing, use the **WebGL2 fallback**:
-  `http://localhost:5173/?renderer=webgl2`. Full operator workflow works:
-  START → non-zero RPM/V/I/P (TelemetryHub), mode buttons focus devices,
-  SEG/Heron layout presets, optional `?wasmPhysics=1`. Debug keys: `W` wireframe,
-  `P` particle debug, `N` normals, `Space` pause, `.` step, `[` / `]` slow-mo.
-- CI hooks: `window.getRendererInfo()`, `window.captureCanvasFrame({ flipY: true })`.
-- **Intentional WebGL2 visual gaps** (bloom, RK4 flux, energy arcs, enhanced PBR):
-  see **`docs/WEBGL2.md`**.
-- Dashboard telemetry is **TelemetryHub** only (`src/telemetry-hub.js`); both
-  renderers call `publishFrame` after physics.
-- Because the WebGPU path can't run here, you cannot catch WGSL compile/validation
-  errors in a browser. To check WGSL offline, validate with `naga` (e.g.
-  `cargo install naga-cli --version 0.19.0 --locked`, then `naga shader.wgsl`).
-  The inline WGSL in `src/multi-device-shaders.js` is in plain template literals
-  (no `${}`), so it can be extracted/validated directly. Note: naga is stricter
-  than Chrome's Tint in places — e.g. it rejects dynamic indexing of `let`/`const`
-  value arrays (`arr[i]`), which Tint/Chrome actually allow.
+- This VM has **no GPU adapter** → WebGPU fails (“No adapter”). Always use:
+  **`http://localhost:5173/?renderer=webgl2`**
+- Operator flow: START → non-zero RPM/V/I/P (TelemetryHub), mode focus,
+  SEG/Heron layouts, optional `?wasmPhysics=1`. Debug keys: `W` wireframe,
+  `P` particles, `N` normals, `Space` pause, `.` step, `[` / `]` slow-mo.
+- Hooks: `window.getRendererInfo()`, `window.captureCanvasFrame({ flipY: true })`.
+- WebGL2 visual gaps: **`docs/WEBGL2.md`**. Telemetry: **`docs/TELEMETRY.md`**.
+- Offline WGSL: `npm run check:wgsl` (naga). See **`docs/SHADERS.md`**.
+- Query-param matrix: **`docs/AGENTS.md`**.
 
 ### C++ WASM physics path
 
-High-precision C++ core: `cpp/src/sim_core.cpp` (v1.1). Bridge: `src/wasm/seg-physics-bridge.js`.
+Core: `cpp/src/sim_core.cpp`. Bridge: `src/wasm/seg-physics-bridge.js`.  
+Enable: `?wasmPhysics=1` (or `?wasm=1`). Zero-copy views via `HEAPF32`.  
+Docs: `cpp/README.md`, ADR-0002.
 
-| Mode | Plant state |
-|------|-------------|
-| SEG | RK4 rollers (66) |
-| Heron | head / Bernoulli+Swamee–Jain vExit |
-| Kelvin | capacitive V, spark, E |
-| Solar | battery SOC |
+### Hardware digital twin (experimental)
 
-Enable: `?wasmPhysics=1` or debug panel toggle (localStorage). Multi-device calls
-`segWasm.step` + mode switch when enabled. **Zero-copy:** `getParticleFloatView()` /
-`getRollerStateFloatView()` via `HEAPF32` (live metric: `lastRollerMeanOmega`).
-Debug panel: JS vs WASM step/s benchmark + optional particle radius diff.
-Docs: `cpp/README.md`.
-### Hardware digital twin
-
-- Bridge: `src/hardware-bridge.js` (Web Serial + **Mock** transport)
-- UI: **Hardware Twin** left-sidebar panel (`src/hardware-panel.js`)
-- Modes: open-loop (sim→HW), closed-loop (HW→rollers), shadow (Δφ/ΔRPM)
-- Safety: disconnect coasts coils (`P0,0,2` + `C0,0,0`); host timeout → coast
-- Demo: `?mockHardware=1` or panel **Mock** button
+- Bridge/UI: `hardware-bridge.js`, `hardware-panel.js` — **experimental**
+- Demo without serial: `?mockHardware=1`
+- Firmware under `firmware/seg-driver/` is **experimental**, not required for the app
 - Spec: `docs/hardware_connection.md`

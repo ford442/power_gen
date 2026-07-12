@@ -44,7 +44,8 @@ struct Vec3 {
 inline Vec3 operator*(float s, const Vec3& v) { return v * s; }
 
 // ─────────────────────────────────────────────────────────────
-// SimParticle  (32 bytes, matches compute.wgsl Particle struct)
+// SimParticle  (32 bytes; mirrors src/shaders/common/particle.wgsl SimParticle.
+// Interactive WebGPU path uses GpuParticle 16 B — see docs/SHADERS.md.)
 // ─────────────────────────────────────────────────────────────
 struct SimParticle {
     float x, y, z;

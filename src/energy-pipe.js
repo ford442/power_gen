@@ -2,6 +2,8 @@
 // ENERGY PIPE — animated Bézier transfer between devices
 // ============================================
 
+import { BindGroupCache } from './renderers/shared/bind-group-cache.js';
+
 const PIPE_COLORS = {
   'seg-heron': [0.15, 0.92, 0.75],
   'heron-kelvin': [0.25, 0.65, 1.0],
@@ -15,6 +17,10 @@ const PIPE_COLORS = {
 };
 
 const PARTICLE_BYTES = 32; // 8 floats per PipeParticle
+
+/** Overview / low-quality particle budgets (CPU path until compute lands). */
+const PIPE_PARTICLES_FULL = 72;
+const PIPE_PARTICLES_LOD = 36;
 
 function bezier3(p0, p1, p2, p3, t) {
   const u = 1 - t;
@@ -48,13 +54,16 @@ class EnergyPipe {
     this.device = device;
     this.config = config;
     this.visualizer = visualizer;
-    this.particleCount = 72;
+    this.particleCount = PIPE_PARTICLES_FULL;
+    this.activeParticleCount = PIPE_PARTICLES_FULL;
     this.particles = null;
     this.uniformBuffer = null;
     this.flowLevel = 0;
-    this._particleData = new Float32Array(this.particleCount * 8);
+    this._particleData = new Float32Array(PIPE_PARTICLES_FULL * 8);
     this._colorKey = `${config.from}-${config.to}`;
     this._color = PIPE_COLORS[this._colorKey] || [0.4, 0.9, 1.0];
+    this._bindGroups = new BindGroupCache();
+    this._lastWriteFrame = -1;
   }
 
   async init() {
@@ -84,17 +93,36 @@ class EnergyPipe {
     ];
   }
 
-  update(deltaTime, devices, time) {
+  /**
+   * @param {number} deltaTime
+   * @param {Record<string, object>} devices
+   * @param {number} time
+   * @param {{ lodScale?: number }} [opts]
+   */
+  update(deltaTime, devices, time, opts = {}) {
     const fromDev = devices[this.config.from];
     const toDev = devices[this.config.to];
     if (!fromDev || !toDev) return;
 
     const enabled = this.visualizer.devicesEnabled?.[this.config.from]
       && this.visualizer.devicesEnabled?.[this.config.to];
+    // Skip dead pipes when either endpoint is disabled in the overview toggles.
+    if (!enabled && this.flowLevel < 0.02) {
+      this.flowLevel = 0;
+      return;
+    }
+
     const sourceFlow = fromDev.energyLevel ?? 0;
     const target = 0.12 + sourceFlow * 0.88;
     const smooth = 1 - Math.exp(-Math.max(0, deltaTime) * 6);
     this.flowLevel = this.flowLevel + ((enabled ? target : 0) - this.flowLevel) * smooth;
+
+    if (this.flowLevel < 0.02) return;
+
+    const lodScale = opts.lodScale ?? 1;
+    this.activeParticleCount = lodScale < 0.75
+      ? PIPE_PARTICLES_LOD
+      : PIPE_PARTICLES_FULL;
 
     const p0 = this._deviceAnchor(fromDev);
     const p3 = this._deviceAnchor(toDev);
@@ -117,9 +145,10 @@ class EnergyPipe {
 
     const speed = this.config.speed ?? 1.5;
     const pulse = 0.5 + 0.5 * Math.sin(time * 2.4 + p0[0] * 0.1);
+    const n = this.activeParticleCount;
 
-    for (let i = 0; i < this.particleCount; i++) {
-      const phase = i / this.particleCount;
+    for (let i = 0; i < n; i++) {
+      const phase = i / n;
       const t = (time * speed * 0.12 * (0.4 + this.flowLevel) + phase) % 1;
       const pos = bezier3(p0, p1, p2, p3, t);
       const tan = bezierTangent(p0, p1, p2, p3, t);
@@ -136,7 +165,10 @@ class EnergyPipe {
       this._particleData[idx + 7] = this.flowLevel * (0.35 + 0.65 * (1 - Math.abs(t - 0.5) * 1.4));
     }
 
-    this.device.queue.writeBuffer(this.particles, 0, this._particleData);
+    this.device.queue.writeBuffer(
+      this.particles, 0,
+      this._particleData.subarray(0, n * 8)
+    );
     this.device.queue.writeBuffer(
       this.uniformBuffer, 0,
       new Float32Array([...this._color, this.flowLevel, pulse, 0, 0])
@@ -146,23 +178,24 @@ class EnergyPipe {
   render(renderPass, globalUniformBuffer, pipeline) {
     if (!pipeline || !this.particles || this.flowLevel < 0.02) return;
 
-    // Prefer explicit layout from shared PipelineLayoutCache when available.
     const cache = this.visualizer?.pipelineCache;
-    const entries = [
-      { binding: 0, resource: { buffer: globalUniformBuffer } },
-      { binding: 1, resource: { buffer: this.uniformBuffer } },
-      { binding: 2, resource: { buffer: this.particles } }
-    ];
-    const bindGroup = cache
-      ? cache.createBindGroup('energyPipe', entries, 'energy-pipe-bg')
-      : this.device.createBindGroup({
-          layout: pipeline.getBindGroupLayout(0),
-          entries
-        });
+    const bindGroup = this._bindGroups.get('main', () => {
+      const entries = [
+        { binding: 0, resource: { buffer: globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.uniformBuffer } },
+        { binding: 2, resource: { buffer: this.particles } }
+      ];
+      return cache
+        ? cache.createBindGroup('energyPipe', entries, `energy-pipe-bg-${this._colorKey}`)
+        : this.device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries
+          });
+    });
 
     renderPass.setPipeline(pipeline);
     renderPass.setBindGroup(0, bindGroup);
-    renderPass.draw(4, this.particleCount);
+    renderPass.draw(4, this.activeParticleCount || this.particleCount);
   }
 }
 

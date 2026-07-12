@@ -39,9 +39,9 @@ WGSL: `roller-shaders.js`
 | 0 | uniform | VS+FS | Global frame |
 | 1 | uniform | VS+FS | Per-device uniforms |
 | 3 | uniform | FS | Material |
-| 4 | storage (read) | VS | `array<vec4f>` particles (16 B stride) |
+| 4 | storage (read) | VS | `array<GpuParticle>` particles (16 B stride) |
 
-WGSL: `particle-shaders.js`
+WGSL: `particle-shaders.js` + `common/particle.wgsl` (`GpuParticle`)
 
 ### `segEnhanced` — SEG PBR meshes
 

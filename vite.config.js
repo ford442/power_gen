@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite'
+import wgslInclude from './src/shaders/vite-plugin-wgsl-include.js'
 
 // Relative base works on GitHub Pages (/power_gen/) and Contabo (/powergen/)
 // without hard-coding a deploy path. Override: VITE_BASE_PATH=/custom/ npm run build
@@ -7,6 +8,7 @@ const base = process.env.VITE_BASE_PATH || './'
 export default defineConfig({
   root: 'src',
   base,
+  plugins: [wgslInclude()],
   build: {
     outDir: '../dist',
     emptyOutDir: true,

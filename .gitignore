@@ -6,6 +6,7 @@ yarn-error.log
 # Build output
 dist
 .output
+build/wgsl-check
 
 # IDE
 .vscode

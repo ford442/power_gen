@@ -25,6 +25,7 @@ import {
   deviceModeIndex
 } from '../shared/device-physics.js';
 import { isDeviceActive as isDeviceVisible } from '../shared/device-view.js';
+import { getDeviceParticleScale, getViewMeshLod } from '../shared/view-lod.js';
 import { WebGL2Context } from './webgl2-context.js';
 import { SkyGridRenderer } from './sky-grid-renderer.js';
 import { MeshRenderer } from './mesh-renderer.js';
@@ -406,7 +407,11 @@ export class WebGL2MultiDeviceVisualizer {
    * (+ optional WASM plant when ?wasmPhysics=1).
    */
   _stepSimulation(deltaTime, speed) {
-    const simSteps = this.simRateController.tick(deltaTime, speed);
+    const simSteps = this.simRateController.tick(deltaTime, speed, {
+      qualityLevel: this.profiler?.qualityLevel,
+      frameTimeMs: this.profiler?.lastFrameTimeMs,
+      gpuTimeMs: this.profiler?.lastGpuTimeMs
+    });
     const drive = segOperator.getDrive();
     const useWasm = segWasm.enabled;
     const focus = this.currentView === 'overview' ? 'seg' : this.currentView;
@@ -484,7 +489,13 @@ export class WebGL2MultiDeviceVisualizer {
 
       for (let s = 0; s < substeps; s++) {
         const mode = deviceModeIndex(device.id);
-        const scaledCount = device.particleCount;
+        const lod = getDeviceParticleScale({
+          currentView: this.currentView,
+          deviceId: device.id,
+          qualityLevel: this.profiler?.qualityLevel ?? 1
+        });
+        const scaledCount = Math.max(64, Math.floor(device.particleCount * lod));
+        device.scaledParticleCount = scaledCount;
         totalParticles += scaledCount;
         stepParticles(device.particles, {
           time: this.time,
@@ -568,7 +579,7 @@ export class WebGL2MultiDeviceVisualizer {
       const pos = device.config.position;
       const tint = device.config.color || [0.5, 0.8, 1.0];
       const mode = deviceModeIndex(device.id);
-      const scaledCount = device.particleCount;
+      const scaledCount = device.scaledParticleCount || device.particleCount;
 
       if (device.id === 'seg') {
         const rollers = layoutRollerPositions(

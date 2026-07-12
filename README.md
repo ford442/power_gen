@@ -96,7 +96,8 @@ Single client-side app under `src/` (Vite root). No dual legacy tree.
 | Fallback | `WebGL2MultiDeviceVisualizer` | WebGL2 (`?renderer=webgl2`) |
 
 `src/main.js` is bootstrap + window API only. Shared CPU physics/geometry lives in
-`src/renderers/shared/`. Agent/dev details: [`docs/AGENTS.md`](docs/AGENTS.md).
+`src/renderers/shared/`. Agent/dev details: [`docs/AGENTS.md`](docs/AGENTS.md)
+(query-param matrix, language roles, device fidelity). Decisions: [`docs/adr/`](docs/adr/).
 WebGPU adapter/device setup: [`docs/WEBGPU.md`](docs/WEBGPU.md).
 
 ## Local Development
@@ -104,7 +105,7 @@ WebGPU adapter/device setup: [`docs/WEBGPU.md`](docs/WEBGPU.md).
 npm install
 npm run typecheck   # TypeScript physics/integration layer
 npm run validate    # typecheck + native C++ smoke + WGSL (naga optional)
-npm run dev
+npm run dev         # http://localhost:5173/  (Vite https: false; localhost is OK for WebGPU)
 # WebGL2: http://localhost:5173/?renderer=webgl2
 # WebGPU: http://localhost:5173/
 ```

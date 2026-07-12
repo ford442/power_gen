@@ -395,13 +395,19 @@ export class DebugPanel {
       <div style="color: #0ff;">${stats.minFPS.toFixed(0)} / ${stats.maxFPS.toFixed(0)}</div>
 
       <div style="color: #888;">Quality Level:</div>
-      <div style="color: ${stats.qualityLevel < 0.8 ? '#ff4' : '#4f4'};">${(stats.qualityLevel * 100).toFixed(0)}%</div>
+      <div style="color: ${stats.qualityLevel < 0.8 ? '#ff4' : '#4f4'};">${(stats.qualityLevel * 100).toFixed(0)}% (${stats.qualityTier || '—'})</div>
 
       <div style="color: #888;">GPU Tier:</div>
       <div style="color: ${stats.gpuTier === 'high' ? '#4f4' : (stats.gpuTier === 'medium' ? '#ff4' : '#f44')}; text-transform: uppercase;">${stats.gpuTier}</div>
 
+      <div style="color: #888;">Adapter:</div>
+      <div style="color: #8cf; font-size: 10px;">${stats.adapterSummary || '—'}</div>
+
+      <div style="color: #888;">Frame / CPU:</div>
+      <div style="color: #0ff;">${(stats.frameTimeMs || 0).toFixed(1)} / ${(stats.frameCpuMs || 0).toFixed(1)} ms</div>
+
       <div style="color: #888;">GPU Timing:</div>
-      <div style="color: ${stats.timingEnabled ? '#4f4' : '#888'};">${stats.timingEnabled ? 'Enabled' : 'Disabled'}</div>
+      <div style="color: ${stats.timingEnabled ? '#4f4' : '#888'};">${stats.timingEnabled ? `On · ${(stats.lastGpuTimeMs || 0).toFixed(2)} ms` : 'Disabled'}</div>
 
       <div style="color: #888;">Buffer Memory:</div>
       <div style="color: #0ff;">${stats.bufferMemoryMB} MB (${stats.bufferCount} buffers)</div>
@@ -409,6 +415,28 @@ export class DebugPanel {
       <div style="color: #888;">Texture Memory:</div>
       <div style="color: #0ff;">${stats.textureMemoryMB} MB (${stats.textureCount} textures)</div>
     `;
+
+    // Per-device CPU time breakdown (acceptance: profiler shows per-device times)
+    let deviceTimingEl = document.getElementById('deviceTimingBreakdown');
+    if (!deviceTimingEl) {
+      deviceTimingEl = document.createElement('div');
+      deviceTimingEl.id = 'deviceTimingBreakdown';
+      deviceTimingEl.style.cssText = 'margin: 12px 0; padding: 8px; background: rgba(0,20,40,0.6); border: 1px solid #244; border-radius: 4px; font-size: 11px;';
+      statsDiv.parentNode?.insertBefore(deviceTimingEl, statsDiv.nextSibling);
+    }
+    const times = stats.deviceTimes || [];
+    if (times.length) {
+      const rows = times
+        .slice(0, 14)
+        .map(({ id, ms }) => {
+          const color = ms > 2 ? '#f84' : ms > 0.8 ? '#ff4' : '#4f8';
+          return `<div style="display:flex;justify-content:space-between;gap:8px;"><span style="color:#888;">${id}</span><span style="color:${color};">${ms.toFixed(2)} ms</span></div>`;
+        })
+        .join('');
+      deviceTimingEl.innerHTML = `<div style="color:#8cf;font-weight:bold;margin-bottom:6px;">Per-device CPU</div>${rows}`;
+    } else {
+      deviceTimingEl.innerHTML = `<div style="color:#666;">Per-device CPU: —</div>`;
+    }
 
     // Draw FPS graph
     this.drawFPSGraph();
