@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Physics constants codegen (CI check)
+        run: npm run check:constants
+
       - name: Typecheck
         run: npm run typecheck
 

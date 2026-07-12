@@ -23,5 +23,5 @@ export default defineConfig({
   },
   // Treat raw .wasm files as static assets so they can be imported
   // with ?url (e.g. `import wasmUrl from './public/wasm/sim_core.wasm?url'`).
-  assetsInclude: ['**/*.wasm'],
+  assetsInclude: ['**/*.wasm', '**/*.glb'],
 })

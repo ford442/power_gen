@@ -1,50 +1,50 @@
 /**
  * Validated Physics Constants
- * 
- * This module provides physics constants from multiple sources in priority order:
- * 1. Wolfram Alpha MCP (authoritative, when available)
- * 2. Local cache (from previous Wolfram queries)
- * 3. Fallback values (pre-calculated, with uncertainty flags)
- * 
- * All constants include metadata about their source and validation status.
+ *
+ * Numeric values are generated from physics/constants.json (see generated/).
+ * This module adds uncertainty metadata, Wolfram cache integration, and
+ * derived SEG physics helpers used by the UI and telemetry.
  */
 
 import type { UncertaintyFlag, PhysicsConstants, SEGMagnetSpec } from './types';
 import { FallbackPhysics, createUncertainValue, UNCERTAINTY_LEVELS } from './fallback-physics';
+import {
+  PHYSICAL_CONSTANTS as GEN_PHYSICAL,
+  SEG_MAGNET as GEN_SEG_MAGNET,
+  SEG_CONFIG as GEN_SEG_CONFIG,
+  KELVIN_CONSTANTS as GEN_KELVIN,
+  HERON_CONSTANTS as GEN_HERON,
+  MATERIALS,
+  PARTICLE_LAYOUTS,
+  SILICON_REFRACTIVE_INDEX as GEN_SILICON_N,
+  assertParticleLayouts,
+} from '../generated/physics-constants';
+
+export { PARTICLE_LAYOUTS, assertParticleLayouts };
 
 // ============================================
-// CODATA 2018 Physical Constants
+// CODATA physical constants (generated)
 // ============================================
 
-export const PHYSICAL_CONSTANTS: PhysicsConstants = {
-  MU_0: 1.2566370614e-7,      // H/m - Vacuum permeability (exact by definition)
-  EPSILON_0: 8.854187817e-12, // F/m - Vacuum permittivity
-  C: 299792458,               // m/s - Speed of light (exact)
-  K_B: 1.380649e-23,          // J/K - Boltzmann constant (exact)
-  T_ROOM: 300,                // K - Room temperature (27°C)
-  E_CHARGE: 1.602176634e-19,  // C - Elementary charge (exact)
-  G: 9.80665,                 // m/s² - Standard gravity
-  RHO_WATER: 1000,            // kg/m³ - Water density at 4°C
-};
+export const PHYSICAL_CONSTANTS: PhysicsConstants = { ...GEN_PHYSICAL };
 
-// Export individual constants with full metadata
 export const MU_0: UncertaintyFlag = {
-  value: PHYSICAL_CONSTANTS.MU_0,
-  uncertainty: 0,  // Exact by SI definition 2019
+  value: GEN_PHYSICAL.MU_0,
+  uncertainty: 0,
   isValidated: true,
   source: 'wolfram',
 };
 
 export const EPSILON_0: UncertaintyFlag = {
-  value: PHYSICAL_CONSTANTS.EPSILON_0,
-  uncertainty: 1.5e-10,  // From CODATA 2018
+  value: GEN_PHYSICAL.EPSILON_0,
+  uncertainty: 1.5e-10,
   isValidated: true,
   source: 'wolfram',
 };
 
 export const K_B: UncertaintyFlag = {
-  value: PHYSICAL_CONSTANTS.K_B,
-  uncertainty: 0,  // Exact by SI definition 2019
+  value: GEN_PHYSICAL.K_B,
+  uncertainty: 0,
   isValidated: true,
   source: 'wolfram',
 };
@@ -53,50 +53,31 @@ export const K_B: UncertaintyFlag = {
 // SEG Magnet Specifications (NdFeB N52)
 // ============================================
 
-export const SEG_MAGNET: SEGMagnetSpec = {
-  Br: 1.48,                   // Tesla - Remanence
-  mu_r: 1.05,                 // Relative permeability
-  radius: 0.8,                // m
-  height: 2.5,                // m
-  volume: 5.02655,            // m³
-  magnetization: 1.12166e6,   // A/m
-};
+export const SEG_MAGNET: SEGMagnetSpec = { ...GEN_SEG_MAGNET };
 
-// Magnet specifications with uncertainty metadata
 export const MAGNET_BR: UncertaintyFlag = {
-  value: SEG_MAGNET.Br,
-  uncertainty: 0.02,  // ±2% - typical N52 spec range 1.44-1.52 T
+  value: GEN_SEG_MAGNET.Br,
+  uncertainty: 0.02,
   isValidated: true,
   source: 'wolfram',
 };
 
 export const MAGNETIC_MOMENT: UncertaintyFlag = {
-  value: 5.635e6,  // A·m²
-  uncertainty: 0.03,  // ±3% - calculated from geometry
+  value: 5.635e6,
+  uncertainty: 0.03,
   isValidated: false,
   source: 'calculated',
 };
 
 // ============================================
-// SEG Configuration
+// SEG Configuration (reference geometry — layouts live in seg-layout.js)
 // ============================================
 
-export const SEG_CONFIG = {
-  numRollers: 12,
-  innerRingRadius: 2.0,       // m
-  middleRingRadius: 4.0,      // m
-  outerRingRadius: 6.0,       // m
-  rollerHeight: 2.5,          // m
-  rollerRadius: 0.8,          // m
-  angularSeparation: Math.PI / 6,  // 30°
-} as const;
+export const SEG_CONFIG = { ...GEN_SEG_CONFIG };
 
 // ============================================
 // SEG Roller Layer Composition (4 concentric shells)
 // ============================================
-// Core → exterior. Densities in kg/m³ (CRC/standard references).
-// rInner/rOuter are fractions of the roller radius, so the composite
-// scales with SEG_CONFIG.rollerRadius.
 export const SEG_ROLLER_LAYERS = [
   { name: 'Neodymium', density: 7500, rInner: 0.00, rOuter: 0.30 },
   { name: 'Nylon66',   density: 1150, rInner: 0.30, rOuter: 0.45 },
@@ -104,13 +85,6 @@ export const SEG_ROLLER_LAYERS = [
   { name: 'Copper',    density: 8960, rInner: 0.62, rOuter: 1.00 },
 ] as const;
 
-/**
- * Composite roller mass and moment of inertia about its longitudinal axis,
- * summed over the four cylindrical shells:
- *   m_i = π h ρ_i (r_out² − r_in²)
- *   I_i = ½ m_i (r_out² + r_in²)
- * The total inertia is the "heft" that resists the SEG drive torque.
- */
 export function computeRollerInertia(
   radius: number = SEG_CONFIG.rollerRadius,
   height: number = SEG_CONFIG.rollerHeight,
@@ -127,95 +101,74 @@ export function computeRollerInertia(
   return { mass, inertia };
 }
 
-// Refractive index of the photonic substrata (anti-reflective monocrystalline
-// silicon, visible-band effective value) used for the Snell/Fresnel optics.
-export const SILICON_REFRACTIVE_INDEX = 3.96;
+export const SILICON_REFRACTIVE_INDEX = GEN_SILICON_N;
 
 // ============================================
 // Pre-calculated SEG Physics Values
 // ============================================
 
 export const SEG_PHYSICS = {
-  // B-Field at various distances (from fallback calculations)
   B_FIELD_SURFACE: FallbackPhysics.axialBFieldUncertain(0),
   B_FIELD_1M: FallbackPhysics.axialBFieldUncertain(1.0),
   B_FIELD_2M: FallbackPhysics.axialBFieldUncertain(2.0),
   B_FIELD_4M: FallbackPhysics.axialBFieldUncertain(4.0),
-
-  // Energy densities
   ENERGY_DENSITY_SURFACE: FallbackPhysics.energyDensityUncertain(
     FallbackPhysics.axialBField(0)
   ),
   ENERGY_DENSITY_1M: FallbackPhysics.energyDensityUncertain(
     FallbackPhysics.axialBField(1.0)
   ),
-
-  // Forces and torques
   get ADJACENT_FORCE() {
-    const distance = 2 * SEG_CONFIG.middleRingRadius * 
+    const distance = 2 * SEG_CONFIG.middleRingRadius *
       Math.sin(Math.PI / SEG_CONFIG.numRollers);
     return FallbackPhysics.adjacentRollerForceUncertain(distance);
   },
-
   get RING_TORQUE() {
     return FallbackPhysics.ringTorque(SEG_CONFIG.middleRingRadius);
   },
-
   get INNER_RING_TORQUE() {
     return FallbackPhysics.ringTorque(SEG_CONFIG.innerRingRadius);
   },
-
   get OUTER_RING_TORQUE() {
     return FallbackPhysics.ringTorque(SEG_CONFIG.outerRingRadius);
   },
 };
 
 // ============================================
-// Kelvin's Thunderstorm Constants
+// Kelvin / Heron (generated scalars + uncertainty wrappers)
 // ============================================
 
 export const KELVIN_CONSTANTS = {
   BUCKET_CAPACITANCE: {
-    value: 40.1e-12,  // F
+    value: GEN_KELVIN.BUCKET_CAPACITANCE_F,
     uncertainty: 0.05,
     isValidated: true,
     source: 'wolfram' as const,
   },
   DROPLET_CHARGE: {
-    value: 1e-9,  // C (1 nC typical)
+    value: GEN_KELVIN.DROPLET_CHARGE_C,
     uncertainty: 0.5,
     isValidated: false,
     source: 'estimated' as const,
   },
   E_BREAKDOWN: {
-    value: 3e6,  // V/m
+    value: GEN_KELVIN.E_BREAKDOWN_VM,
     uncertainty: 0.1,
     isValidated: true,
     source: 'wolfram' as const,
   },
-  BUCKET_DISTANCE: 6.0,  // m
+  BUCKET_DISTANCE: GEN_KELVIN.BUCKET_DISTANCE_M,
 };
-
-// ============================================
-// Heron's Fountain Constants
-// ============================================
 
 export const HERON_CONSTANTS = {
-  REST_DENSITY: 1000,           // kg/m³
-  GAS_CONSTANT: 560571,         // Pa
-  GAMMA: 7,                     // Tait EOS exponent
-  SMOOTHING_LENGTH: 0.012,      // m
-  GRAVITY: 9.80665,             // m/s²
-  ATMOSPHERIC_PRESSURE: 101325, // Pa
+  REST_DENSITY: GEN_HERON.REST_DENSITY,
+  GAS_CONSTANT: GEN_HERON.GAS_CONSTANT,
+  GAMMA: GEN_HERON.GAMMA,
+  SMOOTHING_LENGTH: GEN_HERON.SMOOTHING_LENGTH,
+  GRAVITY: GEN_HERON.GRAVITY,
+  ATMOSPHERIC_PRESSURE: GEN_HERON.ATMOSPHERIC_PRESSURE,
 };
 
-// ============================================
-// Helper Functions
-// ============================================
-
-/**
- * Get a constant value, optionally with validation
- */
 export function getConstant<T extends number | UncertaintyFlag>(
   constant: T,
   requireValidated = false
@@ -229,32 +182,19 @@ export function getConstant<T extends number | UncertaintyFlag>(
   return constant as T extends UncertaintyFlag ? number : T;
 }
 
-/**
- * Check if all physics values in a set are validated
- */
 export function areAllValidated(flags: UncertaintyFlag[]): boolean {
   return flags.every(f => f.isValidated);
 }
 
-/**
- * Get the maximum uncertainty in a set of values
- */
 export function getMaxUncertainty(flags: UncertaintyFlag[]): number {
   return Math.max(...flags.map(f => f.uncertainty));
 }
 
-/**
- * Format an uncertain value for display
- */
 export function formatUncertainValue(flag: UncertaintyFlag, precision = 4): string {
   const uncPercent = (flag.uncertainty * 100).toFixed(1);
   const sourceIcon = flag.isValidated ? '✓' : flag.source === 'calculated' ? '~' : '?';
   return `${flag.value.toPrecision(precision)} ${sourceIcon} (±${uncPercent}%)`;
 }
-
-// ============================================
-// Export all validated constants
-// ============================================
 
 export const ValidatedConstants = {
   PHYSICAL_CONSTANTS,
@@ -266,17 +206,18 @@ export const ValidatedConstants = {
   SEG_PHYSICS,
   KELVIN_CONSTANTS,
   HERON_CONSTANTS,
+  PARTICLE_LAYOUTS,
+  MATERIALS,
   MU_0,
   EPSILON_0,
   K_B,
   MAGNET_BR,
   MAGNETIC_MOMENT,
-  
-  // Helper functions
   getConstant,
   areAllValidated,
   getMaxUncertainty,
   formatUncertainValue,
+  assertParticleLayouts,
 } as const;
 
 export default ValidatedConstants;

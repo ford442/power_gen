@@ -6,6 +6,7 @@ import {
 } from './device-mesh-layouts.js';
 import { getPluginMeshLayouts } from './devices/device-registry.js';
 import { simRandom } from './telemetry/deterministic-rng.js';
+import { PARTICLE_LAYOUTS } from '../generated/physics-constants.js';
 
 // Matches TOTAL_FLUX_LINES × SEGMENTS_PER_LINE constants in flux-lines.wgsl
 // (168 lines × 120 segments). Update both if the WGSL constants change.
@@ -15,10 +16,10 @@ const FLUX_TOTAL_SEGMENTS = 20160;
 // DeviceInstance. Each FieldParticle is 8 × f32 (pos3 + vel3 + life + strength)
 // = 32 bytes; see getSegFieldAdvectShader() and updateFieldLines().
 const FIELD_LINE_PARTICLE_COUNT = 1200;
-const FIELD_LINE_PARTICLE_BYTES = 32;
+const FIELD_LINE_PARTICLE_BYTES = PARTICLE_LAYOUTS.fieldLineBytes;
 
 /** WebGPU particle storage layout: vec4f (xyz + phase) = 16 bytes per particle. */
-export const PARTICLE_BYTES_PER_INSTANCE = 16;
+export const PARTICLE_BYTES_PER_INSTANCE = PARTICLE_LAYOUTS.gpuBytes;
 
 export class DeviceGeometry {
   constructor(device, id, config, visualizer) {

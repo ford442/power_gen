@@ -31,7 +31,7 @@ When iterating on geometry, materials, or particles:
 ### WebGPU ↔ WebGL2 mapping
 | WebGPU | WebGL2 fallback |
 |--------|-----------------|
-| Compute shader (`compute.wgsl`) | `shared/particle-physics.js` (CPU) |
+| `passes/particle-compute.wgsl` (GPU) | `shared/particle-physics.js` (CPU) |
 | Storage buffers | `Float32Array` + `bufferSubData` |
 | Bind groups | Uniform blocks + attrib divisors |
 | `firstInstance` offsets | Per-draw instance ranges |

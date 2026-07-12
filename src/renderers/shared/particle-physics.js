@@ -1,5 +1,5 @@
 /**
- * CPU fallback for compute.wgsl particle integration.
+ * CPU fallback for passes/particle-compute.wgsl particle integration.
  * Mirrors the WGSL Particle struct: pos(3), phase, vel(3), aux — 8 floats / 32 bytes.
  *
  * WebGPU compute → this module on WebGL2 path.

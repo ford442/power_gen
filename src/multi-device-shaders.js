@@ -18,7 +18,7 @@ import {
   getFluxSegmentFragShader
 } from './shaders/generators/field-line-shaders.js';
 import { getEnergyArcVertShader, getEnergyArcFragShader } from './shaders/generators/energy-arc-shaders.js';
-import { getEnergyPipeVertShader, getEnergyPipeFragShader } from './shaders/generators/energy-pipe-shaders.js';
+import { getEnergyPipeVertShader, getEnergyPipeFragShader, getEnergyPipeComputeShader } from './shaders/generators/energy-pipe-shaders.js';
 import { getCoilVertShader, getCoilFragShader } from './shaders/generators/coil-shaders.js';
 import { getSegEnhancedVertShader, getSegEnhancedFragShader } from './shaders/generators/seg-enhanced-shaders.js';
 import {
@@ -100,6 +100,10 @@ export class MultiDeviceShaders {
 
   get energyPipeFragShader() {
     return getEnergyPipeFragShader();
+  }
+
+  get energyPipeComputeShader() {
+    return getEnergyPipeComputeShader();
   }
 
   get coilVertShader() {

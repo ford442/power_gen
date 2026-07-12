@@ -70,18 +70,7 @@ struct SEGRollerState {
 // [angle, omega, radius, height]
 static constexpr int ROLLER_EXPORT_STRIDE = 4;
 
-// ─────────────────────────────────────────────────────────────
-// Physics constants
-// ─────────────────────────────────────────────────────────────
-struct PhysicsConstants {
-    static constexpr float MU_0       = 1.2566370614e-7f;
-    static constexpr float EPSILON_0  = 8.854187817e-12f;
-    static constexpr float G          = 9.80665f;
-    static constexpr float PI         = 3.14159265359f;
-    static constexpr float TAU        = 6.28318530718f;
-    static constexpr float Br_DEFAULT = 1.48f;
-    static constexpr float MU_R       = 1.05f;
-};
+#include "../../generated/constants.h"
 
 // ─────────────────────────────────────────────────────────────
 // Free functions
@@ -150,10 +139,18 @@ struct SolarState {
 // ─────────────────────────────────────────────────────────────
 class SEGSimulator {
 public:
-    static constexpr int RING_COUNTS[3]  = {12, 22, 32};
-    static constexpr float RING_RADII[3] = {3.5f, 5.5f, 7.5f};
-    static constexpr int   MAX_ROLLERS   = 66;
-    static constexpr int   MAX_PARTICLES = 50000;
+    static constexpr int RING_COUNTS[3]  = {
+        power_gen::WasmSegDefaults::RING_COUNTS[0],
+        power_gen::WasmSegDefaults::RING_COUNTS[1],
+        power_gen::WasmSegDefaults::RING_COUNTS[2]
+    };
+    static constexpr float RING_RADII[3] = {
+        power_gen::WasmSegDefaults::RING_RADII[0],
+        power_gen::WasmSegDefaults::RING_RADII[1],
+        power_gen::WasmSegDefaults::RING_RADII[2]
+    };
+    static constexpr int   MAX_ROLLERS   = power_gen::WasmSegDefaults::MAX_ROLLERS;
+    static constexpr int   MAX_PARTICLES = power_gen::WasmSegDefaults::MAX_PARTICLES;
 
     SEGSimulator();
 

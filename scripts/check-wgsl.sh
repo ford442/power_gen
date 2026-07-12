@@ -92,14 +92,27 @@ if [[ "$failed" -gt 0 ]]; then
   exit 1
 fi
 
-# Hard gate: particle compute (shared structs) must always be present and pass
-if [[ ! -f "$OUT_DIR/passes_particle-compute.wgsl" ]] && [[ ! -f "$OUT_DIR/passes_particle-compute.wgsl.wgsl" ]]; then
-  # extract names: passes/particle-compute.wgsl → passes_particle-compute.wgsl
-  pc=$(ls "$OUT_DIR"/*particle-compute* 2>/dev/null | head -1 || true)
-  if [[ -z "${pc:-}" ]]; then
-    echo "error: particle-compute module missing from extract output" >&2
+# Hard gate: canonical particle compute must expand shared structs from common/
+PC_FILE="$OUT_DIR/passes_particle-compute.wgsl"
+if [[ ! -f "$PC_FILE" ]]; then
+  PC_FILE=$(ls "$OUT_DIR"/*particle-compute* 2>/dev/null | head -1 || true)
+fi
+if [[ -z "${PC_FILE:-}" || ! -f "$PC_FILE" ]]; then
+  echo "error: particle-compute module missing from extract output" >&2
+  exit 1
+fi
+for needle in 'struct GpuParticle' 'struct ComputeUniforms' 'struct SimParticle'; do
+  if ! grep -q "$needle" "$PC_FILE"; then
+    echo "error: $PC_FILE missing $needle (include graph broken)" >&2
     exit 1
   fi
+done
+
+# Energy pipe compute must share PipeParticle with render path
+EPC_FILE="$OUT_DIR/passes_energy-pipe-compute.wgsl"
+if [[ -f "$EPC_FILE" ]] && ! grep -q 'struct PipeParticle' "$EPC_FILE"; then
+  echo "error: $EPC_FILE missing struct PipeParticle" >&2
+  exit 1
 fi
 
 exit 0

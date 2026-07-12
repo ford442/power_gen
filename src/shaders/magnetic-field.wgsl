@@ -11,22 +11,10 @@
 //   Source: Wolfram Alpha "magnetic pressure formula"
 //=============================================================================
 
-// ============================================
-// Physical Constants (CODATA 2018, Wolfram-verified)
-// ============================================
-const PI: f32 = 3.14159265359;
+#include "generated/constants.wgsl"
 
-// Vacuum permeability: μ₀ = 4π × 10⁻⁷ H/m ≈ 1.25663706212 × 10⁻⁶ N/A²
-// Source: Wolfram Alpha "mu_0 value"
-const MU_0: f32 = 1.25663706212e-6;
-
-// Remanence of NdFeB N52 grade magnets: Bᵣ = 1.48 T
-// Source: Wolfram Alpha "N52 neodymium magnet remanence"
-const BR_N52: f32 = 1.48;
-
-// Magnetization of N52: M = Bᵣ/μ₀ ≈ 1.1777 × 10⁶ A/m
-// Source: Wolfram Alpha "1.48 T / mu_0"
-const MAGNETIZATION_N52: f32 = 1177746.58;
+// Aliases for legacy shader identifiers
+const MAGNETIZATION_N52: f32 = SEG_MAGNETIZATION;
 
 // ============================================
 // SEG Device Configuration (3-Ring System)

@@ -202,6 +202,13 @@ export class PipelineLayoutCache {
     ]);
     this._pl('energyPipe', ['energyPipe']);
 
+    // Energy pipe particle compute (0 storage rw, 1 uniform curve)
+    this._bgl('energyPipeCompute', [
+      storage(0, CS, false),
+      uniform(1, CS)
+    ]);
+    this._pl('energyPipeCompute', ['energyPipeCompute']);
+
     // Coil mesh (vert: 0,1,2 — frag: 0,1,3)
     this._bgl('coil', [
       uniform(0, VF),
@@ -571,6 +578,25 @@ export class PipelineLayoutCache {
         depthStencil: this.depthStencil(false, 'less')
       })
     );
+  }
+
+  async ensureEnergyPipeComputePipeline(shaders) {
+    const code = shaders.energyPipeComputeShader;
+    const key = `energyPipeCompute_${this._hash(code)}`;
+    if (!this.pipelines.has(key)) {
+      this.pipelines.set(key, this.device.createComputePipeline({
+        label: 'energyPipeComputePipeline',
+        layout: this.getPipelineLayout('energyPipeCompute'),
+        compute: {
+          module: this.shaderModule('energy-pipe-compute', code),
+          entryPoint: 'main'
+        }
+      }));
+    }
+    if (!this.pipelines.has('energyPipeCompute')) {
+      this.pipelines.set('energyPipeCompute', this.pipelines.get(key));
+    }
+    return this.pipelines.get('energyPipeCompute');
   }
 
   async ensureSkyPipeline(shaders) {

@@ -8,12 +8,19 @@ How WGSL is authored, included, validated, and extended in the SEG WebGPU visual
 src/shaders/
   common/                 # Shared structs & PBR fragments (#include targets)
     particle.wgsl         # GpuParticle (16 B) + SimParticle (32 B, C++)
+    pipe-particle.wgsl    # PipeParticle / PipeCurve (energy pipes)
+    field-particle.wgsl   # FieldParticle (SEG field lines)
+    seg-layout-uniforms.wgsl
+    roller-instance.wgsl
     frame-uniforms.wgsl   # viewProj / time / cameraPos
     device-uniforms.wgsl  # 48 B device pack
     compute-uniforms.wgsl # particle compute uniforms
     pbr-*.wgsl            # surface / BRDF / lighting / eval
   passes/                 # Full entry-point modules (preferred for new work)
     particle-compute.wgsl
+    seg-roller-compute.wgsl
+    field-advect-compute.wgsl
+    energy-pipe-compute.wgsl
   generators/             # JS factories used by MultiDeviceShaders
   *.wgsl                  # Legacy / specialized modules (flux, bloom, led-solar, …)
   wgsl-include.js         # Node preprocessor (#include)

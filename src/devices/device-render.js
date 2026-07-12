@@ -110,6 +110,7 @@ export const DeviceRenderMixin = {
 
     // Render lab bench + frame (SEG structural support)
     if (this.id === 'seg' && !skipEffects) {
+      this.renderGltfHousing(renderPass, globalUniformBuffer);
       this.renderFrame(renderPass, globalUniformBuffer);
     }
 
@@ -316,6 +317,32 @@ export const DeviceRenderMixin = {
     }
   },
 
+  renderGltfHousing: function (renderPass, globalUniformBuffer) {
+    const v = this.visualizer;
+    if (this.id !== 'seg') return;
+    if (!v.gltfHousingEnabled || !v.gltfHousingDrawables?.length) return;
+    if (!this.segEnhancedPipeline || !v.lightingUniformBuffer) return;
+    // SEG focus only — overview keeps procedural frame without housing shell
+    if (v.currentView && v.currentView !== 'seg') return;
+
+    this.renderMode = 0;
+    const deviceData = this._buildDeviceUniformData(this.renderMode);
+    this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
+
+    for (const drawable of v.gltfHousingDrawables) {
+      const bindGroup = this._enhancedBindGroup(
+        globalUniformBuffer,
+        drawable.instanceBuffer,
+        `gltf:${drawable.name}`
+      );
+      renderPass.setPipeline(this.segEnhancedPipeline);
+      renderPass.setBindGroup(0, bindGroup);
+      renderPass.setVertexBuffer(0, drawable.gpu.vertexBuffer);
+      renderPass.setIndexBuffer(drawable.gpu.indexBuffer, 'uint16');
+      renderPass.drawIndexed(drawable.gpu.indexCount, 1);
+    }
+  },
+
   renderFrame: function (renderPass, globalUniformBuffer) {
     const v = this.visualizer;
     if (v.segFrameLevel === 'off' || !this.segEnhancedPipeline || !v.segFrameBuffers) return;
@@ -336,8 +363,11 @@ export const DeviceRenderMixin = {
     const fb = v.segFrameBuffers;
     const inst = v.frameStructuralInstanceBuffer;
     const benchInst = v.frameLabBenchInstanceBuffer || inst;
+    const skipLabBench = v.gltfHousingEnabled && v.gltfHousingDrawables?.length;
 
-    drawPart(fb.labBench, benchInst, 1, 'labBench');
+    if (!skipLabBench) {
+      drawPart(fb.labBench, benchInst, 1, 'labBench');
+    }
     this.renderStand(renderPass, globalUniformBuffer);
     drawPart(fb.structural, inst, 0, 'structural');
     if (v.segFrameLevel === 'full') {

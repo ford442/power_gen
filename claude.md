@@ -13,8 +13,10 @@
 | WebGPU | `src/multi-device-visualizer.js` |
 | WebGL2 | `src/renderers/webgl2/` |
 | Select backend | `src/renderers/renderer-selector.js` |
+| ADRs | `docs/adr/` |
 
-Vite **`root: 'src'`**. There is **no** root-level app tree and **no** `SEGVisualizer`.
+Vite **`root: 'src'`**. There is **no** root-level app tree and **no** `SEGVisualizer`.  
+**Contributor map:** `docs/AGENTS.md` (query params, language roles, device fidelity).
 
 ## Run
 
@@ -71,7 +73,7 @@ Registered core ids: `seg`, `heron`, `kelvin`, `solar`, `peltier`, `mhd` (+ plug
 
 ```bash
 npm run typecheck
-npm run validate      # typecheck + native C++ + WGSL
+npm run validate      # codegen check + typecheck + native C++ + WGSL
 npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline
 ```

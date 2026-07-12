@@ -14,11 +14,8 @@
 // Note: In actual WebGPU usage, these would be combined via shader pre-processing
 // or the implementation would be duplicated here
 
-// ============================================
-// Physical Constants (from magnetic-field.wgsl)
-// ============================================
-const PI: f32 = 3.14159265359;
-const MU_0: f32 = 1.25663706212e-6;
+#include "generated/constants.wgsl"
+
 const ROLLER_MOMENT: f32 = 18.5;  // A·m²
 
 const MAX_RINGS: i32 = 3;

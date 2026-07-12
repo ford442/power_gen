@@ -4,49 +4,47 @@
  * Generated: 4-Agent Swarm Analysis
  */
 
+import {
+  PHYSICAL_CONSTANTS as GEN_PHYSICAL,
+  SEG_MAGNET as GEN_SEG_MAGNET,
+  SEG_CONFIG as GEN_SEG_CONFIG,
+  KELVIN_CONSTANTS as GEN_KELVIN,
+  HERON_CONSTANTS as GEN_HERON,
+  LED_SOLAR_CORE,
+} from '../generated/physics-constants.js';
+import generatedWgslConstants from './shaders/generated/constants.wgsl?raw';
+
 // ============================================
-// PHYSICAL CONSTANTS (CODATA 2018)
+// PHYSICAL CONSTANTS (CODATA 2018) — from physics/constants.json
 // ============================================
 export const PHYSICAL_CONSTANTS = {
-  // Electromagnetic
-  MU_0: 1.2566370614e-7,        // H/m - Vacuum permeability
-  EPSILON_0: 8.854187817e-12,   // F/m - Vacuum permittivity
-  C: 299792458,                 // m/s - Speed of light
-  
-  // Thermodynamic
-  K_B: 1.380649e-23,            // J/K - Boltzmann constant
-  T_ROOM: 300,                  // K - Room temperature (27°C)
-  
-  // Electrodynamic
-  E_CHARGE: 1.602176634e-19,    // C - Elementary charge
-  
-  // Gravitational
-  G: 9.80665,                   // m/s² - Standard gravity
-  
-  // Material Properties
-  RHO_WATER: 1000,              // kg/m³ - Water density
-  MU_WATER: 0.001,              // Pa·s - Water dynamic viscosity
-  SIGMA_WATER: 0.072,           // N/m - Water surface tension
+  MU_0: GEN_PHYSICAL.MU_0,
+  EPSILON_0: GEN_PHYSICAL.EPSILON_0,
+  C: GEN_PHYSICAL.C,
+  K_B: GEN_PHYSICAL.K_B,
+  T_ROOM: GEN_PHYSICAL.T_ROOM,
+  E_CHARGE: GEN_PHYSICAL.E_CHARGE,
+  G: GEN_PHYSICAL.G,
+  RHO_WATER: GEN_PHYSICAL.RHO_WATER,
+  MU_WATER: 0.001,
+  SIGMA_WATER: 0.072,
 };
 
 // ============================================
 // SEG (SEARL EFFECT GENERATOR) - MAGNETIC DATA
 // ============================================
 export const SEG_DATA = {
-  // Magnet Specifications (NdFeB N52)
   MAGNET: {
-    Br: 1.48,                   // Tesla - Remanence
-    mu_r: 1.05,                 // Relative permeability
-    radius: 0.8,                // m
-    height: 2.5,                // m
-    volume: 5.02655,            // m³
-    magnetization: 1.12166e6,   // A/m
+    Br: GEN_SEG_MAGNET.Br,
+    mu_r: GEN_SEG_MAGNET.mu_r,
+    radius: GEN_SEG_MAGNET.radius,
+    height: GEN_SEG_MAGNET.height,
+    volume: GEN_SEG_MAGNET.volume,
+    magnetization: GEN_SEG_MAGNET.magnetization,
   },
-  
-  // Toroidal Configuration
   CONFIG: {
-    numRollers: 12,
-    ringRadius: 4.0,            // m
+    numRollers: GEN_SEG_CONFIG.numRollers,
+    ringRadius: GEN_SEG_CONFIG.middleRingRadius,
     rollerDistance: 2.07055,    // m (straight-line between adjacent)
     angularSeparation: Math.PI / 6, // 30°
   },
@@ -121,14 +119,14 @@ export const SEG_DATA = {
     };
   },
   
-  // WGSL Shader Constants
+  // WGSL Shader Constants (numeric values from physics/constants.json)
   WGSL_CONSTANTS: `
-    const MU_0: f32 = 1.2566370614e-7;
-    const BR: f32 = 1.48;
-    const MAGNET_RADIUS: f32 = 0.8;
-    const MAGNET_HEIGHT: f32 = 2.5;
-    const RING_RADIUS: f32 = 4.0;
-    const NUM_ROLLERS: i32 = 12;
+    const MU_0: f32 = ${GEN_PHYSICAL.MU_0};
+    const BR: f32 = ${GEN_SEG_MAGNET.Br};
+    const MAGNET_RADIUS: f32 = ${GEN_SEG_MAGNET.radius};
+    const MAGNET_HEIGHT: f32 = ${GEN_SEG_MAGNET.height};
+    const RING_RADIUS: f32 = ${GEN_SEG_CONFIG.middleRingRadius};
+    const NUM_ROLLERS: i32 = ${GEN_SEG_CONFIG.numRollers};
     const MAGNETIC_MOMENT: f32 = 5.635e6;
     const B_SURFACE: f32 = 0.7048;
     const ADJACENT_FORCE: f32 = 1.037e7;
@@ -158,12 +156,12 @@ export const KELVIN_DATA = {
   BUCKET: {
     radius: 0.5,                // m
     height: 1.0,                // m
-    capacitance: 40.1e-12,      // F (~40 pF)
+    capacitance: GEN_KELVIN.BUCKET_CAPACITANCE_F,
   },
   
   // Configuration
   CONFIG: {
-    bucketDistance: 6.0,        // m (between bucket centers)
+    bucketDistance: GEN_KELVIN.BUCKET_DISTANCE_M,
     dropletRate: 1000,          // droplets/second
   },
   
@@ -172,13 +170,13 @@ export const KELVIN_DATA = {
     radius: 1e-3,               // m (1 mm)
     volume: 4.189e-9,           // m³ (4.189 μL)
     mass: 4.189e-6,             // kg (4.189 mg)
-    charge: 1e-9,               // C (1 nC typical induced)
-    charge_pC: 1000,            // pC
+    charge: GEN_KELVIN.DROPLET_CHARGE_C,
+    charge_pC: GEN_KELVIN.DROPLET_CHARGE_C * 1e12,
   },
   
   // Air Breakdown
   BREAKDOWN: {
-    fieldStrength: 3e6,         // V/m (3 MV/m)
+    fieldStrength: GEN_KELVIN.E_BREAKDOWN_VM,
     // Spark gap: d = V / E_breakdown
     sparkGap: function(voltage) {
       return voltage / this.fieldStrength;
@@ -305,15 +303,15 @@ export const KELVIN_DATA = {
 export const HERON_DATA = {
   // SPH Parameters (from Wolfram)
   SPH: {
-    smoothingLength: 0.012,     // m (h)
-    restDensity: 1000,          // kg/m³ (ρ₀)
+    smoothingLength: GEN_HERON.SMOOTHING_LENGTH,
+    restDensity: GEN_HERON.REST_DENSITY,
     dynamicViscosity: 0.001,    // Pa·s (μ)
     kinematicViscosity: 1e-6,   // m²/s (ν)
     surfaceTension: 0.072,      // N/m (σ)
     speedOfSound_real: 1482,    // m/s
     speedOfSound_SPH: 62.64,    // m/s (artificial for stability)
-    gasConstant: 560571,        // Pa (B)
-    gamma: 7,                   // Tait EOS exponent
+    gasConstant: GEN_HERON.GAS_CONSTANT,
+    gamma: GEN_HERON.GAMMA,
     particleMass: 0.001,        // kg
     CFL: 0.2,                   // Courant number
     maxTimestep: 3.48e-5,       // s
@@ -588,23 +586,10 @@ export const PELTIER_DATA = {
 // ============================================
 // UNIFIED PHYSICS SHADER LIBRARY
 // ============================================
-export const UNIFIED_PHYSICS_WGSL = `
-  // ========================================
-  // Physical Constants
-  // ========================================
-  const PI: f32 = 3.14159265359;
-  const MU_0: f32 = 1.2566370614e-7;
-  const EPSILON_0: f32 = 8.854187817e-12;
-  const K_B: f32 = 1.380649e-23;
-  const E_CHARGE: f32 = 1.602176634e-19;
-  const G: f32 = 9.80665;
-  
-  // ========================================
-  // SEG - Magnetic Field Functions
-  // ========================================
-  const SEG_BR: f32 = 1.48;
-  const SEG_RING_RADIUS: f32 = 4.0;
-  const SEG_NUM_ROLLERS: i32 = 12;
+export const UNIFIED_PHYSICS_WGSL = `${generatedWgslConstants}
+  // SEG reference composite (visual presets live in seg-layout.js)
+  const SEG_RING_RADIUS: f32 = ${GEN_SEG_CONFIG.middleRingRadius};
+  const SEG_NUM_ROLLERS: i32 = ${GEN_SEG_CONFIG.numRollers};
   const SEG_MAGNETIC_MOMENT: f32 = 5.635e6;
   
   fn seg_B_axial(z: f32, R: f32, h: f32) -> f32 {
@@ -622,13 +607,6 @@ export const UNIFIED_PHYSICS_WGSL = `
     return factor * (3.0 * m_dot_r * r_norm - m);
   }
   
-  // ========================================
-  // Kelvin - Electrostatic Functions
-  // ========================================
-  const KELVIN_BUCKET_CAP: f32 = 40.1e-12;
-  const KELVIN_DROPLET_CHARGE: f32 = 1e-9;
-  const KELVIN_E_BREAKDOWN: f32 = 3e6;
-  
   fn kelvin_E_field(Q: f32, d: f32) -> f32 {
     return Q / (2.0 * PI * EPSILON_0 * (d / 2.0) * (d / 2.0));
   }
@@ -645,13 +623,6 @@ export const UNIFIED_PHYSICS_WGSL = `
     return (I * t) / KELVIN_BUCKET_CAP;
   }
   
-  // ========================================
-  // Heron - SPH Fluid Functions
-  // ========================================
-  const HERON_RHO_0: f32 = 1000.0;
-  const HERON_GAS_CONST: f32 = 560571.0;
-  const HERON_GAMMA: f32 = 7.0;
-  
   fn heron_pressure_EOS(rho: f32) -> f32 {
     return HERON_GAS_CONST * (pow(rho / HERON_RHO_0, HERON_GAMMA) - 1.0);
   }
@@ -664,7 +635,6 @@ export const UNIFIED_PHYSICS_WGSL = `
     return sqrt(2.0 * G * height);
   }
   
-  // Cubic spline smoothing kernel
   fn heron_W_cubic(r: f32, h: f32) -> f32 {
     let q = r / h;
     let sigma = 8.0 / (PI * h * h * h);
@@ -677,9 +647,6 @@ export const UNIFIED_PHYSICS_WGSL = `
     return 0.0;
   }
   
-  // ========================================
-  // Microvolt Precision Functions
-  // ========================================
   fn microvolt_thermal_noise(R: f32, delta_f: f32) -> f32 {
     return sqrt(4.0 * K_B * 300.0 * R * delta_f);
   }

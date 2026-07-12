@@ -330,6 +330,11 @@ export const geometrySetupMethods = {
       this.profiler.trackBuffer('seg-frame-structural-inst', 48, GPUBufferUsage.STORAGE);
     }
 
+    // Hybrid glTF housing shell (WebGPU; procedural rollers unchanged)
+    if (typeof this.setupGltfAssets === 'function') {
+      await this.setupGltfAssets();
+    }
+
     // Wire harnesses (8 wires between coils)
     this.wireBuffers = [];
     const coilCount = 8;

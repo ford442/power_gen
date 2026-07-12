@@ -3,31 +3,18 @@
  * Particles travel along cubic Bézier arcs; color comes from pipe uniforms.
  */
 
+import energyPipeComputeWgsl from '../passes/energy-pipe-compute.wgsl?raw';
+import frameUniformsWgsl from '../common/frame-uniforms.wgsl?raw';
+import pipeParticleWgsl from '../common/pipe-particle.wgsl?raw';
+
+export function getEnergyPipeComputeShader() {
+  return energyPipeComputeWgsl;
+}
+
 export function getEnergyPipeVertShader() {
   return /* wgsl */ `
-    struct Uniforms {
-      viewProj: mat4x4f,
-      time: f32,
-      cameraPos: vec3f
-    }
-
-    struct PipeUniforms {
-      color: vec3f,
-      flow: f32,
-      pulse: f32,
-      _pad: vec2f
-    }
-
-    struct PipeParticle {
-      posX: f32,
-      posY: f32,
-      posZ: f32,
-      velX: f32,
-      velY: f32,
-      velZ: f32,
-      life: f32,
-      strength: f32
-    }
+${frameUniformsWgsl}
+${pipeParticleWgsl}
 
     @binding(0) @group(0) var<uniform> uniforms: Uniforms;
     @binding(1) @group(0) var<uniform> pipe: PipeUniforms;

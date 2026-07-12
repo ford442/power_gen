@@ -12,6 +12,7 @@
 
 import type { UncertaintyFlag } from './types';
 import { createUncertainValue } from './fallback-physics';
+import { LED_SOLAR_CORE } from '../generated/physics-constants';
 
 // ============================================
 // LED Constants
@@ -21,7 +22,7 @@ export const LED_CONSTANTS = {
   // Wall-plug efficiency: electrical → optical power
   // Source: Wolfram|Alpha - typical high-power LED efficiency ~30%
   WALL_PLUG_EFFICIENCY: {
-    value: 0.30,
+    value: LED_SOLAR_CORE.wallPlugEfficiency,
     uncertainty: 0.05,
     isValidated: true,
     source: 'wolfram' as const,
@@ -86,7 +87,7 @@ export const SOLAR_CONSTANTS = {
   // Commercial Si solar cell efficiency
   // Source: Wolfram|Alpha - "silicon solar cell efficiency" ~20-24%
   SI_EFFICIENCY: {
-    value: 0.22,
+    value: LED_SOLAR_CORE.siEfficiency,
     uncertainty: 0.02,
     isValidated: true,
     source: 'wolfram' as const,
@@ -133,7 +134,7 @@ export const BATTERY_CONSTANTS = {
   V_MAX: 4.2,   // 100% SOC
   
   // Charge/discharge efficiency
-  CHARGE_EFFICIENCY: 0.95,
+  CHARGE_EFFICIENCY: LED_SOLAR_CORE.chargeEfficiency,
   DISCHARGE_EFFICIENCY: 0.98,
   
   // Self-discharge rate (%/month)
@@ -152,7 +153,7 @@ export const BATTERY_CONSTANTS = {
 export const ENERGY_FLOW_CONSTANTS = {
   // Geometric efficiency: portion of LED light reaching panel
   // Depends on arrangement, reflectors, etc.
-  GEOMETRIC_EFFICIENCY: 0.85,
+  GEOMETRIC_EFFICIENCY: LED_SOLAR_CORE.geometricEfficiency,
   
   // Round-trip efficiency = η_LED × η_geom × η_solar
   // = 0.30 × 0.85 × 0.22 ≈ 0.056 or 5.6%

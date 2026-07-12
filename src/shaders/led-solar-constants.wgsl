@@ -36,37 +36,21 @@
 // =============================================================================
 // PHYSICAL CONSTANTS
 // =============================================================================
-// All constants verified against CODATA values via Wolfram Alpha
+// CODATA / device core values: physics/constants.json → generated/constants.wgsl
 
-const PI: f32 = 3.14159265358979323846;
-const TWO_PI: f32 = 6.28318530717958647692;
-const FOUR_PI: f32 = 12.56637061435917295385;
+#include "generated/constants.wgsl"
+
+const TWO_PI: f32 = TAU;
+const FOUR_PI: f32 = TAU * 2.0;
 const LN2: f32 = 0.69314718055994530942;  // ln(2) from Wolfram: NaturalLog[2]
 
-// Planck constant: h = 6.62607015 × 10^-34 J⋅s (exact, defined value)
-// Wolfram: https://www.wolframalpha.com/input?i=planck+constant
-const PLANCK_J: f32 = 6.62607015e-34;      // J⋅s
-const PLANCK_EV: f32 = 4.135667696e-15;    // eV⋅s (converted via h/e)
+// Aliases used by led-solar-physics.wgsl
+const ELECTRON_CHARGE: f32 = E_CHARGE;
+const BOLTZMANN: f32 = K_B;
+const N_SILICON: f32 = N_SILICON_LED;
 
-// Speed of light in vacuum: c = 299792458 m/s (exact, defined)
-// Wolfram: https://www.wolframalpha.com/input?i=speed+of+light
-const SPEED_OF_LIGHT: f32 = 2.99792458e8;  // m/s
-
-// Elementary charge: e = 1.602176634 × 10^-19 C (exact, defined)
-// Wolfram: https://www.wolframalpha.com/input?i=elementary+charge
-const ELECTRON_CHARGE: f32 = 1.602176634e-19;  // C
-
-// Boltzmann constant: k_B = 1.380649 × 10^-23 J/K (exact, defined)
-// Wolfram: https://www.wolframalpha.com/input?i=boltzmann+constant
-const BOLTZMANN: f32 = 1.380649e-23;  // J/K
-
-// Stefan-Boltzmann constant: σ = 5.670374419... × 10^-8 W/(m²⋅K⁴)
-// Wolfram: https://www.wolframalpha.com/input?i=stefan+boltzmann+constant
-const STEFAN_BOLTZMANN: f32 = 5.670374419e-8;  // W/(m²⋅K⁴)
-
-// Avogadro's number: N_A = 6.02214076 × 10^23 mol^-1 (exact, defined)
-// Wolfram: https://www.wolframalpha.com/input?i=avogadro+number
-const AVOGADRO: f32 = 6.02214076e23;  // mol^-1
+// Planck constant in eV⋅s (converted via h/e)
+const PLANCK_EV: f32 = 4.135667696e-15;
 
 // =============================================================================
 // MATERIAL CONSTANTS
@@ -77,11 +61,11 @@ const AVOGADRO: f32 = 6.02214076e23;  // mol^-1
 
 // Air at STP: n ≈ 1.000293
 // Wolfram: https://www.wolframalpha.com/input?i=refractive+index+of+air
-const N_AIR: f32 = 1.000293;
+// N_AIR from generated/constants.wgsl (MATERIALS.nAir)
 
 // Silicon at 600 nm: n ≈ 3.9-4.0 (wavelength dependent)
 // Wolfram: https://www.wolframalpha.com/input?i=refractive+index+of+silicon
-const N_SILICON: f32 = 3.97;
+// N_SILICON alias → N_SILICON_LED from generated/constants.wgsl
 
 // Silica glass (SiO₂): n ≈ 1.46
 // Wolfram: https://www.wolframalpha.com/input?i=refractive+index+of+silica

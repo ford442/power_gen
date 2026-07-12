@@ -1,6 +1,8 @@
 # SEG WebGPU Visualizer
 
-Real-time WebGPU simulation of the Searl Effect Generator (SEG) with extensible architecture for Heron's Fountain and Kelvin's Thunderstorm.
+Real-time multi-device physics lab centered on the Searl Effect Generator (SEG), with Heron, Kelvin, solar/LED, Peltier, MHD, and plugin apparatuses.
+
+**Contributor guide:** [`docs/AGENTS.md`](docs/AGENTS.md) (entry point, query params, language roles). **ADRs:** [`docs/adr/`](docs/adr/).
 
 **Live Demo:** https://ford442.github.io/power_gen/
 
@@ -21,18 +23,10 @@ WebGL2 fallback (no WebGPU required): [open with `?renderer=webgl2`](https://for
 *Screenshots use the WebGL2 fallback (`?renderer=webgl2`) for broad browser compatibility.*
 
 ## Features
-- Three concentric rings of instanced magnetic rollers in toroidal formation
-- 10,000-50,000 GPU particles driven by **stateful kinematic integration** (persistent
-  per-particle position + velocity in a storage buffer, advanced each frame by real forces)
-- Four physically-modelled modes:
-  - **SEG** — roller spin-up from moment of inertia, Lorentz drive torque and Lenz
-    eddy-current braking to a self-regulating terminal velocity (with coronal glow)
-  - **Heron's Fountain** — Bernoulli exit velocity with Swamee–Jain pipe friction and
-    depleting head pressure; droplets bunch realistically at the apex
-  - **Kelvin's Thunderstorm** — charged droplets under gravity + Stokes drag + Coulomb
-    repulsion, capacitive voltage runaway, electrostatic levitation, and a fractal
-    (midpoint-displacement) discharge at dielectric breakdown
-  - **LEDs + Solar** — photons reflected/absorbed by Snell + Fresnel optics on silicon
+- **Multi-device dashboard** — overview with energy pipes, or focus any registered apparatus
+- SEG: three concentric rings of instanced magnetic rollers; RK4 flux lines (WebGPU); layout presets
+- GPU particles (10k–50k scaled by quality) via WGSL compute; CPU fallback on WebGL2
+- **Plant models (honest fidelity):** SEG and Heron/Kelvin/solar have stronger integrators (JS + optional WASM); Peltier/MHD are lighter geometry + particle modes — see [`docs/AGENTS.md`](docs/AGENTS.md) device table
 - Interactive orbital camera (drag to rotate, scroll to zoom)
 
 ## Future Plans

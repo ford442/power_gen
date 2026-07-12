@@ -8,6 +8,8 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 
 ## Find the entry point (< 5 minutes)
 
+**New here?** (1) `npm install && npm run dev` → http://localhost:5173/ (2) open `src/main.js` and follow `resolveRenderer()` (3) skim [`adr/`](./adr/) for durable decisions.
+
 | What | Where |
 |------|--------|
 | **HTML shell / UI** | `src/index.html` (Vite root = `src/`) |
@@ -19,6 +21,7 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 | **Shaders** | `src/shaders/` — see [`SHADERS.md`](./SHADERS.md) |
 | **C++ / WASM physics** | `cpp/src/sim_core.*` + `src/wasm/seg-physics-bridge.js` |
 | **Telemetry** | `src/telemetry-hub.js` — see [`TELEMETRY.md`](./TELEMETRY.md) |
+| **Architecture decisions** | [`docs/adr/`](./adr/) (dual renderer, WASM, no Three.js, energy network) |
 
 ```text
 Browser loads src/index.html
@@ -103,7 +106,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 - New physics math and public numeric APIs → **TypeScript** (or C++ if part of the WASM plant).
 - New draw/compute passes → **WGSL** + `pipeline-layout-cache.js` + [`BINDINGS.md`](./BINDINGS.md); document in [`SHADERS.md`](./SHADERS.md).
 - `npm run typecheck` covers **`src/**/*.ts` only** (`allowJs: false`). JS is not typechecked in CI.
-- Runtime entry is **`main.js`**. `index.ts` is a typed **barrel**, not the app entry.
+- Runtime entry is **`src/main.js`**. `index.ts` is a typed **barrel**, not the app entry.
 
 ---
 
@@ -162,6 +165,7 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `heronLayout` | preset id | stored / default | Heron vessel layout |
 | `prototype` | `lab` \| `showroom` \| `searl` \| `roschin` \| `godin` | showroom-ish | SEG roller prototype look / lab effects |
 | `frame` | `full` \| `minimal` \| `off` | `full` | SEG structural frame complexity |
+| `gltfHousing` | `1` \| `0` | `1` (WebGPU) | Load glTF housing shell in SEG focus — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
 | `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | Lighting + post look |
 | `mockHardware` | `1` | off | Hardware twin mock transport (no serial port) |
 
@@ -186,19 +190,21 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 
 | Module | Role |
 |--------|------|
-| `main.js` | Renderer bootstrap, window control API, WASM badge, operator/diagram init |
-| `multi-device-visualizer.js` | WebGPU orchestrator: devices, pipes, bloom, frame loop, hardware twin hook |
-| `webgpu-manager.js` | Single adapter/device/canvas/depth path |
-| `pipeline-layout-cache.js` | Shared bind-group layouts + pipelines |
-| `device-instance.js` + `devices/*` | Per-device update/render mixins, registry plugins |
-| `energy-pipe.js` | Overview Bézier energy transfer (visual; network intent in ADR) |
-| `performance-profiler.js` | FPS, auto-quality, optional GPU timestamps, per-device CPU times |
-| `sim-rate-controller.js` | Speed mult / substeps; couples to quality under load |
-| `telemetry-hub.js` | Single telemetry write path for gauges / operator |
-| `integration.ts` | Typed physics uniforms + scientific overlay hooks |
-| `wasm/seg-physics-bridge.js` | Optional WASM step + zero-copy views |
-| `hardware-bridge.js` / `hardware-panel.js` | Web Serial + mock twin (**experimental**) |
-| `renderers/shared/*` | CPU particle + plant steps for both backends |
+| `src/main.js` | Renderer bootstrap, window control API, WASM badge, operator/diagram init |
+| `src/multi-device-visualizer.js` | WebGPU orchestrator: devices, pipes, bloom, frame loop, hardware twin hook |
+| `src/webgpu-manager.js` | Single adapter/device/canvas/depth path |
+| `src/pipeline-layout-cache.js` | Shared bind-group layouts + pipelines |
+| `src/device-instance.js` + `devices/*` | Per-device update/render mixins, registry plugins |
+| `src/energy-pipe.js` | Overview Bézier energy transfer (visual; network intent in ADR-0004) |
+| `src/performance-profiler.js` | FPS, auto-quality, optional GPU timestamps, per-device CPU times |
+| `src/sim-rate-controller.js` | Speed mult / substeps; couples to quality under load |
+| `src/telemetry-hub.js` | Single telemetry write path for gauges / operator |
+| `src/seg-layout.js` | Layout presets (Searl / Roschin / legacy) — data-driven roller counts |
+| `src/assets/gltf/*` | Hand-rolled glTF loader + scene graph — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
+| `src/integration.ts` | Typed physics uniforms + scientific overlay hooks |
+| `src/wasm/seg-physics-bridge.js` | Optional WASM step + zero-copy views |
+| `src/hardware-bridge.js` / `hardware-panel.js` | Web Serial + mock twin (**experimental**) |
+| `src/renderers/shared/*` | CPU particle + plant steps for both backends |
 
 ---
 
@@ -284,4 +290,4 @@ No full automated browser suite. Manual / agent checks:
 
 - ES modules with `.js` import suffixes; async WebGPU init.
 - Prefer explicit WGSL types and documented bindings over `layout: 'auto'`.
-- Physics numbers: TS constants or C++ — not magic literals scattered in render code.
+- Physics numbers: [`physics/constants.json`](../physics/constants.json) → codegen → TS/C++/WGSL ([`docs/PHYSICS_CONSTANTS.md`](PHYSICS_CONSTANTS.md)); layout presets stay in `seg-layout.js`.

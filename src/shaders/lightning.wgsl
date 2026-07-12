@@ -1,3 +1,5 @@
+#include "generated/constants.wgsl"
+
 struct FluxSegment {
     startX: f32,
     startY: f32,
@@ -31,8 +33,7 @@ struct FieldLineVertexOutput {
     @location(2) fieldStrength: f32,
 }
 
-const PI: f32 = 3.1415927f;
-const MU_0_: f32 = 0.000001256637f;
+const MU_0_: f32 = MU_0;
 const ROLLER_MOMENT: f32 = 18.5f;
 const INNER_RING_COUNT: i32 = 8i;
 const MIDDLE_RING_COUNT: i32 = 12i;

@@ -6,7 +6,7 @@
  *   WebGPUManager          → WebGL2Context
  *   DeviceInstance         → WebGL2DeviceState (CPU particles + physics)
  *   MultiDeviceVisualizer  → WebGL2MultiDeviceVisualizer (this file)
- *   compute.wgsl           → shared/particle-physics.js (CPU)
+ *   compute.wgsl           → passes/particle-compute.wgsl (shared/particle-physics.js CPU)
  *
  * Intentional visual gaps vs WebGPU (see docs/WEBGL2.md):
  *   bloom/post, RK4 flux lines, energy-arc meshes, full SEG enhanced PBR.
@@ -24,7 +24,7 @@ import {
   stepDevicePhysics,
   deviceModeIndex
 } from '../shared/device-physics.js';
-import { isDeviceActive as isDeviceVisible } from '../shared/device-view.js';
+import { isDeviceActive as isDeviceVisible, shouldSimulateDevice } from '../shared/device-view.js';
 import { getDeviceParticleScale, getViewMeshLod } from '../shared/view-lod.js';
 import { WebGL2Context } from './webgl2-context.js';
 import { SkyGridRenderer } from './sky-grid-renderer.js';
@@ -470,9 +470,19 @@ export class WebGL2MultiDeviceVisualizer {
     const substeps = simSteps.length || 1;
     const subDt = deltaTime / Math.max(substeps, 1);
     let totalParticles = 0;
+    const canvasAspect = (this.canvas.width || 1) / Math.max(1, this.canvas.height || 1);
+    const cullCamera = this.camera?.camera;
+    const cullOpts = { aspect: canvasAspect };
 
     for (const device of Object.values(this.devices)) {
-      if (!this.isDeviceActive(device.id)) continue;
+      if (!shouldSimulateDevice(
+        this.currentView,
+        this.devicesEnabled,
+        device.id,
+        device.config?.position,
+        cullCamera,
+        cullOpts
+      )) continue;
 
       if (device.id === 'seg') {
         device.physics.segOmega = segOperator.physics.segOmega;
@@ -574,8 +584,19 @@ export class WebGL2MultiDeviceVisualizer {
       corona: this.devices.seg?.physics.corona || 0
     };
 
+    const canvasAspect = (this.canvas.width || 1) / Math.max(1, this.canvas.height || 1);
+    const cullCamera = this.camera?.camera;
+    const cullOpts = { aspect: canvasAspect };
+
     for (const device of Object.values(this.devices)) {
-      if (!this.isDeviceActive(device.id)) continue;
+      if (!shouldSimulateDevice(
+        this.currentView,
+        this.devicesEnabled,
+        device.id,
+        device.config?.position,
+        cullCamera,
+        cullOpts
+      )) continue;
       const pos = device.config.position;
       const tint = device.config.color || [0.5, 0.8, 1.0];
       const mode = deviceModeIndex(device.id);

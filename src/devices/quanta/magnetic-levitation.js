@@ -13,7 +13,7 @@ import { packInstance } from '../../device-mesh-layouts.js';
 import { ValidatedConstants } from '../../ValidatedConstants';
 
 const BR = ValidatedConstants.MAGNET_BR?.value ?? 1.48;
-const MU0 = ValidatedConstants.MU_0?.value ?? 1.25663706212e-6;
+const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-7;
 
 /** Ring magnet segments in a simplified Halbach-like azimuthal pattern. */
 function buildHalbachRingInstances() {

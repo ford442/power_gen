@@ -7,6 +7,7 @@ import { telemetryHub, TelemetryHub } from '../telemetry-hub.js';
 import { segWasm } from '../wasm/seg-physics-bridge.js';
 import { explainerState } from '../seg-explainer/explainer-state.js';
 import { getViewMeshLod, getDeviceParticleScale } from '../renderers/shared/view-lod.js';
+import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -30,15 +31,8 @@ export const renderLoopMethods = {
       new Float32Array([envelope, shellCount, 1.6, 0.55, 0.06, 8.0])
     );
 
-    const bindGroup = this.pipelineCache.createBindGroup(
-      'anomalyWall',
-      [
-        { binding: 0, resource: { buffer: globalUniformBuffer } },
-        { binding: 1, resource: { buffer: this.anomalyWallParamsBuffer } }
-      ],
-      'anomaly-wall-bg'
-    );
-
+    const bindGroup = this.anomalyWallBindGroup;
+    if (!bindGroup) return;
     renderPass.setPipeline(this.anomalyWallPipeline);
     renderPass.setBindGroup(0, bindGroup);
     renderPass.setVertexBuffer(0, this.magneticWallBuffer.vertexBuffer);
@@ -65,7 +59,12 @@ export const renderLoopMethods = {
     // Logarithmic mapping: 0→0.05×, 50→1.0×, 100→20× (base 400)
     const speed = 0.05 * Math.pow(400, rawSpeed / 100);
     this.speedMult = speed;
-    const simSteps = this.simRateController.tick(deltaTime, speed);
+    const simSteps = this.simRateController.tick(deltaTime, speed, {
+      qualityLevel: this.profiler.qualityLevel,
+      frameTimeMs: this.profiler.lastFrameTimeMs,
+      gpuTimeMs: this.profiler.lastGpuTimeMs
+    });
+    this.profiler.beginFrameCpu();
     // Optional C++ WASM plant (?wasmPhysics=1) — drives SEG omega + mode plant
     const useWasm = segWasm.enabled;
     if (useWasm) {
@@ -118,6 +117,7 @@ export const renderLoopMethods = {
       }
     }
     this.segOmega = segOperator.physics.segOmega;
+    this.updateGltfHousingState?.();
     this.corona = segOperator.physics.corona;
     this.time += deltaTime * speed;
 
@@ -138,11 +138,43 @@ export const renderLoopMethods = {
 
     // Update camera
     this.cameraController.updateCamera(deltaTime);
-    
-    // Record frame in profiler
-    const totalParticles = Object.values(this.devices).reduce(
-      (sum, d) => sum + (this.isDeviceActive(d.id) ? d.particleCount : 0), 0
+
+    const canvasAspect = (this.canvas.width || 1) / Math.max(1, this.canvas.height || 1);
+    const cullCamera = this.camera?.camera;
+    const cullOpts = { aspect: canvasAspect };
+
+    const isDeviceVisible = (device) => shouldSimulateDevice(
+      this.currentView,
+      this.devicesEnabled,
+      device.id,
+      device.position,
+      cullCamera,
+      cullOpts
     );
+
+    // Update devices with view LOD × auto-quality scaling
+    const explainerScale = explainerState.getParticleCapScale();
+    const meshLod = getViewMeshLod(this.currentView, this.profiler.qualityLevel);
+    this.refreshSEGLayout(meshLod * explainerScale);
+
+    let totalParticles = 0;
+    for (const device of Object.values(this.devices)) {
+      if (!isDeviceVisible(device)) continue;
+
+      const particleScale = getDeviceParticleScale({
+        currentView: this.currentView,
+        deviceId: device.id,
+        qualityLevel: this.profiler.qualityLevel,
+        explainerScale
+      });
+      if (particleScale <= 0) continue;
+
+      this.profiler.measureDevice(device.id, () => {
+        device.update(deltaTime * speed, particleScale);
+      });
+      totalParticles += device.scaledParticleCount || Math.floor(device.particleCount * particleScale);
+    }
+
     this.profiler.recordFrame(deltaTime, totalParticles);
 
     // Update global uniforms with extended lighting data
@@ -221,15 +253,6 @@ export const renderLoopMethods = {
     lightingData[34] = this.lightingConfig.shadowStrength;
     this.device.queue.writeBuffer(this.lightingUniformBuffer, 0, lightingData);
 
-    // Update devices with quality scaling
-    const qualityScale = this.profiler.qualityLevel * explainerState.getParticleCapScale();
-    this.refreshSEGLayout(qualityScale);
-    for (const device of Object.values(this.devices)) {
-      if (this.isDeviceActive(device.id)) {
-        device.update(deltaTime * speed, qualityScale);
-      }
-    }
-
     // Single telemetry write path after device physics (operator panel + gauges subscribe)
     const omega = this.segOmega || 0;
     const particleFlux = totalParticles * Math.max(0.05, this.speedMult);
@@ -253,8 +276,11 @@ export const renderLoopMethods = {
     }
 
     if (this.isOverviewMode()) {
+      const pipeLod = meshLod;
       for (const pipe of this.energyPipes) {
-        pipe.update(deltaTime, this.devices, this.time);
+        this.profiler.measureDevice(`pipe:${pipe.config.from}-${pipe.config.to}`, () => {
+          pipe.update(deltaTime, this.devices, this.time, { lodScale: pipeLod });
+        });
       }
     }
 
@@ -267,9 +293,9 @@ export const renderLoopMethods = {
     this._uploadSkyUniforms(this.globalEnergyLevel);
 
     if (this.segAnnotations?.enabled) {
-      this.segAnnotations.update();
+      this.profiler.measureDevice('annotations', () => this.segAnnotations.update());
     }
-    
+
     // Begin command encoding
     const encoder = this.device.createCommandEncoder();
     
@@ -279,7 +305,7 @@ export const renderLoopMethods = {
     // SEG-specific compute: roller kinematics + RK4 flux line tracing.
     // These run first so rendering reads the freshly updated buffers.
     const segDevice = this.devices['seg'];
-    if (segDevice && this.isDeviceActive('seg')) {
+    if (segDevice && isDeviceVisible(segDevice)) {
       if (segDevice.rollerComputePipeline && segDevice.rollerComputeBindGroup) {
         computePass.setPipeline(segDevice.rollerComputePipeline);
         computePass.setBindGroup(0, segDevice.rollerComputeBindGroup);
@@ -296,11 +322,18 @@ export const renderLoopMethods = {
     }
 
     for (const device of Object.values(this.devices)) {
-      if (this.isDeviceActive(device.id) && device.computePipeline && device.computeBindGroup) {
+      if (!isDeviceVisible(device)) continue;
+      if (device.computePipeline && device.computeBindGroup) {
         computePass.setPipeline(device.computePipeline);
         computePass.setBindGroup(0, device.computeBindGroup);
         const workgroups = Math.ceil((device.scaledParticleCount || device.particleCount) / 64);
         computePass.dispatchWorkgroups(workgroups);
+      }
+    }
+
+    if (this.isOverviewMode() && this.energyPipeComputePipeline) {
+      for (const pipe of this.energyPipes) {
+        pipe.dispatchCompute(computePass);
       }
     }
     computePass.end();
@@ -339,15 +372,16 @@ export const renderLoopMethods = {
     // Render devices (scaled by quality)
     const scaledQuality = this.profiler.qualityLevel;
     for (const device of Object.values(this.devices)) {
-      if (this.isDeviceActive(device.id)) {
-        // Skip expensive VFX at low quality — keep core meshes visible.
-        const skipEffects = scaledQuality < 0.5;
+      if (!isDeviceVisible(device)) continue;
+      // Skip expensive VFX at low quality — keep core meshes visible.
+      const skipEffects = scaledQuality < 0.5;
+      this.profiler.measureDevice(`render:${device.id}`, () => {
         device.render(renderPass, this.globalUniformBuffer, skipEffects);
-      }
+      });
     }
 
     // Roschin–Godin magnetic wall shells (drawn after SEG so they overlay the scene).
-    if (segDevice && this.isDeviceActive('seg')) {
+    if (segDevice && isDeviceVisible(segDevice)) {
       this.renderAnomalyWalls(renderPass, this.globalUniformBuffer, segDevice);
     }
 
@@ -410,11 +444,9 @@ export const renderLoopMethods = {
         }]
       });
       extractPass.setPipeline(this.bloomExtractPipeline);
-      extractPass.setBindGroup(0, this.pipelineCache.createBindGroup('bloomExtract', [
-        { binding: 0, resource: this.bloomSceneTexture.createView() },
-        { binding: 1, resource: this.bloomSampler },
-        { binding: 2, resource: { buffer: this.bloomParamsBuffer } }
-      ], 'bloom-extract-bg'));
+      if (this.bloomExtractBindGroup) {
+        extractPass.setBindGroup(0, this.bloomExtractBindGroup);
+      }
       extractPass.draw(3);
       extractPass.end();
 
@@ -427,12 +459,9 @@ export const renderLoopMethods = {
         }]
       });
       blurXPass.setPipeline(this.bloomBlurPipeline);
-      blurXPass.setBindGroup(0, this.pipelineCache.createBindGroup('bloomBlur', [
-        { binding: 0, resource: this.bloomTempTexture.createView() },
-        { binding: 1, resource: this.bloomSampler },
-        { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
-        { binding: 3, resource: { buffer: this.bloomBlurDirXBuffer } }
-      ], 'bloom-blur-x-bg'));
+      if (this.bloomBlurXBindGroup) {
+        blurXPass.setBindGroup(0, this.bloomBlurXBindGroup);
+      }
       blurXPass.draw(3);
       blurXPass.end();
 
@@ -445,12 +474,9 @@ export const renderLoopMethods = {
         }]
       });
       blurYPass.setPipeline(this.bloomBlurPipeline);
-      blurYPass.setBindGroup(0, this.pipelineCache.createBindGroup('bloomBlur', [
-        { binding: 0, resource: this.bloomBlurTexture.createView() },
-        { binding: 1, resource: this.bloomSampler },
-        { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
-        { binding: 3, resource: { buffer: this.bloomBlurDirYBuffer } }
-      ], 'bloom-blur-y-bg'));
+      if (this.bloomBlurYBindGroup) {
+        blurYPass.setBindGroup(0, this.bloomBlurYBindGroup);
+      }
       blurYPass.draw(3);
       blurYPass.end();
 
@@ -463,18 +489,15 @@ export const renderLoopMethods = {
         }]
       });
       compositePass.setPipeline(this.bloomCompositePipeline);
-      compositePass.setBindGroup(0, this.pipelineCache.createBindGroup('bloomComposite', [
-        { binding: 0, resource: this.bloomSceneTexture.createView() },
-        { binding: 1, resource: this.bloomTempTexture.createView() },
-        { binding: 2, resource: this.bloomSampler },
-        { binding: 3, resource: { buffer: this.bloomParamsBuffer } },
-        { binding: 4, resource: this.depthSampleView },
-        { binding: 5, resource: this.prevSceneTexture.createView() }
-      ], 'bloom-composite-bg'));
+      if (this.bloomCompositeBindGroup) {
+        compositePass.setBindGroup(0, this.bloomCompositeBindGroup);
+      }
       compositePass.draw(3);
       compositePass.end();
     }
     this.profiler.writeTimestamp(encoder, 1);
+
+    this.profiler.endFrameCpu();
     
     this.device.queue.submit([encoder.finish()]);
     

@@ -5,6 +5,7 @@
  */
 
 import type { Vec3, UncertaintyFlag, PhysicsValueType, ValidationResult } from './types';
+import { PHYSICAL_CONSTANTS, SEG_MAGNET } from '../generated/physics-constants';
 
 /**
  * Uncertainty levels for different calculation types
@@ -59,32 +60,31 @@ export function validatePhysics(value: number, type: PhysicsValueType): Validati
 }
 
 /**
- * Physics constants with fallback values
- * From CODATA 2018
+ * Physics constants with fallback values — sourced from physics/constants.json via codegen.
  */
 export const FALLBACK_CONSTANTS = {
-  MU_0: 1.2566370614e-7,      // H/m - Vacuum permeability
-  EPSILON_0: 8.854187817e-12, // F/m - Vacuum permittivity
-  C: 299792458,               // m/s - Speed of light
-  K_B: 1.380649e-23,          // J/K - Boltzmann constant
-  T_ROOM: 300,                // K - Room temperature
-  E_CHARGE: 1.602176634e-19,  // C - Elementary charge
-  G: 9.80665,                 // m/s² - Standard gravity
-  PI: Math.PI,
+  MU_0: PHYSICAL_CONSTANTS.MU_0,
+  EPSILON_0: PHYSICAL_CONSTANTS.EPSILON_0,
+  C: PHYSICAL_CONSTANTS.C,
+  K_B: PHYSICAL_CONSTANTS.K_B,
+  T_ROOM: PHYSICAL_CONSTANTS.T_ROOM,
+  E_CHARGE: PHYSICAL_CONSTANTS.E_CHARGE,
+  G: PHYSICAL_CONSTANTS.G,
+  PI: PHYSICAL_CONSTANTS.PI,
 } as const;
 
 /**
  * SEG Magnet specifications (NdFeB N52)
  */
 export const FALLBACK_SEG_SPECS = {
-  Br: 1.48,                   // Tesla - Remanence
-  mu_r: 1.05,                 // Relative permeability
-  radius: 0.8,                // m
-  height: 2.5,                // m
-  volume: 5.02655,            // m³
-  magnetization: 1.12166e6,   // A/m
-  magneticMoment: 5.635e6,    // A·m²
-  ringRadius: 4.0,            // m
+  Br: SEG_MAGNET.Br,
+  mu_r: SEG_MAGNET.mu_r,
+  radius: SEG_MAGNET.radius,
+  height: SEG_MAGNET.height,
+  volume: SEG_MAGNET.volume,
+  magnetization: SEG_MAGNET.magnetization,
+  magneticMoment: 5.635e6,
+  ringRadius: 4.0,
   numRollers: 12,
 } as const;
 

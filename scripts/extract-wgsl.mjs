@@ -117,6 +117,7 @@ function main() {
         frameUniformsWgsl: 'common/frame-uniforms.wgsl',
         deviceUniformsWgsl: 'common/device-uniforms.wgsl',
         particleStructsWgsl: 'common/particle.wgsl',
+        pipeParticleWgsl: 'common/pipe-particle.wgsl',
         PBR_SURFACE_WGSL: 'common/pbr-surface.wgsl',
         PBR_BRDF_WGSL: 'common/pbr-brdf.wgsl',
         PBR_LIGHTING_STRUCT_WGSL: 'common/pbr-lighting.wgsl',

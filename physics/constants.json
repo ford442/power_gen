@@ -1,0 +1,82 @@
+{
+  "$comment": "Single source of truth for cross-language physics constants. Regenerate: npm run codegen:constants",
+  "physical": {
+    "MU_0": 1.2566370614e-7,
+    "EPSILON_0": 8.854187817e-12,
+    "C": 299792458,
+    "K_B": 1.380649e-23,
+    "T_ROOM": 300,
+    "E_CHARGE": 1.602176634e-19,
+    "G": 9.80665,
+    "RHO_WATER": 1000,
+    "PI": 3.141592653589793
+  },
+  "segMagnet": {
+    "Br": 1.48,
+    "mu_r": 1.05,
+    "radiusM": 0.8,
+    "heightM": 2.5,
+    "volumeM3": 5.02655,
+    "magnetizationAm": 1121660
+  },
+  "segRollerComposite": {
+    "defaultRadiusM": 0.8,
+    "defaultHeightM": 2.5,
+    "innerRingRadiusM": 2.0,
+    "middleRingRadiusM": 4.0,
+    "outerRingRadiusM": 6.0,
+    "numRollersReference": 12
+  },
+  "materials": {
+    "siliconRefractiveIndex": 3.96,
+    "nAir": 1.000293,
+    "nSiliconLedSolar": 3.97
+  },
+  "kelvin": {
+    "bucketCapacitanceF": 4.01e-11,
+    "dropletChargeC": 1e-9,
+    "eBreakdownVm": 3000000,
+    "bucketDistanceM": 6.0
+  },
+  "heron": {
+    "restDensity": 1000,
+    "gasConstant": 560571,
+    "gamma": 7,
+    "smoothingLengthM": 0.012,
+    "atmosphericPressurePa": 101325
+  },
+  "ledSolar": {
+    "wallPlugEfficiency": 0.30,
+    "siEfficiency": 0.22,
+    "geometricEfficiency": 0.85,
+    "chargeEfficiency": 0.95,
+    "planckJ": 6.62607015e-34,
+    "speedOfLight": 299792458
+  },
+  "particleLayouts": {
+    "gpuParticleBytes": 16,
+    "simParticleBytes": 32,
+    "pipeParticleBytes": 32,
+    "fieldLineParticleBytes": 32,
+    "rollerExportStride": 4,
+    "simParticleFloats": 8,
+    "gpuParticleFloats": 4
+  },
+  "sceneScaling": {
+    "baseUnitLabel": "scene_unit",
+    "notes": "Visualization layouts in src/seg-layout.js map real metres to scene units via per-preset worldScale. Plant integrators may apply additional scene gravity scaling in WASM (see sim_core.cpp).",
+    "layoutPresetsSource": "src/seg-layout.js PRESET_DEFS",
+    "presetExamples": {
+      "searl": { "rollerCounts": [10, 25, 35], "worldScale": 2.0 },
+      "roschin": { "rollerCounts": [12], "worldScale": 4.0 },
+      "legacy": { "rollerCounts": [8, 12, 16], "worldScale": 1.0 }
+    }
+  },
+  "wasmSegDefaults": {
+    "comment": "Default ring topology for WASM SEGSimulator only — not the visual layout presets.",
+    "ringCounts": [12, 22, 32],
+    "ringRadiiScene": [3.5, 5.5, 7.5],
+    "maxRollers": 66,
+    "maxParticles": 50000
+  }
+}

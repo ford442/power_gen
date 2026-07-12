@@ -43,6 +43,15 @@ export const sceneSetupMethods = {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.profiler.trackBuffer('anomaly-wall-params', 24, GPUBufferUsage.UNIFORM);
+
+    this.anomalyWallBindGroup = this.pipelineCache.createBindGroup(
+      'anomalyWall',
+      [
+        { binding: 0, resource: { buffer: this.globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.anomalyWallParamsBuffer } }
+      ],
+      'anomaly-wall-bg'
+    );
   },
 
   _waitForCanvasLayout() {
@@ -154,6 +163,47 @@ export const sceneSetupMethods = {
         packPostUniforms({ width: w, height: h, preset: this.postPreset })
       );
     }
+    this._rebuildBloomBindGroups();
+  },
+
+  /** Cached bloom bind groups — recreated when bloom textures resize. */
+  _rebuildBloomBindGroups() {
+    if (!this.pipelineCache || !this.bloomSceneTexture || !this.bloomBlurTexture
+        || !this.bloomTempTexture || !this.prevSceneTexture || !this.bloomSampler
+        || !this.bloomParamsBuffer || !this.depthSampleView) {
+      return;
+    }
+    const cache = this.pipelineCache;
+    const mk = (name, entries, label) => cache.createBindGroup(name, entries, label);
+
+    this.bloomExtractBindGroup = mk('bloomExtract', [
+      { binding: 0, resource: this.bloomSceneTexture.createView() },
+      { binding: 1, resource: this.bloomSampler },
+      { binding: 2, resource: { buffer: this.bloomParamsBuffer } }
+    ], 'bloom-extract-bg');
+
+    this.bloomBlurXBindGroup = mk('bloomBlur', [
+      { binding: 0, resource: this.bloomTempTexture.createView() },
+      { binding: 1, resource: this.bloomSampler },
+      { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
+      { binding: 3, resource: { buffer: this.bloomBlurDirXBuffer } }
+    ], 'bloom-blur-x-bg');
+
+    this.bloomBlurYBindGroup = mk('bloomBlur', [
+      { binding: 0, resource: this.bloomBlurTexture.createView() },
+      { binding: 1, resource: this.bloomSampler },
+      { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
+      { binding: 3, resource: { buffer: this.bloomBlurDirYBuffer } }
+    ], 'bloom-blur-y-bg');
+
+    this.bloomCompositeBindGroup = mk('bloomComposite', [
+      { binding: 0, resource: this.bloomSceneTexture.createView() },
+      { binding: 1, resource: this.bloomTempTexture.createView() },
+      { binding: 2, resource: this.bloomSampler },
+      { binding: 3, resource: { buffer: this.bloomParamsBuffer } },
+      { binding: 4, resource: this.depthSampleView },
+      { binding: 5, resource: this.prevSceneTexture.createView() }
+    ], 'bloom-composite-bg');
   },
 
   async setupBloomPipeline() {
@@ -185,5 +235,6 @@ export const sceneSetupMethods = {
     this.device.queue.writeBuffer(this.bloomBlurDirXBuffer, 0, new Float32Array([1, 0, 0, 0]));
     this.device.queue.writeBuffer(this.bloomBlurDirYBuffer, 0, new Float32Array([0, 1, 0, 0]));
     this.setupBloomTextures();
+    this._rebuildBloomBindGroups();
   }
 };

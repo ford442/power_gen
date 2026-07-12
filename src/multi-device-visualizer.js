@@ -46,6 +46,7 @@ import { renderLoopMethods } from './visualizer/render-loop.js';
 import { hardwareTwinMethods } from './visualizer/hardware-twin.js';
 import { materialMethods } from './visualizer/materials.js';
 import { diagnosticsMethods } from './visualizer/diagnostics.js';
+import { gltfSetupMethods } from './visualizer/setup-gltf.js';
 
 export class MultiDeviceVisualizer {
   constructor() {
@@ -512,6 +513,10 @@ export class MultiDeviceVisualizer {
 
   async setupEnergyPipePipeline() {
     this.energyPipePipeline = await this.pipelineCache.ensureEnergyPipePipeline(this.shaders);
+    this.energyPipeComputePipeline = await this.pipelineCache.ensureEnergyPipeComputePipeline(this.shaders);
+    for (const pipe of this.energyPipes) {
+      pipe._setupComputeResources();
+    }
   }
 
   /**
@@ -563,5 +568,6 @@ Object.assign(
   renderLoopMethods,
   hardwareTwinMethods,
   materialMethods,
-  diagnosticsMethods
+  diagnosticsMethods,
+  gltfSetupMethods
 );
