@@ -19,7 +19,7 @@ and telemetry with WebGPU; it does **not** implement every WebGPU visual feature
 | Heron layout presets | Yes |
 | Particle count slider | Yes (`setParticleCount`) |
 | `?wasmPhysics=1` plant | Yes — SEG/Heron/Kelvin/Solar via `segWasm` |
-| Overview energy pipes | Yes — simplified **line-strip Bézier** arcs |
+| Overview energy pipes | Yes — simplified **line-strip Bézier** arcs; shared `EnergyNetwork` budget clamp when `?energyCoupling=1` |
 | `captureCanvasFrame()` | Yes — `{ width, height, pixels, view, flipY? }` |
 | `getRendererInfo()` | Yes — fps, view, telemetry snapshot, gaps list |
 

@@ -20,6 +20,7 @@ import { TelemetrySampler } from './telemetry/telemetry-sampler.js';
 import type { DevicePhysicsState } from './renderers/shared/device-physics.ts';
 import type {
   DeviceTelemetrySnap,
+  PublishFrameEnergyNetwork,
   PublishFrameScientific,
   ScientificTelemetry,
   SegOperatorTelemetry,
@@ -30,6 +31,7 @@ import type {
 
 export type {
   DeviceTelemetrySnap,
+  PublishFrameEnergyNetwork,
   PublishFrameScientific,
   ScientificTelemetry,
   SegOperatorTelemetry,
@@ -71,6 +73,7 @@ export interface PublishFrameOpts {
   devicePhysics?: Record<string, Partial<DevicePhysicsState> | null | undefined>;
   scientific?: PublishFrameScientific;
   segTelemetry?: SegOperatorTelemetry;
+  energyNetwork?: PublishFrameEnergyNetwork | null;
 }
 
 export interface DevicePhysicsSource {
@@ -103,7 +106,10 @@ function emptyDeviceSnap(id: string): DeviceTelemetrySnap {
     homopolarRpm: 0,
     homopolarEmfV: 0,
     homopolarCurrentA: 0,
-    homopolarFieldT: 0
+    homopolarFieldT: 0,
+    powerInW: 0,
+    powerOutW: 0,
+    efficiency: 0
   };
 }
 
@@ -135,7 +141,10 @@ function snapFromPhysics(
     homopolarRpm: physics.homopolarRpm ?? 0,
     homopolarEmfV: physics.homopolarEmfV ?? 0,
     homopolarCurrentA: physics.homopolarCurrentA ?? 0,
-    homopolarFieldT: physics.homopolarFieldT ?? 0
+    homopolarFieldT: physics.homopolarFieldT ?? 0,
+    powerInW: 0,
+    powerOutW: 0,
+    efficiency: 0
   };
 }
 
@@ -171,6 +180,7 @@ export class TelemetryHub {
         middleRingTorque: 0,
         outerRingTorque: 0
       },
+      energyNetwork: null,
       meta: TELEMETRY_META
     };
   }
@@ -189,6 +199,19 @@ export class TelemetryHub {
     if (opts.devicePhysics) {
       for (const [id, phys] of Object.entries(opts.devicePhysics)) {
         devices[id] = snapFromPhysics(id, phys);
+      }
+    }
+
+    const netIn = opts.energyNetwork;
+    if (netIn?.devices) {
+      for (const [id, power] of Object.entries(netIn.devices)) {
+        const base = devices[id] || emptyDeviceSnap(id);
+        devices[id] = {
+          ...base,
+          powerInW: power.powerInW,
+          powerOutW: power.powerOutW,
+          efficiency: power.efficiency
+        };
       }
     }
     // Always mirror live SEG plant into devices.seg
@@ -224,6 +247,14 @@ export class TelemetryHub {
       seg: segTelemetry,
       devices,
       scientific,
+      energyNetwork: netIn
+        ? {
+            couplingEnabled: netIn.couplingEnabled,
+            labBudgetW: netIn.labBudgetW,
+            totalAllocatedW: netIn.totalAllocatedW,
+            residualW: netIn.residualW
+          }
+        : this._snapshot.energyNetwork,
       meta: TELEMETRY_META
     };
 

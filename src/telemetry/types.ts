@@ -43,6 +43,18 @@ export interface DeviceTelemetrySnap {
   homopolarEmfV: number;
   homopolarCurrentA: number;
   homopolarFieldT: number;
+  /** Lab bus accounting (EnergyNetwork, W) — simulated, not metrology. */
+  powerInW: number;
+  powerOutW: number;
+  efficiency: number;
+}
+
+/** Shared lab power bus snapshot (ADR-0004 phase A). */
+export interface EnergyNetworkTelemetry {
+  couplingEnabled: boolean;
+  labBudgetW: number;
+  totalAllocatedW: number;
+  residualW: number;
 }
 
 /** Literature refs with uncertainty metadata for gauges */
@@ -80,6 +92,7 @@ export interface TelemetrySnapshot {
   seg: SegOperatorTelemetry | null;
   devices: Record<string, DeviceTelemetrySnap>;
   scientific: ScientificTelemetry;
+  energyNetwork: EnergyNetworkTelemetry | null;
   meta: TelemetryMeta;
 }
 
@@ -90,6 +103,14 @@ export interface PublishFrameScientific {
   innerRingTorque?: number;
   middleRingTorque?: number;
   outerRingTorque?: number;
+}
+
+export interface PublishFrameEnergyNetwork {
+  couplingEnabled: boolean;
+  labBudgetW: number;
+  totalAllocatedW: number;
+  residualW: number;
+  devices?: Record<string, { powerInW: number; powerOutW: number; efficiency: number }>;
 }
 
 export type TelemetrySubscriber = (snap: TelemetrySnapshot) => void;

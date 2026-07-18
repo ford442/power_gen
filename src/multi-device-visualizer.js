@@ -35,6 +35,7 @@ import { initHardwarePanel } from './hardware-panel.js';
 import { initSEGAnnotations } from './seg-annotations.js';
 import { explainerState } from './seg-explainer/explainer-state.js';
 import { isDeviceActive as isDeviceVisible } from './renderers/shared/device-view.js';
+import { EnergyNetwork, ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network.ts';
 import {
   parsePrototypePreset,
   parseSegLayoutPreset,
@@ -84,6 +85,7 @@ export class MultiDeviceVisualizer {
     this.devicesEnabled = Object.fromEntries(getAllSimDeviceIds().map((id) => [id, true]));
     this.devices = {};
     this.energyPipes = [];
+    this.energyNetwork = new EnergyNetwork();
 
     // Hardware digital twin (Web Serial / mock)
     this.emController = new ElectromagnetController();
@@ -476,24 +478,13 @@ export class MultiDeviceVisualizer {
   }
   
   async setupEnergyPipes() {
-    const pipeConfigs = [
-      { from: 'seg', to: 'heron', speed: 2.0 },
-      { from: 'heron', to: 'kelvin', speed: 1.5 },
-      { from: 'kelvin', to: 'seg', speed: 2.5 },
-      { from: 'kelvin', to: 'peltier', speed: 1.8 },
-      { from: 'peltier', to: 'solar', speed: 2.2 },
-      { from: 'seg', to: 'mhd', speed: 1.6 },
-      { from: 'mhd', to: 'peltier', speed: 2.0 },
-      { from: 'solar', to: 'maglev', speed: 1.4 },
-      { from: 'maglev', to: 'seg', speed: 1.9 }
-    ];
-
-    for (const config of pipeConfigs) {
+    for (const config of ENERGY_PIPE_EDGES) {
       const pipe = new EnergyPipe(this.device, config, this);
       await pipe.init();
       this.energyPipes.push(pipe);
     }
     await this.setupEnergyPipePipeline();
+    initEnergyCouplingDisclaimer();
   }
 
   async setupEnergyPipePipeline() {

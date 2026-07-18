@@ -262,12 +262,30 @@ export const renderLoopMethods = {
       avgEnergyDensity: 1.976e6 * (0.2 + 0.8 * Math.min(1, Math.abs(omega))),
       middleRingTorque: (this.devices.seg?.energyLevel ?? omega) * 12.0
     };
+    const segTelemetry = segOperator.computeTelemetry(deltaTime);
+    const netSnap = this.energyNetwork?.update({
+      devices: this.devices,
+      devicesEnabled: this.devicesEnabled,
+      segPowerW: segTelemetry.power,
+      segEfficiencyPct: segTelemetry.efficiency,
+      deltaTime
+    });
     telemetryHub.publishFrame({
       dt: deltaTime,
       view: this.currentView || 'overview',
       renderer: 'webgpu',
       devicePhysics: TelemetryHub.collectDevicePhysics(this.devices),
-      scientific
+      scientific,
+      segTelemetry,
+      energyNetwork: netSnap
+        ? {
+            couplingEnabled: netSnap.couplingEnabled,
+            labBudgetW: netSnap.labBudgetW,
+            totalAllocatedW: netSnap.totalAllocatedW,
+            residualW: netSnap.residualW,
+            devices: netSnap.devices
+          }
+        : null
     });
     if (this.integration) {
       this.integration.syncFromVisualizer(scientific);
