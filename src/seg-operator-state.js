@@ -4,7 +4,7 @@
  * Used by the operator panel and both WebGPU / WebGL2 render paths.
  */
 
-import { createDevicePhysicsState, stepDevicePhysics } from './renderers/shared/device-physics.js';
+import { createDevicePhysicsState, stepDevicePhysics } from './renderers/shared/device-physics.ts';
 import { ValidatedConstants } from './ValidatedConstants';
 import { SEG_DATA } from './scientific-data.js';
 

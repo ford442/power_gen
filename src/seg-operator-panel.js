@@ -5,7 +5,7 @@
  */
 
 import { segOperator, SEG_SPEC, OPERATOR_STATUS } from './seg-operator-state.js';
-import { telemetryHub } from './telemetry-hub.js';
+import { telemetryHub } from './telemetry-hub.ts';
 
 const RPM_GAUGE_MAX = 3200;
 

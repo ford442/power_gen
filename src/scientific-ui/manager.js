@@ -10,7 +10,7 @@ import { BatteryGauge } from './gauges/battery-gauge.js';
 import { SolarPanelGauge } from './gauges/solar-panel-gauge.js';
 import { LEDArrayGauge } from './gauges/ledarray-gauge.js';
 import { EnergyBalanceDisplay } from './gauges/energy-balance-display.js';
-import { telemetryHub } from '../telemetry-hub.js';
+import { telemetryHub } from '../telemetry-hub.ts';
 
 /**
  * Scientific UI Manager - Orchestrates all gauge components

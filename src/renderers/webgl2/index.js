@@ -20,12 +20,12 @@ import { getMergedDeviceConfig, getAllSimDeviceIds } from '../../devices/device-
 import { buildMagLevMesh } from '../../devices/quanta/magnetic-levitation.js';
 import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator.js';
 import { exposeRenderer, RENDERER_WEBGL2 } from '../renderer-selector.js';
-import { stepParticles, seedParticles } from '../shared/particle-physics.js';
+import { stepParticles, seedParticles } from '../shared/particle-physics.ts';
 import {
   createDevicePhysicsState,
   stepDevicePhysics,
   deviceModeIndex
-} from '../shared/device-physics.js';
+} from '../shared/device-physics.ts';
 import { isDeviceActive as isDeviceVisible, shouldSimulateDevice } from '../shared/device-view.js';
 import { getDeviceParticleScale, getViewMeshLod } from '../shared/view-lod.js';
 import {
@@ -43,7 +43,7 @@ import { EnergyPipeRenderer } from './energy-pipe-renderer.js';
 import { parseSegFrameLevel } from '../../seg-frame-model.js';
 import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets.js';
 import { segOperator } from '../../seg-operator-state.js';
-import { telemetryHub, TelemetryHub } from '../../telemetry-hub.js';
+import { telemetryHub, TelemetryHub } from '../../telemetry-hub.ts';
 import { explainerState } from '../../seg-explainer/explainer-state.js';
 import { segWasm } from '../../wasm/seg-physics-bridge.js';
 import {

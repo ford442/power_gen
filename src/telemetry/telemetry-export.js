@@ -1,6 +1,6 @@
 import { ValidatedConstants } from '../ValidatedConstants';
 import { SEG_SPEC } from '../seg-operator-state.js';
-import { TELEMETRY_META } from '../telemetry-hub.js';
+import { TELEMETRY_META } from '../telemetry-hub.ts';
 import {
   rowsToCsv,
   downloadText,

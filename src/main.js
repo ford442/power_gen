@@ -25,7 +25,7 @@ import { initTelemetryExportPanel } from './telemetry/telemetry-export-panel.js'
 import { initExplainerUI } from './seg-explainer/explainer-ui.js';
 import { restoreSimulationSeedFromStorage } from './telemetry/deterministic-rng.js';
 import { applyReplay } from './telemetry/replay-format.js';
-import { telemetryHub } from './telemetry-hub.js';
+import { telemetryHub } from './telemetry-hub.ts';
 import {
   downloadTelemetryCsv,
   downloadConfigJson,

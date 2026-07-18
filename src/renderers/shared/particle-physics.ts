@@ -8,26 +8,61 @@
 import { ValidatedConstants } from '../../ValidatedConstants';
 import { simRandom } from '../../telemetry/deterministic-rng.js';
 
-const PI = Math.PI;
-const TAU = Math.PI * 2;
 const GRAV = 9.81;
+const TAU = Math.PI * 2;
 
-function hash1(n) {
+export type DeviceSeedId = 'seg' | 'maglev' | 'homopolar' | 'solar' | 'peltier' | string;
+
+/** Uniforms passed to stepParticles — mirrors WGSL particle compute bindings. */
+export interface ParticleUniforms {
+  time: number;
+  mode: number;
+  particleCount: number;
+  dt: number;
+  segOmega: number;
+  heronVExit: number;
+  kelvinE: number;
+  kelvinVoltageN: number;
+  solarN2: number;
+  corona: number;
+  simClock: number;
+  speedMult: number;
+  /** Maglev plugin fields (mode >= 6) */
+  maglevGap?: number;
+  maglevFieldT?: number;
+  /** Homopolar plugin fields (mode >= 8) */
+  homopolarRpm?: number;
+  homopolarEmfV?: number;
+  homopolarAngle?: number;
+}
+
+interface SpawnParticle {
+  pos: [number, number, number];
+  phase: number;
+  vel: [number, number, number];
+  aux: number;
+}
+
+interface ParticlePhase {
+  phase: number;
+}
+
+function hash1(n: number): number {
   return ((Math.sin(n * 78.233 + 12.9898) * 43758.5453) % 1 + 1) % 1;
 }
 
-function rnd(idx, salt, simClock) {
+function rnd(idx: number, salt: number, simClock: number): number {
   return hash1(idx * 0.1031 + salt * 1.7 + simClock * 0.37);
 }
 
-function segRingRadius(idx) {
+function segRingRadius(idx: number): number {
   const z = idx % 3;
   if (z === 0) return 3.5;
   if (z === 1) return 5.5;
   return 7.5;
 }
 
-function fresnelReflectance(cosI, n2) {
+function fresnelReflectance(cosI: number, n2: number): number {
   const n1 = 1.0;
   const ci = Math.max(0, Math.min(1, cosI));
   const sinI = Math.sqrt(Math.max(0, 1 - ci * ci));
@@ -39,7 +74,7 @@ function fresnelReflectance(cosI, n2) {
   return Math.max(0, Math.min(1, 0.5 * (rs * rs + rp * rp)));
 }
 
-function spawnSEG(idx, u) {
+function spawnSEG(idx: number, u: ParticleUniforms): SpawnParticle {
   const R = segRingRadius(idx);
   const a = rnd(idx, 1, u.simClock) * TAU;
   const y = (rnd(idx, 2, u.simClock) - 0.5) * 1.6;
@@ -52,7 +87,7 @@ function spawnSEG(idx, u) {
   };
 }
 
-function spawnHeron(idx, u) {
+function spawnHeron(idx: number, u: ParticleUniforms): SpawnParticle {
   const ang = rnd(idx, 1, u.simClock) * TAU;
   const rad = rnd(idx, 2, u.simClock) * 0.18;
   const spread = 0.9;
@@ -64,7 +99,7 @@ function spawnHeron(idx, u) {
   };
 }
 
-function spawnKelvin(idx, u) {
+function spawnKelvin(idx: number, u: ParticleUniforms): SpawnParticle {
   const side = (idx & 1) === 1 ? 1 : -1;
   const jitterX = (rnd(idx, 1, u.simClock) - 0.5) * 0.18;
   const jitterZ = (rnd(idx, 2, u.simClock) - 0.5) * 0.18;
@@ -76,12 +111,18 @@ function spawnKelvin(idx, u) {
   };
 }
 
-function spawnSolar(idx, u) {
+function spawnSolar(idx: number, u: ParticleUniforms): SpawnParticle {
   const ledIdx = idx % 6;
   const ledX = (ledIdx - 2.5) * 1.6;
-  const led = [ledX, 3.5, 1.5];
-  const panel = [(rnd(idx, 1, u.simClock) - 0.5) * 9.0, 0.05, (rnd(idx, 2, u.simClock) - 0.5) * 9.0];
-  const dx = panel[0] - led[0], dy = panel[1] - led[1], dz = panel[2] - led[2];
+  const led: [number, number, number] = [ledX, 3.5, 1.5];
+  const panel: [number, number, number] = [
+    (rnd(idx, 1, u.simClock) - 0.5) * 9.0,
+    0.05,
+    (rnd(idx, 2, u.simClock) - 0.5) * 9.0
+  ];
+  const dx = panel[0] - led[0];
+  const dy = panel[1] - led[1];
+  const dz = panel[2] - led[2];
   const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
   return {
     pos: [...led],
@@ -91,7 +132,13 @@ function spawnSolar(idx, u) {
   };
 }
 
-function integrateMagLev(p, idx, t, gap = 0.018, field = 0.5) {
+function integrateMagLev(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  gap = 0.018,
+  field = 0.5
+): [number, number, number] {
   const phase = p.phase;
   const angle = phase * TAU + t * (0.7 + field * 0.5) + idx * 0.017;
   const r = 0.9 + ((idx * 0.131) % 1) * 2.0;
@@ -99,7 +146,14 @@ function integrateMagLev(p, idx, t, gap = 0.018, field = 0.5) {
   return [Math.cos(angle) * r, y, Math.sin(angle) * r];
 }
 
-function integrateHomopolar(p, idx, t, rpmN = 0, emfN = 0, discAngle = 0) {
+function integrateHomopolar(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  rpmN = 0,
+  emfN = 0,
+  discAngle = 0
+): [number, number, number] {
   const phase = p.phase;
   const rFrac = ((idx * 0.618034 + phase * 0.37) % 1 + 1) % 1;
   const drift = ((phase + t * (0.12 + emfN * 0.35)) % 1 + 1) % 1;
@@ -109,7 +163,7 @@ function integrateHomopolar(p, idx, t, rpmN = 0, emfN = 0, discAngle = 0) {
   return [Math.cos(theta) * r, y, Math.sin(theta) * r];
 }
 
-function integrateMHD(p, idx, t) {
+function integrateMHD(p: ParticlePhase, idx: number, t: number): [number, number, number] {
   const phase = p.phase;
   const speed = 0.7;
   const cycleT = ((t * speed + ((phase * 123.45) % 1)) % 1 + 1) % 1;
@@ -127,27 +181,9 @@ function integrateMHD(p, idx, t) {
 }
 
 /**
- * @typedef {Object} ParticleUniforms
- * @property {number} time
- * @property {number} mode
- * @property {number} particleCount
- * @property {number} dt
- * @property {number} segOmega
- * @property {number} heronVExit
- * @property {number} kelvinE
- * @property {number} kelvinVoltageN
- * @property {number} solarN2
- * @property {number} corona
- * @property {number} simClock
- * @property {number} speedMult
- */
-
-/**
  * Advance particle buffer in-place (8 floats per particle).
- * @param {Float32Array} particles
- * @param {ParticleUniforms} u
  */
-export function stepParticles(particles, u) {
+export function stepParticles(particles: Float32Array, u: ParticleUniforms): void {
   const count = Math.min(u.particleCount, particles.length / 8);
   const dt = u.dt;
   const mode = u.mode;
@@ -165,10 +201,13 @@ export function stepParticles(particles, u) {
 
     if (mode < 0.5) {
       const R = segRingRadius(idx);
-      const rx = px, rz = pz;
+      const rx = px;
+      const rz = pz;
       const r = Math.max(Math.sqrt(rx * rx + rz * rz), 1e-4);
-      const radialX = rx / r, radialZ = rz / r;
-      const tangentX = -radialZ, tangentZ = radialX;
+      const radialX = rx / r;
+      const radialZ = rz / r;
+      const tangentX = -radialZ;
+      const tangentZ = radialX;
       const vTan = vx * tangentX + vz * tangentZ;
       const vRad = vx * radialX + vz * radialZ;
       const vTarget = u.segOmega * R * 1.2;
@@ -287,13 +326,12 @@ export function stepParticles(particles, u) {
   }
 }
 
-/**
- * Seed particle buffer for a device type.
- * @param {Float32Array} particles
- * @param {string} deviceId
- * @param {number} count
- */
-export function seedParticles(particles, deviceId, count) {
+/** Seed particle buffer for a device type. */
+export function seedParticles(
+  particles: Float32Array,
+  deviceId: DeviceSeedId,
+  count: number
+): void {
   for (let i = 0; i < count; i++) {
     const base = i * 8;
     particles[base + 3] = simRandom();

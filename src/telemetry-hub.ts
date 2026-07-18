@@ -17,9 +17,29 @@ import { segOperator, SEG_SPEC } from './seg-operator-state.js';
 import { ValidatedConstants } from './ValidatedConstants';
 import { getAllSimDeviceIds } from './devices/device-registry.js';
 import { TelemetrySampler } from './telemetry/telemetry-sampler.js';
+import type { DevicePhysicsState } from './renderers/shared/device-physics.ts';
+import type {
+  DeviceTelemetrySnap,
+  PublishFrameScientific,
+  ScientificTelemetry,
+  SegOperatorTelemetry,
+  TelemetryMeta,
+  TelemetrySnapshot,
+  TelemetrySubscriber
+} from './telemetry/types.ts';
 
-/** Literature refs with uncertainty metadata for gauges */
-export const TELEMETRY_META = {
+export type {
+  DeviceTelemetrySnap,
+  PublishFrameScientific,
+  ScientificTelemetry,
+  SegOperatorTelemetry,
+  TelemetryMeta,
+  TelemetryMetaEntry,
+  TelemetrySnapshot,
+  TelemetrySubscriber
+} from './telemetry/types.ts';
+
+export const TELEMETRY_META: TelemetryMeta = {
   B_surface: {
     value: SEG_SPEC.B_SURFACE_T,
     unit: 'T',
@@ -44,33 +64,42 @@ export const TELEMETRY_META = {
   }
 };
 
-function emptyDeviceSnap(id) {
+export interface PublishFrameOpts {
+  dt?: number;
+  view?: string;
+  renderer?: 'webgpu' | 'webgl2' | string;
+  devicePhysics?: Record<string, Partial<DevicePhysicsState> | null | undefined>;
+  scientific?: PublishFrameScientific;
+  segTelemetry?: SegOperatorTelemetry;
+}
+
+export interface DevicePhysicsSource {
+  physicsState?: Partial<DevicePhysicsState>;
+  physics?: Partial<DevicePhysicsState>;
+  batteryCharge?: number;
+}
+
+function emptyDeviceSnap(id: string): DeviceTelemetrySnap {
   return {
     id,
     energyLevel: 0,
-    // SEG-mirrored
     segOmega: 0,
     corona: 0,
-    // Heron
     heronHead: 0,
     heronHeadMax: 0,
     heronVExit: 0,
     heronFlowRateLmin: 0,
     heronPressureKPa: 0,
-    // Kelvin
     kelvinV: 0,
     kelvinVoltageN: 0,
     kelvinVbreak: 0,
     kelvinSparkTimer: 0,
     kelvinE: 0,
-    // Solar
     batteryCharge: 0.5,
-    // Quanta maglev
     maglevGapMm: 0,
     maglevFieldT: 0,
     maglevLiftN: 0,
     maglevRpm: 0,
-    // Quanta homopolar
     homopolarRpm: 0,
     homopolarEmfV: 0,
     homopolarCurrentA: 0,
@@ -78,7 +107,10 @@ function emptyDeviceSnap(id) {
   };
 }
 
-function snapFromPhysics(id, physics) {
+function snapFromPhysics(
+  id: string,
+  physics: Partial<DevicePhysicsState> | null | undefined
+): DeviceTelemetrySnap {
   if (!physics) return emptyDeviceSnap(id);
   return {
     id,
@@ -108,30 +140,29 @@ function snapFromPhysics(id, physics) {
 }
 
 export class TelemetryHub {
+  private _listeners = new Set<TelemetrySubscriber>();
+  private _frameId = 0;
+  private _snapshot: TelemetrySnapshot;
+  sampler: TelemetrySampler;
+  private _simTimeS = 0;
+
   constructor() {
-    /** @type {Set<(snap: object) => void>} */
-    this._listeners = new Set();
-    this._frameId = 0;
     this._snapshot = this._blankSnapshot();
-    /** @type {TelemetrySampler} */
     this.sampler = new TelemetrySampler({ sampleHz: 10, maxDurationSec: 120 });
-    this._simTimeS = 0;
   }
 
-  _blankSnapshot() {
+  private _blankSnapshot(): TelemetrySnapshot {
     return {
       frameId: 0,
       timeMs: 0,
       dt: 0,
+      simTimeS: 0,
       view: 'overview',
       renderer: null,
-      /** SEG operator telemetry (RPM, V, I, P, B, …) */
       seg: null,
-      /** Per-device physics snapshots */
       devices: Object.fromEntries(
         getAllSimDeviceIds().map((id) => [id, emptyDeviceSnap(id)])
       ),
-      /** Derived scientific layer */
       scientific: {
         particleFlux: 0,
         maxFieldMagnitude: 0,
@@ -146,17 +177,8 @@ export class TelemetryHub {
 
   /**
    * Publish one simulation frame. Call after physics steps on either renderer.
-   *
-   * @param {object} opts
-   * @param {number} opts.dt  Frame delta seconds
-   * @param {string} [opts.view]  Focused view id
-   * @param {string} [opts.renderer]  'webgpu' | 'webgl2'
-   * @param {Record<string, object|null|undefined>} [opts.devicePhysics]
-   *        Map of deviceId → physics state (WebGPU physicsState or WebGL2 physics)
-   * @param {object} [opts.scientific]  particleFlux, maxFieldMagnitude, torques, …
-   * @param {object} [opts.segTelemetry]  Precomputed SEG telemetry; default computeTelemetry(dt)
    */
-  publishFrame(opts = {}) {
+  publishFrame(opts: PublishFrameOpts = {}): TelemetrySnapshot {
     const dt = opts.dt ?? 0.016;
     this._frameId += 1;
     this._simTimeS += dt;
@@ -179,7 +201,7 @@ export class TelemetryHub {
     });
 
     const sciIn = opts.scientific || {};
-    const scientific = {
+    const scientific: ScientificTelemetry = {
       particleFlux: sciIn.particleFlux ?? this._snapshot.scientific.particleFlux,
       maxFieldMagnitude: sciIn.maxFieldMagnitude
         ?? (segTelemetry.fieldSim || TELEMETRY_META.B_surface.value * segOperator.physics.segOmega),
@@ -213,56 +235,47 @@ export class TelemetryHub {
   }
 
   /** Integrated simulation time (seconds) — advances with publishFrame dt. */
-  getSimTimeS() {
+  getSimTimeS(): number {
     return this._simTimeS;
   }
 
-  resetSimClock() {
+  resetSimClock(): void {
     this._simTimeS = 0;
     this.sampler.clear();
   }
 
-  /**
-   * Record telemetry for N seconds of simulation time.
-   * @param {number} durationSec
-   * @param {number} [sampleHz]
-   */
-  startRecording(durationSec = 10, sampleHz) {
+  /** Record telemetry for N seconds of simulation time. */
+  startRecording(durationSec = 10, sampleHz?: number): void {
     if (sampleHz != null) this.sampler.setSampleHz(sampleHz);
     this.sampler.start(durationSec);
   }
 
-  stopRecording() {
+  stopRecording(): void {
     this.sampler.stop();
   }
 
-  getRecordedRows() {
+  getRecordedRows(): Record<string, number | string>[] {
     return this.sampler.getRows();
   }
 
-  isRecording() {
+  isRecording(): boolean {
     return this.sampler.recording;
   }
 
   /** Latest immutable-ish snapshot (do not mutate). */
-  getSnapshot() {
+  getSnapshot(): TelemetrySnapshot {
     return this._snapshot;
   }
 
-  getSeg() {
+  getSeg(): SegOperatorTelemetry | null {
     return this._snapshot.seg;
   }
 
-  getDevice(id) {
+  getDevice(id: string): DeviceTelemetrySnap {
     return this._snapshot.devices[id] || emptyDeviceSnap(id);
   }
 
-  /**
-   * @param {(snap: object) => void} fn
-   * @param {{ immediate?: boolean }} [opts]
-   * @returns {() => void} unsubscribe
-   */
-  subscribe(fn, opts = {}) {
+  subscribe(fn: TelemetrySubscriber, opts: { immediate?: boolean } = {}): () => void {
     if (typeof fn !== 'function') return () => {};
     this._listeners.add(fn);
     if (opts.immediate !== false && this._snapshot.seg) {
@@ -271,7 +284,7 @@ export class TelemetryHub {
     return () => this._listeners.delete(fn);
   }
 
-  _notify() {
+  private _notify(): void {
     for (const fn of this._listeners) {
       try {
         fn(this._snapshot);
@@ -284,10 +297,11 @@ export class TelemetryHub {
   /**
    * Helper: collect physics maps from multi-device devices (WebGPU DeviceInstance
    * or WebGL2DeviceState).
-   * @param {Record<string, { physicsState?: object, physics?: object, batteryCharge?: number }>} devices
    */
-  static collectDevicePhysics(devices) {
-    const out = {};
+  static collectDevicePhysics(
+    devices: Record<string, DevicePhysicsSource> | null | undefined
+  ): Record<string, Partial<DevicePhysicsState>> {
+    const out: Record<string, Partial<DevicePhysicsState>> = {};
     if (!devices) return out;
     for (const [id, d] of Object.entries(devices)) {
       const phys = d.physicsState || d.physics || null;
@@ -307,6 +321,12 @@ export class TelemetryHub {
 export const telemetryHub = new TelemetryHub();
 
 // Dev / agent access
+declare global {
+  interface Window {
+    telemetryHub: TelemetryHub;
+  }
+}
+
 if (typeof window !== 'undefined') {
   window.telemetryHub = telemetryHub;
 }
