@@ -438,7 +438,7 @@ export class WebGL2MultiDeviceVisualizer {
 
     if (useWasm) {
       const loadT = 0.01 * (1 - drive * 0.5);
-      if (['seg', 'heron', 'kelvin', 'solar'].includes(focus)) {
+      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd'].includes(focus)) {
         segWasm.setMode(focus);
       }
       for (const subDt of simSteps) {
@@ -475,6 +475,24 @@ export class WebGL2MultiDeviceVisualizer {
           if (solar && typeof plant?.battery === 'number') {
             solar.batteryCharge = plant.battery;
             solar.energyLevel = plant.battery;
+          }
+        } else if (focus === 'peltier') {
+          const plant = segWasm.getModePlant();
+          const peltier = this.devices.peltier?.physics;
+          if (peltier && plant) {
+            peltier.peltierDeltaT = plant.deltaT ?? 0;
+            peltier.peltierVoltage = plant.voltage ?? 0;
+            peltier.peltierPowerW = plant.powerW ?? 0;
+            peltier.energyLevel = plant.energyLevel ?? 0;
+          }
+        } else if (focus === 'mhd') {
+          const plant = segWasm.getModePlant();
+          const mhd = this.devices.mhd?.physics;
+          if (mhd && plant) {
+            mhd.mhdFlowU = plant.flowU ?? 0;
+            mhd.mhdVoltage = plant.voltage ?? 0;
+            mhd.mhdPowerW = plant.powerW ?? 0;
+            mhd.energyLevel = plant.energyLevel ?? 0;
           }
         }
       }

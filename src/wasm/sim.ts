@@ -228,6 +228,31 @@ export class SEGSim {
         battery: this._sim.getSolarBattery?.() ?? 0
       };
     }
+    if (m === 4) {
+      return {
+        mode: 'peltier',
+        hotK: this._sim.getPeltierHotK?.() ?? 0,
+        coldK: this._sim.getPeltierColdK?.() ?? 0,
+        deltaT: this._sim.getPeltierDeltaT?.() ?? 0,
+        voltage: this._sim.getPeltierVoltage?.() ?? 0,
+        current: this._sim.getPeltierCurrent?.() ?? 0,
+        powerW: this._sim.getPeltierPowerW?.() ?? 0,
+        cop: this._sim.getPeltierCOP?.() ?? 0,
+        energyLevel: this._sim.getEnergyLevel?.() ?? 0
+      };
+    }
+    if (m === 5) {
+      return {
+        mode: 'mhd',
+        flowU: this._sim.getMhdFlowU?.() ?? 0,
+        bFieldT: this._sim.getMhdBFieldT?.() ?? 0,
+        hartmann: this._sim.getMhdHartmann?.() ?? 0,
+        voltage: this._sim.getMhdVoltage?.() ?? 0,
+        current: this._sim.getMhdCurrent?.() ?? 0,
+        powerW: this._sim.getMhdPowerW?.() ?? 0,
+        energyLevel: this._sim.getEnergyLevel?.() ?? 0
+      };
+    }
     return {
       mode: 'seg',
       omega: this._sim.getOmega(),
