@@ -20,6 +20,8 @@ export function encodeLabHash(opts = {}) {
   if (opts.bmult != null && opts.bmult !== 1) parts.push(`bmult=${Number(opts.bmult).toFixed(2)}`);
   if (opts.classroom) parts.push('class=1');
   if (opts.tour) parts.push('tour=1');
+  if (opts.hi) parts.push(`hi=${opts.hi}`);
+  if (opts.step != null && opts.step >= 0) parts.push(`step=${opts.step}`);
   if (opts.renderer) parts.push(`renderer=${opts.renderer}`);
   if (opts.halbachSegments != null) parts.push(`hseg=${opts.halbachSegments}`);
   if (opts.halbachLinear) parts.push('hlin=1');
@@ -51,6 +53,8 @@ export function decodeLabHash(hash = typeof location !== 'undefined' ? location.
     else if (k === 'bmult') out.bmult = parseFloat(v);
     else if (k === 'class') out.classroom = v === '1';
     else if (k === 'tour') out.tour = v === '1';
+    else if (k === 'hi') out.hi = v;
+    else if (k === 'step') out.step = parseInt(v, 10);
     else if (k === 'renderer') out.renderer = v;
     else if (k === 'hseg') out.halbachSegments = parseInt(v, 10);
     else if (k === 'hlin') out.halbachLinear = v === '1';
@@ -123,6 +127,25 @@ export async function applyLabState(lab) {
     const cb = document.getElementById('explainerClassroom');
     if (cb) cb.checked = true;
   }
+
+  if (lab.hi && window.explainerState) {
+    window.explainerState.setHighlight(lab.hi);
+    window.segAnnotations?.setEnabled(true);
+  }
+
+  if (lab.tour && window.segTour) {
+    const step = Number.isFinite(lab.step) ? lab.step : 0;
+    if (lab.hi) {
+      const idx = window.segTour._findStepForHighlight(lab.hi);
+      window.segTour.goToStep(idx >= 0 ? idx : step);
+    } else {
+      window.segTour.goToStep(step);
+    }
+  } else if (lab.hi && window.segTour) {
+    window.segTour.goToStepForHighlight(lab.hi);
+  } else if (Number.isFinite(lab.step) && window.segTour) {
+    window.segTour.goToStep(lab.step);
+  }
 }
 
 export function captureLabState() {
@@ -137,6 +160,9 @@ export function captureLabState() {
     field: es?.baseFieldStrength ?? op?.magneticFieldStrength ?? 0.5,
     bmult: es?.fieldMultiplier ?? 1,
     classroom: es?.classroomMode ?? false,
+    hi: es?.highlightId || undefined,
+    step: window.segTour?.playing ? window.segTour.stepIndex : undefined,
+    tour: window.segTour?.playing ?? false,
     renderer: window.currentRenderer
   };
 }

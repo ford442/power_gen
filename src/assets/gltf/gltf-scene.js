@@ -3,6 +3,7 @@
  */
 
 /** @typedef {{ name: string, position: [number, number, number], worldPosition?: [number, number, number] }} GltfAnchor */
+/** @typedef {{ annotationId: string, name: string, worldPosition: [number, number, number], node: GltfSceneNode }} GltfAnnotation */
 
 /**
  * @param {import('./gltf-loader.js').extractGltfMeshes extends Function ? ReturnType<import('./gltf-loader.js').extractGltfMeshes> : never} extracted
@@ -26,12 +27,15 @@ export function buildGltfScene(extracted) {
 
   /** @type {GltfAnchor[]} */
   const anchors = [];
+  /** @type {GltfAnnotation[]} */
+  const annotations = [];
   for (const root of roots) {
     root.updateWorldTransform();
     anchors.push(...root.collectAnchors());
+    annotations.push(...root.collectAnnotations());
   }
 
-  return { roots, nodeByIndex, anchors };
+  return { roots, nodeByIndex, anchors, annotations };
 }
 
 export class GltfSceneNode {
@@ -52,6 +56,7 @@ export class GltfSceneNode {
     this.worldMatrix = new Float32Array(16);
     this.meshPrimitives = null;
     this.materialRingIndex = source.extras?.power_gen?.materialRingIndex ?? 11.0;
+    this.annotationId = source.extras?.annotationId || null;
     this.extras = source.extras || {};
 
     if (source.mesh != null && meshes[source.mesh]) {
@@ -73,6 +78,24 @@ export class GltfSceneNode {
     for (const child of this.children) {
       child.updateWorldTransform(this.worldMatrix);
     }
+  }
+
+  /** @returns {GltfAnnotation[]} */
+  collectAnnotations() {
+    /** @type {GltfAnnotation[]} */
+    const out = [];
+    if (this.annotationId) {
+      out.push({
+        annotationId: this.annotationId,
+        name: this.name,
+        worldPosition: [this.worldMatrix[12], this.worldMatrix[13], this.worldMatrix[14]],
+        node: this
+      });
+    }
+    for (const child of this.children) {
+      out.push(...child.collectAnnotations());
+    }
+    return out;
   }
 
   /** @returns {GltfAnchor[]} */
@@ -103,6 +126,7 @@ export class GltfSceneNode {
           mesh: prim,
           worldMatrix: Float32Array.from(this.worldMatrix),
           materialRingIndex: this.materialRingIndex,
+          annotationId: this.annotationId,
           node: this
         });
       }

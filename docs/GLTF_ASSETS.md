@@ -35,7 +35,7 @@ npm run generate:housing-glb
    - Triangulated meshes
    - Applied transforms
    - `POSITION`, `NORMAL`, `TEXCOORD_0` (optional UVs)
-3. Add custom root-node extras for anchors and material hints:
+3. Add custom root-node extras for anchors, material hints, and tour annotations:
 
 ```json
 {
@@ -50,6 +50,27 @@ npm run generate:housing-glb
   }
 }
 ```
+
+**Annotation nodes** (housing callouts linked to the SEG Explainer tour):
+
+```json
+{
+  "name": "ann_coil",
+  "mesh": 1,
+  "translation": [5.4, 0.15, 0.2],
+  "extras": {
+    "annotationId": "coil"
+  }
+}
+```
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `extras.annotationId` | yes (on callout nodes) | Tour / explainer highlight id — must match `seg-tour.json` `highlights` and `seg-annotations.js` ids (`shaft`, `inner-ring`, `stator`, `separator`, `outer-ring`, `coil`, …) |
+| `extras.power_gen.materialRingIndex` | no | PBR ring index for structural meshes (default `11.0`) |
+| `extras.power_gen.anchors` | no | Named telemetry / rigging points (not tour ids) |
+
+Use a small invisible **pick-proxy** mesh (see `annotation_pick_proxy` in `housing-shell.glb`) on annotation nodes. Proxies are ray-pick targets only — not drawn at runtime.
 
 4. Drop the file under `src/public/assets/seg/` (or add a new registry entry).
 5. `materialRingIndex` maps to the seg-enhanced PBR table (`ringIndex` in the instance buffer):
@@ -75,7 +96,8 @@ physics/constants.json     seg-layout.js PRESET_DEFS
 
 - **Loader:** `src/assets/gltf/gltf-loader.js` — hand-rolled GLB v2 (no `@loaders.gl` dependency;
   keeps Pages bundle small and matches ADR-0003 no-Three.js stance).
-- **Scene graph:** `gltf-scene.js` — hierarchy, visibility, anchor baking from `extras.power_gen`.
+- **Scene graph:** `gltf-scene.js` — hierarchy, visibility, anchor baking from `extras.power_gen`, `extras.annotationId` collection.
+- **Picking:** `gltf-pick.js` + `gltf-housing-pick.js` — CPU ray/triangle pick on annotated housing proxies (WebGPU).
 - **GPU upload:** `gltf-gpu.js` — 8-float vertices (pos+normal+uv), 48-byte instances.
 - **Setup:** `visualizer/setup-gltf.js` — loads housing after procedural core meshes.
 - **Draw:** `DeviceRenderMixin.renderGltfHousing` — SEG focus only; procedural rollers unchanged.
@@ -88,7 +110,15 @@ updated each frame in `updateGltfHousingState()`.
 ## Collision / annotation anchors
 
 Anchors baked at load time are exposed on the visualizer as `gltfHousingAnchors` (world space,
-layout-scaled). Future work: wire `seg-annotations.js` to these points.
+layout-scaled). Annotation node origins are exposed as `gltfAnnotationPoints` and override
+procedural label positions in `seg-annotations.js` when `?gltfHousing=1`.
+
+**Explainer integration**
+
+- Click a housing callout (3D label or ray-picked proxy) → `window.segTour.goToStepForHighlight(id)`
+- Deep link: `#lab=v1;mode=seg;hi=coil` restores highlight + matching tour step
+- Classroom mode (`class=1`) shows hotspot dots; full labels on the active highlight
+- WebGL2: 2D billboard labels only (no glTF housing mesh); clicks on labels work the same
 
 ## Bundle size notes
 

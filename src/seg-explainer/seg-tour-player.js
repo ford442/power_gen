@@ -71,13 +71,62 @@ export class SEGTourPlayer {
   }
 
   start(fromStep = 0) {
-    this.stepIndex = Math.max(0, Math.min(fromStep, this.steps.length - 1));
+    this.goToStep(fromStep);
+  }
+
+  /**
+   * Jump to a tour step by index (starts tour if not already playing).
+   * @param {number} stepIndex
+   */
+  goToStep(stepIndex) {
+    this.stepIndex = Math.max(0, Math.min(stepIndex, this.steps.length - 1));
     this.playing = true;
     explainerState.tourActive = true;
     this._el.style.display = 'block';
     document.body.classList.add('seg-tour-active');
     this._enterStep(this.steps[this.stepIndex]);
+    this._syncLabHash();
     this._loop();
+  }
+
+  /**
+   * Navigate to the tour step that highlights a component id (e.g. `coil`, `shaft`).
+   * Falls back to highlight + annotations when no step matches.
+   * @param {string} highlightId
+   */
+  goToStepForHighlight(highlightId) {
+    const idx = this._findStepForHighlight(highlightId);
+    if (idx >= 0) {
+      this.goToStep(idx);
+      return;
+    }
+    explainerState.setHighlight(highlightId);
+    window.segAnnotations?.setEnabled(true);
+    window.setMode?.('seg');
+    this._syncLabHash(highlightId);
+  }
+
+  /** @param {string} highlightId */
+  _findStepForHighlight(highlightId) {
+    return this.steps.findIndex((s) =>
+      (s.highlights || []).includes(highlightId) || s.highlight === highlightId
+    );
+  }
+
+  _syncLabHash(highlightOverride) {
+    if (typeof window === 'undefined' || !window.shareLabLink) return;
+    const hi = highlightOverride
+      || explainerState.highlightId
+      || this.steps[this.stepIndex]?.highlights?.[0]
+      || null;
+    import('./lab-url.js').then((m) => {
+      const state = m.captureLabState();
+      if (hi) state.hi = hi;
+      if (this.playing) state.step = this.stepIndex;
+      if (this.playing) state.tour = true;
+      const hash = m.encodeLabHash(state);
+      history.replaceState(null, '', hash);
+    }).catch(() => {});
   }
 
   stop() {
@@ -87,6 +136,7 @@ export class SEGTourPlayer {
     if (this._raf) cancelAnimationFrame(this._raf);
     this._el.style.display = 'none';
     document.body.classList.remove('seg-tour-active');
+    this._syncLabHash(null);
   }
 
   next() {
@@ -123,6 +173,8 @@ export class SEGTourPlayer {
 
     if (step.showAnnotations) {
       window.segAnnotations?.setEnabled(true);
+    } else {
+      window.segAnnotations?.setEnabled(false);
     }
     if (step.showDiagram) {
       window.segDiagram2D?.show?.();
@@ -153,6 +205,7 @@ export class SEGTourPlayer {
     }
 
     this._progress.textContent = `Step ${this.stepIndex + 1} / ${this.steps.length} · ${step.durationSec || 6}s`;
+    this._syncLabHash();
   }
 
   _loop() {
@@ -175,6 +228,7 @@ export function initSEGTour(getVisualizer = () => window.multiVisualizer) {
   if (typeof window !== 'undefined') {
     window.segTour = player;
     window.startSEGTour = () => player.start(0);
+    window.goToSEGStep = (id) => player.goToStepForHighlight(id);
   }
   return player;
 }
