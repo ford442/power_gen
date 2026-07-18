@@ -429,4 +429,51 @@ export class MeshRenderer {
       drawSet(extra.mesh, extra.instances, extra.emissive);
     }
   }
+
+  /**
+   * Draw Quanta plugin apparatus meshes (maglev, homopolar, …).
+   * @param {Float32Array} viewProj
+   * @param {number[]} devicePos
+   * @param {number[][]} instances  packed cylinder instances (12 floats each)
+   * @param {object} [opts]
+   */
+  drawPluginDevice(viewProj, devicePos, instances, opts = {}) {
+    const gl = this.gl;
+    const flat = instances.flat();
+    const count = flat.length / 12;
+    if (count < 1) return;
+
+    const instanceData = new Float32Array(count * INSTANCE_STRIDE_FLOATS);
+    for (let i = 0; i < count; i++) {
+      const base = i * 12;
+      const pos = [flat[base], flat[base + 1], flat[base + 2]];
+      const rot = [flat[base + 4], flat[base + 5], flat[base + 6], flat[base + 7]];
+      const rgb = [flat[base + 8], flat[base + 9], flat[base + 10]];
+      const em = flat[base + 11] + 0.12;
+      this._packInstance(instanceData, i, pos, rgb, em, rot);
+    }
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, instanceData, gl.DYNAMIC_DRAW);
+
+    gl.useProgram(this.program);
+    gl.uniformMatrix4fv(this.locs.u_viewProj, false, viewProj);
+    gl.uniformMatrix4fv(this.locs.u_model, false, new Float32Array(16).fill(0).map((_, i) => (i % 5 === 0 ? 1 : 0)));
+    gl.uniform3fv(this.locs.u_devicePos, devicePos);
+    this._applyLighting(this.locs, this.program);
+    gl.uniform3fv(this.locs.u_cameraPos, opts.cameraPos || [0, 8, 18]);
+    gl.uniform1f(this.locs.u_emissive, 0.14);
+    gl.uniform1f(this.locs.u_metallic, 0.68);
+    gl.uniform1f(this.locs.u_roughness, 0.38);
+    gl.uniform1f(this.locs.u_wireframe, opts.wireframe ? 1 : 0);
+    gl.uniform1f(this.locs.u_debugMode, opts.debugMode || 0);
+
+    gl.bindVertexArray(this.deviceCylinder.vao);
+    this._bindInstanceAttribs(buf);
+    gl.drawElementsInstanced(gl.TRIANGLES, this.deviceCylinder.indexCount, gl.UNSIGNED_SHORT, 0, count);
+    this._unbindInstanceAttribs();
+    gl.bindVertexArray(null);
+    gl.deleteBuffer(buf);
+  }
 }

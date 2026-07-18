@@ -138,6 +138,18 @@ fn posMagLev(phase: f32, t: f32, idx: u32) -> vec3f {
   return vec3f(cos(angle) * r, y, sin(angle) * r);
 }
 
+fn posHomopolar(phase: f32, t: f32, idx: u32) -> vec3f {
+  let rpmN = uniforms.physics0;
+  let emfN = uniforms.physics1;
+  let discAngle = uniforms.physics2;
+  let rFrac = fract(f32(idx) * 0.618034 + phase * 0.37);
+  let drift = fract(phase + t * (0.12 + emfN * 0.35));
+  let r = mix(0.18, 1.15, drift * (0.35 + rFrac * 0.65));
+  let theta = discAngle + phase * 6.28318 + t * (0.4 + rpmN * 3.5) + f32(idx) * 0.011;
+  let y = 0.16 + sin(t * 4.0 + phase * 18.0) * 0.04 * (0.3 + emfN);
+  return vec3f(cos(theta) * r, y, sin(theta) * r);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let idx = id.x;
@@ -157,8 +169,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     newPos = posKelvin(phase, t, idx);
   } else if (mode < 3.5) {
     newPos = posSolar(phase, t, idx, uniforms.speedMult);
-  } else if (mode < 6.5) {
+  } else if (mode < 4.5) {
     newPos = posPeltier(phase, t, idx);
+  } else if (mode < 5.5) {
+    newPos = posPeltier(phase, t, idx);
+  } else if (mode < 7.0) {
+    newPos = posMagLev(phase, t, idx);
+  } else if (mode < 8.5) {
+    newPos = posHomopolar(phase, t, idx);
   } else {
     newPos = posMagLev(phase, t, idx);
   }

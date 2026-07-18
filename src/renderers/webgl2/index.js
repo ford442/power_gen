@@ -17,6 +17,8 @@ import { MultiDeviceCamera } from '../../multi-device-camera.js';
 import { SimRateController } from '../../sim-rate-controller.js';
 import { DEVICE_CONFIG } from '../../debug-panel.js';
 import { getMergedDeviceConfig, getAllSimDeviceIds } from '../../devices/device-registry.js';
+import { buildMagLevMesh } from '../../devices/quanta/magnetic-levitation.js';
+import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator.js';
 import { exposeRenderer, RENDERER_WEBGL2 } from '../renderer-selector.js';
 import { stepParticles, seedParticles } from '../shared/particle-physics.js';
 import {
@@ -525,6 +527,9 @@ export class WebGL2MultiDeviceVisualizer {
           corona: device.physics.corona,
           maglevGap: device.physics.maglevGap,
           maglevFieldT: device.physics.maglevFieldT,
+          homopolarRpm: device.physics.homopolarRpm,
+          homopolarEmfV: device.physics.homopolarEmfV,
+          homopolarAngle: device.physics.homopolarAngle,
           simClock: this.simClock,
           speedMult: speed
         });
@@ -631,6 +636,16 @@ export class WebGL2MultiDeviceVisualizer {
           ...renderOpts,
           heronLayoutPreset: device.id === 'heron' ? this.heronLayoutPreset : undefined
         });
+      } else if (device.id === 'maglev') {
+        const gap = device.physics.maglevGap ?? 0.018;
+        this.meshRenderer.drawPluginDevice(
+          viewProj, pos, buildMagLevMesh(gap).cylinders(), renderOpts
+        );
+      } else if (device.id === 'homopolar') {
+        const angle = device.physics.homopolarAngle ?? 0;
+        this.meshRenderer.drawPluginDevice(
+          viewProj, pos, buildHomopolarMesh(angle).cylinders(), renderOpts
+        );
       }
 
       this.particleRenderer.draw(

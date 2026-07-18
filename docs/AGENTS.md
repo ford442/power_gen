@@ -69,6 +69,7 @@ Client-side **multi-device physics lab**: real-time visualization of research ap
 | `peltier` | Thermoelectric | Geometry + particle modes; **lighter** plant model |
 | `mhd` | MHD channel | Geometry + particles; **lighter** plant model |
 | `maglev` | Quanta MagLev (plugin) | Plugin registry; see [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
+| `homopolar` | Quanta homopolar disc (plugin) | Faraday disc L–R model; see [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
 
 Dashboard overview can enable **all** registered sim devices (typically 6 core + plugins). Particle budgets and mesh detail are **not** equal across devices — auto-quality and view LOD scale further. Do not document “full physical fidelity on every device.”
 

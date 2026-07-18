@@ -218,7 +218,7 @@ export class DeviceInstance {
    * Reset simulation accumulators when the user enters this device's focused view.
    */
   resetForModeEntry() {
-    if (['heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev'].includes(this.id)) {
+    if (['heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar'].includes(this.id)) {
       const heronLayout = this.id === 'heron'
         ? (this.visualizer.heronLayout || getHeronLayout(this.visualizer.heronLayoutPreset))
         : null;

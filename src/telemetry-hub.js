@@ -69,7 +69,12 @@ function emptyDeviceSnap(id) {
     maglevGapMm: 0,
     maglevFieldT: 0,
     maglevLiftN: 0,
-    maglevRpm: 0
+    maglevRpm: 0,
+    // Quanta homopolar
+    homopolarRpm: 0,
+    homopolarEmfV: 0,
+    homopolarCurrentA: 0,
+    homopolarFieldT: 0
   };
 }
 
@@ -94,7 +99,11 @@ function snapFromPhysics(id, physics) {
     maglevGapMm: physics.maglevGapMm ?? 0,
     maglevFieldT: physics.maglevFieldT ?? 0,
     maglevLiftN: physics.maglevLiftN ?? 0,
-    maglevRpm: physics.maglevRpm ?? 0
+    maglevRpm: physics.maglevRpm ?? 0,
+    homopolarRpm: physics.homopolarRpm ?? 0,
+    homopolarEmfV: physics.homopolarEmfV ?? 0,
+    homopolarCurrentA: physics.homopolarCurrentA ?? 0,
+    homopolarFieldT: physics.homopolarFieldT ?? 0
   };
 }
 

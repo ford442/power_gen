@@ -70,6 +70,10 @@ class DeviceComputeManager {
       } else if (physicsState.deviceId === 'maglev') {
         p0 = physicsState.maglevGap ?? 0.018;
         p1 = physicsState.maglevFieldT ?? 0.5;
+      } else if (physicsState.deviceId === 'homopolar') {
+        p0 = (physicsState.homopolarRpm ?? 0) / 3600;
+        p1 = Math.min(1, (physicsState.homopolarEmfV ?? 0) / 2);
+        p2 = physicsState.homopolarAngle ?? 0;
       }
     }
 

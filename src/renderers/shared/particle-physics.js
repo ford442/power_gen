@@ -99,6 +99,16 @@ function integrateMagLev(p, idx, t, gap = 0.018, field = 0.5) {
   return [Math.cos(angle) * r, y, Math.sin(angle) * r];
 }
 
+function integrateHomopolar(p, idx, t, rpmN = 0, emfN = 0, discAngle = 0) {
+  const phase = p.phase;
+  const rFrac = ((idx * 0.618034 + phase * 0.37) % 1 + 1) % 1;
+  const drift = ((phase + t * (0.12 + emfN * 0.35)) % 1 + 1) % 1;
+  const r = (0.18 + 1.15 * drift * (0.35 + rFrac * 0.65));
+  const theta = discAngle + phase * TAU + t * (0.4 + rpmN * 3.5) + idx * 0.011;
+  const y = 0.16 + Math.sin(t * 4.0 + phase * 18.0) * 0.04 * (0.3 + emfN);
+  return [Math.cos(theta) * r, y, Math.sin(theta) * r];
+}
+
 function integrateMHD(p, idx, t) {
   const phase = p.phase;
   const speed = 0.7;
@@ -252,6 +262,11 @@ export function stepParticles(particles, u) {
         vx = s.vel[0]; vy = s.vel[1]; vz = s.vel[2];
         aux = s.aux;
       }
+    } else if (mode >= 8.0) {
+      const rpmN = (u.homopolarRpm ?? 0) / 3600;
+      const emfN = Math.min(1, (u.homopolarEmfV ?? 0) / 2);
+      const pos = integrateHomopolar({ phase }, idx, u.time, rpmN, emfN, u.homopolarAngle ?? 0);
+      px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode >= 6.0) {
       const gap = u.maglevGap ?? 0.018;
       const field = u.maglevFieldT ?? 0.5;
@@ -293,6 +308,12 @@ export function seedParticles(particles, deviceId, count) {
       const a = simRandom() * Math.PI * 2;
       particles[base] = Math.cos(a) * r;
       particles[base + 1] = 0.6 + simRandom() * 0.8;
+      particles[base + 2] = Math.sin(a) * r;
+    } else if (deviceId === 'homopolar') {
+      const r = 0.2 + simRandom() * 0.9;
+      const a = simRandom() * Math.PI * 2;
+      particles[base] = Math.cos(a) * r;
+      particles[base + 1] = 0.14 + simRandom() * 0.06;
       particles[base + 2] = Math.sin(a) * r;
     } else if (deviceId === 'solar' || deviceId === 'peltier') {
       const ledCount = 6;
