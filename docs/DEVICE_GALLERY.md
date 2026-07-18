@@ -69,12 +69,46 @@ eddy-current damping metaphor.
 
 ---
 
+## homopolar
+
+**Homopolar Generator** — classic Faraday disc: rotating copper conductor in an
+axial magnetic field with brushed radial current path. Educational L–R circuit
+with back-EMF ε ≈ ½ B ω r² (not full 3D FEM).
+
+| View | Screenshot |
+|------|------------|
+| Overview | *(capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
+| Focus | *(capture with `window.setMode('homopolar')`)* |
+
+### Telemetry
+
+| Field | Unit | Source |
+|-------|------|--------|
+| Disc RPM | RPM | Simulation (`homopolarRpm`) |
+| EMF (est.) | V | `estimateHomopolarEmfV()` — ½ B ω r² |
+| Disc current | A | L–R brushed circuit |
+| B-field (axial) | T | NdFeB pole model (`homopolarFieldT`) |
+
+### References
+
+1. M. Faraday — *Experimental researches in electricity* (1831)
+2. J. A. Wheeler, R. P. Feynman — *The homopolar generator* (1967)
+3. H. D. Algie — *Unipolar machines: steady-state and transient analysis* (1989)
+
+### Implementation
+
+- Plugin: `src/devices/quanta/homopolar-generator.js`
+- WGSL mode index: `8` (`posHomopolar` in `shaders/passes/particle-compute.wgsl`)
+- WebGL2: instanced disc + magnet poles via `mesh-renderer.drawPluginDevice`
+
+---
+
 ## Roadmap (candidate devices)
 
 | Device | Status | Notes |
 |--------|--------|-------|
 | Magnetic bearing / levitation | **Live** (`maglev`) | First Quanta catalog entry |
-| Homopolar / Faraday disc | Planned | Rotating copper disc + axial B |
+| Homopolar / Faraday disc | **Live** (`homopolar`) | Rotating copper disc + axial B |
 | Halbach array field visualizer | Planned | Field line overlay |
 | Pulse magnet / coilgun (sandboxed) | Planned | Educational L–R model only |
 | Quanta product mockups | Blocked | Awaiting product specs |

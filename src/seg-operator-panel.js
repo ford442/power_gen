@@ -370,7 +370,8 @@ export class SEGOperatorPanel {
       overview: 'Multi-Device Overview',
       peltier: 'Peltier',
       mhd: 'MHD',
-      maglev: 'Mag Levitation'
+      maglev: 'Mag Levitation',
+      homopolar: 'Homopolar Generator'
     };
     if (modeFooter) modeFooter.textContent = modeLabels[view] || view.toUpperCase();
 
@@ -392,6 +393,21 @@ export class SEGOperatorPanel {
         batteryFooter.textContent = `V ${v.toFixed(0)} V (${(kelvin.kelvinVoltageN * 100).toFixed(0)}%)${spark}`;
       } else if (solar) {
         batteryFooter.textContent = `${Math.round((solar.batteryCharge || 0) * 100)}%`;
+      } else if (view === 'homopolar' && snap.devices?.homopolar) {
+        const h = snap.devices.homopolar;
+        batteryFooter.textContent = [
+          `RPM ${(h.homopolarRpm || 0).toFixed(0)}`,
+          `EMF ${(h.homopolarEmfV || 0).toFixed(3)} V`,
+          `I ${(h.homopolarCurrentA || 0).toFixed(2)} A`,
+          `B ${(h.homopolarFieldT || 0).toFixed(2)} T`
+        ].join(' · ');
+      } else if (view === 'maglev' && snap.devices?.maglev) {
+        const m = snap.devices.maglev;
+        batteryFooter.textContent = [
+          `gap ${(m.maglevGapMm || 0).toFixed(1)} mm`,
+          `B ${(m.maglevFieldT || 0).toFixed(2)} T`,
+          `${(m.maglevRpm || 0).toFixed(0)} RPM`
+        ].join(' · ');
       } else {
         batteryFooter.textContent = '—';
       }

@@ -52,7 +52,8 @@ const MODE_DESCRIPTIONS = {
   kelvin: "Kelvin's Thunderstorm: Electrostatic induction with falling water droplets charging conductors.",
   solar: 'LEDs & Solar Cells: LEDs drain a battery while shining on solar panels that recharge it. Watch the charge level change.',
   mhd: 'MHD Generator: Molten bismuth (Bi, Tm=271°C) flows through a transverse magnetic field. The Lorentz force F=q(v×B) separates positive ions (red) from electrons (blue), generating direct current without moving parts.',
-  maglev: 'Quanta Magnetics — Magnetic Levitation: Halbach ring stack lifts a conductive floater; eddy-current damping stabilises the gap. Watch air gap, B-field estimate, and lift proxy in telemetry.'
+  maglev: 'Quanta Magnetics — Magnetic Levitation: Halbach ring stack lifts a conductive floater; eddy-current damping stabilises the gap. Watch air gap, B-field estimate, and lift proxy in telemetry.',
+  homopolar: 'Quanta Magnetics — Homopolar Generator: rotating copper disc in an axial magnetic field. Brushed radial path produces EMF ∝ ω×B×r. Watch disc RPM, EMF, current proxy, and B-field in telemetry.'
 };
 
 window.setMode = (mode) => {

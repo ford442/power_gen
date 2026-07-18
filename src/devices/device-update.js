@@ -5,6 +5,7 @@ import {
 } from '../renderers/shared/device-physics.js';
 import { getHeronLayout } from '../heron-layout.js';
 import { buildMagLevMesh } from './quanta/magnetic-levitation.js';
+import { buildHomopolarMesh } from './quanta/homopolar-generator.js';
 import { instancesToBufferData, countInstances } from '../device-mesh-layouts.js';
 
 export const DeviceUpdateMixin = {
@@ -30,7 +31,7 @@ export const DeviceUpdateMixin = {
     );
 
     // Per-device physics integrators (Heron head, Kelvin voltage, solar battery)
-    if (!this.physicsState && ['heron', 'kelvin', 'solar', 'maglev'].includes(this.id)) {
+    if (!this.physicsState && ['heron', 'kelvin', 'solar', 'maglev', 'homopolar'].includes(this.id)) {
       const heronLayout = this.id === 'heron'
         ? (this.visualizer.heronLayout || getHeronLayout(this.visualizer.heronLayoutPreset))
         : null;
@@ -54,6 +55,12 @@ export const DeviceUpdateMixin = {
       } else if (this.id === 'maglev' && this.rollerInstances) {
         const gap = this.physicsState.maglevGap ?? 0.018;
         const mesh = buildMagLevMesh(gap);
+        const data = instancesToBufferData([mesh.cylinders()]);
+        this.device.queue.writeBuffer(this.rollerInstances, 0, data);
+        this.meshCylinderCount = countInstances(mesh.cylinders().flat());
+      } else if (this.id === 'homopolar' && this.rollerInstances) {
+        const angle = this.physicsState.homopolarAngle ?? 0;
+        const mesh = buildHomopolarMesh(angle);
         const data = instancesToBufferData([mesh.cylinders()]);
         this.device.queue.writeBuffer(this.rollerInstances, 0, data);
         this.meshCylinderCount = countInstances(mesh.cylinders().flat());
@@ -295,6 +302,9 @@ export const DeviceUpdateMixin = {
     } else if (this.id === 'maglev') {
       const gapN = this.physicsState?.energyLevel ?? this.energyLevel;
       deviceEnergy = Math.min(1.0, gapN * 0.7 + speedNorm * 0.3);
+    } else if (this.id === 'homopolar') {
+      const spinN = (this.physicsState?.homopolarRpm ?? 0) / 3600;
+      deviceEnergy = Math.min(1.0, spinN * 0.75 + speedNorm * 0.25);
     }
 
     // Exponential response in high-energy regime to make overdrive feel dangerous.
@@ -510,10 +520,21 @@ export const DeviceUpdateMixin = {
         const y = 0.55 + gap + Math.sin(t * 4 + i * 0.31) * 0.12;
         pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 3.0 + Math.random());
       }
+    } else if (this.id === 'homopolar') {
+      const currentGate = Math.pow(gate(energy, 0.18, 0.8), 1.25);
+      const arcCount = Math.floor(budget * 0.38 * currentGate);
+      const rim = 0.45;
+      for (let i = 0; i < arcCount; i++) {
+        const frac = i / Math.max(1, arcCount);
+        const x = frac * rim;
+        const y = 0.18 + Math.sin(t * 6 + i * 0.4) * 0.05;
+        const z = Math.sin(frac * Math.PI * 2 + t * 2) * 0.08;
+        pushParticle(x, y, z, 3.0 + Math.random());
+      }
     }
 
     // Subtle thermal haze billboards around hot devices.
-    if ((this.id === 'seg' || this.id === 'peltier' || this.id === 'mhd' || this.id === 'maglev') && energy > 0.35) {
+    if ((this.id === 'seg' || this.id === 'peltier' || this.id === 'mhd' || this.id === 'maglev' || this.id === 'homopolar') && energy > 0.35) {
       const hazeCount = Math.floor(budget * Math.pow(gate(energy, 0.35, 0.9), 1.4) * 0.18);
       for (let i = 0; i < hazeCount; i++) {
         const a = Math.random() * Math.PI * 2;
