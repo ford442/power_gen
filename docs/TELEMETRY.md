@@ -18,7 +18,7 @@ scientific derived fields   ─┘
 | Subscriber | Role |
 |------------|------|
 | `seg-operator-panel.js` | Dashboard LED tiles, RPM gauge, footers |
-| `scientific-ui.js` `ScientificUIManager` | Floating physics gauges (optional) |
+| `scientific-ui/` `ScientificUIManager` | Floating physics gauges (optional) |
 
 **Do not** write RPM/voltage/current/power DOM from the visualizer. Publish to the hub instead.
 
@@ -80,11 +80,21 @@ cd cpp && make native   # smoke + writes build/seg_telemetry.csv
 
 Deterministic particles: set **RNG seed** in export panel or `localStorage seg-sim-seed`.
 
+## Scientific UI layout
+
+All gauge widgets live under `src/scientific-ui/gauges/`. Import the panel and gauges from a single entry:
+
+```js
+import { ScientificUIManager, MagneticFieldGauge } from './scientific-ui/index.js';
+```
+
+`main.js` lazy-loads `ScientificUIManager` (Ctrl+Shift+S toggle). Legacy root shims `scientific-ui.js` and `scientific-ui-utils.js` re-export the package for backward compatibility.
+
 ## Removed duplicates
 
 - Floating **overlay** `ScientificUIManager` inside `integration.ts` — deleted (NoOp only).
 - Visualizer direct DOM writes for battery/footer voltage — moved to operator panel via hub.
-- Half-migrated `scientific-ui/index.js` commented exports — now re-exports real gauges + manager.
+- Split gauge modules (`scientific-ui.js`, `scientific-ui-gauges.js`) — consolidated under `scientific-ui/`.
 
 ## WebGL2
 

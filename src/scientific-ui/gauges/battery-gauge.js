@@ -1,4 +1,4 @@
-import { clamp, formatCurrent, LED_SOLAR_CONSTANTS } from '../../scientific-ui-utils.js';
+import { clamp, formatCurrent, LED_SOLAR_CONSTANTS } from '../utils/index.js';
 
 export class BatteryGauge {
   constructor(containerId) {

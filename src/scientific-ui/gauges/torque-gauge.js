@@ -1,4 +1,4 @@
-import { formatNumber } from '../../scientific-ui-utils.js';
+import { formatNumber } from '../utils/index.js';
 
 export class TorqueGauge {
   constructor(containerId) {

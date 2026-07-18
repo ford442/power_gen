@@ -1,4 +1,4 @@
-import { clamp, LED_SOLAR_CONSTANTS } from '../../scientific-ui-utils.js';
+import { clamp, LED_SOLAR_CONSTANTS } from '../utils/index.js';
 
 export class SolarPanelGauge {
   constructor(containerId) {

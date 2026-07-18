@@ -325,7 +325,7 @@ window.addEventListener('load', () => {
 
   // Optional scientific gauge panel (Ctrl+Shift+S / toggle); subscribes to TelemetryHub
   try {
-    import('./scientific-ui.js').then(({ ScientificUIManager }) => {
+    import('./scientific-ui/index.js').then(({ ScientificUIManager }) => {
       if (window.sciUI) return;
       window.sciUI = new ScientificUIManager({ showToggle: true, subscribeToHub: true });
       window.addEventListener('keydown', (e) => {
