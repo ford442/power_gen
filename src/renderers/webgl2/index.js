@@ -27,6 +27,7 @@ import {
   deviceModeIndex
 } from '../shared/device-physics.ts';
 import { isDeviceActive as isDeviceVisible, shouldSimulateDevice } from '../shared/device-view.js';
+import { EnergyNetwork, initEnergyCouplingDisclaimer } from '../shared/energy-network.ts';
 import { getDeviceParticleScale, getViewMeshLod } from '../shared/view-lod.js';
 import {
   parsePrototypePreset,
@@ -159,6 +160,7 @@ export class WebGL2MultiDeviceVisualizer {
 
     this.energyPipes = []; // filled after devices for debug panel total flow
     this.energyPipeRenderer = null;
+    this.energyNetwork = new EnergyNetwork();
 
     exposeRenderer(this.canvas, RENDERER_WEBGL2);
     this._exposeScreenshotHooks();
@@ -264,7 +266,7 @@ export class WebGL2MultiDeviceVisualizer {
       this.meshRenderer = new MeshRenderer(gl);
       this.meshRenderer.setLightingPreset(this.lightingPreset);
       this.particleRenderer = new ParticleRenderer(gl);
-      this.energyPipeRenderer = new EnergyPipeRenderer(gl);
+      this.energyPipeRenderer = new EnergyPipeRenderer(gl, { energyNetwork: this.energyNetwork });
       this.cameraController = new MultiDeviceCamera(this.canvas, this.camera.camera, this);
       this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
 
@@ -273,6 +275,7 @@ export class WebGL2MultiDeviceVisualizer {
       }
       // Proxy for debug panel energy pipe flow readout
       this.energyPipes = this.energyPipeRenderer.pipes;
+      initEnergyCouplingDisclaimer();
 
       // Optional WASM init (non-blocking; enable via ?wasmPhysics=1)
       segWasm.init().catch(() => {});
@@ -568,6 +571,14 @@ export class WebGL2MultiDeviceVisualizer {
 
     // Telemetry hub — same path as WebGPU (START → non-zero RPM/V/I/P)
     const omega = this.segOmega || 0;
+    const segTelemetry = segOperator.computeTelemetry(deltaTime);
+    const netSnap = this.energyNetwork.update({
+      devices: this.devices,
+      devicesEnabled: this.devicesEnabled,
+      segPowerW: segTelemetry.power,
+      segEfficiencyPct: segTelemetry.efficiency,
+      deltaTime
+    });
     telemetryHub.publishFrame({
       dt: deltaTime,
       view: this.currentView || 'overview',
@@ -577,6 +588,14 @@ export class WebGL2MultiDeviceVisualizer {
         particleFlux: totalParticles * Math.max(0.05, speed),
         maxFieldMagnitude: 0.7048 * (0.35 + 0.65 * Math.min(1, Math.abs(omega))),
         avgEnergyDensity: 1.976e6 * (0.2 + 0.8 * Math.min(1, Math.abs(omega)))
+      },
+      segTelemetry,
+      energyNetwork: {
+        couplingEnabled: netSnap.couplingEnabled,
+        labBudgetW: netSnap.labBudgetW,
+        totalAllocatedW: netSnap.totalAllocatedW,
+        residualW: netSnap.residualW,
+        devices: netSnap.devices
       }
     });
 
@@ -665,7 +684,9 @@ export class WebGL2MultiDeviceVisualizer {
 
     // Overview energy pipes (line-strip Bézier arcs)
     if (this.isOverviewMode() && this.energyPipeRenderer) {
-      this.energyPipeRenderer.draw(viewProj, this.devices, this.time);
+      this.energyPipeRenderer.draw(viewProj, this.devices, this.time, {
+        devicesEnabled: this.devicesEnabled
+      });
     }
 
     requestAnimationFrame((t) => this.render(t));

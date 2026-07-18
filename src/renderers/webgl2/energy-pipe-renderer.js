@@ -4,30 +4,13 @@
  */
 
 import { linkProgram, getUniformLocations } from './shader-utils.js';
-
-const PIPE_COLORS = {
-  'seg-heron': [0.15, 0.92, 0.75],
-  'heron-kelvin': [0.25, 0.65, 1.0],
-  'kelvin-seg': [0.72, 0.45, 1.0],
-  'kelvin-peltier': [0.55, 0.35, 0.95],
-  'peltier-solar': [1.0, 0.82, 0.25],
-  'seg-mhd': [0.35, 0.88, 1.0],
-  'mhd-peltier': [0.45, 0.75, 1.0],
-  'solar-maglev': [0.25, 0.92, 1.0],
-  'maglev-seg': [0.15, 0.85, 0.95]
-};
-
-const PIPE_CONFIGS = [
-  { from: 'seg', to: 'heron' },
-  { from: 'heron', to: 'kelvin' },
-  { from: 'kelvin', to: 'seg' },
-  { from: 'kelvin', to: 'peltier' },
-  { from: 'peltier', to: 'solar' },
-  { from: 'seg', to: 'mhd' },
-  { from: 'mhd', to: 'peltier' },
-  { from: 'solar', to: 'maglev' },
-  { from: 'maglev', to: 'seg' }
-];
+import {
+  ENERGY_PIPE_EDGES,
+  bezierControlPoints,
+  deviceAnchor,
+  getPipeColor,
+  isPipeEndpointEnabled
+} from '../shared/energy-network.ts';
 
 const VERT = /* glsl */ `#version 300 es
 precision highp float;
@@ -61,37 +44,35 @@ function bezier3(p0, p1, p2, p3, t) {
   ];
 }
 
-function deviceAnchor(dev) {
-  if (!dev) return [0, 2, 0];
-  const pos = dev.config?.position || dev.position || [0, 0, 0];
-  const id = dev.id || '';
-  const yBoost = id === 'solar' ? 1.5 : id === 'heron' ? 3.0 : 2.2;
-  return [pos[0], pos[1] + yBoost, pos[2]];
-}
-
 export class EnergyPipeRenderer {
-  constructor(gl) {
+  /**
+   * @param {WebGL2RenderingContext} gl
+   * @param {{ energyNetwork?: import('../shared/energy-network.ts').EnergyNetwork }} [opts]
+   */
+  constructor(gl, opts = {}) {
     this.gl = gl;
+    this.energyNetwork = opts.energyNetwork ?? null;
     this.program = linkProgram(gl, VERT, FRAG);
     this.locs = getUniformLocations(gl, this.program, ['u_viewProj', 'u_color', 'u_alpha']);
     this.vao = gl.createVertexArray();
     this.vbo = gl.createBuffer();
     this.segments = 32;
-    this.pipes = PIPE_CONFIGS.map((c) => ({
+    this.pipes = ENERGY_PIPE_EDGES.map((c) => ({
       ...c,
       key: `${c.from}-${c.to}`,
-      color: PIPE_COLORS[`${c.from}-${c.to}`] || [0.4, 0.9, 1.0],
-      flowLevel: 0.35
+      color: getPipeColor(c.from, c.to),
+      flowLevel: 0
     }));
     this._scratch = new Float32Array((this.segments + 1) * 3);
   }
 
   /**
    * @param {Float32Array} viewProj
-   * @param {Record<string, { config?: { position: number[] }, id?: string, physics?: object, energyLevel?: number }>} devices
+   * @param {Record<string, object>} devices
    * @param {number} time
+   * @param {{ devicesEnabled?: Record<string, boolean> }} [opts]
    */
-  draw(viewProj, devices, time = 0) {
+  draw(viewProj, devices, time = 0, opts = {}) {
     const gl = this.gl;
     gl.useProgram(this.program);
     gl.uniformMatrix4fv(this.locs.u_viewProj, false, viewProj);
@@ -109,39 +90,25 @@ export class EnergyPipeRenderer {
       const b = devices[pipe.to];
       if (!a || !b) continue;
 
+      const enabled = isPipeEndpointEnabled(pipe.from, pipe.to, opts.devicesEnabled);
+      pipe.flowLevel = this.energyNetwork
+        ? this.energyNetwork.getPipeFlow(pipe.from, pipe.to)
+        : pipe.flowLevel;
+
+      if (!enabled && pipe.flowLevel < 0.02) continue;
+      if (pipe.flowLevel < 0.02) continue;
+
       const p0 = deviceAnchor(a);
       const p3 = deviceAnchor(b);
-      const mid = [
-        (p0[0] + p3[0]) * 0.5,
-        Math.max(p0[1], p3[1]) + 3.5,
-        (p0[2] + p3[2]) * 0.5
-      ];
-      // Control points for a high arc
-      const p1 = [
-        p0[0] * 0.65 + mid[0] * 0.35,
-        mid[1],
-        p0[2] * 0.65 + mid[2] * 0.35
-      ];
-      const p2 = [
-        p3[0] * 0.65 + mid[0] * 0.35,
-        mid[1] * 0.95,
-        p3[2] * 0.65 + mid[2] * 0.35
-      ];
-
-      const eA = a.physics?.energyLevel ?? a.energyLevel ?? 0.3;
-      const eB = b.physics?.energyLevel ?? b.energyLevel ?? 0.3;
-      pipe.flowLevel = 0.25 + 0.75 * Math.min(1, (eA + eB) * 0.5);
+      const { p1, p2 } = bezierControlPoints(p0, p3);
 
       for (let i = 0; i <= this.segments; i++) {
         const t = i / this.segments;
-        // Animated dash phase along the curve
-        const phase = (t + time * 0.15 * pipe.flowLevel) % 1;
         const pt = bezier3(p0, p1, p2, p3, t);
         const o = i * 3;
         this._scratch[o] = pt[0];
         this._scratch[o + 1] = pt[1];
         this._scratch[o + 2] = pt[2];
-        void phase;
       }
 
       gl.bufferData(gl.ARRAY_BUFFER, this._scratch, gl.DYNAMIC_DRAW);

@@ -3,19 +3,13 @@
 // ============================================
 
 import { BindGroupCache } from './renderers/shared/bind-group-cache.js';
+import {
+  bezierControlPoints,
+  deviceAnchor,
+  getPipeColor,
+  isPipeEndpointEnabled
+} from './renderers/shared/energy-network.ts';
 import { PARTICLE_LAYOUTS } from '../generated/physics-constants.js';
-
-const PIPE_COLORS = {
-  'seg-heron': [0.15, 0.92, 0.75],
-  'heron-kelvin': [0.25, 0.65, 1.0],
-  'kelvin-seg': [0.72, 0.45, 1.0],
-  'kelvin-peltier': [0.55, 0.35, 0.95],
-  'peltier-solar': [1.0, 0.82, 0.25],
-  'seg-mhd': [0.35, 0.88, 1.0],
-  'mhd-peltier': [0.45, 0.75, 1.0],
-  'solar-maglev': [0.25, 0.92, 1.0],
-  'maglev-seg': [0.15, 0.85, 0.95]
-};
 
 const PARTICLE_BYTES = PARTICLE_LAYOUTS.pipeBytes;
 
@@ -67,7 +61,7 @@ class EnergyPipe {
     this.flowLevel = 0;
     this._particleData = new Float32Array(PIPE_PARTICLES_FULL * 8);
     this._colorKey = `${config.from}-${config.to}`;
-    this._color = PIPE_COLORS[this._colorKey] || [0.4, 0.9, 1.0];
+    this._color = getPipeColor(config.from, config.to);
     this._bindGroups = new BindGroupCache();
     this._lastWriteFrame = -1;
     this.curveUniformBuffer = null;
@@ -119,28 +113,6 @@ class EnergyPipe {
     this._setupComputeResources();
   }
 
-  _bezierControlPoints(fromDev, toDev) {
-    const p0 = this._deviceAnchor(fromDev);
-    const p3 = this._deviceAnchor(toDev);
-    const lift = 3.5 + Math.abs(p0[0] - p3[0]) * 0.08 + Math.abs(p0[2] - p3[2]) * 0.08;
-    const mid = [
-      (p0[0] + p3[0]) * 0.5,
-      Math.max(p0[1], p3[1]) + lift,
-      (p0[2] + p3[2]) * 0.5
-    ];
-    const p1 = [
-      p0[0] + (mid[0] - p0[0]) * 0.45,
-      p0[1] + lift * 0.55,
-      p0[2] + (mid[2] - p0[2]) * 0.45
-    ];
-    const p2 = [
-      p3[0] + (mid[0] - p3[0]) * 0.45,
-      p3[1] + lift * 0.55,
-      p3[2] + (mid[2] - p3[2]) * 0.45
-    ];
-    return { p0, p1, p2, p3 };
-  }
-
   _writeCurveUniforms({ p0, p1, p2, p3 }, flowLevel, time, speed, pulse) {
     if (!this.curveUniformBuffer) return;
     const d = this._curveData;
@@ -180,16 +152,6 @@ class EnergyPipe {
     );
   }
 
-  _deviceAnchor(dev) {
-    if (!dev) return [0, 2, 0];
-    const yBoost = dev.id === 'solar' ? 1.5 : dev.id === 'heron' ? 3.0 : 2.2;
-    return [
-      dev.position[0],
-      dev.position[1] + yBoost,
-      dev.position[2]
-    ];
-  }
-
   /**
    * @param {number} deltaTime
    * @param {Record<string, object>} devices
@@ -201,18 +163,21 @@ class EnergyPipe {
     const toDev = devices[this.config.to];
     if (!fromDev || !toDev) return;
 
-    const enabled = this.visualizer.devicesEnabled?.[this.config.from]
-      && this.visualizer.devicesEnabled?.[this.config.to];
-    // Skip dead pipes when either endpoint is disabled in the overview toggles.
+    const enabled = isPipeEndpointEnabled(
+      this.config.from,
+      this.config.to,
+      this.visualizer.devicesEnabled
+    );
+
+    const network = this.visualizer.energyNetwork;
+    this.flowLevel = network
+      ? network.getPipeFlow(this.config.from, this.config.to)
+      : this.flowLevel;
+
     if (!enabled && this.flowLevel < 0.02) {
       this.flowLevel = 0;
       return;
     }
-
-    const sourceFlow = fromDev.energyLevel ?? 0;
-    const target = 0.12 + sourceFlow * 0.88;
-    const smooth = 1 - Math.exp(-Math.max(0, deltaTime) * 6);
-    this.flowLevel = this.flowLevel + ((enabled ? target : 0) - this.flowLevel) * smooth;
 
     if (this.flowLevel < 0.02) return;
 
@@ -223,7 +188,9 @@ class EnergyPipe {
 
     const speed = this.config.speed ?? 1.5;
     const pulse = 0.5 + 0.5 * Math.sin(time * 2.4 + fromDev.position[0] * 0.1);
-    const curve = this._bezierControlPoints(fromDev, toDev);
+    const p0 = deviceAnchor(fromDev);
+    const p3 = deviceAnchor(toDev);
+    const curve = bezierControlPoints(p0, p3);
 
     if (this.usesGpuCompute()) {
       this._writeCurveUniforms(curve, this.flowLevel, time, speed, pulse);
@@ -270,4 +237,5 @@ class EnergyPipe {
   }
 }
 
-export { EnergyPipe, PIPE_COLORS };
+export { EnergyPipe };
+export { PIPE_COLORS, ENERGY_PIPE_EDGES } from './renderers/shared/energy-network.ts';

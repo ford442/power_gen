@@ -54,8 +54,36 @@ const unsub = telemetryHub.subscribe((snap) => {
 | Torque | N·m | `snap.meta.torque_inner` |
 | Particle flux | particles/s (proxy) | — |
 | Battery SOC | 0–1 in devices.solar | — |
+| Lab bus `powerInW` / `powerOutW` | W (simulated) | `snap.devices[id]` via `EnergyNetwork` — **not metrology** |
+| Lab bus efficiency | % | `snap.devices[id].efficiency` — SEG uses operator model when coupled |
+| Energy network summary | W | `snap.energyNetwork` — budget, allocated, residual |
 
 `SEG_SPEC` in `seg-operator-state.js` is aligned with `ValidatedConstants` / `SEG_DATA`.
+
+## Energy pipes vs electrical telemetry
+
+Overview **energy pipes** are a separate visual channel from SEG electrical output:
+
+| Mode | Behavior |
+|------|----------|
+| **Visual only** (default) | Pipe glow ∝ source `energyLevel` (0–1). No watt clamping. |
+| **Coupled** (`?energyCoupling=1` or debug panel) | Outgoing pipe demand is scaled so Σ allocated W ≤ source `powerOutW` per device. |
+
+**Important:** Pipe intensity and `powerInW`/`powerOutW` on non-SEG devices use **simulated nameplate estimates** unless calibrated. Do not treat glow or bus fields as measured lab metrology. See ADR-0004 and the overview disclaimer (`#energyNetworkDisclaimer`).
+
+```js
+// Optional per-frame publish (WebGPU / WebGL2 render loops):
+telemetryHub.publishFrame({
+  …,
+  energyNetwork: {
+    couplingEnabled,
+    labBudgetW,
+    totalAllocatedW,
+    residualW,
+    devices: { seg: { powerInW, powerOutW, efficiency }, … }
+  }
+});
+```
 
 ## Export & replay (P2)
 

@@ -107,6 +107,15 @@ export class DebugPanel {
         </select>
       </div>
       <div style="margin-bottom: 10px; padding: 8px; background: rgba(0,40,60,0.5); border-radius: 4px;">
+        <div style="color: #8cf; font-weight: bold; margin-bottom: 6px;">Lab Energy Network</div>
+        <label style="display: flex; align-items: center; cursor: pointer; margin-bottom: 6px;">
+          <input type="checkbox" id="energyCouplingToggle" style="margin-right: 8px;">
+          <span>Coupled power budget (vs visual-only pipes)</span>
+        </label>
+        <div id="energyNetworkStatus" style="font-size: 10px; color: #888; margin-bottom: 4px;">Pipes: visual only</div>
+        <div style="font-size: 10px; color: #666;">Not calibrated metrology — education / demo only.</div>
+      </div>
+      <div style="margin-bottom: 10px; padding: 8px; background: rgba(0,40,60,0.5); border-radius: 4px;">
         <div style="color: #8cf; font-weight: bold; margin-bottom: 6px;">C++ WASM Physics</div>
         <label style="display: flex; align-items: center; cursor: pointer; margin-bottom: 6px;">
           <input type="checkbox" id="wasmPhysicsToggle" style="margin-right: 8px;">
@@ -173,6 +182,7 @@ export class DebugPanel {
     document.getElementById('startBenchmark').addEventListener('click', () => this.startBenchmark());
     document.getElementById('applyOptimal').addEventListener('click', () => this.applyOptimalSettings());
     this._wireWasmControls();
+    this._wireEnergyNetworkControls();
     const frameSelect = document.getElementById('segFrameLevelSelect');
     if (frameSelect) {
       const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
@@ -214,6 +224,41 @@ export class DebugPanel {
     });
 
     this.panel = container;
+  }
+
+  _wireEnergyNetworkControls() {
+    const toggle = document.getElementById('energyCouplingToggle');
+    const statusEl = document.getElementById('energyNetworkStatus');
+
+    const getNetwork = () => window.multiVisualizer?.energyNetwork ?? null;
+
+    const refresh = () => {
+      const net = getNetwork();
+      const coupled = net?.couplingEnabled ?? false;
+      if (toggle) toggle.checked = coupled;
+      const snap = net?.getSnapshot?.();
+      if (statusEl) {
+        if (!snap) {
+          statusEl.textContent = 'Pipes: visual only';
+        } else if (snap.couplingEnabled) {
+          statusEl.textContent =
+            `Coupled · budget ${snap.labBudgetW.toFixed(0)} W · allocated ${snap.totalAllocatedW.toFixed(0)} W · Δ ${snap.residualW.toFixed(0)} W`;
+        } else {
+          statusEl.textContent = 'Pipes: visual only (no watt clamping)';
+        }
+      }
+    };
+
+    refresh();
+
+    toggle?.addEventListener('change', (e) => {
+      const net = getNetwork();
+      if (!net) return;
+      net.setCouplingEnabled(e.target.checked);
+      refresh();
+    });
+
+    this._refreshEnergyNetworkStatus = refresh;
   }
 
   _wireWasmControls() {
@@ -342,6 +387,7 @@ export class DebugPanel {
 
   update() {
     const stats = this.profiler.getStats();
+    this._refreshEnergyNetworkStatus?.();
 
     // WASM vs GPU particle radius diff (optional)
     if (this.wasmDiffEnabled) {
@@ -483,7 +529,14 @@ export class DebugPanel {
     }
 
     const pipeFlow = viz.energyPipes?.reduce((s, p) => s + (p.flowLevel || 0), 0) ?? 0;
+    const net = viz.energyNetwork?.getSnapshot?.();
     parts.push(`<div style="color:#0cc;margin-top:6px">ENERGY PIPES</div>`);
+    parts.push(row('Mode', net?.couplingEnabled ? 'coupled budget' : 'visual only'));
+    if (net?.couplingEnabled) {
+      parts.push(row('Lab budget', `${net.labBudgetW.toFixed(0)} W`));
+      parts.push(row('Allocated', `${net.totalAllocatedW.toFixed(0)} W`));
+      parts.push(row('Residual', `${net.residualW.toFixed(0)} W`));
+    }
     parts.push(row('Total flow', `${(pipeFlow / Math.max(1, viz.energyPipes?.length || 1) * 100).toFixed(0)}% avg`));
 
     el.innerHTML = parts.join('') || '<div style="color:#666">No alternate devices active</div>';

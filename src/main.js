@@ -59,6 +59,8 @@ const MODE_DESCRIPTIONS = {
 window.setMode = (mode) => {
   if (window.multiVisualizer) window.multiVisualizer.onModeChange(mode);
 
+  document.body.classList.toggle('overview-mode', mode === 'overview');
+
   document.querySelectorAll('.mode-btn').forEach((btn) => btn.classList.remove('active'));
   const modeBtn = document.getElementById('btn-' + mode);
   if (modeBtn) modeBtn.classList.add('active');
@@ -373,6 +375,8 @@ window.addEventListener('load', () => {
       window.captureParticleSubset = (opts = {}) =>
         v.captureParticleSubset(opts.deviceId || 'seg', opts.maxCount ?? 64);
     }
+
+    document.body.classList.toggle('overview-mode', v?.currentView === 'overview');
   });
 });
 

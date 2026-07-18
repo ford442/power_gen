@@ -396,6 +396,29 @@
     }
     #footer span { color: #0ff; }
 
+    #energyNetworkDisclaimer {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: min(92vw, 640px);
+      padding: 6px 14px;
+      border-radius: 6px;
+      background: rgba(0, 12, 24, 0.88);
+      border: 1px solid #0ff4;
+      color: #8ad;
+      font-size: 0.68rem;
+      text-align: center;
+      pointer-events: none;
+      z-index: 50;
+      display: none;
+    }
+    body.overview-mode #energyNetworkDisclaimer { display: block; }
+    #energyNetworkDisclaimer[data-mode="coupled"] {
+      border-color: #4f8;
+      color: #9fc;
+    }
+
     /* SEG explainer / classroom */
     .seg-explainer-glossary {
       margin: 8px 0 0; font-size: 0.58rem; color: #5a8;
@@ -753,6 +776,9 @@
   </div>
 
   <!-- ── Footer ─────────────────────────────────────────── -->
+  <div id="energyNetworkDisclaimer" aria-live="polite">
+    Energy pipes: visual only — glow is not measured watts
+  </div>
   <div id="footer">
     <span id="stats">Mode: <span id="modeFooter">SEG</span></span>
     <span>WebGPU Compute Shader Physics</span>

@@ -169,6 +169,7 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `gltfHousing` | `1` \| `0` | `1` (WebGPU) | Load glTF housing shell in SEG focus — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
 | `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | Lighting + post look |
 | `mockHardware` | `1` | off | Hardware twin mock transport (no serial port) |
+| `energyCoupling` | `1` \| `0` | off (visual-only pipes) | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`) |
 
 **Related (not always query):**
 
@@ -176,6 +177,7 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 |-----------|---------|
 | `#lab=…` hash | SEG Explainer shareable lab state — [`SEG_EXPLAINER.md`](./SEG_EXPLAINER.md) |
 | `localStorage useWasmPhysics` | Persist WASM physics toggle |
+| `localStorage seg-energy-coupling` | Persist coupled vs visual-only energy pipes |
 | `localStorage heron-layout` | Persist Heron preset |
 | `localStorage seg-sim-seed` | Deterministic RNG seed for telemetry/replay |
 
@@ -196,7 +198,7 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 | `src/webgpu-manager.js` | Single adapter/device/canvas/depth path |
 | `src/pipeline-layout-cache.js` | Shared bind-group layouts + pipelines |
 | `src/device-instance.js` + `devices/*` | Per-device update/render mixins, registry plugins |
-| `src/energy-pipe.js` | Overview Bézier energy transfer (visual; network intent in ADR-0004) |
+| `src/energy-pipe.js` | Overview Bézier energy transfer (visual; `EnergyNetwork` in `renderers/shared/`) |
 | `src/performance-profiler.js` | FPS, auto-quality, optional GPU timestamps, per-device CPU times |
 | `src/sim-rate-controller.js` | Speed mult / substeps; couples to quality under load |
 | `src/telemetry-hub.js` | Single telemetry write path for gauges / operator |
