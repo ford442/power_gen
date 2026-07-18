@@ -11,7 +11,81 @@ import {
   HERON_LAYOUT_PRESETS
 } from '../../heron-layout.js';
 
-export function createDevicePhysicsState(deviceId, opts = {}) {
+/** Heron layout fields used by the hydraulic step. */
+export interface HeronLayout {
+  id: string;
+  headMaxM: number;
+  pumpRate?: number;
+  drainCoeff?: number;
+  dischargeCoeff?: number;
+  pipeLengthM: number;
+  pipeDiameterM: number;
+  roughness?: number;
+  nozzleDiameterM?: number;
+}
+
+/** Core plant state shared by built-in devices. */
+export interface BaseDevicePhysicsState {
+  deviceId: string;
+  segOmega: number;
+  corona: number;
+  heronHead: number;
+  heronVExit: number;
+  heronHeadMax: number;
+  heronLayoutId: string;
+  heronFlowRateLmin: number;
+  heronPressureKPa: number;
+  heronReynolds: number;
+  kelvinV: number;
+  kelvinSparkTimer: number;
+  kelvinSparkDur: number;
+  kelvinVbreak: number;
+  kelvinE: number;
+  kelvinVoltageN: number;
+  batteryCharge: number;
+  rollerHeft: number;
+  solarN2: number;
+  energyLevel: number;
+  magneticFieldStrength: number;
+}
+
+/** Quanta maglev plugin extension fields. */
+export interface MaglevPhysicsExtension {
+  maglevGap?: number;
+  maglevGapVel?: number;
+  maglevGapMm?: number;
+  maglevFieldT?: number;
+  maglevLiftN?: number;
+  maglevRpm?: number;
+}
+
+/** Quanta homopolar plugin extension fields. */
+export interface HomopolarPhysicsExtension {
+  homopolarRpm?: number;
+  homopolarEmfV?: number;
+  homopolarCurrentA?: number;
+  homopolarFieldT?: number;
+  homopolarAngle?: number;
+}
+
+/** Full per-device physics plant state (built-in + plugin extensions). */
+export type DevicePhysicsState = BaseDevicePhysicsState &
+  Partial<MaglevPhysicsExtension> &
+  Partial<HomopolarPhysicsExtension>;
+
+export interface CreateDevicePhysicsOpts {
+  heronLayout?: HeronLayout;
+  heronLayoutId?: string;
+}
+
+export interface StepDevicePhysicsOpts {
+  heronLayout?: HeronLayout;
+}
+
+export function createDevicePhysicsState(
+  deviceId: string,
+  opts: CreateDevicePhysicsOpts = {}
+): DevicePhysicsState {
   const roller = ValidatedConstants.computeRollerInertia();
   const rhoCu = 8960;
   const R = ValidatedConstants.SEG_CONFIG.rollerRadius;
@@ -23,7 +97,7 @@ export function createDevicePhysicsState(deviceId, opts = {}) {
     ? (opts.heronLayout || getHeronLayout(opts.heronLayoutId || HERON_LAYOUT_PRESETS.classic))
     : null;
 
-  const base = {
+  const base: BaseDevicePhysicsState = {
     deviceId,
     segOmega: 0,
     corona: 0,
@@ -46,16 +120,15 @@ export function createDevicePhysicsState(deviceId, opts = {}) {
     energyLevel: 0,
     magneticFieldStrength: 0.5
   };
-  return extendPhysicsState(deviceId, base);
+  return extendPhysicsState(deviceId, base) as DevicePhysicsState;
 }
 
-/**
- * @param {ReturnType<createDevicePhysicsState>} state
- * @param {number} dt
- * @param {number} drive 0..1 from speed slider
- * @param {{ heronLayout?: object }} [opts]
- */
-export function stepDevicePhysics(state, dt, drive, opts = {}) {
+export function stepDevicePhysics(
+  state: DevicePhysicsState,
+  dt: number,
+  drive: number,
+  opts: StepDevicePhysicsOpts = {}
+): void {
   if (stepPluginPhysics(state, dt, drive, opts)) return;
 
   const field = 0.4 + 0.6 * state.magneticFieldStrength;
@@ -63,7 +136,10 @@ export function stepDevicePhysics(state, dt, drive, opts = {}) {
   if (state.deviceId === 'seg') {
     const tauDrive = drive * field;
     const w = state.segOmega;
-    const wArm = 2.5, eddyK = 1.33, visc = 0.05, tScale = 2.5;
+    const wArm = 2.5;
+    const eddyK = 1.33;
+    const visc = 0.05;
+    const tScale = 2.5;
     const tauEddy = eddyK * w / (1 + w / wArm) + visc * w;
     state.segOmega = Math.max(0, w + (tauDrive - tauEddy) / (state.rollerHeft * tScale) * dt);
     state.corona = Math.max(0, Math.min(1, (state.segOmega - 0.6) / 0.4)) * field;
@@ -84,7 +160,9 @@ export function stepDevicePhysics(state, dt, drive, opts = {}) {
     const vRef = Math.sqrt(2 * 9.81 * layout.headMaxM) * (layout.dischargeCoeff ?? 0.35);
     state.energyLevel = Math.min(1, state.heronVExit / Math.max(vRef, 0.5));
   } else if (state.deviceId === 'kelvin') {
-    const chargeRate = 8000, feedback = 2.0, leak = 0.3;
+    const chargeRate = 8000;
+    const feedback = 2.0;
+    const leak = 0.3;
     state.kelvinV += (drive * (chargeRate + feedback * state.kelvinV) - leak * state.kelvinV) * dt;
     state.kelvinV = Math.max(0, state.kelvinV);
     if (state.kelvinV >= state.kelvinVbreak && state.kelvinSparkTimer <= 0) {
@@ -108,15 +186,15 @@ export function stepDevicePhysics(state, dt, drive, opts = {}) {
 }
 
 /** Mode index matching WGSL particle/roller shaders. */
-export function deviceModeIndex(deviceId) {
+export function deviceModeIndex(deviceId: string): number {
   return getDeviceModeIndex(deviceId);
 }
 
 /**
  * Compute roller positions for SEG (36 rollers).
- * @returns {Float32Array} [x0,z0, x1,z1, ...]
+ * @returns [x0,z0, x1,z1, ...]
  */
-export function computeRollerPositions(time, speedMult = 1) {
+export function computeRollerPositions(time: number, speedMult = 1): Float32Array {
   const positions = new Float32Array(36 * 2);
   const rings = [
     { count: 8, radius: 2.5, speed: 2.0, index: 0 },

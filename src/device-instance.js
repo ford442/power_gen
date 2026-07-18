@@ -3,7 +3,7 @@ import { DevicePipelineManager } from './device-pipeline-manager.js';
 import { DeviceUniformManager } from './device-uniforms.js';
 import { DeviceComputeManager } from './device-compute.js';
 import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts.js';
-import { createDevicePhysicsState } from './renderers/shared/device-physics.js';
+import { createDevicePhysicsState } from './renderers/shared/device-physics.ts';
 import { getHeronLayout } from './heron-layout.js';
 
 import { getDeviceModeIndex } from './devices/device-registry.js';

@@ -2,7 +2,7 @@ import { frameVibrationOffset } from '../seg-frame-model.js';
 import {
   createDevicePhysicsState,
   stepDevicePhysics
-} from '../renderers/shared/device-physics.js';
+} from '../renderers/shared/device-physics.ts';
 import { getHeronLayout } from '../heron-layout.js';
 import { buildMagLevMesh } from './quanta/magnetic-levitation.js';
 import { buildHomopolarMesh } from './quanta/homopolar-generator.js';

@@ -27,7 +27,7 @@ import {
   getLightingPreset,
 } from './seg-lighting-presets.js';
 import { segOperator } from './seg-operator-state.js';
-import { telemetryHub, TelemetryHub } from './telemetry-hub.js';
+import { telemetryHub, TelemetryHub } from './telemetry-hub.ts';
 import { segWasm } from './wasm/seg-physics-bridge.js';
 import { HardwareBridge, TWIN_MODES } from './hardware-bridge.js';
 import { ElectromagnetController } from './electromagnet-controller.js';

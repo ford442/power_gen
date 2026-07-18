@@ -2,7 +2,7 @@
  * Telemetry export UI — CSV / JSON / replay / offline WASM / benchmark pack.
  */
 
-import { telemetryHub } from '../telemetry-hub.js';
+import { telemetryHub } from '../telemetry-hub.ts';
 import {
   downloadTelemetryCsv,
   downloadConfigJson,

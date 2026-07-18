@@ -1,6 +1,6 @@
 // Tachometer overlay + hardware digital twin sync.
 import { segOperator } from '../seg-operator-state.js';
-import { telemetryHub, TelemetryHub } from '../telemetry-hub.js';
+import { telemetryHub, TelemetryHub } from '../telemetry-hub.ts';
 import { TWIN_MODES } from '../hardware-bridge.js';
 
 export const hardwareTwinMethods = {
