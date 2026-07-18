@@ -56,7 +56,7 @@ function _appendBox(vertices, normals, uvs, indices, center, size, uvScale, base
   return vOff;
 }
 
-function _buildBoxPart(device, boxes) {
+export function _buildBoxPart(device, boxes) {
   const vertices = [];
   const normals = [];
   const uvs = [];
@@ -84,7 +84,7 @@ function _buildBoxPart(device, boxes) {
   });
 }
 
-function _buildWindingPart(device, options) {
+export function _buildWindingPart(device, options) {
   const { backZ = 0.5, width = 1.4, height = 0.9, thickness = 0.85, segments = 24 } = options;
   const vertices = [];
   const normals = [];
