@@ -103,12 +103,50 @@ with back-EMF ε ≈ ½ B ω r² (not full 3D FEM).
 
 ---
 
+## halbach-viz
+
+**Halbach Array Field Visualizer** — standalone Quanta demo showing how oriented
+magnet segments shape the B-field. Configurable N-segment ring (or linear array
+via `?halbachLinear=1`); speed slider drives segment count and magnetization
+angle. CPU RK4 field-line tracer with |B| slice heatmap on focus view.
+
+| View | Screenshot |
+|------|------------|
+| Overview | *(capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
+| Focus | *(capture with `window.setMode('halbach-viz')`)* |
+
+### Telemetry
+
+| Field | Unit | Source |
+|-------|------|--------|
+| Segments | — | Simulation (`halbachSegmentCount`) |
+| Mag. angle | ° | Per-segment rotation (`halbachMagAngleDeg`) |
+| Peak \|B\| | T | Dipole superposition grid sample |
+| Period | m | Spatial Halbach repeat (`halbachPeriodM`) |
+| Dipole force | N | ∇(m·B) proxy on test dipole |
+
+### References
+
+1. K. Halbach — *Design of permanent multipole magnets with oriented rare earth cobalt material* (1980)
+2. M. V. Berry — *The levitation of spinning magnets* (1996)
+3. `src/physics/magnetic-field.ts` — shared dipole + Halbach superposition library
+
+### Implementation
+
+- Plugin: `src/devices/quanta/halbach-viz.js`
+- Field math: `src/physics/magnetic-field.ts`, `src/devices/quanta/halbach-field.ts`
+- WGSL mode index: `9` (`posHalbach` in `shaders/passes/particle-compute.wgsl`)
+- WebGL2: CPU field lines + heatmap via `renderers/webgl2/halbach-field-renderer.js`
+- Shareable lab link: `#lab=…;mode=halbach-viz;hseg=12` (optional `hlin=1`)
+
+---
+
 ## Roadmap (candidate devices)
 
 | Device | Status | Notes |
 |--------|--------|-------|
 | Magnetic bearing / levitation | **Live** (`maglev`) | First Quanta catalog entry |
 | Homopolar / Faraday disc | **Live** (`homopolar`) | Rotating copper disc + axial B |
-| Halbach array field visualizer | Planned | Field line overlay |
+| Halbach array field visualizer | **Live** (`halbach-viz`) | Field line overlay + slice heatmap |
 | Pulse magnet / coilgun (sandboxed) | Planned | Educational L–R model only |
 | Quanta product mockups | Blocked | Awaiting product specs |

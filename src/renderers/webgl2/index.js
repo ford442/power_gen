@@ -19,6 +19,7 @@ import { DEVICE_CONFIG } from '../../debug-panel.js';
 import { getMergedDeviceConfig, getAllSimDeviceIds } from '../../devices/device-registry.js';
 import { buildMagLevMesh } from '../../devices/quanta/magnetic-levitation.js';
 import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator.js';
+import { buildHalbachVizMesh, halbachConfigFromState } from '../../devices/quanta/halbach-viz.js';
 import { exposeRenderer, RENDERER_WEBGL2 } from '../renderer-selector.js';
 import { stepParticles, seedParticles } from '../shared/particle-physics.ts';
 import {
@@ -41,6 +42,7 @@ import { MeshRenderer } from './mesh-renderer.js';
 import { ParticleRenderer } from './particle-renderer.js';
 import { WebGL2DebugControls } from './debug-controls.js';
 import { EnergyPipeRenderer } from './energy-pipe-renderer.js';
+import { HalbachFieldRenderer } from './halbach-field-renderer.js';
 import { parseSegFrameLevel } from '../../seg-frame-model.js';
 import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets.js';
 import { segOperator } from '../../seg-operator-state.js';
@@ -267,6 +269,7 @@ export class WebGL2MultiDeviceVisualizer {
       this.meshRenderer.setLightingPreset(this.lightingPreset);
       this.particleRenderer = new ParticleRenderer(gl);
       this.energyPipeRenderer = new EnergyPipeRenderer(gl, { energyNetwork: this.energyNetwork });
+      this.halbachFieldRenderer = new HalbachFieldRenderer(gl);
       this.cameraController = new MultiDeviceCamera(this.canvas, this.camera.camera, this);
       this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
 
@@ -533,6 +536,8 @@ export class WebGL2MultiDeviceVisualizer {
           homopolarRpm: device.physics.homopolarRpm,
           homopolarEmfV: device.physics.homopolarEmfV,
           homopolarAngle: device.physics.homopolarAngle,
+          halbachSegmentCount: device.physics.halbachSegmentCount,
+          halbachPeakBT: device.physics.halbachPeakBT,
           simClock: this.simClock,
           speedMult: speed
         });
@@ -665,6 +670,20 @@ export class WebGL2MultiDeviceVisualizer {
         this.meshRenderer.drawPluginDevice(
           viewProj, pos, buildHomopolarMesh(angle).cylinders(), renderOpts
         );
+      } else if (device.id === 'halbach-viz') {
+        const config = halbachConfigFromState(device.physics);
+        this.meshRenderer.drawPluginDevice(
+          viewProj, pos, buildHalbachVizMesh(config).cylinders(), renderOpts
+        );
+        if (this.currentView === 'halbach-viz' && this.halbachFieldRenderer) {
+          this.halbachFieldRenderer.draw(
+            viewProj,
+            pos,
+            device.physics.halbachFieldLines,
+            device.physics.halbachHeatmap,
+            { extent: 3.1, gridSize: 24 }
+          );
+        }
       }
 
       this.particleRenderer.draw(
