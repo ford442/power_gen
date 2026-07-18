@@ -34,6 +34,9 @@ export interface ParticleUniforms {
   homopolarRpm?: number;
   homopolarEmfV?: number;
   homopolarAngle?: number;
+  /** Halbach viz plugin fields (mode >= 9) */
+  halbachSegmentCount?: number;
+  halbachPeakBT?: number;
 }
 
 interface SpawnParticle {
@@ -161,6 +164,20 @@ function integrateHomopolar(
   const theta = discAngle + phase * TAU + t * (0.4 + rpmN * 3.5) + idx * 0.011;
   const y = 0.16 + Math.sin(t * 4.0 + phase * 18.0) * 0.04 * (0.3 + emfN);
   return [Math.cos(theta) * r, y, Math.sin(theta) * r];
+}
+
+function integrateHalbach(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  segN = 8,
+  peakB = 0.5
+): [number, number, number] {
+  const phase = p.phase;
+  const angle = phase * TAU + t * (0.5 + peakB * 0.8) + idx * 0.013;
+  const r = 0.7 + (((idx * 0.173 + segN * 0.04) % 1 + 1) % 1) * 2.4;
+  const y = 0.25 + Math.sin(t * 2.8 + phase * 9.0) * 0.12 * (0.35 + peakB);
+  return [Math.cos(angle) * r, y, Math.sin(angle) * r];
 }
 
 function integrateMHD(p: ParticlePhase, idx: number, t: number): [number, number, number] {
@@ -301,6 +318,11 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
         vx = s.vel[0]; vy = s.vel[1]; vz = s.vel[2];
         aux = s.aux;
       }
+    } else if (mode >= 9.0) {
+      const segN = u.halbachSegmentCount ?? 8;
+      const peakB = Math.min(1, (u.halbachPeakBT ?? 0) / 0.8);
+      const pos = integrateHalbach({ phase }, idx, u.time, segN, peakB);
+      px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode >= 8.0) {
       const rpmN = (u.homopolarRpm ?? 0) / 3600;
       const emfN = Math.min(1, (u.homopolarEmfV ?? 0) / 2);
@@ -352,6 +374,12 @@ export function seedParticles(
       const a = simRandom() * Math.PI * 2;
       particles[base] = Math.cos(a) * r;
       particles[base + 1] = 0.14 + simRandom() * 0.06;
+      particles[base + 2] = Math.sin(a) * r;
+    } else if (deviceId === 'halbach-viz') {
+      const r = 0.6 + simRandom() * 2.0;
+      const a = simRandom() * Math.PI * 2;
+      particles[base] = Math.cos(a) * r;
+      particles[base + 1] = 0.2 + simRandom() * 0.6;
       particles[base + 2] = Math.sin(a) * r;
     } else if (deviceId === 'solar' || deviceId === 'peltier') {
       const ledCount = 6;

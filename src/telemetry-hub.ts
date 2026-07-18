@@ -107,6 +107,11 @@ function emptyDeviceSnap(id: string): DeviceTelemetrySnap {
     homopolarEmfV: 0,
     homopolarCurrentA: 0,
     homopolarFieldT: 0,
+    halbachSegmentCount: 0,
+    halbachMagAngleDeg: 0,
+    halbachPeakBT: 0,
+    halbachPeriodM: 0,
+    halbachDipoleForceN: 0,
     powerInW: 0,
     powerOutW: 0,
     efficiency: 0
@@ -142,6 +147,11 @@ function snapFromPhysics(
     homopolarEmfV: physics.homopolarEmfV ?? 0,
     homopolarCurrentA: physics.homopolarCurrentA ?? 0,
     homopolarFieldT: physics.homopolarFieldT ?? 0,
+    halbachSegmentCount: physics.halbachSegmentCount ?? 0,
+    halbachMagAngleDeg: physics.halbachMagAngleDeg ?? 0,
+    halbachPeakBT: physics.halbachPeakBT ?? 0,
+    halbachPeriodM: physics.halbachPeriodM ?? 0,
+    halbachDipoleForceN: physics.halbachDipoleForceN ?? 0,
     powerInW: 0,
     powerOutW: 0,
     efficiency: 0

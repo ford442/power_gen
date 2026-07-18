@@ -371,7 +371,8 @@ export class SEGOperatorPanel {
       peltier: 'Peltier',
       mhd: 'MHD',
       maglev: 'Mag Levitation',
-      homopolar: 'Homopolar Generator'
+      homopolar: 'Homopolar Generator',
+      'halbach-viz': 'Halbach Field Viz'
     };
     if (modeFooter) modeFooter.textContent = modeLabels[view] || view.toUpperCase();
 
@@ -407,6 +408,14 @@ export class SEGOperatorPanel {
           `gap ${(m.maglevGapMm || 0).toFixed(1)} mm`,
           `B ${(m.maglevFieldT || 0).toFixed(2)} T`,
           `${(m.maglevRpm || 0).toFixed(0)} RPM`
+        ].join(' · ');
+      } else if (view === 'halbach-viz' && snap.devices?.['halbach-viz']) {
+        const h = snap.devices['halbach-viz'];
+        batteryFooter.textContent = [
+          `N=${h.halbachSegmentCount || 0}`,
+          `θ ${(h.halbachMagAngleDeg || 0).toFixed(0)}°`,
+          `|B| ${(h.halbachPeakBT || 0).toFixed(3)} T`,
+          `F ${(h.halbachDipoleForceN || 0).toFixed(4)} N`
         ].join(' · ');
       } else {
         batteryFooter.textContent = '—';

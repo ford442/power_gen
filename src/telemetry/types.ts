@@ -43,6 +43,11 @@ export interface DeviceTelemetrySnap {
   homopolarEmfV: number;
   homopolarCurrentA: number;
   homopolarFieldT: number;
+  halbachSegmentCount: number;
+  halbachMagAngleDeg: number;
+  halbachPeakBT: number;
+  halbachPeriodM: number;
+  halbachDipoleForceN: number;
   /** Lab bus accounting (EnergyNetwork, W) — simulated, not metrology. */
   powerInW: number;
   powerOutW: number;

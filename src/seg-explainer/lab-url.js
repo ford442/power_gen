@@ -21,6 +21,8 @@ export function encodeLabHash(opts = {}) {
   if (opts.classroom) parts.push('class=1');
   if (opts.tour) parts.push('tour=1');
   if (opts.renderer) parts.push(`renderer=${opts.renderer}`);
+  if (opts.halbachSegments != null) parts.push(`hseg=${opts.halbachSegments}`);
+  if (opts.halbachLinear) parts.push('hlin=1');
   return `#lab=${parts.join(';')}`;
 }
 
@@ -50,6 +52,8 @@ export function decodeLabHash(hash = typeof location !== 'undefined' ? location.
     else if (k === 'class') out.classroom = v === '1';
     else if (k === 'tour') out.tour = v === '1';
     else if (k === 'renderer') out.renderer = v;
+    else if (k === 'hseg') out.halbachSegments = parseInt(v, 10);
+    else if (k === 'hlin') out.halbachLinear = v === '1';
   }
   return out;
 }
@@ -78,6 +82,18 @@ export async function applyLabState(lab) {
 
   if (lab.mode && typeof window.setMode === 'function') {
     window.setMode(lab.mode);
+  }
+
+  if (lab.mode === 'halbach-viz' && lab.halbachSegments != null && window.multiVisualizer) {
+    const dev = window.multiVisualizer.devices?.['halbach-viz'];
+    if (dev?.physicsState) {
+      dev.physicsState.halbachSegmentCount = lab.halbachSegments;
+    }
+  }
+  if (lab.halbachLinear && typeof window !== 'undefined') {
+    const url = new URL(window.location.href);
+    url.searchParams.set('halbachLinear', '1');
+    history.replaceState(null, '', url.pathname + url.search + location.hash);
   }
 
   const op = window.segOperator;

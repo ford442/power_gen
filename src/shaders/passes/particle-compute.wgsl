@@ -150,6 +150,15 @@ fn posHomopolar(phase: f32, t: f32, idx: u32) -> vec3f {
   return vec3f(cos(theta) * r, y, sin(theta) * r);
 }
 
+fn posHalbach(phase: f32, t: f32, idx: u32) -> vec3f {
+  let segN = uniforms.physics0;
+  let peakB = uniforms.physics1;
+  let angle = phase * 6.28318 + t * (0.5 + peakB * 0.8) + f32(idx) * 0.013;
+  let r = 0.7 + fract(f32(idx) * 0.173 + segN * 0.04) * 2.4;
+  let y = 0.25 + sin(t * 2.8 + phase * 9.0) * 0.12 * (0.35 + peakB);
+  return vec3f(cos(angle) * r, y, sin(angle) * r);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let idx = id.x;
@@ -177,6 +186,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     newPos = posMagLev(phase, t, idx);
   } else if (mode < 8.5) {
     newPos = posHomopolar(phase, t, idx);
+  } else if (mode < 9.5) {
+    newPos = posHalbach(phase, t, idx);
   } else {
     newPos = posMagLev(phase, t, idx);
   }

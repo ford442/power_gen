@@ -6,6 +6,7 @@ import {
 import { getHeronLayout } from '../heron-layout.js';
 import { buildMagLevMesh } from './quanta/magnetic-levitation.js';
 import { buildHomopolarMesh } from './quanta/homopolar-generator.js';
+import { buildHalbachVizMesh, halbachConfigFromState } from './quanta/halbach-viz.js';
 import { instancesToBufferData, countInstances } from '../device-mesh-layouts.js';
 
 export const DeviceUpdateMixin = {
@@ -31,7 +32,7 @@ export const DeviceUpdateMixin = {
     );
 
     // Per-device physics integrators (Heron head, Kelvin voltage, solar battery)
-    if (!this.physicsState && ['heron', 'kelvin', 'solar', 'maglev', 'homopolar'].includes(this.id)) {
+    if (!this.physicsState && ['heron', 'kelvin', 'solar', 'maglev', 'homopolar', 'halbach-viz'].includes(this.id)) {
       const heronLayout = this.id === 'heron'
         ? (this.visualizer.heronLayout || getHeronLayout(this.visualizer.heronLayoutPreset))
         : null;
@@ -61,6 +62,12 @@ export const DeviceUpdateMixin = {
       } else if (this.id === 'homopolar' && this.rollerInstances) {
         const angle = this.physicsState.homopolarAngle ?? 0;
         const mesh = buildHomopolarMesh(angle);
+        const data = instancesToBufferData([mesh.cylinders()]);
+        this.device.queue.writeBuffer(this.rollerInstances, 0, data);
+        this.meshCylinderCount = countInstances(mesh.cylinders().flat());
+      } else if (this.id === 'halbach-viz' && this.rollerInstances) {
+        const config = halbachConfigFromState(this.physicsState);
+        const mesh = buildHalbachVizMesh(config);
         const data = instancesToBufferData([mesh.cylinders()]);
         this.device.queue.writeBuffer(this.rollerInstances, 0, data);
         this.meshCylinderCount = countInstances(mesh.cylinders().flat());
@@ -305,6 +312,9 @@ export const DeviceUpdateMixin = {
     } else if (this.id === 'homopolar') {
       const spinN = (this.physicsState?.homopolarRpm ?? 0) / 3600;
       deviceEnergy = Math.min(1.0, spinN * 0.75 + speedNorm * 0.25);
+    } else if (this.id === 'halbach-viz') {
+      const fieldN = Math.min(1, (this.physicsState?.halbachPeakBT ?? 0) / 0.8);
+      deviceEnergy = Math.min(1.0, fieldN * 0.8 + speedNorm * 0.2);
     }
 
     // Exponential response in high-energy regime to make overdrive feel dangerous.
@@ -531,10 +541,19 @@ export const DeviceUpdateMixin = {
         const z = Math.sin(frac * Math.PI * 2 + t * 2) * 0.08;
         pushParticle(x, y, z, 3.0 + Math.random());
       }
+    } else if (this.id === 'halbach-viz') {
+      const fieldGate = Math.pow(gate(energy, 0.15, 0.85), 1.2);
+      const sparkCount = Math.floor(budget * 0.45 * fieldGate);
+      for (let i = 0; i < sparkCount; i++) {
+        const a = (i / Math.max(1, sparkCount)) * Math.PI * 2 + t * 0.8;
+        const r = 0.8 + Math.random() * 2.2;
+        const y = 0.2 + Math.sin(t * 3 + i * 0.2) * 0.1;
+        pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 3.0 + Math.random());
+      }
     }
 
     // Subtle thermal haze billboards around hot devices.
-    if ((this.id === 'seg' || this.id === 'peltier' || this.id === 'mhd' || this.id === 'maglev' || this.id === 'homopolar') && energy > 0.35) {
+    if ((this.id === 'seg' || this.id === 'peltier' || this.id === 'mhd' || this.id === 'maglev' || this.id === 'homopolar' || this.id === 'halbach-viz') && energy > 0.35) {
       const hazeCount = Math.floor(budget * Math.pow(gate(energy, 0.35, 0.9), 1.4) * 0.18);
       for (let i = 0; i < hazeCount; i++) {
         const a = Math.random() * Math.PI * 2;

@@ -49,7 +49,8 @@ export const DEVICE_NOMINAL_WATTS: Record<string, number> = {
   peltier: 120,
   mhd: 350,
   maglev: 200,
-  homopolar: 250
+  homopolar: 250,
+  'halbach-viz': 80
 };
 
 const COUPLING_STORAGE_KEY = 'seg-energy-coupling';

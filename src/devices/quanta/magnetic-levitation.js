@@ -10,10 +10,7 @@
  */
 
 import { packInstance } from '../../device-mesh-layouts.js';
-import { ValidatedConstants } from '../../ValidatedConstants';
-
-const BR = ValidatedConstants.MAGNET_BR?.value ?? 1.48;
-const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-7;
+import { estimateHalbachFieldT, MAGNET_BR } from './halbach-field.ts';
 
 /** Ring magnet segments in a simplified Halbach-like azimuthal pattern. */
 function buildHalbachRingInstances() {
@@ -67,11 +64,7 @@ export function buildMagLevMesh(gapM = 0.018) {
  * Estimate surface B for a Halbach-like ring (order-of-magnitude, educational).
  * @param {number} gapM  metres
  */
-export function estimateHalbachFieldT(gapM) {
-  const R = 0.028; // effective magnet thickness scale
-  const B0 = BR * MU0 / (4 * Math.PI) * (2 * Math.PI * R) / Math.max(gapM, 0.002);
-  return Math.min(1.2, B0 * 8);
-}
+export { estimateHalbachFieldT } from './halbach-field.ts';
 
 /**
  * @param {object} state
@@ -129,7 +122,7 @@ export const MAGLEV_REFERENCES = [
     title: 'NdFeB N52 magnet specifications',
     authors: 'ValidatedConstants.MAGNET_BR',
     year: 2018,
-    note: `Remanence B_r ≈ ${BR.toFixed(2)} T (CODATA-backed constants module)`
+    note: `Remanence B_r ≈ ${MAGNET_BR.toFixed(2)} T (CODATA-backed constants module)`
   }
 ];
 

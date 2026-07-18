@@ -342,6 +342,12 @@ export class DeviceGeometry {
         particleData[idx] = Math.cos(a) * r;
         particleData[idx + 1] = 0.14 + simRandom() * 0.06;
         particleData[idx + 2] = Math.sin(a) * r;
+      } else if (this.id === 'halbach-viz') {
+        const r = 0.6 + simRandom() * 2.0;
+        const a = simRandom() * Math.PI * 2;
+        particleData[idx] = Math.cos(a) * r;
+        particleData[idx + 1] = 0.2 + simRandom() * 0.6;
+        particleData[idx + 2] = Math.sin(a) * r;
       } else if (this.id === 'peltier') {
         particleData[idx] = 0.0;
         particleData[idx + 1] = 0.0;

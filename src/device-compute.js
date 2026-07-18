@@ -74,6 +74,9 @@ class DeviceComputeManager {
         p0 = (physicsState.homopolarRpm ?? 0) / 3600;
         p1 = Math.min(1, (physicsState.homopolarEmfV ?? 0) / 2);
         p2 = physicsState.homopolarAngle ?? 0;
+      } else if (physicsState.deviceId === 'halbach-viz') {
+        p0 = (physicsState.halbachSegmentCount ?? 8) / 24;
+        p1 = Math.min(1, (physicsState.halbachPeakBT ?? 0) / 0.8);
       }
     }
 

@@ -68,10 +68,23 @@ export interface HomopolarPhysicsExtension {
   homopolarAngle?: number;
 }
 
+/** Quanta Halbach field visualizer extension fields. */
+export interface HalbachVizPhysicsExtension {
+  halbachSegmentCount?: number;
+  halbachMagAngleDeg?: number;
+  halbachLayout?: 'ring' | 'linear';
+  halbachPeakBT?: number;
+  halbachPeriodM?: number;
+  halbachDipoleForceN?: number;
+  halbachFieldLines?: Float32Array[] | null;
+  halbachHeatmap?: Float32Array | null;
+}
+
 /** Full per-device physics plant state (built-in + plugin extensions). */
 export type DevicePhysicsState = BaseDevicePhysicsState &
   Partial<MaglevPhysicsExtension> &
-  Partial<HomopolarPhysicsExtension>;
+  Partial<HomopolarPhysicsExtension> &
+  Partial<HalbachVizPhysicsExtension>;
 
 export interface CreateDevicePhysicsOpts {
   heronLayout?: HeronLayout;
