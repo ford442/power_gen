@@ -14,6 +14,7 @@
     "check:constants": "node scripts/codegen-physics-constants.mjs --check",
     "generate:housing-glb": "node scripts/generate-seg-housing-glb.mjs",
     "check:wgsl": "bash scripts/check-wgsl.sh",
+    "test:e2e": "playwright test",
     "validate": "npm run codegen:constants && npm run check:constants && npm run typecheck && npm run wasm:native && npm run check:wgsl",
     "deploy": "npm run build:site && python deploy.py",
     "wasm:build": "bash scripts/build-wasm.sh",
@@ -29,6 +30,7 @@
   "author": "ford442",
   "license": "MIT",
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@webgpu/types": "^0.1.71",
     "typescript": "^5.9.3",
     "vite": "^5.0.0"

@@ -252,7 +252,17 @@ npm run wasm:build    # scripts/build-wasm.sh
 
 ## Testing
 
-No full automated browser suite. Manual / agent checks:
+Playwright E2E (headless Chromium, `?renderer=webgl2`):
+
+```bash
+npm run test:e2e          # starts Vite dev server automatically
+npm run dev               # or run dev manually, then: npx playwright test
+```
+
+Covers page boot, START → telemetry, mode focus, `captureCanvasFrame`, and optional `?wasmPhysics=1`.
+CI: `validate.yml` job **Playwright (WebGL2)** on PRs.
+
+Manual / agent checks (WebGPU needs a real GPU):
 
 1. `?renderer=webgl2` — START plant, non-zero telemetry, mode focus buttons.
 2. WebGPU (real GPU) — same + bloom/flux where quality allows.

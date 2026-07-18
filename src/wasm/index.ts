@@ -90,14 +90,30 @@ export function isSimCoreReady(): boolean {
 // ─────────────────────────────────────────────────────────────
 
 async function loadSimCoreFactory(): Promise<SimCoreFactory | null> {
+  const globalFactory = (globalThis as { SimCore?: SimCoreFactory }).SimCore;
+  if (typeof globalFactory === 'function') return globalFactory;
+
   try {
     const mod = await import(/* @vite-ignore */ WASM_JS_URL);
     const factory = (mod as { default?: SimCoreFactory }).default
       ?? (mod as { SimCore?: SimCoreFactory }).SimCore
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ?? (globalThis as any)['SimCore'] as SimCoreFactory | undefined;
-    return typeof factory === 'function' ? factory : null;
+      ?? (globalThis as { SimCore?: SimCoreFactory }).SimCore;
+    if (typeof factory === 'function') return factory;
   } catch {
-    return null;
+    // Emscripten MODULARIZE output is not an ES module — fall through to script tag.
   }
+
+  if (typeof document === 'undefined') return null;
+
+  return new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = WASM_JS_URL;
+    script.async = true;
+    script.onload = () => {
+      const factory = (globalThis as { SimCore?: SimCoreFactory }).SimCore;
+      resolve(typeof factory === 'function' ? factory : null);
+    };
+    script.onerror = () => resolve(null);
+    document.head.appendChild(script);
+  });
 }

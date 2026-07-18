@@ -45,8 +45,13 @@ export class WebGL2Context {
     const gl = this.gl;
     if (!gl) return;
     const dpr = window.devicePixelRatio || 1;
-    const w = Math.floor(this.canvas.clientWidth * dpr);
-    const h = Math.floor(this.canvas.clientHeight * dpr);
+    const clientWidth = this.canvas.clientWidth;
+    const clientHeight = this.canvas.clientHeight;
+    const layoutReady = clientWidth >= 1 && clientHeight >= 1;
+    const cssWidth = layoutReady ? clientWidth : Math.max(this.canvas.width / dpr, 1);
+    const cssHeight = layoutReady ? clientHeight : Math.max(this.canvas.height / dpr, 1);
+    const w = Math.max(1, Math.floor(cssWidth * dpr));
+    const h = Math.max(1, Math.floor(cssHeight * dpr));
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
       this.canvas.height = h;
