@@ -18,6 +18,7 @@ No backend, database, or server-side service.
 - **Build (Pages):** `npm run build:site`. Prebuilt WASM: `src/public/wasm/`.
 - **Build (full):** `npm run build` (needs `emcc` or `EMSDK`).
 - **Validate:** `npm run validate` → typecheck + native C++ + WGSL.
+- **E2E:** `npm run test:e2e` → Playwright + `?renderer=webgl2` (CI: `validate.yml`).
 - **Typecheck:** `npm run typecheck` (`src/**/*.ts` only).
 
 ### Browser testing caveat (important)
