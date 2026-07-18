@@ -1,4 +1,4 @@
-import { LED_SOLAR_CONSTANTS } from '../../scientific-ui-utils.js';
+import { LED_SOLAR_CONSTANTS } from '../utils/index.js';
 
 export class LEDArrayGauge {
   constructor(containerId) {

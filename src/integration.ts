@@ -73,7 +73,7 @@ interface ScientificUISurface {
 }
 
 /**
- * No-op surface. Dashboard telemetry is TelemetryHub → operator panel / scientific-ui.js.
+ * No-op surface. Dashboard telemetry is TelemetryHub → operator panel / scientific-ui/.
  * The former floating overlay ScientificUIManager was removed (duplicate implementation).
  */
 class NoOpScientificUI implements ScientificUISurface {
@@ -117,7 +117,7 @@ export class SEGIntegrationManager {
     this.ui = new NoOpScientificUI();
     if (options.enableScientificOverlay) {
       console.info(
-        '[SEGIntegration] enableScientificOverlay ignored — use scientific-ui.js + TelemetryHub'
+        '[SEGIntegration] enableScientificOverlay ignored — use scientific-ui/index.js + TelemetryHub'
       );
     }
     if (typeof options.updateIntervalMs === 'number' && options.updateIntervalMs > 0) {

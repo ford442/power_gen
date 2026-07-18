@@ -1,4 +1,4 @@
-import { formatCompact } from '../../scientific-ui-utils.js';
+import { formatCompact } from '../utils/index.js';
 
 export class ParticleFluxGauge {
   constructor(containerId) {

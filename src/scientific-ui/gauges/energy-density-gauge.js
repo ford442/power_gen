@@ -1,4 +1,4 @@
-import { formatNumber, clamp } from '../../scientific-ui-utils.js';
+import { formatNumber, clamp } from '../utils/index.js';
 
 export class EnergyDensityGauge {
   constructor(containerId) {
