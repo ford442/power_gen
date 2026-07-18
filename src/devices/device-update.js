@@ -303,9 +303,19 @@ export const DeviceUpdateMixin = {
       const battery = Math.min(1.0, Math.max(0.0, this.physicsState?.batteryCharge ?? this.batteryCharge ?? 0.0));
       deviceEnergy = battery * 0.65 + speedNorm * 0.35;
     } else if (this.id === 'peltier') {
-      deviceEnergy = Math.min(1.0, speedNorm * 0.6 + overdriveBoost * 0.4);
+      const thermalN = this.physicsState?.peltierDeltaT != null
+        ? Math.min(1.0, this.physicsState.energyLevel ?? 0)
+        : null;
+      deviceEnergy = thermalN != null
+        ? Math.min(1.0, thermalN * 0.7 + speedNorm * 0.2 + overdriveBoost * 0.3)
+        : Math.min(1.0, speedNorm * 0.6 + overdriveBoost * 0.4);
     } else if (this.id === 'mhd') {
-      deviceEnergy = Math.min(1.0, speedNorm * 0.5 + overdriveBoost * 0.5);
+      const flowN = this.physicsState?.mhdFlowU != null
+        ? Math.min(1.0, this.physicsState.energyLevel ?? 0)
+        : null;
+      deviceEnergy = flowN != null
+        ? Math.min(1.0, flowN * 0.65 + speedNorm * 0.2 + overdriveBoost * 0.35)
+        : Math.min(1.0, speedNorm * 0.5 + overdriveBoost * 0.5);
     } else if (this.id === 'maglev') {
       const gapN = this.physicsState?.energyLevel ?? this.energyLevel;
       deviceEnergy = Math.min(1.0, gapN * 0.7 + speedNorm * 0.3);

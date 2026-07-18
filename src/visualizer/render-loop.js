@@ -71,7 +71,7 @@ export const renderLoopMethods = {
       const drive = segOperator.getDrive();
       const loadT = 0.01 * (1 - drive * 0.5);
       const focus = this.currentView === 'overview' ? 'seg' : this.currentView;
-      if (['seg', 'heron', 'kelvin', 'solar'].includes(focus)) {
+      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd'].includes(focus)) {
         segWasm.setMode(focus);
       }
       for (const subDt of simSteps) {
@@ -108,6 +108,24 @@ export const renderLoopMethods = {
           if (solar && plant && typeof plant.battery === 'number') {
             solar.batteryCharge = plant.battery;
             if (solar.physicsState) solar.physicsState.batteryCharge = plant.battery;
+          }
+        } else if (focus === 'peltier') {
+          const plant = segWasm.getModePlant();
+          const peltier = this.devices.peltier;
+          if (peltier?.physicsState && plant) {
+            peltier.physicsState.peltierDeltaT = plant.deltaT ?? 0;
+            peltier.physicsState.peltierVoltage = plant.voltage ?? 0;
+            peltier.physicsState.peltierPowerW = plant.powerW ?? 0;
+            peltier.physicsState.energyLevel = plant.energyLevel ?? 0;
+          }
+        } else if (focus === 'mhd') {
+          const plant = segWasm.getModePlant();
+          const mhd = this.devices.mhd;
+          if (mhd?.physicsState && plant) {
+            mhd.physicsState.mhdFlowU = plant.flowU ?? 0;
+            mhd.physicsState.mhdVoltage = plant.voltage ?? 0;
+            mhd.physicsState.mhdPowerW = plant.powerW ?? 0;
+            mhd.physicsState.energyLevel = plant.energyLevel ?? 0;
           }
         }
       }

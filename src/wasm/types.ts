@@ -53,6 +53,19 @@ export interface SEGSimulatorInstance {
   getKelvinE?(): number;
   getKelvinSparkTimer?(): number;
   getSolarBattery?(): number;
+  getPeltierHotK?(): number;
+  getPeltierColdK?(): number;
+  getPeltierDeltaT?(): number;
+  getPeltierVoltage?(): number;
+  getPeltierCurrent?(): number;
+  getPeltierPowerW?(): number;
+  getPeltierCOP?(): number;
+  getMhdFlowU?(): number;
+  getMhdBFieldT?(): number;
+  getMhdHartmann?(): number;
+  getMhdVoltage?(): number;
+  getMhdCurrent?(): number;
+  getMhdPowerW?(): number;
   getEnergyLevel?(): number;
   /** Byte offset into WASM heap (use with HEAPF32) */
   getParticleBufferPtr?(): number;

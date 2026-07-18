@@ -56,8 +56,20 @@ npm run wasm:native
 cd cpp && make native
 ```
 
-Native smoke exercises **SEG**, **Heron**, **Kelvin**, and **Solar** plant modes plus
-zero-copy buffer packing (`getRollerStateFloatCount == 66*4`).
+Native smoke exercises **SEG**, **Heron**, **Kelvin**, **Solar**, **Peltier**, and
+**MHD** plant modes plus zero-copy buffer packing
+(`getRollerStateFloatCount == 66*4`). Single-mode smoke runs:
+
+```bash
+./build/sim_core_test --mode peltier   # thermoelectric stack smoke
+./build/sim_core_test --mode mhd      # Hartmann channel smoke
+```
+
+Plant modes (SimMode enum): `0=SEG` RK4 rollers, `1=Heron` Bernoulli /
+Swamee–Jain, `2=Kelvin` capacitive + spark, `3=Solar` battery SOC,
+`4=Peltier` simplified 1D Seebeck/Peltier two-node stack (Thomson neglected),
+`5=MHD` Hartmann-style channel flow with Lorentz braking and induced load
+voltage.
 
 ### Zero-copy particle / roller buffers
 
@@ -140,9 +152,11 @@ Recent non-breaking expansions (SEGSimulator API and all prior bindings preserve
   `getParticle(i)`. JavaScript side (via `seg-physics-bridge.js` and `sim.ts`)
   can now pull the high-precision CPU particle state for seeding or diffing
   against the WebGPU side.
-- **Multi-mode skeleton**: `setMode(0|1|2)` / `getMode()`. 0 = SEG (full RK4
-  roller path). 1 = Heron and 2 = Kelvin are explicit stubs (rollers untouched,
-  time still advances). Prepares the architecture without affecting SEG.
+- **Multi-mode plants**: `setMode(0..5)` / `getMode()`. 0 = SEG (full RK4
+  roller path), 1 = Heron (Bernoulli / Swamee–Jain), 2 = Kelvin (capacitive +
+  spark), 3 = Solar (battery SOC), 4 = Peltier (two-node Seebeck stack),
+  5 = MHD (Hartmann channel). Every mode has real dynamics, mode-aware
+  particle seeding/stepping, and dedicated telemetry getters.
 - **Per-ring load torque**: `setRingLoadTorque(ring, t)`, `setRingLoadTorques(t0, t1, t2)`,
   and `stepWithPerRingTorques(dt)`. The original `step(dt, loadTorque)` continues
   to broadcast its value to all rings (identical prior behaviour).
@@ -150,8 +164,6 @@ Recent non-breaking expansions (SEGSimulator API and all prior bindings preserve
 Thin JS wrappers live in `src/wasm/seg-physics-bridge.js` and `src/wasm/sim.ts`
 so the debug panel and future consumers can call the new functionality directly.
 
-Future items (not implemented here):
-- Real Heron/Kelvin dynamics or equivalent state machines in C++.
-- Zero-copy particle buffer (expose base pointer + typed array mapping).
-- Bulk roller state export (angles/omegas for all 66 rollers in one call).
-- Mode-aware particle seeding / stepping.
+Since implemented: real dynamics for all six modes (Heron, Kelvin, Solar,
+Peltier, MHD alongside SEG), zero-copy particle + roller buffers, and
+mode-aware particle seeding / stepping.

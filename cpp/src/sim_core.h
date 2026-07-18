@@ -86,6 +86,8 @@ void  seg_particle_step(SimParticle& p, float omega, float corona, float dt);
 void heron_particle_step(SimParticle& p, float vExit, float dt, float simTime);
 void kelvin_particle_step(SimParticle& p, float kelvinE, float dt, float simTime);
 void solar_particle_step(SimParticle& p, float transmittance, float dt, float simTime);
+void peltier_particle_step(SimParticle& p, float deltaTN, float dt, float simTime);
+void mhd_particle_step(SimParticle& p, float flowU, float bField, float dt, float simTime);
 
 // ─────────────────────────────────────────────────────────────
 // SimMode
@@ -94,7 +96,9 @@ enum SimMode {
     SIM_MODE_SEG   = 0,
     SIM_MODE_HERON = 1,
     SIM_MODE_KELVIN = 2,
-    SIM_MODE_SOLAR = 3
+    SIM_MODE_SOLAR = 3,
+    SIM_MODE_PELTIER = 4,
+    SIM_MODE_MHD = 5
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -132,6 +136,53 @@ struct SolarState {
     float transmittance{0.04f};
     float opticalEff{0.45f};   // panel optical→electrical
     float ledWallPlug{0.30f};  // electrical→optical
+};
+
+/// Simplified 1D thermoelectric stack (Seebeck + Peltier + Joule; Thomson
+/// neglected). Constants mirror scientific-data.js PELTIER_DATA (Bi₂Te₃).
+struct PeltierState {
+    float hotK{293.f};         // hot junction temperature, K
+    float coldK{293.f};        // cold junction temperature, K
+    float ambientK{293.f};     // K
+    float seebeck{4.4e-4f};    // V/K per couple × stack → effective V/K
+    float couples{127.f};      // couples in module (effective S = seebeck*couples)
+    float rInternalOhm{2.5f};  // module internal resistance
+    float rLoadOhm{2.5f};      // matched load
+    float conductanceWK{0.5f}; // thermal conductance hot→cold, W/K
+    float heatCapHotJK{40.f};  // hot-side lumped heat capacity, J/K
+    float heatCapColdJK{60.f}; // cold-side lumped heat capacity (with sink), J/K
+    float sinkWK{1.6f};        // cold-side → ambient conductance, W/K
+    float heaterMaxW{60.f};    // drive=1 heater input, W
+    float deltaTRefK{80.f};    // typicalDeltaT for normalization
+    float deltaTK{0.f};        // derived: hotK − coldK
+    float currentA{0.f};       // derived
+    float voltageV{0.f};       // derived load voltage
+    float powerW{0.f};         // derived electrical output
+    float cop{0.f};            // derived P_out / Q_in (generator efficiency)
+    float drive{0.f};          // 0..1 heater drive
+};
+
+/// Hartmann-style MHD channel metaphor: pressure-driven conductive flow
+/// retarded by Lorentz braking, inducing a load voltage V = B·u·w.
+struct MHDState {
+    float flowU{0.f};          // bulk channel velocity, m/s
+    float flowUMax{5.f};       // normalization velocity
+    float bFieldT{0.2f};       // applied transverse field (drive-scaled)
+    float pumpAccel{6.f};      // drive=1 pressure-gradient acceleration, m/s²
+    float lorentzK{2.5f};      // effective σB²/ρ braking coefficient, 1/(s·T²)
+    float frictionK{0.8f};     // viscous/wall losses, 1/s
+    float widthM{0.10f};       // electrode spacing
+    float halfGapM{0.05f};     // channel half-gap (Hartmann length)
+    float sigmaSm{1.0e6f};     // conductivity, S/m (liquid-metal-ish)
+    float rhoKgM3{870.f};      // working-fluid density
+    float nuM2s{8.0e-7f};      // kinematic viscosity
+    float rLoadOhm{0.05f};
+    float rInternalOhm{0.05f};
+    float hartmann{0.f};       // derived Ha = B·d·sqrt(σ/(ρν))
+    float voltageV{0.f};       // derived load voltage
+    float currentA{0.f};       // derived
+    float powerW{0.f};         // derived electrical output
+    float drive{0.f};          // 0..1 pump/field drive
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -179,6 +230,19 @@ public:
     float getKelvinE() const { return _kelvin.E; }
     float getKelvinSparkTimer() const { return _kelvin.sparkTimer; }
     float getSolarBattery() const { return _solar.batteryCharge; }
+    float getPeltierHotK() const { return _peltier.hotK; }
+    float getPeltierColdK() const { return _peltier.coldK; }
+    float getPeltierDeltaT() const { return _peltier.deltaTK; }
+    float getPeltierVoltage() const { return _peltier.voltageV; }
+    float getPeltierCurrent() const { return _peltier.currentA; }
+    float getPeltierPowerW() const { return _peltier.powerW; }
+    float getPeltierCOP() const { return _peltier.cop; }
+    float getMhdFlowU() const { return _mhd.flowU; }
+    float getMhdBFieldT() const { return _mhd.bFieldT; }
+    float getMhdHartmann() const { return _mhd.hartmann; }
+    float getMhdVoltage() const { return _mhd.voltageV; }
+    float getMhdCurrent() const { return _mhd.currentA; }
+    float getMhdPowerW() const { return _mhd.powerW; }
 
     // ── Accessors ─────────────────────────────────────────────
     float getOmega()        const { return _rollers[0].omega; }
@@ -234,11 +298,15 @@ private:
     HeronState     _heron;
     KelvinState    _kelvin;
     SolarState     _solar;
+    PeltierState   _peltier;
+    MHDState       _mhd;
 
     void _initRollers();
     void _stepHeron(float dt);
     void _stepKelvin(float dt);
     void _stepSolar(float dt);
+    void _stepPeltier(float dt);
+    void _stepMHD(float dt);
     void _stepSegRollers(float dt);
 };
 

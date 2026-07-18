@@ -66,8 +66,8 @@ Client-side **multi-device physics lab**: real-time visualization of research ap
 | `heron` | Heron’s Fountain | Layout presets + Bernoulli/Swamee–Jain plant; good meshes |
 | `kelvin` | Kelvin’s Thunderstorm | Capacitive plant + droplet viz |
 | `solar` | LEDs + solar + battery | Photon paths + SOC; separate LED/solar TS/WGSL suite exists |
-| `peltier` | Thermoelectric | Geometry + particle modes; **lighter** plant model |
-| `mhd` | MHD channel | Geometry + particles; **lighter** plant model |
+| `peltier` | Thermoelectric | Geometry + particles; WASM two-node Seebeck stack plant (`?wasmPhysics=1`); lighter JS fallback |
+| `mhd` | MHD channel | Geometry + particles; WASM Hartmann-channel plant (`?wasmPhysics=1`); lighter JS fallback |
 | `maglev` | Quanta MagLev (plugin) | Plugin registry; see [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
 | `homopolar` | Quanta homopolar disc (plugin) | Faraday disc L–R model; see [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
 
@@ -97,7 +97,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 |----------|-----|------------|
 | **JavaScript** | Bootstrap, multi-device orchestration, geometry buffers, UI wiring, WebGL2 path | New authoritative physics formulas (prefer TS) |
 | **TypeScript** | Constants (`ValidatedConstants.ts`), `integration.ts`, WASM types, LED/solar protocol | Full render loops (until a deliberate migration) |
-| **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar state) | Browser DOM or GPU API calls |
+| **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar/Peltier/MHD state) | Browser DOM or GPU API calls |
 | **WGSL** | WebGPU compute + render (`src/shaders/`) | WebGL2 fallback |
 | **GLSL** | WebGL2 only (`renderers/webgl2/shaders.js`) | WebGPU path |
 | **Python** | `deploy.py` only | App logic |

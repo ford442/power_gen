@@ -224,6 +224,59 @@ void solar_particle_step(SimParticle& p, float transmittance, float dt, float /*
     }
 }
 
+void peltier_particle_step(SimParticle& p, float deltaTN, float dt, float simTime) {
+    // Convection cell in the stack cavity: hot plate at y=-0.9 heats parcels
+    // (aux → 1), buoyancy lifts them, the cold plate at y=+0.9 cools them
+    // (aux → 0) and they sink. Circulation strength scales with ΔT.
+    constexpr float H = 0.9f;   // half-height
+    constexpr float W = 1.6f;   // half-width (x)
+    constexpr float D = 1.3f;   // half-depth (z)
+    float heat = clampf((-p.y + H * 0.6f) / (0.8f * H), 0.f, 1.f); // near hot plate
+    float cool = clampf((p.y - H * 0.2f) / (0.8f * H), 0.f, 1.f);  // near cold plate
+    p.aux += (heat * 2.2f - cool * 2.6f - 0.15f) * deltaTN * dt;
+    p.aux = clampf(p.aux, 0.f, 1.f);
+    // Buoyancy: hot parcels rise, cold sink
+    float aY = (p.aux - 0.45f) * 5.5f * deltaTN - p.vy * 1.8f;
+    // Horizontal recirculation: drift outward near top, inward near bottom
+    float loopX = (p.y > 0.f ? 1.f : -1.f) * (p.x >= 0.f ? 1.f : -1.f);
+    float aX = loopX * 0.9f * deltaTN - p.vx * 1.6f - p.x * 0.35f;
+    float aZ = std::sin(p.phase * 21.7f + simTime * 0.9f) * 0.25f * deltaTN
+             - p.vz * 1.6f - p.z * 0.4f;
+    p.vx += aX * dt; p.vy += aY * dt; p.vz += aZ * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    if (std::abs(p.x) > W || std::abs(p.y) > H || std::abs(p.z) > D) {
+        p.x = (hash1(p.phase + simTime) - 0.5f) * 2.f * W * 0.9f;
+        p.y = -H * 0.85f;
+        p.z = (hash1(p.phase + simTime + 1.f) - 0.5f) * 2.f * D * 0.9f;
+        p.vx = p.vy = p.vz = 0.f;
+        p.aux = 0.2f;
+    }
+}
+
+void mhd_particle_step(SimParticle& p, float flowU, float bField, float dt, float simTime) {
+    // Channel advection along +x with Lorentz-scaled helical swirl; recycle
+    // parcels at the inlet (x = -2.2) once they exit the duct.
+    constexpr float X_OUT = 2.2f;
+    constexpr float HY = 1.2f;  // half-height
+    constexpr float HZ = 0.9f;  // half-depth
+    float uTarget = std::max(0.05f, flowU) * 1.2f;
+    p.vx += (uTarget - p.vx) * 3.f * dt;
+    // Transverse confinement + B-scaled swirl around the flow axis
+    float swirl = bField * 1.4f;
+    float aY = -p.y * 6.f - p.vy * 2.f + swirl * p.z * 2.f
+             + std::sin(p.phase * 37.1f + simTime * 1.3f) * 0.2f;
+    float aZ = -p.z * 6.f - p.vz * 2.f - swirl * p.y * 2.f;
+    p.vy += aY * dt; p.vz += aZ * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    p.aux = clampf(bField * std::abs(p.vx) * 0.4f, 0.f, 1.f); // induction glow
+    if (p.x > X_OUT || std::abs(p.y) > HY * 1.6f || std::abs(p.z) > HZ * 1.6f) {
+        p.x = -X_OUT + hash1(p.phase + simTime) * 0.3f;
+        p.y = (hash1(p.phase + simTime + 1.f) - 0.5f) * 2.f * HY * 0.8f;
+        p.z = (hash1(p.phase + simTime + 2.f) - 0.5f) * 2.f * HZ * 0.8f;
+        p.vx = uTarget; p.vy = 0.f; p.vz = 0.f;
+    }
+}
+
 // ─────────────────────────────────────────────────────────────
 // SEGSimulator
 // ─────────────────────────────────────────────────────────────
@@ -266,6 +319,8 @@ void SEGSimulator::setDrive(float drive) {
     _heron.drive = _drive;
     _kelvin.drive = _drive;
     _solar.ledPower = 0.3f + 0.7f * _drive;
+    _peltier.drive = _drive;
+    _mhd.drive = _drive;
 }
 
 void SEGSimulator::_stepSegRollers(float dt) {
@@ -321,6 +376,44 @@ void SEGSimulator::_stepSolar(float dt) {
     s.batteryCharge = clampf(s.batteryCharge + (gain - drainW) * dt, 0.f, 1.f);
 }
 
+void SEGSimulator::_stepPeltier(float dt) {
+    // Two-node lumped stack: heater → hot junction, sink → ambient.
+    // Seebeck generation with Peltier back-pumping and half/half Joule split;
+    // Thomson term neglected (simplified 1D model).
+    PeltierState& s = _peltier;
+    float S = s.seebeck * s.couples;               // effective module V/K
+    s.deltaTK = s.hotK - s.coldK;
+    float I = S * s.deltaTK / (s.rInternalOhm + s.rLoadOhm);
+    float qHeater = s.drive * s.heaterMaxW;
+    float qCond   = s.conductanceWK * s.deltaTK;
+    float qJoule  = 0.5f * I * I * s.rInternalOhm;
+    float dTh = (qHeater - qCond - S * I * s.hotK  + qJoule) / s.heatCapHotJK;
+    float dTc = (qCond   + S * I * s.coldK + qJoule
+                 - s.sinkWK * (s.coldK - s.ambientK)) / s.heatCapColdJK;
+    s.hotK  = clampf(s.hotK  + dTh * dt, s.ambientK - 5.f, s.ambientK + 250.f);
+    s.coldK = clampf(s.coldK + dTc * dt, s.ambientK - 5.f, s.ambientK + 150.f);
+    s.deltaTK  = s.hotK - s.coldK;
+    s.currentA = S * s.deltaTK / (s.rInternalOhm + s.rLoadOhm);
+    s.voltageV = s.currentA * s.rLoadOhm;
+    s.powerW   = s.currentA * s.voltageV;
+    s.cop      = qHeater > 1e-3f ? clampf(s.powerW / qHeater, 0.f, 1.f) : 0.f;
+}
+
+void SEGSimulator::_stepMHD(float dt) {
+    // Pressure-driven channel flow with Lorentz braking (σB²u/ρ) and wall
+    // friction; induced load voltage V = B·u·w through a resistive divider.
+    MHDState& m = _mhd;
+    m.bFieldT = 0.2f + 0.8f * m.drive;
+    float accel = m.drive * m.pumpAccel
+                - (m.lorentzK * m.bFieldT * m.bFieldT + m.frictionK) * m.flowU;
+    m.flowU = clampf(m.flowU + accel * dt, 0.f, m.flowUMax * 2.f);
+    float vOpen = m.bFieldT * m.flowU * m.widthM;
+    m.currentA = vOpen / (m.rInternalOhm + m.rLoadOhm);
+    m.voltageV = m.currentA * m.rLoadOhm;
+    m.powerW   = m.currentA * m.voltageV;
+    m.hartmann = m.bFieldT * m.halfGapM * std::sqrt(m.sigmaSm / (m.rhoKgM3 * m.nuM2s));
+}
+
 void SEGSimulator::stepWithPerRingTorques(float dt) {
     switch (_mode) {
         case SIM_MODE_SEG:
@@ -334,6 +427,12 @@ void SEGSimulator::stepWithPerRingTorques(float dt) {
             break;
         case SIM_MODE_SOLAR:
             _stepSolar(dt);
+            break;
+        case SIM_MODE_PELTIER:
+            _stepPeltier(dt);
+            break;
+        case SIM_MODE_MHD:
+            _stepMHD(dt);
             break;
         default:
             break;
@@ -353,7 +452,7 @@ void SEGSimulator::setRingLoadTorques(float tInner, float tMiddle, float tOuter)
 }
 
 void SEGSimulator::setMode(int mode) {
-    if (mode >= 0 && mode <= 3) _mode = mode;
+    if (mode >= 0 && mode <= 5) _mode = mode;
 }
 
 int SEGSimulator::getMode() const { return _mode; }
@@ -380,6 +479,17 @@ void SEGSimulator::seedParticles(int count) {
             float side = (rnd(idx, 1.f) > 0.5f) ? 1.f : -1.f;
             p.x = side * 1.2f; p.y = 3.5f - rnd(idx, 2.f) * 2.f; p.z = 0.f;
             p.vx = 0.f; p.vy = -0.5f; p.vz = 0.f; p.aux = side * 0.7f;
+        } else if (_mode == SIM_MODE_PELTIER) {
+            p.x = (rnd(idx, 1.f) - 0.5f) * 3.f;
+            p.y = (rnd(idx, 2.f) - 0.5f) * 1.6f;
+            p.z = (rnd(idx, 4.f) - 0.5f) * 2.4f;
+            p.vx = p.vy = p.vz = 0.f;
+            p.aux = rnd(idx, 5.f);
+        } else if (_mode == SIM_MODE_MHD) {
+            p.x = (rnd(idx, 1.f) - 0.5f) * 4.2f;
+            p.y = (rnd(idx, 2.f) - 0.5f) * 1.9f;
+            p.z = (rnd(idx, 4.f) - 0.5f) * 1.4f;
+            p.vx = _mhd.flowU; p.vy = 0.f; p.vz = 0.f; p.aux = 0.f;
         } else { // solar
             float a = rnd(idx, 1.f) * PhysicsConstants::TAU;
             p.x = std::cos(a) * 0.8f; p.y = 2.0f; p.z = std::sin(a) * 0.8f;
@@ -423,6 +533,12 @@ void SEGSimulator::stepParticles(float dt) {
             case SIM_MODE_SOLAR:
                 solar_particle_step(p, _solar.transmittance, dt, _time);
                 break;
+            case SIM_MODE_PELTIER:
+                peltier_particle_step(p, clampf(_peltier.deltaTK / _peltier.deltaTRefK, 0.f, 1.f), dt, _time);
+                break;
+            case SIM_MODE_MHD:
+                mhd_particle_step(p, _mhd.flowU, _mhd.bFieldT, dt, _time);
+                break;
         }
     }
 }
@@ -457,6 +573,8 @@ float SEGSimulator::estimatePower(float loadTorque) const {
     if (_mode == SIM_MODE_SOLAR) {
         return _solar.ledPower * 12.f * _solar.batteryCharge; // scene Watts
     }
+    if (_mode == SIM_MODE_PELTIER) return _peltier.powerW;
+    if (_mode == SIM_MODE_MHD)     return _mhd.powerW;
     if (_numRollers == 0) return 0.f;
     return loadTorque * _rollers[0].omega * static_cast<float>(_numRollers) / 3.f;
 }
@@ -474,6 +592,10 @@ float SEGSimulator::getEnergyLevel() const {
         }
         case SIM_MODE_KELVIN: return _kelvin.voltageN;
         case SIM_MODE_SOLAR:  return _solar.batteryCharge;
+        case SIM_MODE_PELTIER:
+            return clampf(_peltier.deltaTK / _peltier.deltaTRefK, 0.f, 1.f);
+        case SIM_MODE_MHD:
+            return clampf(_mhd.flowU / std::max(_mhd.flowUMax, 0.1f), 0.f, 1.f);
         default:
             return clampf(_rollers[0].omega / 50.f, 0.f, 1.f);
     }
@@ -520,7 +642,7 @@ int SEGSimulator::getRollerStateFloatCount() const {
 }
 
 const char* SEGSimulator::version() {
-    return "sim_core 1.1.0";
+    return "sim_core 1.2.0";
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -586,6 +708,19 @@ EMSCRIPTEN_BINDINGS(sim_core) {
         .function("getKelvinE", &SEGSimulator::getKelvinE)
         .function("getKelvinSparkTimer", &SEGSimulator::getKelvinSparkTimer)
         .function("getSolarBattery", &SEGSimulator::getSolarBattery)
+        .function("getPeltierHotK", &SEGSimulator::getPeltierHotK)
+        .function("getPeltierColdK", &SEGSimulator::getPeltierColdK)
+        .function("getPeltierDeltaT", &SEGSimulator::getPeltierDeltaT)
+        .function("getPeltierVoltage", &SEGSimulator::getPeltierVoltage)
+        .function("getPeltierCurrent", &SEGSimulator::getPeltierCurrent)
+        .function("getPeltierPowerW", &SEGSimulator::getPeltierPowerW)
+        .function("getPeltierCOP", &SEGSimulator::getPeltierCOP)
+        .function("getMhdFlowU", &SEGSimulator::getMhdFlowU)
+        .function("getMhdBFieldT", &SEGSimulator::getMhdBFieldT)
+        .function("getMhdHartmann", &SEGSimulator::getMhdHartmann)
+        .function("getMhdVoltage", &SEGSimulator::getMhdVoltage)
+        .function("getMhdCurrent", &SEGSimulator::getMhdCurrent)
+        .function("getMhdPowerW", &SEGSimulator::getMhdPowerW)
         .function("getEnergyLevel", &SEGSimulator::getEnergyLevel)
         .function("getParticleBufferPtr", optional_override([](SEGSimulator& self) -> double {
             return static_cast<double>(self.getParticleBufferPtr());
@@ -678,7 +813,67 @@ int export_seg_csv(
     return 0;
 }
 
+static int run_peltier_smoke() {
+    SEGSimulator sim;
+    sim.setMode(SIM_MODE_PELTIER);
+    sim.setDrive(1.f);
+    sim.seedParticles(500);
+    const float dt = 1.f / 60.f;
+    for (int i = 0; i < 3600; ++i) { // 60 s to let the stack heat up
+        sim.step(dt, 0.f);
+        if ((i & 7) == 0) sim.stepParticles(dt);
+    }
+    printf("Peltier Th=%.1f K  Tc=%.1f K  dT=%.1f K  V=%.3f V  I=%.3f A  P=%.3f W  eff=%.3f\n",
+           sim.getPeltierHotK(), sim.getPeltierColdK(), sim.getPeltierDeltaT(),
+           sim.getPeltierVoltage(), sim.getPeltierCurrent(),
+           sim.getPeltierPowerW(), sim.getPeltierCOP());
+    if (sim.getPeltierDeltaT() <= 1.f || sim.getPeltierPowerW() <= 0.f) {
+        printf("FAIL: Peltier stack did not develop dT / power\n");
+        return 1;
+    }
+    if (sim.getEnergyLevel() < 0.f || sim.getEnergyLevel() > 1.f) {
+        printf("FAIL: Peltier energy level out of range\n");
+        return 1;
+    }
+    printf("Peltier smoke OK (energyLevel=%.3f)\n", sim.getEnergyLevel());
+    return 0;
+}
+
+static int run_mhd_smoke() {
+    SEGSimulator sim;
+    sim.setMode(SIM_MODE_MHD);
+    sim.setDrive(0.9f);
+    sim.seedParticles(500);
+    const float dt = 1.f / 60.f;
+    for (int i = 0; i < 600; ++i) {
+        sim.step(dt, 0.f);
+        sim.stepParticles(dt);
+    }
+    printf("MHD u=%.3f m/s  B=%.3f T  Ha=%.0f  V=%.4f V  I=%.3f A  P=%.4f W\n",
+           sim.getMhdFlowU(), sim.getMhdBFieldT(), sim.getMhdHartmann(),
+           sim.getMhdVoltage(), sim.getMhdCurrent(), sim.getMhdPowerW());
+    if (sim.getMhdFlowU() <= 0.f || sim.getMhdVoltage() <= 0.f) {
+        printf("FAIL: MHD channel did not develop flow / voltage\n");
+        return 1;
+    }
+    if (sim.getEnergyLevel() < 0.f || sim.getEnergyLevel() > 1.f) {
+        printf("FAIL: MHD energy level out of range\n");
+        return 1;
+    }
+    printf("MHD smoke OK (energyLevel=%.3f)\n", sim.getEnergyLevel());
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    // --mode <peltier|mhd>: run a single-mode smoke test
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
+            if (std::strcmp(argv[i + 1], "peltier") == 0) return run_peltier_smoke();
+            if (std::strcmp(argv[i + 1], "mhd") == 0)     return run_mhd_smoke();
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd)\n", argv[i + 1]);
+            return 2;
+        }
+    }
     // --export-csv <seconds> [output.csv] [sample_hz]
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--export-csv") == 0 && i + 1 < argc) {
@@ -747,6 +942,10 @@ int main(int argc, char** argv) {
         printf("FAIL: Solar energy level out of range\n");
         return 1;
     }
+
+    // ── Peltier + MHD paths ──
+    if (run_peltier_smoke() != 0) return 1;
+    if (run_mhd_smoke() != 0) return 1;
 
     // Zero-copy packing smoke
     sim.setMode(SIM_MODE_SEG);
