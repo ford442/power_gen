@@ -14,6 +14,8 @@ and telemetry with WebGPU; it does **not** implement every WebGPU visual feature
 | TelemetryHub publish each frame | Yes (same as WebGPU) |
 | Mode buttons (`window.setMode`) | Yes — camera focus + device reset + hub view |
 | SEG layout presets | Yes — roller orbit counts/radii from `seg-layout.js` |
+| `prototype` URL param | Yes — pole tint + Roschin layout when `lab` (shared `url-params.js`) |
+| `anomalousEffectsEnabled` | Yes — parsed from `prototype=lab`; toggle in debug panel (walls WebGPU-only) |
 | Heron layout presets | Yes |
 | Particle count slider | Yes (`setParticleCount`) |
 | `?wasmPhysics=1` plant | Yes — SEG/Heron/Kelvin/Solar via `segWasm` |
@@ -31,6 +33,7 @@ Do **not** expect these under WebGL2:
 | RK4 magnetic flux line tracer | `fluxTracer` compute + segment billboards |
 | Energy arc meshes between rollers | `energyArc` pipeline |
 | SEG enhanced PBR + UV materials | `segEnhanced` shaders |
+| Roschin–Godin magnetic wall shells | `renderAnomalyWalls` |
 | Full energy-pipe **particle** billboards | `EnergyPipe` + WGSL (WebGL2 uses lines) |
 | GPU timestamp queries | `?gpuTiming=1` |
 | Hardware bridge / electromagnet coils | WebGPU-only hooks |

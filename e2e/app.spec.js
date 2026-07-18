@@ -53,6 +53,17 @@ test.describe('SEG WebGL2 smoke', () => {
     await expect(page.locator('#btn-seg')).toHaveClass(/active/);
   });
 
+  test('?prototype=lab sets lab preset and Roschin layout', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'prototype=lab');
+
+    const info = await page.evaluate(() => window.getRendererInfo());
+    expect(info.prototypePreset).toBe('lab');
+    expect(info.anomalousEffectsEnabled).toBe(true);
+    expect(info.segLayoutPreset).toBe('roschin');
+    expect(info.intentionalGaps).toContain('Roschin–Godin magnetic wall shells');
+  });
+
   test('captureCanvasFrame returns RGBA buffer matching canvas size', async ({ page }) => {
     trackPageErrors(page);
     await page.setViewportSize({ width: 960, height: 540 });

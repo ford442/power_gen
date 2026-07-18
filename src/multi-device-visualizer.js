@@ -36,6 +36,11 @@ import { initSEGAnnotations } from './seg-annotations.js';
 import { explainerState } from './seg-explainer/explainer-state.js';
 import { isDeviceActive as isDeviceVisible } from './renderers/shared/device-view.js';
 import {
+  parsePrototypePreset,
+  parseSegLayoutPreset,
+  parseAnomalousEffects
+} from './renderers/shared/url-params.js';
+import {
   SEGIntegrationManager,
   PHYSICS_UNIFORM_BYTES
 } from './integration.ts';
@@ -106,16 +111,8 @@ export class MultiDeviceVisualizer {
     const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
 
     // Prototype-accuracy preset for SEG rollers (parse before lighting / layout).
-    const protoParam = params.get('prototype');
-    this.prototypePreset = 'showroom';
-    if (protoParam === 'lab' || protoParam === 'roschin' || protoParam === 'godin') {
-      this.prototypePreset = 'lab';
-    } else if (protoParam === 'showroom' || protoParam === 'searl') {
-      this.prototypePreset = 'showroom';
-    } else if (typeof window !== 'undefined' && window.SEG_PROTOTYPE_PRESET) {
-      this.prototypePreset = window.SEG_PROTOTYPE_PRESET;
-    }
-    this.anomalousEffectsEnabled = (this.prototypePreset === 'lab');
+    this.prototypePreset = parsePrototypePreset(params);
+    this.anomalousEffectsEnabled = parseAnomalousEffects(this.prototypePreset);
 
     // SimRateController for speed-scaled physics and visuals
     this.simRateController = new SimRateController();
@@ -134,19 +131,7 @@ export class MultiDeviceVisualizer {
   //   searl    = documented 10/25/35 three-ring device
   //   roschin  = Roschin–Godin 1 m single-ring 12-roller converter
   //   legacy   = previous 8/12/16 toy proportions (regression)
-    const layoutParam = params.get('layout');
-    this.segLayoutPreset = SEG_LAYOUT_PRESETS.searl;
-    if (layoutParam === 'roschin' || layoutParam === 'lab' || layoutParam === 'godin') {
-      this.segLayoutPreset = SEG_LAYOUT_PRESETS.roschin;
-    } else if (layoutParam === 'legacy') {
-      this.segLayoutPreset = SEG_LAYOUT_PRESETS.legacy;
-    } else if (layoutParam === 'searl' || layoutParam === 'showroom') {
-      this.segLayoutPreset = SEG_LAYOUT_PRESETS.searl;
-    } else if (this.prototypePreset === 'lab') {
-      this.segLayoutPreset = SEG_LAYOUT_PRESETS.roschin;
-    } else if (typeof window !== 'undefined' && window.SEG_LAYOUT_PRESET) {
-      this.segLayoutPreset = window.SEG_LAYOUT_PRESET;
-    }
+    this.segLayoutPreset = parseSegLayoutPreset(params, this.prototypePreset);
     this.segLayout = null;
 
     this.heronLayoutPreset = parseHeronLayoutPreset(params);

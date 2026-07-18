@@ -26,6 +26,12 @@ import {
 } from '../shared/device-physics.js';
 import { isDeviceActive as isDeviceVisible, shouldSimulateDevice } from '../shared/device-view.js';
 import { getDeviceParticleScale, getViewMeshLod } from '../shared/view-lod.js';
+import {
+  parsePrototypePreset,
+  parseSegLayoutPreset,
+  parseAnomalousEffects,
+  segLayoutRingsForDraw
+} from '../shared/url-params.js';
 import { WebGL2Context } from './webgl2-context.js';
 import { SkyGridRenderer } from './sky-grid-renderer.js';
 import { MeshRenderer } from './mesh-renderer.js';
@@ -127,11 +133,15 @@ export class WebGL2MultiDeviceVisualizer {
     this.speedMult = 1.0;
     this.segOmega = 0;
     this.corona = 0;
-    this.segFrameLevel = parseSegFrameLevel();
-    this.lightingLook = parseLightingLook();
-    this.lightingPreset = getLightingPreset(this.lightingLook);
 
     const params = new URLSearchParams(window.location.search);
+
+    this.prototypePreset = parsePrototypePreset(params);
+    this.anomalousEffectsEnabled = parseAnomalousEffects(this.prototypePreset);
+    this.segFrameLevel = parseSegFrameLevel(params);
+    this.lightingLook = parseLightingLook(params);
+    this.lightingPreset = getLightingPreset(this.lightingLook);
+
     this.heronLayoutPreset = parseHeronLayoutPreset(params);
     try {
       const storedHeron = localStorage.getItem('heron-layout');
@@ -142,15 +152,7 @@ export class WebGL2MultiDeviceVisualizer {
     this.heronLayout = getHeronLayout(this.heronLayoutPreset);
 
     // SEG layout (same presets as WebGPU; visual proportions only for rollers)
-    this.segLayoutPreset = SEG_LAYOUT_PRESETS.searl;
-    const layoutParam = params.get('layout');
-    if (layoutParam === 'roschin' || layoutParam === 'lab' || layoutParam === 'godin') {
-      this.segLayoutPreset = SEG_LAYOUT_PRESETS.roschin;
-    } else if (layoutParam === 'legacy') {
-      this.segLayoutPreset = SEG_LAYOUT_PRESETS.legacy;
-    } else if (layoutParam === 'searl' || layoutParam === 'showroom') {
-      this.segLayoutPreset = SEG_LAYOUT_PRESETS.searl;
-    }
+    this.segLayoutPreset = parseSegLayoutPreset(params, this.prototypePreset);
     this.segLayout = computeSEGLayout(this.segLayoutPreset, 1.0);
 
     this.energyPipes = []; // filled after devices for debug panel total flow
@@ -208,6 +210,8 @@ export class WebGL2MultiDeviceVisualizer {
         segOmega: this.segOmega,
         corona: this.corona,
         segLayoutPreset: this.segLayoutPreset,
+        prototypePreset: this.prototypePreset,
+        anomalousEffectsEnabled: this.anomalousEffectsEnabled,
         heronLayoutPreset: this.heronLayoutPreset,
         devicesEnabled: { ...this.devicesEnabled },
         wasmPhysics: !!(typeof window !== 'undefined' && window.segWasm?.enabled),
@@ -244,6 +248,7 @@ export class WebGL2MultiDeviceVisualizer {
           'RK4 flux line tracer',
           'energy arc meshes',
           'SEG enhanced PBR / UV materials',
+          'Roschin–Godin magnetic wall shells',
           'WebGPU timestamp queries'
         ]
       };
@@ -611,12 +616,15 @@ export class WebGL2MultiDeviceVisualizer {
         );
         this.meshRenderer.drawSegStructure(viewProj, pos, {
           ...renderOpts,
-          frameLevel: this.segFrameLevel
+          frameLevel: this.segFrameLevel,
+          layout: this.segLayout
         });
         this.meshRenderer.drawStatorRings(viewProj, pos, renderOpts);
         this.meshRenderer.drawRollers(viewProj, pos, rollers, this.time, {
           ...renderOpts,
-          corona: device.physics.corona
+          corona: device.physics.corona,
+          prototypePreset: this.prototypePreset,
+          rings: segLayoutRingsForDraw(this.segLayout)
         });
       } else if (device.id === 'heron' || device.id === 'kelvin' || device.id === 'solar') {
         this.meshRenderer.drawAlternateDevice(viewProj, pos, device.id, {

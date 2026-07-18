@@ -265,7 +265,7 @@ export class MeshRenderer {
     const level = opts.frameLevel ?? parseSegFrameLevel();
     if (level === 'off') return;
 
-    const layout = computeSEGLayout(SEG_LAYOUT_PRESETS.searl, 1.0);
+    const layout = opts.layout ?? computeSEGLayout(SEG_LAYOUT_PRESETS.searl, 1.0);
     const dims = computeFrameDimensions(layout);
     const gl = this.gl;
 
