@@ -106,6 +106,7 @@ function readIndices(json, bin, accessorIndex) {
 
 /**
  * Interleaved mesh: 8 floats/vertex (pos3, normal3, uv2) for seg-enhanced pipeline.
+ * Node `extras.annotationId` is preserved for SEG Explainer tour wiring.
  * @param {{ json: object, bin: ArrayBuffer }} doc
  * @returns {{ meshes: object[], nodes: object[] }}
  */

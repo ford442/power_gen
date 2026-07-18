@@ -32,7 +32,7 @@ Tour drives:
 Hash format:
 
 ```
-#lab=v1;mode=seg;layout=searl;drive=0.50;field=0.50;bmult=2.00;class=1;tour=1
+#lab=v1;mode=seg;layout=searl;drive=0.50;field=0.50;bmult=2.00;class=1;tour=1;hi=coil;step=5
 ```
 
 | Param | Meaning |
@@ -44,10 +44,12 @@ Hash format:
 | `bmult` | B-field experiment multiplier |
 | `class` | `1` = classroom mode |
 | `tour` | `1` = auto-start tour |
+| `hi` | Annotation / highlight id (`coil`, `shaft`, `inner-ring`, …) |
+| `step` | Tour step index (0-based) when `tour=1` |
 
 **UI:** **Lab Link** copies URL to clipboard and updates `location.hash`.
 
-**API:** `window.shareLabLink()`
+**API:** `window.shareLabLink()`, `window.startSEGTour()`, `window.goToSEGStep('coil')`
 
 ## Experiments
 
@@ -57,10 +59,11 @@ Hash format:
 
 ## Classroom mode
 
-- Large annotation labels  
+- Large annotation labels (hotspot dots when not highlighted)
 - Dims non-essential sidebar sections  
 - Enables annotations + plan view  
 - Lower particle cap (via `explainerState.getParticleCapScale()`)
+- Click hotspots or labels to jump to the matching tour step
 
 ## Accessibility
 

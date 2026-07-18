@@ -48,6 +48,7 @@ import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets
 import { segOperator } from '../../seg-operator-state.js';
 import { telemetryHub, TelemetryHub } from '../../telemetry-hub.ts';
 import { explainerState } from '../../seg-explainer/explainer-state.js';
+import { initSEGAnnotations } from '../../seg-annotations.js';
 import { segWasm } from '../../wasm/seg-physics-bridge.js';
 import {
   getHeronLayout,
@@ -282,6 +283,12 @@ export class WebGL2MultiDeviceVisualizer {
 
       // Optional WASM init (non-blocking; enable via ?wasmPhysics=1)
       segWasm.init().catch(() => {});
+
+      try {
+        this.segAnnotations = initSEGAnnotations(() => this);
+      } catch (e) {
+        console.warn('[webgl2] SEG annotations init failed:', e);
+      }
 
       this.render(0);
       window.addEventListener('resize', () => this.ctx.resize());
@@ -706,6 +713,10 @@ export class WebGL2MultiDeviceVisualizer {
       this.energyPipeRenderer.draw(viewProj, this.devices, this.time, {
         devicesEnabled: this.devicesEnabled
       });
+    }
+
+    if (this.segAnnotations?.enabled) {
+      this.segAnnotations.update();
     }
 
     requestAnimationFrame((t) => this.render(t));

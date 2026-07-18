@@ -97,7 +97,6 @@ export function initExplainerUI() {
     const lab = decodeLabHash();
     if (lab) {
       await applyLabState(lab);
-      if (lab.tour) tour.start(0);
       setStatus('Restored lab from URL');
     }
   } };

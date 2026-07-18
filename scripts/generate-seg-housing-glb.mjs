@@ -62,7 +62,7 @@ function merge(parts) {
 }
 
 // Reference metres — scaled at runtime via SEG layout worldScale.
-const mesh = merge([
+const housingMesh = merge([
   box(0, -2.55, 0, 12.5, 0.38, 12.5),
   box(0, -0.95, -5.95, 12.2, 3.2, 0.22),
   box(-5.95, -0.95, 0, 0.22, 3.2, 11.6),
@@ -71,83 +71,148 @@ const mesh = merge([
   box(0, -0.35, 0, 10.8, 0.12, 10.8)
 ]);
 
-const vertexCount = mesh.positions.length / 3;
-const interleaved = new Float32Array(vertexCount * 8);
-for (let i = 0; i < vertexCount; i++) {
-  const o = i * 8;
-  interleaved[o] = mesh.positions[i * 3];
-  interleaved[o + 1] = mesh.positions[i * 3 + 1];
-  interleaved[o + 2] = mesh.positions[i * 3 + 2];
-  interleaved[o + 3] = mesh.normals[i * 3];
-  interleaved[o + 4] = mesh.normals[i * 3 + 1];
-  interleaved[o + 5] = mesh.normals[i * 3 + 2];
-  interleaved[o + 6] = mesh.uvs[i * 2];
-  interleaved[o + 7] = mesh.uvs[i * 2 + 1];
+/** Tour-linked housing callouts — `extras.annotationId` on pick-proxy nodes. */
+const HOUSING_ANNOTATIONS = [
+  { id: 'shaft', translation: [0, 0, 0] },
+  { id: 'inner-ring', translation: [2.8, 0.35, 0] },
+  { id: 'stator', translation: [4.2, 0.1, 0] },
+  { id: 'separator', translation: [3.0, -0.5, 2.2] },
+  { id: 'outer-ring', translation: [4.8, 0.25, 2.8] },
+  { id: 'coil', translation: [5.4, 0.15, 0.2] }
+];
+
+const pickMesh = box(0, 0, 0, 0.75, 0.75, 0.75);
+
+function packInterleaved(mesh) {
+  const vertexCount = mesh.positions.length / 3;
+  const interleaved = new Float32Array(vertexCount * 8);
+  for (let i = 0; i < vertexCount; i++) {
+    const o = i * 8;
+    interleaved[o] = mesh.positions[i * 3];
+    interleaved[o + 1] = mesh.positions[i * 3 + 1];
+    interleaved[o + 2] = mesh.positions[i * 3 + 2];
+    interleaved[o + 3] = mesh.normals[i * 3];
+    interleaved[o + 4] = mesh.normals[i * 3 + 1];
+    interleaved[o + 5] = mesh.normals[i * 3 + 2];
+    interleaved[o + 6] = mesh.uvs[i * 2];
+    interleaved[o + 7] = mesh.uvs[i * 2 + 1];
+  }
+  return { interleaved, indices: new Uint16Array(mesh.indices), vertexCount };
 }
 
-const indices = new Uint16Array(mesh.indices);
-const bin = new ArrayBuffer(interleaved.byteLength + indices.byteLength);
-new Uint8Array(bin).set(new Uint8Array(interleaved.buffer), 0);
-new Uint8Array(bin).set(new Uint8Array(indices.buffer), interleaved.byteLength);
+function packStride32(interleaved) {
+  const vertexCount = interleaved.length / 8;
+  const packed = new ArrayBuffer(vertexCount * 32);
+  const packView = new DataView(packed);
+  for (let i = 0; i < vertexCount; i++) {
+    const src = i * 8;
+    const dst = i * 32;
+    for (let j = 0; j < 8; j++) {
+      packView.setFloat32(dst + j * 4, interleaved[src + j], true);
+    }
+  }
+  return packed;
+}
+
+const housing = packInterleaved(housingMesh);
+const pick = packInterleaved(pickMesh);
+const housingPacked = packStride32(housing.interleaved);
+const pickPacked = packStride32(pick.interleaved);
+const housingPackedBytes = new Uint8Array(housingPacked);
+const pickPackedBytes = new Uint8Array(pickPacked);
+const housingIdxBytes = new Uint8Array(housing.indices.buffer);
+const pickIdxBytes = new Uint8Array(pick.indices.buffer);
+
+const housingVertBytes = housingPacked.byteLength;
+const pickVertBytes = pickPacked.byteLength;
+const housingIdxOffset = housingVertBytes + pickVertBytes;
+const pickIdxOffset = housingIdxOffset + housingIdxBytes.byteLength;
+
+const finalBin = new ArrayBuffer(pickIdxOffset + pickIdxBytes.byteLength);
+const outBytes = new Uint8Array(finalBin);
+outBytes.set(housingPackedBytes, 0);
+outBytes.set(pickPackedBytes, housingVertBytes);
+outBytes.set(housingIdxBytes, housingIdxOffset);
+outBytes.set(pickIdxBytes, pickIdxOffset);
 
 const posMin = [-6.5, -2.8, -6.5];
 const posMax = [6.5, 1.0, 6.5];
+const pickMin = [-0.5, -0.5, -0.5];
+const pickMax = [0.5, 0.5, 0.5];
+
+const annNodeStart = 2;
+const annNodes = HOUSING_ANNOTATIONS.map((a, i) => ({
+  name: `ann_${a.id}`,
+  mesh: 1,
+  translation: a.translation,
+  extras: { annotationId: a.id }
+}));
 
 const gltf = {
   asset: { version: '2.0', generator: 'power_gen generate-seg-housing-glb' },
   scene: 0,
   scenes: [{ nodes: [0] }],
-  nodes: [{
-    name: 'seg_housing_shell',
-    mesh: 0,
-    extras: {
-      power_gen: {
-        materialRingIndex: 11.0,
-        anchors: [
-          { name: 'assembly_origin', position: [0, 0, 0] },
-          { name: 'telemetry_mount', position: [0, 1.1, 5.2] },
-          { name: 'power_feed', position: [-5.2, 0.2, -5.2] }
-        ]
+  nodes: [
+    {
+      name: 'seg_housing_root',
+      children: [1, ...HOUSING_ANNOTATIONS.map((_, i) => annNodeStart + i)],
+      extras: {
+        power_gen: {
+          anchors: [
+            { name: 'assembly_origin', position: [0, 0, 0] },
+            { name: 'telemetry_mount', position: [0, 1.1, 5.2] },
+            { name: 'power_feed', position: [-5.2, 0.2, -5.2] }
+          ]
+        }
       }
+    },
+    {
+      name: 'housing_shell',
+      mesh: 0,
+      extras: { power_gen: { materialRingIndex: 11.0 } }
+    },
+    ...annNodes
+  ],
+  meshes: [
+    {
+      name: 'housing_shell',
+      primitives: [{
+        attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 },
+        indices: 3,
+        mode: 4
+      }]
+    },
+    {
+      name: 'annotation_pick_proxy',
+      primitives: [{
+        attributes: { POSITION: 4, NORMAL: 5, TEXCOORD_0: 6 },
+        indices: 7,
+        mode: 4
+      }]
     }
-  }],
-  meshes: [{
-    name: 'housing_shell',
-    primitives: [{
-      attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 },
-      indices: 3,
-      mode: 4
-    }]
-  }],
+  ],
   accessors: [
-    { bufferView: 0, componentType: 5126, count: vertexCount, type: 'VEC3', min: posMin, max: posMax },
-    { bufferView: 1, componentType: 5126, count: vertexCount, type: 'VEC3' },
-    { bufferView: 2, componentType: 5126, count: vertexCount, type: 'VEC2' },
-    { bufferView: 3, componentType: 5123, count: indices.length, type: 'SCALAR' }
+    { bufferView: 0, componentType: 5126, count: housing.vertexCount, type: 'VEC3', min: posMin, max: posMax },
+    { bufferView: 1, componentType: 5126, count: housing.vertexCount, type: 'VEC3' },
+    { bufferView: 2, componentType: 5126, count: housing.vertexCount, type: 'VEC2' },
+    { bufferView: 3, componentType: 5123, count: housing.indices.length, type: 'SCALAR' },
+    { bufferView: 4, componentType: 5126, count: pick.vertexCount, type: 'VEC3', min: pickMin, max: pickMax },
+    { bufferView: 5, componentType: 5126, count: pick.vertexCount, type: 'VEC3' },
+    { bufferView: 6, componentType: 5126, count: pick.vertexCount, type: 'VEC2' },
+    { bufferView: 7, componentType: 5123, count: pick.indices.length, type: 'SCALAR' }
   ],
   bufferViews: [
-    { buffer: 0, byteOffset: 0, byteLength: vertexCount * 12, byteStride: 32, target: 34962 },
-    { buffer: 0, byteOffset: 12, byteLength: vertexCount * 12, byteStride: 32, target: 34962 },
-    { buffer: 0, byteOffset: 24, byteLength: vertexCount * 8, byteStride: 32, target: 34962 },
-    { buffer: 0, byteOffset: interleaved.byteLength, byteLength: indices.byteLength, target: 34963 }
+    { buffer: 0, byteOffset: 0, byteLength: housing.vertexCount * 12, byteStride: 32, target: 34962 },
+    { buffer: 0, byteOffset: 12, byteLength: housing.vertexCount * 12, byteStride: 32, target: 34962 },
+    { buffer: 0, byteOffset: 24, byteLength: housing.vertexCount * 8, byteStride: 32, target: 34962 },
+    { buffer: 0, byteOffset: housingIdxOffset, byteLength: housingIdxBytes.byteLength, target: 34963 },
+    { buffer: 0, byteOffset: housingVertBytes, byteLength: pick.vertexCount * 12, byteStride: 32, target: 34962 },
+    { buffer: 0, byteOffset: housingVertBytes + 12, byteLength: pick.vertexCount * 12, byteStride: 32, target: 34962 },
+    { buffer: 0, byteOffset: housingVertBytes + 24, byteLength: pick.vertexCount * 8, byteStride: 32, target: 34962 },
+    { buffer: 0, byteOffset: pickIdxOffset, byteLength: pickIdxBytes.byteLength, target: 34963 }
   ],
-  buffers: [{ byteLength: bin.byteLength }]
+  buffers: [{ byteLength: finalBin.byteLength }]
 };
-
-// Pack interleaved as 32-byte stride views (POSITION@0, NORMAL@12, TEXCOORD@24)
-const packed = new ArrayBuffer(vertexCount * 32);
-const packView = new DataView(packed);
-for (let i = 0; i < vertexCount; i++) {
-  const src = i * 8;
-  const dst = i * 32;
-  for (let j = 0; j < 8; j++) {
-    packView.setFloat32(dst + j * 4, interleaved[src + j], true);
-  }
-}
-const finalBin = new ArrayBuffer(packed.byteLength + indices.byteLength);
-new Uint8Array(finalBin).set(new Uint8Array(packed), 0);
-new Uint8Array(finalBin).set(new Uint8Array(indices.buffer), packed.byteLength);
-gltf.buffers[0].byteLength = finalBin.byteLength;
 
 const jsonText = JSON.stringify(gltf);
 const jsonPad = (4 - (jsonText.length % 4)) % 4;
@@ -171,4 +236,7 @@ new Uint8Array(out, o, finalBin.byteLength).set(new Uint8Array(finalBin));
 
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, Buffer.from(out));
-console.log(`[generate-seg-housing-glb] wrote ${OUT} (${vertexCount} verts, ${indices.length} indices)`);
+console.log(
+  `[generate-seg-housing-glb] wrote ${OUT} ` +
+  `(${housing.vertexCount} housing verts, ${HOUSING_ANNOTATIONS.length} annotation nodes)`
+);
