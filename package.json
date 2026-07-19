@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build:site": "vite build",
+    "build_colab": "bash scripts/build-colab.sh",
     "build": "npm run wasm:build && npm run build:site",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
