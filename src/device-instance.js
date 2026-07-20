@@ -6,7 +6,7 @@ import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts.js';
 import { createDevicePhysicsState } from './renderers/shared/device-physics.ts';
 import { getHeronLayout } from './heron-layout.js';
 
-import { getDeviceModeIndex } from './devices/device-registry.js';
+import { getDeviceModeIndex, getPluginMeshLayouts } from './devices/device-registry.js';
 import { DeviceSetupMixin } from './devices/device-setup.js';
 import { DeviceRenderMixin } from './devices/device-render.js';
 import { DeviceUpdateMixin } from './devices/device-update.js';
