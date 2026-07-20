@@ -32,11 +32,10 @@ ${pipeParticleWgsl}
       let p = particles[instIdx];
       let worldPos = vec3f(p.posX, p.posY, p.posZ);
 
-      let quad = array<vec2f, 4>(
-        vec2f(-1.0, -1.0), vec2f(1.0, -1.0),
-        vec2f(-1.0,  1.0), vec2f( 1.0,  1.0)
+      let q = vec2f(
+        select(-1.0, 1.0, (vertIdx & 1u) == 1u),
+        select(-1.0, 1.0, vertIdx >= 2u)
       );
-      let q = quad[vertIdx];
       let vel = vec3f(p.velX, p.velY, p.velZ);
       let speed = length(vel);
       let velDir = normalize(vel + vec3f(1e-5, 0.0, 0.0));

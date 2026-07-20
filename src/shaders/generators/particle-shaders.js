@@ -21,12 +21,12 @@ ${particleStructsWgsl}
         @location(4) life: f32
       }
       
-      const quadVerts = array<vec2f, 4>(
-        vec2f(-1.0, -1.0),
-        vec2f( 1.0, -1.0),
-        vec2f(-1.0,  1.0),
-        vec2f( 1.0,  1.0)
-      );
+      fn quadVert(idx: u32) -> vec2f {
+        return vec2f(
+          select(-1.0, 1.0, (idx & 1u) == 1u),
+          select(-1.0, 1.0, idx >= 2u)
+        );
+      }
 
       fn modePathPos(mode: f32, phase: f32, t: f32) -> vec3f {
         if (mode < 0.5) {
@@ -108,7 +108,7 @@ ${particleStructsWgsl}
         let encodedPhase = particle.phase;
         let effectType = floor(encodedPhase);
         let phase = fract(encodedPhase);
-        let quadPos = quadVerts[vertIdx];
+        let quadPos = quadVert(vertIdx);
         
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
         let mode = device.ringIndex;

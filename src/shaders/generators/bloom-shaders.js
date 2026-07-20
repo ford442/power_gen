@@ -71,7 +71,7 @@ export function getBloomExtractShader() {
       fn main(input: FragInput) -> @location(0) vec4f {
         let ts = vec2f(params.texelSizeX, params.texelSizeY);
         var bloom = vec3f(0.0);
-        let weights = array<f32, 5>(0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+        var weights: array<f32, 5> = array<f32, 5>(0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
         for (var i = 0; i < 5; i++) {
           let o = ts * f32(i);
           bloom += extractBright(textureSample(sceneTex, bloomSampler, input.uv + vec2f(o.x, 0.0)).rgb, params.threshold, params.knee) * weights[i];
@@ -121,7 +121,7 @@ export function getBloomBlurShader() {
         let radius = max(params.radius, 0.25);
         let axis = direction * vec2f(params.texelSizeX, params.texelSizeY) * radius;
 
-        let weights = array<f32, 5>(0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+        var weights: array<f32, 5> = array<f32, 5>(0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
         var blur = textureSample(bloomInput, bloomSampler, input.uv).rgb * weights[0];
         for (var i = 1; i < 5; i++) {
           let o = axis * f32(i);

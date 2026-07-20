@@ -38,12 +38,13 @@ fn bloomExtractFrag(input: FragInput) -> @location(0) vec4f {
   let t  = bloomParams.threshold;
 
   // 3×3 Gaussian: centre 0.25, edges 0.125, corners 0.0625
-  let offsets = array<vec2f, 9>(
+  // var (not let) so loop indices are valid — const arrays reject dynamic indexing.
+  var offsets: array<vec2f, 9> = array<vec2f, 9>(
     vec2f(-tx, -ty), vec2f(0.0, -ty), vec2f(tx, -ty),
     vec2f(-tx,  0.0), vec2f(0.0, 0.0), vec2f(tx,  0.0),
     vec2f(-tx,  ty),  vec2f(0.0, ty),  vec2f(tx,  ty)
   );
-  let weights = array<f32, 9>(
+  var weights: array<f32, 9> = array<f32, 9>(
     0.0625, 0.125, 0.0625,
     0.125,  0.25,  0.125,
     0.0625, 0.125, 0.0625
