@@ -3,9 +3,31 @@
  *
  * Phase A: visual pipes stay driven by per-device energyLevel; when coupling is enabled,
  * outgoing pipe flow is clamped by estimated source watts (SEG uses TelemetryHub power).
+ * Phase B: when ?wasmPhysics=1 and coupling is on, budget allocation runs in sim_core.
  *
  * Pipes are **not** metrology — see ADR-0004 and docs/TELEMETRY.md.
  */
+
+import { ENERGY_NETWORK_NAMEPLATES } from '../../../generated/physics-constants';
+
+interface SegWasmEnergyBus {
+  enabled?: boolean;
+  setNetworkEdges?(edges: EnergyPipeEdge[]): void;
+  updateEnergyNetwork?(input: {
+    couplingEnabled: boolean;
+    segPowerW: number;
+    segEfficiencyPct: number;
+    energyByDevice: Record<string, number>;
+    enabledByDevice: Record<string, boolean>;
+  }): { labBudgetW: number; totalAllocatedW: number; residualW: number };
+  getNetworkEdgeAllocatedW?(edgeIndex: number): number;
+  getNetworkDevicePower?(deviceId: string): DevicePowerReading;
+}
+
+function getSegWasmBus(): SegWasmEnergyBus | null {
+  if (typeof window === 'undefined') return null;
+  return (window as Window & { segWasm?: SegWasmEnergyBus }).segWasm ?? null;
+}
 
 export interface EnergyPipeEdge {
   from: string;
@@ -42,16 +64,11 @@ export const PIPE_COLORS: Record<string, [number, number, number]> = {
 
 /** Simulated nameplate draw per device when telemetry watts are unavailable. */
 export const DEVICE_NOMINAL_WATTS: Record<string, number> = {
-  seg: 2000,
-  heron: 400,
-  kelvin: 150,
-  solar: 300,
-  peltier: 120,
-  mhd: 350,
-  maglev: 200,
-  homopolar: 250,
-  'halbach-viz': 80
+  ...ENERGY_NETWORK_NAMEPLATES.deviceNameplateWatts
 };
+
+/** True when non-SEG nameplates are order-of-magnitude estimates (not calibrated). */
+export const DEVICE_NAMEPLATE_SIMULATED = ENERGY_NETWORK_NAMEPLATES.simulatedOrderOfMagnitude;
 
 const COUPLING_STORAGE_KEY = 'seg-energy-coupling';
 
@@ -212,9 +229,22 @@ export class EnergyNetwork {
 
   private readonly _pipeFlows = new Map<string, number>();
   private readonly _devicePower = new Map<string, DevicePowerReading>();
+  private _wasmEdgesSynced = false;
 
   constructor(couplingEnabled?: boolean) {
     this.couplingEnabled = couplingEnabled ?? readEnergyCouplingPref();
+  }
+
+  private _useWasmBus(): boolean {
+    const bus = getSegWasmBus();
+    return this.couplingEnabled && !!bus?.enabled;
+  }
+
+  private _syncWasmEdges(): void {
+    const bus = getSegWasmBus();
+    if (!this._useWasmBus() || this._wasmEdgesSynced || !bus?.setNetworkEdges) return;
+    bus.setNetworkEdges(ENERGY_PIPE_EDGES);
+    this._wasmEdgesSynced = true;
   }
 
   setCouplingEnabled(enabled: boolean): void {
@@ -224,6 +254,90 @@ export class EnergyNetwork {
   }
 
   update(input: EnergyNetworkUpdateInput): EnergyNetworkSnapshot {
+    if (this._useWasmBus()) {
+      return this._updateWasm(input);
+    }
+    return this._updateJs(input);
+  }
+
+  private _updateWasm(input: EnergyNetworkUpdateInput): EnergyNetworkSnapshot {
+    const { devices, devicesEnabled, segPowerW, segEfficiencyPct = 0, deltaTime } = input;
+    const bus = getSegWasmBus();
+    if (!bus?.updateEnergyNetwork) return this._updateJs(input);
+
+    this._syncWasmEdges();
+
+    const energyByDevice: Record<string, number> = {};
+    for (const [id, dev] of Object.entries(devices)) {
+      if (!dev) continue;
+      energyByDevice[id] = deviceEnergyLevel(dev);
+    }
+
+    const summary = bus.updateEnergyNetwork({
+      couplingEnabled: true,
+      segPowerW,
+      segEfficiencyPct,
+      energyByDevice,
+      enabledByDevice: devicesEnabled
+    });
+
+    this.labBudgetW = summary.labBudgetW;
+    this.totalAllocatedW = summary.totalAllocatedW;
+    this.residualW = summary.residualW;
+
+    const powerOutByDevice = new Map<string, number>();
+    const energyByDeviceMap = new Map<string, number>();
+    for (const [id, dev] of Object.entries(devices)) {
+      if (!dev) continue;
+      energyByDeviceMap.set(id, deviceEnergyLevel(dev));
+      const wasmPower = bus.getNetworkDevicePower?.(id) ?? { powerInW: 0, powerOutW: 0, efficiency: 0 };
+      powerOutByDevice.set(id, wasmPower.powerOutW);
+    }
+
+    const requestedBySource = new Map<string, number>();
+    const allocatedByEdge = new Map<string, number>();
+
+    for (let i = 0; i < ENERGY_PIPE_EDGES.length; i++) {
+      const edge = ENERGY_PIPE_EDGES[i];
+      const key = pipeColorKey(edge.from, edge.to);
+      const enabled = isPipeEndpointEnabled(edge.from, edge.to, devicesEnabled);
+      const sourceEnergy = energyByDeviceMap.get(edge.from) ?? 0;
+      const visual = 0.12 + sourceEnergy * 0.88;
+      const requestedW = enabled ? visual * edge.maxWatts : 0;
+      requestedBySource.set(edge.from, (requestedBySource.get(edge.from) ?? 0) + requestedW);
+      allocatedByEdge.set(key, bus.getNetworkEdgeAllocatedW?.(i) ?? 0);
+    }
+
+    for (const edge of ENERGY_PIPE_EDGES) {
+      const key = pipeColorKey(edge.from, edge.to);
+      const enabled = isPipeEndpointEnabled(edge.from, edge.to, devicesEnabled);
+      const sourceEnergy = energyByDeviceMap.get(edge.from) ?? 0;
+      const sourcePower = powerOutByDevice.get(edge.from) ?? 0;
+      const totalRequested = requestedBySource.get(edge.from) ?? 0;
+      const budgetScale = totalRequested > 1e-6 ? Math.min(1, sourcePower / totalRequested) : 0;
+
+      const prev = this._pipeFlows.get(key) ?? 0;
+      const flow = computePipeFlowLevel({
+        sourceEnergy,
+        enabled,
+        currentFlow: prev,
+        deltaTime,
+        budgetScale
+      });
+      this._pipeFlows.set(key, flow);
+      if (!enabled && flow < 0.02) this._pipeFlows.set(key, 0);
+    }
+
+    this._devicePower.clear();
+    for (const [id, dev] of Object.entries(devices)) {
+      if (!dev) continue;
+      this._devicePower.set(id, bus.getNetworkDevicePower?.(id) ?? { powerInW: 0, powerOutW: 0, efficiency: 0 });
+    }
+
+    return this.getSnapshot();
+  }
+
+  private _updateJs(input: EnergyNetworkUpdateInput): EnergyNetworkSnapshot {
     const { devices, devicesEnabled, segPowerW, segEfficiencyPct = 0, deltaTime } = input;
 
     const powerOutByDevice = new Map<string, number>();
@@ -353,6 +467,7 @@ export function syncEnergyCouplingDisclaimer(couplingEnabled?: boolean): void {
     ? 'Energy pipes: coupled power budget (simulated — not calibrated metrology)'
     : 'Energy pipes: visual only — glow is not measured watts';
   el.dataset.mode = coupled ? 'coupled' : 'visual';
+  el.dataset.nameplateSimulated = DEVICE_NAMEPLATE_SIMULATED ? 'true' : 'false';
 }
 
 export function initEnergyCouplingDisclaimer(): void {

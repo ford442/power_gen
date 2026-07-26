@@ -1,6 +1,6 @@
 # ADR-0004: Multi-device energy network (visual → physical)
 
-- **Status:** Accepted — Phase A (power accounting) shipped; WASM coupling (Phase B) iterative
+- **Status:** Accepted — Phase A (power accounting) shipped; Phase B (WASM bus) shipped; Phase C iterative
 - **Date:** 2026-07 (updated 2026-07-18)
 
 ## Context
@@ -19,16 +19,24 @@ Overview mode places SEG, Heron, Kelvin, solar, Peltier, MHD (and plugins) in on
 | Phase | Scope | Status |
 |-------|--------|--------|
 | **A — Power accounting** | `EnergyNetwork` in `renderers/shared/energy-network.ts`; sum device power; clamp pipe flow by source budget when coupling enabled; TelemetryHub `powerInW` / `powerOutW` / `efficiency`; UI toggle (visual-only vs coupled) | **Done** |
-| **B — WASM coupling** | Optional bus state in `sim_core`; bridge `setNetworkEdges([...])` | Planned |
+| **B — WASM coupling** | Bus state in `sim_core`; bridge `setNetworkEdges([...])`, `getNetworkSummary()`; `EnergyNetwork` thin client when `?wasmPhysics=1` + coupling | **Done** |
 | **C — Conservation checks** | Dev overlay residual warning when ΣP ≠ 0 | Partial (debug panel shows residual W in coupled mode) |
 
 ### Phase A details
 
 - **Default:** visual-only pipes (glow ∝ `energyLevel`, not watts).
 - **Coupled mode:** `?energyCoupling=1` or debug-panel toggle / `localStorage seg-energy-coupling`.
-- SEG source power uses `segOperator` / TelemetryHub `snap.seg.power` (W). Other devices use `energyLevel ×` nameplate estimate until calibrated.
+- SEG source power uses `segOperator` / TelemetryHub `snap.seg.power` (W). Other devices use `energyLevel ×` nameplate estimate from `physics/constants.json` (`energyNetwork.deviceNameplateWatts`, `simulatedOrderOfMagnitude: true`) until calibrated.
 - Pipe graph: `ENERGY_PIPE_EDGES` — shared by WebGPU and WebGL2.
+- **WASM path:** when `?wasmPhysics=1` and coupling enabled, `sim_core` allocates edge watts; JS keeps pipe flow smoothing and telemetry publish.
 - **Not metrology** without calibration — overview disclaimer + `docs/TELEMETRY.md`.
+
+### Phase B details
+
+- C++ `EnergyNetworkEdgeSpec` / `updateEnergyNetwork()` mirrors JS budget clamp (source power / total requested).
+- Bridge: `segWasm.setNetworkEdges(edges)`, `updateEnergyNetwork({...})`, `getNetworkSummary()`.
+- Native smoke: `sim_core_test --mode energy-network` steps a 9-edge bus for ≥1 s without NaNs.
+- Residual: `labBudgetW - totalAllocatedW` (unallocated simulated source watts, not a conservation law).
 
 ## Consequences
 

@@ -78,5 +78,20 @@
     "ringRadiiScene": [3.5, 5.5, 7.5],
     "maxRollers": 66,
     "maxParticles": 50000
+  },
+  "energyNetwork": {
+    "comment": "Lab bus nameplate watts for EnergyNetwork / sim_core bus — simulated order-of-magnitude only, not metrology.",
+    "simulatedOrderOfMagnitude": true,
+    "deviceNameplateWatts": {
+      "seg": 2000,
+      "heron": 400,
+      "kelvin": 150,
+      "solar": 300,
+      "peltier": 120,
+      "mhd": 350,
+      "maglev": 200,
+      "homopolar": 250,
+      "halbach-viz": 80
+    }
   }
 }

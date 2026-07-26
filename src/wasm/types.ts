@@ -79,6 +79,27 @@ export interface SEGSimulatorInstance {
   getHomopolarCurrentA?(): number;
   getHomopolarFieldT?(): number;
   getEnergyLevel?(): number;
+  setNetworkEdges?(flatEdges: number[] | Float32Array): void;
+  getNetworkEdgeCount?(): number;
+  updateEnergyNetwork?(
+    couplingEnabled: boolean,
+    segPowerW: number,
+    segEfficiencyPct: number,
+    energyLevels: number[] | Float32Array,
+    enabledFlags: number[] | Int32Array
+  ): void;
+  getNetworkSummary?(): {
+    couplingEnabled: boolean;
+    labBudgetW: number;
+    totalAllocatedW: number;
+    residualW: number;
+  };
+  getNetworkEdgeAllocatedW?(edgeIndex: number): number;
+  getNetworkDevicePower?(mode: number): {
+    powerInW: number;
+    powerOutW: number;
+    efficiency: number;
+  };
   /** Byte offset into WASM heap (use with HEAPF32) */
   getParticleBufferPtr?(): number;
   getParticleFloatCount?(): number;
