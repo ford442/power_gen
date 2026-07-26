@@ -33,7 +33,7 @@ Scene renders to an HDR-ish offscreen target (`bloomSceneTexture`). Passes:
 
 1. **Extract** — luminance threshold with **corona boost** (green/cyan plasma weighted higher than bare metal specular)
 2. **Blur H / V** — 5-tap Gaussian
-3. **Composite** — scene + wide bloom + ACES tonemap + vignette + film grain
+3. **Composite** — scene + wide bloom + **filmic tonemap** + vignette + film grain
 
 Composite also applies:
 
@@ -43,6 +43,24 @@ Composite also applies:
 - **Chromatic aberration** — scales with energy level
 
 Mesh shaders output **linear HDR** (no per-object tonemap); tonemapping happens once in composite.
+
+### Filmic tonemap + exposure
+
+- Curve: ACES fitted (Narkowicz) with a soft shoulder (`filmicTonemap` in `generators/bloom-shaders.js`) to reduce hard clip on SEG metals / corona.
+- **Exposure** comes from the active lighting preset (`studio` / `lab` / `drama` → `post.exposure`) via `packPostUniforms()`, overridable by the debug **Exposure** slider (`postExposure`).
+- Applied **before** the filmic curve: `combined *= exposure`.
+
+### Quality gates
+
+| Gate | Rule |
+|------|------|
+| Feature negotiate | HDR bloom intermediates only when `rg11b10ufloat-renderable` (or equivalent) is present — else canvas format |
+| Auto-quality | When FPS drops, profiler reduces particle / mesh LOD first; post strength may follow in later epic work (ADR-0005) |
+| WebGL2 | No bloom chain — mild Reinhard + vignette in mesh shaders only (`docs/WEBGL2.md`) |
+| Offline | `npm run check:wgsl` must pass on extracted bloom generators |
+| Look presets | Changing `BloomParams` layout requires updating `packPostUniforms`, WGSL struct, and this doc together |
+
+See also **Post stack** notes in [`SHADERS.md`](./SHADERS.md).
 
 ## Uniform layouts
 

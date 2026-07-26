@@ -60,6 +60,9 @@ import {
   computeSEGLayout,
   SEG_LAYOUT_PRESETS
 } from '../../seg-layout.js';
+import { HardwareBridge, TWIN_MODES } from '../../hardware-bridge.js';
+import { initHardwarePanel } from '../../hardware-panel.js';
+import { buildHardwareTwinTelemetry } from '../../visualizer/hardware-twin.js';
 
 class WebGL2DeviceState {
   constructor(id, config, visualizer) {
@@ -166,6 +169,15 @@ export class WebGL2MultiDeviceVisualizer {
     this.energyPipeRenderer = null;
     this.energyNetwork = new EnergyNetwork();
 
+    // Thin hardware twin (CPU-only) so ?mockHardware=1 works on WebGL2 CI path
+    this.hardwareBridge = new HardwareBridge({
+      onError: (e) => console.error('[HardwareBridge]', e)
+    });
+    this.hardwareTargetPhase = 0;
+    this.hardwareTargetSpeed = 0;
+    this.hardwareShadow = { phaseError: 0, rpmError: 0 };
+    this.hardwareTwinTelemetry = null;
+
     exposeRenderer(this.canvas, RENDERER_WEBGL2);
     this._exposeScreenshotHooks();
 
@@ -256,9 +268,11 @@ export class WebGL2MultiDeviceVisualizer {
           'RK4 flux line tracer',
           'energy arc meshes',
           'SEG enhanced PBR / UV materials',
+          'glTF CAD housing / coil former',
           'Roschin–Godin magnetic wall shells',
           'WebGPU timestamp queries'
-        ]
+        ],
+        hardwareTwin: snap?.hardwareTwin ?? null
       };
     };
   }
@@ -290,6 +304,19 @@ export class WebGL2MultiDeviceVisualizer {
       } catch (e) {
         console.warn('[webgl2] SEG annotations init failed:', e);
       }
+
+      try {
+        initHardwarePanel(this);
+      } catch (e) {
+        console.warn('[webgl2] Hardware panel init failed:', e);
+      }
+      try {
+        if (new URLSearchParams(location.search).get('mockHardware') === '1') {
+          await this.hardwareBridge.connectMock();
+          // Default shadow mode so residual fields are meaningful for CI/e2e
+          this.hardwareBridge.setTwinMode(TWIN_MODES.SHADOW);
+        }
+      } catch (_) { /* ignore */ }
 
       this.render(0);
       window.addEventListener('resize', () => this.ctx.resize());
@@ -345,8 +372,54 @@ export class WebGL2MultiDeviceVisualizer {
       dt: 0,
       view: this.currentView,
       renderer: 'webgl2',
-      devicePhysics: TelemetryHub.collectDevicePhysics(this.devices)
+      devicePhysics: TelemetryHub.collectDevicePhysics(this.devices),
+      hardwareTwin: this.hardwareTwinTelemetry ?? null
     });
+  }
+
+  /**
+   * Thin twin sync (shared semantics with WebGPU hardware-twin.js).
+   * @param {number} deltaTime
+   */
+  _updateHardwareTwin(deltaTime) {
+    const hw = this.hardwareBridge;
+    if (!hw?.isConnected) {
+      this.hardwareTwinTelemetry = null;
+      this.hardwareShadow = { phaseError: 0, rpmError: 0 };
+      return;
+    }
+
+    const tel = segOperator.computeTelemetry(0);
+    const simRpm = tel.rpmDisplay || 0;
+    if (!hw.manualMode && hw.controlMode === 0) {
+      this.hardwareTargetPhase += simRpm * 6.0 * Math.max(0, deltaTime);
+      this.hardwareTargetSpeed = simRpm;
+    }
+    const simPhase = ((this.hardwareTargetPhase % 360) + 360) % 360;
+
+    if (hw.twinMode === TWIN_MODES.OPEN || hw.twinMode === TWIN_MODES.SHADOW
+        || hw.twinMode === TWIN_MODES.CLOSED) {
+      const runMode = segOperator.isRunning ? 0 : 2;
+      if (!hw.manualMode) {
+        hw.setTarget(simPhase, segOperator.isRunning ? simRpm : 0, runMode);
+      }
+    }
+
+    hw.update({ simPhase, simRpm });
+
+    if (hw.twinMode === TWIN_MODES.CLOSED && !hw.isSensorStale) {
+      const wNorm = Math.min(1, Math.abs(hw.actualRpm) / 3000);
+      this.segOmega = wNorm;
+      this.corona = Math.max(0, Math.min(1, (wNorm - 0.6) / 0.4));
+      segOperator.physics.segOmega = wNorm;
+      segOperator.physics.corona = this.corona;
+    }
+
+    this.hardwareShadow = {
+      phaseError: hw.shadow.phaseErrorDeg,
+      rpmError: hw.shadow.rpmError
+    };
+    this.hardwareTwinTelemetry = buildHardwareTwinTelemetry(hw);
   }
 
   getSEGLayoutPreset() {
@@ -630,6 +703,8 @@ export class WebGL2MultiDeviceVisualizer {
 
     const totalParticles = this._stepSimulation(deltaTime, speed);
 
+    this._updateHardwareTwin(deltaTime);
+
     const speedValEl = document.getElementById('speedVal');
     if (speedValEl) speedValEl.textContent = speed.toFixed(2) + '×';
 
@@ -664,7 +739,8 @@ export class WebGL2MultiDeviceVisualizer {
         totalAllocatedW: netSnap.totalAllocatedW,
         residualW: netSnap.residualW,
         devices: netSnap.devices
-      }
+      },
+      hardwareTwin: this.hardwareTwinTelemetry ?? null
     });
 
     const gl = this.ctx.gl;

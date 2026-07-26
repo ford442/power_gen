@@ -1,17 +1,21 @@
 # glTF / GLB hybrid assets
 
 The visualizer mixes **layout-driven procedural geometry** (rollers, rings, flux lines)
-with **loaded glTF 2.0 meshes** (housing, lab shells, future Quanta product CAD).
+with **loaded glTF 2.0 meshes** (housing, coil former, future Quanta product CAD).
+
+Formal scene graph: `src/assets/scene/scene-node.js` (`SceneNode`) — ADR-0005.
+glTF trees are built via `buildGltfScene()` → `GltfSceneNode extends SceneNode`.
 
 ## When glTF is used
 
-| Path | Housing glTF |
-|------|----------------|
+| Path | Housing / coil former glTF |
+|------|----------------------------|
 | WebGPU (`MultiDeviceVisualizer`) | Yes — default on in **SEG focus** |
 | WebGL2 fallback (`?renderer=webgl2`) | No — procedural `seg-frame-model` only |
 
-Disable housing: `?gltfHousing=0`  
-Force on: `?gltfHousing=1`
+Disable all CAD props: `?gltfHousing=0`  
+Disable coil former only: `?gltfCoilFormer=0`  
+Force housing on: `?gltfHousing=1`
 
 ## Asset layout
 
@@ -19,13 +23,17 @@ Force on: `?gltfHousing=1`
 src/public/assets/
   seg/
     housing-shell.glb   # generated showroom shell
+    coil-former.glb     # generated coil bobbin / former (second CAD prop)
     LICENSE.md
 ```
 
-Regenerate the placeholder housing:
+Regenerate placeholders:
 
 ```bash
 npm run generate:housing-glb
+npm run generate:coil-former-glb
+# or both:
+npm run generate:seg-gltf
 ```
 
 ## Authoring workflow (Blender → glTF)
@@ -35,16 +43,16 @@ npm run generate:housing-glb
    - Triangulated meshes
    - Applied transforms
    - `POSITION`, `NORMAL`, `TEXCOORD_0` (optional UVs)
-3. Add custom root-node extras for anchors, material hints, and tour annotations:
+3. Add custom root-node extras for anchors, material hints, role, and tour annotations:
 
 ```json
 {
   "extras": {
     "power_gen": {
-      "materialRingIndex": 11.0,
+      "role": "coil_former",
+      "materialRingIndex": 12.0,
       "anchors": [
-        { "name": "assembly_origin", "position": [0, 0, 0] },
-        { "name": "telemetry_mount", "position": [0, 1.1, 5.2] }
+        { "name": "coil_axis", "position": [0, 0, 0] }
       ]
     }
   }
@@ -68,13 +76,15 @@ npm run generate:housing-glb
 |-------|----------|---------|
 | `extras.annotationId` | yes (on callout nodes) | Tour / explainer highlight id — must match `seg-tour.json` `highlights` and `seg-annotations.js` ids (`shaft`, `inner-ring`, `stator`, `separator`, `outer-ring`, `coil`, …) |
 | `extras.power_gen.materialRingIndex` | no | PBR ring index for structural meshes (default `11.0`) |
+| `extras.power_gen.role` | no | `housing` \| `coil_former` \| … — used for emissive / draw tagging |
 | `extras.power_gen.anchors` | no | Named telemetry / rigging points (not tour ids) |
 
 Use a small invisible **pick-proxy** mesh (see `annotation_pick_proxy` in `housing-shell.glb`) on annotation nodes. Proxies are ray-pick targets only — not drawn at runtime.
 
-4. Drop the file under `src/public/assets/seg/` (or add a new registry entry).
+4. Drop the file under `src/public/assets/seg/` and register it in `SEG_GLTF_PROPS` (`parse-gltf-housing.js`).
 5. `materialRingIndex` maps to the seg-enhanced PBR table (`ringIndex` in the instance buffer):
    - `11.0` — structural aluminum (default housing)
+   - `12.0` — coil former / phenolic-ish
    - `13.0` — dark lab base
    - See `sharedMaterialId()` in `seg-enhanced-shaders.js`
 
@@ -88,7 +98,7 @@ physics/constants.json     seg-layout.js PRESET_DEFS
         │                          │
         └──────────┬─────────────────┘
                    ▼
-         assets/gltf/gltf-loader.js  →  scene graph  →  WebGPU buffers
+         assets/gltf/gltf-loader.js  →  SceneNode graph  →  WebGPU buffers
                    │
                    ▼
     seg-enhanced PBR pipeline (same as enhanced SEG meshes)
@@ -96,16 +106,17 @@ physics/constants.json     seg-layout.js PRESET_DEFS
 
 - **Loader:** `src/assets/gltf/gltf-loader.js` — hand-rolled GLB v2 (no `@loaders.gl` dependency;
   keeps Pages bundle small and matches ADR-0003 no-Three.js stance).
-- **Scene graph:** `gltf-scene.js` — hierarchy, visibility, anchor baking from `extras.power_gen`, `extras.annotationId` collection.
+- **Scene graph:** `scene-node.js` + `gltf-scene.js` — hierarchy, visibility, anchor baking from `extras.power_gen`, `extras.annotationId` collection.
+- **Prop registry:** `SEG_GLTF_PROPS` — housing + coil former (extensible).
 - **Picking:** `gltf-pick.js` + `gltf-housing-pick.js` — CPU ray/triangle pick on annotated housing proxies (WebGPU).
 - **GPU upload:** `gltf-gpu.js` — 8-float vertices (pos+normal+uv), 48-byte instances.
-- **Setup:** `visualizer/setup-gltf.js` — loads housing after procedural core meshes.
+- **Setup:** `visualizer/setup-gltf.js` — loads enabled props after procedural core meshes.
 - **Draw:** `DeviceRenderMixin.renderGltfHousing` — SEG focus only; procedural rollers unchanged.
 
 ## Sim-driven material overrides
 
-Housing emissive trim follows `segOmega` (RPM proxy) via the instance `greenEmissive` channel,
-updated each frame in `updateGltfHousingState()`.
+Housing / former emissive trim follows `segOmega` (RPM proxy) via the instance `greenEmissive` channel,
+updated each frame in `updateGltfHousingState()` (coil former scaled slightly lower).
 
 ## Collision / annotation anchors
 
@@ -122,7 +133,8 @@ procedural label positions in `seg-annotations.js` when `?gltfHousing=1`.
 
 ## Bundle size notes
 
-- Placeholder `housing-shell.glb` is a few KB (procedural boxes).
+- Placeholder `housing-shell.glb` / `coil-former.glb` are a few KB (procedural primitives).
+- Soft budget: keep committed placeholders under **~50 KB each** (see PR template).
 - Prefer **Draco-free** glTF for the minimal loader; add meshopt/Draco only after evaluating
   decode cost on GitHub Pages.
 - Large CAD assets should be lazy-loaded per device focus, not in the main chunk.

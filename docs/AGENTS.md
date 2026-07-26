@@ -168,7 +168,8 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `heronLayout` | preset id | stored / default | Heron vessel layout |
 | `prototype` | `lab` \| `showroom` \| `searl` \| `roschin` \| `godin` | showroom-ish | SEG roller prototype look / lab effects |
 | `frame` | `full` \| `minimal` \| `off` | `full` | SEG structural frame complexity |
-| `gltfHousing` | `1` \| `0` | `1` (WebGPU) | Load glTF housing shell in SEG focus — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
+| `gltfHousing` | `1` \| `0` | `1` (WebGPU) | Load glTF CAD props (housing + coil former) in SEG focus — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
+| `gltfCoilFormer` | `1` \| `0` | follows housing | Coil former GLB; `0` skips second CAD prop |
 | `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | Lighting + post look |
 | `mockHardware` | `1` | off | Hardware twin mock transport (no serial port) |
 | `energyCoupling` | `1` \| `0` | off (visual-only pipes) | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`) |
@@ -205,6 +206,8 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 | `src/sim-rate-controller.js` | Speed mult / substeps; couples to quality under load |
 | `src/telemetry-hub.js` | Single telemetry write path for gauges / operator |
 | `src/seg-layout.js` | Layout presets (Searl / Roschin / legacy) — data-driven roller counts |
+| `src/assets/scene/scene-node.js` | Formal scene graph node (ADR-0005) |
+| `src/assets/scene/scene-node.js` | Formal scene graph node (ADR-0005) |
 | `src/assets/gltf/*` | Hand-rolled glTF loader + scene graph — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
 | `src/integration.ts` | Typed physics uniforms + scientific overlay hooks |
 | `src/wasm/seg-physics-bridge.js` | Optional WASM step + zero-copy views |
@@ -281,16 +284,28 @@ Manual / agent checks (WebGPU needs a real GPU):
 | Doc | Topic |
 |-----|--------|
 | [`adr/`](./adr/) | Architecture decision records |
-| [`SHADERS.md`](./SHADERS.md) | WGSL includes, particle layout, naga |
+| [`SHADERS.md`](./SHADERS.md) | WGSL includes, particle layout, naga, post stack |
 | [`BINDINGS.md`](./BINDINGS.md) | Bind group contracts |
 | [`WEBGPU.md`](./WEBGPU.md) | Adapter/device/context |
 | [`WEBGL2.md`](./WEBGL2.md) | Fallback parity gaps |
 | [`TELEMETRY.md`](./TELEMETRY.md) | TelemetryHub |
+| [`LIGHTING_RIG.md`](./LIGHTING_RIG.md) | Lighting looks + post quality gates |
+| [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) | SceneNode + glTF CAD props |
 | [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) | Devices & plugins |
 | [`SEG_EXPLAINER.md`](./SEG_EXPLAINER.md) | Guided learning / `#lab=` |
 | [`hardware_connection.md`](./hardware_connection.md) | Twin protocol |
 | [`../cpp/README.md`](../cpp/README.md) | WASM core |
 | [`../claude.md`](../claude.md) | Short agent checklist (keep in sync with this file) |
+
+---
+
+## Future / north star
+
+Long-range product shape (**Showroom / Lab / Twin**) is tracked in
+[**ADR-0005**](./adr/0005-showroom-lab-twin-epic.md): formal `SceneNode` + glTF CAD,
+cinematic WebGPU post, optional hardware twin, multi-device performance headroom.
+Do **foundation** issues first (WASM, TS, energy network, shader CI); treat ADR-0005
+as the graphics/content epic once the plant stays maintainable.
 
 ---
 

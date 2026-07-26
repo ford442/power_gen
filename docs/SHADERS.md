@@ -191,9 +191,32 @@ Some top-level files (`compute.wgsl`, `particles.wgsl`, `lightning.wgsl`) are
 particle path. Prefer `passes/particle-compute.wgsl` and generators. Flux lines
 live in `flux-lines.wgsl` and `generators/field-line-shaders.js`.
 
+## Post stack (WebGPU bloom / filmic)
+
+Runtime source: `src/shaders/generators/bloom-shaders.js` (wired via
+`multi-device-shaders.js` → `pipeline-layout-cache`).
+
+| Pass | Entry | Notes |
+|------|-------|-------|
+| Extract | `getBloomExtractShader` | Corona-weighted threshold + knee |
+| Blur | `getBloomBlurShader` | Separable 5-tap; radius from preset |
+| Composite | `getBloomCompositeShader` | AO, contact shadow, bloom add, **exposure**, **filmic tonemap**, grain, vignette |
+
+**Quality gates**
+
+1. Prefer negotiated HDR intermediate formats when the adapter supports them
+   (`WebGPUManager.bloomIntermediateFormat`).
+2. Uniform layout (`BloomParams`, 16 floats) must stay in lockstep with
+   `packPostUniforms()` in `seg-lighting-presets.js`.
+3. Run `npm run check:wgsl` after editing bloom generators.
+4. WebGL2 does **not** run this stack — document gaps in `WEBGL2.md`.
+
+Full look/preset docs: [`LIGHTING_RIG.md`](./LIGHTING_RIG.md). Epic: ADR-0005.
+
 ## Related docs
 
 - `docs/BINDINGS.md` — bind group numbers
 - `docs/WEBGPU.md` — adapter / device notes
 - `docs/WEBGL2.md` — intentional WebGL2 gaps
+- `docs/LIGHTING_RIG.md` — lighting looks + post quality gates
 - `cpp/README.md` — WASM particle export (`SimParticle`)

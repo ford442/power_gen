@@ -330,7 +330,8 @@ export const renderLoopMethods = {
             residualW: netSnap.residualW,
             devices: netSnap.devices
           }
-        : null
+        : null,
+      hardwareTwin: this.hardwareTwinTelemetry ?? null
     });
     if (this.integration) {
       this.integration.syncFromVisualizer(scientific);

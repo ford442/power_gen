@@ -21,6 +21,7 @@ import type { DevicePhysicsState } from './renderers/shared/device-physics.ts';
 import type {
   DeviceTelemetrySnap,
   PublishFrameEnergyNetwork,
+  PublishFrameHardwareTwin,
   PublishFrameScientific,
   ScientificTelemetry,
   SegOperatorTelemetry,
@@ -31,7 +32,10 @@ import type {
 
 export type {
   DeviceTelemetrySnap,
+  HardwareShadowResidual,
+  HardwareTwinTelemetry,
   PublishFrameEnergyNetwork,
+  PublishFrameHardwareTwin,
   PublishFrameScientific,
   ScientificTelemetry,
   SegOperatorTelemetry,
@@ -74,6 +78,7 @@ export interface PublishFrameOpts {
   scientific?: PublishFrameScientific;
   segTelemetry?: SegOperatorTelemetry;
   energyNetwork?: PublishFrameEnergyNetwork | null;
+  hardwareTwin?: PublishFrameHardwareTwin | null;
 }
 
 export interface DevicePhysicsSource {
@@ -199,6 +204,7 @@ export class TelemetryHub {
         outerRingTorque: 0
       },
       energyNetwork: null,
+      hardwareTwin: null,
       meta: TELEMETRY_META
     };
   }
@@ -273,6 +279,9 @@ export class TelemetryHub {
             residualW: netIn.residualW
           }
         : this._snapshot.energyNetwork,
+      hardwareTwin: opts.hardwareTwin !== undefined
+        ? opts.hardwareTwin
+        : this._snapshot.hardwareTwin,
       meta: TELEMETRY_META
     };
 

@@ -95,6 +95,7 @@ export class MultiDeviceVisualizer {
     this.hardwareTargetPhase = 0;
     this.hardwareTargetSpeed = 0;
     this.hardwareShadow = { phaseError: 0, rpmError: 0 };
+    this.hardwareTwinTelemetry = null;
 
     /** @type {import('./integration.ts').SEGIntegrationManager | null} */
     this.integration = null;
@@ -263,10 +264,12 @@ export class MultiDeviceVisualizer {
       } catch (e) {
         console.warn('[MultiDeviceVisualizer] Hardware panel init failed:', e);
       }
-      // Auto mock when ?mockHardware=1
+    // Also default WebGPU mock path to shadow when auto-connecting
       try {
         if (new URLSearchParams(location.search).get('mockHardware') === '1') {
-          this.hardwareBridge.connectMock();
+          this.hardwareBridge.connectMock().then(() => {
+            this.hardwareBridge.setTwinMode(TWIN_MODES.SHADOW);
+          });
         }
       } catch (_) { /* ignore */ }
 

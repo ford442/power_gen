@@ -33,7 +33,16 @@ telemetryHub.publishFrame({
   view: 'seg' | 'heron' | 'overview' | …,
   renderer: 'webgpu' | 'webgl2',
   devicePhysics: TelemetryHub.collectDevicePhysics(this.devices),
-  scientific: { particleFlux, maxFieldMagnitude, avgEnergyDensity, … }
+  scientific: { particleFlux, maxFieldMagnitude, avgEnergyDensity, … },
+  // optional:
+  energyNetwork: { couplingEnabled, labBudgetW, totalAllocatedW, residualW },
+  hardwareTwin: {
+    connected: true,
+    mock: true,
+    twinMode: 'shadow',
+    sensorRpm, sensorPhase,
+    shadowResidual: { phaseErrorDeg, rpmError }
+  }
 });
 
 // UI:

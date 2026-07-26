@@ -3,6 +3,26 @@ import { segOperator } from '../seg-operator-state.js';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub.ts';
 import { TWIN_MODES } from '../hardware-bridge.js';
 
+/**
+ * Build hub-facing hardware twin snapshot (includes shadowResidual).
+ * @param {import('../hardware-bridge.js').HardwareBridge|null|undefined} hw
+ * @returns {import('../telemetry/types.ts').HardwareTwinTelemetry|null}
+ */
+export function buildHardwareTwinTelemetry(hw) {
+  if (!hw?.isConnected) return null;
+  return {
+    connected: true,
+    mock: !!hw.isMock,
+    twinMode: hw.twinMode,
+    sensorRpm: hw.actualRpm,
+    sensorPhase: hw.actualPhase,
+    shadowResidual: {
+      phaseErrorDeg: hw.shadow.phaseErrorDeg,
+      rpmError: hw.shadow.rpmError
+    }
+  };
+}
+
 export const hardwareTwinMethods = {
   _updateTachometer() {
     const el = document.getElementById('tachometer');
@@ -24,7 +44,11 @@ export const hardwareTwinMethods = {
 
   _updateHardwareTwin(deltaTime) {
     const hw = this.hardwareBridge;
-    if (!hw?.isConnected) return;
+    if (!hw?.isConnected) {
+      this.hardwareTwinTelemetry = null;
+      this.hardwareShadow = { phaseError: 0, rpmError: 0 };
+      return;
+    }
 
     // Simulated electrical phase / RPM from operator plant
     const tel = segOperator.computeTelemetry(0);
@@ -61,6 +85,7 @@ export const hardwareTwinMethods = {
       phaseError: hw.shadow.phaseErrorDeg,
       rpmError: hw.shadow.rpmError
     };
+    this.hardwareTwinTelemetry = buildHardwareTwinTelemetry(hw);
   },
 
   _updateDeviceTelemetry() {
@@ -68,7 +93,8 @@ export const hardwareTwinMethods = {
       dt: 0,
       view: this.currentView || 'overview',
       renderer: 'webgpu',
-      devicePhysics: TelemetryHub.collectDevicePhysics(this.devices)
+      devicePhysics: TelemetryHub.collectDevicePhysics(this.devices),
+      hardwareTwin: this.hardwareTwinTelemetry ?? null
     });
     if (this.currentView === 'heron' && typeof window.syncHeronLayoutUI === 'function') {
       window.syncHeronLayoutUI();
