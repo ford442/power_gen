@@ -10,7 +10,7 @@
  */
 
 import './devices/register-plugins.js';
-import { assertParticleLayouts } from './generated/physics-constants.js';
+import { assertParticleLayouts } from '../generated/physics-constants.js';
 import { SEGSim } from './wasm/sim';
 import { MultiDeviceVisualizer } from './multi-device-visualizer.js';
 import {
