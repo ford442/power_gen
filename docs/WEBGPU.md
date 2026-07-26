@@ -37,13 +37,13 @@ Bloom still samples depth via `createView({ aspect: 'depth-only' })`.
 
 Negotiated in `WebGPUManager.negotiateFeatures()` when the adapter supports them:
 
-| Feature | When enabled | Notes |
-|---------|----------------|-------|
-| `timestamp-query` | **Only** if URL has `?gpuTiming=1` | Default **off**. Writing timestamps into the main render encoder blanks the canvas on some D3D12/ANGLE stacks (60 FPS, no validation errors). Even when requested, profiler keeps `timingEnabled = false` until the debug panel toggle. |
-| `float32-filterable` | Always if present | Future float filterable textures |
-| `texture-compression-bc` | Always if present | Reserved for compressed textures |
-| `rg11b10ufloat-renderable` | Always if present | HDR intermediates if used later |
-| `bgra8unorm-storage` | Always if present | Storage + canvas format interop |
+| Feature | Status | When enabled | Notes |
+|---------|--------|----------------|-------|
+| `timestamp-query` | **used** | URL has `?gpuTiming=1` | Default **off**. Writing timestamps into the main render encoder blanks the canvas on some D3D12/ANGLE stacks. Profiler keeps `timingEnabled = false` until the debug panel toggle. |
+| `float32-filterable` | **reserved** | Always if present | Not consumed yet — bloom/post sample `texture_2d<f32>` on 8-bit canvas formats. Keep for future `rgba32float` / filterable float targets. |
+| `rg11b10ufloat-renderable` | **used** | Always if present | Bloom extract/blur intermediates (`bloomTempTexture`, `bloomBlurTexture`) via `WebGPUManager.bloomIntermediateFormat()`. Scene + prev-scene stay on the canvas format. |
+
+`texture-compression-bc` and `bgra8unorm-storage` are **not** negotiated until a pipeline needs them (reduces dead feature cost).
 
 Missing features are skipped and logged; init does not fail.
 

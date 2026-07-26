@@ -134,6 +134,8 @@ export const sceneSetupMethods = {
   setupBloomTextures() {
     const { width: w, height: h } = WebGPUManager.canvasPixelSize(this.canvas);
     const fmt = navigator.gpu.getPreferredCanvasFormat();
+    const bloomFmt = WebGPUManager.bloomIntermediateFormat(this.device, fmt);
+    this.bloomIntermediateFormat = bloomFmt;
 
     if (this.bloomSceneTexture) this.bloomSceneTexture.destroy();
     if (this.bloomBlurTexture)  this.bloomBlurTexture.destroy();
@@ -145,11 +147,11 @@ export const sceneSetupMethods = {
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC
     });
     this.bloomBlurTexture = this.device.createTexture({
-      size: [w, h], format: fmt,
+      size: [w, h], format: bloomFmt,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
     });
     this.bloomTempTexture = this.device.createTexture({
-      size: [w, h], format: fmt,
+      size: [w, h], format: bloomFmt,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
     });
     this.prevSceneTexture = this.device.createTexture({

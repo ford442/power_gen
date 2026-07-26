@@ -157,7 +157,7 @@ pass in Chrome but fail naga:
 | Dynamic index of a `let`/`const` value array: `array<f32,3>(a,b,c)[i]` | OK | Error | Use `if` / `select` / storage buffer |
 | Reserved identifiers (`active`, etc.) | Sometimes OK | Error | Rename (e.g. `is_active`) |
 | Incomplete include fragments (no entry) | n/a | Skip | Only check modules with `@vertex`/`@fragment`/`@compute` |
-| Multi-file LED/solar concat | Runtime join | Needs full expand | `led-solar.js` joins; compute/render still allowlisted until cleaned |
+| Multi-file LED/solar | `#include` in compute/render | Full expand via `wgsl-include` | `led-solar-compute.wgsl` / `led-solar-render.wgsl` include constants/structs/physics |
 
 When you hit a naga-only failure that Chrome accepts:
 

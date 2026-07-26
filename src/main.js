@@ -10,6 +10,7 @@
  */
 
 import './devices/register-plugins.js';
+import { assertParticleLayouts } from './generated/physics-constants.js';
 import { SEGSim } from './wasm/sim';
 import { MultiDeviceVisualizer } from './multi-device-visualizer.js';
 import {
@@ -35,6 +36,9 @@ import {
   HERON_LAYOUT_DESCRIPTIONS,
   getHeronLayout
 } from './heron-layout.js';
+
+// Guard 16 B GpuParticle vs 32 B SimParticle stride contract at bootstrap.
+assertParticleLayouts();
 
 // ─────────────────────────────────────────────────────────────
 // Mode / layout window API (used by index.html controls)

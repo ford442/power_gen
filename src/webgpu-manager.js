@@ -21,11 +21,14 @@ export const CANVAS_ALPHA_MODE = 'opaque';
  */
 export const OPTIONAL_DEVICE_FEATURES = [
   'float32-filterable',
-  // Future BC compressed textures; harmless if unused.
-  'texture-compression-bc',
   'rg11b10ufloat-renderable',
-  'bgra8unorm-storage'
 ];
+
+/** Device feature required for HDR bloom blur/extract intermediates. */
+export const BLOOM_HDR_FEATURE = 'rg11b10ufloat-renderable';
+
+/** GPUTextureFormat used for bloom extract/blur when {@link BLOOM_HDR_FEATURE} is enabled. */
+export const BLOOM_HDR_FORMAT = 'rg11b10ufloat';
 
 /**
  * Soft preferred limits: only requested when the adapter can satisfy them.
@@ -137,6 +140,20 @@ export class WebGPUManager {
       }
     }
     return out;
+  }
+
+  /**
+   * Bloom extract/blur intermediate texture format.
+   * Uses {@link BLOOM_HDR_FORMAT} when the device has {@link BLOOM_HDR_FEATURE}.
+   * @param {GPUDevice} device
+   * @param {GPUTextureFormat} canvasFormat
+   * @returns {GPUTextureFormat}
+   */
+  static bloomIntermediateFormat(device, canvasFormat) {
+    if (device?.features?.has(BLOOM_HDR_FEATURE)) {
+      return BLOOM_HDR_FORMAT;
+    }
+    return canvasFormat;
   }
 
   /** Snapshot adapter info for logging / profiler (single request path). */

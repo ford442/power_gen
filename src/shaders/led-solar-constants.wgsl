@@ -47,7 +47,6 @@ const LN2: f32 = 0.69314718055994530942;  // ln(2) from Wolfram: NaturalLog[2]
 // Aliases used by led-solar-physics.wgsl
 const ELECTRON_CHARGE: f32 = E_CHARGE;
 const BOLTZMANN: f32 = K_B;
-const N_SILICON: f32 = N_SILICON_LED;
 
 // Planck constant in eV⋅s (converted via h/e)
 const PLANCK_EV: f32 = 4.135667696e-15;
@@ -65,7 +64,7 @@ const PLANCK_EV: f32 = 4.135667696e-15;
 
 // Silicon at 600 nm: n ≈ 3.9-4.0 (wavelength dependent)
 // Wolfram: https://www.wolframalpha.com/input?i=refractive+index+of+silicon
-// N_SILICON alias → N_SILICON_LED from generated/constants.wgsl
+// N_SILICON_LED from generated/constants.wgsl (slightly higher n for LED coupling)
 
 // Silica glass (SiO₂): n ≈ 1.46
 // Wolfram: https://www.wolframalpha.com/input?i=refractive+index+of+silica
