@@ -10,6 +10,7 @@
  */
 
 import { packInstance } from '../../device-mesh-layouts.js';
+import { writeMeshCylinders } from '../update-helpers.js';
 import { ValidatedConstants } from '../../ValidatedConstants';
 
 const BR = ValidatedConstants.MAGNET_BR?.value ?? 1.48;
@@ -151,11 +152,38 @@ export const HOMOPOLAR_REFERENCES = [
   }
 ];
 
+function homopolarUpdateMesh(instance) {
+  const angle = instance.physicsState?.homopolarAngle ?? 0;
+  writeMeshCylinders(instance, buildHomopolarMesh(angle));
+}
+
+function homopolarComputeRawEnergy(instance, ctx) {
+  const spinN = (instance.physicsState?.homopolarRpm ?? 0) / 3600;
+  return Math.min(1.0, spinN * 0.75 + ctx.speedNorm * 0.25);
+}
+
+function homopolarUpdateEffects(instance, ctx) {
+  const { budget, energy, gate, pushParticle, time } = ctx;
+  const currentGate = Math.pow(gate(energy, 0.18, 0.8), 1.25);
+  const arcCount = Math.floor(budget * 0.38 * currentGate);
+  const rim = 0.45;
+  for (let i = 0; i < arcCount; i++) {
+    const frac = i / Math.max(1, arcCount);
+    const x = frac * rim;
+    const y = 0.18 + Math.sin(time * 6 + i * 0.4) * 0.05;
+    const z = Math.sin(frac * Math.PI * 2 + time * 2) * 0.08;
+    pushParticle(x, y, z, 3.0 + Math.random());
+  }
+  return true;
+}
+
 export const homopolarGeneratorPlugin = {
   id: 'homopolar',
   label: 'Homopolar Generator',
   category: 'quanta',
   modeIndex: 8,
+  needsPhysicsState: true,
+  wasmSkipsJsPhysics: true,
   defaults: {
     particleCount: 14000,
     color: [1.0, 0.72, 0.28],
@@ -172,5 +200,9 @@ export const homopolarGeneratorPlugin = {
     cylinders: () => buildHomopolarMesh(0).cylinders()
   },
   createPhysicsState: createHomopolarPhysicsState,
-  stepPhysics: stepHomopolarPhysics
+  stepPhysics: stepHomopolarPhysics,
+  updateMesh: homopolarUpdateMesh,
+  computeRawEnergy: homopolarComputeRawEnergy,
+  updateEffects: homopolarUpdateEffects,
+  wantsThermalHaze: true
 };

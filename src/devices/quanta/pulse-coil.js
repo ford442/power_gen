@@ -9,6 +9,7 @@
  */
 
 import { packInstance } from '../../device-mesh-layouts.js';
+import { writeMeshCylinders } from '../update-helpers.js';
 import { ValidatedConstants } from '../../ValidatedConstants';
 
 const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-7;
@@ -211,11 +212,38 @@ export const PULSE_COIL_REFERENCES = [
   }
 ];
 
+function pulseCoilUpdateMesh(instance) {
+  const travel = instance.physicsState?.pulseCoilArmatureM ?? 0;
+  const iA = instance.physicsState?.pulseCoilCurrentA ?? 0;
+  const vCap = instance.physicsState?.pulseCoilVCap ?? 0;
+  writeMeshCylinders(instance, buildPulseCoilMesh(travel, iA, vCap));
+}
+
+function pulseCoilComputeRawEnergy(instance, ctx) {
+  const iN = Math.min(1, Math.abs(instance.physicsState?.pulseCoilCurrentA ?? 0) / 80);
+  return Math.min(1.0, (instance.physicsState?.energyLevel ?? iN) * 0.75 + ctx.speedNorm * 0.25);
+}
+
+function pulseCoilUpdateEffects(instance, ctx) {
+  const { budget, energy, gate, pushParticle, time } = ctx;
+  const pulseGate = Math.pow(gate(energy, 0.12, 0.7), 1.15);
+  const burstCount = Math.floor(budget * 0.4 * pulseGate);
+  const travel = instance.physicsState?.pulseCoilArmatureM ?? 0;
+  for (let i = 0; i < burstCount; i++) {
+    const a = (i / Math.max(1, burstCount)) * Math.PI * 2 + time * 2.4;
+    const r = 0.35 + Math.random() * 1.1;
+    const y = 0.2 + travel * 0.5 + Math.sin(time * 6 + i * 0.27) * 0.1;
+    pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 3.0 + Math.random());
+  }
+  return true;
+}
+
 export const pulseCoilPlugin = {
   id: 'pulse-coil',
   label: 'Pulse Coil (R–L)',
   category: 'quanta',
   modeIndex: 7,
+  needsPhysicsState: true,
   defaults: {
     particleCount: 11000,
     color: [1.0, 0.55, 0.22],
@@ -232,5 +260,9 @@ export const pulseCoilPlugin = {
     cylinders: () => buildPulseCoilMesh(0, 0, 0).cylinders()
   },
   createPhysicsState: createPulseCoilPhysicsState,
-  stepPhysics: stepPulseCoilPhysics
+  stepPhysics: stepPulseCoilPhysics,
+  updateMesh: pulseCoilUpdateMesh,
+  computeRawEnergy: pulseCoilComputeRawEnergy,
+  updateEffects: pulseCoilUpdateEffects,
+  wantsThermalHaze: true
 };

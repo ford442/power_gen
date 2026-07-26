@@ -1,5 +1,10 @@
 // Shared mesh buffer setup for all devices + core SEG assembly.
 import { getMergedDeviceConfig } from '../devices/device-registry.js';
+import {
+  MATERIAL_COIL_FORMER,
+  MATERIAL_LAB_BASE,
+  MATERIAL_STRUCTURAL
+} from '../devices/material-roles.js';
 import { DEVICE_MESH_LAYOUTS, TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT } from '../device-mesh-layouts.js';
 import { generateTorus } from '../renderers/shared/primitive-geometry.js';
 import {
@@ -323,10 +328,10 @@ export const geometrySetupMethods = {
     // Frame assembly (lab bench, columns, control box, safety cage)
     if (this.segFrameLevel !== 'off') {
       this.segFrameBuffers = createSegFrameBuffers(this.device, layout, this.segFrameLevel);
-      this.frameStructuralInstanceBuffer = makeFrameInstanceBuffer(this.device, 11.0, [0.74, 0.76, 0.80]);
-      this.frameControlInstanceBuffer = makeFrameInstanceBuffer(this.device, 11.0, [0.62, 0.64, 0.68]);
-      this.frameCageInstanceBuffer = makeFrameInstanceBuffer(this.device, 12.0, [0.50, 0.54, 0.60]);
-      this.frameLabBenchInstanceBuffer = makeFrameInstanceBuffer(this.device, 13.0, [0.42, 0.40, 0.38]);
+      this.frameStructuralInstanceBuffer = makeFrameInstanceBuffer(this.device, MATERIAL_STRUCTURAL, [0.74, 0.76, 0.80]);
+      this.frameControlInstanceBuffer = makeFrameInstanceBuffer(this.device, MATERIAL_STRUCTURAL, [0.62, 0.64, 0.68]);
+      this.frameCageInstanceBuffer = makeFrameInstanceBuffer(this.device, MATERIAL_COIL_FORMER, [0.50, 0.54, 0.60]);
+      this.frameLabBenchInstanceBuffer = makeFrameInstanceBuffer(this.device, MATERIAL_LAB_BASE, [0.42, 0.40, 0.38]);
       this.profiler.trackBuffer('seg-frame-structural-inst', 48, GPUBufferUsage.STORAGE);
     }
 

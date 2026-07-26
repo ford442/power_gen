@@ -10,6 +10,7 @@
  */
 
 import { packInstance } from '../../device-mesh-layouts.js';
+import { writeMeshCylinders } from '../update-helpers.js';
 import {
   buildHalbachSegments,
   estimatePeakFieldT,
@@ -205,11 +206,35 @@ export const HALBACH_VIZ_REFERENCES = [
   }
 ];
 
+function halbachUpdateMesh(instance) {
+  const config = halbachConfigFromState(instance.physicsState);
+  writeMeshCylinders(instance, buildHalbachVizMesh(config));
+}
+
+function halbachComputeRawEnergy(instance, ctx) {
+  const fieldN = Math.min(1, (instance.physicsState?.halbachPeakBT ?? 0) / 0.8);
+  return Math.min(1.0, fieldN * 0.8 + ctx.speedNorm * 0.2);
+}
+
+function halbachUpdateEffects(instance, ctx) {
+  const { budget, energy, gate, pushParticle, time } = ctx;
+  const fieldGate = Math.pow(gate(energy, 0.15, 0.85), 1.2);
+  const sparkCount = Math.floor(budget * 0.45 * fieldGate);
+  for (let i = 0; i < sparkCount; i++) {
+    const a = (i / Math.max(1, sparkCount)) * Math.PI * 2 + time * 0.8;
+    const r = 0.8 + Math.random() * 2.2;
+    const y = 0.2 + Math.sin(time * 3 + i * 0.2) * 0.1;
+    pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 3.0 + Math.random());
+  }
+  return true;
+}
+
 export const halbachVizPlugin = {
   id: 'halbach-viz',
   label: 'Halbach Field Viz',
   category: 'quanta',
   modeIndex: 9,
+  needsPhysicsState: true,
   defaults: {
     particleCount: 10000,
     color: [0.35, 0.75, 1.0],
@@ -227,7 +252,11 @@ export const halbachVizPlugin = {
     cylinders: () => buildHalbachVizMesh(halbachConfigFromState({ halbachSegmentCount: 8, halbachMagAngleDeg: 45 })).cylinders()
   },
   createPhysicsState: createHalbachVizPhysicsState,
-  stepPhysics: stepHalbachVizPhysics
+  stepPhysics: stepHalbachVizPhysics,
+  updateMesh: halbachUpdateMesh,
+  computeRawEnergy: halbachComputeRawEnergy,
+  updateEffects: halbachUpdateEffects,
+  wantsThermalHaze: true
 };
 
 export { SCENE_SCALE, RADIUS_M };

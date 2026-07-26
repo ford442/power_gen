@@ -10,6 +10,8 @@
  */
 
 import { packInstance } from '../../device-mesh-layouts.js';
+import { MATERIAL_QUANTA_COIL, MATERIAL_QUANTA_FLOATER, MATERIAL_QUANTA_FLOATER_POST, MATERIAL_STEEL_BASE } from '../material-roles.js';
+import { writeMeshCylinders } from '../update-helpers.js';
 import { estimateHalbachFieldT, MAGNET_BR } from './halbach-field.ts';
 
 /** Ring magnet segments in a simplified Halbach-like azimuthal pattern. */
@@ -27,7 +29,7 @@ function buildHalbachRingInstances() {
     const emissive = isNorth ? 0.35 : 0.22;
     const yaw = angle + Math.PI / 2;
     const rot = [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)];
-    out.push(packInstance([x, 0.35, z], 14, rot, color, emissive));
+    out.push(packInstance([x, 0.35, z], MATERIAL_QUANTA_COIL, rot, color, emissive));
   }
   return out;
 }
@@ -35,8 +37,8 @@ function buildHalbachRingInstances() {
 function buildBaseInstances() {
   const steel = [0.45, 0.48, 0.52];
   return [
-    packInstance([0, -0.6, 0], 1, [0, 0, 0, 1], steel, 0.04),
-    packInstance([0, 0.05, 0], 1, [0, 0, 0, 1], [0.35, 0.38, 0.42], 0.02)
+    packInstance([0, -0.6, 0], MATERIAL_STEEL_BASE, [0, 0, 0, 1], steel, 0.04),
+    packInstance([0, 0.05, 0], MATERIAL_STEEL_BASE, [0, 0, 0, 1], [0.35, 0.38, 0.42], 0.02)
   ];
 }
 
@@ -45,8 +47,8 @@ function buildFloaterInstances(gapM = 0.018) {
   const discColor = [0.72, 0.74, 0.78];
   const y = 0.55 + gapM;
   return [
-    packInstance([0, y, 0], 15, [0, 0, 0, 1], discColor, 0.18),
-    packInstance([0, y - 0.12, 0], 15, [0, 0, 0, 1], [0.55, 0.58, 0.62], 0.08)
+    packInstance([0, y, 0], MATERIAL_QUANTA_FLOATER, [0, 0, 0, 1], discColor, 0.18),
+    packInstance([0, y - 0.12, 0], MATERIAL_QUANTA_FLOATER_POST, [0, 0, 0, 1], [0.55, 0.58, 0.62], 0.08)
   ];
 }
 
@@ -129,11 +131,37 @@ export const MAGLEV_REFERENCES = [
   }
 ];
 
+function maglevUpdateMesh(instance) {
+  const gap = instance.physicsState?.maglevGap ?? 0.018;
+  writeMeshCylinders(instance, buildMagLevMesh(gap));
+}
+
+function maglevComputeRawEnergy(instance, ctx) {
+  const gapN = instance.physicsState?.energyLevel ?? instance.energyLevel;
+  return Math.min(1.0, gapN * 0.7 + ctx.speedNorm * 0.3);
+}
+
+function maglevUpdateEffects(instance, ctx) {
+  const { budget, energy, gate, pushParticle, time } = ctx;
+  const fieldGate = Math.pow(gate(energy, 0.2, 0.75), 1.3);
+  const gap = instance.physicsState?.maglevGap ?? 0.018;
+  const orbitCount = Math.floor(budget * 0.42 * fieldGate);
+  for (let i = 0; i < orbitCount; i++) {
+    const a = (i / Math.max(1, orbitCount)) * Math.PI * 2 + time * 1.2;
+    const r = 1.0 + Math.random() * 2.0;
+    const y = 0.55 + gap + Math.sin(time * 4 + i * 0.31) * 0.12;
+    pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 3.0 + Math.random());
+  }
+  return true;
+}
+
 export const magneticLevitationPlugin = {
   id: 'maglev',
   label: 'Magnetic Levitation',
   category: 'quanta',
   modeIndex: 6,
+  needsPhysicsState: true,
+  wasmSkipsJsPhysics: true,
   defaults: {
     particleCount: 12000,
     color: [0.2, 0.88, 1.0],
@@ -150,5 +178,9 @@ export const magneticLevitationPlugin = {
     cylinders: () => buildMagLevMesh(0.018).cylinders()
   },
   createPhysicsState: createMagLevPhysicsState,
-  stepPhysics: stepMagLevPhysics
+  stepPhysics: stepMagLevPhysics,
+  updateMesh: maglevUpdateMesh,
+  computeRawEnergy: maglevComputeRawEnergy,
+  updateEffects: maglevUpdateEffects,
+  wantsThermalHaze: true
 };

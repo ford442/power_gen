@@ -5,6 +5,7 @@ import {
   countInstances
 } from './device-mesh-layouts.js';
 import { getPluginMeshLayouts } from './devices/device-registry.js';
+import { MATERIAL_COPPER, MATERIAL_SHAFT, MATERIAL_STRUCTURAL } from './devices/material-roles.js';
 import { simRandom } from './telemetry/deterministic-rng.js';
 import { PARTICLE_LAYOUTS } from '../generated/physics-constants.js';
 
@@ -401,7 +402,7 @@ export class DeviceGeometry {
     });
     const shaftInstanceData = new Float32Array([
       0, 0, 0,       // position
-      -1.0,          // ringIndex (shaft hack)
+      MATERIAL_SHAFT,
       0, 0, 0, 1,    // rotation quaternion
       0.65, 0.67, 0.70, // steel color
       0.0            // emissive
@@ -416,7 +417,7 @@ export class DeviceGeometry {
     });
     const magnetInstanceData = new Float32Array([
       0, 0, 0,       // position
-      0.0,           // ringIndex (default)
+      MATERIAL_COPPER,           // ringIndex (default copper)
       0, 0, 0, 1,    // rotation quaternion
       0.85, 0.48, 0.25, // copper color
       0.0            // emissive
@@ -424,14 +425,14 @@ export class DeviceGeometry {
     this.device.queue.writeBuffer(this.magnetInstanceBuffer, 0, magnetInstanceData);
     this.visualizer.profiler.trackBuffer(`device-${this.id}-magnet-instance`, 48, GPUBufferUsage.STORAGE);
 
-    // Instance buffer for top plate (ringIndex = 11 signals brass/structural to shader)
+    // Instance buffer for top plate (structural brass / aluminum)
     this.topPlateInstanceBuffer = this.device.createBuffer({
       size: 48,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     const topPlateData = new Float32Array([
       0, plateY, 0,  // position
-      11.0,          // ringIndex (plate hack)
+      MATERIAL_STRUCTURAL,
       0, 0, 0, 1,    // rotation quaternion
       0.78, 0.58, 0.22, // brass color
       0.0            // emissive
@@ -446,7 +447,7 @@ export class DeviceGeometry {
     });
     const bottomPlateData = new Float32Array([
       0, -plateY, 0, // position
-      11.0,          // ringIndex (plate hack)
+      MATERIAL_STRUCTURAL,
       0, 0, 0, 1,    // rotation quaternion
       0.78, 0.58, 0.22, // brass color
       0.0            // emissive
