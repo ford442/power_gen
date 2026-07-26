@@ -7,8 +7,8 @@ import {
   downloadJson,
   TELEMETRY_CSV_VERSION,
   type TelemetryCsvRow
-} from './telemetry-schema.js';
-import { buildReplayFile, type ReplayFile } from './replay-format.js';
+} from './telemetry-schema';
+import { buildReplayFile, type ReplayFile } from './replay-format';
 
 export { rowsToCsv, downloadText, downloadJson };
 

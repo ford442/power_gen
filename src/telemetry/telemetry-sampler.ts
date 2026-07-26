@@ -1,4 +1,4 @@
-import { rowFromSnapshot } from './telemetry-schema.js';
+import { rowFromSnapshot } from './telemetry-schema';
 import type { TelemetrySnapshot } from './types';
 
 export interface TelemetrySamplerOpts {

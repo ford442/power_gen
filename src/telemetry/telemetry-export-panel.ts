@@ -9,9 +9,9 @@ import {
   downloadReplayJson,
   downloadBenchmarkPack,
   buildReplayFromRecording
-} from './telemetry-export.js';
-import { applyReplay } from './replay-format.js';
-import { setSimulationSeed } from './deterministic-rng.js';
+} from './telemetry-export';
+import { applyReplay } from './replay-format';
+import { setSimulationSeed } from './deterministic-rng';
 import { runOfflineSegExportInWorker, runOfflineSegExport } from '../wasm/offline-runner.js';
 
 function setStatus(el: HTMLElement | null, text: string, ok = true): void {

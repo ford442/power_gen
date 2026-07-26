@@ -4,7 +4,7 @@
 // Enable: ?wasmPhysics=1  or  localStorage useWasmPhysics=true
 // =============================================================
 
-import { SEGSim } from './sim.js';
+import { SEGSim } from './sim';
 
 let _instance = null;
 let _enabled = false;

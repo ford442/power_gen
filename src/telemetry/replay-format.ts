@@ -2,7 +2,7 @@
  * Versioned replay file format for layout preset + speed curve + optional samples.
  */
 
-import { setSimulationSeed } from './deterministic-rng.js';
+import { setSimulationSeed } from './deterministic-rng';
 import type { TelemetryCsvRow } from './telemetry-schema';
 
 export const REPLAY_VERSION = 1;

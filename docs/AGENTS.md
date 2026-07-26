@@ -110,7 +110,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 - New draw/compute passes → **WGSL** + `pipeline-layout-cache.js` (`// @ts-check` + JSDoc layout names) + [`BINDINGS.md`](./BINDINGS.md); document in [`SHADERS.md`](./SHADERS.md).
 - `npm run typecheck` covers **`src/**/*.ts` only** (`allowJs: false`). JS is not typechecked in CI; `pipeline-layout-cache.js` uses `@ts-check` locally.
 - Runtime entry is **`src/main.js`**. `index.ts` is a typed **barrel**, not the app entry.
-- **Import style:** JS entry paths import TS modules with a **`.js` emit suffix** (e.g. `./telemetry-hub.js` → `telemetry-hub.ts`). Do not use `from '…ts'` in app code — Vite resolves both, but `.js` matches bundler/Node ESM conventions.
+- **Import style:** JS entry paths import TypeScript modules **extensionless** (e.g. `./telemetry-hub` → `telemetry-hub.ts`). TypeScript sources may use a `.js` emit suffix for cross-file references (`moduleResolution: bundler`). Do not use `from '…ts'` in app code.
 
 ### TypeScript migration (Wave 2 — complete)
 

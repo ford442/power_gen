@@ -13,10 +13,10 @@
  * after physics steps so dashboard numbers stay non-zero on either path.
  */
 
-import { segOperator, SEG_SPEC } from './seg-operator-state.js';
+import { segOperator, SEG_SPEC } from './seg-operator-state';
 import { ValidatedConstants } from './ValidatedConstants';
 import { getAllSimDeviceIds } from './devices/device-registry.js';
-import { TelemetrySampler } from './telemetry/telemetry-sampler.js';
+import { TelemetrySampler } from './telemetry/telemetry-sampler';
 import type { DevicePhysicsState } from './renderers/shared/device-physics';
 import type {
   DeviceTelemetrySnap,

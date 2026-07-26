@@ -2,7 +2,7 @@ import { MultiDeviceShaders } from './multi-device-shaders.js';
 import './devices/register-plugins.js';
 import { MultiDeviceCamera } from './multi-device-camera.js';
 import { SimRateController } from './sim-rate-controller.js';
-import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager.js';
+import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager';
 import { PipelineLayoutCache } from './pipeline-layout-cache.js';
 import { CameraController } from './camera-controller.js';
 import { PerformanceProfiler } from './performance-profiler.js';
@@ -26,8 +26,8 @@ import {
   parseLightingLook,
   getLightingPreset,
 } from './seg-lighting-presets.js';
-import { segOperator } from './seg-operator-state.js';
-import { telemetryHub, TelemetryHub } from './telemetry-hub.js';
+import { segOperator } from './seg-operator-state';
+import { telemetryHub, TelemetryHub } from './telemetry-hub';
 import { segWasm } from './wasm/seg-physics-bridge.js';
 import { HardwareBridge, TWIN_MODES } from './hardware-bridge.js';
 import { ElectromagnetController } from './electromagnet-controller.js';
@@ -35,7 +35,7 @@ import { initHardwarePanel } from './hardware-panel.js';
 import { initSEGAnnotations } from './seg-annotations.js';
 import { explainerState } from './seg-explainer/explainer-state.js';
 import { isDeviceActive as isDeviceVisible } from './renderers/shared/device-view.js';
-import { EnergyNetwork, ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network.js';
+import { EnergyNetwork, ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network';
 import {
   parsePrototypePreset,
   parseSegLayoutPreset,
@@ -44,7 +44,7 @@ import {
 import {
   SEGIntegrationManager,
   PHYSICS_UNIFORM_BYTES
-} from './integration.js';
+} from './integration';
 import { primitiveMethods } from './visualizer/primitives.js';
 import { geometrySetupMethods } from './visualizer/setup-geometry.js';
 import { sceneSetupMethods } from './visualizer/scene-setup.js';

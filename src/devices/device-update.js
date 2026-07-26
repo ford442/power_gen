@@ -1,7 +1,7 @@
 import {
   createDevicePhysicsState,
   stepDevicePhysics
-} from '../renderers/shared/device-physics.js';
+} from '../renderers/shared/device-physics';
 import { getHeronLayout } from '../heron-layout.js';
 import { segWasm } from '../wasm/seg-physics-bridge.js';
 import {

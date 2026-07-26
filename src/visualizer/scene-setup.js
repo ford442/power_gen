@@ -1,5 +1,5 @@
 // Floor grid, sky, bloom, depth, and canvas resize.
-import { WebGPUManager, DEPTH_FORMAT } from '../webgpu-manager.js';
+import { WebGPUManager, DEPTH_FORMAT } from '../webgpu-manager';
 import { packPostUniforms } from '../seg-lighting-presets.js';
 
 export const sceneSetupMethods = {
