@@ -323,7 +323,7 @@ fn trace_photon(photon: Photon, panel_normal: vec3f) -> f32 {
     let cos_theta = max(0.0, -dot(photon.direction, panel_normal));
     
     // Fresnel reflection at air-silicon interface
-    let reflectance = fresnel_reflectance(cos_theta, N_AIR, N_SILICON);
+    let reflectance = fresnel_reflectance(cos_theta, N_AIR, N_SILICON_LED);
     
     // Absorbed fraction = 1 - reflected fraction
     return 1.0 - reflectance;
@@ -450,19 +450,15 @@ fn external_quantum_efficiency(wavelength_nm: f32) -> f32 {
     let peak_qe = 0.92;
     
     // UV roll-off due to surface recombination
-    let uv_factor: f32;
+    var uv_factor: f32 = 1.0;
     if (w < 400.0) {
         uv_factor = 0.3 + 0.7 * (w - 300.0) / 100.0;
-    } else {
-        uv_factor = 1.0;
     }
     
     // IR roll-off due to incomplete absorption
-    let ir_factor: f32;
+    var ir_factor: f32 = 1.0;
     if (w > 900.0) {
         ir_factor = exp(-pow(w - 900.0, 2.0) / 20000.0);
-    } else {
-        ir_factor = 1.0;
     }
     
     // Main Gaussian response
@@ -639,7 +635,7 @@ fn random_next(rng: ptr<function, RandomState>) -> u32 {
     (*rng).state = oldstate * 747796405u + (*rng).inc;
     let xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
     let rot = oldstate >> 59u;
-    return (xorshifted >> rot) | (xorshifted << ((-rot) & 31u));
+    return (xorshifted >> rot) | (xorshifted << ((32u - rot) & 31u));
 }
 
 /// Generate random float in [0, 1)

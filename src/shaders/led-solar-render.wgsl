@@ -1,3 +1,7 @@
+#include "led-solar-constants.wgsl"
+#include "led-solar-structs.wgsl"
+#include "led-solar-physics.wgsl"
+
 // VERTEX SHADER
 // =============================================================================
 
@@ -218,40 +222,6 @@ fn visualize_spectrum(
     }
     
     return vec4f(0.05, 0.05, 0.05, 1.0);
-}
-
-// =============================================================================
-// UTILITY FUNCTIONS
-// =============================================================================
-
-/// Convert degrees to radians
-fn radians(degrees: f32) -> f32 {
-    return degrees * PI / 180.0;
-}
-
-/// Convert radians to degrees  
-fn degrees(radians_val: f32) -> f32 {
-    return radians_val * 180.0 / PI;
-}
-
-/// Safe square root that handles negative values
-fn safe_sqrt(x: f32) -> f32 {
-    return sqrt(max(0.0, x));
-}
-
-/// Linear interpolation
-fn mix(a: f32, b: f32, t: f32) -> f32 {
-    return a + (b - a) * clamp(t, 0.0, 1.0);
-}
-
-/// Clamp value to range
-fn clamp(v: f32, min_v: f32, max_v: f32) -> f32 {
-    return min(max(v, min_v), max_v);
-}
-
-/// Safe exponential (prevents overflow)
-fn safe_exp(x: f32) -> f32 {
-    return exp(min(x, 88.0));  // e^88 ≈ 1.6e38 (near f32 max)
 }
 
 // =============================================================================

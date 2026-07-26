@@ -24,7 +24,7 @@ struct LEDParams {
     luminous_efficacy: f32,  // lm/W (theoretical max: 683 lm/W for 555nm)
     emission_angle: f32, // Half-angle of emission cone (degrees)
     radius: f32,         // Physical radius of LED emitter (m)
-    active: u32,         // 0=off, 1=on
+    enabled: u32,        // 0=off, 1=on (not `active` — WGSL reserved keyword)
 }
 
 /// Solar panel/cell parameters

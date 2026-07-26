@@ -1,3 +1,7 @@
+#include "led-solar-constants.wgsl"
+#include "led-solar-structs.wgsl"
+#include "led-solar-physics.wgsl"
+
 // COMPUTE SHADER ENTRY POINTS
 // =============================================================================
 
@@ -23,7 +27,7 @@ fn emit_photons(
     for (var led_idx: u32 = 0u; led_idx < led_count; led_idx = led_idx + 1u) {
         let led = led_params[led_idx];
         
-        if (led.active == 0u) {
+        if (led.enabled == 0u) {
             continue;
         }
         
@@ -146,7 +150,7 @@ fn trace_to_panel(
     
     // Calculate Fresnel reflection
     let cos_theta = max(0.0, -dot(photon.direction, panel_normal));
-    let reflectance = select(0.0, fresnel_reflectance(cos_theta, N_AIR, N_SILICON), config.enable_fresnel == 1u);
+    let reflectance = select(0.0, fresnel_reflectance(cos_theta, N_AIR, N_SILICON_LED), config.enable_fresnel == 1u);
     
     // Absorbed fraction
     let absorbed_fraction = 1.0 - reflectance;

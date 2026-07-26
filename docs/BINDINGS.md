@@ -6,6 +6,13 @@ Canonical binding numbers for the multi-device WebGPU path.
 
 When changing a binding, update **both** the layout cache and the shaders in the same PR.
 
+## New compute pass checklist
+
+1. Add a `@compute` entry in `src/shaders/passes/` (or a generator) with explicit `@binding` / `@group(0)`.
+2. Register `GPUBindGroupLayout` + `GPUPipelineLayout` in `src/pipeline-layout-cache.js` — **no** `layout: 'auto'`.
+3. Document bindings in this file (table under **Group 0 layouts**).
+4. Run `npm run check:wgsl` so naga validates the expanded module.
+
 ## Architecture
 
 | Piece | Role |
