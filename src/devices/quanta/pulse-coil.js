@@ -156,11 +156,15 @@ export function stepPulseCoilPhysics(state, dt, drive) {
   if (x >= xMax && vArm > 0) vArm = 0;
 
   const bPeak = estimatePulseCoilPeakBT(current);
+  // Latch peak |I| / B so short discharge spikes remain readable in telemetry
+  const peakI = Math.max(Math.abs(current), (state.pulseCoilPeakIA ?? 0) * Math.exp(-1.2 * dt));
+  const peakBHold = Math.max(bPeak, (state.pulseCoilBPeakT ?? 0) * Math.exp(-1.2 * dt));
 
   state.pulseCoilVCap = vCap;
   state.pulseCoilCurrent = current;
-  state.pulseCoilCurrentA = current;
-  state.pulseCoilBPeakT = bPeak;
+  state.pulseCoilCurrentA = Math.abs(current) > 1 ? current : (peakI > 0.5 ? peakI : current);
+  state.pulseCoilPeakIA = peakI;
+  state.pulseCoilBPeakT = peakBHold;
   state.pulseCoilArmatureM = x;
   state.pulseCoilArmatureMm = x * 1000;
   state.pulseCoilArmatureVel = vArm;
@@ -168,7 +172,7 @@ export function stepPulseCoilPhysics(state, dt, drive) {
   state.pulseCoilFiring = firing;
   state.energyLevel = Math.min(1,
     drive * 0.25
-    + Math.min(1, Math.abs(current) / 80) * 0.45
+    + Math.min(1, peakI / 80) * 0.45
     + Math.min(1, Math.abs(vCap) / vChargeMax) * 0.3);
 }
 
