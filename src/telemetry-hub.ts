@@ -112,6 +112,10 @@ function emptyDeviceSnap(id: string): DeviceTelemetrySnap {
     halbachPeakBT: 0,
     halbachPeriodM: 0,
     halbachDipoleForceN: 0,
+    pulseCoilCurrentA: 0,
+    pulseCoilVCap: 0,
+    pulseCoilBPeakT: 0,
+    pulseCoilArmatureMm: 0,
     powerInW: 0,
     powerOutW: 0,
     efficiency: 0
@@ -152,6 +156,10 @@ function snapFromPhysics(
     halbachPeakBT: physics.halbachPeakBT ?? 0,
     halbachPeriodM: physics.halbachPeriodM ?? 0,
     halbachDipoleForceN: physics.halbachDipoleForceN ?? 0,
+    pulseCoilCurrentA: physics.pulseCoilCurrentA ?? 0,
+    pulseCoilVCap: physics.pulseCoilVCap ?? 0,
+    pulseCoilBPeakT: physics.pulseCoilBPeakT ?? 0,
+    pulseCoilArmatureMm: physics.pulseCoilArmatureMm ?? 0,
     powerInW: 0,
     powerOutW: 0,
     efficiency: 0

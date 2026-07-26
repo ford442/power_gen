@@ -86,6 +86,15 @@ float axialBField(float z, float radius, float height, float Br) {
     return 0.5f * Br * (zp / std::sqrt(r2 + zp*zp) - zm / std::sqrt(r2 + zm*zm));
 }
 
+float estimateHalbachFieldT(float gapM, float remanenceT) {
+    float Br = remanenceT > 0.f ? remanenceT : PhysicsConstants::Br_DEFAULT;
+    constexpr float R = 0.028f;
+    constexpr float FOUR_PI = 4.f * PhysicsConstants::PI;
+    float B0 = Br * PhysicsConstants::MU_0 / FOUR_PI
+             * (2.f * PhysicsConstants::PI * R) / std::max(gapM, 0.002f);
+    return std::min(1.2f, B0 * 8.f);
+}
+
 // ─────────────────────────────────────────────────────────────
 // SEG roller dynamics
 // ─────────────────────────────────────────────────────────────
@@ -289,6 +298,8 @@ SEGSimulator::SEGSimulator() {
     lcg_state = static_cast<uint32_t>(std::time(nullptr));
     // Kelvin breakdown: E_BREAKDOWN ~ 3e6 V/m * 0.02 m gap
     _kelvin.vBreak = 3.0e6f * 0.02f;
+    _homopolar.fieldT = std::min(0.55f, PhysicsConstants::Br_DEFAULT * 0.28f);
+    _maglev.fieldT = estimateHalbachFieldT(_maglev.gap);
 }
 
 void SEGSimulator::_initRollers() {
@@ -321,6 +332,8 @@ void SEGSimulator::setDrive(float drive) {
     _solar.ledPower = 0.3f + 0.7f * _drive;
     _peltier.drive = _drive;
     _mhd.drive = _drive;
+    _maglev.drive = _drive;
+    _homopolar.drive = _drive;
 }
 
 void SEGSimulator::_stepSegRollers(float dt) {
@@ -414,6 +427,49 @@ void SEGSimulator::_stepMHD(float dt) {
     m.hartmann = m.bFieldT * m.halfGapM * std::sqrt(m.sigmaSm / (m.rhoKgM3 * m.nuM2s));
 }
 
+void SEGSimulator::_stepMaglev(float dt) {
+    MaglevState& m = _maglev;
+    float gapTarget = 0.012f + 0.022f * m.drive;
+    float gap = m.gap;
+    float vel = m.gapVel;
+    float lift = m.kSpring * (gapTarget - gap) * (0.6f + 0.4f * m.drive);
+    float grav = m.mass * PhysicsConstants::G;
+    float accel = (lift - grav - m.cDamp * vel) / m.mass;
+    // Semi-implicit Euler: update velocity first, then integrate position.
+    float newVel = vel + accel * dt;
+    float newGap = gap + newVel * dt;
+    if (newGap < 0.004f) { newGap = 0.004f; newVel = std::max(0.f, newVel); }
+    if (newGap > 0.06f)  { newGap = 0.06f;  newVel = std::min(0.f, newVel); }
+    m.gap = newGap;
+    m.gapVel = newVel;
+    m.gapMm = newGap * 1000.f;
+    m.fieldT = estimateHalbachFieldT(newGap);
+    m.liftN = std::max(0.f, lift);
+    float err = std::abs(newGap - gapTarget) / std::max(gapTarget, 0.01f);
+    m.rpm = m.drive * 4200.f * (0.3f + 0.7f * (1.f - err));
+}
+
+void SEGSimulator::_stepHomopolar(float dt) {
+    HomopolarState& h = _homopolar;
+    float omega = h.omega;
+    float current = h.currentA;
+    float B = h.fieldT;
+    float omegaTarget = h.drive * 3600.f * (PhysicsConstants::PI / 30.f);
+    float tauDrive = h.tauDriveMax * h.drive
+                   * (0.6f + 0.4f * std::tanh((omegaTarget - omega) * 2.f));
+    float emf = 0.5f * B * omega * h.discRadiusM * h.discRadiusM;
+    float tauLoad = current * B * h.discRadiusM * 0.5f;
+    float dI = (emf - h.rOhm * current) / h.lHenry * dt;
+    current = std::max(0.f, current + dI);
+    float dOmega = (tauDrive - tauLoad - h.drag * omega) / h.inertia * dt;
+    omega = std::max(0.f, omega + dOmega);
+    h.omega = omega;
+    h.angle += omega * dt;
+    h.rpm = omega * 30.f / PhysicsConstants::PI;
+    h.emfV = emf;
+    h.currentA = current;
+}
+
 void SEGSimulator::stepWithPerRingTorques(float dt) {
     switch (_mode) {
         case SIM_MODE_SEG:
@@ -434,6 +490,12 @@ void SEGSimulator::stepWithPerRingTorques(float dt) {
         case SIM_MODE_MHD:
             _stepMHD(dt);
             break;
+        case SIM_MODE_MAGLEV:
+            _stepMaglev(dt);
+            break;
+        case SIM_MODE_HOMOPOLAR:
+            _stepHomopolar(dt);
+            break;
         default:
             break;
     }
@@ -452,7 +514,7 @@ void SEGSimulator::setRingLoadTorques(float tInner, float tMiddle, float tOuter)
 }
 
 void SEGSimulator::setMode(int mode) {
-    if (mode >= 0 && mode <= 5) _mode = mode;
+    if (mode >= 0 && mode <= SIM_MODE_HOMOPOLAR) _mode = mode;
 }
 
 int SEGSimulator::getMode() const { return _mode; }
@@ -575,6 +637,8 @@ float SEGSimulator::estimatePower(float loadTorque) const {
     }
     if (_mode == SIM_MODE_PELTIER) return _peltier.powerW;
     if (_mode == SIM_MODE_MHD)     return _mhd.powerW;
+    if (_mode == SIM_MODE_MAGLEV)  return _maglev.liftN * _maglev.gapVel; // mechanical proxy
+    if (_mode == SIM_MODE_HOMOPOLAR) return _homopolar.emfV * _homopolar.currentA;
     if (_numRollers == 0) return 0.f;
     return loadTorque * _rollers[0].omega * static_cast<float>(_numRollers) / 3.f;
 }
@@ -596,6 +660,13 @@ float SEGSimulator::getEnergyLevel() const {
             return clampf(_peltier.deltaTK / _peltier.deltaTRefK, 0.f, 1.f);
         case SIM_MODE_MHD:
             return clampf(_mhd.flowU / std::max(_mhd.flowUMax, 0.1f), 0.f, 1.f);
+        case SIM_MODE_MAGLEV: {
+            float gapTarget = 0.012f + 0.022f * _maglev.drive;
+            float err = std::abs(_maglev.gap - gapTarget) / std::max(gapTarget, 0.01f);
+            return clampf(_maglev.drive * 0.55f + (1.f - err) * 0.45f, 0.f, 1.f);
+        }
+        case SIM_MODE_HOMOPOLAR:
+            return clampf(_homopolar.drive * 0.45f + (_homopolar.rpm / 3600.f) * 0.55f, 0.f, 1.f);
         default:
             return clampf(_rollers[0].omega / 50.f, 0.f, 1.f);
     }
@@ -642,7 +713,7 @@ int SEGSimulator::getRollerStateFloatCount() const {
 }
 
 const char* SEGSimulator::version() {
-    return "sim_core 1.2.0";
+    return "sim_core 1.3.0";
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -669,6 +740,9 @@ EMSCRIPTEN_BINDINGS(sim_core) {
     function("magneticDipoleField", &magneticDipoleField);
     function("magneticDipoleForce", &magneticDipoleForce);
     function("axialBField", &axialBField);
+    function("estimateHalbachFieldT", optional_override([](float gapM, float remanenceT) -> float {
+        return estimateHalbachFieldT(gapM, remanenceT);
+    }));
     function("sim_core_version", optional_override([]() -> std::string {
         return std::string(sim_core_version());
     }));
@@ -721,6 +795,18 @@ EMSCRIPTEN_BINDINGS(sim_core) {
         .function("getMhdVoltage", &SEGSimulator::getMhdVoltage)
         .function("getMhdCurrent", &SEGSimulator::getMhdCurrent)
         .function("getMhdPowerW", &SEGSimulator::getMhdPowerW)
+        .function("getMaglevGap", &SEGSimulator::getMaglevGap)
+        .function("getMaglevGapVel", &SEGSimulator::getMaglevGapVel)
+        .function("getMaglevGapMm", &SEGSimulator::getMaglevGapMm)
+        .function("getMaglevFieldT", &SEGSimulator::getMaglevFieldT)
+        .function("getMaglevLiftN", &SEGSimulator::getMaglevLiftN)
+        .function("getMaglevRpm", &SEGSimulator::getMaglevRpm)
+        .function("getHomopolarOmega", &SEGSimulator::getHomopolarOmega)
+        .function("getHomopolarAngle", &SEGSimulator::getHomopolarAngle)
+        .function("getHomopolarRpm", &SEGSimulator::getHomopolarRpm)
+        .function("getHomopolarEmfV", &SEGSimulator::getHomopolarEmfV)
+        .function("getHomopolarCurrentA", &SEGSimulator::getHomopolarCurrentA)
+        .function("getHomopolarFieldT", &SEGSimulator::getHomopolarFieldT)
         .function("getEnergyLevel", &SEGSimulator::getEnergyLevel)
         .function("getParticleBufferPtr", optional_override([](SEGSimulator& self) -> double {
             return static_cast<double>(self.getParticleBufferPtr());
@@ -864,13 +950,62 @@ static int run_mhd_smoke() {
     return 0;
 }
 
+static int run_maglev_smoke() {
+    SEGSimulator sim;
+    sim.setMode(SIM_MODE_MAGLEV);
+    sim.setDrive(0.85f);
+    const float dt = 1.f / 60.f;
+    for (int i = 0; i < 600; ++i) sim.step(dt, 0.f);
+    printf("Maglev gap=%.4f m (%.2f mm)  B=%.3f T  lift=%.3f N  rpm=%.0f\n",
+           sim.getMaglevGap(), sim.getMaglevGapMm(),
+           sim.getMaglevFieldT(), sim.getMaglevLiftN(), sim.getMaglevRpm());
+    if (sim.getMaglevGap() <= 0.f || sim.getMaglevFieldT() <= 0.f
+        || !std::isfinite(sim.getMaglevGap()) || !std::isfinite(sim.getMaglevRpm())) {
+        printf("FAIL: Maglev gap / field did not develop\n");
+        return 1;
+    }
+    if (sim.getMaglevRpm() <= 0.f) {
+        printf("FAIL: Maglev RPM stayed zero under drive\n");
+        return 1;
+    }
+    if (!std::isfinite(sim.getEnergyLevel()) || sim.getEnergyLevel() < 0.f || sim.getEnergyLevel() > 1.f) {
+        printf("FAIL: Maglev energy level out of range\n");
+        return 1;
+    }
+    printf("Maglev smoke OK (energyLevel=%.3f)\n", sim.getEnergyLevel());
+    return 0;
+}
+
+static int run_homopolar_smoke() {
+    SEGSimulator sim;
+    sim.setMode(SIM_MODE_HOMOPOLAR);
+    sim.setDrive(0.9f);
+    const float dt = 1.f / 60.f;
+    for (int i = 0; i < 900; ++i) sim.step(dt, 0.f);
+    printf("Homopolar rpm=%.1f  EMF=%.4f V  I=%.3f A  B=%.3f T\n",
+           sim.getHomopolarRpm(), sim.getHomopolarEmfV(),
+           sim.getHomopolarCurrentA(), sim.getHomopolarFieldT());
+    if (sim.getHomopolarRpm() <= 0.f || sim.getHomopolarEmfV() <= 0.f) {
+        printf("FAIL: Homopolar disc did not develop RPM / EMF\n");
+        return 1;
+    }
+    if (sim.getHomopolarCurrentA() <= 0.f) {
+        printf("FAIL: Homopolar current stayed zero\n");
+        return 1;
+    }
+    printf("Homopolar smoke OK (energyLevel=%.3f)\n", sim.getEnergyLevel());
+    return 0;
+}
+
 int main(int argc, char** argv) {
-    // --mode <peltier|mhd>: run a single-mode smoke test
+    // --mode <peltier|mhd|maglev|homopolar>: run a single-mode smoke test
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
             if (std::strcmp(argv[i + 1], "peltier") == 0) return run_peltier_smoke();
             if (std::strcmp(argv[i + 1], "mhd") == 0)     return run_mhd_smoke();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd)\n", argv[i + 1]);
+            if (std::strcmp(argv[i + 1], "maglev") == 0)  return run_maglev_smoke();
+            if (std::strcmp(argv[i + 1], "homopolar") == 0) return run_homopolar_smoke();
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar)\n", argv[i + 1]);
             return 2;
         }
     }
@@ -943,9 +1078,11 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // ── Peltier + MHD paths ──
+    // ── Peltier + MHD + Quanta plugin paths ──
     if (run_peltier_smoke() != 0) return 1;
     if (run_mhd_smoke() != 0) return 1;
+    if (run_maglev_smoke() != 0) return 1;
+    if (run_homopolar_smoke() != 0) return 1;
 
     // Zero-copy packing smoke
     sim.setMode(SIM_MODE_SEG);

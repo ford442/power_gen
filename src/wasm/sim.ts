@@ -253,6 +253,30 @@ export class SEGSim {
         energyLevel: this._sim.getEnergyLevel?.() ?? 0
       };
     }
+    if (m === 6) {
+      return {
+        mode: 'maglev',
+        gap: this._sim.getMaglevGap?.() ?? 0,
+        gapVel: this._sim.getMaglevGapVel?.() ?? 0,
+        gapMm: this._sim.getMaglevGapMm?.() ?? 0,
+        fieldT: this._sim.getMaglevFieldT?.() ?? 0,
+        liftN: this._sim.getMaglevLiftN?.() ?? 0,
+        rpm: this._sim.getMaglevRpm?.() ?? 0,
+        energyLevel: this._sim.getEnergyLevel?.() ?? 0
+      };
+    }
+    if (m === 7) {
+      return {
+        mode: 'homopolar',
+        omega: this._sim.getHomopolarOmega?.() ?? 0,
+        angle: this._sim.getHomopolarAngle?.() ?? 0,
+        rpm: this._sim.getHomopolarRpm?.() ?? 0,
+        emfV: this._sim.getHomopolarEmfV?.() ?? 0,
+        currentA: this._sim.getHomopolarCurrentA?.() ?? 0,
+        fieldT: this._sim.getHomopolarFieldT?.() ?? 0,
+        energyLevel: this._sim.getEnergyLevel?.() ?? 0
+      };
+    }
     return {
       mode: 'seg',
       omega: this._sim.getOmega(),

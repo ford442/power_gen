@@ -66,6 +66,8 @@ export interface HomopolarPhysicsExtension {
   homopolarCurrentA?: number;
   homopolarFieldT?: number;
   homopolarAngle?: number;
+  homopolarOmega?: number;
+  homopolarCurrent?: number;
 }
 
 /** Quanta Halbach field visualizer extension fields. */
@@ -80,11 +82,27 @@ export interface HalbachVizPhysicsExtension {
   halbachHeatmap?: Float32Array | null;
 }
 
+/** Quanta pulse-coil / pulsed electromagnet extension fields. */
+export interface PulseCoilPhysicsExtension {
+  pulseCoilVCap?: number;
+  pulseCoilCurrent?: number;
+  pulseCoilCurrentA?: number;
+  pulseCoilBPeakT?: number;
+  pulseCoilArmatureM?: number;
+  pulseCoilArmatureMm?: number;
+  pulseCoilArmatureVel?: number;
+  pulseCoilPulseT?: number;
+  pulseCoilFiring?: boolean;
+  /** Set by render-loop when C++ WASM owns maglev/homopolar plant this frame. */
+  _wasmPlantActive?: boolean;
+}
+
 /** Full per-device physics plant state (built-in + plugin extensions). */
 export type DevicePhysicsState = BaseDevicePhysicsState &
   Partial<MaglevPhysicsExtension> &
   Partial<HomopolarPhysicsExtension> &
-  Partial<HalbachVizPhysicsExtension>;
+  Partial<HalbachVizPhysicsExtension> &
+  Partial<PulseCoilPhysicsExtension>;
 
 export interface CreateDevicePhysicsOpts {
   heronLayout?: HeronLayout;

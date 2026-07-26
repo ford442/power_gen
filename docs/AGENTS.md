@@ -68,8 +68,10 @@ Client-side **multi-device physics lab**: real-time visualization of research ap
 | `solar` | LEDs + solar + battery | Photon paths + SOC; separate LED/solar TS/WGSL suite exists |
 | `peltier` | Thermoelectric | Geometry + particles; WASM two-node Seebeck stack plant (`?wasmPhysics=1`); lighter JS fallback |
 | `mhd` | MHD channel | Geometry + particles; WASM Hartmann-channel plant (`?wasmPhysics=1`); lighter JS fallback |
-| `maglev` | Quanta MagLev (plugin) | Plugin registry; see [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
-| `homopolar` | Quanta homopolar disc (plugin) | Faraday disc L–R model; see [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
+| `maglev` | Quanta MagLev (plugin) | Spring–damper gap + Halbach B est.; WASM plant with `?wasmPhysics=1` — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
+| `homopolar` | Quanta Faraday disc (plugin) | L–R + back-EMF; WASM plant with `?wasmPhysics=1` — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
+| `halbach-viz` | Quanta Halbach viz (plugin) | CPU RK4 field lines + heatmap (JS); see gallery |
+| `pulse-coil` | Quanta pulse coil (plugin) | Classroom series R–L + cap discharge; JS plant only — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
 
 Dashboard overview can enable **all** registered sim devices (typically 6 core + plugins). Particle budgets and mesh detail are **not** equal across devices — auto-quality and view LOD scale further. Do not document “full physical fidelity on every device.”
 

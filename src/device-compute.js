@@ -77,6 +77,10 @@ class DeviceComputeManager {
       } else if (physicsState.deviceId === 'halbach-viz') {
         p0 = (physicsState.halbachSegmentCount ?? 8) / 24;
         p1 = Math.min(1, (physicsState.halbachPeakBT ?? 0) / 0.8);
+      } else if (physicsState.deviceId === 'pulse-coil') {
+        p0 = Math.min(1, Math.abs(physicsState.pulseCoilCurrentA ?? 0) / 80);
+        p1 = Math.min(1, (physicsState.pulseCoilBPeakT ?? 0) / 1.5);
+        p2 = Math.min(1, (physicsState.pulseCoilArmatureM ?? 0) / 0.12);
       }
     }
 

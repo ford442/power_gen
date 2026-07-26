@@ -27,14 +27,18 @@ export interface ParticleUniforms {
   corona: number;
   simClock: number;
   speedMult: number;
-  /** Maglev plugin fields (mode >= 6) */
+  /** Maglev plugin fields (mode 6) */
   maglevGap?: number;
   maglevFieldT?: number;
-  /** Homopolar plugin fields (mode >= 8) */
+  /** Pulse-coil plugin fields (mode 7) */
+  pulseCoilCurrentA?: number;
+  pulseCoilBPeakT?: number;
+  pulseCoilArmatureM?: number;
+  /** Homopolar plugin fields (mode 8) */
   homopolarRpm?: number;
   homopolarEmfV?: number;
   homopolarAngle?: number;
-  /** Halbach viz plugin fields (mode >= 9) */
+  /** Halbach viz plugin fields (mode 9) */
   halbachSegmentCount?: number;
   halbachPeakBT?: number;
 }
@@ -164,6 +168,21 @@ function integrateHomopolar(
   const theta = discAngle + phase * TAU + t * (0.4 + rpmN * 3.5) + idx * 0.011;
   const y = 0.16 + Math.sin(t * 4.0 + phase * 18.0) * 0.04 * (0.3 + emfN);
   return [Math.cos(theta) * r, y, Math.sin(theta) * r];
+}
+
+function integratePulseCoil(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  iN = 0,
+  bN = 0,
+  travel = 0
+): [number, number, number] {
+  const phase = p.phase;
+  const angle = phase * TAU + t * (0.9 + iN * 2.5) + idx * 0.019;
+  const r = 0.35 + (((idx * 0.211 + phase) % 1 + 1) % 1) * (0.9 + iN * 0.8);
+  const y = 0.2 + travel * 0.55 + Math.sin(t * 5.0 + phase * 14.0) * 0.08 * (0.3 + bN);
+  return [Math.cos(angle) * r, y, Math.sin(angle) * r];
 }
 
 function integrateHalbach(
@@ -328,6 +347,12 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
       const emfN = Math.min(1, (u.homopolarEmfV ?? 0) / 2);
       const pos = integrateHomopolar({ phase }, idx, u.time, rpmN, emfN, u.homopolarAngle ?? 0);
       px = pos[0]; py = pos[1]; pz = pos[2];
+    } else if (mode >= 7.0) {
+      const iN = Math.min(1, Math.abs(u.pulseCoilCurrentA ?? 0) / 80);
+      const bN = Math.min(1, (u.pulseCoilBPeakT ?? 0) / 1.5);
+      const travelN = Math.min(1, (u.pulseCoilArmatureM ?? 0) / 0.12);
+      const pos = integratePulseCoil({ phase }, idx, u.time, iN, bN, travelN);
+      px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode >= 6.0) {
       const gap = u.maglevGap ?? 0.018;
       const field = u.maglevFieldT ?? 0.5;
@@ -380,6 +405,12 @@ export function seedParticles(
       const a = simRandom() * Math.PI * 2;
       particles[base] = Math.cos(a) * r;
       particles[base + 1] = 0.2 + simRandom() * 0.6;
+      particles[base + 2] = Math.sin(a) * r;
+    } else if (deviceId === 'pulse-coil') {
+      const r = 0.3 + simRandom() * 1.2;
+      const a = simRandom() * Math.PI * 2;
+      particles[base] = Math.cos(a) * r;
+      particles[base + 1] = 0.15 + simRandom() * 0.7;
       particles[base + 2] = Math.sin(a) * r;
     } else if (deviceId === 'solar' || deviceId === 'peltier') {
       const ledCount = 6;

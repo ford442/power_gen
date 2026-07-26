@@ -66,6 +66,18 @@ export interface SEGSimulatorInstance {
   getMhdVoltage?(): number;
   getMhdCurrent?(): number;
   getMhdPowerW?(): number;
+  getMaglevGap?(): number;
+  getMaglevGapVel?(): number;
+  getMaglevGapMm?(): number;
+  getMaglevFieldT?(): number;
+  getMaglevLiftN?(): number;
+  getMaglevRpm?(): number;
+  getHomopolarOmega?(): number;
+  getHomopolarAngle?(): number;
+  getHomopolarRpm?(): number;
+  getHomopolarEmfV?(): number;
+  getHomopolarCurrentA?(): number;
+  getHomopolarFieldT?(): number;
   getEnergyLevel?(): number;
   /** Byte offset into WASM heap (use with HEAPF32) */
   getParticleBufferPtr?(): number;
@@ -88,6 +100,7 @@ export interface SimCoreModule {
   magneticDipoleField(r: Vec3, m: Vec3): Vec3;
   magneticDipoleForce(pos1: Vec3, m1: Vec3, pos2: Vec3, m2: Vec3): Vec3;
   axialBField(z: number, radius: number, height: number, Br: number): number;
+  estimateHalbachFieldT?(gapM: number, remanenceT?: number): number;
   sim_core_version(): string;
 }
 

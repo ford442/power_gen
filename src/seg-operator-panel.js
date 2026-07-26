@@ -372,7 +372,8 @@ export class SEGOperatorPanel {
       mhd: 'MHD',
       maglev: 'Mag Levitation',
       homopolar: 'Homopolar Generator',
-      'halbach-viz': 'Halbach Field Viz'
+      'halbach-viz': 'Halbach Field Viz',
+      'pulse-coil': 'Pulse Coil (R–L)'
     };
     if (modeFooter) modeFooter.textContent = modeLabels[view] || view.toUpperCase();
 
@@ -392,7 +393,7 @@ export class SEGOperatorPanel {
         const spark = kelvin.kelvinSparkTimer > 0 ? ' ⚡' : '';
         const v = kelvin.kelvinVoltageN * (kelvin.kelvinVbreak || 1);
         batteryFooter.textContent = `V ${v.toFixed(0)} V (${(kelvin.kelvinVoltageN * 100).toFixed(0)}%)${spark}`;
-      } else if (solar) {
+      } else if (view === 'solar' && solar) {
         batteryFooter.textContent = `${Math.round((solar.batteryCharge || 0) * 100)}%`;
       } else if (view === 'homopolar' && snap.devices?.homopolar) {
         const h = snap.devices.homopolar;
@@ -416,6 +417,14 @@ export class SEGOperatorPanel {
           `θ ${(h.halbachMagAngleDeg || 0).toFixed(0)}°`,
           `|B| ${(h.halbachPeakBT || 0).toFixed(3)} T`,
           `F ${(h.halbachDipoleForceN || 0).toFixed(4)} N`
+        ].join(' · ');
+      } else if (view === 'pulse-coil' && snap.devices?.['pulse-coil']) {
+        const p = snap.devices['pulse-coil'];
+        batteryFooter.textContent = [
+          `I ${(p.pulseCoilCurrentA || 0).toFixed(1)} A`,
+          `Vcap ${(p.pulseCoilVCap || 0).toFixed(1)} V`,
+          `B ${(p.pulseCoilBPeakT || 0).toFixed(3)} T`,
+          `x ${(p.pulseCoilArmatureMm || 0).toFixed(1)} mm`
         ].join(' · ');
       } else {
         batteryFooter.textContent = '—';

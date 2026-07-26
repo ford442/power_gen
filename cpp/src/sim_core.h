@@ -78,6 +78,8 @@ static constexpr int ROLLER_EXPORT_STRIDE = 4;
 Vec3  magneticDipoleField(Vec3 r, Vec3 m);
 Vec3  magneticDipoleForce(Vec3 pos1, Vec3 m1, Vec3 pos2, Vec3 m2);
 float axialBField(float z, float radius, float height, float Br);
+/// Order-of-magnitude Halbach ring surface field vs gap (mirrors JS estimateHalbachFieldT).
+float estimateHalbachFieldT(float gapM, float remanenceT = 0.f);
 float seg_roller_torque(const SEGRollerState& r, float B_avg, int numRollers);
 void  seg_roller_rk4(SEGRollerState& r, float dt, float loadTorque);
 void  seg_particle_step(SimParticle& p, float omega, float corona, float dt);
@@ -98,7 +100,9 @@ enum SimMode {
     SIM_MODE_KELVIN = 2,
     SIM_MODE_SOLAR = 3,
     SIM_MODE_PELTIER = 4,
-    SIM_MODE_MHD = 5
+    SIM_MODE_MHD = 5,
+    SIM_MODE_MAGLEV = 6,
+    SIM_MODE_HOMOPOLAR = 7
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -185,6 +189,37 @@ struct MHDState {
     float drive{0.f};          // 0..1 pump/field drive
 };
 
+/// Maglev gap ODE — mirrors Quanta JS spring–damper (magnetic-levitation.js).
+struct MaglevState {
+    float gap{0.018f};         // m
+    float gapVel{0.f};         // m/s
+    float gapMm{18.f};
+    float fieldT{0.f};
+    float liftN{0.f};
+    float rpm{0.f};
+    float kSpring{180.f};
+    float cDamp{14.f};
+    float mass{0.045f};
+    float drive{0.f};
+};
+
+/// Homopolar Faraday disc L–R + back-EMF — mirrors homopolar-generator.js.
+struct HomopolarState {
+    float omega{0.f};          // rad/s
+    float angle{0.f};          // rad
+    float rpm{0.f};
+    float emfV{0.f};
+    float currentA{0.f};
+    float fieldT{0.55f};
+    float discRadiusM{0.14f};
+    float rOhm{0.008f};
+    float lHenry{0.0015f};
+    float inertia{0.002f};
+    float drag{0.0008f};
+    float tauDriveMax{0.15f};
+    float drive{0.f};
+};
+
 // ─────────────────────────────────────────────────────────────
 // SEGSimulator
 // ─────────────────────────────────────────────────────────────
@@ -244,6 +279,20 @@ public:
     float getMhdCurrent() const { return _mhd.currentA; }
     float getMhdPowerW() const { return _mhd.powerW; }
 
+    float getMaglevGap() const { return _maglev.gap; }
+    float getMaglevGapVel() const { return _maglev.gapVel; }
+    float getMaglevGapMm() const { return _maglev.gapMm; }
+    float getMaglevFieldT() const { return _maglev.fieldT; }
+    float getMaglevLiftN() const { return _maglev.liftN; }
+    float getMaglevRpm() const { return _maglev.rpm; }
+
+    float getHomopolarOmega() const { return _homopolar.omega; }
+    float getHomopolarAngle() const { return _homopolar.angle; }
+    float getHomopolarRpm() const { return _homopolar.rpm; }
+    float getHomopolarEmfV() const { return _homopolar.emfV; }
+    float getHomopolarCurrentA() const { return _homopolar.currentA; }
+    float getHomopolarFieldT() const { return _homopolar.fieldT; }
+
     // ── Accessors ─────────────────────────────────────────────
     float getOmega()        const { return _rollers[0].omega; }
     float getRPM()          const { return _rollers[0].omega * 60.f / PhysicsConstants::TAU; }
@@ -300,6 +349,8 @@ private:
     SolarState     _solar;
     PeltierState   _peltier;
     MHDState       _mhd;
+    MaglevState    _maglev;
+    HomopolarState _homopolar;
 
     void _initRollers();
     void _stepHeron(float dt);
@@ -307,6 +358,8 @@ private:
     void _stepSolar(float dt);
     void _stepPeltier(float dt);
     void _stepMHD(float dt);
+    void _stepMaglev(float dt);
+    void _stepHomopolar(float dt);
     void _stepSegRollers(float dt);
 };
 
