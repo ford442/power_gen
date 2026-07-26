@@ -7,7 +7,9 @@ import { getHeronLayout } from '../heron-layout.js';
 import { buildMagLevMesh } from './quanta/magnetic-levitation.js';
 import { buildHomopolarMesh } from './quanta/homopolar-generator.js';
 import { buildHalbachVizMesh, halbachConfigFromState } from './quanta/halbach-viz.js';
+import { buildPulseCoilMesh } from './quanta/pulse-coil.js';
 import { instancesToBufferData, countInstances } from '../device-mesh-layouts.js';
+import { segWasm } from '../wasm/seg-physics-bridge.js';
 
 export const DeviceUpdateMixin = {
   update: function (deltaTime, qualityScale) {
@@ -32,7 +34,7 @@ export const DeviceUpdateMixin = {
     );
 
     // Per-device physics integrators (Heron head, Kelvin voltage, solar battery)
-    if (!this.physicsState && ['heron', 'kelvin', 'solar', 'maglev', 'homopolar', 'halbach-viz'].includes(this.id)) {
+    if (!this.physicsState && ['heron', 'kelvin', 'solar', 'maglev', 'homopolar', 'halbach-viz', 'pulse-coil'].includes(this.id)) {
       const heronLayout = this.id === 'heron'
         ? (this.visualizer.heronLayout || getHeronLayout(this.visualizer.heronLayoutPreset))
         : null;
@@ -43,7 +45,15 @@ export const DeviceUpdateMixin = {
       const heronLayout = this.id === 'heron'
         ? (this.visualizer.heronLayout || getHeronLayout(this.physicsState.heronLayoutId))
         : null;
-      stepDevicePhysics(this.physicsState, deltaTime, drive, { heronLayout });
+      // When ?wasmPhysics=1 focuses maglev/homopolar, C++ owns the plant — skip JS ODE.
+      const wasmOwnsPlant = segWasm.enabled
+        && this.physicsState._wasmPlantActive
+        && (this.id === 'maglev' || this.id === 'homopolar');
+      if (!wasmOwnsPlant) {
+        stepDevicePhysics(this.physicsState, deltaTime, drive, { heronLayout });
+      } else {
+        this.physicsState._wasmPlantActive = false;
+      }
       if (this.id === 'heron') {
         this.flowEnergyLevel = this.physicsState.energyLevel;
       } else if (this.id === 'kelvin') {
@@ -68,6 +78,14 @@ export const DeviceUpdateMixin = {
       } else if (this.id === 'halbach-viz' && this.rollerInstances) {
         const config = halbachConfigFromState(this.physicsState);
         const mesh = buildHalbachVizMesh(config);
+        const data = instancesToBufferData([mesh.cylinders()]);
+        this.device.queue.writeBuffer(this.rollerInstances, 0, data);
+        this.meshCylinderCount = countInstances(mesh.cylinders().flat());
+      } else if (this.id === 'pulse-coil' && this.rollerInstances) {
+        const travel = this.physicsState.pulseCoilArmatureM ?? 0;
+        const iA = this.physicsState.pulseCoilCurrentA ?? 0;
+        const vCap = this.physicsState.pulseCoilVCap ?? 0;
+        const mesh = buildPulseCoilMesh(travel, iA, vCap);
         const data = instancesToBufferData([mesh.cylinders()]);
         this.device.queue.writeBuffer(this.rollerInstances, 0, data);
         this.meshCylinderCount = countInstances(mesh.cylinders().flat());
@@ -325,6 +343,9 @@ export const DeviceUpdateMixin = {
     } else if (this.id === 'halbach-viz') {
       const fieldN = Math.min(1, (this.physicsState?.halbachPeakBT ?? 0) / 0.8);
       deviceEnergy = Math.min(1.0, fieldN * 0.8 + speedNorm * 0.2);
+    } else if (this.id === 'pulse-coil') {
+      const iN = Math.min(1, Math.abs(this.physicsState?.pulseCoilCurrentA ?? 0) / 80);
+      deviceEnergy = Math.min(1.0, (this.physicsState?.energyLevel ?? iN) * 0.75 + speedNorm * 0.25);
     }
 
     // Exponential response in high-energy regime to make overdrive feel dangerous.
@@ -560,10 +581,20 @@ export const DeviceUpdateMixin = {
         const y = 0.2 + Math.sin(t * 3 + i * 0.2) * 0.1;
         pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 3.0 + Math.random());
       }
+    } else if (this.id === 'pulse-coil') {
+      const pulseGate = Math.pow(gate(energy, 0.12, 0.7), 1.15);
+      const burstCount = Math.floor(budget * 0.4 * pulseGate);
+      const travel = this.physicsState?.pulseCoilArmatureM ?? 0;
+      for (let i = 0; i < burstCount; i++) {
+        const a = (i / Math.max(1, burstCount)) * Math.PI * 2 + t * 2.4;
+        const r = 0.35 + Math.random() * 1.1;
+        const y = 0.2 + travel * 0.5 + Math.sin(t * 6 + i * 0.27) * 0.1;
+        pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 3.0 + Math.random());
+      }
     }
 
     // Subtle thermal haze billboards around hot devices.
-    if ((this.id === 'seg' || this.id === 'peltier' || this.id === 'mhd' || this.id === 'maglev' || this.id === 'homopolar' || this.id === 'halbach-viz') && energy > 0.35) {
+    if ((this.id === 'seg' || this.id === 'peltier' || this.id === 'mhd' || this.id === 'maglev' || this.id === 'homopolar' || this.id === 'halbach-viz' || this.id === 'pulse-coil') && energy > 0.35) {
       const hazeCount = Math.floor(budget * Math.pow(gate(energy, 0.35, 0.9), 1.4) * 0.18);
       for (let i = 0; i < hazeCount; i++) {
         const a = Math.random() * Math.PI * 2;

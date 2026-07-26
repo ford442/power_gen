@@ -71,7 +71,7 @@ export const renderLoopMethods = {
       const drive = segOperator.getDrive();
       const loadT = 0.01 * (1 - drive * 0.5);
       const focus = this.currentView === 'overview' ? 'seg' : this.currentView;
-      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd'].includes(focus)) {
+      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar'].includes(focus)) {
         segWasm.setMode(focus);
       }
       for (const subDt of simSteps) {
@@ -126,6 +126,33 @@ export const renderLoopMethods = {
             mhd.physicsState.mhdVoltage = plant.voltage ?? 0;
             mhd.physicsState.mhdPowerW = plant.powerW ?? 0;
             mhd.physicsState.energyLevel = plant.energyLevel ?? 0;
+          }
+        } else if (focus === 'maglev') {
+          const plant = segWasm.getModePlant();
+          const maglev = this.devices.maglev;
+          if (maglev?.physicsState && plant?.mode === 'maglev') {
+            maglev.physicsState.maglevGap = plant.gap ?? maglev.physicsState.maglevGap;
+            maglev.physicsState.maglevGapVel = plant.gapVel ?? maglev.physicsState.maglevGapVel;
+            maglev.physicsState.maglevGapMm = plant.gapMm ?? 0;
+            maglev.physicsState.maglevFieldT = plant.fieldT ?? 0;
+            maglev.physicsState.maglevLiftN = plant.liftN ?? 0;
+            maglev.physicsState.maglevRpm = plant.rpm ?? 0;
+            maglev.physicsState.energyLevel = plant.energyLevel ?? 0;
+            maglev.physicsState._wasmPlantActive = true;
+          }
+        } else if (focus === 'homopolar') {
+          const plant = segWasm.getModePlant();
+          const homo = this.devices.homopolar;
+          if (homo?.physicsState && plant?.mode === 'homopolar') {
+            homo.physicsState.homopolarOmega = plant.omega ?? 0;
+            homo.physicsState.homopolarAngle = plant.angle ?? 0;
+            homo.physicsState.homopolarRpm = plant.rpm ?? 0;
+            homo.physicsState.homopolarEmfV = plant.emfV ?? 0;
+            homo.physicsState.homopolarCurrentA = plant.currentA ?? 0;
+            homo.physicsState.homopolarCurrent = plant.currentA ?? 0;
+            homo.physicsState.homopolarFieldT = plant.fieldT ?? 0;
+            homo.physicsState.energyLevel = plant.energyLevel ?? 0;
+            homo.physicsState._wasmPlantActive = true;
           }
         }
       }

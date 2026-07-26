@@ -25,6 +25,7 @@ export function encodeLabHash(opts = {}) {
   if (opts.renderer) parts.push(`renderer=${opts.renderer}`);
   if (opts.halbachSegments != null) parts.push(`hseg=${opts.halbachSegments}`);
   if (opts.halbachLinear) parts.push('hlin=1');
+  if (opts.pulseCoilCharge != null) parts.push(`pcap=${Number(opts.pulseCoilCharge).toFixed(2)}`);
   return `#lab=${parts.join(';')}`;
 }
 
@@ -58,6 +59,7 @@ export function decodeLabHash(hash = typeof location !== 'undefined' ? location.
     else if (k === 'renderer') out.renderer = v;
     else if (k === 'hseg') out.halbachSegments = parseInt(v, 10);
     else if (k === 'hlin') out.halbachLinear = v === '1';
+    else if (k === 'pcap') out.pulseCoilCharge = parseFloat(v);
   }
   return out;
 }
@@ -92,6 +94,14 @@ export async function applyLabState(lab) {
     const dev = window.multiVisualizer.devices?.['halbach-viz'];
     if (dev?.physicsState) {
       dev.physicsState.halbachSegmentCount = lab.halbachSegments;
+    }
+  }
+  if (lab.mode === 'pulse-coil' && lab.pulseCoilCharge != null && window.multiVisualizer) {
+    const dev = window.multiVisualizer.devices?.['pulse-coil'];
+    const phys = dev?.physicsState || dev?.physics;
+    if (phys) {
+      const vmax = 48;
+      phys.pulseCoilVCap = Math.max(0, Math.min(1, lab.pulseCoilCharge)) * vmax;
     }
   }
   if (lab.halbachLinear && typeof window !== 'undefined') {
@@ -152,6 +162,7 @@ export function captureLabState() {
   const v = window.multiVisualizer;
   const op = window.segOperator;
   const es = window.explainerState;
+  const pulse = v?.devices?.['pulse-coil']?.physicsState || v?.devices?.['pulse-coil']?.physics;
   return {
     mode: v?.currentView === 'overview' ? 'overview' : (v?.currentView || 'seg'),
     layout: v?.getSEGLayoutPreset?.() ?? v?.segLayoutPreset ?? 'searl',
@@ -163,7 +174,10 @@ export function captureLabState() {
     hi: es?.highlightId || undefined,
     step: window.segTour?.playing ? window.segTour.stepIndex : undefined,
     tour: window.segTour?.playing ?? false,
-    renderer: window.currentRenderer
+    renderer: window.currentRenderer,
+    pulseCoilCharge: pulse?.pulseCoilVCap != null
+      ? Math.max(0, Math.min(1, pulse.pulseCoilVCap / 48))
+      : undefined
   };
 }
 

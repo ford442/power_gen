@@ -44,8 +44,8 @@ eddy-current damping metaphor.
 
 | View | Screenshot |
 |------|------------|
-| Overview | *(capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
-| Focus | *(capture with `window.setMode('maglev')`)* |
+| Overview | *(placeholder — capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
+| Focus | *(placeholder — capture with `window.setMode('maglev')`)* |
 
 ### Telemetry
 
@@ -65,7 +65,8 @@ eddy-current damping metaphor.
 ### Implementation
 
 - Plugin: `src/devices/quanta/magnetic-levitation.js`
-- WGSL mode index: `6` (`posMagLev` in `shaders/generators/compute-shaders.js`)
+- WGSL mode index: `6` (`posMagLev` in `shaders/passes/particle-compute.wgsl`)
+- WASM plant: `SimMode=6` (`?wasmPhysics=1`); JS spring–damper fallback when WASM off
 
 ---
 
@@ -77,8 +78,8 @@ with back-EMF ε ≈ ½ B ω r² (not full 3D FEM).
 
 | View | Screenshot |
 |------|------------|
-| Overview | *(capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
-| Focus | *(capture with `window.setMode('homopolar')`)* |
+| Overview | *(placeholder — capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
+| Focus | *(placeholder — capture with `window.setMode('homopolar')`)* |
 
 ### Telemetry
 
@@ -100,6 +101,7 @@ with back-EMF ε ≈ ½ B ω r² (not full 3D FEM).
 - Plugin: `src/devices/quanta/homopolar-generator.js`
 - WGSL mode index: `8` (`posHomopolar` in `shaders/passes/particle-compute.wgsl`)
 - WebGL2: instanced disc + magnet poles via `mesh-renderer.drawPluginDevice`
+- WASM plant: `SimMode=7` (`?wasmPhysics=1`); JS L–R fallback when WASM off
 
 ---
 
@@ -112,8 +114,8 @@ angle. CPU RK4 field-line tracer with |B| slice heatmap on focus view.
 
 | View | Screenshot |
 |------|------------|
-| Overview | *(capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
-| Focus | *(capture with `window.setMode('halbach-viz')`)* |
+| Overview | *(placeholder — capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
+| Focus | *(placeholder — capture with `window.setMode('halbach-viz')`)* |
 
 ### Telemetry
 
@@ -138,6 +140,44 @@ angle. CPU RK4 field-line tracer with |B| slice heatmap on focus view.
 - WGSL mode index: `9` (`posHalbach` in `shaders/passes/particle-compute.wgsl`)
 - WebGL2: CPU field lines + heatmap via `renderers/webgl2/halbach-field-renderer.js`
 - Shareable lab link: `#lab=…;mode=halbach-viz;hseg=12` (optional `hlin=1`)
+- Plant: CPU-JS only (slow path OK); C++ exposes `estimateHalbachFieldT` for offline sampling
+
+---
+
+## pulse-coil
+
+**Pulse Coil (R–L)** — classroom pulsed-electromagnet demo: capacitor-bank
+discharge through a series inductor; peak B from coil amp-turns; soft-iron
+armature travel as an attraction proxy. **Educational L–R model only** — not a
+projectile, coilgun weapons, or high-energy pulse simulation.
+
+| View | Screenshot |
+|------|------------|
+| Overview | *(placeholder — capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
+| Focus | *(placeholder — capture with `window.setMode('pulse-coil')`)* |
+
+### Telemetry
+
+| Field | Unit | Source |
+|-------|------|--------|
+| Coil current | A | Series R–L discharge (`pulseCoilCurrentA`) |
+| Cap voltage | V | Bank state (`pulseCoilVCap`) |
+| B peak (est.) | T | μ₀ N I / (2 R) classroom estimate |
+| Armature travel | mm | Soft-iron pull-in proxy (`pulseCoilArmatureMm`) |
+
+### References
+
+1. D. J. Griffiths — *Introduction to Electrodynamics* (series R–L)
+2. E. M. Purcell, D. J. Morin — *Electricity and Magnetism* (RLC / amp-turns)
+3. H. C. Roters — *Electromagnetic Devices* (solenoid armature fundamentals)
+
+### Implementation
+
+- Plugin: `src/devices/quanta/pulse-coil.js`
+- WGSL mode index: `7` (`posPulseCoil` in `shaders/passes/particle-compute.wgsl`)
+- WebGL2: coil + cap bank + armature mesh via `drawPluginDevice`; basic particles
+- Plant: **JS only** (WASM plant not yet — sandboxed educational model)
+- Shareable lab link: `#lab=…;mode=pulse-coil;pcap=0.75` (optional charge fraction)
 
 ---
 
@@ -145,8 +185,8 @@ angle. CPU RK4 field-line tracer with |B| slice heatmap on focus view.
 
 | Device | Status | Notes |
 |--------|--------|-------|
-| Magnetic bearing / levitation | **Live** (`maglev`) | First Quanta catalog entry |
-| Homopolar / Faraday disc | **Live** (`homopolar`) | Rotating copper disc + axial B |
+| Magnetic bearing / levitation | **Live** (`maglev`) | WASM `SimMode=6` + JS fallback |
+| Homopolar / Faraday disc | **Live** (`homopolar`) | WASM `SimMode=7` + JS fallback |
 | Halbach array field visualizer | **Live** (`halbach-viz`) | Field line overlay + slice heatmap |
-| Pulse magnet / coilgun (sandboxed) | Planned | Educational L–R model only |
+| Pulse magnet / coilgun (sandboxed) | **Live** (`pulse-coil`) | Educational R–L only; classroom-safe copy |
 | Quanta product mockups | Blocked | Awaiting product specs |

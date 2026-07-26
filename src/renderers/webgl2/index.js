@@ -20,6 +20,7 @@ import { getMergedDeviceConfig, getAllSimDeviceIds } from '../../devices/device-
 import { buildMagLevMesh } from '../../devices/quanta/magnetic-levitation.js';
 import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator.js';
 import { buildHalbachVizMesh, halbachConfigFromState } from '../../devices/quanta/halbach-viz.js';
+import { buildPulseCoilMesh } from '../../devices/quanta/pulse-coil.js';
 import { exposeRenderer, RENDERER_WEBGL2 } from '../renderer-selector.js';
 import { stepParticles, seedParticles } from '../shared/particle-physics.ts';
 import {
@@ -438,7 +439,7 @@ export class WebGL2MultiDeviceVisualizer {
 
     if (useWasm) {
       const loadT = 0.01 * (1 - drive * 0.5);
-      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd'].includes(focus)) {
+      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar'].includes(focus)) {
         segWasm.setMode(focus);
       }
       for (const subDt of simSteps) {
@@ -494,6 +495,33 @@ export class WebGL2MultiDeviceVisualizer {
             mhd.mhdPowerW = plant.powerW ?? 0;
             mhd.energyLevel = plant.energyLevel ?? 0;
           }
+        } else if (focus === 'maglev') {
+          const plant = segWasm.getModePlant();
+          const maglev = this.devices.maglev?.physics;
+          if (maglev && plant?.mode === 'maglev') {
+            maglev.maglevGap = plant.gap ?? maglev.maglevGap;
+            maglev.maglevGapVel = plant.gapVel ?? maglev.maglevGapVel;
+            maglev.maglevGapMm = plant.gapMm ?? 0;
+            maglev.maglevFieldT = plant.fieldT ?? 0;
+            maglev.maglevLiftN = plant.liftN ?? 0;
+            maglev.maglevRpm = plant.rpm ?? 0;
+            maglev.energyLevel = plant.energyLevel ?? 0;
+            maglev._wasmPlantActive = true;
+          }
+        } else if (focus === 'homopolar') {
+          const plant = segWasm.getModePlant();
+          const homo = this.devices.homopolar?.physics;
+          if (homo && plant?.mode === 'homopolar') {
+            homo.homopolarOmega = plant.omega ?? 0;
+            homo.homopolarAngle = plant.angle ?? 0;
+            homo.homopolarRpm = plant.rpm ?? 0;
+            homo.homopolarEmfV = plant.emfV ?? 0;
+            homo.homopolarCurrentA = plant.currentA ?? 0;
+            homo.homopolarCurrent = plant.currentA ?? 0;
+            homo.homopolarFieldT = plant.fieldT ?? 0;
+            homo.energyLevel = plant.energyLevel ?? 0;
+            homo._wasmPlantActive = true;
+          }
         }
       }
     } else {
@@ -527,12 +555,19 @@ export class WebGL2MultiDeviceVisualizer {
         device.physics.corona = segOperator.physics.corona;
         device.physics.magneticFieldStrength = segOperator.magneticFieldStrength;
         device.physics.energyLevel = segOperator.physics.segOmega;
-      } else if (!useWasm || device.id !== focus) {
-        // When WASM owns the focused plant, skip double-stepping that device
-        for (let s = 0; s < substeps; s++) {
-          const heronLayout = device.id === 'heron' ? this.heronLayout : null;
-          stepDevicePhysics(device.physics, subDt, drive, { heronLayout });
+      } else {
+        const coreWasmModes = ['heron', 'kelvin', 'solar', 'peltier', 'mhd'];
+        const wasmOwnsFocus = useWasm && device.id === focus && (
+          coreWasmModes.includes(device.id)
+          || ((device.id === 'maglev' || device.id === 'homopolar') && device.physics._wasmPlantActive)
+        );
+        if (!wasmOwnsFocus) {
+          for (let s = 0; s < substeps; s++) {
+            const heronLayout = device.id === 'heron' ? this.heronLayout : null;
+            stepDevicePhysics(device.physics, subDt, drive, { heronLayout });
+          }
         }
+        if (device.physics._wasmPlantActive) device.physics._wasmPlantActive = false;
       }
 
       for (let s = 0; s < substeps; s++) {
@@ -563,6 +598,9 @@ export class WebGL2MultiDeviceVisualizer {
           homopolarAngle: device.physics.homopolarAngle,
           halbachSegmentCount: device.physics.halbachSegmentCount,
           halbachPeakBT: device.physics.halbachPeakBT,
+          pulseCoilCurrentA: device.physics.pulseCoilCurrentA,
+          pulseCoilBPeakT: device.physics.pulseCoilBPeakT,
+          pulseCoilArmatureM: device.physics.pulseCoilArmatureM,
           simClock: this.simClock,
           speedMult: speed
         });
@@ -709,6 +747,13 @@ export class WebGL2MultiDeviceVisualizer {
             { extent: 3.1, gridSize: 24 }
           );
         }
+      } else if (device.id === 'pulse-coil') {
+        const travel = device.physics.pulseCoilArmatureM ?? 0;
+        const iA = device.physics.pulseCoilCurrentA ?? 0;
+        const vCap = device.physics.pulseCoilVCap ?? 0;
+        this.meshRenderer.drawPluginDevice(
+          viewProj, pos, buildPulseCoilMesh(travel, iA, vCap).cylinders(), renderOpts
+        );
       }
 
       this.particleRenderer.draw(

@@ -19,7 +19,7 @@ function isWasmEnabled() {
   return localStorage.getItem('useWasmPhysics') === 'true';
 }
 
-const MODE_MAP = { seg: 0, heron: 1, kelvin: 2, solar: 3, peltier: 4, mhd: 5 };
+const MODE_MAP = { seg: 0, heron: 1, kelvin: 2, solar: 3, peltier: 4, mhd: 5, maglev: 6, homopolar: 7 };
 
 export const segWasm = {
   get available() {

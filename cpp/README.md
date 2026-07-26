@@ -56,20 +56,25 @@ npm run wasm:native
 cd cpp && make native
 ```
 
-Native smoke exercises **SEG**, **Heron**, **Kelvin**, **Solar**, **Peltier**, and
-**MHD** plant modes plus zero-copy buffer packing
+Native smoke exercises **SEG**, **Heron**, **Kelvin**, **Solar**, **Peltier**,
+**MHD**, **Maglev**, and **Homopolar** plant modes plus zero-copy buffer packing
 (`getRollerStateFloatCount == 66*4`). Single-mode smoke runs:
 
 ```bash
 ./build/sim_core_test --mode peltier   # thermoelectric stack smoke
-./build/sim_core_test --mode mhd      # Hartmann channel smoke
+./build/sim_core_test --mode mhd       # Hartmann channel smoke
+./build/sim_core_test --mode maglev    # Quanta gap ODE smoke
+./build/sim_core_test --mode homopolar # Faraday disc L–R smoke
 ```
 
 Plant modes (SimMode enum): `0=SEG` RK4 rollers, `1=Heron` Bernoulli /
 Swamee–Jain, `2=Kelvin` capacitive + spark, `3=Solar` battery SOC,
 `4=Peltier` simplified 1D Seebeck/Peltier two-node stack (Thomson neglected),
 `5=MHD` Hartmann-style channel flow with Lorentz braking and induced load
-voltage.
+voltage, `6=Maglev` spring–damper gap ODE (mirrors Quanta JS),
+`7=Homopolar` Faraday disc L–R + back-EMF (mirrors Quanta JS).
+Free helper `estimateHalbachFieldT(gap, Br)` mirrors the JS Halbach gap estimate
+for offline field sampling (halbach-viz remains CPU-JS for field lines).
 
 ### Zero-copy particle / roller buffers
 

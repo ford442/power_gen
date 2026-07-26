@@ -48,6 +48,10 @@ export interface DeviceTelemetrySnap {
   halbachPeakBT: number;
   halbachPeriodM: number;
   halbachDipoleForceN: number;
+  pulseCoilCurrentA: number;
+  pulseCoilVCap: number;
+  pulseCoilBPeakT: number;
+  pulseCoilArmatureMm: number;
   /** Lab bus accounting (EnergyNetwork, W) — simulated, not metrology. */
   powerInW: number;
   powerOutW: number;

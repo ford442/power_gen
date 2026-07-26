@@ -57,7 +57,9 @@ Details: docs/AGENTS.md → Language strategy. Shaders: **docs/SHADERS.md**.
 
 ## Devices (fidelity is uneven)
 
-Registered core ids: `seg`, `heron`, `kelvin`, `solar`, `peltier`, `mhd` (+ plugins e.g. maglev).
+Registered core ids: `seg`, `heron`, `kelvin`, `solar`, `peltier`, `mhd`
+(+ Quanta plugins: `maglev`, `homopolar`, `halbach-viz`, `pulse-coil`).
+WASM `SimMode` 0–5 core; 6=maglev, 7=homopolar (`?wasmPhysics=1`).
 
 - **SEG** is the highest-fidelity path (layout presets, flux, PBR).
 - **Peltier / MHD** are lighter models — geometry + particles, not full plant parity.

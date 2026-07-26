@@ -159,6 +159,17 @@ fn posHalbach(phase: f32, t: f32, idx: u32) -> vec3f {
   return vec3f(cos(angle) * r, y, sin(angle) * r);
 }
 
+/// Mode 7 — pulse-coil: radial flux burst around coil + axial drift with armature.
+fn posPulseCoil(phase: f32, t: f32, idx: u32) -> vec3f {
+  let iN = uniforms.physics0;
+  let bN = uniforms.physics1;
+  let travel = uniforms.physics2;
+  let angle = phase * 6.28318 + t * (0.9 + iN * 2.5) + f32(idx) * 0.019;
+  let r = 0.35 + fract(f32(idx) * 0.211 + phase) * (0.9 + iN * 0.8);
+  let y = 0.2 + travel * 0.55 + sin(t * 5.0 + phase * 14.0) * 0.08 * (0.3 + bN);
+  return vec3f(cos(angle) * r, y, sin(angle) * r);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let idx = id.x;
@@ -182,8 +193,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     newPos = posPeltier(phase, t, idx);
   } else if (mode < 5.5) {
     newPos = posPeltier(phase, t, idx);
-  } else if (mode < 7.0) {
+  } else if (mode < 6.5) {
     newPos = posMagLev(phase, t, idx);
+  } else if (mode < 7.5) {
+    newPos = posPulseCoil(phase, t, idx);
   } else if (mode < 8.5) {
     newPos = posHomopolar(phase, t, idx);
   } else if (mode < 9.5) {

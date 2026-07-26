@@ -82,8 +82,11 @@ export function stepMagLevPhysics(state, dt, drive) {
   const lift = kSpring * (gapTarget - gap) * (0.6 + 0.4 * drive);
   const grav = mass * 9.81;
   const accel = (lift - grav - cDamp * vel) / mass;
-  const newVel = vel + accel * dt;
-  const newGap = Math.max(0.004, Math.min(0.06, gap + newVel * dt));
+  // Semi-implicit Euler + wall restitution (zero outward velocity at clamps)
+  let newVel = vel + accel * dt;
+  let newGap = gap + newVel * dt;
+  if (newGap < 0.004) { newGap = 0.004; newVel = Math.max(0, newVel); }
+  if (newGap > 0.06) { newGap = 0.06; newVel = Math.min(0, newVel); }
 
   state.maglevGap = newGap;
   state.maglevGapVel = newVel;

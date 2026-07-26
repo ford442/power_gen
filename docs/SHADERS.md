@@ -127,6 +127,26 @@ Flow:
 Allowlist: `KNOWN_NAGA_FAILURES` in `scripts/check-wgsl.sh`. Prefer fixing
 shaders over growing the list.
 
+## Particle mode indices
+
+`passes/particle-compute.wgsl` (and WebGL2 `particle-physics.ts`) branch on
+`uniforms.mode` / device mode index from `getDeviceModeIndex()`:
+
+| Mode | Device id | Position helper |
+|------|-----------|-----------------|
+| 0 | `seg` | `posSEG` |
+| 1 | `heron` | `posHeron` |
+| 2 | `kelvin` | `posKelvin` |
+| 3 | `solar` | `posSolar` |
+| 4–5 | `peltier` / `mhd` | `posPeltier` (shared thermal/channel cue) |
+| 6 | `maglev` | `posMagLev` |
+| 7 | `pulse-coil` | `posPulseCoil` |
+| 8 | `homopolar` | `posHomopolar` |
+| 9 | `halbach-viz` | `posHalbach` |
+
+Plugin devices register `modeIndex` in `device-registry`. Physics uniforms
+`physics0..3` carry per-mode scalars (gap, current, armature travel, …).
+
 ## naga vs Chrome (Tint) differences
 
 naga (used offline) is **stricter** than Tint in several places. Patterns that
