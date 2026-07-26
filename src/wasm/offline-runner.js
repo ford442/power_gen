@@ -2,7 +2,7 @@
  * Headless WASM SEG run → telemetry CSV rows (same schema as live hub).
  */
 
-import { SEGSim } from './sim.ts';
+import { SEGSim } from './sim.js';
 import { rowFromWasmSeg, rowsToCsv, TELEMETRY_CSV_COLUMNS } from '../telemetry/telemetry-schema.js';
 import { SEG_SPEC } from '../seg-operator-state.js';
 

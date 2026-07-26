@@ -1,4 +1,4 @@
-import type { HeronLayout } from '../renderers/shared/device-physics.ts';
+import type { HeronLayout } from '../renderers/shared/device-physics';
 
 export const HERON_LAYOUT_PRESETS: {
   classic: string;

@@ -2,17 +2,14 @@
  * WebGPU device/context init. For renderer switching see renderers/renderer-selector.js.
  * WebGL2 fallback uses WebGL2Context — same canvas, shared simulation in renderers/shared/.
  *
- * Language: plain JS (render orchestration). Gradual migration to TS is optional;
- * enable `// @ts-check` only after call sites have stable GPU typings.
- *
  * Feature / limit matrix: docs/WEBGPU.md (and docs/AGENTS.md summary).
  */
 
 /** Depth-only format — stencil is unused; saves memory vs depth24plus-stencil8. */
-export const DEPTH_FORMAT = 'depth24plus';
+export const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
 
 /** Preferred canvas alpha for full-viewport apps (HTML overlays do not need canvas alpha). */
-export const CANVAS_ALPHA_MODE = 'opaque';
+export const CANVAS_ALPHA_MODE: GPUCanvasAlphaMode = 'opaque';
 
 /**
  * Optional device features to enable when the adapter supports them.
@@ -22,19 +19,19 @@ export const CANVAS_ALPHA_MODE = 'opaque';
 export const OPTIONAL_DEVICE_FEATURES = [
   'float32-filterable',
   'rg11b10ufloat-renderable',
-];
+] as const;
 
 /** Device feature required for HDR bloom blur/extract intermediates. */
 export const BLOOM_HDR_FEATURE = 'rg11b10ufloat-renderable';
 
 /** GPUTextureFormat used for bloom extract/blur when {@link BLOOM_HDR_FEATURE} is enabled. */
-export const BLOOM_HDR_FORMAT = 'rg11b10ufloat';
+export const BLOOM_HDR_FORMAT: GPUTextureFormat = 'rg11b10ufloat';
 
 /**
  * Soft preferred limits: only requested when the adapter can satisfy them.
  * Defaults already cover current particle compute (workgroup 64); raise here as needed.
  */
-export const PREFERRED_LIMITS = {
+export const PREFERRED_LIMITS: Partial<Record<keyof GPUSupportedLimits, number>> = {
   maxStorageBuffersPerShaderStage: 10,
   maxComputeWorkgroupStorageSize: 16384,
   maxBufferSize: 256 * 1024 * 1024,
@@ -42,40 +39,63 @@ export const PREFERRED_LIMITS = {
   maxComputeInvocationsPerWorkgroup: 256
 };
 
+export interface WebGPUManagerOptions {
+  alphaMode?: GPUCanvasAlphaMode;
+  onDeviceLost?: (info: { reason?: string; message?: string }) => void;
+  onUncapturedError?: (event: GPUUncapturedErrorEvent) => void;
+}
+
+export interface CanvasPixelSize {
+  width: number;
+  height: number;
+  layoutReady: boolean;
+}
+
+export interface AdapterInfoSnapshot {
+  vendor: string;
+  architecture: string;
+  device: string;
+  description: string;
+  fallback: boolean;
+}
+
+export interface DepthStencilAttachmentOpts {
+  depthClearValue?: number;
+  depthLoadOp?: GPULoadOp;
+  depthStoreOp?: GPUStoreOp;
+}
+
 export class WebGPUManager {
-  constructor(canvas, options = {}) {
+  canvas: HTMLCanvasElement;
+  adapter: GPUAdapter | null = null;
+  adapterInfo: AdapterInfoSnapshot | null = null;
+  device: GPUDevice | null = null;
+  context: GPUCanvasContext | null = null;
+  depthTexture: GPUTexture | null = null;
+  globalUniformBuffer: GPUBuffer | null = null;
+  globalBindGroup: GPUBindGroup | null = null;
+  globalBindGroupLayout: GPUBindGroupLayout | null = null;
+
+  depthFormat: GPUTextureFormat = DEPTH_FORMAT;
+  canvasFormat: GPUTextureFormat | null = null;
+  alphaMode: GPUCanvasAlphaMode;
+
+  enabledFeatures: string[] = [];
+  requestedLimits: Record<string, number> = {};
+  gpuTimingRequested = false;
+  deviceLost = false;
+
+  private onDeviceLost: ((info: { reason?: string; message?: string }) => void) | null;
+  private onUncapturedError: ((event: GPUUncapturedErrorEvent) => void) | null;
+
+  constructor(canvas: HTMLCanvasElement, options: WebGPUManagerOptions = {}) {
     this.canvas = canvas;
-    /** @type {GPUAdapter | null} */
-    this.adapter = null;
-    /** @type {GPUAdapterInfo | Record<string, string> | null} */
-    this.adapterInfo = null;
-    /** @type {GPUDevice | null} */
-    this.device = null;
-    this.context = null;
-    this.depthTexture = null;
-    this.globalUniformBuffer = null;
-    this.globalBindGroup = null;
-    this.globalBindGroupLayout = null;
-
-    /** @type {typeof DEPTH_FORMAT} */
-    this.depthFormat = DEPTH_FORMAT;
-    this.canvasFormat = null;
     this.alphaMode = options.alphaMode || CANVAS_ALPHA_MODE;
-
-    /** Features actually enabled on the device */
-    this.enabledFeatures = [];
-    /** Limits passed to requestDevice */
-    this.requestedLimits = {};
-    this.gpuTimingRequested = false;
-    this.deviceLost = false;
-
-    /** @type {((info: { reason?: string, message?: string }) => void) | null} */
     this.onDeviceLost = typeof options.onDeviceLost === 'function' ? options.onDeviceLost : null;
-    /** @type {((event: GPUUncapturedErrorEvent) => void) | null} */
     this.onUncapturedError = typeof options.onUncapturedError === 'function' ? options.onUncapturedError : null;
   }
 
-  static canvasPixelSize(canvas) {
+  static canvasPixelSize(canvas: HTMLCanvasElement): CanvasPixelSize {
     const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
     const clientWidth = canvas.clientWidth;
     const clientHeight = canvas.clientHeight;
@@ -94,7 +114,7 @@ export class WebGPUManager {
    * Opt-in only: writing timestamps into the main render encoder blanks the canvas
    * on some D3D12/ANGLE stacks (60 FPS, no validation errors).
    */
-  static wantsGpuTiming(search = typeof location !== 'undefined' ? location.search : '') {
+  static wantsGpuTiming(search = typeof location !== 'undefined' ? location.search : ''): boolean {
     try {
       return new URLSearchParams(search).get('gpuTiming') === '1';
     } catch {
@@ -102,14 +122,8 @@ export class WebGPUManager {
     }
   }
 
-  /**
-   * Collect optional features the adapter supports (never hard-required).
-   * @param {GPUAdapter} adapter
-   * @param {{ gpuTiming?: boolean }} opts
-   * @returns {string[]}
-   */
-  static negotiateFeatures(adapter, opts = {}) {
-    const features = [];
+  static negotiateFeatures(adapter: GPUAdapter, opts: { gpuTiming?: boolean } = {}): string[] {
+    const features: string[] = [];
     const available = adapter.features;
 
     if (opts.gpuTiming && available.has('timestamp-query')) {
@@ -124,17 +138,14 @@ export class WebGPUManager {
     return features;
   }
 
-  /**
-   * Build requiredLimits from preferred caps, clamped to adapter maxima.
-   * Omits keys the adapter cannot meet (no hard failure on low-end GPUs).
-   * @param {GPUAdapter} adapter
-   * @param {Record<string, number>} [preferred]
-   */
-  static negotiateLimits(adapter, preferred = PREFERRED_LIMITS) {
-    const out = {};
+  static negotiateLimits(
+    adapter: GPUAdapter,
+    preferred: Partial<Record<keyof GPUSupportedLimits, number>> = PREFERRED_LIMITS
+  ): Record<string, number> {
+    const out: Record<string, number> = {};
     const limits = adapter.limits;
     for (const [key, want] of Object.entries(preferred)) {
-      const max = limits[key];
+      const max = limits[key as keyof GPUSupportedLimits];
       if (typeof max === 'number' && max >= want) {
         out[key] = want;
       }
@@ -142,34 +153,25 @@ export class WebGPUManager {
     return out;
   }
 
-  /**
-   * Bloom extract/blur intermediate texture format.
-   * Uses {@link BLOOM_HDR_FORMAT} when the device has {@link BLOOM_HDR_FEATURE}.
-   * @param {GPUDevice} device
-   * @param {GPUTextureFormat} canvasFormat
-   * @returns {GPUTextureFormat}
-   */
-  static bloomIntermediateFormat(device, canvasFormat) {
+  static bloomIntermediateFormat(device: GPUDevice, canvasFormat: GPUTextureFormat): GPUTextureFormat {
     if (device?.features?.has(BLOOM_HDR_FEATURE)) {
       return BLOOM_HDR_FORMAT;
     }
     return canvasFormat;
   }
 
-  /** Snapshot adapter info for logging / profiler (single request path). */
-  static readAdapterInfo(adapter) {
-    const info = adapter.info || {};
+  static readAdapterInfo(adapter: GPUAdapter): AdapterInfoSnapshot {
+    const info = adapter.info || {} as GPUAdapterInfo;
     return {
       vendor: info.vendor || 'unknown',
       architecture: info.architecture || 'unknown',
       device: info.device || 'unknown',
       description: info.description || '',
-      // Older Chromium exposed requestAdapterInfo(); keep fallback empty.
       fallback: false
     };
   }
 
-  logAdapterSummary(adapter, features, limits) {
+  logAdapterSummary(adapter: GPUAdapter, features: string[], limits: Record<string, number>): void {
     const info = this.adapterInfo || WebGPUManager.readAdapterInfo(adapter);
     const featureList = [...adapter.features].sort();
     console.log('[WebGPU] Adapter:', info);
@@ -185,14 +187,13 @@ export class WebGPUManager {
     });
   }
 
-  async init() {
+  async init(): Promise<void> {
     if (!navigator.gpu) {
       alert('WebGPU not supported. Use Chrome 113+ or Edge 113+.');
       throw new Error('WebGPU not supported');
     }
 
     try {
-      // ── Single adapter request (profiler reuses this.adapter / adapterInfo) ──
       const adapter = await navigator.gpu.requestAdapter({
         powerPreference: 'high-performance'
       });
@@ -213,7 +214,7 @@ export class WebGPUManager {
       this.requestedLimits = requiredLimits;
 
       this.device = await adapter.requestDevice({
-        requiredFeatures,
+        requiredFeatures: requiredFeatures as GPUFeatureName[],
         requiredLimits,
         label: 'seg-primary-device'
       });
@@ -240,17 +241,13 @@ export class WebGPUManager {
       await this.setupGlobalResources();
     } catch (e) {
       console.error(e);
-      alert('WebGPU init failed: ' + e.message);
+      const message = e instanceof Error ? e.message : String(e);
+      alert('WebGPU init failed: ' + message);
       throw e;
     }
   }
 
-  /**
-   * device.lost + uncapturederror — recovery is reload-oriented so pipelines
-   * and buffers do not need a full multi-device re-init path.
-   * @param {GPUDevice} device
-   */
-  _attachDeviceHooks(device) {
+  private _attachDeviceHooks(device: GPUDevice): void {
     device.lost.then((info) => {
       this.deviceLost = true;
       const reason = info?.reason || 'unknown';
@@ -281,11 +278,7 @@ export class WebGPUManager {
     });
   }
 
-  /**
-   * User-visible recovery prompt (manual reload). Safe default when no callback is set.
-   * @param {{ reason?: string, message?: string }} info
-   */
-  static showDeviceLostUI(info = {}) {
+  static showDeviceLostUI(info: { reason?: string; message?: string } = {}): void {
     if (typeof document === 'undefined') return;
 
     const existing = document.getElementById('webgpu-device-lost');
@@ -320,19 +313,16 @@ export class WebGPUManager {
     });
   }
 
-  /**
-   * Depth attachment descriptor for a render pass (no stencil ops on depth-only formats).
-   * @param {GPUTextureView} view
-   * @param {{ depthClearValue?: number, depthLoadOp?: GPULoadOp, depthStoreOp?: GPUStoreOp }} [opts]
-   */
-  static depthStencilAttachment(view, opts = {}) {
-    const attachment = {
+  static depthStencilAttachment(
+    view: GPUTextureView,
+    opts: DepthStencilAttachmentOpts = {}
+  ): GPURenderPassDepthStencilAttachment {
+    const attachment: GPURenderPassDepthStencilAttachment = {
       view,
       depthClearValue: opts.depthClearValue ?? 1.0,
       depthLoadOp: opts.depthLoadOp ?? 'clear',
       depthStoreOp: opts.depthStoreOp ?? 'store'
     };
-    // Stencil ops only when format includes stencil (we use depth24plus).
     if (DEPTH_FORMAT.includes('stencil')) {
       attachment.stencilClearValue = 0;
       attachment.stencilLoadOp = 'clear';
@@ -341,12 +331,13 @@ export class WebGPUManager {
     return attachment;
   }
 
-  async setupDepthBuffer() {
+  async setupDepthBuffer(): Promise<void> {
     const { width, height } = WebGPUManager.canvasPixelSize(this.canvas);
     if (this.depthTexture) {
       this.depthTexture.destroy();
       this.depthTexture = null;
     }
+    if (!this.device) return;
     this.depthTexture = this.device.createTexture({
       label: 'webgpu-manager-depth',
       size: [width, height, 1],
@@ -355,16 +346,15 @@ export class WebGPUManager {
     });
   }
 
-  async setupGlobalResources() {
-    // Global uniform buffer: viewProj + time/camera + 4× light blocks (512 B total).
+  async setupGlobalResources(): Promise<void> {
+    if (!this.device) return;
+
     this.globalUniformBuffer = this.device.createBuffer({
       label: 'global-uniforms',
       size: 512,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
-    // Seed a valid viewProj and a non-zero resolution so partial init never
-    // leaves NaN transforms or division-by-zero in the GPU block.
     const globalSeed = new Float32Array(24);
     globalSeed[0] = 1; globalSeed[5] = 1; globalSeed[10] = 1; globalSeed[15] = 1;
     globalSeed[18] = 1; globalSeed[19] = 1;
@@ -390,7 +380,7 @@ export class WebGPUManager {
     });
   }
 
-  resize() {
+  resize(): boolean {
     const { width: displayWidth, height: displayHeight, layoutReady } =
       WebGPUManager.canvasPixelSize(this.canvas);
     if (!layoutReady) {
@@ -405,18 +395,17 @@ export class WebGPUManager {
         this.depthTexture.destroy();
         this.depthTexture = null;
       }
-      this.setupDepthBuffer();
+      void this.setupDepthBuffer();
     }
     return true;
   }
 
-  /** Features enabled on the live device (Set-like check helper). */
-  hasFeature(name) {
-    return !!(this.device && this.device.features.has(name));
+  hasFeature(name: string): boolean {
+    return !!(this.device && this.device.features.has(name as GPUFeatureName));
   }
 }
 
-function escapeHtml(s) {
+function escapeHtml(s: string): string {
   return String(s)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

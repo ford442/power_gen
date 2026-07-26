@@ -1,36 +1,42 @@
 import { rowFromSnapshot } from './telemetry-schema.js';
+import type { TelemetrySnapshot } from './types';
+
+export interface TelemetrySamplerOpts {
+  sampleHz?: number;
+  maxDurationSec?: number;
+}
 
 /**
  * Ring buffer of telemetry samples at a configurable rate (1–60 Hz).
  */
 export class TelemetrySampler {
-  /**
-   * @param {{ sampleHz?: number, maxDurationSec?: number }} [opts]
-   */
-  constructor(opts = {}) {
+  sampleHz: number;
+  maxDurationSec: number;
+  maxSamples: number;
+  private _rows: Record<string, number | string>[] = [];
+  private _simTimeS = 0;
+  private _accum = 0;
+  private _recording = false;
+  private _recordUntilS: number | null = null;
+  private _loadOhm = 100;
+
+  constructor(opts: TelemetrySamplerOpts = {}) {
     this.sampleHz = Math.min(60, Math.max(1, opts.sampleHz ?? 10));
     this.maxDurationSec = opts.maxDurationSec ?? 120;
     this.maxSamples = Math.ceil(this.maxDurationSec * this.sampleHz);
-    /** @type {Record<string, number|string>[]} */
-    this._rows = [];
-    this._simTimeS = 0;
-    this._accum = 0;
-    this._recording = false;
-    this._recordUntilS = null;
-    this._loadOhm = 100;
   }
 
-  setSampleHz(hz) {
+  setSampleHz(hz: number): void {
     this.sampleHz = Math.min(60, Math.max(1, hz));
     this.maxSamples = Math.ceil(this.maxDurationSec * this.sampleHz);
   }
 
-  setLoadOhm(ohm) {
+  setLoadOhm(ohm: number): void {
     this._loadOhm = ohm;
   }
 
-  /** @param {number} [durationSec]  Auto-stop after N seconds of sim time */
-  start(durationSec = null) {
+  /** Auto-stop after N seconds of sim time */
+  start(durationSec: number | null = null): void {
     this._rows = [];
     this._simTimeS = 0;
     this._accum = 0;
@@ -38,35 +44,31 @@ export class TelemetrySampler {
     this._recordUntilS = durationSec != null ? durationSec : null;
   }
 
-  stop() {
+  stop(): void {
     this._recording = false;
     this._recordUntilS = null;
   }
 
-  get recording() {
+  get recording(): boolean {
     return this._recording;
   }
 
-  get simTimeS() {
+  get simTimeS(): number {
     return this._simTimeS;
   }
 
-  getRows() {
+  getRows(): Record<string, number | string>[] {
     return this._rows.slice();
   }
 
-  clear() {
+  clear(): void {
     this._rows = [];
     this._simTimeS = 0;
     this._accum = 0;
   }
 
-  /**
-   * Call once per published frame.
-   * @param {object} snap  TelemetryHub snapshot
-   * @param {number} dt  Frame delta (seconds)
-   */
-  onFrame(snap, dt) {
+  /** Call once per published frame. */
+  onFrame(snap: TelemetrySnapshot, dt: number): void {
     if (!this._recording || dt <= 0) return;
 
     this._simTimeS += dt;

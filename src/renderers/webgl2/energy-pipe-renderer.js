@@ -10,7 +10,7 @@ import {
   deviceAnchor,
   getPipeColor,
   isPipeEndpointEnabled
-} from '../shared/energy-network.ts';
+} from '../shared/energy-network.js';
 
 const VERT = /* glsl */ `#version 300 es
 precision highp float;

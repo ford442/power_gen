@@ -3,12 +3,10 @@
  * Mulberry32 — fast, deterministic, no dependencies.
  */
 
-/** @type {number|null} */
-let _seed = null;
-/** @type {(() => number)|null} */
-let _rng = null;
+let _seed: number | null = null;
+let _rng: (() => number) | null = null;
 
-function mulberry32(seed) {
+function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a |= 0;
@@ -19,37 +17,33 @@ function mulberry32(seed) {
   };
 }
 
-/** @returns {number|null} */
-export function getSimulationSeed() {
+export function getSimulationSeed(): number | null {
   return _seed;
 }
 
-/**
- * @param {number} seed  Unsigned 32-bit integer seed
- */
-export function setSimulationSeed(seed) {
+export function setSimulationSeed(seed: number): void {
   _seed = seed >>> 0;
   _rng = mulberry32(_seed);
   if (typeof localStorage !== 'undefined') {
-    try { localStorage.setItem('seg-sim-seed', String(_seed)); } catch (_) { /* ignore */ }
+    try { localStorage.setItem('seg-sim-seed', String(_seed)); } catch { /* ignore */ }
   }
 }
 
-export function clearSimulationSeed() {
+export function clearSimulationSeed(): void {
   _seed = null;
   _rng = null;
-  try { localStorage.removeItem('seg-sim-seed'); } catch (_) { /* ignore */ }
+  try { localStorage.removeItem('seg-sim-seed'); } catch { /* ignore */ }
 }
 
 /** Deterministic [0,1) when seeded; otherwise Math.random(). */
-export function simRandom() {
+export function simRandom(): number {
   return _rng ? _rng() : Math.random();
 }
 
 /** Restore seed from localStorage if present. */
-export function restoreSimulationSeedFromStorage() {
+export function restoreSimulationSeedFromStorage(): void {
   try {
     const raw = localStorage.getItem('seg-sim-seed');
     if (raw != null && raw !== '') setSimulationSeed(Number(raw) >>> 0);
-  } catch (_) { /* ignore */ }
+  } catch { /* ignore */ }
 }

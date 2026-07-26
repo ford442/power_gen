@@ -22,14 +22,14 @@ import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator.js'
 import { buildHalbachVizMesh, halbachConfigFromState } from '../../devices/quanta/halbach-viz.js';
 import { buildPulseCoilMesh } from '../../devices/quanta/pulse-coil.js';
 import { exposeRenderer, RENDERER_WEBGL2 } from '../renderer-selector.js';
-import { stepParticles, seedParticles } from '../shared/particle-physics.ts';
+import { stepParticles, seedParticles } from '../shared/particle-physics.js';
 import {
   createDevicePhysicsState,
   stepDevicePhysics,
   deviceModeIndex
-} from '../shared/device-physics.ts';
+} from '../shared/device-physics.js';
 import { isDeviceActive as isDeviceVisible, shouldSimulateDevice } from '../shared/device-view.js';
-import { EnergyNetwork, initEnergyCouplingDisclaimer } from '../shared/energy-network.ts';
+import { EnergyNetwork, initEnergyCouplingDisclaimer } from '../shared/energy-network.js';
 import { getDeviceParticleScale, getViewMeshLod } from '../shared/view-lod.js';
 import {
   parsePrototypePreset,
@@ -47,7 +47,7 @@ import { HalbachFieldRenderer } from './halbach-field-renderer.js';
 import { parseSegFrameLevel } from '../../seg-frame-model.js';
 import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets.js';
 import { segOperator } from '../../seg-operator-state.js';
-import { telemetryHub, TelemetryHub } from '../../telemetry-hub.ts';
+import { telemetryHub, TelemetryHub } from '../../telemetry-hub.js';
 import { explainerState } from '../../seg-explainer/explainer-state.js';
 import { initSEGAnnotations } from '../../seg-annotations.js';
 import { segWasm } from '../../wasm/seg-physics-bridge.js';
