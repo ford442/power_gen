@@ -147,15 +147,49 @@ More sensors can use pin-change interrupts on other digital pins.
 | Bridge | `src/hardware-bridge.js` |
 | Panel | `src/hardware-panel.js` (left sidebar) |
 | Commutation preview | `src/electromagnet-controller.js` |
+| Hub field | `TelemetryHub` → `hardwareTwin.shadowResidual` |
 
-### Connect
-1. Chrome/Edge with Web Serial.
+### Happy path (mock — CI / demos)
+
+1. Open `/?renderer=webgl2&mockHardware=1` (or WebGPU with the same flag).
+2. Bridge auto-connects `MockSerialTransport` and sets twin mode to **shadow**.
+3. Click **START** (or `window.segOperator.start()`).
+4. Each frame the hub publishes:
+
+```js
+telemetryHub.getSnapshot().hardwareTwin
+// {
+//   connected: true,
+//   mock: true,
+//   twinMode: 'shadow',
+//   sensorRpm, sensorPhase,
+//   shadowResidual: { phaseErrorDeg, rpmError }
+// }
+```
+
+5. Agent hook: `window.getRendererInfo().hardwareTwin.shadowResidual` (WebGL2).
+6. Playwright: `e2e/app.spec.js` asserts `shadowResidual` is present after START.
+
+Firmware is **not** required for this path.
+
+### Connect (real Serial)
+
+1. Chrome/Edge with **Web Serial** (secure context). Safari / Firefox: no Serial — use Mock.
 2. Open the multi-device dashboard → **Hardware Twin** section.
 3. **Connect** (pick serial port) or **Mock** (no hardware).
 4. Choose twin mode:
    - **Open-loop**: sim phase/RPM → coils; visualize sim
    - **Closed-loop**: measured HW phase/RPM drive on-screen rollers
-   - **Shadow**: open-loop drive + show Δφ / ΔRPM vs hardware
+   - **Shadow**: open-loop drive + show Δφ / ΔRPM vs hardware (`shadowResidual` on hub)
+5. Baud **115200**, line-oriented `\n` protocol above. Disconnect always coasts coils.
+
+### Real Serial caveats
+
+- Requires user gesture for `requestPort()`; filters cover common Arduino/CH340/CP210x/ESP32 VIDs.
+- Browser host timeout (~200 ms without `update()`) and firmware watchdog (~100 ms without `P`) both coast coils.
+- Magnetometer / hall fusion is firmware-side; the web app trusts the `S` stream.
+- Do not treat mock lag as calibrated metrology — residuals are for twin debugging only.
+- Optional `firmware/seg-driver/` is **experimental** and never blocks web-only users.
 
 ### Mock / demos / CI
 ```
@@ -165,6 +199,7 @@ or click **Mock**. Streams synthetic `S` lines; accepts `P`/`C`/`CONF`.
 
 ### Live metric
 `S` stream fields populate the panel; magnetometer magnitude feeds scientific B-field context when connected.
+`shadowResidual` is always populated while connected (even in open/closed modes) so dashboards can chart Δ without mode gating.
 
 ## Sensor Fusion Notes
 

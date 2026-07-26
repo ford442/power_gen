@@ -127,3 +127,66 @@ test.describe('WASM physics (optional)', () => {
     expect(wasm.wasmPhysics).toBe(true);
   });
 });
+
+test.describe('Hardware twin mock', () => {
+  test.afterEach(async ({ page }) => {
+    await page.close();
+  });
+
+  test('?mockHardware=1 publishes shadowResidual on TelemetryHub', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'mockHardware=1');
+
+    await page.waitForFunction(
+      () => window.getRendererInfo()?.hardwareTwin?.connected === true,
+      { timeout: 10_000 }
+    );
+
+    await page.evaluate(() => {
+      const bridge = window.multiVisualizer?.hardwareBridge
+        || window.currentVisualizer?.hardwareBridge;
+      // Prefer shadow so residual semantics match docs; mock auto-sets this.
+      bridge?.setTwinMode?.('shadow');
+      window.segOperator.start();
+    });
+
+    await page.waitForFunction(
+      () => {
+        const ht = window.getRendererInfo()?.hardwareTwin;
+        return ht?.connected === true
+          && ht.shadowResidual
+          && typeof ht.shadowResidual.phaseErrorDeg === 'number'
+          && typeof ht.shadowResidual.rpmError === 'number';
+      },
+      { timeout: 8_000 }
+    );
+
+    const twin = await page.evaluate(() => {
+      const info = window.getRendererInfo();
+      const hub = window.telemetryHub?.getSnapshot?.()
+        ?? null;
+      return {
+        info: info.hardwareTwin,
+        hub: hub?.hardwareTwin ?? null,
+        mock: info.hardwareTwin?.mock === true,
+        twinMode: info.hardwareTwin?.twinMode
+      };
+    });
+
+    expect(twin.info).toBeTruthy();
+    expect(twin.info.connected).toBe(true);
+    expect(twin.info.mock).toBe(true);
+    expect(twin.info.shadowResidual).toEqual(
+      expect.objectContaining({
+        phaseErrorDeg: expect.any(Number),
+        rpmError: expect.any(Number)
+      })
+    );
+    expect(twin.hub?.shadowResidual).toEqual(
+      expect.objectContaining({
+        phaseErrorDeg: expect.any(Number),
+        rpmError: expect.any(Number)
+      })
+    );
+  });
+});

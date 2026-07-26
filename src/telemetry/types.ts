@@ -66,6 +66,23 @@ export interface EnergyNetworkTelemetry {
   residualW: number;
 }
 
+/** Sim vs hardware residual in shadow twin mode (ADR-0005). */
+export interface HardwareShadowResidual {
+  phaseErrorDeg: number;
+  rpmError: number;
+}
+
+/** Optional hardware digital twin snapshot on the hub. */
+export interface HardwareTwinTelemetry {
+  connected: boolean;
+  mock: boolean;
+  twinMode: 'open' | 'closed' | 'shadow';
+  sensorRpm: number;
+  sensorPhase: number;
+  /** Present when connected; primary e2e assertion field. */
+  shadowResidual: HardwareShadowResidual;
+}
+
 /** Literature refs with uncertainty metadata for gauges */
 export interface TelemetryMetaEntry {
   value: number;
@@ -102,6 +119,8 @@ export interface TelemetrySnapshot {
   devices: Record<string, DeviceTelemetrySnap>;
   scientific: ScientificTelemetry;
   energyNetwork: EnergyNetworkTelemetry | null;
+  /** Null when twin disconnected / unused. */
+  hardwareTwin: HardwareTwinTelemetry | null;
   meta: TelemetryMeta;
 }
 
@@ -121,5 +140,7 @@ export interface PublishFrameEnergyNetwork {
   residualW: number;
   devices?: Record<string, { powerInW: number; powerOutW: number; efficiency: number }>;
 }
+
+export type PublishFrameHardwareTwin = HardwareTwinTelemetry;
 
 export type TelemetrySubscriber = (snap: TelemetrySnapshot) => void;

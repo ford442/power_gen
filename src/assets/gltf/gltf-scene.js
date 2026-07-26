@@ -1,16 +1,20 @@
 /**
  * Scene graph for loaded glTF assets — transform hierarchy, visibility, anchor baking.
+ * Builds formal {@link SceneNode} trees (ADR-0005).
  */
+import { SceneNode } from '../scene/scene-node.js';
 
-/** @typedef {{ name: string, position: [number, number, number], worldPosition?: [number, number, number] }} GltfAnchor */
-/** @typedef {{ annotationId: string, name: string, worldPosition: [number, number, number], node: GltfSceneNode }} GltfAnnotation */
+/** @typedef {import('../scene/scene-node.js').SceneAnchor} GltfAnchor */
+/** @typedef {import('../scene/scene-node.js').SceneAnnotation} GltfAnnotation */
 
 /**
- * @param {import('./gltf-loader.js').extractGltfMeshes extends Function ? ReturnType<import('./gltf-loader.js').extractGltfMeshes> : never} extracted
+ * @param {ReturnType<import('./gltf-loader.js').extractGltfMeshes>} extracted
+ * @param {{ propId?: string|null }} [opts]
  */
-export function buildGltfScene(extracted) {
+export function buildGltfScene(extracted, opts = {}) {
   const { meshes, nodes, scenes, scene } = extracted;
-  const nodeByIndex = nodes.map((n) => new GltfSceneNode(n, meshes));
+  const propId = opts.propId ?? null;
+  const nodeByIndex = nodes.map((n) => new GltfSceneNode(n, meshes, { propId }));
 
   for (const n of nodeByIndex) {
     for (const childIdx of n.source.children) {
@@ -35,164 +39,38 @@ export function buildGltfScene(extracted) {
     annotations.push(...root.collectAnnotations());
   }
 
-  return { roots, nodeByIndex, anchors, annotations };
+  return { roots, nodeByIndex, anchors, annotations, propId };
 }
 
-export class GltfSceneNode {
+/**
+ * glTF-backed scene node — extends formal SceneNode with source mesh wiring.
+ */
+export class GltfSceneNode extends SceneNode {
   /**
    * @param {object} source
    * @param {object[]} meshes
+   * @param {{ propId?: string|null }} [opts]
    */
-  constructor(source, meshes) {
-    this.source = source;
-    this.name = source.name;
-    this.visible = true;
-    this.parent = null;
-    /** @type {GltfSceneNode[]} */
-    this.children = [];
-    this.localTranslation = [...source.translation];
-    this.localRotation = [...source.rotation];
-    this.localScale = [...source.scale];
-    this.worldMatrix = new Float32Array(16);
-    this.meshPrimitives = null;
-    this.materialRingIndex = source.extras?.power_gen?.materialRingIndex ?? 11.0;
-    this.annotationId = source.extras?.annotationId || null;
-    this.extras = source.extras || {};
+  constructor(source, meshes, opts = {}) {
+    const ringIndex = source.extras?.power_gen?.materialRingIndex ?? 11.0;
+    super({
+      name: source.name,
+      translation: source.translation,
+      rotation: source.rotation,
+      scale: source.scale,
+      meshPrimitives: null,
+      material: { ringIndex },
+      extras: source.extras || {},
+      annotationId: source.extras?.annotationId || null,
+      role: source.extras?.power_gen?.role ?? null,
+      propId: opts.propId ?? null,
+      source
+    });
 
     if (source.mesh != null && meshes[source.mesh]) {
       this.meshPrimitives = meshes[source.mesh].primitives;
     }
   }
-
-  updateWorldTransform(parentMatrix = null) {
-    const local = composeTrsMatrix(
-      this.localTranslation,
-      this.localRotation,
-      this.localScale
-    );
-    if (parentMatrix) {
-      multiplyMat4(this.worldMatrix, parentMatrix, local);
-    } else {
-      this.worldMatrix.set(local);
-    }
-    for (const child of this.children) {
-      child.updateWorldTransform(this.worldMatrix);
-    }
-  }
-
-  /** @returns {GltfAnnotation[]} */
-  collectAnnotations() {
-    /** @type {GltfAnnotation[]} */
-    const out = [];
-    if (this.annotationId) {
-      out.push({
-        annotationId: this.annotationId,
-        name: this.name,
-        worldPosition: [this.worldMatrix[12], this.worldMatrix[13], this.worldMatrix[14]],
-        node: this
-      });
-    }
-    for (const child of this.children) {
-      out.push(...child.collectAnnotations());
-    }
-    return out;
-  }
-
-  /** @returns {GltfAnchor[]} */
-  collectAnchors() {
-    /** @type {GltfAnchor[]} */
-    const out = [];
-    const pg = this.extras.power_gen;
-    if (pg?.anchors) {
-      for (const a of pg.anchors) {
-        const wp = transformPoint(this.worldMatrix, a.position);
-        out.push({ name: a.name, position: a.position, worldPosition: wp });
-      }
-    }
-    for (const child of this.children) {
-      out.push(...child.collectAnchors());
-    }
-    return out;
-  }
-
-  /** Flatten visible mesh primitives with baked world transforms. */
-  flattenDrawables() {
-    /** @type {object[]} */
-    const out = [];
-    if (this.visible && this.meshPrimitives) {
-      for (const prim of this.meshPrimitives) {
-        out.push({
-          name: `${this.name}:${prim.name}`,
-          mesh: prim,
-          worldMatrix: Float32Array.from(this.worldMatrix),
-          materialRingIndex: this.materialRingIndex,
-          annotationId: this.annotationId,
-          node: this
-        });
-      }
-    }
-    for (const child of this.children) {
-      out.push(...child.flattenDrawables());
-    }
-    return out;
-  }
 }
 
-function composeTrsMatrix(t, r, s) {
-  const m = new Float32Array(16);
-  const [qx, qy, qz, qw] = r;
-  const [sx, sy, sz] = s;
-  const x2 = qx + qx;
-  const y2 = qy + qy;
-  const z2 = qz + qz;
-  const xx = qx * x2;
-  const xy = qx * y2;
-  const xz = qx * z2;
-  const yy = qy * y2;
-  const yz = qy * z2;
-  const zz = qz * z2;
-  const wx = qw * x2;
-  const wy = qw * y2;
-  const wz = qw * z2;
-
-  m[0] = (1 - (yy + zz)) * sx;
-  m[1] = (xy + wz) * sx;
-  m[2] = (xz - wy) * sx;
-  m[3] = 0;
-  m[4] = (xy - wz) * sy;
-  m[5] = (1 - (xx + zz)) * sy;
-  m[6] = (yz + wx) * sy;
-  m[7] = 0;
-  m[8] = (xz + wy) * sz;
-  m[9] = (yz - wx) * sz;
-  m[10] = (1 - (xx + yy)) * sz;
-  m[11] = 0;
-  m[12] = t[0];
-  m[13] = t[1];
-  m[14] = t[2];
-  m[15] = 1;
-  return m;
-}
-
-function multiplyMat4(out, a, b) {
-  for (let c = 0; c < 4; c++) {
-    for (let r = 0; r < 4; r++) {
-      out[c * 4 + r] =
-        a[r] * b[c * 4] +
-        a[4 + r] * b[c * 4 + 1] +
-        a[8 + r] * b[c * 4 + 2] +
-        a[12 + r] * b[c * 4 + 3];
-    }
-  }
-}
-
-function transformPoint(m, p) {
-  const x = p[0];
-  const y = p[1];
-  const z = p[2];
-  return [
-    m[0] * x + m[4] * y + m[8] * z + m[12],
-    m[1] * x + m[5] * y + m[9] * z + m[13],
-    m[2] * x + m[6] * y + m[10] * z + m[14]
-  ];
-}
+export { SceneNode };

@@ -165,9 +165,17 @@ export function getBloomCompositeShader() {
         @location(0) uv: vec2f,
       }
 
-      fn acesTonemap(x: vec3f) -> vec3f {
+      /** Filmic curve: ACES fitted (Narkowicz) with soft shoulder for metal highlights. */
+      fn filmicTonemap(x: vec3f) -> vec3f {
         let a = 2.51; let b = 0.03; let c = 2.43; let d = 0.59; let e = 0.14;
-        return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3f(0.0), vec3f(1.0));
+        let mapped = (x * (a * x + b)) / (x * (c * x + d) + e);
+        // Soft knee into white — reduces hard clip on bright SEG metals / corona.
+        let soft = mapped * (vec3f(1.0) + mapped * 0.025) / (vec3f(1.0) + mapped * 0.09);
+        return clamp(soft, vec3f(0.0), vec3f(1.0));
+      }
+
+      fn acesTonemap(x: vec3f) -> vec3f {
+        return filmicTonemap(x);
       }
 
       fn hash21(p: vec2f) -> f32 {
@@ -245,9 +253,11 @@ export function getBloomCompositeShader() {
 
         let bloom = wideBloom(input.uv);
         var combined = scene + bloom * params.strength * (0.85 + params.power * 0.35);
-        combined *= params.exposure;
+        // Exposure from lighting preset (studio/lab/drama) + debug slider override.
+        let exposure = max(params.exposure, 0.05);
+        combined *= exposure;
 
-        let tm = acesTonemap(combined);
+        let tm = filmicTonemap(combined);
 
         let grain = (hash21(input.uv * vec2f(1920.0, 1080.0) + vec2f(params.power * 13.7, params.power * 29.3)) - 0.5) * params.grain;
         let vCoord = input.uv * 2.0 - 1.0;

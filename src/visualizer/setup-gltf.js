@@ -1,5 +1,5 @@
 /**
- * Load glTF housing assets for SEG focus view (WebGPU + seg-enhanced PBR).
+ * Load glTF CAD props for SEG focus view (WebGPU + seg-enhanced PBR).
  * WebGL2 fallback keeps procedural geometry only — see docs/GLTF_ASSETS.md.
  */
 import { loadGlb, parseGlb, extractGltfMeshes } from '../assets/gltf/gltf-loader.js';
@@ -12,7 +12,7 @@ import {
 } from '../assets/gltf/gltf-gpu.js';
 import {
   parseGltfHousingEnabled,
-  SEG_HOUSING_GLB_URL
+  SEG_GLTF_PROPS
 } from '../assets/gltf/parse-gltf-housing.js';
 import { attachGltfHousingPickHandler } from '../assets/gltf/gltf-housing-pick.js';
 import { computeFrameDimensions } from '../seg-frame-model.js';
@@ -55,103 +55,138 @@ export const gltfSetupMethods = {
   parseGltfHousingEnabled,
 
   /**
-   * Load SEG housing GLB after core procedural meshes are ready.
-   * @param {ArrayBuffer} [embeddedGlb] optional preloaded buffer (tests)
+   * Load SEG glTF props (housing + coil former) after core procedural meshes.
+   * @param {ArrayBuffer} [embeddedGlb] optional preloaded housing buffer (tests)
+   * @param {{ propBuffers?: Record<string, ArrayBuffer> }} [opts]
    */
-  async setupGltfAssets(embeddedGlb) {
+  async setupGltfAssets(embeddedGlb, opts = {}) {
     this.gltfHousingEnabled = parseGltfHousingEnabled();
     this.gltfHousingDrawables = [];
     this.gltfHousingAnchors = [];
     this.gltfHousingPickables = [];
     this.gltfAnnotationPoints = [];
+    this.gltfLoadedProps = [];
 
     if (!this.gltfHousingEnabled) {
-      console.log('[gltf] housing disabled (?gltfHousing=0)');
+      console.log('[gltf] housing disabled (?gltfHousing=0) — skipping CAD props');
       return;
     }
 
-    try {
-      const doc = embeddedGlb
-        ? parseGlb(embeddedGlb)
-        : await loadGlb(SEG_HOUSING_GLB_URL);
-      const extracted = extractGltfMeshes(doc);
-      const scene = buildGltfScene(extracted);
-      const layout = this.segLayout || this.refreshSEGLayout(1.0);
-      const frameDims = computeFrameDimensions(layout);
-      const scale = layout.worldScale;
-      const yOffset = frameDims.baseBottomY;
+    const layout = this.segLayout || this.refreshSEGLayout(1.0);
+    const frameDims = computeFrameDimensions(layout);
+    const scale = layout.worldScale;
+    const yOffset = frameDims.baseBottomY;
+    /** @type {import('../assets/gltf/gltf-pick.js').GltfPickable[]} */
+    const pickables = [];
 
-      this.gltfHousingAnchors = scene.anchors.map((a) => ({
-        ...a,
-        worldPosition: [
-          a.worldPosition[0] * scale,
-          a.worldPosition[1] * scale + yOffset,
-          a.worldPosition[2] * scale
-        ]
-      }));
+    for (const prop of SEG_GLTF_PROPS) {
+      if (!prop.enabled()) continue;
+      try {
+        let doc;
+        if (prop.id === 'housing' && embeddedGlb) {
+          doc = parseGlb(embeddedGlb);
+        } else if (opts.propBuffers?.[prop.id]) {
+          doc = parseGlb(opts.propBuffers[prop.id]);
+        } else {
+          doc = await loadGlb(prop.url);
+        }
+        const extracted = extractGltfMeshes(doc);
+        const scene = buildGltfScene(extracted, { propId: prop.id });
 
-      this.gltfAnnotationPoints = scene.annotations.map((a) => ({
-        id: a.annotationId,
-        pos: [
-          a.worldPosition[0] * scale,
-          a.worldPosition[1] * scale + yOffset,
-          a.worldPosition[2] * scale
-        ]
-      }));
+        this.gltfHousingAnchors.push(
+          ...scene.anchors.map((a) => ({
+            ...a,
+            propId: prop.id,
+            worldPosition: [
+              a.worldPosition[0] * scale,
+              a.worldPosition[1] * scale + yOffset,
+              a.worldPosition[2] * scale
+            ]
+          }))
+        );
 
-      /** @type {import('../assets/gltf/gltf-pick.js').GltfPickable[]} */
-      const pickables = [];
+        this.gltfAnnotationPoints.push(
+          ...scene.annotations.map((a) => ({
+            id: a.annotationId,
+            propId: prop.id,
+            pos: [
+              a.worldPosition[0] * scale,
+              a.worldPosition[1] * scale + yOffset,
+              a.worldPosition[2] * scale
+            ]
+          }))
+        );
 
-      for (const drawable of scene.roots.flatMap((r) => r.flattenDrawables())) {
-        const isAnnotation = !!drawable.annotationId;
-        const scaledVerts = isAnnotation
-          ? bakeWorldVertices(drawable.mesh.vertices, drawable.worldMatrix, scale, yOffset)
-          : scaleMeshVertices(drawable.mesh.vertices, scale, yOffset);
+        let drawableCount = 0;
+        for (const drawable of scene.roots.flatMap((r) => r.flattenDrawables())) {
+          const isAnnotation = !!drawable.annotationId;
+          const scaledVerts = bakeWorldVertices(
+            drawable.mesh.vertices,
+            drawable.worldMatrix,
+            scale,
+            yOffset
+          );
 
-        if (isAnnotation) {
-          pickables.push({
-            annotationId: drawable.annotationId,
+          if (isAnnotation) {
+            pickables.push({
+              annotationId: drawable.annotationId,
+              vertices: scaledVerts,
+              indices: drawable.mesh.indices,
+              worldMatrix: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+            });
+            continue;
+          }
+
+          const gpu = uploadGltfMesh(this.device, {
             vertices: scaledVerts,
-            indices: drawable.mesh.indices,
-            worldMatrix: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+            indices: drawable.mesh.indices
           });
-          continue;
+          const instanceBuffer = createGltfInstanceBuffer(this.device, {
+            position: [0, 0, 0],
+            ringIndex: drawable.materialRingIndex,
+            color: prop.defaultColor,
+            emissive: 0
+          });
+          this.gltfHousingDrawables.push({
+            name: drawable.name,
+            propId: prop.id,
+            role: drawable.role || prop.role,
+            gpu,
+            instanceBuffer,
+            ringIndex: drawable.materialRingIndex,
+            annotationId: null
+          });
+          this.profiler.trackBuffer(`gltf-${prop.id}-${drawable.name}-vb`, gpu.vertexBuffer.size, GPUBufferUsage.VERTEX);
+          this.profiler.trackBuffer(`gltf-${prop.id}-${drawable.name}-ib`, gpu.indexBuffer.size, GPUBufferUsage.INDEX);
+          this.profiler.trackBuffer(`gltf-${prop.id}-${drawable.name}-inst`, GLTF_INSTANCE_BYTES, GPUBufferUsage.STORAGE);
+          drawableCount += 1;
         }
 
-        const gpu = uploadGltfMesh(this.device, {
-          vertices: scaledVerts,
-          indices: drawable.mesh.indices
-        });
-        const instanceBuffer = createGltfInstanceBuffer(this.device, {
-          position: [0, 0, 0],
-          ringIndex: drawable.materialRingIndex,
-          color: [0.78, 0.80, 0.84],
-          emissive: 0
-        });
-        this.gltfHousingDrawables.push({
-          name: drawable.name,
-          gpu,
-          instanceBuffer,
-          ringIndex: drawable.materialRingIndex,
-          annotationId: null
-        });
-        this.profiler.trackBuffer(`gltf-${drawable.name}-vb`, gpu.vertexBuffer.size, GPUBufferUsage.VERTEX);
-        this.profiler.trackBuffer(`gltf-${drawable.name}-ib`, gpu.indexBuffer.size, GPUBufferUsage.INDEX);
-        this.profiler.trackBuffer(`gltf-${drawable.name}-inst`, GLTF_INSTANCE_BYTES, GPUBufferUsage.STORAGE);
+        this.gltfLoadedProps.push(prop.id);
+        console.log(
+          `[gltf] loaded ${prop.id}: ${drawableCount} drawable(s), ` +
+          `${scene.anchors.length} anchor(s), ${scene.annotations.length} annotation(s)`
+        );
+      } catch (err) {
+        console.warn(`[gltf] ${prop.id} load failed`, err);
+        if (prop.id === 'housing') {
+          this.gltfHousingEnabled = false;
+          this.gltfHousingDrawables = [];
+          this.gltfLoadedProps = [];
+          return;
+        }
       }
-
-      this.gltfHousingPickables = pickables;
-      attachGltfHousingPickHandler(this);
-
-      console.log(
-        `[gltf] loaded housing: ${this.gltfHousingDrawables.length} drawable(s), ` +
-        `${this.gltfHousingAnchors.length} anchor(s), ${pickables.length} annotation pick(s)`
-      );
-    } catch (err) {
-      console.warn('[gltf] housing load failed — procedural frame only', err);
-      this.gltfHousingEnabled = false;
-      this.gltfHousingDrawables = [];
     }
+
+    this.gltfHousingPickables = pickables;
+    if (this.gltfHousingEnabled) {
+      attachGltfHousingPickHandler(this);
+    }
+
+    console.log(
+      `[gltf] CAD props ready: ${this.gltfLoadedProps.join(', ') || '(none)'} — ` +
+      `${this.gltfHousingDrawables.length} drawable(s), ${pickables.length} pick(s)`
+    );
   },
 
   /** RPM / segOmega-driven emissive on housing trim (greenEmissive channel). */
@@ -160,7 +195,9 @@ export const gltfSetupMethods = {
     const omega = this.segOmega ?? 0;
     const emissive = Math.min(0.55, omega * 0.12);
     for (const d of this.gltfHousingDrawables) {
-      updateGltfInstanceEmissive(this.device, d.instanceBuffer, emissive);
+      // Coil former gets a subtler copper glow
+      const scale = d.role === 'coil_former' || d.propId === 'coilFormer' ? 0.65 : 1.0;
+      updateGltfInstanceEmissive(this.device, d.instanceBuffer, emissive * scale);
     }
   }
 };

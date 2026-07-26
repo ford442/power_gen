@@ -37,6 +37,9 @@ import {
   getHeronLayout
 } from './heron-layout.js';
 
+// Agent / e2e hooks
+window.telemetryHub = telemetryHub;
+
 // Guard 16 B GpuParticle vs 32 B SimParticle stride contract at bootstrap.
 assertParticleLayouts();
 

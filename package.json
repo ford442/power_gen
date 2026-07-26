@@ -14,6 +14,8 @@
     "codegen:constants": "node scripts/codegen-physics-constants.mjs",
     "check:constants": "node scripts/codegen-physics-constants.mjs --check",
     "generate:housing-glb": "node scripts/generate-seg-housing-glb.mjs",
+    "generate:coil-former-glb": "node scripts/generate-seg-coil-former-glb.mjs",
+    "generate:seg-gltf": "npm run generate:housing-glb && npm run generate:coil-former-glb",
     "check:wgsl": "bash scripts/check-wgsl.sh",
     "test:e2e": "playwright test",
     "validate": "npm run codegen:constants && npm run check:constants && npm run typecheck && npm run wasm:native && npm run check:wgsl",
