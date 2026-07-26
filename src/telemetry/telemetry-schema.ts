@@ -3,6 +3,8 @@
  * Keep in sync with cpp/src/telemetry_export.h for native `make native` CSV.
  */
 
+import type { TelemetrySnapshot } from './types';
+
 export const TELEMETRY_CSV_VERSION = 1;
 
 /** Column order for CSV and native export. */
@@ -26,16 +28,25 @@ export const TELEMETRY_CSV_COLUMNS = [
   'efficiency_pct',
   'particle_flux',
   'load_ohm'
-];
+] as const;
+
+export type TelemetryCsvColumn = (typeof TELEMETRY_CSV_COLUMNS)[number];
+export type TelemetryCsvRow = Record<TelemetryCsvColumn, number | string>;
+
+export interface RowFromSnapshotOpts {
+  loadOhm?: number;
+  mode?: string;
+}
 
 /**
  * Build one CSV row from a TelemetryHub snapshot.
- * @param {object} snap  telemetryHub snapshot
- * @param {number} simTimeS  integrated simulation time (seconds)
- * @param {object} [opts]
  */
-export function rowFromSnapshot(snap, simTimeS, opts = {}) {
-  const seg = snap.seg || {};
+export function rowFromSnapshot(
+  snap: TelemetrySnapshot,
+  simTimeS: number,
+  opts: RowFromSnapshotOpts = {}
+): TelemetryCsvRow {
+  const seg = snap.seg;
   const sci = snap.scientific || {};
   const loadOhm = opts.loadOhm ?? 100;
   return {
@@ -43,33 +54,49 @@ export function rowFromSnapshot(snap, simTimeS, opts = {}) {
     frame_id: snap.frameId ?? 0,
     view: snap.view ?? 'overview',
     mode: opts.mode ?? 'seg',
-    status: seg.status ?? 'standby',
-    rpm_inner: seg.rpmInner ?? 0,
-    seg_omega: seg.segOmega ?? 0,
-    corona: seg.corona ?? 0,
-    voltage_v: seg.voltage ?? 0,
-    current_a: seg.current ?? 0,
-    power_w: seg.power ?? 0,
-    field_sim_t: seg.fieldSim ?? 0,
+    status: seg?.status ?? 'standby',
+    rpm_inner: seg?.rpmInner ?? 0,
+    seg_omega: seg?.segOmega ?? 0,
+    corona: seg?.corona ?? 0,
+    voltage_v: seg?.voltage ?? 0,
+    current_a: seg?.current ?? 0,
+    power_w: seg?.power ?? 0,
+    field_sim_t: seg?.fieldSim ?? 0,
     energy_density_j_m3: sci.avgEnergyDensity ?? 0,
-    drive: seg.drive ?? 0,
-    excitation_pct: seg.excitationPct ?? 0,
-    temperature_c: seg.temperature ?? 25,
-    efficiency_pct: seg.efficiency ?? 0,
+    drive: seg?.drive ?? 0,
+    excitation_pct: seg?.excitationPct ?? 0,
+    temperature_c: seg?.temperature ?? 25,
+    efficiency_pct: seg?.efficiency ?? 0,
     particle_flux: sci.particleFlux ?? 0,
     load_ohm: loadOhm
   };
 }
 
+export interface RowFromWasmSegOpts {
+  simTimeS: number;
+  frameId?: number;
+  omega: number;
+  rpm?: number;
+  powerW?: number;
+  energyDensityJm3?: number;
+  drive?: number;
+  fieldStrength?: number;
+  loadOhm?: number;
+  corona?: number;
+  B_SURFACE_T?: number;
+  view?: string;
+  status?: string;
+  particleFlux?: number;
+}
+
 /**
  * Build row from WASM / native C++ step outputs (SEG mode).
- * Electrical model mirrors seg-operator-state.js computeTelemetry.
+ * Electrical model mirrors seg-operator-state computeTelemetry.
  */
 export function rowFromWasmSeg({
   simTimeS,
   frameId = 0,
   omega,
-  rpm,
   powerW,
   energyDensityJm3,
   drive = 0.5,
@@ -80,7 +107,7 @@ export function rowFromWasmSeg({
   view = 'seg',
   status = 'operational',
   particleFlux = 0
-}) {
+}: RowFromWasmSegOpts): TelemetryCsvRow {
   const segOmega = Math.min(1, Math.max(0, omega / 50));
   const rotationSpeed = Math.min(120, segOmega * 100);
   const rpmInner = Math.round(rotationSpeed * 30);
@@ -114,8 +141,7 @@ export function rowFromWasmSeg({
   };
 }
 
-/** @param {Record<string, number|string>[]} rows */
-export function rowsToCsv(rows) {
+export function rowsToCsv(rows: TelemetryCsvRow[]): string {
   const header = TELEMETRY_CSV_COLUMNS.join(',');
   const lines = rows.map((row) =>
     TELEMETRY_CSV_COLUMNS.map((col) => {
@@ -130,7 +156,7 @@ export function rowsToCsv(rows) {
   return [header, ...lines].join('\n');
 }
 
-export function downloadText(filename, text, mime = 'text/plain') {
+export function downloadText(filename: string, text: string, mime = 'text/plain'): void {
   const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -140,6 +166,6 @@ export function downloadText(filename, text, mime = 'text/plain') {
   URL.revokeObjectURL(url);
 }
 
-export function downloadJson(filename, obj) {
+export function downloadJson(filename: string, obj: unknown): void {
   downloadText(filename, JSON.stringify(obj, null, 2), 'application/json');
 }

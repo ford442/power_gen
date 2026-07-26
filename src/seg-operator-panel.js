@@ -4,8 +4,8 @@
  * Control setpoints still write to segOperator plant state.
  */
 
-import { segOperator, SEG_SPEC, OPERATOR_STATUS } from './seg-operator-state.js';
-import { telemetryHub } from './telemetry-hub.ts';
+import { segOperator, SEG_SPEC, OPERATOR_STATUS } from './seg-operator-state';
+import { telemetryHub } from './telemetry-hub';
 
 const RPM_GAUGE_MAX = 3200;
 

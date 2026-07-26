@@ -1,9 +1,9 @@
 // Per-frame simulation update + GPU encode (scene + bloom).
-import { WebGPUManager } from '../webgpu-manager.js';
+import { WebGPUManager } from '../webgpu-manager';
 import { MAX_ROLLERS } from '../seg-layout.js';
 import { packPostUniforms } from '../seg-lighting-presets.js';
-import { segOperator } from '../seg-operator-state.js';
-import { telemetryHub, TelemetryHub } from '../telemetry-hub.ts';
+import { segOperator } from '../seg-operator-state';
+import { telemetryHub, TelemetryHub } from '../telemetry-hub';
 import { segWasm } from '../wasm/seg-physics-bridge.js';
 import { explainerState } from '../seg-explainer/explainer-state.js';
 import { getViewMeshLod, getDeviceParticleScale } from '../renderers/shared/view-lod.js';

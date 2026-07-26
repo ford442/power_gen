@@ -1,12 +1,12 @@
 // Tachometer overlay + hardware digital twin sync.
-import { segOperator } from '../seg-operator-state.js';
-import { telemetryHub, TelemetryHub } from '../telemetry-hub.ts';
+import { segOperator } from '../seg-operator-state';
+import { telemetryHub, TelemetryHub } from '../telemetry-hub';
 import { TWIN_MODES } from '../hardware-bridge.js';
 
 /**
  * Build hub-facing hardware twin snapshot (includes shadowResidual).
  * @param {import('../hardware-bridge.js').HardwareBridge|null|undefined} hw
- * @returns {import('../telemetry/types.ts').HardwareTwinTelemetry|null}
+ * @returns {import('../telemetry/types').HardwareTwinTelemetry|null}
  */
 export function buildHardwareTwinTelemetry(hw) {
   if (!hw?.isConnected) return null;

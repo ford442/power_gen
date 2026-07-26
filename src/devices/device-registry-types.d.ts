@@ -1,4 +1,4 @@
-import type { DevicePhysicsState } from '../renderers/shared/device-physics.ts';
+import type { DevicePhysicsState } from '../renderers/shared/device-physics';
 
 /** Per-frame update context passed to device update strategies. */
 export interface DeviceUpdateContext {

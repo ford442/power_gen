@@ -8,7 +8,7 @@ import {
   deviceAnchor,
   getPipeColor,
   isPipeEndpointEnabled
-} from './renderers/shared/energy-network.ts';
+} from './renderers/shared/energy-network';
 import { PARTICLE_LAYOUTS } from '../generated/physics-constants.js';
 
 const PARTICLE_BYTES = PARTICLE_LAYOUTS.pipeBytes;
@@ -238,4 +238,4 @@ class EnergyPipe {
 }
 
 export { EnergyPipe };
-export { PIPE_COLORS, ENERGY_PIPE_EDGES } from './renderers/shared/energy-network.ts';
+export { PIPE_COLORS, ENERGY_PIPE_EDGES } from './renderers/shared/energy-network';

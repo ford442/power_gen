@@ -20,7 +20,7 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 | **Device list** | `src/devices/device-registry.js` + `debug-panel.js` `DEVICE_CONFIG` |
 | **Shaders** | `src/shaders/` — see [`SHADERS.md`](./SHADERS.md) |
 | **C++ / WASM physics** | `cpp/src/sim_core.*` + `src/wasm/seg-physics-bridge.js` |
-| **Telemetry** | `src/telemetry-hub.js` — see [`TELEMETRY.md`](./TELEMETRY.md) |
+| **Telemetry** | `src/telemetry-hub.ts` + `src/telemetry/` — see [`TELEMETRY.md`](./TELEMETRY.md) |
 | **Architecture decisions** | [`docs/adr/`](./adr/) (dual renderer, WASM, no Three.js, energy network) |
 
 ```text
@@ -98,7 +98,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 | Language | Own | Do not put |
 |----------|-----|------------|
 | **JavaScript** | Bootstrap, multi-device orchestration, geometry buffers, UI wiring, WebGL2 path | New authoritative physics formulas (prefer TS) |
-| **TypeScript** | Constants (`ValidatedConstants.ts`), `integration.ts`, WASM types, LED/solar protocol | Full render loops (until a deliberate migration) |
+| **TypeScript** | Constants (`ValidatedConstants.ts`), `integration.ts`, shared plant (`renderers/shared/`), telemetry, `webgpu-manager.ts`, `seg-operator-state.ts`, WASM types | Full render loops (until a deliberate mixin split) |
 | **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar/Peltier/MHD state) | Browser DOM or GPU API calls |
 | **WGSL** | WebGPU compute + render (`src/shaders/`) | WebGL2 fallback |
 | **GLSL** | WebGL2 only (`renderers/webgl2/shaders.js`) | WebGPU path |
@@ -107,9 +107,25 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 **Rules**
 
 - New physics math and public numeric APIs → **TypeScript** (or C++ if part of the WASM plant).
-- New draw/compute passes → **WGSL** + `pipeline-layout-cache.js` + [`BINDINGS.md`](./BINDINGS.md); document in [`SHADERS.md`](./SHADERS.md).
-- `npm run typecheck` covers **`src/**/*.ts` only** (`allowJs: false`). JS is not typechecked in CI.
+- New draw/compute passes → **WGSL** + `pipeline-layout-cache.js` (`// @ts-check` + JSDoc layout names) + [`BINDINGS.md`](./BINDINGS.md); document in [`SHADERS.md`](./SHADERS.md).
+- `npm run typecheck` covers **`src/**/*.ts` only** (`allowJs: false`). JS is not typechecked in CI; `pipeline-layout-cache.js` uses `@ts-check` locally.
 - Runtime entry is **`src/main.js`**. `index.ts` is a typed **barrel**, not the app entry.
+- **Import style:** JS entry paths import TypeScript modules **extensionless** (e.g. `./telemetry-hub` → `telemetry-hub.ts`). TypeScript sources may use a `.js` emit suffix for cross-file references (`moduleResolution: bundler`). Do not use `from '…ts'` in app code.
+
+### TypeScript migration (Wave 2 — complete)
+
+| Item | Status |
+|------|--------|
+| Normalize imports (no `from '…ts'` in app paths) | Done |
+| `telemetry/` modules → `.ts` | Done (`types`, sampler, schema, export, replay, RNG) |
+| `telemetry-hub.ts` | Done (Wave 1 carry-over) |
+| `webgpu-manager.ts` | Done |
+| `seg-operator-state.ts` (delete `.d.ts` stub) | Done |
+| `pipeline-layout-cache.js` — `@ts-check` + layout name typedefs | Done |
+| Shared plant (`renderers/shared/*.ts`) | Done (Wave 1) |
+| Full visualizer / render-loop mixins → TS | Later (architecture issue) |
+
+**Still JavaScript (intentional for now):** `main.js`, `multi-device-visualizer.js`, `device-*.js`, WebGL2 path, `pipeline-layout-cache.js` implementation body.
 
 ---
 
@@ -121,11 +137,13 @@ power_gen/
 │   ├── index.html                # Dashboard chrome + canvas
 │   ├── main.js                   # Bootstrap only
 │   ├── multi-device-visualizer.js
-│   ├── webgpu-manager.js
-│   ├── pipeline-layout-cache.js  # Explicit layouts; no layout:'auto' in prod
+│   ├── webgpu-manager.ts
+│   ├── pipeline-layout-cache.js  # Explicit layouts; @ts-check + JSDoc names
 │   ├── device-*.js / devices/    # Per-device geometry, update, render, plugins
 │   ├── energy-pipe.js            # Overview energy transfer viz (+ network)
-│   ├── telemetry-hub.js
+│   ├── telemetry-hub.ts
+│   ├── telemetry/                # Export, replay, sampler, schema (all .ts)
+│   ├── seg-operator-state.ts
 │   ├── renderers/
 │   │   ├── renderer-selector.js
 │   │   ├── shared/               # CPU physics both backends
@@ -198,13 +216,14 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 |--------|------|
 | `src/main.js` | Renderer bootstrap, window control API, WASM badge, operator/diagram init |
 | `src/multi-device-visualizer.js` | WebGPU orchestrator: devices, pipes, bloom, frame loop, hardware twin hook |
-| `src/webgpu-manager.js` | Single adapter/device/canvas/depth path |
-| `src/pipeline-layout-cache.js` | Shared bind-group layouts + pipelines |
+| `src/webgpu-manager.ts` | Single adapter/device/canvas/depth path |
+| `src/pipeline-layout-cache.js` | Shared bind-group layouts + pipelines (`@ts-check`) |
 | `src/device-instance.js` + `devices/*` | Per-device update/render mixins, registry plugins |
 | `src/energy-pipe.js` | Overview Bézier energy transfer (visual; `EnergyNetwork` in `renderers/shared/`) |
 | `src/performance-profiler.js` | FPS, auto-quality, optional GPU timestamps, per-device CPU times |
 | `src/sim-rate-controller.js` | Speed mult / substeps; couples to quality under load |
-| `src/telemetry-hub.js` | Single telemetry write path for gauges / operator |
+| `src/telemetry-hub.ts` | Single telemetry write path for gauges / operator |
+| `src/seg-operator-state.ts` | Authoritative SEG plant (drive, RPM, V/I/P) |
 | `src/seg-layout.js` | Layout presets (Searl / Roschin / legacy) — data-driven roller counts |
 | `src/assets/scene/scene-node.js` | Formal scene graph node (ADR-0005) |
 | `src/assets/scene/scene-node.js` | Formal scene graph node (ADR-0005) |

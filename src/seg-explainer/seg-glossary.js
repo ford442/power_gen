@@ -3,7 +3,7 @@
  */
 
 import { SEG_DATA, PHYSICAL_CONSTANTS } from '../scientific-data.js';
-import { SEG_SPEC } from '../seg-operator-state.js';
+import { SEG_SPEC } from '../seg-operator-state';
 
 /** @type {Record<string, { title: string, body: string, unit?: string, value?: string, source?: string }>} */
 export const SEG_GLOSSARY = {

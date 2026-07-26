@@ -1,13 +1,14 @@
 import { ValidatedConstants } from '../ValidatedConstants';
 import { SEG_SPEC } from '../seg-operator-state.js';
-import { TELEMETRY_META } from '../telemetry-hub.ts';
+import { TELEMETRY_META } from '../telemetry-hub.js';
 import {
   rowsToCsv,
   downloadText,
   downloadJson,
-  TELEMETRY_CSV_VERSION
-} from './telemetry-schema.js';
-import { buildReplayFile } from './replay-format.js';
+  TELEMETRY_CSV_VERSION,
+  type TelemetryCsvRow
+} from './telemetry-schema';
+import { buildReplayFile, type ReplayFile } from './replay-format';
 
 export { rowsToCsv, downloadText, downloadJson };
 
@@ -43,37 +44,30 @@ export function buildConfigSnapshot() {
     seed: (() => {
       try {
         return localStorage.getItem('seg-sim-seed');
-      } catch (_) {
+      } catch {
         return null;
       }
     })()
   };
 }
 
-/**
- * @param {Record<string, number|string>[]} rows
- * @param {string} [filename]
- */
-export function downloadTelemetryCsv(rows, filename) {
+export function downloadTelemetryCsv(rows: TelemetryCsvRow[], filename?: string): void {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   downloadText(filename || `seg-telemetry-${ts}.csv`, rowsToCsv(rows));
 }
 
-export function downloadConfigJson(filename) {
+export function downloadConfigJson(filename?: string): void {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   downloadJson(filename || `seg-config-${ts}.json`, buildConfigSnapshot());
 }
 
-export function downloadReplayJson(replay, filename) {
+export function downloadReplayJson(replay: ReplayFile, filename?: string): void {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   downloadJson(filename || `seg-replay-${ts}.json`, replay);
 }
 
-/**
- * Export performance profiler benchmark pack.
- * @param {object} benchmarkResults  from PerformanceProfiler.endBenchmark()
- */
-export function downloadBenchmarkPack(benchmarkResults, extra = {}) {
+/** Export performance profiler benchmark pack. */
+export function downloadBenchmarkPack(benchmarkResults: unknown, extra: Record<string, unknown> = {}): void {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   downloadJson(`seg-benchmark-${ts}.json`, {
     exportedAt: new Date().toISOString(),
@@ -85,7 +79,10 @@ export function downloadBenchmarkPack(benchmarkResults, extra = {}) {
   });
 }
 
-export function buildReplayFromRecording(rows, opts = {}) {
+export function buildReplayFromRecording(
+  rows: TelemetryCsvRow[] | Record<string, number | string>[],
+  opts: Parameters<typeof buildReplayFile>[0] = {}
+): ReplayFile {
   return buildReplayFile({
     ...opts,
     samples: rows

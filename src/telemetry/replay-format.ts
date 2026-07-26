@@ -2,17 +2,43 @@
  * Versioned replay file format for layout preset + speed curve + optional samples.
  */
 
+import { setSimulationSeed } from './deterministic-rng';
+import type { TelemetryCsvRow } from './telemetry-schema';
+
 export const REPLAY_VERSION = 1;
 
-/**
- * @typedef {{ t: number, drive: number, simRate?: number }} SpeedKeyframe
- */
+export interface SpeedKeyframe {
+  t: number;
+  drive: number;
+  simRate?: number;
+}
 
-/**
- * @param {object} opts
- * @returns {object}
- */
-export function buildReplayFile(opts = {}) {
+export interface ReplayFile {
+  replayVersion: number;
+  createdAt: string;
+  seed: number | null;
+  segLayoutPreset: string;
+  heronLayoutPreset: string;
+  renderer: string | null;
+  speedCurve: SpeedKeyframe[];
+  config: {
+    loadOhm: number;
+    magneticFieldStrength: number;
+    sampleHz: number;
+  };
+  samples: TelemetryCsvRow[] | Record<string, number | string>[];
+}
+
+export interface BuildReplayFileOpts {
+  seed?: number | null;
+  segLayoutPreset?: string;
+  heronLayoutPreset?: string;
+  speedCurve?: SpeedKeyframe[];
+  sampleHz?: number;
+  samples?: TelemetryCsvRow[] | Record<string, number | string>[];
+}
+
+export function buildReplayFile(opts: BuildReplayFileOpts = {}): ReplayFile {
   const v = window.multiVisualizer;
   const speedMult = v?.speedMult ?? 1;
   const drive = window.segOperator?.targetDrive ?? 0.5;
@@ -37,12 +63,8 @@ export function buildReplayFile(opts = {}) {
   };
 }
 
-/**
- * Interpolate drive and sim rate at simulation time t.
- * @param {SpeedKeyframe[]} curve
- * @param {number} t
- */
-export function interpolateSpeedCurve(curve, t) {
+/** Interpolate drive and sim rate at simulation time t. */
+export function interpolateSpeedCurve(curve: SpeedKeyframe[], t: number): { drive: number; simRate: number } {
   if (!curve?.length) return { drive: 0.5, simRate: 1 };
   if (curve.length === 1) {
     return { drive: curve[0].drive ?? 0.5, simRate: curve[0].simRate ?? 1 };
@@ -59,13 +81,15 @@ export function interpolateSpeedCurve(curve, t) {
   };
 }
 
+export interface ApplyReplayOpts {
+  onProgress?: (t: number) => void;
+}
+
 /**
  * Apply replay to live dashboard (layout preset + speed curve playback).
- * @param {object} replay
- * @param {{ onProgress?: (t: number) => void }} [opts]
- * @returns {() => void} cancel playback
+ * @returns cancel playback
  */
-export function applyReplay(replay, opts = {}) {
+export function applyReplay(replay: ReplayFile, opts: ApplyReplayOpts = {}): () => void {
   if (replay.replayVersion !== REPLAY_VERSION) {
     throw new Error(`Unsupported replay version: ${replay.replayVersion}`);
   }
@@ -74,9 +98,7 @@ export function applyReplay(replay, opts = {}) {
   if (!v) throw new Error('Visualizer not ready');
 
   if (replay.seed != null) {
-    import('./deterministic-rng.js').then(({ setSimulationSeed }) => {
-      setSimulationSeed(replay.seed);
-    });
+    setSimulationSeed(replay.seed);
   }
 
   if (replay.segLayoutPreset && typeof v.setSEGLayoutPreset === 'function') {
@@ -103,9 +125,9 @@ export function applyReplay(replay, opts = {}) {
     const { drive, simRate } = interpolateSpeedCurve(curve, simT);
     if (op) {
       op.targetDrive = drive;
-      if (!op.isRunning) op.start();
+      if (!op.isRunning) op.start?.();
     }
-    const slider = document.getElementById('speedControl');
+    const slider = document.getElementById('speedControl') as HTMLInputElement | null;
     if (slider) {
       const raw = 100 * Math.log(Math.max(0.05, simRate) / 0.05) / Math.log(400);
       slider.value = String(Math.max(0, Math.min(100, Math.round(raw))));

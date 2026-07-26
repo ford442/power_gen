@@ -12,7 +12,7 @@
 import { packInstance } from '../../device-mesh-layouts.js';
 import { MATERIAL_QUANTA_COIL, MATERIAL_QUANTA_FLOATER, MATERIAL_QUANTA_FLOATER_POST, MATERIAL_STEEL_BASE } from '../material-roles.js';
 import { writeMeshCylinders } from '../update-helpers.js';
-import { estimateHalbachFieldT, MAGNET_BR } from './halbach-field.ts';
+import { estimateHalbachFieldT, MAGNET_BR } from './halbach-field';
 
 /** Ring magnet segments in a simplified Halbach-like azimuthal pattern. */
 function buildHalbachRingInstances() {
@@ -66,7 +66,7 @@ export function buildMagLevMesh(gapM = 0.018) {
  * Estimate surface B for a Halbach-like ring (order-of-magnitude, educational).
  * @param {number} gapM  metres
  */
-export { estimateHalbachFieldT } from './halbach-field.ts';
+export { estimateHalbachFieldT } from './halbach-field';
 
 /**
  * @param {object} state

@@ -22,16 +22,16 @@ import {
 import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 import { initSEGOperatorPanel } from './seg-operator-panel.js';
 import { initSEGDiagram2D } from './seg-diagram-2d.js';
-import { initTelemetryExportPanel } from './telemetry/telemetry-export-panel.js';
+import { initTelemetryExportPanel } from './telemetry/telemetry-export-panel';
 import { initExplainerUI } from './seg-explainer/explainer-ui.js';
-import { restoreSimulationSeedFromStorage } from './telemetry/deterministic-rng.js';
-import { applyReplay } from './telemetry/replay-format.js';
-import { telemetryHub } from './telemetry-hub.ts';
+import { restoreSimulationSeedFromStorage } from './telemetry/deterministic-rng';
+import { applyReplay } from './telemetry/replay-format';
+import { telemetryHub } from './telemetry-hub';
 import {
   downloadTelemetryCsv,
   downloadConfigJson,
   downloadBenchmarkPack
-} from './telemetry/telemetry-export.js';
+} from './telemetry/telemetry-export';
 import {
   HERON_LAYOUT_DESCRIPTIONS,
   getHeronLayout

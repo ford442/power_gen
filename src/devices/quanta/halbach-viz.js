@@ -19,7 +19,7 @@ import {
   traceHalbachFieldLines,
   sampleFieldHeatmap,
   MAGNET_BR
-} from './halbach-field.ts';
+} from './halbach-field';
 
 const SCENE_SCALE = 10;
 const RADIUS_M = 0.14;

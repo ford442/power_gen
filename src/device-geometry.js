@@ -6,7 +6,7 @@ import {
 } from './device-mesh-layouts.js';
 import { getPluginMeshLayouts } from './devices/device-registry.js';
 import { MATERIAL_COPPER, MATERIAL_SHAFT, MATERIAL_STRUCTURAL } from './devices/material-roles.js';
-import { simRandom } from './telemetry/deterministic-rng.js';
+import { simRandom } from './telemetry/deterministic-rng';
 import { PARTICLE_LAYOUTS } from '../generated/physics-constants.js';
 
 // Matches TOTAL_FLUX_LINES × SEGMENTS_PER_LINE constants in flux-lines.wgsl

@@ -1,7 +1,11 @@
+// @ts-check
 /**
  * Explicit GPUBindGroupLayout / GPUPipelineLayout cache and shared pipeline factory.
  *
  * Binding numbers are documented in docs/BINDINGS.md — keep WGSL and this file aligned.
+ *
+ * @typedef {'roller'|'particle'|'segEnhanced'|'fluxSegment'|'fieldParticles'|'energyPipe'|'energyPipeCompute'|'coil'|'particleCompute'|'rollerCompute'|'fieldAdvect'|'fluxTracer'|'sky'|'empty'|'anomalyWall'|'bloomExtract'|'bloomBlur'|'bloomComposite'} BindGroupLayoutName
+ * @typedef {BindGroupLayoutName} PipelineLayoutName
  *
  * Design:
  *  - One requestAdapter/device owns one PipelineLayoutCache (on MultiDeviceVisualizer).
@@ -299,12 +303,20 @@ export class PipelineLayoutCache {
     this._pl('bloomComposite', ['bloomComposite']);
   }
 
+  /**
+   * @param {BindGroupLayoutName} name
+   * @returns {GPUBindGroupLayout}
+   */
   getLayout(name) {
     const l = this.bindGroupLayouts.get(name);
     if (!l) throw new Error(`[PipelineLayoutCache] unknown bind group layout "${name}"`);
     return l;
   }
 
+  /**
+   * @param {PipelineLayoutName} name
+   * @returns {GPUPipelineLayout}
+   */
   getPipelineLayout(name) {
     const l = this.pipelineLayouts.get(name);
     if (!l) throw new Error(`[PipelineLayoutCache] unknown pipeline layout "${name}"`);

@@ -2,35 +2,35 @@
  * Telemetry export UI — CSV / JSON / replay / offline WASM / benchmark pack.
  */
 
-import { telemetryHub } from '../telemetry-hub.ts';
+import { telemetryHub } from '../telemetry-hub.js';
 import {
   downloadTelemetryCsv,
   downloadConfigJson,
   downloadReplayJson,
   downloadBenchmarkPack,
   buildReplayFromRecording
-} from './telemetry-export.js';
-import { applyReplay } from './replay-format.js';
-import { setSimulationSeed } from './deterministic-rng.js';
+} from './telemetry-export';
+import { applyReplay } from './replay-format';
+import { setSimulationSeed } from './deterministic-rng';
 import { runOfflineSegExportInWorker, runOfflineSegExport } from '../wasm/offline-runner.js';
 
-function setStatus(el, text, ok = true) {
+function setStatus(el: HTMLElement | null, text: string, ok = true): void {
   if (!el) return;
   el.textContent = text;
   el.style.color = ok ? '#0aa' : '#f66';
 }
 
-export function initTelemetryExportPanel() {
-  const sampleHzEl = document.getElementById('telemetrySampleHz');
-  const recordBtn = document.getElementById('telemetryRecordBtn');
+export function initTelemetryExportPanel(): void {
+  const sampleHzEl = document.getElementById('telemetrySampleHz') as HTMLInputElement | null;
+  const recordBtn = document.getElementById('telemetryRecordBtn') as HTMLButtonElement | null;
   const csvBtn = document.getElementById('telemetryCsvBtn');
   const jsonBtn = document.getElementById('telemetryJsonBtn');
-  const offlineBtn = document.getElementById('telemetryOfflineBtn');
+  const offlineBtn = document.getElementById('telemetryOfflineBtn') as HTMLButtonElement | null;
   const replayBtn = document.getElementById('telemetryReplayBtn');
-  const replayFile = document.getElementById('telemetryReplayFile');
+  const replayFile = document.getElementById('telemetryReplayFile') as HTMLInputElement | null;
   const benchBtn = document.getElementById('telemetryBenchExportBtn');
   const statusEl = document.getElementById('telemetryExportStatus');
-  const seedEl = document.getElementById('telemetrySeed');
+  const seedEl = document.getElementById('telemetrySeed') as HTMLInputElement | null;
 
   if (!recordBtn) return;
 
@@ -47,7 +47,7 @@ export function initTelemetryExportPanel() {
       return;
     }
     if (!window.segOperator?.isRunning) {
-      window.segOperator?.start();
+      window.segOperator?.start?.();
     }
     telemetryHub.startRecording(10, getHz());
     recordBtn.textContent = '■ Stop';
@@ -55,12 +55,12 @@ export function initTelemetryExportPanel() {
   });
 
   csvBtn?.addEventListener('click', () => {
-    let rows = telemetryHub.getRecordedRows();
+    const rows = telemetryHub.getRecordedRows();
     if (rows.length === 0) {
       setStatus(statusEl, 'No samples — click Record 10s first', false);
       return;
     }
-    downloadTelemetryCsv(rows);
+    downloadTelemetryCsv(rows as Parameters<typeof downloadTelemetryCsv>[0]);
     setStatus(statusEl, `Downloaded CSV (${rows.length} rows)`);
   });
 
@@ -70,6 +70,7 @@ export function initTelemetryExportPanel() {
   });
 
   offlineBtn?.addEventListener('click', async () => {
+    if (!offlineBtn) return;
     offlineBtn.disabled = true;
     setStatus(statusEl, 'WASM offline run (worker)…');
     try {
@@ -85,7 +86,7 @@ export function initTelemetryExportPanel() {
           loadOhm,
           fieldStrength: field
         });
-      } catch (_) {
+      } catch {
         result = await runOfflineSegExport({
           durationSec: 10,
           sampleHz: getHz(),
@@ -103,7 +104,8 @@ export function initTelemetryExportPanel() {
       URL.revokeObjectURL(url);
       setStatus(statusEl, `WASM CSV (${result.rows.length} rows)`);
     } catch (err) {
-      setStatus(statusEl, err.message || 'Offline run failed', false);
+      const message = err instanceof Error ? err.message : 'Offline run failed';
+      setStatus(statusEl, message, false);
     }
     offlineBtn.disabled = false;
   });
@@ -121,7 +123,7 @@ export function initTelemetryExportPanel() {
   });
 
   replayFile?.addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
+    const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
     try {
       const text = await file.text();
@@ -130,7 +132,8 @@ export function initTelemetryExportPanel() {
       applyReplay(replay);
       setStatus(statusEl, `Replay loaded (v${replay.replayVersion})`);
     } catch (err) {
-      setStatus(statusEl, err.message || 'Invalid replay file', false);
+      const message = err instanceof Error ? err.message : 'Invalid replay file';
+      setStatus(statusEl, message, false);
     }
     replayFile.value = '';
   });
@@ -141,14 +144,14 @@ export function initTelemetryExportPanel() {
       setStatus(statusEl, 'Profiler not available', false);
       return;
     }
-    let bench = null;
+    let bench: unknown = null;
     if (profiler.benchmarkSamples?.length) {
       bench = profiler.endBenchmark?.() ?? {
         samples: profiler.benchmarkSamples,
-        stats: profiler.getStats()
+        stats: profiler.getStats?.()
       };
     } else {
-      bench = { stats: profiler.getStats(), note: 'Run F3 debug panel benchmark first' };
+      bench = { stats: profiler.getStats?.(), note: 'Run F3 debug panel benchmark first' };
     }
     downloadBenchmarkPack(bench);
     setStatus(statusEl, 'Benchmark pack downloaded');

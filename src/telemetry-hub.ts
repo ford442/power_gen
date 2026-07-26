@@ -13,11 +13,11 @@
  * after physics steps so dashboard numbers stay non-zero on either path.
  */
 
-import { segOperator, SEG_SPEC } from './seg-operator-state.js';
+import { segOperator, SEG_SPEC } from './seg-operator-state';
 import { ValidatedConstants } from './ValidatedConstants';
 import { getAllSimDeviceIds } from './devices/device-registry.js';
-import { TelemetrySampler } from './telemetry/telemetry-sampler.js';
-import type { DevicePhysicsState } from './renderers/shared/device-physics.ts';
+import { TelemetrySampler } from './telemetry/telemetry-sampler';
+import type { DevicePhysicsState } from './renderers/shared/device-physics';
 import type {
   DeviceTelemetrySnap,
   PublishFrameEnergyNetwork,
@@ -28,7 +28,7 @@ import type {
   TelemetryMeta,
   TelemetrySnapshot,
   TelemetrySubscriber
-} from './telemetry/types.ts';
+} from './telemetry/types';
 
 export type {
   DeviceTelemetrySnap,
@@ -43,7 +43,7 @@ export type {
   TelemetryMetaEntry,
   TelemetrySnapshot,
   TelemetrySubscriber
-} from './telemetry/types.ts';
+} from './telemetry/types';
 
 export const TELEMETRY_META: TelemetryMeta = {
   B_surface: {
@@ -377,13 +377,6 @@ export class TelemetryHub {
 
 /** App-wide singleton */
 export const telemetryHub = new TelemetryHub();
-
-// Dev / agent access
-declare global {
-  interface Window {
-    telemetryHub: TelemetryHub;
-  }
-}
 
 if (typeof window !== 'undefined') {
   window.telemetryHub = telemetryHub;
