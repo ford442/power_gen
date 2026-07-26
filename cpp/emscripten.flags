@@ -1,0 +1,12 @@
+# Shared Emscripten link flags for sim_core WASM (Makefile + CMakeLists.txt).
+# One flag per line. Lines starting with # are ignored.
+# Optimization (-O3 / -O0) is applied by each build driver, not here.
+--bind
+-s WASM=1
+-s MODULARIZE=1
+-s EXPORT_NAME=SimCore
+-s EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPF32','HEAPU8']
+-s ALLOW_MEMORY_GROWTH=1
+-s INITIAL_MEMORY=16777216
+-s ENVIRONMENT=web
+-s NO_EXIT_RUNTIME=1

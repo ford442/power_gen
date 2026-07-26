@@ -91,6 +91,38 @@ console.log('mean |ω|', segWasm.lastRollerMeanOmega);
 ```
 
 Enable live WASM plant: `?wasmPhysics=1` or debug panel toggle (persists to localStorage).
+
+### WASM ABI / zero-copy contract
+
+**Single source of Emscripten flags:** `cpp/emscripten.flags` (consumed by `Makefile` and
+`CMakeLists.txt`). Do not duplicate `-s EXPORT_*` / memory settings in one build path only.
+
+**Required `EXPORTED_RUNTIME_METHODS`** for `src/wasm/seg-physics-bridge.js` and `sim.ts`:
+
+| Method | Used for |
+|--------|----------|
+| `ccall` | Low-level C calls (legacy / tooling) |
+| `cwrap` | Low-level C calls (legacy / tooling) |
+| `HEAPF32` | Zero-copy `Float32Array` views of particle + roller buffers |
+| `HEAPU8` | Byte-level heap access when needed by bridges / future tooling |
+
+**Particle layouts** (see also `docs/PHYSICS_CONSTANTS.md`):
+
+| Struct | Bytes | Floats | Consumer |
+|--------|-------|--------|----------|
+| `GpuParticle` | 16 | 4 (vec3 + phase) | WebGPU compute / billboards |
+| `SimParticle` | 32 | 8 (x,y,z,phase,vx,vy,vz,aux) | C++ `sim_core`, WASM export |
+
+`getParticleFloatCount()` returns `_numParticles × 8`. Native smoke seeds 1000 particles
+(`getParticleFloatCount == 8000`).
+
+**Roller export:** packed as **4 floats per roller** (`ROLLER_EXPORT_STRIDE`): angle, omega,
+radius, height. `getRollerStateFloatCount()` returns `_numRollers × 4` (default topology:
+66 rollers → 264 floats). Call `packRollerState()` before reading the buffer.
+
+**Heap growth:** `-s ALLOW_MEMORY_GROWTH=1` is enabled. Any `HEAPF32` / `HEAPU8` view becomes
+stale after the WASM heap grows — `sim.ts` re-fetches `mod.HEAPF32` on each
+`getParticleFloatView()` / `getRollerStateFloatView()` call.
 ### Debug WASM build
 
 ```bash
@@ -101,6 +133,7 @@ npm run wasm:build-debug
 
 ```
 cpp/
+  emscripten.flags   ← shared Emscripten link flags (Makefile + CMake)
   src/
     sim_core.h       ← Vec3, SimParticle, SEGRollerState, function declarations
     sim_core.cpp     ← full implementation + Embind bindings

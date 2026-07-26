@@ -19,17 +19,8 @@ SRC        := src/sim_core.cpp
 OUT_DIR    := ../src/public/wasm
 OUT_JS     := $(OUT_DIR)/sim_core.js
 
-EMCC_FLAGS := \
-  --bind \
-  -s WASM=1 \
-  -s MODULARIZE=1 \
-  -s EXPORT_NAME=SimCore \
-  -s EXPORTED_RUNTIME_METHODS="['ccall','cwrap','HEAPF32','HEAPU8']" \
-  -s ALLOW_MEMORY_GROWTH=1 \
-  -s INITIAL_MEMORY=16777216 \
-  -s ENVIRONMENT=web \
-  -s NO_EXIT_RUNTIME=1 \
-  -I src
+# Shared link flags — keep in sync via cpp/emscripten.flags (also used by CMake)
+EMCC_FLAGS := $(shell grep -vE '^\s*#' emscripten.flags | grep -vE '^\s*$$' | tr '\n' ' ') -I src
 
 # ── Targets ─────────────────────────────────────────────────────
 

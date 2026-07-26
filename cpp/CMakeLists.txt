@@ -12,18 +12,14 @@ target_include_directories(sim_core PRIVATE src)
 if(EMSCRIPTEN)
   set_target_properties(sim_core PROPERTIES SUFFIX ".js")
 
-  target_link_options(sim_core PRIVATE
-    "SHELL:-s WASM=1"
-    "SHELL:-s MODULARIZE=1"
-    "SHELL:-s EXPORT_NAME=SimCore"
-    "SHELL:--bind"
-    "SHELL:-s EXPORTED_RUNTIME_METHODS=[ccall,cwrap]"
-    "SHELL:-s ALLOW_MEMORY_GROWTH=1"
-    "SHELL:-s INITIAL_MEMORY=16777216"
-    "SHELL:-s ENVIRONMENT=web"
-    "SHELL:-s NO_EXIT_RUNTIME=1"
-    -O3
-  )
+  # Shared link flags — cpp/emscripten.flags (same set as Makefile wasm target)
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/emscripten.flags" _emcc_flag_lines)
+  foreach(_flag IN LISTS _emcc_flag_lines)
+    if(NOT _flag MATCHES "^#")
+      target_link_options(sim_core PRIVATE "SHELL:${_flag}")
+    endif()
+  endforeach()
+  target_link_options(sim_core PRIVATE -O3)
 
   # Output directly into the Vite public/wasm directory so the dev
   # server can serve sim_core.js and sim_core.wasm without copying.

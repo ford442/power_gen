@@ -1094,6 +1094,11 @@ int main(int argc, char** argv) {
         printf("FAIL: unexpected roller export size\n");
         return 1;
     }
+    if (sim.getParticleFloatCount() != 1000 * 8) {
+        printf("FAIL: unexpected particle export size (got %d, expected %d)\n",
+               sim.getParticleFloatCount(), 1000 * 8);
+        return 1;
+    }
 
     printf("All mode smoke tests OK\n");
     return 0;
