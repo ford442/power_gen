@@ -9,6 +9,14 @@ import {
   TUBE_MESH_HEIGHT,
   TUBE_MESH_RADIUS
 } from './heron-layout.js';
+import {
+  MATERIAL_COPPER,
+  MATERIAL_COIL_FORMER,
+  MATERIAL_KELVIN_RING,
+  MATERIAL_SOLAR_BATTERY,
+  MATERIAL_SOLAR_PANEL,
+  MATERIAL_STRUCTURAL
+} from './devices/material-roles.js';
 
 export { TUBE_MESH_HEIGHT, TUBE_MESH_RADIUS };
 
@@ -51,7 +59,7 @@ function quatFromYTo(dir) {
  * Straight run of tube-mesh instances from `from` to `to`, rotated to lie
  * along the segment. Consecutive instances overlap slightly so no gaps show.
  */
-export function tubeSegments(from, to, color = [0.62, 0.66, 0.72], emissive = 0.06, ringIndex = 12) {
+export function tubeSegments(from, to, color = [0.62, 0.66, 0.72], emissive = 0.06, ringIndex = MATERIAL_COIL_FORMER) {
   const dir = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
   const len = Math.hypot(dir[0], dir[1], dir[2]);
   if (len < 1e-4) return [];
@@ -88,12 +96,12 @@ export function buildKelvinInstances() {
   const leftX = -2.5;
   const rightX = 2.5;
   return [
-    packInstance([leftX, 4.8, 0], 0, [0, 0, 0, 1], can, 0.08),
-    packInstance([leftX, 1.5, 0], 0, [0, 0, 0, 1], copper, 0.12),
-    packInstance([leftX, -2.5, 0], 0, [0, 0, 0, 1], copper, 0.18),
-    packInstance([rightX, 4.8, 0], 0, [0, 0, 0, 1], can, 0.08),
-    packInstance([rightX, 1.5, 0], 0, [0, 0, 0, 1], copper, 0.12),
-    packInstance([rightX, -2.5, 0], 0, [0, 0, 0, 1], copper, 0.18)
+    packInstance([leftX, 4.8, 0], MATERIAL_COPPER, [0, 0, 0, 1], can, 0.08),
+    packInstance([leftX, 1.5, 0], MATERIAL_COPPER, [0, 0, 0, 1], copper, 0.12),
+    packInstance([leftX, -2.5, 0], MATERIAL_COPPER, [0, 0, 0, 1], copper, 0.18),
+    packInstance([rightX, 4.8, 0], MATERIAL_COPPER, [0, 0, 0, 1], can, 0.08),
+    packInstance([rightX, 1.5, 0], MATERIAL_COPPER, [0, 0, 0, 1], copper, 0.12),
+    packInstance([rightX, -2.5, 0], MATERIAL_COPPER, [0, 0, 0, 1], copper, 0.18)
   ];
 }
 
@@ -101,8 +109,8 @@ export function buildKelvinInstances() {
 export function buildKelvinRingInstances() {
   const ringColor = [0.90, 0.55, 0.20];
   return [
-    packInstance([-2.5, 5.6, 0], 100, [0, 0, 0, 1], ringColor, 0.25),
-    packInstance([2.5, 5.6, 0], 100, [0, 0, 0, 1], ringColor, 0.25)
+    packInstance([-2.5, 5.6, 0], MATERIAL_KELVIN_RING, [0, 0, 0, 1], ringColor, 0.25),
+    packInstance([2.5, 5.6, 0], MATERIAL_KELVIN_RING, [0, 0, 0, 1], ringColor, 0.25)
   ];
 }
 
@@ -110,8 +118,8 @@ export function buildKelvinRingInstances() {
 export function buildKelvinBucketInstances() {
   const bucket = [0.55, 0.58, 0.64];
   return [
-    packInstance([-2.5, -3.4, 0], 0, [0, 0, 0, 1], bucket, 0.1),
-    packInstance([2.5, -3.4, 0], 0, [0, 0, 0, 1], bucket, 0.1)
+    packInstance([-2.5, -3.4, 0], MATERIAL_COPPER, [0, 0, 0, 1], bucket, 0.1),
+    packInstance([2.5, -3.4, 0], MATERIAL_COPPER, [0, 0, 0, 1], bucket, 0.1)
   ];
 }
 
@@ -161,18 +169,18 @@ export function buildSolarLedInstances() {
 }
 
 export function buildSolarBatteryInstance() {
-  return [packInstance([0, 3.5, 0], 6, [0, 0, 0, 1], [0.55, 0.58, 0.62], 0.1)];
+  return [packInstance([0, 3.5, 0], MATERIAL_SOLAR_BATTERY, [0, 0, 0, 1], [0.55, 0.58, 0.62], 0.1)];
 }
 
-/** Solar panel disc. ringIndex 200 matches legacy shader convention. */
+/** Solar panel disc. */
 export function buildSolarPanelInstance() {
-  return [packInstance([0, 0.05, 0], 200, [0, 0, 0, 1], [0.08, 0.12, 0.22], 0.05)];
+  return [packInstance([0, 0.05, 0], MATERIAL_SOLAR_PANEL, [0, 0, 0, 1], [0.08, 0.12, 0.22], 0.05)];
 }
 
 /** Mount pedestal under LED hex array. */
 export function buildSolarMountInstances() {
   const mount = [0.45, 0.48, 0.52];
-  return [packInstance([0, 1.8, 0], 11, [0, 0, 0, 1], mount, 0.06)];
+  return [packInstance([0, 1.8, 0], MATERIAL_STRUCTURAL, [0, 0, 0, 1], mount, 0.06)];
 }
 
 /** Support posts under each LED plus the central battery riser. */
