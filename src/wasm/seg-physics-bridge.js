@@ -184,6 +184,50 @@ export const segWasm = {
 
   stepParticles(dt) {
     _instance?.stepParticles?.(dt);
+  },
+
+  /**
+   * Lab energy bus — declarative edges (ADR-0004 Phase B).
+   * @param {Array<{from:string,to:string,maxWatts:number,efficiency?:number,latency?:number}>} edges
+   */
+  setNetworkEdges(edges) {
+    _instance?.setNetworkEdges?.(edges ?? []);
+  },
+
+  /**
+   * Update WASM bus allocation from per-device energy levels.
+   * @returns {{ couplingEnabled: boolean, labBudgetW: number, totalAllocatedW: number, residualW: number }}
+   */
+  updateEnergyNetwork({ couplingEnabled, segPowerW, segEfficiencyPct, energyByDevice, enabledByDevice }) {
+    if (!this.enabled || !_instance) {
+      return { couplingEnabled: false, labBudgetW: 0, totalAllocatedW: 0, residualW: 0 };
+    }
+    return _instance.updateEnergyNetwork({
+      couplingEnabled: !!couplingEnabled,
+      segPowerW: segPowerW ?? 0,
+      segEfficiencyPct: segEfficiencyPct ?? 0,
+      energyByDevice: energyByDevice ?? {},
+      enabledByDevice: enabledByDevice ?? {}
+    });
+  },
+
+  getNetworkSummary() {
+    if (!this.enabled || !_instance) {
+      return { couplingEnabled: false, labBudgetW: 0, totalAllocatedW: 0, residualW: 0 };
+    }
+    return _instance.getNetworkSummary();
+  },
+
+  getNetworkEdgeAllocatedW(edgeIndex) {
+    if (!this.enabled || !_instance) return 0;
+    return _instance.getNetworkEdgeAllocatedW(edgeIndex) ?? 0;
+  },
+
+  getNetworkDevicePower(deviceId) {
+    if (!this.enabled || !_instance) {
+      return { powerInW: 0, powerOutW: 0, efficiency: 0 };
+    }
+    return _instance.getNetworkDevicePowerById(deviceId);
   }
 };
 

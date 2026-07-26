@@ -82,6 +82,22 @@ export const WASM_SEG_DEFAULTS = {
   maxParticles: 50000,
 };
 
+/** Simulated nameplate watts — order-of-magnitude lab bus estimates, not metrology. */
+export const ENERGY_NETWORK_NAMEPLATES = {
+  simulatedOrderOfMagnitude: true,
+  deviceNameplateWatts: {
+    seg: 2000,
+    heron: 400,
+    kelvin: 150,
+    solar: 300,
+    peltier: 120,
+    mhd: 350,
+    maglev: 200,
+    homopolar: 250,
+    'halbach-viz': 80,
+  },
+};
+
 export const SCENE_SCALING = {
   "baseUnitLabel": "scene_unit",
   "notes": "Visualization layouts in src/seg-layout.js map real metres to scene units via per-preset worldScale. Plant integrators may apply additional scene gravity scaling in WASM (see sim_core.cpp).",

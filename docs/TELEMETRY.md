@@ -57,8 +57,23 @@ const unsub = telemetryHub.subscribe((snap) => {
 | Lab bus `powerInW` / `powerOutW` | W (simulated) | `snap.devices[id]` via `EnergyNetwork` — **not metrology** |
 | Lab bus efficiency | % | `snap.devices[id].efficiency` — SEG uses operator model when coupled |
 | Energy network summary | W | `snap.energyNetwork` — budget, allocated, residual |
+| Nameplate watts (non-SEG) | W | `physics/constants.json` → `energyNetwork.deviceNameplateWatts` — `simulatedOrderOfMagnitude: true` |
 
 `SEG_SPEC` in `seg-operator-state.js` is aligned with `ValidatedConstants` / `SEG_DATA`.
+
+### Residual definition
+
+When coupling is enabled, the lab bus tracks:
+
+- **labBudgetW** — sum of enabled devices’ simulated `powerOutW` (SEG from operator telemetry; others from `energyLevel × nameplate`).
+- **totalAllocatedW** — sum of watts assigned to pipe edges after per-source budget clamping.
+- **residualW** — `labBudgetW - totalAllocatedW` (unallocated source watts in the accounting model).
+
+This is **not** a multi-physics energy conservation check (ΣP ≠ 0). Phase C may surface large residuals in a dev overlay.
+
+### WASM bus path
+
+With `?wasmPhysics=1` and `?energyCoupling=1`, `EnergyNetwork` delegates allocation to `sim_core` via `segWasm.updateEnergyNetwork()`. Pipe glow smoothing stays in JS; WebGPU and WebGL2 share the same clamp. Pure JS allocation remains the fallback when WASM is off.
 
 ## Energy pipes vs electrical telemetry
 
@@ -69,7 +84,7 @@ Overview **energy pipes** are a separate visual channel from SEG electrical outp
 | **Visual only** (default) | Pipe glow ∝ source `energyLevel` (0–1). No watt clamping. |
 | **Coupled** (`?energyCoupling=1` or debug panel) | Outgoing pipe demand is scaled so Σ allocated W ≤ source `powerOutW` per device. |
 
-**Important:** Pipe intensity and `powerInW`/`powerOutW` on non-SEG devices use **simulated nameplate estimates** unless calibrated. Do not treat glow or bus fields as measured lab metrology. See ADR-0004 and the overview disclaimer (`#energyNetworkDisclaimer`).
+**Important:** Pipe intensity and `powerInW`/`powerOutW` on non-SEG devices use **simulated nameplate estimates** from `physics/constants.json` (`energyNetwork.deviceNameplateWatts`, flagged `simulatedOrderOfMagnitude`). Do not treat glow or bus fields as measured lab metrology. See ADR-0004 and the overview disclaimer (`#energyNetworkDisclaimer`).
 
 ```js
 // Optional per-frame publish (WebGPU / WebGL2 render loops):

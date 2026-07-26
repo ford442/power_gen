@@ -5,6 +5,51 @@
 import { loadSimCore, getSimCore } from './index';
 import type { SEGSimulatorInstance, Vec3, SimParticle } from './types';
 
+/** Maps device registry ids to sim_core SimMode indices. */
+export const WASM_DEVICE_MODE_MAP: Record<string, number> = {
+  seg: 0,
+  heron: 1,
+  kelvin: 2,
+  solar: 3,
+  peltier: 4,
+  mhd: 5,
+  maglev: 6,
+  homopolar: 7
+};
+
+const WASM_MODE_DEVICE_IDS = Object.keys(WASM_DEVICE_MODE_MAP);
+
+export interface SEGNetworkSummary {
+  couplingEnabled: boolean;
+  labBudgetW: number;
+  totalAllocatedW: number;
+  residualW: number;
+}
+
+export interface SEGDevicePower {
+  powerInW: number;
+  powerOutW: number;
+  efficiency: number;
+}
+
+export interface SEGNetworkEdgeInput {
+  from: string;
+  to: string;
+  maxWatts: number;
+  efficiency?: number;
+  latency?: number;
+}
+
+export interface SEGNetworkUpdateInput {
+  couplingEnabled: boolean;
+  segPowerW: number;
+  segEfficiencyPct: number;
+  /** Device id → energy level 0..1 */
+  energyByDevice: Record<string, number>;
+  /** Device id → enabled */
+  enabledByDevice: Record<string, boolean>;
+}
+
 export interface SEGStepResult {
   omega: number;
   rpm: number;
@@ -357,6 +402,72 @@ export class SEGSim {
     }
     return s / Math.max(1, n);
   }
+
+  /** Flat edge list: fromMode, toMode, maxWatts, efficiency, latencyS per edge. */
+  setNetworkEdges(edges: SEGNetworkEdgeInput[]): void {
+    if (!this._sim?.setNetworkEdges) return;
+    const flat: number[] = [];
+    for (const e of edges) {
+      const from = WASM_DEVICE_MODE_MAP[e.from];
+      const to = WASM_DEVICE_MODE_MAP[e.to];
+      if (from === undefined || to === undefined) continue;
+      flat.push(from, to, e.maxWatts, e.efficiency ?? 1, e.latency ?? 0);
+    }
+    this._sim.setNetworkEdges(flat);
+    this._networkEdges = edges.filter(
+      (e) => WASM_DEVICE_MODE_MAP[e.from] !== undefined && WASM_DEVICE_MODE_MAP[e.to] !== undefined
+    );
+  }
+
+  updateEnergyNetwork(input: SEGNetworkUpdateInput): SEGNetworkSummary {
+    if (!this._sim?.updateEnergyNetwork) {
+      return { couplingEnabled: false, labBudgetW: 0, totalAllocatedW: 0, residualW: 0 };
+    }
+    const energyLevels = WASM_MODE_DEVICE_IDS.map((id) => input.energyByDevice[id] ?? 0);
+    const enabledFlags = WASM_MODE_DEVICE_IDS.map((id) => (input.enabledByDevice[id] !== false ? 1 : 0));
+    this._sim.updateEnergyNetwork(
+      input.couplingEnabled,
+      input.segPowerW,
+      input.segEfficiencyPct,
+      energyLevels,
+      enabledFlags
+    );
+    return this.getNetworkSummary();
+  }
+
+  getNetworkSummary(): SEGNetworkSummary {
+    const s = this._sim?.getNetworkSummary?.();
+    if (!s) {
+      return { couplingEnabled: false, labBudgetW: 0, totalAllocatedW: 0, residualW: 0 };
+    }
+    return {
+      couplingEnabled: !!s.couplingEnabled,
+      labBudgetW: s.labBudgetW ?? 0,
+      totalAllocatedW: s.totalAllocatedW ?? 0,
+      residualW: s.residualW ?? 0
+    };
+  }
+
+  getNetworkEdgeAllocatedW(edgeIndex: number): number {
+    return this._sim?.getNetworkEdgeAllocatedW?.(edgeIndex) ?? 0;
+  }
+
+  getNetworkDevicePowerById(deviceId: string): SEGDevicePower {
+    const mode = WASM_DEVICE_MODE_MAP[deviceId];
+    if (mode === undefined) return { powerInW: 0, powerOutW: 0, efficiency: 0 };
+    const p = this._sim?.getNetworkDevicePower?.(mode);
+    return {
+      powerInW: p?.powerInW ?? 0,
+      powerOutW: p?.powerOutW ?? 0,
+      efficiency: p?.efficiency ?? 0
+    };
+  }
+
+  getNetworkEdges(): SEGNetworkEdgeInput[] {
+    return this._networkEdges;
+  }
+
+  private _networkEdges: SEGNetworkEdgeInput[] = [];
 
   static async getVersion(): Promise<string> {
     const mod = await loadSimCore();

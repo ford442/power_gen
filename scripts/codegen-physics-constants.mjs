@@ -61,6 +61,7 @@ function emitH(data) {
   const m = data.segMagnet;
   const pl = data.particleLayouts;
   const w = data.wasmSegDefaults;
+  const en = data.energyNetwork;
   const tau = p.PI * 2;
   const magnetization = m.Br / p.MU_0;
 
@@ -95,6 +96,16 @@ struct WasmSegDefaults {
   static constexpr float RING_RADII[3] = { ${w.ringRadiiScene.map(f32).join(', ')} };
   static constexpr int MAX_ROLLERS   = ${w.maxRollers};
   static constexpr int MAX_PARTICLES = ${w.maxParticles};
+};
+
+/** Simulated nameplate watts per SimMode (order-of-magnitude — not metrology). */
+struct EnergyNetworkNameplates {
+  static constexpr int MODE_COUNT = 8;
+  static constexpr float WATTS[MODE_COUNT] = {
+    ${f32(en.deviceNameplateWatts.seg)}, ${f32(en.deviceNameplateWatts.heron)}, ${f32(en.deviceNameplateWatts.kelvin)},
+    ${f32(en.deviceNameplateWatts.solar)}, ${f32(en.deviceNameplateWatts.peltier)}, ${f32(en.deviceNameplateWatts.mhd)},
+    ${f32(en.deviceNameplateWatts.maglev)}, ${f32(en.deviceNameplateWatts.homopolar)}
+  };
 };
 
 } // namespace power_gen
@@ -169,6 +180,8 @@ function emitTs(data) {
   const pl = data.particleLayouts;
   const w = data.wasmSegDefaults;
   const scene = data.sceneScaling;
+  const en = data.energyNetwork;
+  const np = en.deviceNameplateWatts;
 
   return `${HEADER_TS}
 export const PHYSICAL_CONSTANTS = {
@@ -248,6 +261,22 @@ export const WASM_SEG_DEFAULTS = {
   ringRadiiScene: [${w.ringRadiiScene.join(', ')}] as const,
   maxRollers: ${w.maxRollers},
   maxParticles: ${w.maxParticles},
+} as const;
+
+/** Simulated nameplate watts — order-of-magnitude lab bus estimates, not metrology. */
+export const ENERGY_NETWORK_NAMEPLATES = {
+  simulatedOrderOfMagnitude: ${en.simulatedOrderOfMagnitude},
+  deviceNameplateWatts: {
+    seg: ${np.seg},
+    heron: ${np.heron},
+    kelvin: ${np.kelvin},
+    solar: ${np.solar},
+    peltier: ${np.peltier},
+    mhd: ${np.mhd},
+    maglev: ${np.maglev},
+    homopolar: ${np.homopolar},
+    'halbach-viz': ${np['halbach-viz']},
+  },
 } as const;
 
 export const SCENE_SCALING = ${JSON.stringify(scene, null, 2)} as const;

@@ -221,6 +221,32 @@ struct HomopolarState {
 };
 
 // ─────────────────────────────────────────────────────────────
+// Lab energy bus (ADR-0004 Phase B) — declarative edges + budget
+// ─────────────────────────────────────────────────────────────
+struct EnergyNetworkEdgeSpec {
+    int   fromMode{0};
+    int   toMode{0};
+    float maxWatts{0.f};
+    float efficiency{1.f};
+    float latencyS{0.f};
+};
+
+struct EnergyNetworkDevicePower {
+    float powerInW{0.f};
+    float powerOutW{0.f};
+    float efficiency{0.f};
+};
+
+struct EnergyNetworkSummary {
+    bool  couplingEnabled{false};
+    float labBudgetW{0.f};
+    float totalAllocatedW{0.f};
+    float residualW{0.f};
+};
+
+static constexpr int ENERGY_NETWORK_MODE_COUNT = power_gen::EnergyNetworkNameplates::MODE_COUNT;
+
+// ─────────────────────────────────────────────────────────────
 // SEGSimulator
 // ─────────────────────────────────────────────────────────────
 class SEGSimulator {
@@ -325,6 +351,21 @@ public:
     /// Energy / mode scalar for telemetry (0..1-ish)
     float getEnergyLevel() const;
 
+    // ── Lab energy bus (ADR-0004 Phase B) ─────────────────────
+    /// Replace edge list. Flat layout per edge: fromMode, toMode, maxWatts, efficiency, latencyS.
+    void setNetworkEdges(const std::vector<float>& flatEdges);
+    int  getNetworkEdgeCount() const { return static_cast<int>(_networkEdges.size()); }
+    /// Per-mode energyLevel (0..1) and enabled flags (0/1), length ENERGY_NETWORK_MODE_COUNT.
+    void updateEnergyNetwork(
+        bool couplingEnabled,
+        float segPowerW,
+        float segEfficiencyPct,
+        const std::vector<float>& energyLevels,
+        const std::vector<int>& enabledFlags);
+    EnergyNetworkSummary getNetworkSummary() const { return _networkSummary; }
+    float getNetworkEdgeAllocatedW(int edgeIndex) const;
+    EnergyNetworkDevicePower getNetworkDevicePower(int mode) const;
+
     static const char* version();
 
 private:
@@ -351,6 +392,12 @@ private:
     MHDState       _mhd;
     MaglevState    _maglev;
     HomopolarState _homopolar;
+
+    // Lab energy bus state
+    std::vector<EnergyNetworkEdgeSpec> _networkEdges;
+    std::vector<float>                 _networkEdgeAllocatedW;
+    EnergyNetworkDevicePower           _networkDevicePower[ENERGY_NETWORK_MODE_COUNT]{};
+    EnergyNetworkSummary               _networkSummary{};
 
     void _initRollers();
     void _stepHeron(float dt);
