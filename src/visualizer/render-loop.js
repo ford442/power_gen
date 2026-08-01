@@ -6,8 +6,9 @@ import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
 import { segWasm } from '../wasm/seg-physics-bridge.js';
 import { explainerState } from '../seg-explainer/explainer-state.js';
-import { getViewMeshLod, getDeviceParticleScale } from '../renderers/shared/view-lod.js';
+import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
+import { resolveScaledParticleCount } from '../devices/particle-budgets.js';
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -186,7 +187,8 @@ export const renderLoopMethods = {
 
     const canvasAspect = (this.canvas.width || 1) / Math.max(1, this.canvas.height || 1);
     const cullCamera = this.camera?.camera;
-    const cullOpts = { aspect: canvasAspect };
+    // Plugin overview ring is 20 m — cull sphere must cover device extents there.
+    const cullOpts = getOverviewCullOpts({ aspect: canvasAspect });
 
     const isDeviceVisible = (device) => shouldSimulateDevice(
       this.currentView,
@@ -194,30 +196,56 @@ export const renderLoopMethods = {
       device.id,
       device.position,
       cullCamera,
-      cullOpts
+      {
+        ...cullOpts,
+        radius: device.config?.cullRadius ?? cullOpts.radius
+      }
     );
 
-    // Update devices with view LOD × auto-quality scaling
+    // Update devices with view LOD × auto-quality × per-device tier budgets
     const explainerScale = explainerState.getParticleCapScale();
     const meshLod = getViewMeshLod(this.currentView, this.profiler.qualityLevel);
+    const meshDetail = getMeshDrawDetail(meshLod);
+    this._overviewMeshDetail = meshDetail;
     this.refreshSEGLayout(meshLod * explainerScale);
 
+    this.profiler.beginFrameDraws?.();
+
     let totalParticles = 0;
+    const qualityTier = this.profiler.qualityTier || 'high';
     for (const device of Object.values(this.devices)) {
       if (!isDeviceVisible(device)) continue;
 
-      const particleScale = getDeviceParticleScale({
-        currentView: this.currentView,
+      const viewLod = getViewParticleLod(this.currentView, device.id);
+      if (viewLod <= 0) continue;
+
+      const scaledCount = resolveScaledParticleCount({
         deviceId: device.id,
+        baseCount: device.particleCount,
         qualityLevel: this.profiler.qualityLevel,
-        explainerScale
+        qualityTier,
+        viewLod,
+        explainerScale,
+        isPlugin: !!device.config?.plugin
       });
-      if (particleScale <= 0) continue;
+      // Keep a scale for effect budgets / legacy paths (avoid 0 when capped).
+      const particleScale = device.particleCount > 0
+        ? Math.max(0.05, scaledCount / device.particleCount)
+        : getDeviceParticleScale({
+            currentView: this.currentView,
+            deviceId: device.id,
+            qualityLevel: this.profiler.qualityLevel,
+            explainerScale
+          });
+
+      device._meshDrawDetail = this.isOverviewMode?.() ? meshDetail : 'full';
 
       this.profiler.measureDevice(device.id, () => {
         device.update(deltaTime * speed, particleScale);
+        // Budget may be below qualityScale*base — enforce resolved count.
+        if (scaledCount > 0) device.scaledParticleCount = scaledCount;
       });
-      totalParticles += device.scaledParticleCount || Math.floor(device.particleCount * particleScale);
+      totalParticles += device.scaledParticleCount || scaledCount;
     }
 
     this.profiler.recordFrame(deltaTime, totalParticles);
@@ -341,9 +369,13 @@ export const renderLoopMethods = {
 
     if (this.isOverviewMode()) {
       const pipeLod = meshLod;
+      const pipeTier = this.profiler.qualityTier || 'high';
       for (const pipe of this.energyPipes) {
         this.profiler.measureDevice(`pipe:${pipe.config.from}-${pipe.config.to}`, () => {
-          pipe.update(deltaTime, this.devices, this.time, { lodScale: pipeLod });
+          pipe.update(deltaTime, this.devices, this.time, {
+            lodScale: pipeLod,
+            qualityTier: pipeTier
+          });
         });
       }
     }

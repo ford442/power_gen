@@ -76,10 +76,11 @@ export function getMergedDeviceConfig() {
 
     const defaults = plugin.defaults || {};
     merged[id] = {
-      particleCount: 10000,
+      particleCount: 4500,
       color: [0.5, 0.8, 1.0],
       cameraOffset: [0, 4, 12],
       rotation: [0, 0, 0, 1],
+      cullRadius: 16,
       ...defaults,
       id,
       label: plugin.label,

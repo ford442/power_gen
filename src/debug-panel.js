@@ -443,6 +443,9 @@ export class DebugPanel {
       <div style="color: #888;">Quality Level:</div>
       <div style="color: ${stats.qualityLevel < 0.8 ? '#ff4' : '#4f4'};">${(stats.qualityLevel * 100).toFixed(0)}% (${stats.qualityTier || '—'})</div>
 
+      <div style="color: #888;">Draw calls (est.):</div>
+      <div style="color: #0ff;">${stats.drawCallsEstimate ?? '—'}</div>
+
       <div style="color: #888;">GPU Tier:</div>
       <div style="color: ${stats.gpuTier === 'high' ? '#4f4' : (stats.gpuTier === 'medium' ? '#ff4' : '#f44')}; text-transform: uppercase;">${stats.gpuTier}</div>
 
@@ -797,14 +800,14 @@ export const DEVICE_CONFIG = {
     position: [15, 0, -15],
     rotation: [0, Math.PI / 4, 0],
     cameraOffset: [0, 4, 15],
-    particleCount: 20000,
+    particleCount: 12000,
     color: [0.2, 0.9, 0.4]
   },
   mhd: {
     position: [-15, 0, -15],
     rotation: [0, -Math.PI / 4, 0],
     cameraOffset: [0, 5, 18],
-    particleCount: 30000,
+    particleCount: 14000,
     color: [0.7, 0.6, 0.8]
   }
 };

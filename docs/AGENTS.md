@@ -284,10 +284,22 @@ npm run wasm:build    # scripts/build-wasm.sh
 
 ## Performance (overview)
 
-- Auto-quality scales particles; overview applies **view LOD** (see `renderers/shared/view-lod.js`).
-- Mid-tier target: overview ≥45 FPS with all devices on (document adapter via debug panel).
-- Focus SEG should keep full quality relative to the quality tier.
-- Details: profiler debug panel (F3 / Ctrl+D), [`SHADERS.md`](./SHADERS.md) for WGSL cost.
+- Auto-quality scales particles; overview applies **view LOD** (`renderers/shared/view-lod.js`).
+- **Per-device particle budgets** by quality tier live in `devices/particle-budgets.js`
+  (plugins default lower than SEG/core; `resolveScaledParticleCount` caps draws).
+- Overview **mesh LOD ladder**: `full → simplified → proxy → skip` via `getMeshDrawDetail`
+  (non-SEG cylinder instance prefix; SEG still uses layout `decimateCount` + roller cull).
+- Frustum skip uses `getOverviewCullOpts` sized for the **20 m** plugin layout ring
+  (`layout-packer` / registry `applyAutoLayout({ radius: 20 })`).
+- Energy-pipe particle counts follow `qualityTier` (`resolvePipeParticleBudget`).
+- Mid-tier target: overview **≥45 FPS** with all devices on — document the adapter via
+  F3 debug panel (`Adapter` + `GPU Tier` + `Draw calls (est.)` + per-device CPU ms).
+- Focus SEG keeps full quality relative to the quality tier.
+- Post cost is also tiered when the showroom stack is present (ADR-0005 WS2) —
+  particles/mesh remain the first cut; post follows on low FPS.
+- Details: profiler (F3 / Ctrl+D), [`SHADERS.md`](./SHADERS.md) for WGSL cost.
+- Instance cull today is **CPU prefix** (draw first N / SEG roller half-ring). Full GPU
+  frustum compute for plugins is optional follow-up (ADR-0005 WS4).
 
 ---
 

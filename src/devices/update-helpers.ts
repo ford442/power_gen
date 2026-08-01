@@ -55,14 +55,13 @@ export function smoothEnergyLevel(
 
 /**
  * Write rebuilt cylinder instances to the device roller buffer.
- *
- * NOTE: the count lands on the instance, while device-render reads
- * `geometry.meshCylinderCount` — so hot-updates never change the drawn count today.
- * Left as-is to keep this migration behavior-neutral; see PR follow-up.
+ * Updates both instance + geometry counts so overview mesh LOD can prefix-draw.
  */
 export function writeMeshCylinders(instance: DeviceInstanceLike, mesh?: DeviceMeshSource): void {
   if (!instance.rollerInstances || !mesh?.cylinders) return;
   const data = instancesToBufferData([mesh.cylinders()]);
   instance.device.queue.writeBuffer(instance.rollerInstances, 0, data);
-  instance.meshCylinderCount = countInstances(mesh.cylinders().flat());
+  const count = countInstances(mesh.cylinders().flat());
+  instance.meshCylinderCount = count;
+  if (instance.geometry) instance.geometry.meshCylinderCount = count;
 }
