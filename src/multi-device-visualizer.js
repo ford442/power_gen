@@ -520,6 +520,13 @@ export class MultiDeviceVisualizer {
       device?.resetForModeEntry?.();
     }
 
+    // Lazy CAD props: load on SEG focus; dispose focus-only props on leave.
+    if (typeof this.ensureGltfPropsForView === 'function') {
+      this.ensureGltfPropsForView(mode).catch((err) => {
+        console.warn('[gltf] ensureGltfPropsForView failed', err);
+      });
+    }
+
     this._updateDeviceTelemetry();
     if (typeof window.syncLayoutPanelsVisibility === 'function') {
       window.syncLayoutPanelsVisibility();

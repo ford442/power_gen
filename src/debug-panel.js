@@ -443,6 +443,9 @@ export class DebugPanel {
       <div style="color: #888;">Quality Level:</div>
       <div style="color: ${stats.qualityLevel < 0.8 ? '#ff4' : '#4f4'};">${(stats.qualityLevel * 100).toFixed(0)}% (${stats.qualityTier || '—'})</div>
 
+      <div style="color: #888;">Post Quality:</div>
+      <div style="color: ${stats.qualityTier === 'critical' || stats.qualityTier === 'low' ? '#ff4' : '#4f4'}; font-size: 10px;">${stats.postQualitySummary || '—'}</div>
+
       <div style="color: #888;">GPU Tier:</div>
       <div style="color: ${stats.gpuTier === 'high' ? '#4f4' : (stats.gpuTier === 'medium' ? '#ff4' : '#f44')}; text-transform: uppercase;">${stats.gpuTier}</div>
 

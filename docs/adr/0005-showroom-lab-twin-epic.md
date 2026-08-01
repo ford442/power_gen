@@ -39,18 +39,18 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Formal `SceneNode` type (`src/assets/scene/scene-node.js`)
 - [x] Housing shell glTF (closed #102)
 - [x] Second CAD prop: coil former GLB in SEG focus
-- [ ] Node hierarchy polish (lazy multi-prop registry, material overrides)
-- [ ] Optional minimal external glTF parser eval (parser only — not a full engine)
-- [ ] WebGL2: skip heavy glTF or load reduced LODs
-- [ ] Instancing policy documented (procedural rollers vs static CAD)
+- [x] Node hierarchy polish (lazy multi-prop registry, material overrides)
+- [x] Optional minimal external glTF parser eval (parser only — not a full engine) — **deferred**: hand-rolled loader wins on gzip; see `docs/GLTF_ASSETS.md`
+- [x] WebGL2: skip heavy glTF or load reduced LODs — documented in `docs/WEBGL2.md`
+- [x] Instancing policy documented (procedural rollers vs static CAD) — `docs/GLTF_ASSETS.md`
 
 ### Workstream 2 — Cinematic post stack (WebGPU-first)
 
 - [x] Bloom extract / blur / composite
 - [x] Filmic curve + exposure from lighting preset
 - [x] Cheap SSAO + contact shadow (composite)
-- [ ] IBL irradiance polish for SEG metals
-- [ ] Wire post cost into auto-quality tiers
+- [x] IBL irradiance polish for SEG metals (analytic env mips in `pbr-eval.wgsl`)
+- [x] Wire post cost into auto-quality tiers (`post-processing-config.js` + render loop)
 - [x] Document stack + quality gates (`docs/SHADERS.md`, `docs/LIGHTING_RIG.md`)
 - [ ] Negotiate optional features only when present (`rg11b10ufloat-renderable`, etc.)
 

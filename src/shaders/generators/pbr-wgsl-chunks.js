@@ -17,5 +17,5 @@ export const PBR_BRDF_WGSL = pbrBrdf;
 /** Lighting uniform block — matches CPU upload (48 floats). */
 export const PBR_LIGHTING_STRUCT_WGSL = pbrLighting;
 
-/** Directional PBR + hemispherical IBL approximation. */
+/** Directional PBR + analytic multi-mip hemispherical IBL (no PMREM). */
 export const PBR_EVAL_WGSL = pbrEval;

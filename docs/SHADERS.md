@@ -208,10 +208,13 @@ Runtime source: `src/shaders/generators/bloom-shaders.js` (wired via
    (`WebGPUManager.bloomIntermediateFormat`).
 2. Uniform layout (`BloomParams`, 16 floats) must stay in lockstep with
    `packPostUniforms()` in `seg-lighting-presets.js`.
-3. Run `npm run check:wgsl` after editing bloom generators.
-4. WebGL2 does **not** run this stack — document gaps in `WEBGL2.md`.
+3. Auto-quality tiers scale post cost via `getPostQualityGates()` in
+   `post-processing-config.js` (critical skips bloom extract/blur; disables SSAO + motion blur).
+4. Run `npm run check:wgsl` after editing bloom generators.
+5. WebGL2 does **not** run this stack — document gaps in `WEBGL2.md`.
 
-Full look/preset docs: [`LIGHTING_RIG.md`](./LIGHTING_RIG.md). Epic: ADR-0005.
+IBL: `approximateIBL` / `envRadiance` in `common/pbr-eval.wgsl` — analytic 3-mip
+studio env (no PMREM). Full look/preset docs: [`LIGHTING_RIG.md`](./LIGHTING_RIG.md). Epic: ADR-0005.
 
 ## Related docs
 
