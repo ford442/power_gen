@@ -4,6 +4,13 @@ import {
 } from '../renderers/shared/device-physics';
 import { getHeronLayout } from '../heron-layout.js';
 import { segWasm } from '../wasm/seg-physics-bridge.js';
+import type {
+  DeviceEffectContext,
+  DeviceEnergyContext,
+  DeviceFlowPathContext,
+  DeviceInstanceLike,
+  DeviceUpdateContext
+} from './types';
 import {
   deviceNeedsPhysicsState,
   getPluginComputeSpeed,
@@ -23,7 +30,7 @@ import {
   computeSpeedNorm,
   computeOverdriveBoost,
   smoothEnergyLevel
-} from './update-helpers.js';
+} from './update-helpers';
 import {
   segUpdateElectromagnetCoils,
   segUpdatePickupCoilEnergies,
@@ -31,7 +38,7 @@ import {
 } from './core/seg-update.js';
 
 export const DeviceUpdateMixin = {
-  update: function (deltaTime, qualityScale) {
+  update: function (this: DeviceInstanceLike, deltaTime: number, qualityScale: number): void {
     const scaledParticleCount = Math.floor(this.particleCount * qualityScale);
     const ringIndex = this.getRingIndex();
     this.scaledParticleCount = scaledParticleCount;
@@ -52,7 +59,7 @@ export const DeviceUpdateMixin = {
       this.physicsState = createDevicePhysicsState(this.id, { heronLayout });
     }
 
-    const ctx = {
+    const ctx: DeviceUpdateContext = {
       deltaTime,
       qualityScale,
       ringIndex,
@@ -84,13 +91,13 @@ export const DeviceUpdateMixin = {
     this.updateEmitterEffects(deltaTime, qualityScale);
   },
 
-  updateDeviceFlowPaths: function (deltaTime) {
+  updateDeviceFlowPaths: function (this: DeviceInstanceLike, deltaTime: number): void {
     const paths = this.geometry.flowPathParticles;
     const count = this.geometry.flowPathCount;
     if (!paths || !count || !this.fieldLinePipeline) return;
 
     const data = this._flowPathData || (this._flowPathData = new Float32Array(count * 8));
-    const flowCtx = {
+    const flowCtx: DeviceFlowPathContext = {
       deltaTime,
       qualityScale: 1,
       ringIndex: this.getRingIndex(),
@@ -99,7 +106,7 @@ export const DeviceUpdateMixin = {
       energy: this.energyLevel,
       time: this.visualizer.time,
       count,
-      writePath: (i, x, y, z, strength, life) => {
+      writePath: (i: number, x: number, y: number, z: number, strength: number, life: number) => {
         const idx = i * 8;
         data[idx] = x;
         data[idx + 1] = y;
@@ -116,10 +123,10 @@ export const DeviceUpdateMixin = {
     this.device.queue.writeBuffer(paths, 0, data);
   },
 
-  _computeEnergyLevel: function (deltaTime) {
+  _computeEnergyLevel: function (this: DeviceInstanceLike, deltaTime: number): void {
     const speedNorm = computeSpeedNorm(this.speedMult);
     const overdriveBoost = computeOverdriveBoost(this.speedMult);
-    const energyCtx = {
+    const energyCtx: DeviceEnergyContext = {
       deltaTime,
       speedNorm,
       overdriveBoost,
@@ -135,7 +142,11 @@ export const DeviceUpdateMixin = {
     smoothEnergyLevel(this, deviceEnergy, deltaTime);
   },
 
-  _buildDeviceUniformData: function (renderMode, yOffset = 0.0) {
+  _buildDeviceUniformData: function (
+    this: DeviceInstanceLike,
+    renderMode: number,
+    yOffset = 0.0
+  ): Float32Array<ArrayBuffer> {
     const ringIndex = this.getRingIndex();
     const extras = runBuildUniformExtras(this);
     return new Float32Array([
@@ -154,7 +165,11 @@ export const DeviceUpdateMixin = {
     ]);
   },
 
-  updateEmitterEffects: function (deltaTime, qualityScale) {
+  updateEmitterEffects: function (
+    this: DeviceInstanceLike,
+    deltaTime: number,
+    qualityScale: number
+  ): void {
     if (!this.effectsParticles) {
       this.effectParticleCount = 0;
       return;
@@ -167,7 +182,7 @@ export const DeviceUpdateMixin = {
     }
 
     this.effectParticleCount = 0;
-    const effectCtx = {
+    const effectCtx: DeviceEffectContext = {
       deltaTime,
       qualityScale,
       ringIndex: this.getRingIndex(),
@@ -178,7 +193,7 @@ export const DeviceUpdateMixin = {
       speedMult: this.speedMult || 1.0,
       time: this.visualizer.time,
       gate: effectGate,
-      pushParticle: (x, y, z, phaseEncoded) => {
+      pushParticle: (x: number, y: number, z: number, phaseEncoded: number) => {
         if (this.effectParticleCount >= budget) return;
         const idx = this.effectParticleCount * 4;
         this._effectParticleData[idx] = x;
@@ -216,7 +231,10 @@ export const DeviceUpdateMixin = {
   updatePickupCoilEnergies: segUpdatePickupCoilEnergies,
   updateEnergyArcs: segUpdateEnergyArcs,
 
-  updateFieldLines: function () {
+  updateFieldLines: function (this: DeviceInstanceLike): void {
+    const target = this.fieldLineParticles;
+    if (!target) return;
+
     const fieldData = new Float32Array(this.fieldLineCount * 8);
     const time = this.visualizer.time;
 
@@ -239,6 +257,6 @@ export const DeviceUpdateMixin = {
       fieldData[idx + 7] = 0.3 + 0.7 * Math.sin(baseAngle * 3 + time);
     }
 
-    this.device.queue.writeBuffer(this.fieldLineParticles, 0, fieldData);
+    this.device.queue.writeBuffer(target, 0, fieldData);
   }
 };

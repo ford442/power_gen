@@ -1,4 +1,19 @@
-import type { DevicePlugin } from './device-registry-types';
+/**
+ * Ambient types for the device plugin registry (implementation stays JS because it
+ * imports the legacy DEVICE_CONFIG from debug-panel.js). The contract itself lives
+ * in ./types.ts — this file only describes the JS module's exports.
+ */
+
+import type {
+  DeviceEffectContext,
+  DeviceEnergyContext,
+  DeviceFlowPathContext,
+  DeviceInstanceLike,
+  DevicePlugin,
+  DeviceUniformExtras,
+  DeviceUpdateContext
+} from './types';
+import type { DevicePhysicsState } from '../renderers/shared/device-physics';
 
 export type {
   DevicePlugin,
@@ -7,17 +22,17 @@ export type {
   DeviceFlowPathContext,
   DeviceEnergyContext,
   DeviceUniformExtras
-} from './device-registry-types';
+} from './types';
 
 export function registerDevice(plugin: DevicePlugin): void;
 export function getDevicePlugin(id: string): DevicePlugin | undefined;
 export function getPluginDeviceIds(): string[];
 export function getAllSimDeviceIds(): string[];
 export function getDeviceModeIndex(id: string): number;
-export function getMergedDeviceConfig(): Record<string, unknown>;
-export function getPluginMeshLayouts(): Record<string, object>;
+export function getMergedDeviceConfig(): Record<string, Record<string, unknown>>;
+export function getPluginMeshLayouts(): Record<string, Record<string, unknown>>;
 export function stepPluginPhysics(
-  state: object,
+  state: DevicePhysicsState,
   dt: number,
   drive: number,
   opts?: object
@@ -26,24 +41,30 @@ export function extendPhysicsState(deviceId: string, baseState: object): object;
 export function getTelemetrySchemas(): Record<string, object>;
 export function getDeviceReferences(id: string): unknown[];
 export function deviceNeedsPhysicsState(id: string): boolean;
-export function getPluginComputeSpeed(instance: object): number;
-export function pluginWasmSkipsJsPhysics(instance: object): boolean;
-export function runSyncAfterPhysics(instance: object, ctx: object): void;
-export function runUpdateDynamics(instance: object, ctx: object): void;
-export function runUpdateMesh(instance: object): void;
-export function runComputeRawEnergy(instance: object, ctx: object): number | undefined;
-export function runBuildUniformExtras(instance: object): object;
-export function runUpdateFlowPaths(instance: object, ctx: object): boolean;
-export function runUpdateEffects(instance: object, ctx: object): boolean;
-export function deviceWantsThermalHaze(instance: object): boolean;
+export function getPluginComputeSpeed(instance: DeviceInstanceLike): number;
+export function pluginWasmSkipsJsPhysics(instance: DeviceInstanceLike): boolean;
+export function runSyncAfterPhysics(instance: DeviceInstanceLike, ctx: DeviceUpdateContext): void;
+export function runUpdateDynamics(instance: DeviceInstanceLike, ctx: DeviceUpdateContext): void;
+export function runUpdateMesh(instance: DeviceInstanceLike): void;
+export function runComputeRawEnergy(
+  instance: DeviceInstanceLike,
+  ctx: DeviceEnergyContext
+): number | undefined;
+export function runBuildUniformExtras(instance: DeviceInstanceLike): DeviceUniformExtras;
+export function runUpdateFlowPaths(
+  instance: DeviceInstanceLike,
+  ctx: DeviceFlowPathContext
+): boolean;
+export function runUpdateEffects(instance: DeviceInstanceLike, ctx: DeviceEffectContext): boolean;
+export function deviceWantsThermalHaze(instance: DeviceInstanceLike): boolean;
 export function runDrawWebgpu(
-  instance: object,
+  instance: DeviceInstanceLike,
   renderPass: GPURenderPassEncoder,
   globalUniformBuffer: GPUBuffer,
   skipEffects: boolean
 ): void;
 export function runDrawWebgpuOverlay(
-  instance: object,
+  instance: DeviceInstanceLike,
   renderPass: GPURenderPassEncoder,
   globalUniformBuffer: GPUBuffer,
   skipEffects: boolean

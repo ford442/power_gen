@@ -8,8 +8,8 @@ import { getHeronLayout } from './heron-layout.js';
 
 import { getDeviceModeIndex, getPluginMeshLayouts } from './devices/device-registry.js';
 import { DeviceSetupMixin } from './devices/device-setup.js';
-import { DeviceRenderMixin } from './devices/device-render.js';
-import { DeviceUpdateMixin } from './devices/device-update.js';
+import { DeviceRenderMixin } from './devices/device-render';
+import { DeviceUpdateMixin } from './devices/device-update';
 
 export class DeviceInstance {
 

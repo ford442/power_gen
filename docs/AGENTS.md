@@ -97,8 +97,8 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 
 | Language | Own | Do not put |
 |----------|-----|------------|
-| **JavaScript** | Bootstrap, multi-device orchestration, geometry buffers, UI wiring, WebGL2 path | New authoritative physics formulas (prefer TS) |
-| **TypeScript** | Constants (`ValidatedConstants.ts`), `integration.ts`, shared plant (`renderers/shared/`), telemetry, `webgpu-manager.ts`, `seg-operator-state.ts`, WASM types | Full render loops (until a deliberate mixin split) |
+| **JavaScript** | Bootstrap, multi-device orchestration, geometry buffers, UI wiring, WebGL2 path | New authoritative physics formulas (prefer TS); new device plugin hooks (typed via `devices/types.ts`) |
+| **TypeScript** | Constants (`ValidatedConstants.ts`), `integration.ts`, shared plant (`renderers/shared/`), telemetry, `webgpu-manager.ts`, `seg-operator-state.ts`, WASM types, **device update/render mixins**, **`pipeline-layout-cache.ts`**, **`devices/types.ts`** | Full visualizer / frame loop (until a deliberate split) |
 | **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar/Peltier/MHD state) | Browser DOM or GPU API calls |
 | **WGSL** | WebGPU compute + render (`src/shaders/`) | WebGL2 fallback |
 | **GLSL** | WebGL2 only (`renderers/webgl2/shaders.js`) | WebGPU path |
@@ -107,10 +107,27 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 **Rules**
 
 - New physics math and public numeric APIs → **TypeScript** (or C++ if part of the WASM plant).
-- New draw/compute passes → **WGSL** + `pipeline-layout-cache.js` (`// @ts-check` + JSDoc layout names) + [`BINDINGS.md`](./BINDINGS.md); document in [`SHADERS.md`](./SHADERS.md).
-- `npm run typecheck` covers **`src/**/*.ts` only** (`allowJs: false`). JS is not typechecked in CI; `pipeline-layout-cache.js` uses `@ts-check` locally.
+- New draw/compute passes → **WGSL** + `pipeline-layout-cache.ts` (add the layout name to the `BindGroupLayoutName` union) + [`BINDINGS.md`](./BINDINGS.md); document in [`SHADERS.md`](./SHADERS.md).
+- New device plugins implement the `DevicePlugin` interface from `src/devices/types.ts` — the single source of truth for plugin hooks and the `DeviceInstanceLike` / `VisualizerLike` shapes the mixins bind to.
+- `npm run typecheck` covers **`src/**/*.ts` only** (`allowJs: false`), which now includes the device update/render hot path and the pipeline layout cache. Remaining JS is not typechecked in CI; JS modules that TS imports carry a hand-written `.d.ts`.
 - Runtime entry is **`src/main.js`**. `index.ts` is a typed **barrel**, not the app entry.
 - **Import style:** JS entry paths import TypeScript modules **extensionless** (e.g. `./telemetry-hub` → `telemetry-hub.ts`). TypeScript sources may use a `.js` emit suffix for cross-file references (`moduleResolution: bundler`). Do not use `from '…ts'` in app code.
+
+### TypeScript migration (Wave 3 — complete)
+
+| Item | Status |
+|------|--------|
+| `devices/types.ts` — canonical `DevicePlugin` + instance/visualizer contracts | Done (replaces `device-registry-types.d.ts`) |
+| `pipeline-layout-cache.js` → `.ts` with string-literal layout names | Done |
+| `devices/update-helpers.js` → `.ts` | Done |
+| `devices/device-update.js` → `.ts` | Done |
+| `devices/device-render.js` → `.ts` | Done |
+| `renderers/shared/bind-group-cache.js` → `.ts` | Done |
+| `.d.ts` for JS modules the typed mixins import (`device-mesh-layouts`, `multi-device-shaders`, `wasm/seg-physics-bridge`, `devices/core/seg-update`) | Done |
+| `multi-device-visualizer.js`, `main.js` → TS | Wave 4 |
+| `devices/core/*.js`, `devices/quanta/*.js` strategies → TS | Wave 4 |
+
+**Still JavaScript (intentional for now):** `main.js`, `multi-device-visualizer.js`, `device-instance.js` and the other `device-*.js` managers, `devices/device-registry.js` (imports the legacy `DEVICE_CONFIG` from `debug-panel.js`), core/Quanta device strategies, WebGL2 path.
 
 ### TypeScript migration (Wave 2 — complete)
 
@@ -121,11 +138,9 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 | `telemetry-hub.ts` | Done (Wave 1 carry-over) |
 | `webgpu-manager.ts` | Done |
 | `seg-operator-state.ts` (delete `.d.ts` stub) | Done |
-| `pipeline-layout-cache.js` — `@ts-check` + layout name typedefs | Done |
+| `pipeline-layout-cache.js` — `@ts-check` + layout name typedefs | Done (superseded by Wave 3 `.ts`) |
 | Shared plant (`renderers/shared/*.ts`) | Done (Wave 1) |
 | Full visualizer / render-loop mixins → TS | Later (architecture issue) |
-
-**Still JavaScript (intentional for now):** `main.js`, `multi-device-visualizer.js`, `device-*.js`, WebGL2 path, `pipeline-layout-cache.js` implementation body.
 
 ---
 

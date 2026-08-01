@@ -11,7 +11,7 @@
 
 import { packInstance } from '../../device-mesh-layouts.js';
 import { MATERIAL_QUANTA_COIL, MATERIAL_QUANTA_FLOATER, MATERIAL_QUANTA_FLOATER_POST, MATERIAL_STEEL_BASE } from '../material-roles.js';
-import { writeMeshCylinders } from '../update-helpers.js';
+import { writeMeshCylinders } from '../update-helpers';
 import { estimateHalbachFieldT, MAGNET_BR } from './halbach-field';
 
 /** Ring magnet segments in a simplified Halbach-like azimuthal pattern. */

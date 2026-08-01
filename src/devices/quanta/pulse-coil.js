@@ -9,7 +9,7 @@
  */
 
 import { packInstance } from '../../device-mesh-layouts.js';
-import { writeMeshCylinders } from '../update-helpers.js';
+import { writeMeshCylinders } from '../update-helpers';
 import { ValidatedConstants } from '../../ValidatedConstants';
 
 const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-7;
