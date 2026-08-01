@@ -10,6 +10,7 @@ import { BatteryGauge } from './gauges/battery-gauge.js';
 import { SolarPanelGauge } from './gauges/solar-panel-gauge.js';
 import { LEDArrayGauge } from './gauges/ledarray-gauge.js';
 import { EnergyBalanceDisplay } from './gauges/energy-balance-display.js';
+import { ShadowResidualGauge } from './gauges/shadow-residual-gauge.js';
 import { telemetryHub } from '../telemetry-hub';
 
 /**
@@ -65,6 +66,7 @@ export class ScientificUIManager {
       </div>
       <div class="sci-panel-content">
         <div id="sci-wolfram-status"></div>
+        <div id="sci-shadow-residual-gauge"></div>
         <div id="sci-magnetic-gauge"></div>
         <div id="sci-energy-gauge"></div>
         <div id="sci-torque-gauge"></div>
@@ -127,6 +129,7 @@ export class ScientificUIManager {
 
   initGauges() {
     this.gauges.magnetic = new MagneticFieldGauge('sci-magnetic-gauge');
+    this.gauges.shadowResidual = new ShadowResidualGauge('sci-shadow-residual-gauge');
     this.gauges.energy = new EnergyDensityGauge('sci-energy-gauge');
     this.gauges.torque = new TorqueGauge('sci-torque-gauge');
     this.gauges.flux = new ParticleFluxGauge('sci-flux-gauge');
@@ -183,6 +186,10 @@ export class ScientificUIManager {
     }
 
     this.cache.set('meta', meta);
+
+    if (this.gauges.shadowResidual) {
+      this.gauges.shadowResidual.updateFromTwin(snap.hardwareTwin ?? null);
+    }
   }
 
   show() {

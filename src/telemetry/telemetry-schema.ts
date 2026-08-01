@@ -27,7 +27,15 @@ export const TELEMETRY_CSV_COLUMNS = [
   'temperature_c',
   'efficiency_pct',
   'particle_flux',
-  'load_ohm'
+  'load_ohm',
+  'hw_connected',
+  'hw_connection_state',
+  'phase_error_deg',
+  'rpm_error',
+  'voltage_error_v',
+  'current_error_a',
+  'energy_residual_w',
+  'energy_coupled'
 ] as const;
 
 export type TelemetryCsvColumn = (typeof TELEMETRY_CSV_COLUMNS)[number];
@@ -48,6 +56,8 @@ export function rowFromSnapshot(
 ): TelemetryCsvRow {
   const seg = snap.seg;
   const sci = snap.scientific || {};
+  const hw = snap.hardwareTwin;
+  const net = snap.energyNetwork;
   const loadOhm = opts.loadOhm ?? 100;
   return {
     time_s: simTimeS,
@@ -68,7 +78,15 @@ export function rowFromSnapshot(
     temperature_c: seg?.temperature ?? 25,
     efficiency_pct: seg?.efficiency ?? 0,
     particle_flux: sci.particleFlux ?? 0,
-    load_ohm: loadOhm
+    load_ohm: loadOhm,
+    hw_connected: hw?.connected ? 1 : 0,
+    hw_connection_state: hw?.connectionState ?? 'disconnected',
+    phase_error_deg: hw?.shadowResidual?.phaseErrorDeg ?? '',
+    rpm_error: hw?.shadowResidual?.rpmError ?? '',
+    voltage_error_v: hw?.shadowResidual?.voltageError ?? '',
+    current_error_a: hw?.shadowResidual?.currentError ?? '',
+    energy_residual_w: net?.residualW ?? '',
+    energy_coupled: net?.couplingEnabled ? 1 : 0
   };
 }
 
@@ -137,7 +155,15 @@ export function rowFromWasmSeg({
     temperature_c: temp,
     efficiency_pct: efficiency,
     particle_flux: particleFlux,
-    load_ohm: loadOhm
+    load_ohm: loadOhm,
+    hw_connected: 0,
+    hw_connection_state: 'disconnected',
+    phase_error_deg: '',
+    rpm_error: '',
+    voltage_error_v: '',
+    current_error_a: '',
+    energy_residual_w: '',
+    energy_coupled: 0
   };
 }
 

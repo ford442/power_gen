@@ -58,10 +58,11 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 
 - [x] Protocol + mock transport (`docs/hardware_connection.md`)
 - [x] Shadow residual on TelemetryHub + mock e2e
-- [ ] Closed-loop: sensor RPM → roller viz (present; harden)
-- [ ] Open-loop: sim → coil PWM (present; harden)
-- [ ] Shadow residual charts on scientific UI
-- [ ] Keep firmware optional — never block web-only users
+- [x] Closed-loop: sensor RPM → roller viz (sanitized; NaN-safe)
+- [x] Open-loop: sim → coil PWM (duty 0–1 clamp; disconnect coasts)
+- [x] Shadow residual charts on scientific UI (`ShadowResidualGauge`)
+- [x] Connection state badge (`disconnected` | `mock` | `serial`)
+- [x] Keep firmware optional — never block web-only users
 - [ ] Research only: WebUSB / Bluetooth if Serial is insufficient
 
 ### Workstream 4 — Performance headroom (8–12 devices)

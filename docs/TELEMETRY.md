@@ -95,6 +95,8 @@ Overview **energy pipes** are a separate visual channel from SEG electrical outp
 
 **Important:** Pipe intensity and `powerInW`/`powerOutW` on non-SEG devices use **simulated nameplate estimates** from `physics/constants.json` (`energyNetwork.deviceNameplateWatts`, flagged `simulatedOrderOfMagnitude`). Do not treat glow or bus fields as measured lab metrology. See ADR-0004 and the overview disclaimer (`#energyNetworkDisclaimer`).
 
+In **coupled** overview mode, the disclaimer shows budget, allocated, residual W, and allocation efficiency. When `|residualW|` exceeds ~15% of budget (min 50 W), the banner turns warning-red — still simulated, not metrology.
+
 ```js
 // Optional per-frame publish (WebGPU / WebGL2 render loops):
 telemetryHub.publishFrame({
@@ -116,7 +118,7 @@ Ring-buffer sampling lives on `telemetryHub.sampler` (1–60 Hz). UI: left sideb
 | Action | API |
 |--------|-----|
 | Record 10s sim time | `telemetryHub.startRecording(10, hz)` or **Record 10s** button |
-| Download CSV | `window.exportTelemetryCsv()` — columns in `src/telemetry/telemetry-schema.js` |
+| Download CSV | `window.exportTelemetryCsv()` — columns in `src/telemetry/telemetry-schema.ts` (includes optional `phase_error_deg`, `rpm_error`, `voltage_error_v`, `current_error_a`, `energy_residual_w`, `hw_connection_state`) |
 | Config JSON | `window.exportConfigJson()` — constants + layout + operator setpoints |
 | WASM offline 10s | **WASM 10s** — worker runs `SEGSimulator` headless, same CSV schema |
 | Replay file | v1 JSON: seed, layout presets, speed curve (`src/telemetry/replay-format.js`) |

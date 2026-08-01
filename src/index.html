@@ -419,6 +419,57 @@
       border-color: #4f8;
       color: #9fc;
     }
+    #energyNetworkDisclaimer.energy-residual-warn {
+      border-color: #f84;
+      color: #fcc;
+      background: rgba(40, 8, 8, 0.92);
+    }
+
+    #hw-twin-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: rgba(0, 20, 30, 0.85);
+      border: 1px solid #345;
+      font-size: 0.72rem;
+      color: #678;
+    }
+    #hw-twin-badge[data-state="mock"] {
+      border-color: #a80;
+      color: #fc6;
+    }
+    #hw-twin-badge[data-state="serial"] {
+      border-color: #0a8;
+      color: #9fc;
+    }
+    .hw-twin-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #456;
+    }
+    #hw-twin-badge[data-state="mock"] .hw-twin-dot { background: #fa0; box-shadow: 0 0 6px #fa0; }
+    #hw-twin-badge[data-state="serial"] .hw-twin-dot { background: #0f8; box-shadow: 0 0 6px #0f8; }
+
+    .sci-shadow-residual-readouts {
+      display: flex;
+      gap: 12px;
+      padding: 8px 10px 4px;
+      font-size: 0.68rem;
+      color: #8ad;
+      font-family: var(--sci-font-mono, monospace);
+    }
+    .sci-shadow-residual-readouts b { color: #fc6; font-weight: 600; }
+    .sci-shadow-hint {
+      margin: 0;
+      padding: 4px 10px 8px;
+      font-size: 0.58rem;
+      color: #567;
+      line-height: 1.35;
+    }
+    .sci-shadow-sparkline { height: 72px; }
 
     /* SEG explainer / classroom */
     .seg-explainer-glossary {
@@ -484,6 +535,10 @@
   <div id="header">
     <h1>SEG WebGPU Dashboard</h1>
     <div class="header-right">
+      <div id="hw-twin-badge" data-state="disconnected" title="Hardware digital twin connection">
+        <span class="hw-twin-dot" aria-hidden="true"></span>
+        <span id="hwTwinBadgeText">Twin off</span>
+      </div>
       <div id="wasm-badge">
         <div class="wasm-dot loading" id="wasmDot"></div>
         <span id="wasmStatus">WASM…</span>

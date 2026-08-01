@@ -4,6 +4,7 @@
  */
 
 import { HardwareBridge, TWIN_MODES } from './hardware-bridge.js';
+import { syncHardwareTwinBadgeFromBridge } from './hardware-twin-badge.js';
 import { ElectromagnetController } from './electromagnet-controller.js';
 
 function bits(mask, n) {
@@ -181,7 +182,7 @@ export class HardwarePanel {
       if (mask & (1 << i)) mask &= ~(1 << i);
       else mask |= (1 << i);
       if (mask === 0) b.clearManual();
-      else b.setManualCoils(mask, 255);
+      else b.setManualCoils(mask, 1.0);
       this._paintCoilPad(mask);
     });
 
@@ -218,6 +219,7 @@ export class HardwarePanel {
     if (conn) conn.disabled = live || status === 'connecting';
     if (mock) mock.disabled = live || status === 'connecting';
     if (disc) disc.disabled = !live;
+    syncHardwareTwinBadgeFromBridge(this.bridge);
   }
 
   _renderSensors(snap) {

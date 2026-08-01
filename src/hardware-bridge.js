@@ -22,6 +22,27 @@ const MODE_RUN = 0;
 const MODE_BRAKE = 1;
 const MODE_COAST = 2;
 
+/** Protocol RPM limits (docs/hardware_connection.md). */
+const RPM_MIN = -999.9;
+const RPM_MAX = 999.9;
+
+function finiteNum(n, fallback = 0) {
+  const x = Number(n);
+  return Number.isFinite(x) ? x : fallback;
+}
+
+function clampRpm(rpm) {
+  return Math.max(RPM_MIN, Math.min(RPM_MAX, finiteNum(rpm, 0)));
+}
+
+function clampPwmDuty(duty) {
+  return Math.max(0, Math.min(1, finiteNum(duty, 0)));
+}
+
+function pwmDutyToWire(duty) {
+  return Math.round(clampPwmDuty(duty) * 255);
+}
+
 /**
  * In-memory mock Arduino for demos/CI (no navigator.serial).
  * Accepts P/C/CONF lines; streams S at ~120 Hz.
@@ -32,6 +53,10 @@ export class MockSerialTransport {
     this._phase = 0;
     this._rpm = 0;
     this._targetRpm = 0;
+    this._targetVoltage = 0;
+    this._targetCurrent = 0;
+    this._voltage = 0;
+    this._current = 0;
     this._controlMode = MODE_RUN;
     this._coilMask = 0;
     this._manual = false;
@@ -61,7 +86,7 @@ export class MockSerialTransport {
     if (line.startsWith('P')) {
       const parts = line.slice(1).split(',');
       this._phase = parseFloat(parts[0]) || 0;
-      this._targetRpm = parseFloat(parts[1]) || 0;
+      this._targetRpm = clampRpm(parseFloat(parts[1]) || 0);
       this._controlMode = parseInt(parts[2], 10) || 0;
       this._manual = false;
     } else if (line.startsWith('C')) {
@@ -98,12 +123,22 @@ export class MockSerialTransport {
       const coil = Math.floor(this._phase / 45) % 8;
       this._coilMask = (1 << coil) | (1 << ((coil + 1) % 8));
     }
+    // Lagging electrical proxies for shadow V/I charts (mock only — not metrology)
+    this._voltage += (this._targetVoltage - this._voltage) * Math.min(1, dt * 3);
+    this._current += (this._targetCurrent - this._current) * Math.min(1, dt * 3);
+
     const ts = Math.floor(performance.now() - this._t0);
     this._emit(
       `S${this._phase.toFixed(2)},${this._rpm.toFixed(1)},` +
       `${magX.toFixed(2)},${magY.toFixed(2)},${magZ.toFixed(2)},` +
-      `${hallMask},${this._coilMask},${ts}`
+      `${hallMask},${this._coilMask},${ts},` +
+      `${this._voltage.toFixed(2)},${this._current.toFixed(2)}`
     );
+  }
+
+  setElectricalTargets(voltage, current) {
+    this._targetVoltage = finiteNum(voltage, 0);
+    this._targetCurrent = finiteNum(current, 0);
   }
 
   _emit(line) {
@@ -133,6 +168,8 @@ export class HardwareBridge {
     // Incoming parsed state from Arduino
     this.actualPhase = 0;
     this.actualRpm = 0;
+    this.actualVoltage = 0;
+    this.actualCurrent = 0;
     this.magnetometer = { x: 0, y: 0, z: 0 };
     this.hallMask = 0;
     this.coilMask = 0;
@@ -152,13 +189,17 @@ export class HardwareBridge {
     this.shadow = {
       simPhase: 0,
       simRpm: 0,
+      simVoltage: 0,
+      simCurrent: 0,
       phaseErrorDeg: 0,
-      rpmError: 0
+      rpmError: 0,
+      voltageError: 0,
+      currentError: 0
     };
 
-    // Manual override
+    // Manual override — duty 0..1 internally; wire protocol uses 0..255
     this.manualCoilMask = 0;
-    this.manualPwm = 255;
+    this.manualPwmDuty = 1;
     this.manualMode = false;
 
     this.config = {
@@ -180,6 +221,16 @@ export class HardwareBridge {
     this.onSensorData = options.onSensorData || null;
     this.onError = options.onError || null;
     this.onTwinModeChange = options.onTwinModeChange || null;
+  }
+
+  static sanitizeRpm = clampRpm;
+  static clampPwmDuty = clampPwmDuty;
+
+  /** Explicit connection kind for UI: disconnected | mock | serial */
+  get connectionKind() {
+    if (this.status === 'mock') return 'mock';
+    if (this.status === 'connected') return 'serial';
+    return 'disconnected';
   }
 
   static isSerialSupported() {
@@ -290,6 +341,9 @@ export class HardwareBridge {
     this._buffer = '';
     this.manualMode = false;
     this.manualCoilMask = 0;
+    this.manualPwmDuty = 0;
+    this.targetSpeed = 0;
+    this.controlMode = MODE_COAST;
     this._setStatus('disconnected');
     console.log('[HardwareBridge] Disconnected (coils coasted)');
   }
@@ -371,14 +425,18 @@ export class HardwareBridge {
     if (line.startsWith('S')) {
       const parts = line.slice(1).split(',');
       if (parts.length >= 8) {
-        this.actualPhase = parseFloat(parts[0]) || 0;
-        this.actualRpm = parseFloat(parts[1]) || 0;
-        this.magnetometer.x = parseFloat(parts[2]) || 0;
-        this.magnetometer.y = parseFloat(parts[3]) || 0;
-        this.magnetometer.z = parseFloat(parts[4]) || 0;
+        this.actualPhase = finiteNum(parseFloat(parts[0]), 0);
+        this.actualRpm = clampRpm(parseFloat(parts[1]));
+        this.magnetometer.x = finiteNum(parseFloat(parts[2]), 0);
+        this.magnetometer.y = finiteNum(parseFloat(parts[3]), 0);
+        this.magnetometer.z = finiteNum(parseFloat(parts[4]), 0);
         this.hallMask = parseInt(parts[5], 10) || 0;
         this.coilMask = parseInt(parts[6], 10) || 0;
         this.lastTimestampMs = parseInt(parts[7], 10) || 0;
+        if (parts.length >= 10) {
+          this.actualVoltage = finiteNum(parseFloat(parts[8]), 0);
+          this.actualCurrent = finiteNum(parseFloat(parts[9]), 0);
+        }
         this.lastSensorUpdate = performance.now();
 
         // Shadow error vs last sim setpoints
@@ -387,6 +445,8 @@ export class HardwareBridge {
         while (dPhase < -180) dPhase += 360;
         this.shadow.phaseErrorDeg = dPhase;
         this.shadow.rpmError = this.actualRpm - this.shadow.simRpm;
+        this.shadow.voltageError = this.actualVoltage - this.shadow.simVoltage;
+        this.shadow.currentError = this.actualCurrent - this.shadow.simCurrent;
 
         if (this.onSensorData) {
           this.onSensorData(this.getSensorSnapshot());
@@ -442,14 +502,28 @@ export class HardwareBridge {
 
   /**
    * Called from render loop ~60 Hz.
-   * @param {{ simPhase?: number, simRpm?: number }} [sim]
+   * @param {{ simPhase?: number, simRpm?: number, simVoltage?: number, simCurrent?: number }} [sim]
    */
   update(sim = {}) {
     if (!this.isConnected) return;
     this._lastUpdateCall = performance.now();
 
-    if (typeof sim.simPhase === 'number') this.shadow.simPhase = sim.simPhase;
-    if (typeof sim.simRpm === 'number') this.shadow.simRpm = sim.simRpm;
+    if (typeof sim.simPhase === 'number' && Number.isFinite(sim.simPhase)) {
+      this.shadow.simPhase = sim.simPhase;
+    }
+    if (typeof sim.simRpm === 'number' && Number.isFinite(sim.simRpm)) {
+      this.shadow.simRpm = sim.simRpm;
+    }
+    if (typeof sim.simVoltage === 'number' && Number.isFinite(sim.simVoltage)) {
+      this.shadow.simVoltage = sim.simVoltage;
+    }
+    if (typeof sim.simCurrent === 'number' && Number.isFinite(sim.simCurrent)) {
+      this.shadow.simCurrent = sim.simCurrent;
+    }
+
+    if (this.useMock && this._mock) {
+      this._mock.setElectricalTargets(this.shadow.simVoltage, this.shadow.simCurrent);
+    }
 
     // Apply twin-mode side effects for setTarget authority
     if (this.twinMode === TWIN_MODES.CLOSED) {
@@ -466,12 +540,14 @@ export class HardwareBridge {
     this._lastCommandTime = now;
 
     if (this.manualMode) {
-      this._writeLine(`C${this.manualCoilMask},${this.manualPwm},0`);
+      const wirePwm = pwmDutyToWire(this.manualPwmDuty);
+      this._writeLine(`C${this.manualCoilMask},${wirePwm},0`);
     } else {
       const phase = ((this.targetPhase % 360) + 360) % 360;
+      const speed = clampRpm(this.targetSpeed);
       // Protocol: P{phase},{speed},{mode}
       this._writeLine(
-        `P${phase.toFixed(2)},${this.targetSpeed.toFixed(1)},${this.controlMode}`
+        `P${phase.toFixed(2)},${speed.toFixed(1)},${this.controlMode}`
       );
     }
 
@@ -500,21 +576,26 @@ export class HardwareBridge {
   }
 
   setTarget(phase, speed, mode = MODE_RUN) {
-    this.targetPhase = phase;
-    this.targetSpeed = speed;
+    this.targetPhase = finiteNum(phase, 0);
+    this.targetSpeed = clampRpm(speed);
     this.controlMode = mode;
     this.manualMode = false;
   }
 
-  setManualCoils(coilMask, pwm = 255) {
+  /**
+   * Manual coil override. pwmOrDuty: 0..1 duty, or legacy 0..255 wire value.
+   */
+  setManualCoils(coilMask, pwmOrDuty = 1) {
     this.manualCoilMask = coilMask >>> 0;
-    this.manualPwm = Math.max(0, Math.min(255, pwm | 0));
-    this.manualMode = true;
+    const duty = pwmOrDuty > 1 ? pwmOrDuty / 255 : pwmOrDuty;
+    this.manualPwmDuty = clampPwmDuty(duty);
+    this.manualMode = this.manualCoilMask !== 0 && this.manualPwmDuty > 0;
   }
 
   clearManual() {
     this.manualMode = false;
     this.manualCoilMask = 0;
+    this.manualPwmDuty = 0;
     // Release override on device
     this._writeLineImmediate('C0,0,0');
   }
@@ -523,12 +604,14 @@ export class HardwareBridge {
     this.controlMode = MODE_BRAKE;
     this.targetSpeed = 0;
     this.manualMode = false;
+    this.manualPwmDuty = 0;
   }
 
   coast() {
     this.controlMode = MODE_COAST;
     this.targetSpeed = 0;
     this.manualMode = false;
+    this.manualPwmDuty = 0;
   }
 
   get isConnected() {

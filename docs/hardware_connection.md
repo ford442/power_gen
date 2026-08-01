@@ -163,12 +163,15 @@ telemetryHub.getSnapshot().hardwareTwin
 //   mock: true,
 //   twinMode: 'shadow',
 //   sensorRpm, sensorPhase,
-//   shadowResidual: { phaseErrorDeg, rpmError }
+//   shadowResidual: { phaseErrorDeg, rpmError, voltageError, currentError }
+//   connectionState: 'mock' | 'serial'
 // }
 ```
 
-5. Agent hook: `window.getRendererInfo().hardwareTwin.shadowResidual` (WebGL2).
-6. Playwright: `e2e/app.spec.js` asserts `shadowResidual` is present after START.
+5. Open **Scientific UI** (`Ctrl+Shift+S`) — **Shadow Twin Residual** chart shows ΔRPM / ΔV / ΔI time series.
+6. Header badge: `Twin mock` / `Twin serial` / `Twin off` (`#hw-twin-badge`).
+7. Agent hook: `window.getRendererInfo().hardwareTwin.shadowResidual` (WebGL2).
+8. Playwright: `e2e/app.spec.js` asserts residuals + disconnect coast + scientific chart.
 
 Firmware is **not** required for this path.
 
@@ -183,7 +186,20 @@ Firmware is **not** required for this path.
    - **Shadow**: open-loop drive + show Δφ / ΔRPM vs hardware (`shadowResidual` on hub)
 5. Baud **115200**, line-oriented `\n` protocol above. Disconnect always coasts coils.
 
-### Real Serial caveats
+### Connection state machine
+
+| `connectionState` | UI badge | Meaning |
+|-------------------|----------|---------|
+| `disconnected` | Twin off | No bridge; coils not commanded |
+| `mock` | Twin mock | `MockSerialTransport` (CI / demos) |
+| `serial` | Twin serial | Live Web Serial stream |
+
+Disconnect always sends coast (`P0,0,2`) + coils off (`C0,0,0`) and clears manual PWM duty.
+
+### Safety clamps (host)
+
+- RPM commands clamped to protocol ±999.9; NaN sensor RPM never drives closed-loop rollers.
+- Manual coil PWM duty saturated 0–1 before wire encoding (0–255).
 
 - Requires user gesture for `requestPort()`; filters cover common Arduino/CH340/CP210x/ESP32 VIDs.
 - Browser host timeout (~200 ms without `update()`) and firmware watchdog (~100 ms without `P`) both coast coils.

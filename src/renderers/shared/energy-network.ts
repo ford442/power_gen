@@ -469,15 +469,36 @@ export class EnergyNetwork {
 }
 
 /** Small overview disclaimer — updated when coupling mode changes. */
-export function syncEnergyCouplingDisclaimer(couplingEnabled?: boolean): void {
+export function syncEnergyCouplingDisclaimer(
+  couplingEnabled?: boolean,
+  snapshot?: Pick<EnergyNetworkSnapshot, 'labBudgetW' | 'totalAllocatedW' | 'residualW'>
+): void {
   if (typeof document === 'undefined') return;
   const el = document.getElementById('energyNetworkDisclaimer');
   if (!el) return;
   const coupled = couplingEnabled ?? readEnergyCouplingPref();
-  el.textContent = coupled
-    ? 'Energy pipes: coupled power budget (simulated — not calibrated metrology)'
-    : 'Energy pipes: visual only — glow is not measured watts';
+  const budget = snapshot?.labBudgetW ?? 0;
+  const allocated = snapshot?.totalAllocatedW ?? 0;
+  const residual = snapshot?.residualW ?? (budget - allocated);
+  const effPct = budget > 1 ? (allocated / budget) * 100 : 0;
+  const warn = coupled && Math.abs(residual) > Math.max(50, budget * 0.15);
+
+  if (coupled && snapshot) {
+    el.textContent =
+      `Energy pipes: coupled · budget ${budget.toFixed(0)} W · allocated ${allocated.toFixed(0)} W`
+      + ` · residual ${residual.toFixed(0)} W · η ${effPct.toFixed(0)}%`
+      + ' — simulated order-of-magnitude, not metrology';
+  } else if (coupled) {
+    el.textContent =
+      'Energy pipes: coupled power budget (simulated — not calibrated metrology)';
+  } else {
+    el.textContent = 'Energy pipes: visual only — glow is not measured watts';
+  }
+
   el.dataset.mode = coupled ? 'coupled' : 'visual';
+  el.dataset.residualW = String(residual);
+  el.dataset.warn = warn ? 'true' : 'false';
+  el.classList.toggle('energy-residual-warn', warn);
   el.dataset.nameplateSimulated = DEVICE_NAMEPLATE_SIMULATED ? 'true' : 'false';
 }
 
