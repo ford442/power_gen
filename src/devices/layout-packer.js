@@ -1,7 +1,8 @@
 /**
  * Automatic overview layout for N devices on the multi-device floor.
  * Legacy devices keep hand-tuned positions; plugin devices without an
- * explicit position receive a slot on an outer ring.
+ * explicit position receive a slot on an outer ring (default radius 20 m
+ * via device-registry — see OVERVIEW_LAYOUT_RADIUS in view-lod.js).
  */
 
 /** @typedef {{ position: [number,number,number], rotation: [number,number,number,number] }} LayoutSlot */

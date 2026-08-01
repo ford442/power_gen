@@ -185,7 +185,7 @@ export const homopolarGeneratorPlugin = {
   needsPhysicsState: true,
   wasmSkipsJsPhysics: true,
   defaults: {
-    particleCount: 14000,
+    particleCount: 5500,
     color: [1.0, 0.72, 0.28],
     cameraOffset: [0, 3.2, 10]
   },

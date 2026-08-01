@@ -4,6 +4,9 @@
  * Overview keeps every enabled device visible but at reduced particle/mesh
  * fidelity so mid-tier GPUs stay near 45+ FPS. Focus modes restore full
  * quality for the active device only.
+ *
+ * Plugin overview ring radius is 20 m (`layout-packer` / registry) — cull
+ * sphere defaults are sized for that layout (ADR-0005 WS4).
  */
 
 /** Particle count scale applied on top of auto-quality while in overview. */
@@ -15,8 +18,14 @@ export const OVERVIEW_MESH_LOD = 0.62;
 /** Focused device particle scale (full fidelity relative to quality tier). */
 export const FOCUS_PARTICLE_LOD = 1.0;
 
-/** Default bounding radius (world units) for device sphere culling. */
-export const DEFAULT_DEVICE_CULL_RADIUS = 14;
+/**
+ * Default bounding radius (world units) for device sphere culling.
+ * Sized for the auto-layout ring (radius 20) so off-camera plugins skip.
+ */
+export const DEFAULT_DEVICE_CULL_RADIUS = 16;
+
+/** Matches `applyAutoLayout(..., { radius: 20 })` in device-registry. */
+export const OVERVIEW_LAYOUT_RADIUS = 20;
 
 /**
  * Extra particle LOD for a device given the current view.
@@ -46,7 +55,40 @@ export function getViewMeshLod(currentView, qualityLevel) {
 }
 
 /**
+ * Overview / quality mesh draw ladder for non-SEG cylinder meshes.
+ * @typedef {'full'|'simplified'|'proxy'|'skip'} MeshDrawDetail
+ *
+ * @param {number} meshLod from getViewMeshLod
+ * @returns {MeshDrawDetail}
+ */
+export function getMeshDrawDetail(meshLod) {
+  const m = Math.max(0, Math.min(1, meshLod));
+  if (m >= 0.55) return 'full';
+  if (m >= 0.35) return 'simplified';
+  if (m >= 0.18) return 'proxy';
+  return 'skip';
+}
+
+/**
+ * Instance count after mesh LOD (CPU prefix — draw first N instances).
+ * @param {number} fullCount
+ * @param {MeshDrawDetail|string} detail
+ * @returns {number}
+ */
+export function meshLodInstanceCount(fullCount, detail) {
+  const n = Math.max(0, fullCount | 0);
+  if (n <= 0 || detail === 'skip') return 0;
+  if (detail === 'full') return n;
+  if (detail === 'simplified') return Math.max(1, Math.ceil(n * 0.5));
+  // proxy — single bounding silhouette (or 2 for readability)
+  return Math.min(n, Math.max(1, Math.min(2, n)));
+}
+
+/**
  * Combined particle scale: auto-quality × view LOD × explainer cap.
+ * Prefer {@link resolveScaledParticleCount} from particle-budgets.js when a
+ * tier budget is available; this remains for callers that only need a scale.
+ *
  * @param {object} opts
  * @param {string} opts.currentView
  * @param {string} opts.deviceId
@@ -62,6 +104,21 @@ export function getDeviceParticleScale({
   const viewLod = getViewParticleLod(currentView, deviceId);
   if (viewLod <= 0) return 0;
   return Math.max(0.05, qualityLevel * viewLod * explainerScale);
+}
+
+/**
+ * Cull options for overview frustum tests (plugin ring aware).
+ * @param {{ aspect?: number, radius?: number, margin?: number, layoutRadius?: number }} [opts]
+ */
+export function getOverviewCullOpts(opts = {}) {
+  const layoutRadius = opts.layoutRadius ?? OVERVIEW_LAYOUT_RADIUS;
+  // Sphere must cover device extent on the layout ring without false-culling.
+  const radius = opts.radius ?? Math.max(DEFAULT_DEVICE_CULL_RADIUS, layoutRadius * 0.8);
+  return {
+    aspect: opts.aspect ?? 1.6,
+    margin: opts.margin ?? 1.35,
+    radius
+  };
 }
 
 /**

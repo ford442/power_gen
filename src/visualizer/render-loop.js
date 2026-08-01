@@ -2,12 +2,14 @@
 import { WebGPUManager } from '../webgpu-manager';
 import { MAX_ROLLERS } from '../seg-layout.js';
 import { packPostUniforms } from '../seg-lighting-presets.js';
+import { getPostQualityGates } from '../post-processing-config.js';
 import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
 import { segWasm } from '../wasm/seg-physics-bridge.js';
 import { explainerState } from '../seg-explainer/explainer-state.js';
-import { getViewMeshLod, getDeviceParticleScale } from '../renderers/shared/view-lod.js';
+import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
+import { resolveScaledParticleCount } from '../devices/particle-budgets.js';
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -195,7 +197,8 @@ export const renderLoopMethods = {
 
     const canvasAspect = (this.canvas.width || 1) / Math.max(1, this.canvas.height || 1);
     const cullCamera = this.camera?.camera;
-    const cullOpts = { aspect: canvasAspect };
+    // Plugin overview ring is 20 m — cull sphere must cover device extents there.
+    const cullOpts = getOverviewCullOpts({ aspect: canvasAspect });
 
     const isDeviceVisible = (device) => shouldSimulateDevice(
       this.currentView,
@@ -203,30 +206,56 @@ export const renderLoopMethods = {
       device.id,
       device.position,
       cullCamera,
-      cullOpts
+      {
+        ...cullOpts,
+        radius: device.config?.cullRadius ?? cullOpts.radius
+      }
     );
 
-    // Update devices with view LOD × auto-quality scaling
+    // Update devices with view LOD × auto-quality × per-device tier budgets
     const explainerScale = explainerState.getParticleCapScale();
     const meshLod = getViewMeshLod(this.currentView, this.profiler.qualityLevel);
+    const meshDetail = getMeshDrawDetail(meshLod);
+    this._overviewMeshDetail = meshDetail;
     this.refreshSEGLayout(meshLod * explainerScale);
 
+    this.profiler.beginFrameDraws?.();
+
     let totalParticles = 0;
+    const qualityTier = this.profiler.qualityTier || 'high';
     for (const device of Object.values(this.devices)) {
       if (!isDeviceVisible(device)) continue;
 
-      const particleScale = getDeviceParticleScale({
-        currentView: this.currentView,
+      const viewLod = getViewParticleLod(this.currentView, device.id);
+      if (viewLod <= 0) continue;
+
+      const scaledCount = resolveScaledParticleCount({
         deviceId: device.id,
+        baseCount: device.particleCount,
         qualityLevel: this.profiler.qualityLevel,
-        explainerScale
+        qualityTier,
+        viewLod,
+        explainerScale,
+        isPlugin: !!device.config?.plugin
       });
-      if (particleScale <= 0) continue;
+      // Keep a scale for effect budgets / legacy paths (avoid 0 when capped).
+      const particleScale = device.particleCount > 0
+        ? Math.max(0.05, scaledCount / device.particleCount)
+        : getDeviceParticleScale({
+            currentView: this.currentView,
+            deviceId: device.id,
+            qualityLevel: this.profiler.qualityLevel,
+            explainerScale
+          });
+
+      device._meshDrawDetail = this.isOverviewMode?.() ? meshDetail : 'full';
 
       this.profiler.measureDevice(device.id, () => {
         device.update(deltaTime * speed, particleScale);
+        // Budget may be below qualityScale*base — enforce resolved count.
+        if (scaledCount > 0) device.scaledParticleCount = scaledCount;
       });
-      totalParticles += device.scaledParticleCount || Math.floor(device.particleCount * particleScale);
+      totalParticles += device.scaledParticleCount || scaledCount;
     }
 
     this.profiler.recordFrame(deltaTime, totalParticles);
@@ -350,9 +379,13 @@ export const renderLoopMethods = {
 
     if (this.isOverviewMode()) {
       const pipeLod = meshLod;
+      const pipeTier = this.profiler.qualityTier || 'high';
       for (const pipe of this.energyPipes) {
         this.profiler.measureDevice(`pipe:${pipe.config.from}-${pipe.config.to}`, () => {
-          pipe.update(deltaTime, this.devices, this.time, { lodScale: pipeLod });
+          pipe.update(deltaTime, this.devices, this.time, {
+            lodScale: pipeLod,
+            qualityTier: pipeTier
+          });
         });
       }
     }
@@ -467,8 +500,16 @@ export const renderLoopMethods = {
 
     renderPass.end();
 
-    // Preserve this frame’s scene for next frame’s overdrive motion blur.
-    if (this.bloomSceneTexture && this.prevSceneTexture) {
+    // Auto-quality post gates (ADR-0005) — critical skips bloom extract/blur.
+    const postGates = getPostQualityGates(this.profiler?.qualityTier || 'high');
+    this._postQualityGates = postGates;
+
+    // Preserve scene for overdrive motion blur only when the gate allows it.
+    if (
+      postGates.motionBlur > 0.01 &&
+      this.bloomSceneTexture &&
+      this.prevSceneTexture
+    ) {
       encoder.copyTextureToTexture(
         { texture: this.bloomSceneTexture },
         { texture: this.prevSceneTexture },
@@ -479,7 +520,7 @@ export const renderLoopMethods = {
     // ── Bloom post-processing ─────────────────────────────────────────────
     if (this.bloomExtractPipeline && this.bloomBlurPipeline && this.bloomCompositePipeline &&
         this.bloomSceneTexture && this.bloomBlurTexture && this.bloomTempTexture && this.prevSceneTexture && this.depthTexture) {
-      // Update bloom parameters dynamically based on current speed
+      // Update bloom parameters dynamically based on current speed + quality tier
       if (this.bloomParamsBuffer) {
         const w = this.canvas.width || 1;
         const h = this.canvas.height || 1;
@@ -503,55 +544,59 @@ export const renderLoopMethods = {
             preset,
             energy,
             speedMult: this.simRateController.speedMult,
-            motionBlur
+            motionBlur,
+            qualityGates: postGates
           })
         );
       }
 
-      // Pass 1: extract bright areas → bloomTempTexture
-      const extractPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: this.bloomTempTexture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: 'clear', storeOp: 'store'
-        }]
-      });
-      extractPass.setPipeline(this.bloomExtractPipeline);
-      if (this.bloomExtractBindGroup) {
-        extractPass.setBindGroup(0, this.bloomExtractBindGroup);
-      }
-      extractPass.draw(3);
-      extractPass.end();
+      // Skip extract + blur when bloom gate is off (composite still tonemaps).
+      if (postGates.bloom > 0) {
+        // Pass 1: extract bright areas → bloomTempTexture
+        const extractPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: this.bloomTempTexture.createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear', storeOp: 'store'
+          }]
+        });
+        extractPass.setPipeline(this.bloomExtractPipeline);
+        if (this.bloomExtractBindGroup) {
+          extractPass.setBindGroup(0, this.bloomExtractBindGroup);
+        }
+        extractPass.draw(3);
+        extractPass.end();
 
-      // Pass 2: horizontal blur bloomTemp → bloomBlur
-      const blurXPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: this.bloomBlurTexture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: 'clear', storeOp: 'store'
-        }]
-      });
-      blurXPass.setPipeline(this.bloomBlurPipeline);
-      if (this.bloomBlurXBindGroup) {
-        blurXPass.setBindGroup(0, this.bloomBlurXBindGroup);
-      }
-      blurXPass.draw(3);
-      blurXPass.end();
+        // Pass 2: horizontal blur bloomTemp → bloomBlur
+        const blurXPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: this.bloomBlurTexture.createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear', storeOp: 'store'
+          }]
+        });
+        blurXPass.setPipeline(this.bloomBlurPipeline);
+        if (this.bloomBlurXBindGroup) {
+          blurXPass.setBindGroup(0, this.bloomBlurXBindGroup);
+        }
+        blurXPass.draw(3);
+        blurXPass.end();
 
-      // Pass 3: vertical blur bloomBlur → bloomTemp
-      const blurYPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: this.bloomTempTexture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: 'clear', storeOp: 'store'
-        }]
-      });
-      blurYPass.setPipeline(this.bloomBlurPipeline);
-      if (this.bloomBlurYBindGroup) {
-        blurYPass.setBindGroup(0, this.bloomBlurYBindGroup);
+        // Pass 3: vertical blur bloomBlur → bloomTemp
+        const blurYPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: this.bloomTempTexture.createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear', storeOp: 'store'
+          }]
+        });
+        blurYPass.setPipeline(this.bloomBlurPipeline);
+        if (this.bloomBlurYBindGroup) {
+          blurYPass.setBindGroup(0, this.bloomBlurYBindGroup);
+        }
+        blurYPass.draw(3);
+        blurYPass.end();
       }
-      blurYPass.draw(3);
-      blurYPass.end();
 
       // Pass 4: composite scene + bloom → canvas with tonemap/post FX
       const compositePass = encoder.beginRenderPass({

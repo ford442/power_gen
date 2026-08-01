@@ -49,6 +49,7 @@ export function drawSegWebgpu(instance, renderPass, globalUniformBuffer, skipEff
     renderPass.setVertexBuffer(0, instance.visualizer.enhancedRollerBuffer.vertexBuffer);
     renderPass.setIndexBuffer(instance.visualizer.enhancedRollerBuffer.indexBuffer, 'uint16');
     renderPass.drawIndexed(instance.visualizer.enhancedRollerBuffer.indexCount, activeRollers);
+    instance.visualizer.profiler?.recordDraw?.(1);
   }
 
   if (instance.electromagnetInstances && instance.coilPipeline && instance.coilMaterialBuffer) {

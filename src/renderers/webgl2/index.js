@@ -32,8 +32,15 @@ import {
   deviceModeIndex
 } from '../shared/device-physics';
 import { isDeviceActive as isDeviceVisible, shouldSimulateDevice } from '../shared/device-view.js';
+import {
+  getOverviewCullOpts,
+  getViewParticleLod,
+  getViewMeshLod,
+  getMeshDrawDetail,
+  getDeviceParticleScale
+} from '../shared/view-lod.js';
+import { resolveScaledParticleCount } from '../../devices/particle-budgets.js';
 import { EnergyNetwork, initEnergyCouplingDisclaimer } from '../shared/energy-network';
-import { getDeviceParticleScale, getViewMeshLod } from '../shared/view-lod.js';
 import {
   parsePrototypePreset,
   parseSegLayoutPreset,
@@ -623,7 +630,8 @@ export class WebGL2MultiDeviceVisualizer {
     let totalParticles = 0;
     const canvasAspect = (this.canvas.width || 1) / Math.max(1, this.canvas.height || 1);
     const cullCamera = this.camera?.camera;
-    const cullOpts = { aspect: canvasAspect };
+    const cullOpts = getOverviewCullOpts({ aspect: canvasAspect });
+    const qualityTier = this.profiler?.qualityTier || 'high';
 
     for (const device of Object.values(this.devices)) {
       if (!shouldSimulateDevice(
@@ -657,12 +665,24 @@ export class WebGL2MultiDeviceVisualizer {
 
       for (let s = 0; s < substeps; s++) {
         const mode = deviceModeIndex(device.id);
-        const lod = getDeviceParticleScale({
-          currentView: this.currentView,
-          deviceId: device.id,
-          qualityLevel: this.profiler?.qualityLevel ?? 1
-        });
-        const scaledCount = Math.max(64, Math.floor(device.particleCount * lod));
+        const viewLod = getViewParticleLod(this.currentView, device.id);
+        const scaledCount = Math.max(
+          64,
+          resolveScaledParticleCount({
+            deviceId: device.id,
+            baseCount: device.particleCount,
+            qualityLevel: this.profiler?.qualityLevel ?? 1,
+            qualityTier,
+            viewLod,
+            isPlugin: !!device.config?.plugin
+          }) || Math.floor(
+            device.particleCount * getDeviceParticleScale({
+              currentView: this.currentView,
+              deviceId: device.id,
+              qualityLevel: this.profiler?.qualityLevel ?? 1
+            })
+          )
+        );
         device.scaledParticleCount = scaledCount;
         totalParticles += scaledCount;
         stepParticles(device.particles, {
@@ -778,7 +798,11 @@ export class WebGL2MultiDeviceVisualizer {
 
     const canvasAspect = (this.canvas.width || 1) / Math.max(1, this.canvas.height || 1);
     const cullCamera = this.camera?.camera;
-    const cullOpts = { aspect: canvasAspect };
+    const cullOpts = getOverviewCullOpts({ aspect: canvasAspect });
+    const meshDetail = getMeshDrawDetail(
+      getViewMeshLod(this.currentView, this.profiler?.qualityLevel ?? 1)
+    );
+    this._overviewMeshDetail = meshDetail;
 
     for (const device of Object.values(this.devices)) {
       if (!shouldSimulateDevice(
@@ -794,95 +818,101 @@ export class WebGL2MultiDeviceVisualizer {
       const mode = deviceModeIndex(device.id);
       const scaledCount = device.scaledParticleCount || device.particleCount;
 
-      if (device.id === 'seg') {
-        const rollers = layoutRollerPositions(
-          this.segLayout,
-          this.time,
-          speed,
-          this.segOmega
-        );
-        this.meshRenderer.drawSegStructure(viewProj, pos, {
-          ...renderOpts,
-          frameLevel: this.segFrameLevel,
-          layout: this.segLayout
-        });
-        this.meshRenderer.drawStatorRings(viewProj, pos, renderOpts);
-        this.meshRenderer.drawRollers(viewProj, pos, rollers, this.time, {
-          ...renderOpts,
-          corona: device.physics.corona,
-          prototypePreset: this.prototypePreset,
-          rings: segLayoutRingsForDraw(this.segLayout)
-        });
-      } else if (device.id === 'heron' || device.id === 'kelvin' || device.id === 'solar') {
-        this.meshRenderer.drawAlternateDevice(viewProj, pos, device.id, {
-          ...renderOpts,
-          heronLayoutPreset: device.id === 'heron' ? this.heronLayoutPreset : undefined
-        });
-      } else if (device.id === 'peltier') {
-        this.meshRenderer.drawPluginDevice(
-          viewProj,
-          pos,
-          buildPeltierMesh(
-            device.physics.peltierHotK,
-            device.physics.peltierColdK,
-            device.physics.peltierDeltaT
-          ).cylinders(),
-          renderOpts
-        );
-      } else if (device.id === 'mhd') {
-        this.meshRenderer.drawPluginDevice(
-          viewProj,
-          pos,
-          buildMhdMesh(
-            device.physics.mhdFlowU,
-            device.physics.mhdBFieldT,
-            device.physics.mhdHartmann
-          ).cylinders(),
-          renderOpts
-        );
-      } else if (device.id === 'maglev') {
-        const gap = device.physics.maglevGap ?? 0.018;
-        this.meshRenderer.drawPluginDevice(
-          viewProj, pos, buildMagLevMesh(gap).cylinders(), renderOpts
-        );
-      } else if (device.id === 'homopolar') {
-        const angle = device.physics.homopolarAngle ?? 0;
-        this.meshRenderer.drawPluginDevice(
-          viewProj, pos, buildHomopolarMesh(angle).cylinders(), renderOpts
-        );
-      } else if (device.id === 'halbach-viz') {
-        const config = halbachConfigFromState(device.physics);
-        this.meshRenderer.drawPluginDevice(
-          viewProj, pos, buildHalbachVizMesh(config).cylinders(), renderOpts
-        );
-        if (this.currentView === 'halbach-viz' && this.halbachFieldRenderer) {
-          this.halbachFieldRenderer.draw(
-            viewProj,
-            pos,
-            device.physics.halbachFieldLines,
-            device.physics.halbachHeatmap,
-            { extent: 3.1, gridSize: 24 }
-          );
-        }
-      } else if (device.id === 'pulse-coil') {
-        const travel = device.physics.pulseCoilArmatureM ?? 0;
-        const iA = device.physics.pulseCoilCurrentA ?? 0;
-        const vCap = device.physics.pulseCoilVCap ?? 0;
-        this.meshRenderer.drawPluginDevice(
-          viewProj, pos, buildPulseCoilMesh(travel, iA, vCap).cylinders(), renderOpts
-        );
-      } else if (device.id === 'transformer') {
-        this.meshRenderer.drawPluginDevice(
-          viewProj,
-          pos,
-          buildTransformerMesh(
-            device.physics.transformerIpA,
-            device.physics.transformerIsA,
-            device.physics.transformerFluxN
-          ).cylinders(),
-          renderOpts
-        );
-      }
+if (device.id === 'seg') {
+  const rollers = layoutRollerPositions(
+    this.segLayout,
+    this.time,
+    speed,
+    this.segOmega
+  );
+  this.meshRenderer.drawSegStructure(viewProj, pos, {
+    ...renderOpts,
+    frameLevel: this.segFrameLevel,
+    layout: this.segLayout
+  });
+  this.meshRenderer.drawStatorRings(viewProj, pos, renderOpts);
+  this.meshRenderer.drawRollers(viewProj, pos, rollers, this.time, {
+    ...renderOpts,
+    corona: device.physics.corona,
+    prototypePreset: this.prototypePreset,
+    rings: segLayoutRingsForDraw(this.segLayout)
+  });
+} else if (meshDetail !== 'skip') {
+  // Overview mesh LOD: skip barely-visible plugin meshes when quality is critical.
+  const drawMeshes = meshDetail !== 'proxy' || this.currentView === device.id;
+
+  if (drawMeshes && (device.id === 'heron' || device.id === 'kelvin' || device.id === 'solar')) {
+    this.meshRenderer.drawAlternateDevice(viewProj, pos, device.id, {
+      ...renderOpts,
+      heronLayoutPreset: device.id === 'heron' ? this.heronLayoutPreset : undefined
+    });
+  } else if (drawMeshes && device.id === 'peltier') {
+    this.meshRenderer.drawPluginDevice(
+      viewProj,
+      pos,
+      buildPeltierMesh(
+        device.physics.peltierHotK,
+        device.physics.peltierColdK,
+        device.physics.peltierDeltaT
+      ).cylinders(),
+      renderOpts
+    );
+  } else if (drawMeshes && device.id === 'mhd') {
+    this.meshRenderer.drawPluginDevice(
+      viewProj,
+      pos,
+      buildMhdMesh(
+        device.physics.mhdFlowU,
+        device.physics.mhdBFieldT,
+        device.physics.mhdHartmann
+      ).cylinders(),
+      renderOpts
+    );
+  } else if (drawMeshes && device.id === 'maglev') {
+    const gap = device.physics.maglevGap ?? 0.018;
+    this.meshRenderer.drawPluginDevice(
+      viewProj, pos, buildMagLevMesh(gap).cylinders(), renderOpts
+    );
+  } else if (drawMeshes && device.id === 'homopolar') {
+    const angle = device.physics.homopolarAngle ?? 0;
+    this.meshRenderer.drawPluginDevice(
+      viewProj, pos, buildHomopolarMesh(angle).cylinders(), renderOpts
+    );
+  } else if (drawMeshes && device.id === 'halbach-viz') {
+    const config = halbachConfigFromState(device.physics);
+    this.meshRenderer.drawPluginDevice(
+      viewProj, pos, buildHalbachVizMesh(config).cylinders(), renderOpts
+    );
+  } else if (drawMeshes && device.id === 'pulse-coil') {
+    const travel = device.physics.pulseCoilArmatureM ?? 0;
+    const iA = device.physics.pulseCoilCurrentA ?? 0;
+    const vCap = device.physics.pulseCoilVCap ?? 0;
+    this.meshRenderer.drawPluginDevice(
+      viewProj, pos, buildPulseCoilMesh(travel, iA, vCap).cylinders(), renderOpts
+    );
+  } else if (drawMeshes && device.id === 'transformer') {
+    this.meshRenderer.drawPluginDevice(
+      viewProj,
+      pos,
+      buildTransformerMesh(
+        device.physics.transformerIpA,
+        device.physics.transformerIsA,
+        device.physics.transformerFluxN
+      ).cylinders(),
+      renderOpts
+    );
+  }
+
+  if (this.currentView === 'halbach-viz' && device.id === 'halbach-viz' && this.halbachFieldRenderer) {
+    this.halbachFieldRenderer.draw(
+      viewProj,
+      pos,
+      device.physics.halbachFieldLines,
+      device.physics.halbachHeatmap,
+      { extent: 3.1, gridSize: 24 }
+    );
+  }
+}
 
       this.particleRenderer.draw(
         device.particles,

@@ -23,7 +23,7 @@ Exposure and bloom strength sliders in the debug panel adjust `postExposure` and
 Each preset defines key / fill / rim / ground lights uploaded to `lightingUniformBuffer` (192 bytes) every frame. PBR evaluation is in `src/shaders/generators/pbr-wgsl-chunks.js`:
 
 - Cook-Torrance GGX specular (anisotropic on rollers)
-- Hemispherical studio IBL (`approximateIBL`) — softbox ceiling + floor bounce
+- Hemispherical studio IBL (`approximateIBL` + analytic `envRadiance` mips) — softbox ceiling + floor bounce; roughness selects sharp / mid / irradiance lobes (no Three.js PMREM)
 - Rim term from view-dependent Fresnel
 - `shadowStrength` modulates crevice ambient and IBL occlusion
 
@@ -50,12 +50,26 @@ Mesh shaders output **linear HDR** (no per-object tonemap); tonemapping happens 
 - **Exposure** comes from the active lighting preset (`studio` / `lab` / `drama` → `post.exposure`) via `packPostUniforms()`, overridable by the debug **Exposure** slider (`postExposure`).
 - Applied **before** the filmic curve: `combined *= exposure`.
 
-### Quality gates
+### Quality gates (auto-quality ↔ post cost)
+
+`qualityTier` from `PerformanceProfiler` maps to multipliers in
+`src/post-processing-config.js` (`POST_QUALITY_GATES` → `getPostQualityGates`):
+
+| Tier | Bloom extract/blur | SSAO | Contact shadow | Motion blur |
+|------|--------------------|------|----------------|-------------|
+| `high` | on | 100% | 100% | 100% |
+| `medium` | on | 70% | 85% | 70% |
+| `low` | on | 30% | 55% | **off** |
+| `critical` | **skipped** | **off** | 35% | **off** |
+
+`packPostUniforms({ qualityGates })` scales strengths. When `bloom: 0`, the render
+loop skips extract + blur passes (composite still runs for exposure / filmic).
+Debug panel shows **Post Quality** summary next to the quality tier.
 
 | Gate | Rule |
 |------|------|
 | Feature negotiate | HDR bloom intermediates only when `rg11b10ufloat-renderable` (or equivalent) is present — else canvas format |
-| Auto-quality | When FPS drops, profiler reduces particle / mesh LOD first; post strength may follow in later epic work (ADR-0005) |
+| Auto-quality | Particles / mesh LOD first; **post cost follows** via the table above (ADR-0005) |
 | WebGL2 | No bloom chain — mild Reinhard + vignette in mesh shaders only (`docs/WEBGL2.md`) |
 | Offline | `npm run check:wgsl` must pass on extracted bloom generators |
 | Look presets | Changing `BloomParams` layout requires updating `packPostUniforms`, WGSL struct, and this doc together |

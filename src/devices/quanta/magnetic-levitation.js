@@ -163,7 +163,7 @@ export const magneticLevitationPlugin = {
   needsPhysicsState: true,
   wasmSkipsJsPhysics: true,
   defaults: {
-    particleCount: 12000,
+    particleCount: 5000,
     color: [0.2, 0.88, 1.0],
     cameraOffset: [0, 3.5, 11]
   },

@@ -242,7 +242,7 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 | `src/seg-operator-state.ts` | Authoritative SEG plant (drive, RPM, V/I/P) |
 | `src/seg-layout.js` | Layout presets (Searl / Roschin / legacy) — data-driven roller counts |
 | `src/assets/scene/scene-node.js` | Formal scene graph node (ADR-0005) |
-| `src/assets/gltf/*` | Hand-rolled glTF loader + scene graph — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
+| `src/assets/gltf/*` | Hand-rolled glTF loader + lazy prop registry — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
 | `src/integration.ts` | Typed physics uniforms + scientific overlay hooks |
 | `src/wasm/seg-physics-bridge.js` | Optional WASM step + zero-copy views |
 | `src/hardware-bridge.js` / `hardware-panel.js` | Web Serial + mock twin (**experimental**) |
@@ -285,10 +285,22 @@ npm run wasm:build    # scripts/build-wasm.sh
 
 ## Performance (overview)
 
-- Auto-quality scales particles; overview applies **view LOD** (see `renderers/shared/view-lod.js`).
-- Mid-tier target: overview ≥45 FPS with all devices on (document adapter via debug panel).
-- Focus SEG should keep full quality relative to the quality tier.
-- Details: profiler debug panel (F3 / Ctrl+D), [`SHADERS.md`](./SHADERS.md) for WGSL cost.
+- Auto-quality scales particles; overview applies **view LOD** (`renderers/shared/view-lod.js`).
+- **Per-device particle budgets** by quality tier live in `devices/particle-budgets.js`
+  (plugins default lower than SEG/core; `resolveScaledParticleCount` caps draws).
+- Overview **mesh LOD ladder**: `full → simplified → proxy → skip` via `getMeshDrawDetail`
+  (non-SEG cylinder instance prefix; SEG still uses layout `decimateCount` + roller cull).
+- Frustum skip uses `getOverviewCullOpts` sized for the **20 m** plugin layout ring
+  (`layout-packer` / registry `applyAutoLayout({ radius: 20 })`).
+- Energy-pipe particle counts follow `qualityTier` (`resolvePipeParticleBudget`).
+- Mid-tier target: overview **≥45 FPS** with all devices on — document the adapter via
+  F3 debug panel (`Adapter` + `GPU Tier` + `Draw calls (est.)` + per-device CPU ms).
+- Focus SEG keeps full quality relative to the quality tier.
+- Post cost is also tiered when the showroom stack is present (ADR-0005 WS2) —
+  particles/mesh remain the first cut; post follows on low FPS.
+- Details: profiler (F3 / Ctrl+D), [`SHADERS.md`](./SHADERS.md) for WGSL cost.
+- Instance cull today is **CPU prefix** (draw first N / SEG roller half-ring). Full GPU
+  frustum compute for plugins is optional follow-up (ADR-0005 WS4).
 
 ---
 

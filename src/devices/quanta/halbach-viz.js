@@ -236,7 +236,7 @@ export const halbachVizPlugin = {
   modeIndex: 9,
   needsPhysicsState: true,
   defaults: {
-    particleCount: 10000,
+    particleCount: 4500,
     color: [0.35, 0.75, 1.0],
     cameraOffset: [0, 4.0, 12]
   },
