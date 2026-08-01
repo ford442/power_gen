@@ -30,7 +30,7 @@ WebGL2 fallback (no WebGPU required): [open with `?renderer=webgl2`](https://for
 - Interactive orbital camera (drag to rotate, scroll to zoom)
 
 ## Future Plans
-- **Quanta Magnetics catalog** — plugin-registered research apparatuses ([Magnetic Levitation](docs/DEVICE_GALLERY.md#maglev), [Homopolar Generator](docs/DEVICE_GALLERY.md#homopolar)); more candidates: Halbach field visualizer, pulse-coil educational demo
+- **Quanta Magnetics catalog** — plugin-registered research apparatuses: [Magnetic Levitation](docs/DEVICE_GALLERY.md#maglev), [Homopolar Generator](docs/DEVICE_GALLERY.md#homopolar), [Halbach field visualizer](docs/DEVICE_GALLERY.md#halbach-viz), [pulse-coil educational demo](docs/DEVICE_GALLERY.md#pulse-coil) — all shipped; see the gallery for more candidates
 - Hardware bridge hooks for Quanta product twins when specs are available
 
 **SEG Explainer** (shipped): [guided tour](docs/SEG_EXPLAINER.md), B-field experiments, shareable `#lab=` URLs, classroom mode — sidebar **SEG Learning**.

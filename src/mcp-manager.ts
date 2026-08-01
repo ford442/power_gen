@@ -1,6 +1,11 @@
 /**
- * Wolfram MCP Manager
- * 
+ * Wolfram MCP Manager — optional/experimental, NOT a source of truth (ADR-0006).
+ *
+ * This is a static site with no backend: `connect()` is not called anywhere in
+ * the app today, so this manager always runs in fallback mode. `ValidatedConstants`
+ * (codegen from `physics/constants.json`) is the authoritative constants source;
+ * do not treat Wolfram values here as more authoritative than that.
+ *
  * Manages communication with Wolfram Alpha MCP with:
  * - Intelligent caching with TTL
  * - Fallback chain for offline operation

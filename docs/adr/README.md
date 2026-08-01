@@ -9,5 +9,6 @@ Lightweight ADRs for the SEG WebGPU Visualizer. Each file is a short record of a
 | [0003](./0003-no-threejs.md) | Custom WebGPU/WebGL2 stack, no Three.js |
 | [0004](./0004-energy-network.md) | Multi-device energy network (visual pipes → physical coupling) |
 | [0005](./0005-showroom-lab-twin-epic.md) | Showroom / Lab / Twin epic (north star) |
+| [0006](./0006-wolfram-mcp-demotion.md) | Wolfram MCP is optional/experimental, not a source of truth |
 
 Status values: **Accepted** · **Superseded** · **Proposed**
