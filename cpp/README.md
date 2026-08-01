@@ -97,6 +97,20 @@ Enable live WASM plant: `?wasmPhysics=1` or debug panel toggle (persists to loca
 **Single source of Emscripten flags:** `cpp/emscripten.flags` (consumed by `Makefile` and
 `CMakeLists.txt`). Do not duplicate `-s EXPORT_*` / memory settings in one build path only.
 
+`cpp/emscripten.flags` carries the flags shared by both `wasm` and `wasm-dbg`: `--bind`,
+`MODULARIZE=1`, `EXPORT_NAME=SimCore`, the required `EXPORTED_RUNTIME_METHODS`,
+`ALLOW_MEMORY_GROWTH=1`, `INITIAL_MEMORY=16777216` (16 MB), `ENVIRONMENT=web`, and
+`NO_EXIT_RUNTIME=1` — confirmed clean of `ASSERTIONS`/`SAFE_HEAP` (those are added only by
+the `wasm-dbg` / `npm run wasm:build-debug` target below, on top of `-O0 -g`, never by the
+release `wasm` / `npm run wasm:build` path, which uses `-O3`).
+
+**`npm run wasm:build` vs `npm run wasm:build-debug`:** use the release build
+(`wasm:build`, `-O3`, no assertions) for anything that ships — it's what CI commits to
+`src/public/wasm/` and what `npm run build` / `build:site` consume. Use the debug build
+(`wasm:build-debug` → `sim_core_dbg.js`, `-O0 -g -s ASSERTIONS=1 -s SAFE_HEAP=1`, DWARF
+source maps) only locally, when tracking down a WASM-side crash or memory-safety issue —
+it is slower and never committed.
+
 **Required `EXPORTED_RUNTIME_METHODS`** for `src/wasm/seg-physics-bridge.js` and `sim.ts`:
 
 | Method | Used for |
@@ -136,11 +150,30 @@ cpp/
   emscripten.flags   ← shared Emscripten link flags (Makefile + CMake)
   src/
     sim_core.h       ← Vec3, SimParticle, SEGRollerState, function declarations
-    sim_core.cpp     ← full implementation + Embind bindings
-  CMakeLists.txt     ← CMake / Emscripten build
-  Makefile           ← simple make wasm / native targets
+    sim_core.cpp     ← façade: ctor, mode dispatch, Embind bindings, native smoke-test main()
+    plant/
+      plant_common.h       ← shared helpers (clampf, hash1/rnd, lcg, Swamee–Jain f)
+      seg_plant.cpp         ← magnetic-field utilities + SEG roller RK4
+      heron_plant.cpp       ← Heron's Fountain (Bernoulli / Swamee–Jain)
+      kelvin_plant.cpp      ← Kelvin water dropper (capacitive + spark)
+      solar_plant.cpp       ← LED/solar battery SOC
+      peltier_plant.cpp     ← Peltier thermoelectric stack
+      mhd_plant.cpp         ← Hartmann-style MHD channel
+      maglev_plant.cpp      ← Quanta magnetic-levitation gap ODE
+      homopolar_plant.cpp   ← Faraday-disc homopolar generator
+      energy_network.cpp    ← Lab energy bus (ADR-0004 Phase B)
+      particles.cpp         ← mode-aware particle seed/step + accessors
+  CMakeLists.txt     ← CMake / Emscripten build (globs src/plant/*.cpp)
+  Makefile           ← simple make wasm / native targets ($(wildcard src/plant/*.cpp))
   build/             ← native test binaries (gitignored)
 ```
+
+Each `plant/*.cpp` implements a subset of `SEGSimulator`'s private `_step*`
+methods plus that mode's free functions declared in `sim_core.h`; the
+Emscripten `--bind` class name (`SimCore`/`SEGSimulator`) and its public
+method surface are declared once, in `sim_core.cpp`, and are unaffected by
+this split. See `docs/MODE_MATRIX.md` for how each plant's `SimMode` value
+maps to the JS device registry and shader `modeIndex`.
 
 ## JavaScript / TypeScript API
 

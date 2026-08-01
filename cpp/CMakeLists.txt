@@ -5,7 +5,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── Source ──────────────────────────────────────────────────────
-add_executable(sim_core src/sim_core.cpp)
+file(GLOB SIM_CORE_PLANT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/plant/*.cpp")
+add_executable(sim_core src/sim_core.cpp ${SIM_CORE_PLANT_SOURCES})
 target_include_directories(sim_core PRIVATE src)
 
 # ── Emscripten / WASM build ─────────────────────────────────────
