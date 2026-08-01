@@ -1,3 +1,5 @@
+import { getPostQualityGates, formatPostQualitySummary } from './post-processing-config.js';
+
 export class PerformanceProfiler {
   /**
    * @param {GPUDevice} device
@@ -424,6 +426,8 @@ export class PerformanceProfiler {
       .map(([id, ms]) => ({ id, ms }))
       .sort((a, b) => b.ms - a.ms);
 
+    const postGates = getPostQualityGates(this.qualityTier);
+
     return {
       currentFPS: this.fpsHistory[(this.fpsIndex - 1 + this.fpsHistory.length) % this.fpsHistory.length],
       averageFPS: avgFPS,
@@ -432,6 +436,8 @@ export class PerformanceProfiler {
       qualityLevel: this.qualityLevel,
       qualityTier: this.qualityTier,
       drawCallsEstimate: this.drawCallsEstimate,
+      postQualityGates: postGates,
+      postQualitySummary: formatPostQualitySummary(postGates),
       gpuTier: this.gpuTier,
       frameTimeMs: this.lastFrameTimeMs,
       frameCpuMs: this.frameCpuMs,

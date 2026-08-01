@@ -445,6 +445,8 @@ export class DebugPanel {
 
       <div style="color: #888;">Draw calls (est.):</div>
       <div style="color: #0ff;">${stats.drawCallsEstimate ?? '—'}</div>
+      <div style="color: #888;">Post Quality:</div>
+      <div style="color: ${stats.qualityTier === 'critical' || stats.qualityTier === 'low' ? '#ff4' : '#4f4'}; font-size: 10px;">${stats.postQualitySummary || '—'}</div>
 
       <div style="color: #888;">GPU Tier:</div>
       <div style="color: ${stats.gpuTier === 'high' ? '#4f4' : (stats.gpuTier === 'medium' ? '#ff4' : '#f44')}; text-transform: uppercase;">${stats.gpuTier}</div>

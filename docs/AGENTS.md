@@ -241,7 +241,7 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 | `src/seg-operator-state.ts` | Authoritative SEG plant (drive, RPM, V/I/P) |
 | `src/seg-layout.js` | Layout presets (Searl / Roschin / legacy) — data-driven roller counts |
 | `src/assets/scene/scene-node.js` | Formal scene graph node (ADR-0005) |
-| `src/assets/gltf/*` | Hand-rolled glTF loader + scene graph — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
+| `src/assets/gltf/*` | Hand-rolled glTF loader + lazy prop registry — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
 | `src/integration.ts` | Typed physics uniforms + scientific overlay hooks |
 | `src/wasm/seg-physics-bridge.js` | Optional WASM step + zero-copy views |
 | `src/hardware-bridge.js` / `hardware-panel.js` | Web Serial + mock twin (**experimental**) |

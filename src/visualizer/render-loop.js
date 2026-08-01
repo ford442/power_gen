@@ -2,6 +2,7 @@
 import { WebGPUManager } from '../webgpu-manager';
 import { MAX_ROLLERS } from '../seg-layout.js';
 import { packPostUniforms } from '../seg-lighting-presets.js';
+import { getPostQualityGates } from '../post-processing-config.js';
 import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
 import { segWasm } from '../wasm/seg-physics-bridge.js';
@@ -490,8 +491,16 @@ export const renderLoopMethods = {
 
     renderPass.end();
 
-    // Preserve this frame’s scene for next frame’s overdrive motion blur.
-    if (this.bloomSceneTexture && this.prevSceneTexture) {
+    // Auto-quality post gates (ADR-0005) — critical skips bloom extract/blur.
+    const postGates = getPostQualityGates(this.profiler?.qualityTier || 'high');
+    this._postQualityGates = postGates;
+
+    // Preserve scene for overdrive motion blur only when the gate allows it.
+    if (
+      postGates.motionBlur > 0.01 &&
+      this.bloomSceneTexture &&
+      this.prevSceneTexture
+    ) {
       encoder.copyTextureToTexture(
         { texture: this.bloomSceneTexture },
         { texture: this.prevSceneTexture },
@@ -502,7 +511,7 @@ export const renderLoopMethods = {
     // ── Bloom post-processing ─────────────────────────────────────────────
     if (this.bloomExtractPipeline && this.bloomBlurPipeline && this.bloomCompositePipeline &&
         this.bloomSceneTexture && this.bloomBlurTexture && this.bloomTempTexture && this.prevSceneTexture && this.depthTexture) {
-      // Update bloom parameters dynamically based on current speed
+      // Update bloom parameters dynamically based on current speed + quality tier
       if (this.bloomParamsBuffer) {
         const w = this.canvas.width || 1;
         const h = this.canvas.height || 1;
@@ -526,55 +535,59 @@ export const renderLoopMethods = {
             preset,
             energy,
             speedMult: this.simRateController.speedMult,
-            motionBlur
+            motionBlur,
+            qualityGates: postGates
           })
         );
       }
 
-      // Pass 1: extract bright areas → bloomTempTexture
-      const extractPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: this.bloomTempTexture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: 'clear', storeOp: 'store'
-        }]
-      });
-      extractPass.setPipeline(this.bloomExtractPipeline);
-      if (this.bloomExtractBindGroup) {
-        extractPass.setBindGroup(0, this.bloomExtractBindGroup);
-      }
-      extractPass.draw(3);
-      extractPass.end();
+      // Skip extract + blur when bloom gate is off (composite still tonemaps).
+      if (postGates.bloom > 0) {
+        // Pass 1: extract bright areas → bloomTempTexture
+        const extractPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: this.bloomTempTexture.createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear', storeOp: 'store'
+          }]
+        });
+        extractPass.setPipeline(this.bloomExtractPipeline);
+        if (this.bloomExtractBindGroup) {
+          extractPass.setBindGroup(0, this.bloomExtractBindGroup);
+        }
+        extractPass.draw(3);
+        extractPass.end();
 
-      // Pass 2: horizontal blur bloomTemp → bloomBlur
-      const blurXPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: this.bloomBlurTexture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: 'clear', storeOp: 'store'
-        }]
-      });
-      blurXPass.setPipeline(this.bloomBlurPipeline);
-      if (this.bloomBlurXBindGroup) {
-        blurXPass.setBindGroup(0, this.bloomBlurXBindGroup);
-      }
-      blurXPass.draw(3);
-      blurXPass.end();
+        // Pass 2: horizontal blur bloomTemp → bloomBlur
+        const blurXPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: this.bloomBlurTexture.createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear', storeOp: 'store'
+          }]
+        });
+        blurXPass.setPipeline(this.bloomBlurPipeline);
+        if (this.bloomBlurXBindGroup) {
+          blurXPass.setBindGroup(0, this.bloomBlurXBindGroup);
+        }
+        blurXPass.draw(3);
+        blurXPass.end();
 
-      // Pass 3: vertical blur bloomBlur → bloomTemp
-      const blurYPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: this.bloomTempTexture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: 'clear', storeOp: 'store'
-        }]
-      });
-      blurYPass.setPipeline(this.bloomBlurPipeline);
-      if (this.bloomBlurYBindGroup) {
-        blurYPass.setBindGroup(0, this.bloomBlurYBindGroup);
+        // Pass 3: vertical blur bloomBlur → bloomTemp
+        const blurYPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: this.bloomTempTexture.createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear', storeOp: 'store'
+          }]
+        });
+        blurYPass.setPipeline(this.bloomBlurPipeline);
+        if (this.bloomBlurYBindGroup) {
+          blurYPass.setBindGroup(0, this.bloomBlurYBindGroup);
+        }
+        blurYPass.draw(3);
+        blurYPass.end();
       }
-      blurYPass.draw(3);
-      blurYPass.end();
 
       // Pass 4: composite scene + bloom → canvas with tonemap/post FX
       const compositePass = encoder.beginRenderPass({
