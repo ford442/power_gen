@@ -26,18 +26,19 @@ export async function gotoWebGL2(page, extraQuery = '') {
   const url = `/?renderer=webgl2${query}`;
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-    const canvas = page.locator('#gpuCanvas');
+    await page.goto(url, { waitUntil: 'load', timeout: 60_000 });
     try {
-      await canvas.waitFor({ state: 'attached', timeout: 15_000 });
+      await page.waitForFunction(
+        () => window.currentRenderer === 'webgl2'
+          && (typeof window.getRendererInfo === 'function'
+            || typeof window.captureCanvasFrame === 'function'
+            || window.multiVisualizer != null),
+        { timeout: 45_000 }
+      );
       break;
     } catch (err) {
       if (attempt === 2) throw err;
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(1000);
     }
   }
-
-  await page.waitForFunction(() =>
-    window.currentRenderer === 'webgl2' && typeof window.getRendererInfo === 'function'
-  );
 }

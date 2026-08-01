@@ -20,7 +20,7 @@ Overview mode places SEG, Heron, Kelvin, solar, Peltier, MHD (and plugins) in on
 |-------|--------|--------|
 | **A — Power accounting** | `EnergyNetwork` in `renderers/shared/energy-network.ts`; sum device power; clamp pipe flow by source budget when coupling enabled; TelemetryHub `powerInW` / `powerOutW` / `efficiency`; UI toggle (visual-only vs coupled) | **Done** |
 | **B — WASM coupling** | Bus state in `sim_core`; bridge `setNetworkEdges([...])`, `getNetworkSummary()`; `EnergyNetwork` thin client when `?wasmPhysics=1` + coupling | **Done** |
-| **C — Conservation checks** | Dev overlay residual warning when ΣP ≠ 0 | Partial (debug panel shows residual W in coupled mode) |
+| **C — Conservation checks** | Overview disclaimer residual W + efficiency; warning color when \|residual\| > threshold; CSV export fields | **Done** (simulated accounting — not ΣP conservation) |
 
 ### Phase A details
 

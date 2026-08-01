@@ -1,7 +1,7 @@
 // Tachometer overlay + hardware digital twin sync.
 import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
-import { TWIN_MODES } from '../hardware-bridge.js';
+import { HardwareBridge, TWIN_MODES } from '../hardware-bridge.js';
 
 /**
  * Build hub-facing hardware twin snapshot (includes shadowResidual).
@@ -13,12 +13,17 @@ export function buildHardwareTwinTelemetry(hw) {
   return {
     connected: true,
     mock: !!hw.isMock,
+    connectionState: hw.connectionKind,
     twinMode: hw.twinMode,
-    sensorRpm: hw.actualRpm,
+    sensorRpm: HardwareBridge.sanitizeRpm(hw.actualRpm),
     sensorPhase: hw.actualPhase,
+    sensorVoltage: hw.actualVoltage ?? 0,
+    sensorCurrent: hw.actualCurrent ?? 0,
     shadowResidual: {
       phaseErrorDeg: hw.shadow.phaseErrorDeg,
-      rpmError: hw.shadow.rpmError
+      rpmError: hw.shadow.rpmError,
+      voltageError: hw.shadow.voltageError ?? 0,
+      currentError: hw.shadow.currentError ?? 0
     }
   };
 }
@@ -52,7 +57,9 @@ export const hardwareTwinMethods = {
 
     // Simulated electrical phase / RPM from operator plant
     const tel = segOperator.computeTelemetry(0);
-    const simRpm = tel.rpmDisplay || 0;
+    const simRpm = HardwareBridge.sanitizeRpm(tel.rpmDisplay || 0);
+    const simVoltage = Number.isFinite(tel.voltage) ? tel.voltage : 0;
+    const simCurrent = Number.isFinite(tel.current) ? tel.current : 0;
     // Integrate phase: deg/s = RPM * 6
     if (!hw.manualMode && hw.controlMode === 0) {
       this.hardwareTargetPhase += simRpm * 6.0 * Math.max(0, deltaTime);
@@ -69,12 +76,12 @@ export const hardwareTwinMethods = {
       }
     }
 
-    hw.update({ simPhase, simRpm });
+    hw.update({ simPhase, simRpm, simVoltage, simCurrent });
 
-    // Closed-loop: hardware is authority for visual roller spin
+    // Closed-loop: hardware is authority for visual roller spin (never NaN-spin)
     if (hw.twinMode === TWIN_MODES.CLOSED && !hw.isSensorStale) {
-      // Map HW RPM (~0–3000) into normalized segOmega 0–1
-      const wNorm = Math.min(1, Math.abs(hw.actualRpm) / 3000);
+      const hwRpm = HardwareBridge.sanitizeRpm(hw.actualRpm);
+      const wNorm = Math.min(1, Math.abs(hwRpm) / 3000);
       this.segOmega = wNorm;
       this.corona = Math.max(0, Math.min(1, (wNorm - 0.6) / 0.4));
       segOperator.physics.segOmega = wNorm;

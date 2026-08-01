@@ -185,8 +185,106 @@ test.describe('Hardware twin mock', () => {
     expect(twin.hub?.shadowResidual).toEqual(
       expect.objectContaining({
         phaseErrorDeg: expect.any(Number),
-        rpmError: expect.any(Number)
+        rpmError: expect.any(Number),
+        voltageError: expect.any(Number),
+        currentError: expect.any(Number)
       })
     );
+  });
+
+  test('disconnect coasts coils — no manual override after disconnect', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'mockHardware=1');
+
+    await page.waitForFunction(
+      () => window.multiVisualizer?.hardwareBridge?.isConnected === true,
+      { timeout: 10_000 }
+    );
+
+    await page.evaluate(() => {
+      const b = window.multiVisualizer.hardwareBridge;
+      b.setManualCoils(0b11, 0.75);
+    });
+
+    await page.evaluate(async () => {
+      await window.multiVisualizer.hardwareBridge.disconnect();
+    });
+
+    const state = await page.evaluate(() => {
+      const b = window.multiVisualizer?.hardwareBridge;
+      return {
+        status: b?.status,
+        manualMode: b?.manualMode,
+        pwmDuty: b?.manualPwmDuty,
+        connectionKind: b?.connectionKind
+      };
+    });
+
+    expect(state.status).toBe('disconnected');
+    expect(state.connectionKind).toBe('disconnected');
+    expect(state.manualMode).toBe(false);
+    expect(state.pwmDuty).toBe(0);
+  });
+
+  test('scientific UI shows shadow residual chart with mockHardware', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'mockHardware=1');
+
+    await page.waitForFunction(
+      () => window.multiVisualizer?.hardwareBridge?.isConnected === true,
+      { timeout: 10_000 }
+    );
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.sciUI?.show?.();
+    });
+
+    await page.waitForFunction(
+      () => document.getElementById('sci-shadow-residual-gauge') != null
+        && window.telemetryHub?.getSnapshot?.()?.hardwareTwin?.connected === true,
+      { timeout: 8_000 }
+    );
+
+    const chart = await page.evaluate(() => {
+      const el = document.getElementById('sci-shadow-residual-gauge');
+      const twin = window.telemetryHub.getSnapshot().hardwareTwin;
+      return {
+        hasCanvas: !!el?.querySelector('canvas'),
+        connectionState: twin?.connectionState,
+        rpmErr: twin?.shadowResidual?.rpmError
+      };
+    });
+
+    expect(chart.hasCanvas).toBe(true);
+    expect(chart.connectionState).toBe('mock');
+    expect(typeof chart.rpmErr).toBe('number');
+  });
+
+  test('energyCoupling=1 shows residual W in overview disclaimer', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'energyCoupling=1');
+
+    await page.evaluate(() => {
+      window.setMode('overview');
+      document.body.classList.add('overview-mode');
+    });
+
+    await page.waitForFunction(
+      () => {
+        const el = document.getElementById('energyNetworkDisclaimer');
+        return el?.dataset.mode === 'coupled' && el.textContent.includes('residual');
+      },
+      { timeout: 8_000 }
+    );
+
+    const disc = await page.evaluate(() => {
+      const el = document.getElementById('energyNetworkDisclaimer');
+      return { mode: el?.dataset.mode, text: el?.textContent ?? '' };
+    });
+
+    expect(disc.mode).toBe('coupled');
+    expect(disc.text).toMatch(/residual/i);
+    expect(disc.text).toMatch(/not metrology/i);
   });
 });

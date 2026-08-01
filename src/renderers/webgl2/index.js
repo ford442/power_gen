@@ -40,7 +40,7 @@ import {
   getDeviceParticleScale
 } from '../shared/view-lod.js';
 import { resolveScaledParticleCount } from '../../devices/particle-budgets.js';
-import { EnergyNetwork, initEnergyCouplingDisclaimer } from '../shared/energy-network';
+import { EnergyNetwork, initEnergyCouplingDisclaimer, syncEnergyCouplingDisclaimer } from '../shared/energy-network';
 import {
   parsePrototypePreset,
   parseSegLayoutPreset,
@@ -400,7 +400,9 @@ export class WebGL2MultiDeviceVisualizer {
     }
 
     const tel = segOperator.computeTelemetry(0);
-    const simRpm = tel.rpmDisplay || 0;
+    const simRpm = HardwareBridge.sanitizeRpm(tel.rpmDisplay || 0);
+    const simVoltage = Number.isFinite(tel.voltage) ? tel.voltage : 0;
+    const simCurrent = Number.isFinite(tel.current) ? tel.current : 0;
     if (!hw.manualMode && hw.controlMode === 0) {
       this.hardwareTargetPhase += simRpm * 6.0 * Math.max(0, deltaTime);
       this.hardwareTargetSpeed = simRpm;
@@ -415,10 +417,11 @@ export class WebGL2MultiDeviceVisualizer {
       }
     }
 
-    hw.update({ simPhase, simRpm });
+    hw.update({ simPhase, simRpm, simVoltage, simCurrent });
 
     if (hw.twinMode === TWIN_MODES.CLOSED && !hw.isSensorStale) {
-      const wNorm = Math.min(1, Math.abs(hw.actualRpm) / 3000);
+      const hwRpm = HardwareBridge.sanitizeRpm(hw.actualRpm);
+      const wNorm = Math.min(1, Math.abs(hwRpm) / 3000);
       this.segOmega = wNorm;
       this.corona = Math.max(0, Math.min(1, (wNorm - 0.6) / 0.4));
       segOperator.physics.segOmega = wNorm;
@@ -761,6 +764,7 @@ export class WebGL2MultiDeviceVisualizer {
       segEfficiencyPct: segTelemetry.efficiency,
       deltaTime
     });
+    syncEnergyCouplingDisclaimer(netSnap.couplingEnabled, netSnap);
     telemetryHub.publishFrame({
       dt: deltaTime,
       view: this.currentView || 'overview',

@@ -10,6 +10,7 @@ import { explainerState } from '../seg-explainer/explainer-state.js';
 import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
 import { resolveScaledParticleCount } from '../devices/particle-budgets.js';
+import { syncEnergyCouplingDisclaimer } from '../renderers/shared/energy-network.ts';
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -353,6 +354,9 @@ export const renderLoopMethods = {
       segEfficiencyPct: segTelemetry.efficiency,
       deltaTime
     });
+    if (netSnap) {
+      syncEnergyCouplingDisclaimer(netSnap.couplingEnabled, netSnap);
+    }
     telemetryHub.publishFrame({
       dt: deltaTime,
       view: this.currentView || 'overview',

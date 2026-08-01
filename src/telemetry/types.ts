@@ -89,15 +89,23 @@ export interface EnergyNetworkTelemetry {
 export interface HardwareShadowResidual {
   phaseErrorDeg: number;
   rpmError: number;
+  /** Plant V − sensor V (mock lag on mock transport; 0 on serial until firmware adds sensors). */
+  voltageError: number;
+  /** Plant I − sensor I */
+  currentError: number;
 }
 
 /** Optional hardware digital twin snapshot on the hub. */
 export interface HardwareTwinTelemetry {
   connected: boolean;
   mock: boolean;
+  /** disconnected | mock | serial — explicit connection state machine */
+  connectionState: 'disconnected' | 'mock' | 'serial';
   twinMode: 'open' | 'closed' | 'shadow';
   sensorRpm: number;
   sensorPhase: number;
+  sensorVoltage: number;
+  sensorCurrent: number;
   /** Present when connected; primary e2e assertion field. */
   shadowResidual: HardwareShadowResidual;
 }
