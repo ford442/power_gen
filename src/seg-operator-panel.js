@@ -373,7 +373,8 @@ export class SEGOperatorPanel {
       maglev: 'Mag Levitation',
       homopolar: 'Homopolar Generator',
       'halbach-viz': 'Halbach Field Viz',
-      'pulse-coil': 'Pulse Coil (R–L)'
+      'pulse-coil': 'Pulse Coil (R–L)',
+      transformer: 'Mutual Induction'
     };
     if (modeFooter) modeFooter.textContent = modeLabels[view] || view.toUpperCase();
 
@@ -425,6 +426,32 @@ export class SEGOperatorPanel {
           `Vcap ${(p.pulseCoilVCap || 0).toFixed(1)} V`,
           `B ${(p.pulseCoilBPeakT || 0).toFixed(3)} T`,
           `x ${(p.pulseCoilArmatureMm || 0).toFixed(1)} mm`
+        ].join(' · ');
+      } else if (view === 'peltier' && snap.devices?.peltier) {
+        const p = snap.devices.peltier;
+        batteryFooter.textContent = [
+          `ΔT ${(p.peltierDeltaT || 0).toFixed(1)} K`,
+          `Th ${(p.peltierHotK || 0).toFixed(0)} K`,
+          `Tc ${(p.peltierColdK || 0).toFixed(0)} K`,
+          `COP ${(p.peltierCOP || 0).toFixed(3)}`,
+          `${(p.peltierPowerW || 0).toFixed(1)} W`
+        ].join(' · ');
+      } else if (view === 'mhd' && snap.devices?.mhd) {
+        const m = snap.devices.mhd;
+        batteryFooter.textContent = [
+          `U ${(m.mhdFlowU || 0).toFixed(2)} m/s`,
+          `B ${(m.mhdBFieldT || 0).toFixed(2)} T`,
+          `Ha ${(m.mhdHartmann || 0).toFixed(1)}`,
+          `${(m.mhdPowerW || 0).toFixed(1)} W`
+        ].join(' · ');
+      } else if (view === 'transformer' && snap.devices?.transformer) {
+        const t = snap.devices.transformer;
+        batteryFooter.textContent = [
+          `Vp ${(t.transformerVp || 0).toFixed(1)} V`,
+          `Vs ${(t.transformerVs || 0).toFixed(1)} V`,
+          `Ip ${(t.transformerIpA || 0).toFixed(2)} A`,
+          `Is ${(t.transformerIsA || 0).toFixed(2)} A`,
+          `k ${(t.transformerK || 0).toFixed(2)}`
         ].join(' · ');
       } else {
         batteryFooter.textContent = '—';

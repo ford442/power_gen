@@ -66,12 +66,13 @@ Client-side **multi-device physics lab**: real-time visualization of research ap
 | `heron` | Heron’s Fountain | Layout presets + Bernoulli/Swamee–Jain plant; good meshes |
 | `kelvin` | Kelvin’s Thunderstorm | Capacitive plant + droplet viz |
 | `solar` | LEDs + solar + battery | Photon paths + SOC; separate LED/solar TS/WGSL suite exists |
-| `peltier` | Thermoelectric | Geometry + particles; WASM two-node Seebeck stack plant (`?wasmPhysics=1`); lighter JS fallback |
-| `mhd` | MHD channel | Geometry + particles; WASM Hartmann-channel plant (`?wasmPhysics=1`); lighter JS fallback |
+| `peltier` | Thermoelectric | Two-node ΔT/COP telemetry + heat-map plate tint; WASM Seebeck stack (`?wasmPhysics=1`) with matching JS fallback |
+| `mhd` | MHD channel | Flow-arrow mesh + Hartmann readout; particles advect with `flowU`/`bField`; WASM Hartmann plant (`?wasmPhysics=1`) |
 | `maglev` | Quanta MagLev (plugin) | Spring–damper gap + Halbach B est.; WASM plant with `?wasmPhysics=1` — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
 | `homopolar` | Quanta Faraday disc (plugin) | L–R + back-EMF; WASM plant with `?wasmPhysics=1` — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
 | `halbach-viz` | Quanta Halbach viz (plugin) | CPU RK4 field lines + heatmap (JS); see gallery |
-| `pulse-coil` | Quanta pulse coil (plugin) | Classroom series R–L + cap discharge; JS plant only — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
+| `pulse-coil` | Quanta pulse coil (plugin) | Classroom series R–L + cap discharge + I/V oscilloscope sparkline; **JS plant only (by design)** — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
+| `transformer` | Quanta mutual induction (plugin) | Two-winding phasor model (k / leakage toggle); flux particles; **JS only** (WASM L–M Phase 2) — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md#transformer) |
 
 Dashboard overview can enable **all** registered sim devices (typically 6 core + plugins). Particle budgets and mesh detail are **not** equal across devices — auto-quality and view LOD scale further. Do not document “full physical fidelity on every device.”
 

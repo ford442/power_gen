@@ -36,6 +36,7 @@ Do not assume `modeIndex === wasmMode` without checking this table.
 | `pulse-coil` | 7 | **none — WASM has no pulse-coil `SimMode`** (JS `modeIndex` 7 collides numerically with `SIM_MODE_HOMOPOLAR = 7`, but nothing maps `pulse-coil` through `segWasm.setMode()`, so there is no live conflict) | `pulseCoilCurrentA`, `pulseCoilVCap`, `pulseCoilBPeakT`, `pulseCoilArmatureMm` | JS-only (`fallback-physics` for `pulseCoilBPeakT`) |
 | `homopolar` | **8** | **7** (`SIM_MODE_HOMOPOLAR`) — **known mismatch, see below** | `homopolarRpm`, `homopolarEmfV`, `homopolarCurrentA`, `homopolarFieldT` | WASM (Faraday disc L–R + back-EMF) |
 | `halbach-viz` | 9 | none — WASM has no halbach-viz `SimMode`; `estimateHalbachFieldT()` is a free WASM helper function (not a plant mode) reused for offline field sampling | `halbachSegmentCount`, `halbachMagAngleDeg`, `halbachPeakBT`, `halbachDipoleForceN` | JS-only (CPU field-line viz); `halbachPeakBT`/`halbachDipoleForceN` sourced as `fallback-physics` |
+| `transformer` | **10** | **none — no `SimMode` (JS phasor plant only; WASM L–M circuit optional Phase 2)** | `transformerVp`, `transformerVs`, `transformerIpA`, `transformerIsA`, `transformerK`, `transformerFluxN` | JS-only textbook two-winding model (coupling *k*, leakage toggle) |
 
 ## The homopolar 8 ↔ 7 mismatch — status: known bug, NOT fixed in this PR
 
@@ -59,15 +60,25 @@ Do not assume `modeIndex === wasmMode` without checking this table.
   device id), and `docs/DEVICE_GALLERY.md`. That is out of scope here and
   is left as a follow-up.
 
-## `pulse-coil` / `halbach-viz` — status: intentional JS-only reservation
+## `pulse-coil` / `halbach-viz` / `transformer` — status: intentional JS-only reservation
 
-Both devices are fully JS/CPU-side (`fallback-physics` particle + field
-sampling, no `SimCore` plant). Their `modeIndex` values (7, 9) reserve slots
-in the shader mode-selector space only; they do not correspond to — and are
-not expected to correspond to — any `SimMode` enum value. `cpp/README.md`
-already documents `estimateHalbachFieldT()` as a free helper kept in sync
-with the JS Halbach estimate for `halbach-viz`, independent of the `SimMode`
-plant list.
+These devices are fully JS/CPU-side (`fallback-physics` particle + field /
+phasor models, no `SimCore` plant). Their `modeIndex` values (7, 9, 10)
+reserve slots in the shader mode-selector space only; they do not correspond
+to — and are not expected to correspond to — any `SimMode` enum value.
+
+- **`pulse-coil`:** classroom series R–L + cap discharge remains **JS-only by
+  design** (sandboxed educational model). Oscilloscope sparkline draws from
+  an in-plant I/V history ring (`drawPulseCoilOscilloscope`). A future WASM
+  plant would need a new reserved `SimMode` and must not silently reclaim
+  index 7 (already collides numerically with `SIM_MODE_HOMOPOLAR`).
+- **`halbach-viz`:** CPU field-line viz; `cpp/README.md` documents
+  `estimateHalbachFieldT()` as a free helper kept in sync with the JS
+  Halbach estimate, independent of the `SimMode` plant list.
+- **`transformer`:** textbook mutual-induction / two-winding phasor model.
+  WASM L–M circuit is optional Phase 2 and would take the next free
+  `SimMode` slot (coordinate with C++ modularize) — **not** `modeIndex` 10
+  by assumption.
 
 ## Source of truth pointers
 

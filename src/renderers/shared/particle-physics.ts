@@ -41,6 +41,15 @@ export interface ParticleUniforms {
   /** Halbach viz plugin fields (mode 9) */
   halbachSegmentCount?: number;
   halbachPeakBT?: number;
+  /** Peltier (mode 4) / MHD (mode 5) */
+  peltierDeltaT?: number;
+  peltierCOP?: number;
+  mhdFlowU?: number;
+  mhdBFieldT?: number;
+  /** Transformer (mode 10) */
+  transformerIpA?: number;
+  transformerIsA?: number;
+  transformerFluxN?: number;
 }
 
 interface SpawnParticle {
@@ -199,21 +208,63 @@ function integrateHalbach(
   return [Math.cos(angle) * r, y, Math.sin(angle) * r];
 }
 
-function integrateMHD(p: ParticlePhase, idx: number, t: number): [number, number, number] {
+function integrateMHD(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  flowN = 0.4,
+  bN = 0.4
+): [number, number, number] {
   const phase = p.phase;
-  const speed = 0.7;
-  const cycleT = ((t * speed + ((phase * 123.45) % 1)) % 1 + 1) % 1;
-  const zPos = 8.0 + (-16.0) * cycleT;
-  const isPositive = phase < 0.5;
-  const chargeMultiplier = isPositive ? 1 : -1;
-  const px = Math.sin(idx * 123.45) * 0.8;
-  const py = Math.cos(idx * 0.123) * 0.8;
-  let xDeflection = 0;
-  if (zPos < 2.0) {
-    const exposure = Math.max(0, Math.min(1, (2.0 - zPos) / 4.0));
-    xDeflection = chargeMultiplier * exposure * 4.0;
+  const drift = (((phase + t * (0.35 + flowN * 0.9)) % 1) + 1) % 1;
+  const x = -2.1 + drift * 4.2;
+  const swirl = bN * 0.55;
+  const y = Math.sin(t * 2.2 + phase * 11.0 + idx * 0.07) * swirl
+    + ((((idx * 0.137) % 1) + 1) % 1 - 0.5) * 0.7;
+  const z = Math.cos(t * 1.8 + phase * 8.0) * swirl * 0.75
+    + ((((idx * 0.191) % 1) + 1) % 1 - 0.5) * 0.5;
+  return [x, y, z];
+}
+
+function integratePeltier(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  deltaTN = 0.4,
+  hotN = 0.3
+): [number, number, number] {
+  const phase = p.phase;
+  const speed = 0.35 + deltaTN * 0.55;
+  const cycleT = (((t * speed + phase) % 1) + 1) % 1;
+  const x = ((((idx * 0.173 + phase) % 1) + 1) % 1 - 0.5) * 1.8;
+  const z = ((((idx * 0.211 + phase * 0.7) % 1) + 1) % 1 - 0.5) * 1.4;
+  const rising = idx % 2 === 0;
+  const y = rising
+    ? -0.35 + cycleT * 0.9 + Math.sin(t * 3.0 + phase * 9.0) * 0.04 * (0.3 + hotN)
+    : 0.55 - cycleT * 0.8 - Math.sin(t * 2.5 + phase * 7.0) * 0.03 * (0.3 + deltaTN);
+  return [x, y, z];
+}
+
+function integrateTransformer(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  ipN = 0.3,
+  isN = 0.3,
+  fluxN = 0.3
+): [number, number, number] {
+  const phase = p.phase;
+  const u = (((phase + t * (0.25 + ipN * 0.35 + isN * 0.25)) % 1) + 1) % 1;
+  if (u < 0.35) {
+    const a = (u / 0.35) * TAU + t * (1.0 + ipN);
+    return [-0.55 + Math.cos(a) * 0.28, 0.15 + Math.sin(a) * 0.22, Math.sin(a * 2.0) * 0.1];
   }
-  return [px + xDeflection, py, zPos];
+  if (u < 0.65) {
+    const s = (u - 0.35) / 0.3;
+    return [-0.55 + s * 1.1, 0.55 + Math.sin(t * 3.5 + phase * 8.0) * 0.06 * fluxN, 0];
+  }
+  const a = ((u - 0.65) / 0.35) * TAU + t * (1.2 + isN);
+  return [0.55 + Math.cos(a) * 0.24, 0.15 + Math.sin(a) * 0.2, Math.sin(a * 2.0 + 1.0) * 0.1];
 }
 
 /**
@@ -311,7 +362,7 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
         vx = s.vel[0]; vy = s.vel[1]; vz = s.vel[2];
         aux = s.aux;
       }
-    } else if (mode < 4.5) {
+    } else if (mode < 3.5) {
       px += vx * dt;
       py += vy * dt;
       pz += vz * dt;
@@ -337,6 +388,22 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
         vx = s.vel[0]; vy = s.vel[1]; vz = s.vel[2];
         aux = s.aux;
       }
+    } else if (mode < 4.5) {
+      const deltaTN = Math.min(1, Math.abs(u.peltierDeltaT ?? 30) / 80);
+      const hotN = Math.min(1, ((u.peltierDeltaT ?? 30) > 0 ? deltaTN : 0.2));
+      const pos = integratePeltier({ phase }, idx, u.time, deltaTN, hotN);
+      px = pos[0]; py = pos[1]; pz = pos[2];
+    } else if (mode < 5.5) {
+      const flowN = Math.min(1, (u.mhdFlowU ?? 1) / 3.5);
+      const bN = Math.min(1, (u.mhdBFieldT ?? 0.4) / 1.0);
+      const pos = integrateMHD({ phase }, idx, u.time, flowN, bN);
+      px = pos[0]; py = pos[1]; pz = pos[2];
+    } else if (mode >= 10.0) {
+      const ipN = Math.min(1, Math.abs(u.transformerIpA ?? 0) / 4);
+      const isN = Math.min(1, Math.abs(u.transformerIsA ?? 0) / 3);
+      const fluxN = u.transformerFluxN ?? 0.3;
+      const pos = integrateTransformer({ phase }, idx, u.time, ipN, isN, fluxN);
+      px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode >= 9.0) {
       const segN = u.halbachSegmentCount ?? 8;
       const peakB = Math.min(1, (u.halbachPeakBT ?? 0) / 0.8);

@@ -551,10 +551,20 @@
         <button class="mode-btn"        id="btn-kelvin" onclick="setMode('kelvin')">⚡ Kelvin Thunderstorm</button>
         <button class="mode-btn"        id="btn-solar"  onclick="setMode('solar')">☀️ LEDs + Solar</button>
         <button class="mode-btn"        id="btn-mhd"    onclick="setMode('mhd')">🌊 MHD Generator</button>
+        <button class="mode-btn"        id="btn-peltier" onclick="setMode('peltier')">🔥 Peltier</button>
         <button class="mode-btn"        id="btn-maglev" onclick="setMode('maglev')">🧲 Mag Levitation</button>
         <button class="mode-btn"        id="btn-homopolar" onclick="setMode('homopolar')">⚙️ Homopolar</button>
         <button class="mode-btn"        id="btn-halbach-viz" onclick="setMode('halbach-viz')">🧭 Halbach Field</button>
         <button class="mode-btn"        id="btn-pulse-coil" onclick="setMode('pulse-coil')">🔋 Pulse Coil</button>
+        <button class="mode-btn"        id="btn-transformer" onclick="setMode('transformer')">🔌 Mutual Induction</button>
+      </div>
+
+      <!-- Transformer classroom controls -->
+      <div class="panel-section" id="transformer-controls" style="display:none;">
+        <h3>Coupling</h3>
+        <button type="button" class="layout-btn active" data-transformer-leakage="false" onclick="setTransformerLeakage(false)">Ideal (high k)</button>
+        <button type="button" class="layout-btn" data-transformer-leakage="true" onclick="setTransformerLeakage(true)">Leakage</button>
+        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Textbook two-winding model — not FEM. k drops under leakage.</div>
       </div>
 
       <!-- SEG roller/stator layout preset -->
@@ -786,6 +796,9 @@
     <span id="stats">Mode: <span id="modeFooter">SEG</span></span>
     <span>WebGPU Compute Shader Physics</span>
     <span>Battery: <span id="batteryFooter">--</span></span>
+    <span id="pulse-coil-scope-wrap" style="display:none;margin-left:12px;vertical-align:middle;">
+      <canvas id="pulse-coil-scope" width="200" height="40" title="Pulse-coil I (orange) / Vcap (cyan)" style="vertical-align:middle;border:1px solid #234;border-radius:2px;"></canvas>
+    </span>
   </div>
 
   <script type="module" src="main.js"></script>

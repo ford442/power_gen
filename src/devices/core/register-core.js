@@ -30,8 +30,8 @@ import {
   solarUpdateFlowPaths,
   solarUpdateEffects
 } from './solar-update.js';
-import { peltierComputeRawEnergy, peltierUpdateEffects } from './peltier-update.js';
-import { mhdComputeRawEnergy, mhdUpdateEffects } from './mhd-update.js';
+import { peltierComputeRawEnergy, peltierUpdateEffects, peltierUpdateMesh, createPeltierPhysicsState, stepPeltierPhysics, buildPeltierMesh } from './peltier-update.js';
+import { mhdComputeRawEnergy, mhdUpdateEffects, mhdUpdateMesh, createMhdPhysicsState, stepMhdPhysics, buildMhdMesh } from './mhd-update.js';
 import { drawSegWebgpu } from './seg-render.js';
 import { drawSolarGaugeWebgpu } from './solar-render.js';
 
@@ -99,8 +99,25 @@ registerDevice({
   category: 'core',
   modeIndex: 4,
   wasmMode: 4,
+  needsPhysicsState: true,
+  wasmSkipsJsPhysics: true,
   computeRawEnergy: peltierComputeRawEnergy,
   updateEffects: peltierUpdateEffects,
+  updateMesh: peltierUpdateMesh,
+  createPhysicsState: createPeltierPhysicsState,
+  stepPhysics: stepPeltierPhysics,
+  meshLayout: {
+    cylinders: () => buildPeltierMesh().cylinders()
+  },
+  telemetrySchema: {
+    peltierHotK: { label: 'Hot junction', unit: 'K', source: 'sim' },
+    peltierColdK: { label: 'Cold junction', unit: 'K', source: 'sim' },
+    peltierDeltaT: { label: 'ΔT', unit: 'K', source: 'sim' },
+    peltierVoltage: { label: 'Voltage', unit: 'V', source: 'sim' },
+    peltierCurrent: { label: 'Current', unit: 'A', source: 'sim' },
+    peltierPowerW: { label: 'Power', unit: 'W', source: 'sim' },
+    peltierCOP: { label: 'COP proxy', unit: '', source: 'sim' }
+  },
   wantsThermalHaze: true
 });
 
@@ -110,7 +127,23 @@ registerDevice({
   category: 'core',
   modeIndex: 5,
   wasmMode: 5,
+  needsPhysicsState: true,
+  wasmSkipsJsPhysics: true,
   computeRawEnergy: mhdComputeRawEnergy,
   updateEffects: mhdUpdateEffects,
+  updateMesh: mhdUpdateMesh,
+  createPhysicsState: createMhdPhysicsState,
+  stepPhysics: stepMhdPhysics,
+  meshLayout: {
+    cylinders: () => buildMhdMesh().cylinders()
+  },
+  telemetrySchema: {
+    mhdFlowU: { label: 'Flow U', unit: 'm/s', source: 'sim' },
+    mhdBFieldT: { label: 'B-field', unit: 'T', source: 'sim' },
+    mhdHartmann: { label: 'Hartmann', unit: '', source: 'sim' },
+    mhdVoltage: { label: 'Voltage', unit: 'V', source: 'sim' },
+    mhdCurrent: { label: 'Current', unit: 'A', source: 'sim' },
+    mhdPowerW: { label: 'Power', unit: 'W', source: 'sim' }
+  },
   wantsThermalHaze: true
 });

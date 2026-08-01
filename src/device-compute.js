@@ -67,6 +67,19 @@ class DeviceComputeManager {
         p2 = physicsState.kelvinE;
       } else if (physicsState.deviceId === 'solar') {
         p0 = physicsState.batteryCharge;
+      } else if (physicsState.deviceId === 'peltier') {
+        p0 = Math.min(1, Math.abs(physicsState.peltierDeltaT ?? 0) / 80);
+        p1 = Math.min(1, physicsState.peltierCOP ?? 0);
+        p2 = Math.min(1, ((physicsState.peltierHotK ?? 300) - 280) / 150);
+      } else if (physicsState.deviceId === 'mhd') {
+        p0 = Math.min(1, (physicsState.mhdFlowU ?? 0) / 3.5);
+        p1 = Math.min(1, (physicsState.mhdBFieldT ?? 0) / 1.0);
+        p2 = Math.min(1, (physicsState.mhdHartmann ?? 0) / 40);
+      } else if (physicsState.deviceId === 'transformer') {
+        p0 = Math.min(1, Math.abs(physicsState.transformerIpA ?? 0) / 4);
+        p1 = Math.min(1, Math.abs(physicsState.transformerIsA ?? 0) / 3);
+        p2 = physicsState.transformerFluxN ?? 0;
+        p3 = physicsState.transformerK ?? 0.95;
       } else if (physicsState.deviceId === 'maglev') {
         p0 = physicsState.maglevGap ?? 0.018;
         p1 = physicsState.maglevFieldT ?? 0.5;

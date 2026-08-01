@@ -10,9 +10,15 @@ Catalog of multi-device lab apparatuses. Screenshots use the WebGL2 fallback
 > including the known `homopolar` `modeIndex=8` vs `SimMode=7` mismatch.
 
 ```js
+// After START (non-zero drive) and a short settle:
 window.setMode('maglev');
 await window.captureCanvasFrame({ flipY: true });
+// Save PNG under docs/images/<device>-focus.png (agent / CI path)
 ```
+
+**Screenshot path convention:** `docs/images/<device-id>-focus.png` (and
+optional `docs/images/<device-id>-overview.png`). Regenerated on Cloud VMs with
+`?renderer=webgl2` because headless agents have no WebGPU adapter.
 
 ## Plugin registration
 
@@ -26,7 +32,7 @@ registerDevice({
   id: 'my-device',
   label: 'My Apparatus',
   category: 'quanta',
-  modeIndex: 7,
+  modeIndex: 11, // next free JS/shader slot — see MODE_MATRIX.md
   meshLayout: { cylinders: () => [...] },
   stepPhysics(state, dt, drive) { /* ... */ },
   createPhysicsState() { return { /* ... */ }; },
@@ -50,8 +56,10 @@ eddy-current damping metaphor.
 
 | View | Screenshot |
 |------|------------|
-| Overview | *(placeholder — capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
-| Focus | *(placeholder — capture with `window.setMode('maglev')`)* |
+| Overview | See [`images/multi-device.png`](images/multi-device.png) |
+| Focus | ![MagLev focus](images/maglev-focus.png) |
+
+Capture: `?renderer=webgl2` → START → `setMode('maglev')` → `captureCanvasFrame({ flipY: true })` → `docs/images/maglev-focus.png`.
 
 ### Telemetry
 
@@ -84,8 +92,10 @@ with back-EMF ε ≈ ½ B ω r² (not full 3D FEM).
 
 | View | Screenshot |
 |------|------------|
-| Overview | *(placeholder — capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
-| Focus | *(placeholder — capture with `window.setMode('homopolar')`)* |
+| Overview | See [`images/multi-device.png`](images/multi-device.png) |
+| Focus | ![Homopolar focus](images/homopolar-focus.png) |
+
+Capture: `?renderer=webgl2` → START → `setMode('homopolar')` → `captureCanvasFrame({ flipY: true })` → `docs/images/homopolar-focus.png`.
 
 ### Telemetry
 
@@ -120,8 +130,10 @@ angle. CPU RK4 field-line tracer with |B| slice heatmap on focus view.
 
 | View | Screenshot |
 |------|------------|
-| Overview | *(placeholder — capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
-| Focus | *(placeholder — capture with `window.setMode('halbach-viz')`)* |
+| Overview | See [`images/multi-device.png`](images/multi-device.png) |
+| Focus | ![Halbach focus](images/halbach-viz-focus.png) |
+
+Capture: `?renderer=webgl2` → START → `setMode('halbach-viz')` → `captureCanvasFrame({ flipY: true })` → `docs/images/halbach-viz-focus.png`.
 
 ### Telemetry
 
@@ -159,8 +171,10 @@ projectile, coilgun weapons, or high-energy pulse simulation.
 
 | View | Screenshot |
 |------|------------|
-| Overview | *(placeholder — capture with `?renderer=webgl2` — `window.setMode('overview')`)* |
-| Focus | *(placeholder — capture with `window.setMode('pulse-coil')`)* |
+| Overview | See [`images/multi-device.png`](images/multi-device.png) |
+| Focus | ![Pulse coil focus](images/pulse-coil-focus.png) |
+
+Capture: `?renderer=webgl2` → START → `setMode('pulse-coil')` → `captureCanvasFrame({ flipY: true })` → `docs/images/pulse-coil-focus.png`.
 
 ### Telemetry
 
@@ -182,8 +196,60 @@ projectile, coilgun weapons, or high-energy pulse simulation.
 - Plugin: `src/devices/quanta/pulse-coil.js`
 - WGSL mode index: `7` (`posPulseCoil` in `shaders/passes/particle-compute.wgsl`)
 - WebGL2: coil + cap bank + armature mesh via `drawPluginDevice`; basic particles
-- Plant: **JS only** (WASM plant not yet — sandboxed educational model)
+- Plant: **JS only by design** (no WASM `SimMode`; sandboxed educational model + footer I/V oscilloscope sparkline)
 - Shareable lab link: `#lab=…;mode=pulse-coil;pcap=0.75` (optional charge fraction)
+
+---
+
+## transformer
+
+**Mutual Induction** — Quanta classroom transformer: primary drive, secondary
+resistive load, coupling coefficient *k*, and an ideal-vs-leakage toggle.
+Textbook two-winding / phasor model (Chapman / Fitzgerald) — **not FEM**.
+
+| View | Screenshot |
+|------|------------|
+| Overview | See [`images/multi-device.png`](images/multi-device.png) |
+| Focus | ![Transformer focus](images/transformer-focus.png) |
+
+Capture: `?renderer=webgl2` → START → `setMode('transformer')` →
+`setTransformerLeakage(false|true)` → `captureCanvasFrame({ flipY: true })` →
+`docs/images/transformer-focus.png`.
+
+### Telemetry
+
+| Field | Unit | Source |
+|-------|------|--------|
+| Primary V | V | Phasor plant (`transformerVp`) |
+| Secondary V | V | Referred ideal × *k* (`transformerVs`) |
+| Primary I | A | Drive / impedance (`transformerIpA`) |
+| Secondary I | A | Load current (`transformerIsA`) |
+| Coupling *k* | — | Ideal ≈ 0.97 / leakage ≈ 0.72 |
+| Flux (norm) | — | Visual flux bridge cue (`transformerFluxN`) |
+
+### References
+
+1. S. J. Chapman — *Electric Machinery Fundamentals* (ideal transformer & coupling)
+2. A. E. Fitzgerald, C. Kingsley, S. D. Umans — *Electric Machinery* (coupled-circuit equations, M = k√(Lp Ls))
+
+### Implementation
+
+- Plugin: `src/devices/quanta/transformer.js` (registered via `quanta/index.js` — **no**
+  `MultiDeviceVisualizer` body edits)
+- WGSL mode index: `10` (`posTransformer` in `shaders/passes/particle-compute.wgsl`)
+- UI: Mutual Induction mode button; Ideal / Leakage coupling controls;
+  `window.setTransformerLeakage(bool)`
+- Plant: **JS only** (WASM L–M circuit optional Phase 2 — reserve next free
+  `SimMode`, do not assume `modeIndex === wasmMode`)
+
+---
+
+## Core secondary fidelity notes
+
+| Device | Notes |
+|--------|-------|
+| `peltier` | Two-node ΔT / COP footer gauges; plate heat-map tint from plant; WASM fields mirrored in telemetry schema |
+| `mhd` | Channel flow-arrow mesh; Hartmann readout; particle paths aligned with `flowU` / `bField` |
 
 ---
 
@@ -194,5 +260,9 @@ projectile, coilgun weapons, or high-energy pulse simulation.
 | Magnetic bearing / levitation | **Live** (`maglev`) | WASM `SimMode=6` + JS fallback |
 | Homopolar / Faraday disc | **Live** (`homopolar`) | WASM `SimMode=7` + JS fallback |
 | Halbach array field visualizer | **Live** (`halbach-viz`) | Field line overlay + slice heatmap |
-| Pulse magnet / coilgun (sandboxed) | **Live** (`pulse-coil`) | Educational R–L only; classroom-safe copy |
+| Pulse magnet / coilgun (sandboxed) | **Live** (`pulse-coil`) | Educational R–L only; JS-only forever unless new SimMode reserved |
+| Mutual induction / transformer | **Live** (`transformer`) | Phasor classroom model; WASM L–M Phase 2 |
+| Van de Graaff educational twin | Candidate | Pairs with Kelvin |
+| Simple railgun / Lorentz sled | Candidate | Pairs with MHD |
+| Hall-effect sensor bench | Candidate | Sensor metrology classroom |
 | Quanta product mockups | Blocked | Awaiting product specs |

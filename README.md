@@ -26,11 +26,12 @@ WebGL2 fallback (no WebGPU required): [open with `?renderer=webgl2`](https://for
 - **Multi-device dashboard** — overview with energy pipes, or focus any registered apparatus
 - SEG: three concentric rings of instanced magnetic rollers; RK4 flux lines (WebGPU); layout presets
 - GPU particles (10k–50k scaled by quality) via WGSL compute; CPU fallback on WebGL2
-- **Plant models (honest fidelity):** SEG and Heron/Kelvin/solar have stronger integrators (JS + optional WASM); Peltier/MHD are lighter geometry + particle modes — see [`docs/AGENTS.md`](docs/AGENTS.md) device table
+- **Plant models (honest fidelity):** SEG and Heron/Kelvin/solar lead; Peltier/MHD gained two-node / Hartmann telemetry + mesh cues; Quanta plugins (maglev, homopolar, Halbach, pulse-coil, transformer) vary — see [`docs/AGENTS.md`](docs/AGENTS.md) device table
 - Interactive orbital camera (drag to rotate, scroll to zoom)
 
 ## Future Plans
-- **Quanta Magnetics catalog** — plugin-registered research apparatuses: [Magnetic Levitation](docs/DEVICE_GALLERY.md#maglev), [Homopolar Generator](docs/DEVICE_GALLERY.md#homopolar), [Halbach field visualizer](docs/DEVICE_GALLERY.md#halbach-viz), [pulse-coil educational demo](docs/DEVICE_GALLERY.md#pulse-coil) — all shipped; see the gallery for more candidates
+- **Quanta Magnetics catalog (shipped):** [Magnetic Levitation](docs/DEVICE_GALLERY.md#maglev), [Homopolar Generator](docs/DEVICE_GALLERY.md#homopolar), [Halbach field visualizer](docs/DEVICE_GALLERY.md#halbach-viz), [pulse-coil](docs/DEVICE_GALLERY.md#pulse-coil), [Mutual Induction / transformer](docs/DEVICE_GALLERY.md#transformer) — see gallery for literature and screenshots
+- Further classroom apparatus candidates (Van de Graaff, railgun/Lorentz sled, Hall bench) only when a fidelity pass is scoped
 - Hardware bridge hooks for Quanta product twins when specs are available
 
 **SEG Explainer** (shipped): [guided tour](docs/SEG_EXPLAINER.md), B-field experiments, shareable `#lab=` URLs, classroom mode — sidebar **SEG Learning**.

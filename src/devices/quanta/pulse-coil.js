@@ -171,6 +171,17 @@ export function stepPulseCoilPhysics(state, dt, drive) {
   state.pulseCoilArmatureVel = vArm;
   state.pulseCoilPulseT = pulseT;
   state.pulseCoilFiring = firing;
+  // Oscilloscope-style discharge trace (last ~128 samples of I and Vcap)
+  const histN = 128;
+  if (!state.pulseCoilHistI || state.pulseCoilHistI.length !== histN) {
+    state.pulseCoilHistI = new Float32Array(histN);
+    state.pulseCoilHistV = new Float32Array(histN);
+    state.pulseCoilHistIdx = 0;
+  }
+  const hi = state.pulseCoilHistIdx | 0;
+  state.pulseCoilHistI[hi] = current;
+  state.pulseCoilHistV[hi] = vCap;
+  state.pulseCoilHistIdx = (hi + 1) % histN;
   state.energyLevel = Math.min(1,
     drive * 0.25
     + Math.min(1, peakI / 80) * 0.45
@@ -189,6 +200,33 @@ export function createPulseCoilPhysicsState() {
     pulseCoilPulseT: 0,
     pulseCoilFiring: false
   };
+}
+
+/** Draw a simple I/V discharge sparkline into a 2D canvas context (classroom). */
+export function drawPulseCoilOscilloscope(ctx, state, width = 200, height = 48) {
+  if (!ctx || !state?.pulseCoilHistI) return;
+  const histI = state.pulseCoilHistI;
+  const histV = state.pulseCoilHistV;
+  const n = histI.length;
+  const start = state.pulseCoilHistIdx | 0;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#0a1520';
+  ctx.fillRect(0, 0, width, height);
+  const draw = (arr, color, scale) => {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.25;
+    for (let i = 0; i < n; i++) {
+      const v = arr[(start + i) % n] / scale;
+      const x = (i / (n - 1)) * width;
+      const y = height * 0.5 - v * height * 0.42;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  };
+  draw(histV, '#4af', PULSE_COIL.vChargeMax);
+  draw(histI, '#f84', 80);
 }
 
 export const PULSE_COIL_REFERENCES = [
