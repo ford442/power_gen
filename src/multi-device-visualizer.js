@@ -3,7 +3,7 @@ import './devices/register-plugins.js';
 import { MultiDeviceCamera } from './multi-device-camera.js';
 import { SimRateController } from './sim-rate-controller.js';
 import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager';
-import { PipelineLayoutCache } from './pipeline-layout-cache.js';
+import { PipelineLayoutCache } from './pipeline-layout-cache';
 import { CameraController } from './camera-controller.js';
 import { PerformanceProfiler } from './performance-profiler.js';
 import { DebugPanel, DEVICE_CONFIG } from './debug-panel.js';

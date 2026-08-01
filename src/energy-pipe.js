@@ -2,7 +2,7 @@
 // ENERGY PIPE — animated Bézier transfer between devices
 // ============================================
 
-import { BindGroupCache } from './renderers/shared/bind-group-cache.js';
+import { BindGroupCache } from './renderers/shared/bind-group-cache';
 import {
   bezierControlPoints,
   deviceAnchor,

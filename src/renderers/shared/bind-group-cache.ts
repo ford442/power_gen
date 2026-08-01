@@ -4,17 +4,9 @@
  * Call invalidate() after resize / buffer recreation.
  */
 export class BindGroupCache {
-  constructor() {
-    /** @type {Map<string, GPUBindGroup>} */
-    this._map = new Map();
-  }
+  private _map = new Map<string, GPUBindGroup>();
 
-  /**
-   * @param {string} key
-   * @param {() => GPUBindGroup} factory
-   * @returns {GPUBindGroup}
-   */
-  get(key, factory) {
+  get(key: string, factory: () => GPUBindGroup): GPUBindGroup {
     let bg = this._map.get(key);
     if (!bg) {
       bg = factory();
@@ -24,7 +16,7 @@ export class BindGroupCache {
   }
 
   /** Drop one or all cached groups (does not destroy GPU resources). */
-  invalidate(key) {
+  invalidate(key?: string): void {
     if (key === undefined) {
       this._map.clear();
       return;
@@ -32,7 +24,7 @@ export class BindGroupCache {
     this._map.delete(key);
   }
 
-  get size() {
+  get size(): number {
     return this._map.size;
   }
 }

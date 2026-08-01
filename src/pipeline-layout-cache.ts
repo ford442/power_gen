@@ -1,11 +1,7 @@
-// @ts-check
 /**
  * Explicit GPUBindGroupLayout / GPUPipelineLayout cache and shared pipeline factory.
  *
  * Binding numbers are documented in docs/BINDINGS.md — keep WGSL and this file aligned.
- *
- * @typedef {'roller'|'particle'|'segEnhanced'|'fluxSegment'|'fieldParticles'|'energyPipe'|'energyPipeCompute'|'coil'|'particleCompute'|'rollerCompute'|'fieldAdvect'|'fluxTracer'|'sky'|'empty'|'anomalyWall'|'bloomExtract'|'bloomBlur'|'bloomComposite'} BindGroupLayoutName
- * @typedef {BindGroupLayoutName} PipelineLayoutName
  *
  * Design:
  *  - One requestAdapter/device owns one PipelineLayoutCache (on MultiDeviceVisualizer).
@@ -13,16 +9,45 @@
  *  - Bind group creation sites use cache.getLayout(name), not pipeline.getBindGroupLayout().
  */
 
+import type { MultiDeviceShaders } from './multi-device-shaders';
+
+/**
+ * Named bind group layouts built by `_buildLayouts`. Keep in sync with docs/BINDINGS.md —
+ * the string-literal union is what stops layout-name drift at call sites.
+ */
+export type BindGroupLayoutName =
+  | 'roller'
+  | 'particle'
+  | 'segEnhanced'
+  | 'fluxSegment'
+  | 'fieldParticles'
+  | 'energyPipe'
+  | 'energyPipeCompute'
+  | 'coil'
+  | 'particleCompute'
+  | 'rollerCompute'
+  | 'fieldAdvect'
+  | 'fluxTracer'
+  | 'sky'
+  | 'empty'
+  | 'anomalyWall'
+  | 'bloomExtract'
+  | 'bloomBlur'
+  | 'bloomComposite';
+
+/** Pipeline layouts mirror the bind group layouts, plus the zero-group variant. */
+export type PipelineLayoutName = BindGroupLayoutName | 'emptyGroups';
+
 const VS = GPUShaderStage.VERTEX;
 const FS = GPUShaderStage.FRAGMENT;
 const CS = GPUShaderStage.COMPUTE;
 const VF = VS | FS;
 
-function uniform(binding, visibility) {
+function uniform(binding: number, visibility: number): GPUBindGroupLayoutEntry {
   return { binding, visibility, buffer: { type: 'uniform' } };
 }
 
-function storage(binding, visibility, readOnly = false) {
+function storage(binding: number, visibility: number, readOnly = false): GPUBindGroupLayoutEntry {
   return {
     binding,
     visibility,
@@ -30,11 +55,15 @@ function storage(binding, visibility, readOnly = false) {
   };
 }
 
-function texture(binding, visibility, sampleType = 'float') {
+function texture(
+  binding: number,
+  visibility: number,
+  sampleType: GPUTextureSampleType = 'float'
+): GPUBindGroupLayoutEntry {
   return { binding, visibility, texture: { sampleType, viewDimension: '2d' } };
 }
 
-function depthTexture(binding, visibility) {
+function depthTexture(binding: number, visibility: number): GPUBindGroupLayoutEntry {
   return {
     binding,
     visibility,
@@ -42,12 +71,12 @@ function depthTexture(binding, visibility) {
   };
 }
 
-function sampler(binding, visibility) {
+function sampler(binding: number, visibility: number): GPUBindGroupLayoutEntry {
   return { binding, visibility, sampler: { type: 'filtering' } };
 }
 
 /** Vertex buffer: pos+normal float32x3×2 (24 B) — rollers, cylinders */
-export const VB_POS_NORMAL = {
+export const VB_POS_NORMAL: GPUVertexBufferLayout = {
   arrayStride: 24,
   attributes: [
     { shaderLocation: 0, offset: 0, format: 'float32x3' },
@@ -56,7 +85,7 @@ export const VB_POS_NORMAL = {
 };
 
 /** Vertex buffer: pos+normal+uv (32 B) — SEG enhanced meshes */
-export const VB_POS_NORMAL_UV = {
+export const VB_POS_NORMAL_UV: GPUVertexBufferLayout = {
   arrayStride: 32,
   attributes: [
     { shaderLocation: 0, offset: 0, format: 'float32x3' },
@@ -66,7 +95,7 @@ export const VB_POS_NORMAL_UV = {
 };
 
 /** Energy arc line-list attributes (32 B) */
-export const VB_ENERGY_ARC = {
+export const VB_ENERGY_ARC: GPUVertexBufferLayout = {
   arrayStride: 32,
   attributes: [
     { shaderLocation: 0, offset: 0, format: 'float32x3' },
@@ -77,44 +106,49 @@ export const VB_ENERGY_ARC = {
 };
 
 /** Grid clip-space verts (8 B) */
-export const VB_GRID = {
+export const VB_GRID: GPUVertexBufferLayout = {
   arrayStride: 8,
   attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }]
 };
 
-const ALPHA_BLEND = {
+const ALPHA_BLEND: GPUBlendState = {
   color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
   alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
 };
 
-const ADDITIVE_BLEND = {
+const ADDITIVE_BLEND: GPUBlendState = {
   color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
   alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
 };
 
-const ADDITIVE_SRC_ALPHA = {
+const ADDITIVE_SRC_ALPHA: GPUBlendState = {
   color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
   alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
 };
 
 export class PipelineLayoutCache {
-  /**
-   * @param {GPUDevice} device
-   * @param {{ canvasFormat: GPUTextureFormat, depthFormat: GPUTextureFormat }} formats
-   */
-  constructor(device, formats) {
+  readonly device: GPUDevice;
+  readonly canvasFormat: GPUTextureFormat;
+  readonly depthFormat: GPUTextureFormat;
+
+  readonly bindGroupLayouts = new Map<string, GPUBindGroupLayout>();
+  readonly pipelineLayouts = new Map<string, GPUPipelineLayout>();
+  readonly pipelines = new Map<string, GPURenderPipeline | GPUComputePipeline>();
+  readonly shaderModules = new Map<string, GPUShaderModule>();
+
+  readonly stats: {
+    pipelineCreates: number;
+    pipelineCacheHits: number;
+    shaderModuleCreates: number;
+  };
+
+  constructor(
+    device: GPUDevice,
+    formats: { canvasFormat: GPUTextureFormat; depthFormat: GPUTextureFormat }
+  ) {
     this.device = device;
     this.canvasFormat = formats.canvasFormat;
     this.depthFormat = formats.depthFormat;
-
-    /** @type {Map<string, GPUBindGroupLayout>} */
-    this.bindGroupLayouts = new Map();
-    /** @type {Map<string, GPUPipelineLayout>} */
-    this.pipelineLayouts = new Map();
-    /** @type {Map<string, GPURenderPipeline | GPUComputePipeline>} */
-    this.pipelines = new Map();
-    /** @type {Map<string, GPUShaderModule>} */
-    this.shaderModules = new Map();
 
     this.stats = {
       pipelineCreates: 0,
@@ -127,7 +161,7 @@ export class PipelineLayoutCache {
 
   // ── Layout construction ──────────────────────────────────────────
 
-  _bgl(name, entries) {
+  private _bgl(name: BindGroupLayoutName, entries: GPUBindGroupLayoutEntry[]): GPUBindGroupLayout {
     const layout = this.device.createBindGroupLayout({
       label: `bgl-${name}`,
       entries
@@ -136,7 +170,7 @@ export class PipelineLayoutCache {
     return layout;
   }
 
-  _pl(name, bglNames) {
+  private _pl(name: PipelineLayoutName, bglNames: BindGroupLayoutName[]): GPUPipelineLayout {
     const bindGroupLayouts = bglNames.map((n) => {
       const l = this.bindGroupLayouts.get(n);
       if (!l) throw new Error(`[PipelineLayoutCache] missing BGL "${n}" for pipeline layout "${name}"`);
@@ -150,7 +184,7 @@ export class PipelineLayoutCache {
     return layout;
   }
 
-  _buildLayouts() {
+  private _buildLayouts(): void {
     // Device mesh rollers (vert: 0,1,2 — frag: 0,1,3,5)
     this._bgl('roller', [
       uniform(0, VF),
@@ -303,33 +337,24 @@ export class PipelineLayoutCache {
     this._pl('bloomComposite', ['bloomComposite']);
   }
 
-  /**
-   * @param {BindGroupLayoutName} name
-   * @returns {GPUBindGroupLayout}
-   */
-  getLayout(name) {
+  getLayout(name: BindGroupLayoutName): GPUBindGroupLayout {
     const l = this.bindGroupLayouts.get(name);
     if (!l) throw new Error(`[PipelineLayoutCache] unknown bind group layout "${name}"`);
     return l;
   }
 
-  /**
-   * @param {PipelineLayoutName} name
-   * @returns {GPUPipelineLayout}
-   */
-  getPipelineLayout(name) {
+  getPipelineLayout(name: PipelineLayoutName): GPUPipelineLayout {
     const l = this.pipelineLayouts.get(name);
     if (!l) throw new Error(`[PipelineLayoutCache] unknown pipeline layout "${name}"`);
     return l;
   }
 
-  /**
-   * Create a bind group against a named layout.
-   * @param {string} layoutName
-   * @param {GPUBindGroupEntry[]} entries
-   * @param {string} [label]
-   */
-  createBindGroup(layoutName, entries, label) {
+  /** Create a bind group against a named layout. */
+  createBindGroup(
+    layoutName: BindGroupLayoutName,
+    entries: GPUBindGroupEntry[],
+    label?: string
+  ): GPUBindGroup {
     return this.device.createBindGroup({
       label: label || `bg-${layoutName}`,
       layout: this.getLayout(layoutName),
@@ -337,9 +362,10 @@ export class PipelineLayoutCache {
     });
   }
 
-  shaderModule(label, code) {
+  shaderModule(label: string, code: string): GPUShaderModule {
     const key = label;
-    if (this.shaderModules.has(key)) return this.shaderModules.get(key);
+    const cached = this.shaderModules.get(key);
+    if (cached) return cached;
     const module = this.device.createShaderModule({ label, code });
     this.stats.shaderModuleCreates++;
     module.getCompilationInfo?.().then((info) => {
@@ -355,7 +381,7 @@ export class PipelineLayoutCache {
     return module;
   }
 
-  _hash(str) {
+  private _hash(str: string): string {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
       hash = ((hash << 5) - hash) + str.charCodeAt(i);
@@ -364,16 +390,14 @@ export class PipelineLayoutCache {
     return hash.toString(36);
   }
 
-  /**
-   * @template T
-   * @param {string} key
-   * @param {() => T | Promise<T>} factory
-   * @returns {Promise<T>}
-   */
-  async getOrCreatePipeline(key, factory) {
-    if (this.pipelines.has(key)) {
+  async getOrCreatePipeline<T extends GPURenderPipeline | GPUComputePipeline>(
+    key: string,
+    factory: () => T | Promise<T>
+  ): Promise<T> {
+    const cached = this.pipelines.get(key);
+    if (cached) {
       this.stats.pipelineCacheHits++;
-      return this.pipelines.get(key);
+      return cached as T;
     }
     const pipeline = await factory();
     this.pipelines.set(key, pipeline);
@@ -381,7 +405,7 @@ export class PipelineLayoutCache {
     return pipeline;
   }
 
-  depthStencil(writeEnabled, compare = 'less') {
+  depthStencil(writeEnabled: boolean, compare: GPUCompareFunction = 'less'): GPUDepthStencilState {
     return {
       format: this.depthFormat,
       depthWriteEnabled: writeEnabled,
@@ -391,11 +415,8 @@ export class PipelineLayoutCache {
 
   // ── Shared device pipelines (created once, reused by all DeviceInstances) ──
 
-  /**
-   * Ensure all multi-device device pipelines exist. Call once after shaders are ready.
-   * @param {import('./multi-device-shaders.js').MultiDeviceShaders} shaders
-   */
-  async ensureDevicePipelines(shaders) {
+  /** Ensure all multi-device device pipelines exist. Call once after shaders are ready. */
+  async ensureDevicePipelines(shaders: MultiDeviceShaders): Promise<void> {
     const fmt = this.canvasFormat;
     const depthWrite = this.depthStencil(true, 'less');
     const depthRead = this.depthStencil(false, 'less');
@@ -526,8 +547,9 @@ export class PipelineLayoutCache {
       });
     });
     // Alias stable key for lookup
-    if (!this.pipelines.has('particleCompute')) {
-      this.pipelines.set('particleCompute', this.pipelines.get(computeKey));
+    const computePipeline = this.pipelines.get(computeKey);
+    if (computePipeline && !this.pipelines.has('particleCompute')) {
+      this.pipelines.set('particleCompute', computePipeline);
     }
 
     // Optional coil pipeline (shaders may exist)
@@ -558,17 +580,17 @@ export class PipelineLayoutCache {
     );
   }
 
-  getPipeline(key) {
+  getPipeline(key: string): GPURenderPipeline | GPUComputePipeline | null {
     return this.pipelines.get(key) || null;
   }
 
-  getParticleComputePipeline() {
+  getParticleComputePipeline(): GPURenderPipeline | GPUComputePipeline | null {
     return this.pipelines.get('particleCompute') || null;
   }
 
   // ── Scene-level pipelines (multi-device visualizer) ──
 
-  async ensureEnergyPipePipeline(shaders) {
+  async ensureEnergyPipePipeline(shaders: MultiDeviceShaders): Promise<GPURenderPipeline> {
     return this.getOrCreatePipeline('energyPipe', () =>
       this.device.createRenderPipeline({
         label: 'energyPipePipeline',
@@ -592,26 +614,28 @@ export class PipelineLayoutCache {
     );
   }
 
-  async ensureEnergyPipeComputePipeline(shaders) {
+  async ensureEnergyPipeComputePipeline(shaders: MultiDeviceShaders): Promise<GPUComputePipeline> {
     const code = shaders.energyPipeComputeShader;
     const key = `energyPipeCompute_${this._hash(code)}`;
-    if (!this.pipelines.has(key)) {
-      this.pipelines.set(key, this.device.createComputePipeline({
+    let pipeline = this.pipelines.get(key) as GPUComputePipeline | undefined;
+    if (!pipeline) {
+      pipeline = this.device.createComputePipeline({
         label: 'energyPipeComputePipeline',
         layout: this.getPipelineLayout('energyPipeCompute'),
         compute: {
           module: this.shaderModule('energy-pipe-compute', code),
           entryPoint: 'main'
         }
-      }));
+      });
+      this.pipelines.set(key, pipeline);
     }
     if (!this.pipelines.has('energyPipeCompute')) {
-      this.pipelines.set('energyPipeCompute', this.pipelines.get(key));
+      this.pipelines.set('energyPipeCompute', pipeline);
     }
-    return this.pipelines.get('energyPipeCompute');
+    return this.pipelines.get('energyPipeCompute') as GPUComputePipeline;
   }
 
-  async ensureSkyPipeline(shaders) {
+  async ensureSkyPipeline(shaders: MultiDeviceShaders): Promise<GPURenderPipeline> {
     return this.getOrCreatePipeline('sky', () =>
       this.device.createRenderPipeline({
         label: 'skyPipeline',
@@ -631,7 +655,7 @@ export class PipelineLayoutCache {
     );
   }
 
-  async ensureGridPipeline(shaders) {
+  async ensureGridPipeline(shaders: MultiDeviceShaders): Promise<GPURenderPipeline> {
     return this.getOrCreatePipeline('grid', () =>
       this.device.createRenderPipeline({
         label: 'gridPipeline',
@@ -652,7 +676,7 @@ export class PipelineLayoutCache {
     );
   }
 
-  async ensureAnomalyWallPipeline(shaders) {
+  async ensureAnomalyWallPipeline(shaders: MultiDeviceShaders): Promise<GPURenderPipeline> {
     const code = shaders.anomalyWallsShader;
     return this.getOrCreatePipeline('anomalyWall', () =>
       this.device.createRenderPipeline({
@@ -677,7 +701,7 @@ export class PipelineLayoutCache {
     );
   }
 
-  async ensureBloomPipelines(shaders) {
+  async ensureBloomPipelines(shaders: MultiDeviceShaders): Promise<void> {
     const fmt = this.canvasFormat;
     const vertModule = this.shaderModule('bloom-vert', shaders.bloomVertShader);
 
@@ -726,7 +750,7 @@ export class PipelineLayoutCache {
 
   // ── SEG-only compute helpers ──
 
-  async ensureRollerComputePipeline(code) {
+  async ensureRollerComputePipeline(code: string): Promise<GPUComputePipeline> {
     return this.getOrCreatePipeline(`rollerCompute_${this._hash(code)}`, async () => {
       const module = this.shaderModule('seg-roller-compute-module', code);
       const p = await this.device.createComputePipelineAsync({
@@ -739,7 +763,7 @@ export class PipelineLayoutCache {
     });
   }
 
-  async ensureFieldAdvectPipeline(code) {
+  async ensureFieldAdvectPipeline(code: string): Promise<GPUComputePipeline> {
     return this.getOrCreatePipeline(`fieldAdvect_${this._hash(code)}`, async () => {
       const module = this.shaderModule('seg-field-advect-module', code);
       const p = await this.device.createComputePipelineAsync({
@@ -752,7 +776,7 @@ export class PipelineLayoutCache {
     });
   }
 
-  async ensureFluxTracerPipeline(code) {
+  async ensureFluxTracerPipeline(code: string): Promise<GPUComputePipeline> {
     return this.getOrCreatePipeline(`fluxTracer_${this._hash(code)}`, async () => {
       const module = this.shaderModule('flux-tracer-module', code);
       const p = await this.device.createComputePipelineAsync({

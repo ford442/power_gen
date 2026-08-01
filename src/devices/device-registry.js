@@ -1,7 +1,7 @@
 /**
  * Device plugin registry — register apparatus without editing MultiDeviceVisualizer.
  *
- * Plugin shape: see device-registry-types.d.ts
+ * Plugin shape: see ./types.ts (DevicePlugin)
  *
  * Built-in devices (seg, heron, …) remain in debug-panel DEVICE_CONFIG for dashboard
  * layout; register-core.js attaches update/render strategies to the same ids.
@@ -10,7 +10,7 @@
 import { DEVICE_CONFIG as LEGACY_DEVICE_CONFIG } from '../debug-panel.js';
 import { applyAutoLayout } from './layout-packer.js';
 
-/** @type {Map<string, import('./device-registry-types').DevicePlugin>} */
+/** @type {Map<string, import('./types').DevicePlugin>} */
 const plugins = new Map();
 
 /** Legacy WGSL mode indices — stable for existing shaders. */
@@ -26,7 +26,7 @@ const LEGACY_MODE_INDEX = {
 let cachedMergedConfig = null;
 
 /**
- * @param {import('./device-registry-types').DevicePlugin} plugin
+ * @param {import('./types').DevicePlugin} plugin
  */
 export function registerDevice(plugin) {
   if (!plugin?.id) throw new Error('[DeviceRegistry] plugin.id required');
@@ -37,7 +37,7 @@ export function registerDevice(plugin) {
   cachedMergedConfig = null;
 }
 
-/** @returns {import('./device-registry-types').DevicePlugin|undefined} */
+/** @returns {import('./types').DevicePlugin|undefined} */
 export function getDevicePlugin(id) {
   return plugins.get(id);
 }
@@ -162,12 +162,12 @@ export function pluginWasmSkipsJsPhysics(instance) {
   return plugin?.wasmSkipsJsPhysics === true;
 }
 
-/** @param {object} instance @param {import('./device-registry-types').DeviceUpdateContext} ctx */
+/** @param {object} instance @param {import('./types').DeviceUpdateContext} ctx */
 export function runSyncAfterPhysics(instance, ctx) {
   plugins.get(instance.id)?.syncAfterPhysics?.(instance, ctx);
 }
 
-/** @param {object} instance @param {import('./device-registry-types').DeviceUpdateContext} ctx */
+/** @param {object} instance @param {import('./types').DeviceUpdateContext} ctx */
 export function runUpdateDynamics(instance, ctx) {
   plugins.get(instance.id)?.updateDynamics?.(instance, ctx);
 }
@@ -179,7 +179,7 @@ export function runUpdateMesh(instance) {
 
 /**
  * @param {object} instance
- * @param {import('./device-registry-types').DeviceEnergyContext} ctx
+ * @param {import('./types').DeviceEnergyContext} ctx
  * @returns {number|undefined}
  */
 export function runComputeRawEnergy(instance, ctx) {
@@ -193,7 +193,7 @@ export function runBuildUniformExtras(instance) {
 
 /**
  * @param {object} instance
- * @param {import('./device-registry-types').DeviceFlowPathContext} ctx
+ * @param {import('./types').DeviceFlowPathContext} ctx
  * @returns {boolean}
  */
 export function runUpdateFlowPaths(instance, ctx) {
@@ -203,7 +203,7 @@ export function runUpdateFlowPaths(instance, ctx) {
 
 /**
  * @param {object} instance
- * @param {import('./device-registry-types').DeviceEffectContext} ctx
+ * @param {import('./types').DeviceEffectContext} ctx
  * @returns {boolean}
  */
 export function runUpdateEffects(instance, ctx) {

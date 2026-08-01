@@ -10,7 +10,7 @@
  */
 
 import { packInstance } from '../../device-mesh-layouts.js';
-import { writeMeshCylinders } from '../update-helpers.js';
+import { writeMeshCylinders } from '../update-helpers';
 import { ValidatedConstants } from '../../ValidatedConstants';
 
 const BR = ValidatedConstants.MAGNET_BR?.value ?? 1.48;
