@@ -3,6 +3,12 @@
 Catalog of multi-device lab apparatuses. Screenshots use the WebGL2 fallback
 (`?renderer=webgl2`) for broad browser compatibility; capture via:
 
+> **`modeIndex` vs WASM mode:** the `modeIndex` shown below (and used in the
+> plugin registration example) is the JS/shader mode-selector namespace and
+> is **not** guaranteed to equal the C++ `SimMode` enum value used by the
+> WASM physics core. See `docs/MODE_MATRIX.md` for the authoritative table,
+> including the known `homopolar` `modeIndex=8` vs `SimMode=7` mismatch.
+
 ```js
 window.setMode('maglev');
 await window.captureCanvasFrame({ flipY: true });

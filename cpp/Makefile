@@ -15,7 +15,7 @@
 # ../src/public/wasm/ so Vite / the GitHub Pages root can serve it.
 # =============================================================
 
-SRC        := src/sim_core.cpp
+SRC        := src/sim_core.cpp $(wildcard src/plant/*.cpp)
 OUT_DIR    := ../src/public/wasm
 OUT_JS     := $(OUT_DIR)/sim_core.js
 
