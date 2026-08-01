@@ -37,6 +37,26 @@ Do **not** expect these under WebGL2:
 | Full energy-pipe **particle** billboards | `EnergyPipe` + WGSL (WebGL2 uses lines) |
 | GPU timestamp queries | `?gpuTiming=1` |
 | Hardware bridge / electromagnet coils | WebGPU-only hooks |
+| **glTF CAD props** (housing, coil former, …) | `setup-gltf.js` / `prop-registry.js` — **skipped** (see below) |
+
+## glTF / CAD props (skipped or reduced LOD)
+
+WebGL2 does **not** decode or draw glTF/GLB CAD props. Reasons:
+
+- Heavy GLB parse + GPU upload is costly on the agent / CI / integrated-GPU path.
+- WebGL2 already uses procedural `seg-frame-model` for the lab bench / stand silhouette.
+- ADR-0005 keeps overview light; second+ CAD props are focus-only even on WebGPU.
+
+| Asset | WebGPU | WebGL2 |
+|-------|--------|--------|
+| Housing shell GLB | SEG focus (`loadPolicy: resident`) | Skip — procedural frame |
+| Coil former GLB | SEG focus only (`loadPolicy: focus`, dispose on leave) | Skip |
+| Future stand / base plate | Registry placeholders | Skip |
+| Reduced LOD GLBs | Optional later (`*-lod.glb`) | Prefer skip; if ever enabled, load `*-lod` only |
+
+Disable WebGPU CAD: `?gltfHousing=0`. Coil former only: `?gltfCoilFormer=0`.
+
+When artist CAD exceeds the soft ~50 KB placeholder budget, WebGL2 should continue to **skip** or load a dedicated reduced LOD — never the full showroom mesh. Document any new LOD file next to the master GLB in `docs/GLTF_ASSETS.md`.
 
 ## CI / agent hooks
 

@@ -112,8 +112,10 @@ export function getLightingPreset(look = LIGHTING_LOOKS.studio) {
 }
 
 /**
- * Pack bloom/post uniform (12 floats) for bloom-shaders.js BloomParams.
+ * Pack bloom/post uniform (16 floats) for bloom-shaders.js BloomParams.
+ * Optional `qualityGates` scales bloom / SSAO / contact / motionBlur for auto-quality.
  * @param {object} opts
+ * @param {{ bloom?: number, ssao?: number, contactShadow?: number, motionBlur?: number }} [opts.qualityGates]
  */
 export function packPostUniforms(opts) {
   const {
@@ -122,29 +124,40 @@ export function packPostUniforms(opts) {
     preset,
     energy = 0,
     speedMult = 1,
-    motionBlur = 0
+    motionBlur = 0,
+    qualityGates = null
   } = opts;
 
   const p = preset?.post ?? PRESETS.studio.post;
   const energyPow = Math.pow(Math.min(1, Math.max(0, energy)), 1.35);
   const speedNorm = Math.min(1, Math.max(0, (speedMult - 1) / 19));
 
+  const bloomMul = qualityGates?.bloom ?? 1;
+  const ssaoMul = qualityGates?.ssao ?? 1;
+  const contactMul = qualityGates?.contactShadow ?? 1;
+  const motionMul = qualityGates?.motionBlur ?? 1;
+
+  const bloomStrength =
+    bloomMul <= 0
+      ? 0
+      : p.bloomStrength * (1.0 + energyPow * 0.42 + speedNorm * 0.12) * bloomMul;
+
   return new Float32Array([
     1.0 / width,
     1.0 / height,
     Math.max(0.35, p.bloomThreshold - energyPow * 0.12 - speedNorm * 0.06),
     Math.max(0.06, p.bloomKnee * (1.0 + energyPow * 0.25)),
-    p.bloomStrength * (1.0 + energyPow * 0.42 + speedNorm * 0.12),
+    bloomStrength,
     p.bloomRadius + energyPow * 2.8 + speedNorm * 0.6,
     energyPow,
     p.grain,
     p.aberration * (1.0 + energyPow * 0.5),
     p.vignette,
-    motionBlur,
+    motionBlur * motionMul,
     p.exposure,
     p.coronaBoost,
-    p.ssaoStrength,
-    p.contactShadow,
+    p.ssaoStrength * ssaoMul,
+    p.contactShadow * contactMul,
     preset?.sky?.mode ?? 1
   ]);
 }

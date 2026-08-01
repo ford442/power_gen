@@ -33,6 +33,12 @@ export interface GltfDrawable {
   name: string;
   instanceBuffer: GPUBuffer;
   gpu: MeshBuffers;
+  propId?: string;
+  role?: string | null;
+  loadPolicy?: 'resident' | 'focus';
+  emissiveScale?: number;
+  ringIndex?: number;
+  annotationId?: string | null;
 }
 
 // ── Per-frame contexts ─────────────────────────────────────────────

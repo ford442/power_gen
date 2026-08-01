@@ -10,12 +10,39 @@ glTF trees are built via `buildGltfScene()` → `GltfSceneNode extends SceneNode
 
 | Path | Housing / coil former glTF |
 |------|----------------------------|
-| WebGPU (`MultiDeviceVisualizer`) | Yes — default on in **SEG focus** |
-| WebGL2 fallback (`?renderer=webgl2`) | No — procedural `seg-frame-model` only |
+| WebGPU (`MultiDeviceVisualizer`) | Yes — **SEG focus only** (lazy); overview stays light |
+| WebGL2 fallback (`?renderer=webgl2`) | No — procedural `seg-frame-model` only (see `WEBGL2.md`) |
 
 Disable all CAD props: `?gltfHousing=0`  
 Disable coil former only: `?gltfCoilFormer=0`  
 Force housing on: `?gltfHousing=1`
+
+## Prop registry (lazy multi-prop)
+
+Canonical registry: `src/assets/gltf/prop-registry.js` (re-exported from `parse-gltf-housing.js`).
+
+| Id | Load policy | Material override | Notes |
+|----|-------------|-------------------|-------|
+| `housing` | `resident` | ring 11, aluminum-ish | Load on first SEG focus; keep GPU buffers when leaving |
+| `coilFormer` | `focus` | ring 12, phenolic-ish | Load in SEG focus; **dispose** on mode leave |
+| `stand` | `focus` | ring 13 | Placeholder — `enabled: false` until GLB exists |
+| `basePlate` | `focus` | ring 13 | Placeholder — `enabled: false` until GLB exists |
+
+`resolvePropMaterial(prop, drawable)` applies registry overrides (ring index, color,
+emissive scale) over glTF extras. Runtime load/dispose: `setup-gltf.js`
+`ensureGltfPropsForView()` from `onModeChange`.
+
+## Instancing policy (procedural vs static CAD)
+
+| Geometry | Path | Why |
+|----------|------|-----|
+| **Rollers / magnets** | Procedural + **GPU instancing** (`roller` instance buffer, layout-driven counts) | Counts/radii change with SEG layout presets; motion every frame; shared mesh |
+| **Stator rings / flux** | Procedural / compute | Sim-driven; not authored CAD |
+| **Housing, coil former, stand, base** | **Static glTF** (one draw per mesh primitive, single instance buffer for trim emissive) | Author once in Blender; rare motion; pick/annotation anchors |
+| **Lab bench / frame** | Procedural `seg-frame-model` when glTF housing is off | WebGL2 always; WebGPU fallback if CAD disabled |
+
+Do **not** instance static CAD as roller-style grids. Do **not** bake rollers into GLB —
+layout presets would require re-export. Prefer one small GLB per prop + registry entry.
 
 ## Asset layout
 
@@ -75,13 +102,13 @@ npm run generate:seg-gltf
 | Field | Required | Meaning |
 |-------|----------|---------|
 | `extras.annotationId` | yes (on callout nodes) | Tour / explainer highlight id — must match `seg-tour.json` `highlights` and `seg-annotations.js` ids (`shaft`, `inner-ring`, `stator`, `separator`, `outer-ring`, `coil`, …) |
-| `extras.power_gen.materialRingIndex` | no | PBR ring index for structural meshes (default `11.0`) |
+| `extras.power_gen.materialRingIndex` | no | PBR ring index for structural meshes (default `11.0`); registry override may win |
 | `extras.power_gen.role` | no | `housing` \| `coil_former` \| … — used for emissive / draw tagging |
 | `extras.power_gen.anchors` | no | Named telemetry / rigging points (not tour ids) |
 
 Use a small invisible **pick-proxy** mesh (see `annotation_pick_proxy` in `housing-shell.glb`) on annotation nodes. Proxies are ray-pick targets only — not drawn at runtime.
 
-4. Drop the file under `src/public/assets/seg/` and register it in `SEG_GLTF_PROPS` (`parse-gltf-housing.js`).
+4. Drop the file under `src/public/assets/seg/` and register it in `SEG_GLTF_PROPS` (`prop-registry.js`).
 5. `materialRingIndex` maps to the seg-enhanced PBR table (`ringIndex` in the instance buffer):
    - `11.0` — structural aluminum (default housing)
    - `12.0` — coil former / phenolic-ish
@@ -107,16 +134,16 @@ physics/constants.json     seg-layout.js PRESET_DEFS
 - **Loader:** `src/assets/gltf/gltf-loader.js` — hand-rolled GLB v2 (no `@loaders.gl` dependency;
   keeps Pages bundle small and matches ADR-0003 no-Three.js stance).
 - **Scene graph:** `scene-node.js` + `gltf-scene.js` — hierarchy, visibility, anchor baking from `extras.power_gen`, `extras.annotationId` collection.
-- **Prop registry:** `SEG_GLTF_PROPS` — housing + coil former (extensible).
+- **Prop registry:** `prop-registry.js` — housing + coil former (+ stand / base placeholders).
 - **Picking:** `gltf-pick.js` + `gltf-housing-pick.js` — CPU ray/triangle pick on annotated housing proxies (WebGPU).
 - **GPU upload:** `gltf-gpu.js` — 8-float vertices (pos+normal+uv), 48-byte instances.
-- **Setup:** `visualizer/setup-gltf.js` — loads enabled props after procedural core meshes.
+- **Setup:** `visualizer/setup-gltf.js` — deferred until SEG focus; dispose focus-only props on leave.
 - **Draw:** `DeviceRenderMixin.renderGltfHousing` — SEG focus only; procedural rollers unchanged.
 
 ## Sim-driven material overrides
 
 Housing / former emissive trim follows `segOmega` (RPM proxy) via the instance `greenEmissive` channel,
-updated each frame in `updateGltfHousingState()` (coil former scaled slightly lower).
+updated each frame in `updateGltfHousingState()` (coil former scaled via registry `emissiveScale`).
 
 ## Collision / annotation anchors
 
@@ -138,3 +165,17 @@ procedural label positions in `seg-annotations.js` when `?gltfHousing=1`.
 - Prefer **Draco-free** glTF for the minimal loader; add meshopt/Draco only after evaluating
   decode cost on GitHub Pages.
 - Large CAD assets should be lazy-loaded per device focus, not in the main chunk.
+
+## Optional external glTF parser eval (deferred)
+
+ADR-0005 allows evaluating a **parser-only** package (not a scene engine). Current stance:
+
+| Option | Approx. gzip (parser) | Fits ADR-0003? | Notes |
+|--------|----------------------|----------------|-------|
+| Hand-rolled `gltf-loader.js` | ~few KB in main chunk | Yes | Ships today; covers TRIANGLES + POSITION/NORMAL/UV + extras |
+| `@loaders.gl/gltf` (parser subset) | typically tens of KB+ | Parser-only OK | Adds deps / tree-shaking risk; no clear win for current placeholder GLBs |
+| Three.js GLTFLoader | large | **No** | Banned |
+
+**Decision (2026-08):** keep the hand-rolled loader. Revisit only if artist CAD needs
+extensions we refuse to implement (e.g. KHR_mesh_quantization + Draco) — then measure
+gzip of a parser-only dep in a spike PR before merging.

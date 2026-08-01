@@ -190,6 +190,7 @@ export function getBloomCompositeShader() {
       }
 
       fn contactShadow(uv: vec2f, depth: f32) -> f32 {
+        if (params.contactShadow < 0.01) { return 0.0; }
         let texDim = textureDimensions(depthTexC, 0);
         let ts = vec2f(1.0 / f32(texDim.x), 1.0 / f32(texDim.y));
         let r = max(params.radius * 1.4, 1.5);
