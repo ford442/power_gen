@@ -21,6 +21,9 @@ import { buildMagLevMesh } from '../../devices/quanta/magnetic-levitation.js';
 import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator.js';
 import { buildHalbachVizMesh, halbachConfigFromState } from '../../devices/quanta/halbach-viz.js';
 import { buildPulseCoilMesh } from '../../devices/quanta/pulse-coil.js';
+import { buildTransformerMesh } from '../../devices/quanta/transformer.js';
+import { buildPeltierMesh } from '../../devices/core/peltier-mesh.js';
+import { buildMhdMesh } from '../../devices/core/mhd-mesh.js';
 import { exposeRenderer, RENDERER_WEBGL2 } from '../renderer-selector.js';
 import { stepParticles, seedParticles } from '../shared/particle-physics';
 import {
@@ -554,19 +557,28 @@ export class WebGL2MultiDeviceVisualizer {
           const plant = segWasm.getModePlant();
           const peltier = this.devices.peltier?.physics;
           if (peltier && plant) {
+            peltier.peltierHotK = plant.hotK ?? peltier.peltierHotK;
+            peltier.peltierColdK = plant.coldK ?? peltier.peltierColdK;
             peltier.peltierDeltaT = plant.deltaT ?? 0;
             peltier.peltierVoltage = plant.voltage ?? 0;
+            peltier.peltierCurrent = plant.current ?? 0;
             peltier.peltierPowerW = plant.powerW ?? 0;
+            peltier.peltierCOP = plant.cop ?? 0;
             peltier.energyLevel = plant.energyLevel ?? 0;
+            peltier._wasmPlantActive = true;
           }
         } else if (focus === 'mhd') {
           const plant = segWasm.getModePlant();
           const mhd = this.devices.mhd?.physics;
           if (mhd && plant) {
             mhd.mhdFlowU = plant.flowU ?? 0;
+            mhd.mhdBFieldT = plant.bFieldT ?? 0;
+            mhd.mhdHartmann = plant.hartmann ?? 0;
             mhd.mhdVoltage = plant.voltage ?? 0;
+            mhd.mhdCurrent = plant.current ?? 0;
             mhd.mhdPowerW = plant.powerW ?? 0;
             mhd.energyLevel = plant.energyLevel ?? 0;
+            mhd._wasmPlantActive = true;
           }
         } else if (focus === 'maglev') {
           const plant = segWasm.getModePlant();
@@ -674,6 +686,13 @@ export class WebGL2MultiDeviceVisualizer {
           pulseCoilCurrentA: device.physics.pulseCoilCurrentA,
           pulseCoilBPeakT: device.physics.pulseCoilBPeakT,
           pulseCoilArmatureM: device.physics.pulseCoilArmatureM,
+          peltierDeltaT: device.physics.peltierDeltaT,
+          peltierCOP: device.physics.peltierCOP,
+          mhdFlowU: device.physics.mhdFlowU,
+          mhdBFieldT: device.physics.mhdBFieldT,
+          transformerIpA: device.physics.transformerIpA,
+          transformerIsA: device.physics.transformerIsA,
+          transformerFluxN: device.physics.transformerFluxN,
           simClock: this.simClock,
           speedMult: speed
         });
@@ -799,6 +818,28 @@ export class WebGL2MultiDeviceVisualizer {
           ...renderOpts,
           heronLayoutPreset: device.id === 'heron' ? this.heronLayoutPreset : undefined
         });
+      } else if (device.id === 'peltier') {
+        this.meshRenderer.drawPluginDevice(
+          viewProj,
+          pos,
+          buildPeltierMesh(
+            device.physics.peltierHotK,
+            device.physics.peltierColdK,
+            device.physics.peltierDeltaT
+          ).cylinders(),
+          renderOpts
+        );
+      } else if (device.id === 'mhd') {
+        this.meshRenderer.drawPluginDevice(
+          viewProj,
+          pos,
+          buildMhdMesh(
+            device.physics.mhdFlowU,
+            device.physics.mhdBFieldT,
+            device.physics.mhdHartmann
+          ).cylinders(),
+          renderOpts
+        );
       } else if (device.id === 'maglev') {
         const gap = device.physics.maglevGap ?? 0.018;
         this.meshRenderer.drawPluginDevice(
@@ -829,6 +870,17 @@ export class WebGL2MultiDeviceVisualizer {
         const vCap = device.physics.pulseCoilVCap ?? 0;
         this.meshRenderer.drawPluginDevice(
           viewProj, pos, buildPulseCoilMesh(travel, iA, vCap).cylinders(), renderOpts
+        );
+      } else if (device.id === 'transformer') {
+        this.meshRenderer.drawPluginDevice(
+          viewProj,
+          pos,
+          buildTransformerMesh(
+            device.physics.transformerIpA,
+            device.physics.transformerIsA,
+            device.physics.transformerFluxN
+          ).cylinders(),
+          renderOpts
         );
       }
 

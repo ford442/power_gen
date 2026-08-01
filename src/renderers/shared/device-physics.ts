@@ -97,12 +97,51 @@ export interface PulseCoilPhysicsExtension {
   _wasmPlantActive?: boolean;
 }
 
+/** Core Peltier two-node stack fields (WASM or JS fallback). */
+export interface PeltierPhysicsExtension {
+  peltierHotK?: number;
+  peltierColdK?: number;
+  peltierDeltaT?: number;
+  peltierVoltage?: number;
+  peltierCurrent?: number;
+  peltierPowerW?: number;
+  peltierCOP?: number;
+  _wasmPlantActive?: boolean;
+}
+
+/** Core MHD Hartmann channel fields (WASM or JS fallback). */
+export interface MhdPhysicsExtension {
+  mhdFlowU?: number;
+  mhdBFieldT?: number;
+  mhdHartmann?: number;
+  mhdVoltage?: number;
+  mhdCurrent?: number;
+  mhdPowerW?: number;
+  _wasmPlantActive?: boolean;
+}
+
+/** Quanta mutual-induction / transformer classroom demo. */
+export interface TransformerPhysicsExtension {
+  transformerPhase?: number;
+  transformerLeakage?: boolean;
+  transformerVp?: number;
+  transformerVs?: number;
+  transformerIpA?: number;
+  transformerIsA?: number;
+  transformerK?: number;
+  transformerFluxN?: number;
+  transformerTurnsRatio?: number;
+}
+
 /** Full per-device physics plant state (built-in + plugin extensions). */
 export type DevicePhysicsState = BaseDevicePhysicsState &
   Partial<MaglevPhysicsExtension> &
   Partial<HomopolarPhysicsExtension> &
   Partial<HalbachVizPhysicsExtension> &
-  Partial<PulseCoilPhysicsExtension>;
+  Partial<PulseCoilPhysicsExtension> &
+  Partial<PeltierPhysicsExtension> &
+  Partial<MhdPhysicsExtension> &
+  Partial<TransformerPhysicsExtension>;
 
 export interface CreateDevicePhysicsOpts {
   heronLayout?: HeronLayout;

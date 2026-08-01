@@ -36,6 +36,8 @@ import {
   HERON_LAYOUT_DESCRIPTIONS,
   getHeronLayout
 } from './heron-layout.js';
+import { setTransformerLeakage } from './devices/quanta/transformer.js';
+import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
 
 // Agent / e2e hooks
 window.telemetryHub = telemetryHub;
@@ -58,11 +60,13 @@ const MODE_DESCRIPTIONS = {
   heron: "Heron's Fountain: Fluid dynamics with siphon-driven water jets. Particles simulate hydraulic pressure differentials.",
   kelvin: "Kelvin's Thunderstorm: Electrostatic induction with falling water droplets charging conductors.",
   solar: 'LEDs & Solar Cells: LEDs drain a battery while shining on solar panels that recharge it. Watch the charge level change.',
-  mhd: 'MHD Generator: Molten bismuth (Bi, Tm=271°C) flows through a transverse magnetic field. The Lorentz force F=q(v×B) separates positive ions (red) from electrons (blue), generating direct current without moving parts.',
+  mhd: 'MHD Generator: Hartmann-channel flow with transverse B. Watch flow U, B-field, Hartmann number, and induced power. Particles advect along the duct with Lorentz swirl (`?wasmPhysics=1` for C++ plant).',
+  peltier: 'Peltier thermoelectric stack: two-node hot/cold junctions. Watch ΔT, COP proxy, and plate heat-map tint. WASM Seebeck plant with `?wasmPhysics=1`; JS fallback otherwise.',
   maglev: 'Quanta Magnetics — Magnetic Levitation: Halbach ring stack lifts a conductive floater; eddy-current damping stabilises the gap. Watch air gap, B-field estimate, and lift proxy in telemetry.',
   homopolar: 'Quanta Magnetics — Homopolar Generator: rotating copper disc in an axial magnetic field. Brushed radial path produces EMF ∝ ω×B×r. Watch disc RPM, EMF, current proxy, and B-field in telemetry.',
   'halbach-viz': 'Quanta Magnetics — Halbach Field Visualizer: configurable N-segment ring or linear array. Speed slider adjusts segment count and magnetization angle; field lines and |B| slice heatmap update in real time. Telemetry: peak B, period, dipole force proxy.',
-  'pulse-coil': 'Quanta Magnetics — Pulse Coil (classroom R–L): capacitor-bank discharge through a series inductor. Watch coil current, cap voltage, peak B from amp-turns, and armature travel proxy. Educational model only — not a projectile or weapons simulation.'
+  'pulse-coil': 'Quanta Magnetics — Pulse Coil (classroom R–L): capacitor-bank discharge through a series inductor. Watch coil current, cap voltage, peak B from amp-turns, and armature travel proxy. JS plant only (no WASM SimMode). Educational model — not a projectile or weapons simulation.',
+  transformer: 'Quanta Magnetics — Mutual Induction: two-winding classroom transformer with coupling k, primary drive, and secondary load. Toggle leakage vs ideal coupling; watch Vp/Vs/Ip/Is and flux particles. Textbook phasor model (not FEM); WASM L–M optional Phase 2.'
 };
 
 window.setMode = (mode) => {
@@ -82,6 +86,20 @@ window.setMode = (mode) => {
   if (modeLabelEl) modeLabelEl.textContent = modeLabel;
   const modeFooterEl = document.getElementById('modeFooter');
   if (modeFooterEl) modeFooterEl.textContent = modeLabel;
+
+  const xfmrPanel = document.getElementById('transformer-controls');
+  if (xfmrPanel) xfmrPanel.style.display = mode === 'transformer' ? 'block' : 'none';
+  const scope = document.getElementById('pulse-coil-scope-wrap');
+  if (scope) scope.style.display = mode === 'pulse-coil' ? 'block' : 'none';
+};
+
+/** Classroom toggle: ideal high-k vs leakage coupling on the transformer demo. */
+window.setTransformerLeakage = (enabled) => {
+  const phys = window.multiVisualizer?.devices?.transformer?.physicsState;
+  if (phys) setTransformerLeakage(phys, !!enabled);
+  document.querySelectorAll('[data-transformer-leakage]').forEach((btn) => {
+    btn.classList.toggle('active', String(enabled) === btn.dataset.transformerLeakage);
+  });
 };
 
 function syncSEGLayoutUI() {
@@ -386,6 +404,21 @@ window.addEventListener('load', () => {
     }
 
     document.body.classList.toggle('overview-mode', v?.currentView === 'overview');
+
+    const tickClassroomUi = () => {
+      const canvas = document.getElementById('pulse-coil-scope');
+      const wrap = document.getElementById('pulse-coil-scope-wrap');
+      const vis = window.multiVisualizer;
+      if (canvas && wrap && vis?.currentView === 'pulse-coil') {
+        wrap.style.display = 'inline-block';
+        const ctx = canvas.getContext('2d');
+        drawPulseCoilOscilloscope(ctx, vis.devices?.['pulse-coil']?.physicsState, canvas.width, canvas.height);
+      } else if (wrap) {
+        wrap.style.display = 'none';
+      }
+      requestAnimationFrame(tickClassroomUi);
+    };
+    requestAnimationFrame(tickClassroomUi);
   });
 });
 

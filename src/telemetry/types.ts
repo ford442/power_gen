@@ -52,6 +52,25 @@ export interface DeviceTelemetrySnap {
   pulseCoilVCap: number;
   pulseCoilBPeakT: number;
   pulseCoilArmatureMm: number;
+  peltierHotK: number;
+  peltierColdK: number;
+  peltierDeltaT: number;
+  peltierVoltage: number;
+  peltierCurrent: number;
+  peltierPowerW: number;
+  peltierCOP: number;
+  mhdFlowU: number;
+  mhdBFieldT: number;
+  mhdHartmann: number;
+  mhdVoltage: number;
+  mhdCurrent: number;
+  mhdPowerW: number;
+  transformerVp: number;
+  transformerVs: number;
+  transformerIpA: number;
+  transformerIsA: number;
+  transformerK: number;
+  transformerFluxN: number;
   /** Lab bus accounting (EnergyNetwork, W) — simulated, not metrology. */
   powerInW: number;
   powerOutW: number;

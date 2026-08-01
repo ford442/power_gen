@@ -113,19 +113,28 @@ export const renderLoopMethods = {
           const plant = segWasm.getModePlant();
           const peltier = this.devices.peltier;
           if (peltier?.physicsState && plant) {
+            peltier.physicsState.peltierHotK = plant.hotK ?? peltier.physicsState.peltierHotK;
+            peltier.physicsState.peltierColdK = plant.coldK ?? peltier.physicsState.peltierColdK;
             peltier.physicsState.peltierDeltaT = plant.deltaT ?? 0;
             peltier.physicsState.peltierVoltage = plant.voltage ?? 0;
+            peltier.physicsState.peltierCurrent = plant.current ?? 0;
             peltier.physicsState.peltierPowerW = plant.powerW ?? 0;
+            peltier.physicsState.peltierCOP = plant.cop ?? 0;
             peltier.physicsState.energyLevel = plant.energyLevel ?? 0;
+            peltier.physicsState._wasmPlantActive = true;
           }
         } else if (focus === 'mhd') {
           const plant = segWasm.getModePlant();
           const mhd = this.devices.mhd;
           if (mhd?.physicsState && plant) {
             mhd.physicsState.mhdFlowU = plant.flowU ?? 0;
+            mhd.physicsState.mhdBFieldT = plant.bFieldT ?? 0;
+            mhd.physicsState.mhdHartmann = plant.hartmann ?? 0;
             mhd.physicsState.mhdVoltage = plant.voltage ?? 0;
+            mhd.physicsState.mhdCurrent = plant.current ?? 0;
             mhd.physicsState.mhdPowerW = plant.powerW ?? 0;
             mhd.physicsState.energyLevel = plant.energyLevel ?? 0;
+            mhd.physicsState._wasmPlantActive = true;
           }
         } else if (focus === 'maglev') {
           const plant = segWasm.getModePlant();

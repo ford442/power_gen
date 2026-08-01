@@ -100,33 +100,35 @@ fn posSolar(phase: f32, t: f32, idx: u32, speedMult: f32) -> vec3f {
 }
 
 fn posPeltier(phase: f32, t: f32, idx: u32) -> vec3f {
-  let isSetupA = (idx % 2u) == 0u;
-  let xOffset = select(3.5, -3.5, isSetupA);
-  let cycleT = fract(t * 0.4 + phase);
-  var pos: vec3f;
-  if (phase < 0.4) {
-    let isBottom = isSetupA;
-    let yStart = select(4.0, -4.0, isBottom);
-    let currentY = mix(yStart, 0.0, cycleT);
-    let px = xOffset + sin(phase * 123.45) * 1.5;
-    let pz = cos(f32(idx) * 0.123) * 1.5;
-    pos = vec3f(px, currentY, pz);
-  } else if (phase < 0.8) {
-    let isTop = isSetupA;
-    let yStart = select(-4.0, 4.0, isTop);
-    let currentY = mix(yStart, 0.0, cycleT);
-    let px = xOffset + sin(phase * 123.45) * 1.5;
-    let pz = cos(f32(idx) * 0.123) * 1.5;
-    pos = vec3f(px, currentY, pz);
+  let deltaTN = uniforms.physics0;
+  let hotN = uniforms.physics2;
+  let speed = 0.35 + deltaTN * 0.55;
+  let cycleT = fract(t * speed + phase);
+  let x = (fract(f32(idx) * 0.173 + phase) - 0.5) * 1.8;
+  let z = (fract(f32(idx) * 0.211 + phase * 0.7) - 0.5) * 1.4;
+  // Hot parcels rise from bottom plate; cold sink from top — strength from ΔT
+  let rising = (idx % 2u) == 0u;
+  var y: f32;
+  if (rising) {
+    y = mix(-0.35, 0.55, cycleT) + sin(t * 3.0 + phase * 9.0) * 0.04 * (0.3 + hotN);
   } else {
-    let angle = phase * 62.83 + f32(idx) * 0.1;
-    let radius = 1.0 + cycleT * 3.0;
-    let px = xOffset + cos(angle) * radius;
-    let pz = sin(angle) * radius;
-    let py = sin(t * 5.0 + phase * 20.0) * 0.15;
-    pos = vec3f(px, py, pz);
+    y = mix(0.55, -0.25, cycleT) - sin(t * 2.5 + phase * 7.0) * 0.03 * (0.3 + deltaTN);
   }
-  return pos;
+  return vec3f(x, y, z);
+}
+
+/// Mode 5 — MHD Hartmann channel: advection along +X with B-scaled swirl.
+fn posMhd(phase: f32, t: f32, idx: u32) -> vec3f {
+  let flowN = uniforms.physics0;
+  let bN = uniforms.physics1;
+  let drift = fract(phase + t * (0.35 + flowN * 0.9));
+  let x = mix(-2.1, 2.1, drift);
+  let swirl = bN * 0.55;
+  let y = sin(t * 2.2 + phase * 11.0 + f32(idx) * 0.07) * swirl
+        + (fract(f32(idx) * 0.137) - 0.5) * 0.7;
+  let z = cos(t * 1.8 + phase * 8.0) * swirl * 0.75
+        + (fract(f32(idx) * 0.191) - 0.5) * 0.5;
+  return vec3f(x, y, z);
 }
 
 fn posMagLev(phase: f32, t: f32, idx: u32) -> vec3f {
@@ -170,6 +172,24 @@ fn posPulseCoil(phase: f32, t: f32, idx: u32) -> vec3f {
   return vec3f(cos(angle) * r, y, sin(angle) * r);
 }
 
+/// Mode 10 — transformer: primary orbit → flux bridge → secondary orbit.
+fn posTransformer(phase: f32, t: f32, idx: u32) -> vec3f {
+  let ipN = uniforms.physics0;
+  let isN = uniforms.physics1;
+  let fluxN = uniforms.physics2;
+  let u = fract(phase + t * (0.25 + ipN * 0.35 + isN * 0.25));
+  if (u < 0.35) {
+    let a = (u / 0.35) * 6.28318 + t * (1.0 + ipN);
+    return vec3f(-0.55 + cos(a) * 0.28, 0.15 + sin(a) * 0.22, sin(a * 2.0) * 0.1);
+  } else if (u < 0.65) {
+    let s = (u - 0.35) / 0.3;
+    return vec3f(-0.55 + s * 1.1, 0.55 + sin(t * 3.5 + phase * 8.0) * 0.06 * fluxN, 0.0);
+  } else {
+    let a = ((u - 0.65) / 0.35) * 6.28318 + t * (1.2 + isN);
+    return vec3f(0.55 + cos(a) * 0.24, 0.15 + sin(a) * 0.2, sin(a * 2.0 + 1.0) * 0.1);
+  }
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let idx = id.x;
@@ -192,7 +212,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   } else if (mode < 4.5) {
     newPos = posPeltier(phase, t, idx);
   } else if (mode < 5.5) {
-    newPos = posPeltier(phase, t, idx);
+    newPos = posMhd(phase, t, idx);
   } else if (mode < 6.5) {
     newPos = posMagLev(phase, t, idx);
   } else if (mode < 7.5) {
@@ -201,6 +221,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     newPos = posHomopolar(phase, t, idx);
   } else if (mode < 9.5) {
     newPos = posHalbach(phase, t, idx);
+  } else if (mode < 10.5) {
+    newPos = posTransformer(phase, t, idx);
   } else {
     newPos = posMagLev(phase, t, idx);
   }

@@ -47,7 +47,12 @@ export const ENERGY_PIPE_EDGES: EnergyPipeEdge[] = [
   { from: 'seg', to: 'mhd', maxWatts: 1200, speed: 1.6 },
   { from: 'mhd', to: 'peltier', maxWatts: 700, speed: 2.0 },
   { from: 'solar', to: 'maglev', maxWatts: 450, speed: 1.4 },
-  { from: 'maglev', to: 'seg', maxWatts: 550, speed: 1.9 }
+  { from: 'maglev', to: 'seg', maxWatts: 550, speed: 1.9 },
+  // Classroom path: transformer → Halbach → homopolar → SEG metaphor
+  { from: 'solar', to: 'transformer', maxWatts: 350, speed: 1.5 },
+  { from: 'transformer', to: 'halbach-viz', maxWatts: 300, speed: 1.6 },
+  { from: 'halbach-viz', to: 'homopolar', maxWatts: 320, speed: 1.7 },
+  { from: 'homopolar', to: 'seg', maxWatts: 400, speed: 1.8 }
 ];
 
 export const PIPE_COLORS: Record<string, [number, number, number]> = {
@@ -59,12 +64,18 @@ export const PIPE_COLORS: Record<string, [number, number, number]> = {
   'seg-mhd': [0.35, 0.88, 1.0],
   'mhd-peltier': [0.45, 0.75, 1.0],
   'solar-maglev': [0.25, 0.92, 1.0],
-  'maglev-seg': [0.15, 0.85, 0.95]
+  'maglev-seg': [0.15, 0.85, 0.95],
+  'solar-transformer': [0.95, 0.7, 0.25],
+  'transformer-halbach-viz': [0.35, 0.85, 0.95],
+  'halbach-viz-homopolar': [0.55, 0.75, 1.0],
+  'homopolar-seg': [0.9, 0.55, 0.2]
 };
 
 /** Simulated nameplate draw per device when telemetry watts are unavailable. */
 export const DEVICE_NOMINAL_WATTS: Record<string, number> = {
-  ...ENERGY_NETWORK_NAMEPLATES.deviceNameplateWatts
+  ...ENERGY_NETWORK_NAMEPLATES.deviceNameplateWatts,
+  'pulse-coil': 90,
+  transformer: 110
 };
 
 /** True when non-SEG nameplates are order-of-magnitude estimates (not calibrated). */
