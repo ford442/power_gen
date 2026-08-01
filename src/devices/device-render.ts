@@ -1,5 +1,6 @@
 import { BindGroupCache } from '../renderers/shared/bind-group-cache';
 import { runDrawWebgpu, runDrawWebgpuOverlay } from './device-registry.js';
+import { getMeshDrawDetail, meshLodInstanceCount } from '../renderers/shared/view-lod.js';
 import type { BindGroupLayoutName, DeviceInstanceLike, MeshBuffers } from './types';
 
 /** Scene-level buffers are created before any device draws; fail loudly if one is missing. */
@@ -78,52 +79,73 @@ export const DeviceRenderMixin = {
     const v = this.visualizer;
     if (!v.cylinderBuffer || !this.rollerPipeline || !this.rollerInstances) return;
 
+    const detail =
+      this._meshDrawDetail ||
+      (v as { _overviewMeshDetail?: string })._overviewMeshDetail ||
+      getMeshDrawDetail(1);
+    if (detail === 'skip') {
+      v.profiler?.recordDraw?.(0);
+      return;
+    }
+
     this.renderMode = 0;
     const deviceData = this._buildDeviceUniformData(this.renderMode);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
     const cyl = v.cylinderBuffer;
-    const count = this.geometry.meshCylinderCount || 0;
+    // Prefer hot LOD count on the instance; fall back to geometry full count.
+    const fullCount =
+      this.meshCylinderCount ||
+      this.geometry.meshCylinderCount ||
+      0;
+    const count = meshLodInstanceCount(fullCount, detail);
+    let draws = 0;
     if (count > 0) {
       renderPass.setPipeline(this.rollerPipeline);
       renderPass.setBindGroup(0, this._rollerBindGroup(globalUniformBuffer, this.rollerInstances, 'mesh'));
       renderPass.setVertexBuffer(0, cyl.vertexBuffer);
       renderPass.setIndexBuffer(cyl.indexBuffer, 'uint16');
       renderPass.drawIndexed(cyl.indexCount, count);
+      draws += 1;
     }
 
-    if (this.id === 'kelvin' && this.geometry.ringInstances && v.kelvinRingBuffer) {
+    if (detail !== 'proxy' && this.id === 'kelvin' && this.geometry.ringInstances && v.kelvinRingBuffer) {
       const ring = v.kelvinRingBuffer;
-      const ringCount = this.geometry.meshRingCount || 0;
+      const ringCount = meshLodInstanceCount(this.geometry.meshRingCount || 0, detail);
       if (ringCount > 0) {
         renderPass.setBindGroup(0, this._rollerBindGroup(globalUniformBuffer, this.geometry.ringInstances, 'ring'));
         renderPass.setVertexBuffer(0, ring.vertexBuffer);
         renderPass.setIndexBuffer(ring.indexBuffer, 'uint16');
         renderPass.drawIndexed(ring.indexCount, ringCount);
+        draws += 1;
       }
     }
 
-    if (this.geometry.tubeInstances && v.deviceTubeBuffer) {
+    if (detail !== 'proxy' && this.geometry.tubeInstances && v.deviceTubeBuffer) {
       const tube = v.deviceTubeBuffer;
-      const tubeCount = this.geometry.meshTubeCount || 0;
+      const tubeCount = meshLodInstanceCount(this.geometry.meshTubeCount || 0, detail);
       if (tubeCount > 0) {
         renderPass.setBindGroup(0, this._rollerBindGroup(globalUniformBuffer, this.geometry.tubeInstances, 'tube'));
         renderPass.setVertexBuffer(0, tube.vertexBuffer);
         renderPass.setIndexBuffer(tube.indexBuffer, 'uint16');
         renderPass.drawIndexed(tube.indexCount, tubeCount);
+        draws += 1;
       }
     }
 
-    if (this.id === 'solar' && this.geometry.panelInstances && v.solarPanelBuffer) {
+    if (detail !== 'proxy' && this.id === 'solar' && this.geometry.panelInstances && v.solarPanelBuffer) {
       const panel = v.solarPanelBuffer;
-      const panelCount = this.geometry.meshPanelCount || 0;
+      const panelCount = meshLodInstanceCount(this.geometry.meshPanelCount || 0, detail);
       if (panelCount > 0) {
         renderPass.setBindGroup(0, this._rollerBindGroup(globalUniformBuffer, this.geometry.panelInstances, 'panel'));
         renderPass.setVertexBuffer(0, panel.vertexBuffer);
         renderPass.setIndexBuffer(panel.indexBuffer, 'uint16');
         renderPass.drawIndexed(panel.indexCount, panelCount);
+        draws += 1;
       }
     }
+
+    v.profiler?.recordDraw?.(draws);
   },
 
   render: function (
@@ -170,6 +192,7 @@ export const DeviceRenderMixin = {
     renderPass.setPipeline(this.particlePipeline);
     renderPass.setBindGroup(0, particleBindGroup);
     renderPass.draw(4, scaledCount);
+    this.visualizer.profiler?.recordDraw?.(1);
 
     if (this.effectParticleCount > 0 && this.effectsParticles && !skipEffects) {
       const effectsBindGroup = this._cacheBg(`fx:${this.id}`, 'particle', [

@@ -245,7 +245,7 @@ export const pulseCoilPlugin = {
   modeIndex: 7,
   needsPhysicsState: true,
   defaults: {
-    particleCount: 11000,
+    particleCount: 4800,
     color: [1.0, 0.55, 0.22],
     cameraOffset: [0, 3.0, 10]
   },

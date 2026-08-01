@@ -13,9 +13,19 @@ import { PARTICLE_LAYOUTS } from '../generated/physics-constants.js';
 
 const PARTICLE_BYTES = PARTICLE_LAYOUTS.pipeBytes;
 
-/** Overview / low-quality particle budgets (CPU path until compute lands). */
+/** Overview / quality-tier particle budgets (CPU path until compute lands). */
 const PIPE_PARTICLES_FULL = 72;
 const PIPE_PARTICLES_LOD = 36;
+const PIPE_PARTICLES_LOW = 18;
+const PIPE_PARTICLES_CRITICAL = 8;
+
+/** @param {string} [tier] @param {number} [lodScale] */
+export function resolvePipeParticleBudget(tier = 'high', lodScale = 1) {
+  if (tier === 'critical' || lodScale < 0.25) return PIPE_PARTICLES_CRITICAL;
+  if (tier === 'low' || lodScale < 0.45) return PIPE_PARTICLES_LOW;
+  if (tier === 'medium' || lodScale < 0.75) return PIPE_PARTICLES_LOD;
+  return PIPE_PARTICLES_FULL;
+}
 
 /** Switch pipe particle integration to GPU compute at or above this count. */
 export const PIPE_GPU_COMPUTE_THRESHOLD = 64;
@@ -156,7 +166,7 @@ class EnergyPipe {
    * @param {number} deltaTime
    * @param {Record<string, object>} devices
    * @param {number} time
-   * @param {{ lodScale?: number }} [opts]
+   * @param {{ lodScale?: number, qualityTier?: string }} [opts]
    */
   update(deltaTime, devices, time, opts = {}) {
     const fromDev = devices[this.config.from];
@@ -182,9 +192,8 @@ class EnergyPipe {
     if (this.flowLevel < 0.02) return;
 
     const lodScale = opts.lodScale ?? 1;
-    this.activeParticleCount = lodScale < 0.75
-      ? PIPE_PARTICLES_LOD
-      : PIPE_PARTICLES_FULL;
+    const tier = opts.qualityTier || this.visualizer?.profiler?.qualityTier || 'high';
+    this.activeParticleCount = resolvePipeParticleBudget(tier, lodScale);
 
     const speed = this.config.speed ?? 1.5;
     const pulse = 0.5 + 0.5 * Math.sin(time * 2.4 + fromDev.position[0] * 0.1);

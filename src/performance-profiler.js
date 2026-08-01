@@ -64,6 +64,10 @@ export class PerformanceProfiler {
     // Quality tier label derived from qualityLevel (for SimRate / UI)
     this.qualityTier = 'high'; // high | medium | low | critical
 
+    /** Estimated draw calls this frame (CPU-side count of draw/drawIndexed). */
+    this.drawCallsEstimate = 0;
+    this._drawCallsAcc = 0;
+
     // Benchmark mode
     this.benchmarkMode = false;
     this.benchmarkStartTime = 0;
@@ -235,12 +239,26 @@ export class PerformanceProfiler {
     this._deviceScopeStack.length = 0;
   }
 
+  /** Reset draw-call estimate accumulator (call before device draws). */
+  beginFrameDraws() {
+    this._drawCallsAcc = 0;
+  }
+
+  /**
+   * Record estimated draw/drawIndexed calls (CPU proxy — not GPU timestamps).
+   * @param {number} [n=1]
+   */
+  recordDraw(n = 1) {
+    this._drawCallsAcc += Math.max(0, n | 0);
+  }
+
   /** End CPU work; promotes accumulated per-device times for the UI. */
   endFrameCpu() {
     while (this._deviceScopeStack.length) this.endDevice();
     this.frameCpuMs = performance.now() - (this._frameCpuStart || performance.now());
     this.deviceTimesMs = this._deviceTimesAcc;
     this._deviceTimesAcc = {};
+    this.drawCallsEstimate = this._drawCallsAcc;
   }
 
   /**
@@ -417,6 +435,7 @@ export class PerformanceProfiler {
       maxFPS,
       qualityLevel: this.qualityLevel,
       qualityTier: this.qualityTier,
+      drawCallsEstimate: this.drawCallsEstimate,
       postQualityGates: postGates,
       postQualitySummary: formatPostQualitySummary(postGates),
       gpuTier: this.gpuTier,

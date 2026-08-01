@@ -66,9 +66,10 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 
 ### Workstream 4 — Performance headroom (8–12 devices)
 
-- [ ] Continue LOD / particle budgets
-- [ ] GPU culling for overview
+- [x] Continue LOD / particle budgets (`particle-budgets.js`, mesh LOD ladder, pipe tiers)
+- [x] Overview culling (frustum for 20 m plugin ring + CPU instance prefix; full GPU compute cull deferred)
 - [x] Shared pipeline cache (already)
+- [x] Profiler: per-device CPU ms + draw-call estimate + adapter summary (F3)
 
 ### Acceptance (epic-level)
 

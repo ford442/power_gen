@@ -118,7 +118,12 @@ export interface SegFrameBuffers {
  */
 export interface VisualizerLike {
   time: number;
-  profiler?: { qualityLevel: number } | null;
+  profiler?: {
+    qualityLevel: number;
+    qualityTier?: string;
+    recordDraw?: (n?: number) => void;
+    beginFrameDraws?: () => void;
+  } | null;
   pipelineCache?: PipelineLayoutCache | null;
   isOverviewMode?: () => boolean;
 
@@ -186,6 +191,8 @@ export interface DeviceInstanceLike {
   rotation: ArrayLike<number>;
   physicsState: DevicePhysicsState | null;
   meshCylinderCount?: number;
+  /** Overview mesh LOD ladder: full | simplified | proxy | skip */
+  _meshDrawDetail?: string;
   fieldLineCount: number;
 
   computeManager: {
