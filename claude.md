@@ -82,7 +82,7 @@ npm run check:wgsl    # naga offline
 
 ## WebGPU notes
 
-- One adapter path: `webgpu-manager.js`. Depth: `depth24plus`.
+- One adapter path: `webgpu-manager.ts`. Depth: `depth24plus`.
 - GPU timing: `?gpuTiming=1` then debug panel.
 - Details: **docs/WEBGPU.md**.
 

@@ -1,6 +1,6 @@
 # WebGPU device setup
 
-Primary path: `src/webgpu-manager.js` → `MultiDeviceVisualizer`.  
+Primary path: `src/webgpu-manager.ts` → `MultiDeviceVisualizer`.  
 Fallback: `src/renderers/webgl2/` (no WebGPU device).
 
 ## Single adapter request
@@ -50,7 +50,7 @@ Missing features are skipped and logged; init does not fail.
 ## Preferred limits (soft)
 
 `WebGPUManager.negotiateLimits()` requests a limit **only if** `adapter.limits[key] >= preferred`.  
-Current soft targets (`PREFERRED_LIMITS` in `webgpu-manager.js`):
+Current soft targets (`PREFERRED_LIMITS` in `webgpu-manager.ts`):
 
 | Limit | Preferred | Rationale |
 |-------|-----------|-----------|
@@ -99,7 +99,7 @@ See **`docs/BINDINGS.md`**. Layouts live in `src/pipeline-layout-cache.js`; devi
 
 ## Related files
 
-- `src/webgpu-manager.js` — adapter/device/canvas/depth hooks  
+- `src/webgpu-manager.ts` — adapter/device/canvas/depth hooks  
 - `src/pipeline-layout-cache.js` — explicit layouts + shared pipelines  
 - `src/performance-profiler.js` — timing + tier (consumes adapter info)  
 - `src/debug-panel.js` — GPU timing toggle  
