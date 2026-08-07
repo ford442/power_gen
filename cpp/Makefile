@@ -27,11 +27,11 @@ EMCC_FLAGS := $(shell grep -vE '^\s*#' emscripten.flags | grep -vE '^\s*$$' | tr
 .PHONY: wasm wasm-dbg native clean
 
 wasm: $(OUT_DIR)
-	emcc -O3 $(EMCC_FLAGS) $(SRC) -o $(OUT_JS)
+	em++ -O3 $(EMCC_FLAGS) $(SRC) -o $(OUT_JS)
 	@echo "✓  WASM build complete → $(OUT_JS)"
 
 wasm-dbg: $(OUT_DIR)
-	emcc -O0 -g $(EMCC_FLAGS) \
+	em++ -O0 -g $(EMCC_FLAGS) \
 	  -s ASSERTIONS=1 \
 	  -s SAFE_HEAP=1 \
 	  $(SRC) -o $(OUT_DIR)/sim_core_dbg.js
