@@ -4,7 +4,7 @@ This directory contains a C++17 simulation core that compiles to WebAssembly
 (WASM) using Emscripten. It provides high-performance, high-precision CPU-side
 physics that complements the WebGPU compute shaders:
 
-| Feature | GPU (compute.wgsl) | WASM (sim_core.cpp) |
+| Feature | GPU (compute.wgsl) | WASM (`cpp/src/sim_core_*.cpp` + `plant/`) |
 |---|---|---|
 | Particle system | ✅ 10–50k real-time | ✅ CPU-side replay |
 | SEG roller dynamics | Semi-implicit Euler | **RK4 integrator** |
@@ -149,8 +149,10 @@ npm run wasm:build-debug
 cpp/
   emscripten.flags   ← shared Emscripten link flags (Makefile + CMake)
   src/
-    sim_core.h       ← Vec3, SimParticle, SEGRollerState, function declarations
-    sim_core.cpp     ← façade: ctor, mode dispatch, Embind bindings, native smoke-test main()
+    sim_core.h           ← Vec3, SimParticle, SEGRollerState, SEGSimulator API
+    sim_core_facade.cpp  ← ctor, mode dispatch, cross-mode accessors
+    sim_core_embind.cpp  ← Emscripten / Embind surface (WASM only)
+    sim_core_standalone.cpp ← native smoke-test driver + CSV export
     plant/
       plant_common.h       ← shared helpers (clampf, hash1/rnd, lcg, Swamee–Jain f)
       seg_plant.cpp         ← magnetic-field utilities + SEG roller RK4
@@ -171,7 +173,7 @@ cpp/
 Each `plant/*.cpp` implements a subset of `SEGSimulator`'s private `_step*`
 methods plus that mode's free functions declared in `sim_core.h`; the
 Emscripten `--bind` class name (`SimCore`/`SEGSimulator`) and its public
-method surface are declared once, in `sim_core.cpp`, and are unaffected by
+method surface are declared in `sim_core_embind.cpp`; plant physics lives in
 this split. See `docs/MODE_MATRIX.md` for how each plant's `SimMode` value
 maps to the JS device registry and shader `modeIndex`.
 

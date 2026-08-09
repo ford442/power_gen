@@ -14,9 +14,8 @@ inline float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// C++17 inline variable: single instance across all translation units,
-// matching the original single anonymous-namespace `lcg_state` (only one
-// TU — sim_core.cpp — ever existed before the split).
+// inline variable: single instance across all translation units,
+// matching the original single anonymous-namespace `lcg_state`.
 inline uint32_t lcg_state = 0x12345678u;
 
 inline float lcg_rand() {
