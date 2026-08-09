@@ -245,9 +245,12 @@ export class HardwareBridge {
    * @param {{ mock?: boolean }} [opts]
    */
   async connect(opts = {}) {
-    if (this.status === 'connected' || this.status === 'connecting' || this.status === 'mock') {
-      return;
+    if (this.status === 'connecting') return;
+    if (this.status === 'mock') {
+      // Switching serial ← mock: coast mock coils before opening a real port.
+      await this.disconnect();
     }
+    if (this.status === 'connected') return;
 
     const wantMock = opts.mock === true
       || (typeof location !== 'undefined' && new URLSearchParams(location.search).get('mockHardware') === '1');
@@ -291,6 +294,11 @@ export class HardwareBridge {
   }
 
   async connectMock() {
+    if (this.status === 'mock') return;
+    if (this.isConnected) {
+      // Switching mock ← serial: coast real coils before starting mock transport.
+      await this.disconnect();
+    }
     return this._connectMock();
   }
 

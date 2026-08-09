@@ -1,6 +1,6 @@
 # ADR-0005: Showroom / Lab / Twin epic (north star)
 
-- **Status:** Proposed — foundation slice in progress
+- **Status:** Accepted — Workstream 3 (hardware twin maturation) complete; Workstream 2 post stack ongoing
 - **Date:** 2026-07
 - **Supersedes (spirit):** closed #94 phased CAD plan; complements ADR-0003
 

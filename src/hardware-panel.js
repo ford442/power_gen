@@ -89,6 +89,8 @@ export class HardwarePanel {
         <div id="hwShadowRow" class="hw-shadow" style="display:none">
           <span class="hw-k">Δφ</span> <span id="hwPhaseErr">—</span>°
           · <span class="hw-k">ΔRPM</span> <span id="hwRpmErr">—</span>
+          · <span class="hw-k">ΔV</span> <span id="hwVoltErr">—</span>
+          · <span class="hw-k">ΔI</span> <span id="hwCurrErr">—</span>
         </div>
       </div>
       <div class="ctrl-section-title" style="margin-top:10px">Coil override</div>
@@ -250,6 +252,10 @@ export class HardwarePanel {
       if (show && snap.shadow) {
         set('hwPhaseErr', snap.shadow.phaseErrorDeg.toFixed(1));
         set('hwRpmErr', snap.shadow.rpmError.toFixed(1));
+        const vErr = snap.shadow.voltageError ?? 0;
+        const iErr = snap.shadow.currentError ?? 0;
+        set('hwVoltErr', `${vErr >= 0 ? '+' : ''}${vErr.toFixed(2)} V`);
+        set('hwCurrErr', `${iErr >= 0 ? '+' : ''}${iErr.toFixed(2)} A`);
       }
     }
   }

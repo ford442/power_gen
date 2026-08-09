@@ -190,6 +190,46 @@ test.describe('Hardware twin mock', () => {
         currentError: expect.any(Number)
       })
     );
+    expect(Number.isFinite(twin.hub.shadowResidual.voltageError)).toBe(true);
+    expect(Number.isFinite(twin.hub.shadowResidual.currentError)).toBe(true);
+  });
+
+  test('mock reconnect after disconnect does not leave coils commanded', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'mockHardware=1');
+
+    await page.waitForFunction(
+      () => window.multiVisualizer?.hardwareBridge?.isConnected === true,
+      { timeout: 10_000 }
+    );
+
+    await page.evaluate(() => {
+      const b = window.multiVisualizer.hardwareBridge;
+      b.setManualCoils(0b11, 0.75);
+    });
+
+    await page.evaluate(async () => {
+      await window.multiVisualizer.hardwareBridge.disconnect();
+    });
+
+    await page.evaluate(async () => {
+      await window.multiVisualizer.hardwareBridge.connectMock();
+    });
+
+    const state = await page.evaluate(() => {
+      const b = window.multiVisualizer?.hardwareBridge;
+      return {
+        status: b?.status,
+        manualMode: b?.manualMode,
+        pwmDuty: b?.manualPwmDuty,
+        connectionKind: b?.connectionKind
+      };
+    });
+
+    expect(state.status).toBe('mock');
+    expect(state.connectionKind).toBe('mock');
+    expect(state.manualMode).toBe(false);
+    expect(state.pwmDuty).toBe(0);
   });
 
   test('disconnect coasts coils — no manual override after disconnect', async ({ page }) => {

@@ -1,6 +1,6 @@
 # ADR-0004: Multi-device energy network (visual → physical)
 
-- **Status:** Accepted — Phase A (power accounting) shipped; Phase B (WASM bus) shipped; Phase C iterative
+- **Status:** Accepted — Phase A (power accounting) shipped; Phase B (WASM bus) shipped; Phase C (iterative residual warning) shipped
 - **Date:** 2026-07 (updated 2026-07-18)
 
 ## Context
