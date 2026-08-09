@@ -6,7 +6,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── Source ──────────────────────────────────────────────────────
 file(GLOB SIM_CORE_PLANT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/plant/*.cpp")
-add_executable(sim_core src/sim_core.cpp ${SIM_CORE_PLANT_SOURCES})
+set(SIM_CORE_ROOT_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_facade.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_embind.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_standalone.cpp"
+)
+add_executable(sim_core ${SIM_CORE_ROOT_SOURCES} ${SIM_CORE_PLANT_SOURCES})
 target_include_directories(sim_core PRIVATE src)
 
 # ── Emscripten / WASM build ─────────────────────────────────────

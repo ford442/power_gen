@@ -8,7 +8,7 @@ static constexpr const char* TELEMETRY_CSV_HEADER =
 
 static constexpr float TELEMETRY_B_SURFACE_T = 0.7048f;
 
-// Implemented in sim_core.cpp (standalone build)
+// Implemented in sim_core_standalone.cpp (standalone build)
 int export_seg_csv(
     const char* path, float durationSec, float sampleHz,
     float drive, float loadTorque, float fieldStrength, float loadOhm);
