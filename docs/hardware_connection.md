@@ -179,11 +179,11 @@ Firmware is **not** required for this path.
 
 1. Chrome/Edge with **Web Serial** (secure context). Safari / Firefox: no Serial — use Mock.
 2. Open the multi-device dashboard → **Hardware Twin** section.
-3. **Connect** (pick serial port) or **Mock** (no hardware).
+3. **Connect** (pick serial port) or **Mock** (no hardware). Switching transport disconnects the prior link and coasts coils first.
 4. Choose twin mode:
    - **Open-loop**: sim phase/RPM → coils; visualize sim
    - **Closed-loop**: measured HW phase/RPM drive on-screen rollers
-   - **Shadow**: open-loop drive + show Δφ / ΔRPM vs hardware (`shadowResidual` on hub)
+   - **Shadow**: open-loop drive + show Δφ / ΔRPM / ΔV / ΔI vs hardware (`shadowResidual` on hub)
 5. Baud **115200**, line-oriented `\n` protocol above. Disconnect always coasts coils.
 
 ### Connection state machine
