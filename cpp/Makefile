@@ -28,7 +28,7 @@ EMCC_FLAGS := $(shell grep -vE '^\s*#' emscripten.flags | grep -vE '^\s*$$' | tr
 .PHONY: wasm wasm-dbg native clean
 
 wasm: $(OUT_DIR)
-	em++ -O3 $(EMCC_FLAGS) $(SRC) -o $(OUT_JS)
+	em++ -O3 -g0 --closure 1 $(EMCC_FLAGS) $(SRC) -o $(OUT_JS)
 	@echo "✓  WASM build complete → $(OUT_JS)"
 
 wasm-dbg: $(OUT_DIR)

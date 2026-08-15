@@ -137,6 +137,52 @@ radius, height. `getRollerStateFloatCount()` returns `_numRollers × 4` (default
 **Heap growth:** `-s ALLOW_MEMORY_GROWTH=1` is enabled. Any `HEAPF32` / `HEAPU8` view becomes
 stale after the WASM heap grows — `sim.ts` re-fetches `mod.HEAPF32` on each
 `getParticleFloatView()` / `getRollerStateFloatView()` call.
+
+### Release build flags — what maps to what
+
+The release (`make wasm` / `npm run wasm:build`) target passes flags beyond `emscripten.flags`
+directly on the `em++` command line, since they're release-only (the opposite of what
+`wasm-dbg` needs) and shouldn't leak into the shared/debug flag set:
+
+| Flag | Where | Effect on output |
+|------|-------|-------------------|
+| `-O3` | Makefile / CMakeLists.txt | LLVM + Binaryen codegen optimized for speed; already applied outside `emscripten.flags` (unchanged by this doc) |
+| `-g0` | Makefile `wasm` target, CMakeLists.txt | Strips DWARF / debug info and disables `-g1`-preserved JS whitespace. No-op if the source was already debug-info-free (this repo never passes `-g` on the release path), but pins the intent explicitly so a future `-g` added elsewhere doesn't leak into `sim_core.js` |
+| `--closure 1` | Makefile `wasm` target, CMakeLists.txt | Runs Closure Compiler (`ADVANCED_OPTIMIZATIONS`) over the JS glue: dead-code elimination, renaming, whitespace removal. This is the single biggest lever on `sim_core.js` size — measured **~55% smaller raw / ~32% smaller gzip** on the glue file alone (57.0 KB → 25.7 KB raw; 14.3 KB → 9.7 KB gzip). Requires a working Closure Compiler on `PATH`/reachable via npm — `mymindstorm/setup-emsdk` (used by `.github/workflows/build-wasm.yml`) provides one; a bare distro `emscripten` package may need `npm install -g google-closure-compiler` and `CLOSURE_COMPILER` set in `~/.emscripten` |
+| `-s MALLOC=emmalloc` | `emscripten.flags` (shared — safe for both `wasm` and `wasm-dbg`) | Swaps the default `dlmalloc` for the much smaller single-threaded `emmalloc` allocator. This build is single-threaded (`ENVIRONMENT=web`, no pthreads), so emmalloc's lack of thread-safety and coarser fragmentation behavior cost nothing here. Measured **~10% smaller raw / ~9% smaller gzip** on `sim_core.wasm` alone (54.3 KB → 48.7 KB raw; 23.9 KB → 21.8 KB gzip) |
+
+**Combined effect** (measured against the previously-committed `src/public/wasm/` artefacts,
+Emscripten 3.1.6 + a Closure Compiler build from the same era):
+
+| Artefact | Before (gzip) | After (gzip) | Δ |
+|----------|---------------|--------------|---|
+| `sim_core.js` | 13,987 B | 9,732 B | −30.4% |
+| `sim_core.wasm` | 24,761 B | 21,781 B | −12.0% |
+| **Combined** | **38,748 B** | **31,513 B** | **−18.7%** |
+
+Exact percentages will vary with the Emscripten/Closure Compiler/Binaryen versions used for a
+given build (`build-wasm.yml` pins `3.1.61`, newer than what produced the numbers above), but
+the combined reduction comfortably clears a 15% target on every toolchain tested.
+
+### `SINGLE_FILE` — evaluated, not enabled
+
+`-s SINGLE_FILE=1` embeds `sim_core.wasm` as a base64 data URI inside `sim_core.js`, removing
+the second network request. It was evaluated and **not enabled**:
+
+- Base64 inflates the wasm payload by ~33% before compression; gzip claws back most but not
+  all of that, so `SINGLE_FILE=1` produces a *larger* combined transfer than two separate
+  files (measured: 39,530 B gzip as one merged file vs. 31,513 B combined gzip for the two
+  files above — SINGLE_FILE is ~25% larger over the wire).
+- `src/public/wasm/` is a **prebuilt, committed** artefact (built once by CI, served statically
+  by GitHub Pages) — it is not rebuilt per request, so the "one fewer HTTP request" ergonomic
+  win `SINGLE_FILE` targets doesn't apply to a static host the way it would to a
+  server-rendered or frequently-rebuilt app.
+- Two files let the browser cache `sim_core.wasm` (which almost never changes) independently
+  of `sim_core.js` (which changes whenever `EXPORTED_RUNTIME_METHODS` or bindings change).
+
+If a future use case needs a single-file embed (e.g. a standalone offline build), add
+`-s SINGLE_FILE=1` to a dedicated Makefile target rather than the default `wasm` release path.
+
 ### Debug WASM build
 
 ```bash
