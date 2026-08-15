@@ -10,7 +10,10 @@ export const HERON_LAYOUT_PRESETS: {
 
 export const HERON_LAYOUT_DESCRIPTIONS: Record<string, string>;
 
-export function getHeronLayout(presetId?: string): HeronLayout;
+/** getHeronLayout() also spreads the preset's display name/description onto the base HeronLayout shape. */
+export function getHeronLayout(presetId?: string): HeronLayout & { name: string; description: string };
+
+export function parseHeronLayoutPreset(params?: URLSearchParams): string;
 
 export function swameeJainFriction(f: number, Re: number, D: number): number;
 

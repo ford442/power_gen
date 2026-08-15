@@ -425,7 +425,7 @@ export class SEGDiagram2D {
 
 /**
  * Convenience initialiser: builds the diagram, wires global helpers, returns it.
- * @param {() => object} getVisualizer
+ * @param {() => (object|null|undefined)} getVisualizer
  */
 export function initSEGDiagram2D(getVisualizer = () => window.multiVisualizer) {
   const diagram = new SEGDiagram2D(getVisualizer);

@@ -53,15 +53,189 @@ import { hardwareTwinMethods } from './visualizer/hardware-twin.js';
 import { materialMethods } from './visualizer/materials.js';
 import { diagnosticsMethods } from './visualizer/diagnostics.js';
 import { gltfSetupMethods } from './visualizer/setup-gltf.js';
+import type {
+  VisualizerLike,
+  MeshBuffers,
+  VertexOnlyBuffers,
+  GltfDrawable,
+  SegFrameBuffers
+} from './devices/types';
+import type { SegLayoutSummary } from './window-globals';
+import type { HeronLayout } from './renderers/shared/device-physics';
+import type { PrototypePreset } from './renderers/shared/url-params.js';
+import type { LightingLook } from './seg-lighting-presets.js';
 
-export class MultiDeviceVisualizer {
+type HeronLayoutWithMeta = HeronLayout & { name: string; description: string };
+
+/**
+ * Mixin methods merged onto the prototype at the bottom of this file
+ * (Object.assign) — declared here via interface merging so the class body
+ * above can call them with real signatures instead of falling back to `any`.
+ */
+export interface MultiDeviceVisualizer {
+  // primitiveMethods
+  generateCylinder(
+    radius: number,
+    height: number,
+    segments: number
+  ): { vertices: Float32Array<ArrayBuffer>; indices: Uint16Array<ArrayBuffer> };
+  generateCylinderWithUVs(...args: unknown[]): unknown;
+  generateDisc(...args: unknown[]): unknown;
+  generateDiscWithUVs(...args: unknown[]): unknown;
+  generateBoxWithUVs(...args: unknown[]): unknown;
+
+  // geometrySetupMethods
+  setupSharedGeometry(): Promise<void>;
+  setupDefaultPrimitiveGeometry(...args: unknown[]): unknown;
+  setupGltfAssets(...args: unknown[]): Promise<unknown>;
+  _setupCoreSEGSharedMeshes(): Promise<void>;
+  _setupAlternateDeviceSharedMeshes(...args: unknown[]): unknown;
+
+  // sceneSetupMethods
+  setupFloorGrid(): Promise<void>;
+  setupSkyGradient(): Promise<void>;
+  setupAnomalyWallPipeline(): Promise<void>;
+  setupDepthBuffer(): Promise<void>;
+  setupBloomTextures(): unknown;
+  setupBloomPipeline(): Promise<void>;
+  _waitForCanvasLayout(): Promise<void>;
+  _observeCanvasLayout(): void;
+  _syncCanvasSize(): Promise<void>;
+  _rebuildBloomBindGroups(): unknown;
+
+  // renderLoopMethods
+  render(timestamp: number): void;
+  renderAnomalyWalls(...args: unknown[]): unknown;
+
+  // hardwareTwinMethods
+  _updateHardwareTwin(...args: unknown[]): unknown;
+  _updateDeviceTelemetry(): void;
+  _updateTachometer(...args: unknown[]): unknown;
+
+  // materialMethods
+  setupMaterialTableBuffer(): void;
+
+  // diagnosticsMethods
+  runSpeedTest(speeds?: number[], durationMs?: number): Promise<void>;
+  captureParticleSubset(deviceId?: string, maxCount?: number): Promise<unknown>;
+
+  // gltfSetupMethods
+  ensureGltfPropsForView(view: string): Promise<void>;
+  updateGltfHousingState(...args: unknown[]): unknown;
+  _loadGltfPropsForSegFocus(...args: unknown[]): unknown;
+  _loadGltfPropsForSegFocusInner(...args: unknown[]): unknown;
+  _disposeFocusOnlyGltfProps(...args: unknown[]): unknown;
+  _uploadGltfProp(...args: unknown[]): unknown;
+}
+
+export class MultiDeviceVisualizer implements VisualizerLike {
+  canvas: HTMLCanvasElement;
+  webgpu: WebGPUManager;
+  camera: CameraController;
+  profiler: PerformanceProfiler | null;
+  debugPanel: DebugPanel | null;
+  /** Matches WebGPUManager.depthFormat (depth24plus, no stencil). */
+  depthFormat: GPUTextureFormat;
+  shaders: MultiDeviceShaders;
+  cameraController: MultiDeviceCamera | null;
+
+  currentView: string;
+  devicesEnabled: Record<string, boolean>;
+  devices: Record<string, DeviceInstance>;
+  energyPipes: EnergyPipe[];
+  energyNetwork: EnergyNetwork;
+
+  // Hardware digital twin (Web Serial / mock)
+  emController: ElectromagnetController;
+  hardwareBridge: HardwareBridge;
+  hardwareTargetPhase: number;
+  hardwareTargetSpeed: number;
+  hardwareShadow: { phaseError: number; rpmError: number };
+  hardwareTwinTelemetry: unknown;
+
+  integration: SEGIntegrationManager | null;
+  /** Manager-owned physics uniform buffer (alias). */
+  physicsUniformBuffer: GPUBuffer | null;
+
+  time: number;
+  lastFrameTime: number;
+  fps: number;
+  speedMult: number;
+  globalEnergyLevel: number;
+  /** Integrated SEG spin state (from segOperator physics) */
+  segOmega: number;
+  corona: number;
+
+  prototypePreset: PrototypePreset;
+  anomalousEffectsEnabled: boolean;
+  simRateController: SimRateController;
+
+  lightingLook: LightingLook;
+  lightingConfig: Record<string, unknown>;
+  postPreset: ReturnType<typeof getLightingPreset>;
+  postExposure: number;
+  postBloomStrength: number;
+
+  segLayoutPreset: string;
+  segLayout: SegLayoutSummary | null;
+
+  heronLayoutPreset: string;
+  heronLayout: HeronLayoutWithMeta | null;
+
+  segFrameLevel: string;
+  segFrameBuffers: SegFrameBuffers | null;
+  frameStructuralInstanceBuffer: GPUBuffer | null;
+  frameControlInstanceBuffer: GPUBuffer | null;
+  frameCageInstanceBuffer: GPUBuffer | null;
+  frameLabBenchInstanceBuffer: GPUBuffer | null;
+
+  // Set later in init(); undefined until then (matches original runtime behavior).
+  pipelineCache?: PipelineLayoutCache | null;
+  segLayoutUniformBuffer?: GPUBuffer | null;
+  lightingUniformBuffer?: GPUBuffer | null;
+  energyPipePipeline?: GPURenderPipeline;
+  energyPipeComputePipeline?: GPUComputePipeline;
+  segAnnotations?: unknown;
+
+  // Populated by the merged-in mixins below (setup-geometry.js, scene-setup.js,
+  // materials.js, setup-gltf.js); declared here so class-body reads type-check.
+  materialTableBuffer?: GPUBuffer | null;
+  skyUniformBuffer?: GPUBuffer;
+  batteryGaugeVertexBuffer?: GPUBuffer;
+  batteryGaugeIndexBuffer?: GPUBuffer;
+  batteryGaugeIndexCount?: number;
+
+  // Shared geometry (VisualizerLike surface — see setup-geometry.js)
+  cylinderBuffer?: MeshBuffers | null;
+  kelvinRingBuffer?: MeshBuffers | null;
+  deviceTubeBuffer?: MeshBuffers | null;
+  solarPanelBuffer?: MeshBuffers | null;
+  basePlateBuffer?: MeshBuffers | null;
+  statorRingUVBuffer?: MeshBuffers | null;
+  wiringUVBuffer?: MeshBuffers | null;
+  coreShaftBuffer?: MeshBuffers | null;
+  coreMagnetBuffer?: MeshBuffers | null;
+  corePlateBuffer?: MeshBuffers | null;
+  coreBoltBuffer?: MeshBuffers | null;
+  connectionRingBuffer?: MeshBuffers | null;
+  standBuffer?: MeshBuffers | null;
+  wireBuffers?: MeshBuffers[] | null;
+  coilBuffer?: VertexOnlyBuffers | null;
+  baseInstanceBuffer?: GPUBuffer | null;
+  coreBoltInstanceBuffer?: GPUBuffer | null;
+  coreBoltPositions?: ArrayLike<number>;
+
+  // glTF housing (setup-gltf.js)
+  gltfHousingEnabled?: boolean;
+  gltfHousingDrawables?: GltfDrawable[] | null;
+
   constructor() {
     console.log('MultiDeviceVisualizer v5 starting - depthStencil fix applied');
-    this.canvas = document.getElementById('gpuCanvas');
+    this.canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
 
     // Initialize managers (single adapter path lives in WebGPUManager)
     this.webgpu = new WebGPUManager(this.canvas, {
-      onDeviceLost: (info) => {
+      onDeviceLost: (info: { reason?: string; message?: string }) => {
         console.error('[MultiDeviceVisualizer] GPU device lost — prompting reload', info);
         WebGPUManager.showDeviceLostUI(info);
       }
@@ -69,17 +243,11 @@ export class MultiDeviceVisualizer {
     this.camera = new CameraController();
     this.profiler = null;
     this.debugPanel = null;
-    /** @type {string} Matches WebGPUManager.depthFormat (depth24plus, no stencil). */
     this.depthFormat = DEPTH_FORMAT;
-    
+
     // Initialize shader provider and camera controller
     this.shaders = new MultiDeviceShaders();
     this.cameraController = null; // Will be initialized after debugPanel is ready
-
-    // Convenience references
-    Object.defineProperty(this, 'device', { get: () => this.webgpu.device });
-    Object.defineProperty(this, 'context', { get: () => this.webgpu.context });
-    Object.defineProperty(this, 'globalUniformBuffer', { get: () => this.webgpu.globalUniformBuffer });
 
     this.currentView = 'overview';
     this.devicesEnabled = Object.fromEntries(getAllSimDeviceIds().map((id) => [id, true]));
@@ -90,16 +258,14 @@ export class MultiDeviceVisualizer {
     // Hardware digital twin (Web Serial / mock)
     this.emController = new ElectromagnetController();
     this.hardwareBridge = new HardwareBridge({
-      onError: (e) => console.error('[HardwareBridge]', e)
+      onError: (e: unknown) => console.error('[HardwareBridge]', e)
     });
     this.hardwareTargetPhase = 0;
     this.hardwareTargetSpeed = 0;
     this.hardwareShadow = { phaseError: 0, rpmError: 0 };
     this.hardwareTwinTelemetry = null;
 
-    /** @type {import('./integration.ts').SEGIntegrationManager | null} */
     this.integration = null;
-    /** @type {GPUBuffer | null} Manager-owned physics uniform buffer (alias). */
     this.physicsUniformBuffer = null;
 
     this.time = 0;
@@ -131,9 +297,9 @@ export class MultiDeviceVisualizer {
     this.postBloomStrength = lookPreset.post.bloomStrength;
 
     // Literature-grounded SEG layout preset (roller counts, gap rule, scale).
-  //   searl    = documented 10/25/35 three-ring device
-  //   roschin  = Roschin–Godin 1 m single-ring 12-roller converter
-  //   legacy   = previous 8/12/16 toy proportions (regression)
+    //   searl    = documented 10/25/35 three-ring device
+    //   roschin  = Roschin–Godin 1 m single-ring 12-roller converter
+    //   legacy   = previous 8/12/16 toy proportions (regression)
     this.segLayoutPreset = parseSegLayoutPreset(params, this.prototypePreset);
     this.segLayout = null;
 
@@ -155,8 +321,21 @@ export class MultiDeviceVisualizer {
 
     this.init();
   }
-  
-  async init() {
+
+  /** Proxies WebGPUManager's device — non-null once init() has completed. */
+  get device(): GPUDevice {
+    return this.webgpu.device as GPUDevice;
+  }
+
+  get context(): GPUCanvasContext | null {
+    return this.webgpu.context;
+  }
+
+  get globalUniformBuffer(): GPUBuffer | null {
+    return this.webgpu.globalUniformBuffer;
+  }
+
+  async init(): Promise<void> {
     try {
       await this.webgpu.init();
       this.depthFormat = this.webgpu.depthFormat || DEPTH_FORMAT;
@@ -180,7 +359,12 @@ export class MultiDeviceVisualizer {
         });
         this.physicsUniformBuffer = this.integration.getPhysicsUniformBuffer();
         if (typeof window !== 'undefined') {
-          window.SEGIntegration = window.SEGIntegration || { manager: null, initialize: null };
+          window.SEGIntegration = window.SEGIntegration || {
+            manager: null,
+            initialize: () => {
+              throw new Error('[MultiDeviceVisualizer] window.SEGIntegration.initialize is not wired for this bootstrap path');
+            }
+          };
           window.SEGIntegration.manager = this.integration;
         }
         console.log('[MultiDeviceVisualizer] SEGIntegrationManager attached (typed physics uniforms)');
@@ -191,7 +375,7 @@ export class MultiDeviceVisualizer {
       }
 
       // Profiler reuses the single adapter from WebGPUManager (no second requestAdapter)
-      this.profiler = new PerformanceProfiler(this.webgpu.device, this.canvas, {
+      this.profiler = new PerformanceProfiler(this.device, this.canvas, {
         adapter: this.webgpu.adapter,
         adapterInfo: this.webgpu.adapterInfo
       });
@@ -202,13 +386,13 @@ export class MultiDeviceVisualizer {
 
       // Initialize debug panel
       this.debugPanel = new DebugPanel(this.profiler);
-      
+
       // Initialize multi-device camera controller (for view transitions and matrix math)
       // Note: MultiDeviceCamera focuses on view transitions and matrix operations only.
       // Input handling is delegated to CameraController.setupInteraction() below.
       this.cameraController = new MultiDeviceCamera(this.canvas, this.camera.camera, this);
 
-      this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
+      this.camera.setupInteraction(this.canvas, (mode: string) => this.switchMode(mode));
 
       this.segLayoutUniformBuffer = this.device.createBuffer({
         label: 'seg-layout-uniforms',
@@ -244,7 +428,7 @@ export class MultiDeviceVisualizer {
 
       this.render(0);
 
-      window.runSEGSpeedTest = (speeds, durationMs) => this.runSpeedTest(speeds, durationMs);
+      window.runSEGSpeedTest = (speeds?: number[], durationMs?: number) => this.runSpeedTest(speeds, durationMs);
 
       try {
         this.segAnnotations = initSEGAnnotations(() => this);
@@ -264,7 +448,7 @@ export class MultiDeviceVisualizer {
       } catch (e) {
         console.warn('[MultiDeviceVisualizer] Hardware panel init failed:', e);
       }
-    // Also default WebGPU mock path to shadow when auto-connecting
+      // Also default WebGPU mock path to shadow when auto-connecting
       try {
         if (new URLSearchParams(location.search).get('mockHardware') === '1') {
           this.hardwareBridge.connectMock().then(() => {
@@ -285,11 +469,11 @@ export class MultiDeviceVisualizer {
 
     } catch (e) {
       console.error(e);
-      alert("Init failed: " + e.message);
+      alert('Init failed: ' + (e instanceof Error ? e.message : String(e)));
     }
   }
-  
-  setSegFrameLevel(level) {
+
+  setSegFrameLevel(level: string): void {
     const allowed = ['off', 'minimal', 'full'];
     if (!allowed.includes(level)) return;
     this.segFrameLevel = level;
@@ -297,10 +481,10 @@ export class MultiDeviceVisualizer {
   }
 
   /** Switch studio / lab / drama lighting + post look at runtime. */
-  setLightingLook(look) {
-    const preset = getLightingPreset(look);
+  setLightingLook(look: string): void {
+    const preset = getLightingPreset(look as LightingLook);
     if (!preset) return;
-    this.lightingLook = look;
+    this.lightingLook = look as LightingLook;
     this.postPreset = preset;
     this.lightingConfig = { ...preset.lighting };
     this.postExposure = preset.post.exposure;
@@ -309,7 +493,7 @@ export class MultiDeviceVisualizer {
     console.log(`[SEG] Lighting look → ${look}`);
   }
 
-  _uploadSkyUniforms(energy = 0) {
+  _uploadSkyUniforms(energy = 0): void {
     if (!this.skyUniformBuffer || !this.device) return;
     const sky = this.postPreset?.sky ?? getLightingPreset(this.lightingLook).sky;
     this.device.queue.writeBuffer(this.skyUniformBuffer, 0, new Float32Array([
@@ -319,7 +503,7 @@ export class MultiDeviceVisualizer {
     ]));
   }
 
-  refreshSEGLayout(qualityScale = 1.0) {
+  refreshSEGLayout(qualityScale = 1.0): SegLayoutSummary {
     this.segLayout = computeSEGLayout(this.segLayoutPreset, qualityScale);
     if (this.segLayoutUniformBuffer && this.device) {
       this.device.queue.writeBuffer(
@@ -328,18 +512,18 @@ export class MultiDeviceVisualizer {
         packSEGLayoutUniforms(this.segLayout)
       );
     }
-    return this.segLayout;
+    return this.segLayout!;
   }
 
-  getSEGLayoutPreset() {
+  getSEGLayoutPreset(): string {
     return this.segLayoutPreset;
   }
 
   /**
    * Switch SEG layout preset at runtime (rebuilds shared SEG meshes + uniform buffer).
-   * @param {string} presetName - 'searl', 'roschin', or 'legacy'
+   * @param presetName - 'searl', 'roschin', or 'legacy'
    */
-  async setSEGLayoutPreset(presetName) {
+  async setSEGLayoutPreset(presetName: string): Promise<SegLayoutSummary | null> {
     const presets = Object.values(SEG_LAYOUT_PRESETS);
     if (!presets.includes(presetName)) {
       console.warn('[SEG] Unknown layout preset:', presetName);
@@ -372,15 +556,15 @@ export class MultiDeviceVisualizer {
     return layout;
   }
 
-  getHeronLayoutPreset() {
+  getHeronLayoutPreset(): string {
     return this.heronLayoutPreset;
   }
 
   /**
    * Switch Heron's Fountain build shape (vessels, plumbing, hydraulic params).
-   * @param {string} presetName - classic, compact, tower, wide, spiral
+   * @param presetName - classic, compact, tower, wide, spiral
    */
-  async setHeronLayoutPreset(presetName) {
+  async setHeronLayoutPreset(presetName: string): Promise<HeronLayoutWithMeta | null> {
     const presets = Object.values(HERON_LAYOUT_PRESETS);
     if (!presets.includes(presetName)) {
       console.warn('[Heron] Unknown layout preset:', presetName);
@@ -399,8 +583,8 @@ export class MultiDeviceVisualizer {
     }
     if (heron?.physicsState) {
       heron.physicsState.heronLayoutId = presetName;
-      heron.physicsState.heronHeadMax = this.heronLayout.headMaxM;
-      heron.physicsState.heronHead = Math.min(heron.physicsState.heronHead, this.heronLayout.headMaxM);
+      heron.physicsState.heronHeadMax = this.heronLayout!.headMaxM;
+      heron.physicsState.heronHead = Math.min(heron.physicsState.heronHead, this.heronLayout!.headMaxM);
     }
 
     try {
@@ -419,11 +603,11 @@ export class MultiDeviceVisualizer {
     return this.heronLayout;
   }
 
-  showOptimalSettingsHint() {
-    const settings = this.profiler.getOptimalSettings();
-    console.log('Detected GPU Tier:', this.profiler.gpuTier);
+  showOptimalSettingsHint(): void {
+    const settings = this.profiler!.getOptimalSettings();
+    console.log('Detected GPU Tier:', this.profiler!.gpuTier);
     console.log('Recommended settings:', settings);
-    
+
     // Could show a UI notification here
   }
 
@@ -431,8 +615,8 @@ export class MultiDeviceVisualizer {
    * Resize the 3D solar battery gauge cylinder to reflect charge level (0–1).
    * Called at init and each frame from DeviceInstance.update for the solar device.
    */
-  updateBatteryGaugeMesh(charge = 0.5) {
-    if (!this.device || !this.batteryGaugeVertexBuffer) return;
+  updateBatteryGaugeMesh(charge = 0.5): void {
+    if (!this.device || !this.batteryGaugeVertexBuffer || !this.batteryGaugeIndexBuffer) return;
     const clamped = Math.max(0, Math.min(1, charge));
     const minH = 0.04;
     const maxH = 0.35;
@@ -443,7 +627,7 @@ export class MultiDeviceVisualizer {
     this.batteryGaugeIndexCount = gaugeData.indices.length;
   }
 
-  switchMode(mode) {
+  switchMode(mode: string): void {
     this.onModeChange(mode);
   }
 
@@ -451,16 +635,16 @@ export class MultiDeviceVisualizer {
    * Whether a device should simulate and render this frame.
    * Overview shows all enabled devices; focused mode shows only the active device.
    */
-  isDeviceActive(deviceId) {
+  isDeviceActive(deviceId: string): boolean {
     return isDeviceVisible(this.currentView, this.devicesEnabled, deviceId);
   }
 
   /** True when the multi-device overview (all devices) is active. */
-  isOverviewMode() {
+  isOverviewMode(): boolean {
     return !this.currentView || this.currentView === 'overview';
   }
 
-  async setupDevices() {
+  async setupDevices(): Promise<void> {
     const deviceConfig = getMergedDeviceConfig();
     for (const [deviceId, config] of Object.entries(deviceConfig)) {
       this.devices[deviceId] = new DeviceInstance(
@@ -469,7 +653,7 @@ export class MultiDeviceVisualizer {
         config,
         this
       );
-      await this.profiler.trackShaderCompile(`device-${deviceId}`, async () => {
+      await this.profiler!.trackShaderCompile(`device-${deviceId}`, async () => {
         await this.devices[deviceId].init();
       });
 
@@ -479,8 +663,8 @@ export class MultiDeviceVisualizer {
       }
     }
   }
-  
-  async setupEnergyPipes() {
+
+  async setupEnergyPipes(): Promise<void> {
     for (const config of ENERGY_PIPE_EDGES) {
       const pipe = new EnergyPipe(this.device, config, this);
       await pipe.init();
@@ -490,9 +674,9 @@ export class MultiDeviceVisualizer {
     initEnergyCouplingDisclaimer();
   }
 
-  async setupEnergyPipePipeline() {
-    this.energyPipePipeline = await this.pipelineCache.ensureEnergyPipePipeline(this.shaders);
-    this.energyPipeComputePipeline = await this.pipelineCache.ensureEnergyPipeComputePipeline(this.shaders);
+  async setupEnergyPipePipeline(): Promise<void> {
+    this.energyPipePipeline = await this.pipelineCache!.ensureEnergyPipePipeline(this.shaders);
+    this.energyPipeComputePipeline = await this.pipelineCache!.ensureEnergyPipeComputePipeline(this.shaders);
     for (const pipe of this.energyPipes) {
       pipe._setupComputeResources();
     }
@@ -502,7 +686,7 @@ export class MultiDeviceVisualizer {
    * Handle simulation mode change (forwarded from window.setMode).
    * Focuses the camera on the named device, matching the single-device API.
    */
-  onModeChange(mode) {
+  onModeChange(mode: string): void {
     const prev = this.currentView;
     this.currentView = mode;
     if (mode === 'overview') {
@@ -522,7 +706,7 @@ export class MultiDeviceVisualizer {
 
     // Lazy CAD props: load on SEG focus; dispose focus-only props on leave.
     if (typeof this.ensureGltfPropsForView === 'function') {
-      this.ensureGltfPropsForView(mode).catch((err) => {
+      this.ensureGltfPropsForView(mode).catch((err: unknown) => {
         console.warn('[gltf] ensureGltfPropsForView failed', err);
       });
     }
@@ -539,7 +723,7 @@ export class MultiDeviceVisualizer {
   }
 
   /** Adjust SEG particle count from the operator panel slider */
-  setParticleCount(count) {
+  setParticleCount(count: number): void {
     const seg = this.devices?.seg;
     if (!seg || count === seg.particleCount) return;
     seg.particleCount = count;
