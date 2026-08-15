@@ -1,0 +1,104 @@
+/* ============================================
+   ENERGY BALANCE DISPLAY
+   ============================================ */
+.energy-balance {
+  padding: 12px;
+}
+
+.energy-sankey {
+  width: 100%;
+  height: 160px;
+}
+
+.sankey-node {
+  cursor: pointer;
+}
+
+.node-rect {
+  fill: rgba(0, 255, 255, 0.2);
+  stroke: var(--sci-cyan);
+  stroke-width: 1;
+}
+
+.node-rect:hover {
+  fill: rgba(0, 255, 255, 0.4);
+}
+
+.node-label {
+  font-size: 8px;
+  fill: var(--sci-text-secondary);
+  text-anchor: middle;
+  font-family: var(--sci-font-ui);
+}
+
+.node-value {
+  font-size: 9px;
+  fill: var(--sci-cyan);
+  text-anchor: middle;
+  font-family: var(--sci-font-mono);
+  font-weight: 600;
+}
+
+.energy-flow-arrow {
+  stroke: var(--sci-cyan);
+  fill: none;
+  opacity: 0.7;
+  transition: stroke-width 0.3s ease;
+  animation: flowPulse 2s ease-in-out infinite;
+}
+
+@keyframes flowPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.eff-label {
+  font-size: 7px;
+  fill: var(--sci-green);
+  font-family: var(--sci-font-mono);
+  text-anchor: middle;
+}
+
+.loss-label {
+  font-size: 6px;
+  fill: var(--sci-red);
+  font-family: var(--sci-font-mono);
+  text-anchor: middle;
+  opacity: 0.8;
+}
+
+.energy-summary {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summary-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+}
+
+.summary-item.highlight {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.summary-label {
+  color: var(--sci-text-secondary);
+}
+
+.summary-value {
+  font-family: var(--sci-font-mono);
+  color: var(--sci-cyan);
+  font-weight: 600;
+}
+
+.summary-item.highlight .summary-value {
+  color: var(--sci-green);
+  font-size: 0.9rem;
+}

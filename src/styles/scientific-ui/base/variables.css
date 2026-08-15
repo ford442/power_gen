@@ -1,8 +1,6 @@
-/**
- * Scientific UI - CSS Variables
- * Theme colors, fonts, and design tokens
- */
-
+/* ============================================
+   ROOT VARIABLES
+   ============================================ */
 :root {
   --sci-bg-primary: #0a0a0f;
   --sci-bg-panel: rgba(10, 10, 15, 0.92);
@@ -26,7 +24,7 @@
   --sci-shadow-magenta: 0 0 30px rgba(255, 0, 255, 0.15);
   --sci-transition-fast: 0.15s ease;
   --sci-transition-normal: 0.3s ease;
-  
+
   /* LED + Solar specific variables */
   --charge-low: #ff4444;
   --charge-med: #ffaa00;

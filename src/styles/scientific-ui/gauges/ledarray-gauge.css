@@ -1,0 +1,99 @@
+/* ============================================
+   LED ARRAY GAUGE
+   ============================================ */
+.led-gauge {
+  padding: 12px;
+}
+
+.led-grid {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  margin: 0 auto 12px;
+}
+
+.led-wrapper {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.led-wrapper:hover {
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.led-indicator {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+  transition: all 0.2s;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.led-indicator.on {
+  opacity: 1;
+  box-shadow: 0 0 12px currentColor, 0 0 20px currentColor;
+  animation: ledPulse 2s ease-in-out infinite;
+}
+
+.led-indicator.off {
+  opacity: 0.2;
+  box-shadow: none;
+}
+
+.led-indicator.red { background: #ff3333; }
+.led-indicator.green { background: #33ff33; }
+.led-indicator.blue { background: #3333ff; }
+.led-indicator.white { background: #ffffff; }
+.led-indicator.yellow { background: #ffff33; }
+
+/* LED blink animation for on state */
+@keyframes ledPulse {
+  0%, 100% { box-shadow: 0 0 8px currentColor, 0 0 20px currentColor; }
+  50% { box-shadow: 0 0 12px currentColor, 0 0 30px currentColor; }
+}
+
+.led-label {
+  font-size: 0.55rem;
+  color: var(--sci-text-muted);
+  font-family: var(--sci-font-mono);
+}
+
+.led-vf {
+  font-size: 0.5rem;
+  color: var(--sci-text-secondary);
+  font-family: var(--sci-font-mono);
+}
+
+.led-stats {
+  display: flex;
+  justify-content: space-around;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.led-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.led-stat .stat-label {
+  font-size: 0.6rem;
+  color: var(--sci-text-muted);
+  text-transform: uppercase;
+}
+
+.led-stat .stat-value {
+  font-family: var(--sci-font-mono);
+  font-size: 0.8rem;
+  color: var(--sci-cyan);
+  font-weight: 600;
+}

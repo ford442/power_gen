@@ -1,0 +1,68 @@
+/* ============================================
+   TORQUE GAUGE
+   ============================================ */
+.sci-torque-gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+.sci-torque-ring {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sci-torque-label {
+  width: 50px;
+  font-size: 0.65rem;
+  color: var(--sci-text-secondary);
+  text-transform: uppercase;
+}
+
+.sci-torque-visual {
+  flex: 1;
+  height: 28px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.sci-torque-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--sci-text-muted);
+  transform: translateX(-50%);
+  z-index: 2;
+}
+
+.sci-torque-bar {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 2px;
+  transition: all var(--sci-transition-fast);
+}
+
+.sci-torque-bar.left {
+  right: 50%;
+  background: linear-gradient(90deg, var(--sci-cyan), transparent);
+}
+
+.sci-torque-bar.right {
+  left: 50%;
+  background: linear-gradient(90deg, transparent, var(--sci-magenta));
+}
+
+.sci-torque-value {
+  width: 60px;
+  font-family: var(--sci-font-mono);
+  font-size: 0.75rem;
+  color: var(--sci-cyan);
+  text-align: right;
+}

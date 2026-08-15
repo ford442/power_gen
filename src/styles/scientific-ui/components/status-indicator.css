@@ -1,9 +1,6 @@
-/**
- * Scientific UI - Status Indicator Styles
- * Wolfram MCP status, data source badges
- */
-
-/* Wolfram Status Section */
+/* ============================================
+   WOLFRAM STATUS SECTION
+   ============================================ */
 .sci-wolfram-status {
   display: flex;
   align-items: center;
@@ -45,6 +42,11 @@
   background: var(--sci-red);
   color: var(--sci-red);
   animation: statusPulse 0.5s ease-in-out infinite;
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .sci-status-text {

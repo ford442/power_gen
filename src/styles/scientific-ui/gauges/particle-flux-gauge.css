@@ -1,0 +1,40 @@
+/* ============================================
+   PARTICLE FLUX GAUGE
+   ============================================ */
+.sci-flux-gauge {
+  padding: 12px;
+}
+
+.sci-flux-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.sci-flux-rate {
+  font-family: var(--sci-font-mono);
+  font-size: 1rem;
+  color: var(--sci-cyan);
+}
+
+.sci-flux-particles {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  color: var(--sci-text-secondary);
+}
+
+.sci-flux-sparkline {
+  height: 40px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sci-flux-sparkline canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
