@@ -93,6 +93,12 @@ export interface PulseCoilPhysicsExtension {
   pulseCoilArmatureVel?: number;
   pulseCoilPulseT?: number;
   pulseCoilFiring?: boolean;
+  /** Latched peak |I| so short discharge spikes stay readable in telemetry. */
+  pulseCoilPeakIA?: number;
+  /** Oscilloscope-style discharge trace ring buffers (last ~128 samples). */
+  pulseCoilHistI?: Float32Array;
+  pulseCoilHistV?: Float32Array;
+  pulseCoilHistIdx?: number;
   /** Set by render-loop when C++ WASM owns maglev/homopolar plant this frame. */
   _wasmPlantActive?: boolean;
 }

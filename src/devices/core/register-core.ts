@@ -5,6 +5,7 @@
 
 import { registerDevice } from '../device-registry.js';
 import { DEVICE_MESH_LAYOUTS } from '../../device-mesh-layouts.js';
+import type { DevicePlugin } from '../types';
 import {
   segGetComputeSpeed,
   segUpdateDynamics,
@@ -35,7 +36,7 @@ import { mhdComputeRawEnergy, mhdUpdateEffects, mhdUpdateMesh, createMhdPhysicsS
 import { drawSegWebgpu } from './seg-render.js';
 import { drawSolarGaugeWebgpu } from './solar-render.js';
 
-registerDevice({
+const segPlugin: DevicePlugin = {
   id: 'seg',
   label: 'SEG',
   category: 'core',
@@ -47,9 +48,10 @@ registerDevice({
   updateEffects: segUpdateEffects,
   wantsThermalHaze: true,
   drawWebgpu: drawSegWebgpu
-});
+};
+registerDevice(segPlugin);
 
-registerDevice({
+const heronPlugin: DevicePlugin = {
   id: 'heron',
   label: "Heron's Fountain",
   category: 'core',
@@ -61,9 +63,10 @@ registerDevice({
   computeRawEnergy: heronComputeRawEnergy,
   updateFlowPaths: heronUpdateFlowPaths,
   updateEffects: heronUpdateEffects
-});
+};
+registerDevice(heronPlugin);
 
-registerDevice({
+const kelvinPlugin: DevicePlugin = {
   id: 'kelvin',
   label: "Kelvin's Thunderstorm",
   category: 'core',
@@ -75,9 +78,10 @@ registerDevice({
   computeRawEnergy: kelvinComputeRawEnergy,
   updateFlowPaths: kelvinUpdateFlowPaths,
   updateEffects: kelvinUpdateEffects
-});
+};
+registerDevice(kelvinPlugin);
 
-registerDevice({
+const solarPlugin: DevicePlugin = {
   id: 'solar',
   label: 'Solar / LED',
   category: 'core',
@@ -91,9 +95,10 @@ registerDevice({
   updateFlowPaths: solarUpdateFlowPaths,
   updateEffects: solarUpdateEffects,
   drawWebgpuOverlay: drawSolarGaugeWebgpu
-});
+};
+registerDevice(solarPlugin);
 
-registerDevice({
+const peltierPlugin: DevicePlugin = {
   id: 'peltier',
   label: 'Peltier',
   category: 'core',
@@ -119,9 +124,10 @@ registerDevice({
     peltierCOP: { label: 'COP proxy', unit: '', source: 'sim' }
   },
   wantsThermalHaze: true
-});
+};
+registerDevice(peltierPlugin);
 
-registerDevice({
+const mhdPlugin: DevicePlugin = {
   id: 'mhd',
   label: 'MHD Channel',
   category: 'core',
@@ -146,4 +152,5 @@ registerDevice({
     mhdPowerW: { label: 'Power', unit: 'W', source: 'sim' }
   },
   wantsThermalHaze: true
-});
+};
+registerDevice(mhdPlugin);

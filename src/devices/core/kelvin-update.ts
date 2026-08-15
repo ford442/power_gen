@@ -1,19 +1,21 @@
-export function kelvinSyncAfterPhysics(instance) {
-  instance.voltageEnergyLevel = instance.physicsState.kelvinVoltageN;
-}
+import type { DevicePlugin } from '../types';
 
-export function kelvinComputeRawEnergy(instance, ctx) {
+export const kelvinSyncAfterPhysics: NonNullable<DevicePlugin['syncAfterPhysics']> = (instance) => {
+  instance.voltageEnergyLevel = instance.physicsState!.kelvinVoltageN;
+};
+
+export const kelvinComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (instance, ctx) => {
   const fromPhysics = instance.physicsState?.kelvinVoltageN;
   instance.voltageEnergyLevel = fromPhysics != null
     ? fromPhysics
     : Math.min(1.0, ctx.speedNorm * 0.65 + (0.5 + 0.5 * Math.sin(ctx.time * 3.2)) * 0.35);
   return instance.voltageEnergyLevel;
-}
+};
 
-export function kelvinUpdateFlowPaths(instance, ctx) {
+export const kelvinUpdateFlowPaths: NonNullable<DevicePlugin['updateFlowPaths']> = (instance, ctx) => {
   const { count, time, writePath } = ctx;
-  const voltN = instance.physicsState?.kelvinVoltageN ?? instance.voltageEnergyLevel;
-  const spark = instance.physicsState?.kelvinSparkTimer > 0 ? 1 : 0;
+  const voltN = instance.physicsState?.kelvinVoltageN ?? instance.voltageEnergyLevel!;
+  const spark = (instance.physicsState?.kelvinSparkTimer ?? 0) > 0 ? 1 : 0;
   for (let i = 0; i < count; i++) {
     const side = i % 2 === 0 ? -2.5 : 2.5;
     const phase = i / count;
@@ -25,11 +27,11 @@ export function kelvinUpdateFlowPaths(instance, ctx) {
     writePath(i, side + wobble + branch, y + lift, wobble * 0.5, voltN * 0.85 + spark * 0.4, 0.35 + voltN * 0.65);
   }
   return true;
-}
+};
 
-export function kelvinUpdateEffects(instance, ctx) {
+export const kelvinUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, energy, gate, pushParticle } = ctx;
-  const voltageProxy = Math.max(0.0, Math.min(1.0, instance.voltageEnergyLevel * 0.7 + Math.pow(energy, 1.2) * 0.5));
+  const voltageProxy = Math.max(0.0, Math.min(1.0, instance.voltageEnergyLevel! * 0.7 + Math.pow(energy, 1.2) * 0.5));
   const sparkGate = Math.pow(gate(voltageProxy, 0.24, 0.60), 1.4);
   const branchGate = Math.pow(gate(voltageProxy, 0.58, 0.92), 1.8);
   const sparkCount = Math.floor(budget * 0.58 * sparkGate);
@@ -54,4 +56,4 @@ export function kelvinUpdateEffects(instance, ctx) {
     pushParticle(side * (0.6 + Math.random() * 2.0) + trunk, y, z, 6.0 + Math.random());
   }
   return true;
-}
+};

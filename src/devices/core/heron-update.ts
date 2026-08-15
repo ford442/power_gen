@@ -1,20 +1,22 @@
-export function heronSyncAfterPhysics(instance) {
-  instance.flowEnergyLevel = instance.physicsState.energyLevel;
-}
+import type { DevicePlugin } from '../types';
 
-export function heronComputeRawEnergy(instance, ctx) {
+export const heronSyncAfterPhysics: NonNullable<DevicePlugin['syncAfterPhysics']> = (instance) => {
+  instance.flowEnergyLevel = instance.physicsState!.energyLevel;
+};
+
+export const heronComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (instance, ctx) => {
   const fromPhysics = instance.physicsState?.energyLevel;
   instance.flowEnergyLevel = fromPhysics != null
     ? fromPhysics
     : Math.min(1.0, ctx.speedNorm * 0.7 + (0.5 + 0.5 * Math.sin(ctx.time * 1.6)) * 0.3);
   return instance.flowEnergyLevel;
-}
+};
 
-export function heronUpdateFlowPaths(instance, ctx) {
+export const heronUpdateFlowPaths: NonNullable<DevicePlugin['updateFlowPaths']> = (instance, ctx) => {
   const { count, time, energy, writePath } = ctx;
   const headN = instance.physicsState
     ? instance.physicsState.heronHead / Math.max(0.01, instance.physicsState.heronHeadMax)
-    : instance.flowEnergyLevel;
+    : instance.flowEnergyLevel!;
   const flow = instance.geometry.heronFlow || { apexY: 6.1, supplyX: 1.6, drainBasinY: -2.2 };
   const jetTop = flow.apexY + headN * 0.35;
   const reservoirY = jetTop - (flow.apexY - flow.drainBasinY) * 0.42;
@@ -43,16 +45,16 @@ export function heronUpdateFlowPaths(instance, ctx) {
     writePath(i, x, y, z, energy * (0.4 + headN * 0.6), 0.5 + 0.5 * Math.sin(time * 4 + phase * 20));
   }
   return true;
-}
+};
 
-export function heronUpdateEffects(instance, ctx) {
+export const heronUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, gate, pushParticle } = ctx;
-  const flowGate = Math.pow(gate(instance.flowEnergyLevel, 0.18, 0.58), 1.2);
-  const impactGate = Math.pow(gate(instance.flowEnergyLevel, 0.55, 0.90), 1.6);
-  const flow = instance.geometry.heronFlow || { apexY: 6.1, drainBasinY: -2.2 };
+  const flowGate = Math.pow(gate(instance.flowEnergyLevel!, 0.18, 0.58), 1.2);
+  const impactGate = Math.pow(gate(instance.flowEnergyLevel!, 0.55, 0.90), 1.6);
+  const flow = instance.geometry.heronFlow || { apexY: 6.1, supplyX: 1.6, drainBasinY: -2.2 };
   const headN = instance.physicsState
     ? instance.physicsState.heronHead / Math.max(0.01, instance.physicsState.heronHeadMax)
-    : instance.flowEnergyLevel;
+    : instance.flowEnergyLevel!;
   const jetY = flow.apexY + headN * 0.25;
   const basinY = flow.drainBasinY;
   const mistCount = Math.floor(budget * 0.56 * flowGate);
@@ -72,4 +74,4 @@ export function heronUpdateEffects(instance, ctx) {
     pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 5.0 + Math.random());
   }
   return true;
-}
+};

@@ -9,16 +9,18 @@
  *   - Passive magnetic levitation with diamagnetic/eddy stabilization (Berry, Eur. J. Phys., 1996)
  */
 
-import { packInstance } from '../../device-mesh-layouts.js';
+import { packInstance, type InstanceArray } from '../../device-mesh-layouts.js';
 import { MATERIAL_QUANTA_COIL, MATERIAL_QUANTA_FLOATER, MATERIAL_QUANTA_FLOATER_POST, MATERIAL_STEEL_BASE } from '../material-roles.js';
 import { writeMeshCylinders } from '../update-helpers';
 import { estimateHalbachFieldT, MAGNET_BR } from './halbach-field';
+import type { DevicePlugin } from '../types';
+import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 
 /** Ring magnet segments in a simplified Halbach-like azimuthal pattern. */
-function buildHalbachRingInstances() {
+function buildHalbachRingInstances(): InstanceArray {
   const segments = 12;
   const majorR = 2.8;
-  const out = [];
+  const out: InstanceArray = [];
   for (let i = 0; i < segments; i++) {
     const angle = (i / segments) * Math.PI * 2;
     const x = Math.cos(angle) * majorR;
@@ -34,7 +36,7 @@ function buildHalbachRingInstances() {
   return out;
 }
 
-function buildBaseInstances() {
+function buildBaseInstances(): InstanceArray {
   const steel = [0.45, 0.48, 0.52];
   return [
     packInstance([0, -0.6, 0], MATERIAL_STEEL_BASE, [0, 0, 0, 1], steel, 0.04),
@@ -43,7 +45,7 @@ function buildBaseInstances() {
 }
 
 /** Levitating disc + centre post (updated each frame via physics gap). */
-function buildFloaterInstances(gapM = 0.018) {
+function buildFloaterInstances(gapM = 0.018): InstanceArray {
   const discColor = [0.72, 0.74, 0.78];
   const y = 0.55 + gapM;
   return [
@@ -52,9 +54,9 @@ function buildFloaterInstances(gapM = 0.018) {
   ];
 }
 
-export function buildMagLevMesh(gapM = 0.018) {
+export function buildMagLevMesh(gapM = 0.018): { cylinders: () => InstanceArray } {
   return {
-    cylinders: () => [
+    cylinders: (): InstanceArray => [
       ...buildBaseInstances(),
       ...buildHalbachRingInstances(),
       ...buildFloaterInstances(gapM)
@@ -64,16 +66,13 @@ export function buildMagLevMesh(gapM = 0.018) {
 
 /**
  * Estimate surface B for a Halbach-like ring (order-of-magnitude, educational).
- * @param {number} gapM  metres
  */
 export { estimateHalbachFieldT } from './halbach-field';
 
 /**
- * @param {object} state
- * @param {number} dt
- * @param {number} drive 0..1 from speed slider
+ * @param drive 0..1 from speed slider
  */
-export function stepMagLevPhysics(state, dt, drive) {
+export const stepMagLevPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const gapTarget = 0.012 + 0.022 * drive;
   const kSpring = 180;
   const cDamp = 14;
@@ -97,9 +96,9 @@ export function stepMagLevPhysics(state, dt, drive) {
   state.maglevLiftN = Math.max(0, lift);
   state.maglevRpm = drive * 4200 * (0.3 + 0.7 * (1 - Math.abs(newGap - gapTarget) / gapTarget));
   state.energyLevel = Math.min(1, drive * 0.55 + (1 - Math.abs(newGap - gapTarget) / Math.max(gapTarget, 0.01)) * 0.45);
-}
+};
 
-export function createMagLevPhysicsState() {
+export function createMagLevPhysicsState(): Partial<DevicePhysicsState> {
   return {
     maglevGap: 0.018,
     maglevGapVel: 0,
@@ -131,17 +130,17 @@ export const MAGLEV_REFERENCES = [
   }
 ];
 
-function maglevUpdateMesh(instance) {
+const maglevUpdateMesh: NonNullable<DevicePlugin['updateMesh']> = (instance) => {
   const gap = instance.physicsState?.maglevGap ?? 0.018;
   writeMeshCylinders(instance, buildMagLevMesh(gap));
-}
+};
 
-function maglevComputeRawEnergy(instance, ctx) {
+const maglevComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (instance, ctx) => {
   const gapN = instance.physicsState?.energyLevel ?? instance.energyLevel;
   return Math.min(1.0, gapN * 0.7 + ctx.speedNorm * 0.3);
-}
+};
 
-function maglevUpdateEffects(instance, ctx) {
+const maglevUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, energy, gate, pushParticle, time } = ctx;
   const fieldGate = Math.pow(gate(energy, 0.2, 0.75), 1.3);
   const gap = instance.physicsState?.maglevGap ?? 0.018;
@@ -153,9 +152,9 @@ function maglevUpdateEffects(instance, ctx) {
     pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 3.0 + Math.random());
   }
   return true;
-}
+};
 
-export const magneticLevitationPlugin = {
+export const magneticLevitationPlugin: DevicePlugin = {
   id: 'maglev',
   label: 'Magnetic Levitation',
   category: 'quanta',

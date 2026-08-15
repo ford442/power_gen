@@ -3,9 +3,11 @@
  * WASM two-node Seebeck plant remains authoritative with `?wasmPhysics=1`.
  */
 
-import { packInstance } from '../../device-mesh-layouts.js';
+import { packInstance, type InstanceArray } from '../../device-mesh-layouts.js';
 import { MATERIAL_STEEL_BASE, MATERIAL_STRUCTURAL, MATERIAL_QUANTA_COIL } from '../material-roles.js';
 import { writeMeshCylinders } from '../update-helpers';
+import type { DeviceInstanceLike, DevicePlugin } from '../types';
+import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 
 /** Classroom-scale module parameters (mirrors cpp/plant/peltier_plant.cpp spirit). */
 export const PELTIER_PARAMS = Object.freeze({
@@ -25,7 +27,7 @@ export const PELTIER_PARAMS = Object.freeze({
  * Two-node thermal plates: hot (bottom, red tint) + cold (top, blue tint).
  * Emissive scales with ΔT for a cheap heat-map look.
  */
-export function buildPeltierMesh(hotK = 320, coldK = 290, deltaT = 30) {
+export function buildPeltierMesh(hotK = 320, coldK = 290, deltaT = 30): { cylinders: () => InstanceArray } {
   const ambient = PELTIER_PARAMS.ambientK;
   const hotN = Math.max(0, Math.min(1, (hotK - ambient) / 120));
   const coldN = Math.max(0, Math.min(1, (ambient - coldK + 40) / 80));
@@ -49,11 +51,9 @@ export function buildPeltierMesh(hotK = 320, coldK = 290, deltaT = 30) {
 
 /**
  * JS fallback when WASM plant is off — same two-node spirit as C++.
- * @param {object} state
- * @param {number} dt
- * @param {number} drive 0..1
+ * @param drive 0..1
  */
-export function stepPeltierPhysics(state, dt, drive) {
+export const stepPeltierPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const p = PELTIER_PARAMS;
   const S = p.seebeck * p.couples;
   let hotK = state.peltierHotK ?? p.ambientK + 15;
@@ -81,9 +81,9 @@ export function stepPeltierPhysics(state, dt, drive) {
   state.peltierPowerW = powerW;
   state.peltierCOP = cop;
   state.energyLevel = Math.min(1, Math.abs(deltaTK) / 80);
-}
+};
 
-export function createPeltierPhysicsState() {
+export function createPeltierPhysicsState(): Partial<DevicePhysicsState> {
   const p = PELTIER_PARAMS;
   return {
     peltierHotK: p.ambientK + 12,
@@ -97,10 +97,10 @@ export function createPeltierPhysicsState() {
   };
 }
 
-export function peltierUpdateMesh(instance) {
-  const s = instance.physicsState || {};
+export function peltierUpdateMesh(instance: DeviceInstanceLike): void {
+  const s = instance.physicsState;
   writeMeshCylinders(
     instance,
-    buildPeltierMesh(s.peltierHotK ?? 320, s.peltierColdK ?? 290, s.peltierDeltaT ?? 30)
+    buildPeltierMesh(s?.peltierHotK ?? 320, s?.peltierColdK ?? 290, s?.peltierDeltaT ?? 30)
   );
 }

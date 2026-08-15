@@ -9,9 +9,11 @@
  *   - J. A. Wheeler, R. P. Feynman — homopolar generator literature
  */
 
-import { packInstance } from '../../device-mesh-layouts.js';
+import { packInstance, type InstanceArray } from '../../device-mesh-layouts.js';
 import { writeMeshCylinders } from '../update-helpers';
 import { ValidatedConstants } from '../../ValidatedConstants';
+import type { DevicePlugin } from '../types';
+import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 
 const BR = ValidatedConstants.MAGNET_BR?.value ?? 1.48;
 const DISC_RADIUS = 0.14;
@@ -22,12 +24,12 @@ const J_DISC = 0.002;
 const B_DRAG = 0.0008;
 const TAU_DRIVE_MAX = 0.15;
 
-function yawQuat(angleRad) {
+function yawQuat(angleRad: number): number[] {
   const half = angleRad * 0.5;
   return [0, Math.sin(half), 0, Math.cos(half)];
 }
 
-function buildBaseInstances() {
+function buildBaseInstances(): InstanceArray {
   const steel = [0.42, 0.44, 0.48];
   return [
     packInstance([0, -0.55, 0], 1, [0, 0, 0, 1], steel, 0.04),
@@ -35,7 +37,7 @@ function buildBaseInstances() {
   ];
 }
 
-function buildMagnetPoleInstances() {
+function buildMagnetPoleInstances(): InstanceArray {
   const north = [0.18, 0.48, 0.92];
   const south = [0.88, 0.22, 0.18];
   return [
@@ -44,7 +46,7 @@ function buildMagnetPoleInstances() {
   ];
 }
 
-function buildBrushInstances() {
+function buildBrushInstances(): InstanceArray {
   const brush = [0.62, 0.64, 0.68];
   const rim = DISC_RADIUS * 3.2;
   return [
@@ -55,7 +57,7 @@ function buildBrushInstances() {
 }
 
 /** Rotating copper disc + axle; angle in radians about Y. */
-function buildDiscInstances(angleRad = 0) {
+function buildDiscInstances(angleRad = 0): InstanceArray {
   const copper = [0.86, 0.56, 0.24];
   const axle = [0.55, 0.58, 0.62];
   const rot = yawQuat(angleRad);
@@ -65,9 +67,9 @@ function buildDiscInstances(angleRad = 0) {
   ];
 }
 
-export function buildHomopolarMesh(angleRad = 0) {
+export function buildHomopolarMesh(angleRad = 0): { cylinders: () => InstanceArray } {
   return {
-    cylinders: () => [
+    cylinders: (): InstanceArray => [
       ...buildBaseInstances(),
       ...buildMagnetPoleInstances(),
       ...buildBrushInstances(),
@@ -78,20 +80,15 @@ export function buildHomopolarMesh(angleRad = 0) {
 
 /**
  * Faraday disc EMF (uniform axial B, solid disc): ε = ½ B ω r².
- * @param {number} omegaRadS
- * @param {number} [fieldT]
- * @param {number} [radiusM]
  */
-export function estimateHomopolarEmfV(omegaRadS, fieldT = B_AXIAL, radiusM = DISC_RADIUS) {
+export function estimateHomopolarEmfV(omegaRadS: number, fieldT = B_AXIAL, radiusM = DISC_RADIUS): number {
   return 0.5 * fieldT * omegaRadS * radiusM * radiusM;
 }
 
 /**
- * @param {object} state
- * @param {number} dt
- * @param {number} drive 0..1 from speed slider
+ * @param drive 0..1 from speed slider
  */
-export function stepHomopolarPhysics(state, dt, drive) {
+export const stepHomopolarPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const B = state.homopolarFieldT ?? B_AXIAL;
   let omega = state.homopolarOmega ?? 0;
   let current = state.homopolarCurrent ?? 0;
@@ -117,9 +114,9 @@ export function stepHomopolarPhysics(state, dt, drive) {
   state.homopolarCurrentA = current;
   state.homopolarFieldT = B;
   state.energyLevel = Math.min(1, drive * 0.45 + (rpm / 3600) * 0.55);
-}
+};
 
-export function createHomopolarPhysicsState() {
+export function createHomopolarPhysicsState(): Partial<DevicePhysicsState> {
   return {
     homopolarOmega: 0,
     homopolarAngle: 0,
@@ -152,17 +149,17 @@ export const HOMOPOLAR_REFERENCES = [
   }
 ];
 
-function homopolarUpdateMesh(instance) {
+const homopolarUpdateMesh: NonNullable<DevicePlugin['updateMesh']> = (instance) => {
   const angle = instance.physicsState?.homopolarAngle ?? 0;
   writeMeshCylinders(instance, buildHomopolarMesh(angle));
-}
+};
 
-function homopolarComputeRawEnergy(instance, ctx) {
+const homopolarComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (instance, ctx) => {
   const spinN = (instance.physicsState?.homopolarRpm ?? 0) / 3600;
   return Math.min(1.0, spinN * 0.75 + ctx.speedNorm * 0.25);
-}
+};
 
-function homopolarUpdateEffects(instance, ctx) {
+const homopolarUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, energy, gate, pushParticle, time } = ctx;
   const currentGate = Math.pow(gate(energy, 0.18, 0.8), 1.25);
   const arcCount = Math.floor(budget * 0.38 * currentGate);
@@ -175,9 +172,9 @@ function homopolarUpdateEffects(instance, ctx) {
     pushParticle(x, y, z, 3.0 + Math.random());
   }
   return true;
-}
+};
 
-export const homopolarGeneratorPlugin = {
+export const homopolarGeneratorPlugin: DevicePlugin = {
   id: 'homopolar',
   label: 'Homopolar Generator',
   category: 'quanta',

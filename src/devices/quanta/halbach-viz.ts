@@ -9,7 +9,7 @@
  *   - M. V. Berry — levitation of spinning magnets (1996)
  */
 
-import { packInstance } from '../../device-mesh-layouts.js';
+import { packInstance, type InstanceArray, type InstanceFloats } from '../../device-mesh-layouts.js';
 import { writeMeshCylinders } from '../update-helpers';
 import {
   buildHalbachSegments,
@@ -20,20 +20,23 @@ import {
   sampleFieldHeatmap,
   MAGNET_BR
 } from './halbach-field';
+import type { HalbachConfig } from './halbach-field';
+import type { DevicePlugin } from '../types';
+import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 
 const SCENE_SCALE = 10;
 const RADIUS_M = 0.14;
 const THICKNESS_M = 0.028;
 
-function yawQuat(angleRad) {
+function yawQuat(angleRad: number): number[] {
   const half = angleRad * 0.5;
   return [0, Math.sin(half), 0, Math.cos(half)];
 }
 
-export function halbachConfigFromState(state) {
-  const segmentCount = state.halbachSegmentCount ?? 8;
-  const magAngleDeg = state.halbachMagAngleDeg ?? (360 / segmentCount);
-  const layout = state.halbachLayout ?? 'ring';
+export function halbachConfigFromState(state: Partial<DevicePhysicsState> | null | undefined): HalbachConfig {
+  const segmentCount = state?.halbachSegmentCount ?? 8;
+  const magAngleDeg = state?.halbachMagAngleDeg ?? (360 / segmentCount);
+  const layout = state?.halbachLayout ?? 'ring';
   return {
     segmentCount,
     magAngleDeg,
@@ -44,7 +47,7 @@ export function halbachConfigFromState(state) {
   };
 }
 
-function magnetColor(i, n, magAngleDeg) {
+function magnetColor(i: number, n: number, magAngleDeg: number): number[] {
   const hue = (i / n + magAngleDeg / 360) % 1;
   const north = hue < 0.5;
   return north
@@ -53,15 +56,13 @@ function magnetColor(i, n, magAngleDeg) {
 }
 
 /** Build magnet segment cylinders for ring or linear Halbach layout. */
-function buildSegmentInstances(config) {
+function buildSegmentInstances(config: HalbachConfig): InstanceArray {
   const segments = buildHalbachSegments(config);
-  const out = [];
+  const out: InstanceArray = [];
   const majorR = RADIUS_M * SCENE_SCALE;
   const thick = THICKNESS_M * SCENE_SCALE * 3.5;
 
   if (config.layout === 'linear') {
-    const totalLen = majorR * 2;
-    const segLen = totalLen / segments.length;
     for (const seg of segments) {
       const x = seg.position.x * SCENE_SCALE;
       const mAngle = Math.atan2(seg.moment.z, seg.moment.x);
@@ -83,7 +84,7 @@ function buildSegmentInstances(config) {
   return out;
 }
 
-function buildBaseInstances() {
+function buildBaseInstances(): InstanceArray {
   const steel = [0.4, 0.42, 0.46];
   return [
     packInstance([0, -0.5, 0], 1, [0, 0, 0, 1], steel, 0.04),
@@ -92,13 +93,13 @@ function buildBaseInstances() {
 }
 
 /** Slice plane marker (thin disc) for |B| heatmap reference. */
-function buildSlicePlaneInstance() {
+function buildSlicePlaneInstance(): InstanceFloats {
   return packInstance([0, 0.02, 0], 20, [0, 0, 0, 1], [0.2, 0.55, 0.9], 0.08);
 }
 
-export function buildHalbachVizMesh(config) {
+export function buildHalbachVizMesh(config: HalbachConfig): { cylinders: () => InstanceArray } {
   return {
-    cylinders: () => [
+    cylinders: (): InstanceArray => [
       ...buildBaseInstances(),
       ...buildSegmentInstances(config),
       buildSlicePlaneInstance()
@@ -108,9 +109,8 @@ export function buildHalbachVizMesh(config) {
 
 /**
  * Recompute field lines and heatmap when segment params change.
- * @param {object} state
  */
-export function refreshHalbachFieldGeometry(state) {
+export function refreshHalbachFieldGeometry(state: Partial<DevicePhysicsState>): void {
   const config = halbachConfigFromState(state);
   const segments = buildHalbachSegments(config);
   const lineCount = Math.min(20, 6 + Math.floor(config.segmentCount / 2));
@@ -141,11 +141,9 @@ export function refreshHalbachFieldGeometry(state) {
 }
 
 /**
- * @param {object} state
- * @param {number} dt
- * @param {number} drive 0..1 from speed slider
+ * @param drive 0..1 from speed slider
  */
-export function stepHalbachVizPhysics(state, dt, drive) {
+export const stepHalbachVizPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const segmentCount = Math.max(4, Math.min(24, 4 + Math.round(drive * 20)));
   const idealStep = 360 / segmentCount;
   const magAngleDeg = idealStep * (0.65 + drive * 0.7);
@@ -168,10 +166,10 @@ export function stepHalbachVizPhysics(state, dt, drive) {
   }
 
   state.energyLevel = Math.min(1, drive * 0.5 + (state.halbachPeakBT ?? 0) * 0.5);
-}
+};
 
-export function createHalbachVizPhysicsState() {
-  const state = {
+export function createHalbachVizPhysicsState(): Partial<DevicePhysicsState> {
+  const state: Partial<DevicePhysicsState> = {
     halbachSegmentCount: 8,
     halbachMagAngleDeg: 45,
     halbachLayout: 'ring',
@@ -206,17 +204,17 @@ export const HALBACH_VIZ_REFERENCES = [
   }
 ];
 
-function halbachUpdateMesh(instance) {
+const halbachUpdateMesh: NonNullable<DevicePlugin['updateMesh']> = (instance) => {
   const config = halbachConfigFromState(instance.physicsState);
   writeMeshCylinders(instance, buildHalbachVizMesh(config));
-}
+};
 
-function halbachComputeRawEnergy(instance, ctx) {
+const halbachComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (instance, ctx) => {
   const fieldN = Math.min(1, (instance.physicsState?.halbachPeakBT ?? 0) / 0.8);
   return Math.min(1.0, fieldN * 0.8 + ctx.speedNorm * 0.2);
-}
+};
 
-function halbachUpdateEffects(instance, ctx) {
+const halbachUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, energy, gate, pushParticle, time } = ctx;
   const fieldGate = Math.pow(gate(energy, 0.15, 0.85), 1.2);
   const sparkCount = Math.floor(budget * 0.45 * fieldGate);
@@ -227,9 +225,9 @@ function halbachUpdateEffects(instance, ctx) {
     pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 3.0 + Math.random());
   }
   return true;
-}
+};
 
-export const halbachVizPlugin = {
+export const halbachVizPlugin: DevicePlugin = {
   id: 'halbach-viz',
   label: 'Halbach Field Viz',
   category: 'quanta',
