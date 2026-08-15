@@ -9,6 +9,7 @@
 import type { DevicePhysicsState } from '../renderers/shared/device-physics';
 import type { PipelineLayoutCache, BindGroupLayoutName } from '../pipeline-layout-cache';
 import type { BindGroupCache } from '../renderers/shared/bind-group-cache';
+import type { DeviceMeshLayout } from '../device-mesh-layouts.js';
 
 export type { BindGroupLayoutName };
 
@@ -85,6 +86,13 @@ export interface DeviceUniformExtras {
 
 // ── Instance-side structural types ─────────────────────────────────
 
+/** SEG's base plate footprint, mirrored from visualizer.baseInstanceBuffer. */
+export interface HeronFlowGeometry {
+  apexY: number;
+  supplyX: number;
+  drainBasinY: number;
+}
+
 /**
  * Geometry surface consumed by the update/render mixins (DeviceGeometry).
  * Buffers are null until the matching device mesh is built.
@@ -92,6 +100,7 @@ export interface DeviceUniformExtras {
 export interface DeviceGeometryLike {
   flowPathParticles: GPUBuffer | null;
   flowPathCount: number;
+  fieldLineParticles?: GPUBuffer | null;
   meshCylinderCount?: number;
   meshRingCount?: number;
   meshTubeCount?: number;
@@ -101,6 +110,51 @@ export interface DeviceGeometryLike {
   panelInstances?: GPUBuffer | null;
   statorRingBuffer?: GPUBuffer | null;
   wiringBuffer?: GPUBuffer | null;
+  baseBuffer?: GPUBuffer | null;
+  fluxTotalSegments?: number;
+  /** Heron's Fountain jet/basin geometry, set from the active build preset. */
+  heronFlow?: HeronFlowGeometry | null;
+  updateElectromagnetLayout?: (numCoils: number, offsetAngleDeg: number) => void;
+}
+
+/** One ring of the computed SEG roller/stator layout (see seg-layout.js computeSEGLayout). */
+export interface SegLayoutRing {
+  index: number;
+  fullCount: number;
+  count: number;
+  orbitRadiusM: number;
+  rollerRadiusM: number;
+  rollerDiameterM: number;
+  rollerHeightM: number;
+  statorInnerM: number;
+  statorOuterM: number;
+  statorHeightM: number;
+  statorY: number;
+  gapM: number;
+  speed: number;
+}
+
+/** Full computed SEG layout — literature-grounded roller/stator geometry. */
+export interface SegLayout {
+  name: string;
+  preset: string;
+  worldScale: number;
+  gapM: number;
+  shaftRadiusM: number;
+  shaftHeightM: number;
+  statorHeightM: number;
+  basePlateRadiusM: number;
+  cameraOffset: number[];
+  rings: SegLayoutRing[];
+  ringCount: number;
+  totalRollers: number;
+  maxRollers: number;
+  maxRings: number;
+  fluxLinesPerRing: number;
+  totalFluxLines: number;
+  outerRadiusM: number;
+  innerRadiusM: number;
+  rollerHeightRatio: number;
 }
 
 /** SEG structural frame parts, keyed by level. */
@@ -109,6 +163,8 @@ export interface SegFrameBuffers {
   structural?: MeshBuffers | null;
   controlBox?: MeshBuffers | null;
   safetyCage?: MeshBuffers | null;
+  /** computeFrameDimensions() output (seg-frame-model.js) — only statorH is consumed by the mixins. */
+  dims?: { statorH: number };
 }
 
 /**
@@ -129,6 +185,39 @@ export interface VisualizerLike {
 
   heronLayout?: unknown;
   heronLayoutPreset?: string;
+
+  // SEG operator physics + layout
+  segOmega?: number;
+  corona?: number;
+  segLayout?: SegLayout | null;
+  prototypePreset?: string;
+  rollerInstanceCullEnabled?: boolean;
+  enhancedRollerBuffer?: MeshBuffers | null;
+
+  // Hardware digital twin (Web Serial / mock) — see hardware-bridge.js
+  hardwareBridge?: {
+    isConnected?: boolean;
+    mirrorEnabled?: boolean;
+    twinMode?: string;
+    actualPhase?: number;
+    config?: { numCoils?: number };
+    coilMask?: number;
+  } | null;
+  // Electromagnet coil driver — see electromagnet-controller.js
+  emController?: {
+    numCoils?: number;
+    offsetAngle?: number;
+    computeCoilMask?: (phaseDeg: number, dir: number) => number;
+    computePwmValues?: (phaseDeg: number, dir: number) => number[] | null;
+  } | null;
+  // Orbit camera — see camera-controller.js
+  camera?: { camera?: { position?: number[] } } | null;
+
+  // Solar battery gauge (3D cylinder mesh resized from charge level)
+  updateBatteryGaugeMesh?: (charge?: number) => void;
+  batteryGaugeVertexBuffer?: GPUBuffer;
+  batteryGaugeIndexBuffer?: GPUBuffer;
+  batteryGaugeIndexCount?: number;
 
   // Shared uniform buffers
   segLayoutUniformBuffer?: GPUBuffer | null;
@@ -211,6 +300,13 @@ export interface DeviceInstanceLike {
       renderMode: number,
       energyLevel: number
     ) => void;
+    /** Solar only — mirrors instance.batteryCharge into the packed uniform. */
+    batteryCharge?: number;
+    updateGaugeBuffer?: (position: ArrayLike<number>, ringIndex: number) => void;
+  };
+  /** DevicePipelineManager instance (device-pipeline-manager.js) — only fluxSegmentPipeline is consumed here. */
+  pipelineManager?: {
+    fluxSegmentPipeline?: GPURenderPipeline | null;
   };
 
   // Buffers owned by the instance / delegated from geometry
@@ -227,6 +323,7 @@ export interface DeviceInstanceLike {
   magnetInstanceBuffer?: GPUBuffer | null;
   topPlateInstanceBuffer?: GPUBuffer | null;
   bottomPlateInstanceBuffer?: GPUBuffer | null;
+  gaugeInstanceBuffer?: GPUBuffer | null;
 
   // Pipelines
   particlePipeline: GPURenderPipeline;
@@ -235,6 +332,8 @@ export interface DeviceInstanceLike {
   segEnhancedPipeline?: GPURenderPipeline | null;
   coilPipeline?: GPURenderPipeline | null;
   ringPipeline?: GPURenderPipeline | null;
+  /** Getter proxying pipelineManager.energyArcPipeline (device-instance.js). */
+  energyArcPipeline?: GPURenderPipeline | null;
 
   // Scratch buffers lazily allocated by the mixins
   _flowPathData?: Float32Array<ArrayBuffer>;
@@ -242,6 +341,27 @@ export interface DeviceInstanceLike {
   _bindGroupCache?: BindGroupCache;
   _topRingUniformBuffer?: GPUBuffer;
   _bottomRingUniformBuffer?: GPUBuffer;
+
+  // Solar energy proxies (synced from DevicePhysicsState per device)
+  batteryCharge?: number;
+  flowEnergyLevel?: number;
+  voltageEnergyLevel?: number;
+
+  // SEG roller / coil / flux / arc state
+  rollerComputeUniformBuffer?: GPUBuffer | null;
+  fieldAdvectUniformBuffer?: GPUBuffer | null;
+  fluxTracerUniformBuffer?: GPUBuffer | null;
+  fluxSegmentRenderBindGroup?: GPUBindGroup | null;
+  fieldLineEnabled?: boolean;
+  /** Flat [x0,z0, x1,z1, ...] roller position scratch buffer, sized for the active layout. */
+  _rollerPositions?: Float32Array;
+  electromagnetInstances?: GPUBuffer | null;
+  _lastCoilCount?: number;
+  coilEnergies?: Float32Array;
+  pwmEnergyLevel?: number;
+  arcSegments?: GPUBuffer | null;
+  arcSegmentCount?: number;
+  energyArcEnabled?: boolean;
 
   getRingIndex: () => number;
 
@@ -259,6 +379,14 @@ export interface DeviceInstanceLike {
   updateEmitterEffects: (deltaTime: number, qualityScale: number) => void;
   renderDeviceMesh: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
   renderStand: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
+  renderBase: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
+  renderGltfHousing: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
+  renderFrame: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
+  renderStatorRings: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
+  renderWiring: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
+  renderCore: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
+  renderPickupCoils: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
+  renderWires: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
   _ensureRingUniformBuffers: () => void;
   _enhancedBindGroup: (
     globalUniformBuffer: GPUBuffer,
@@ -292,7 +420,7 @@ export interface DevicePlugin {
   defaults?: Record<string, unknown>;
   references?: unknown[];
   telemetrySchema?: Record<string, { label: string; unit?: string; source?: string }>;
-  meshLayout?: Record<string, unknown>;
+  meshLayout?: DeviceMeshLayout;
 
   createPhysicsState?: () => Partial<DevicePhysicsState>;
   stepPhysics?: (state: DevicePhysicsState, dt: number, drive: number, opts?: object) => void;

@@ -4,19 +4,20 @@ import {
   stepMhdPhysics,
   mhdUpdateMesh
 } from './mhd-mesh.js';
+import type { DevicePlugin } from '../types';
 
 export { buildMhdMesh, createMhdPhysicsState, stepMhdPhysics, mhdUpdateMesh };
 
-export function mhdComputeRawEnergy(instance, ctx) {
+export const mhdComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (instance, ctx) => {
   const flowN = instance.physicsState?.mhdFlowU != null
     ? Math.min(1.0, instance.physicsState.energyLevel ?? 0)
     : null;
   return flowN != null
     ? Math.min(1.0, flowN * 0.65 + ctx.speedNorm * 0.2 + ctx.overdriveBoost * 0.35)
     : Math.min(1.0, ctx.speedNorm * 0.5 + ctx.overdriveBoost * 0.5);
-}
+};
 
-export function mhdUpdateEffects(instance, ctx) {
+export const mhdUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, energy, gate, pushParticle, time } = ctx;
   const flowU = instance.physicsState?.mhdFlowU ?? 0.5;
   const bField = instance.physicsState?.mhdBFieldT ?? 0.4;
@@ -33,4 +34,4 @@ export function mhdUpdateEffects(instance, ctx) {
     pushParticle(x, y, z, 3.0 + Math.random());
   }
   return true;
-}
+};

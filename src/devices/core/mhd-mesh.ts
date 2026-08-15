@@ -3,9 +3,11 @@
  * WASM channel plant remains authoritative with `?wasmPhysics=1`.
  */
 
-import { packInstance } from '../../device-mesh-layouts.js';
+import { packInstance, type InstanceArray } from '../../device-mesh-layouts.js';
 import { MATERIAL_STEEL_BASE, MATERIAL_STRUCTURAL, MATERIAL_QUANTA_COIL } from '../material-roles.js';
 import { writeMeshCylinders } from '../update-helpers';
+import type { DeviceInstanceLike, DevicePlugin } from '../types';
+import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 
 export const MHD_PARAMS = Object.freeze({
   pumpAccel: 4.5,
@@ -24,7 +26,7 @@ export const MHD_PARAMS = Object.freeze({
 /**
  * Rectangular duct + magnet poles. Arrow-ish cylinders along +X for flow cue.
  */
-export function buildMhdMesh(flowU = 0.5, bFieldT = 0.4, hartmann = 1) {
+export function buildMhdMesh(flowU = 0.5, bFieldT = 0.4, hartmann = 1): { cylinders: () => InstanceArray } {
   const uN = Math.max(0, Math.min(1, flowU / MHD_PARAMS.flowUMax));
   const bN = Math.max(0, Math.min(1, bFieldT / 1.0));
   const haN = Math.max(0, Math.min(1, hartmann / 40));
@@ -51,12 +53,7 @@ export function buildMhdMesh(flowU = 0.5, bFieldT = 0.4, hartmann = 1) {
   };
 }
 
-/**
- * @param {object} state
- * @param {number} dt
- * @param {number} drive
- */
-export function stepMhdPhysics(state, dt, drive) {
+export const stepMhdPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const m = MHD_PARAMS;
   const bFieldT = 0.2 + 0.8 * drive;
   let flowU = state.mhdFlowU ?? 0.2;
@@ -75,9 +72,9 @@ export function stepMhdPhysics(state, dt, drive) {
   state.mhdCurrent = currentA;
   state.mhdPowerW = powerW;
   state.energyLevel = Math.min(1, flowU / m.flowUMax);
-}
+};
 
-export function createMhdPhysicsState() {
+export function createMhdPhysicsState(): Partial<DevicePhysicsState> {
   return {
     mhdFlowU: 0.25,
     mhdBFieldT: 0.3,
@@ -89,10 +86,10 @@ export function createMhdPhysicsState() {
   };
 }
 
-export function mhdUpdateMesh(instance) {
-  const s = instance.physicsState || {};
+export function mhdUpdateMesh(instance: DeviceInstanceLike): void {
+  const s = instance.physicsState;
   writeMeshCylinders(
     instance,
-    buildMhdMesh(s.mhdFlowU ?? 0.5, s.mhdBFieldT ?? 0.4, s.mhdHartmann ?? 1)
+    buildMhdMesh(s?.mhdFlowU ?? 0.5, s?.mhdBFieldT ?? 0.4, s?.mhdHartmann ?? 1)
   );
 }

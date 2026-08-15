@@ -8,9 +8,11 @@
  * References: textbook series R–L / RLC discharge (standard undergrad EM).
  */
 
-import { packInstance } from '../../device-mesh-layouts.js';
+import { packInstance, type InstanceArray } from '../../device-mesh-layouts.js';
 import { writeMeshCylinders } from '../update-helpers';
 import { ValidatedConstants } from '../../ValidatedConstants';
+import type { DevicePlugin } from '../types';
+import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 
 const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-7;
 
@@ -28,12 +30,12 @@ export const PULSE_COIL = Object.freeze({
   cDamp: 1.4
 });
 
-function yawQuat(angleRad) {
+function yawQuat(angleRad: number): number[] {
   const half = angleRad * 0.5;
   return [0, Math.sin(half), 0, Math.cos(half)];
 }
 
-function buildBaseInstances() {
+function buildBaseInstances(): InstanceArray {
   const steel = [0.4, 0.42, 0.46];
   return [
     packInstance([0, -0.55, 0], 1, [0, 0, 0, 1], steel, 0.04),
@@ -42,10 +44,10 @@ function buildBaseInstances() {
 }
 
 /** Multi-turn coil stack (visual only — physics uses lumped L, R, N). */
-function buildCoilInstances(currentA = 0) {
+function buildCoilInstances(currentA = 0): InstanceArray {
   const copper = [0.82, 0.52, 0.2];
   const glow = Math.min(0.55, 0.08 + Math.abs(currentA) * 0.012);
-  const out = [];
+  const out: InstanceArray = [];
   const layers = 5;
   for (let i = 0; i < layers; i++) {
     const y = 0.05 + i * 0.07;
@@ -58,7 +60,7 @@ function buildCoilInstances(currentA = 0) {
 }
 
 /** Capacitor bank visual (two cans). */
-function buildCapBankInstances(vNorm = 0) {
+function buildCapBankInstances(vNorm = 0): InstanceArray {
   const blue = [0.2, 0.45, 0.85];
   const emissive = 0.05 + vNorm * 0.35;
   return [
@@ -71,7 +73,7 @@ function buildCapBankInstances(vNorm = 0) {
  * Soft-iron armature slug on the coil axis; travelM is distance from rest
  * toward the coil (0 = far, max = near bore).
  */
-function buildArmatureInstances(travelM = 0) {
+function buildArmatureInstances(travelM = 0): InstanceArray {
   const iron = [0.55, 0.58, 0.62];
   const max = PULSE_COIL.armatureTravelMaxM;
   const frac = Math.max(0, Math.min(1, travelM / max));
@@ -82,10 +84,10 @@ function buildArmatureInstances(travelM = 0) {
   ];
 }
 
-export function buildPulseCoilMesh(travelM = 0, currentA = 0, vCap = 0) {
+export function buildPulseCoilMesh(travelM = 0, currentA = 0, vCap = 0): { cylinders: () => InstanceArray } {
   const vNorm = Math.min(1, Math.abs(vCap) / PULSE_COIL.vChargeMax);
   return {
-    cylinders: () => [
+    cylinders: (): InstanceArray => [
       ...buildBaseInstances(),
       ...buildCoilInstances(currentA),
       ...buildCapBankInstances(vNorm),
@@ -98,7 +100,7 @@ export function buildPulseCoilMesh(travelM = 0, currentA = 0, vCap = 0) {
  * Peak on-axis B estimate for a short coil (amp-turns / length metaphor).
  * B ≈ μ₀ N I / (2 R) — order-of-magnitude classroom formula.
  */
-export function estimatePulseCoilPeakBT(currentA, turns = PULSE_COIL.turns, radiusM = PULSE_COIL.coilRadiusM) {
+export function estimatePulseCoilPeakBT(currentA: number, turns = PULSE_COIL.turns, radiusM = PULSE_COIL.coilRadiusM): number {
   const I = Math.abs(currentA);
   const B = (MU0 * turns * I) / (2 * Math.max(radiusM, 0.01));
   return Math.min(2.5, B);
@@ -108,11 +110,9 @@ export function estimatePulseCoilPeakBT(currentA, turns = PULSE_COIL.turns, radi
  * Series R–L with capacitor discharge (underdamped / overdamped handled by Euler).
  * Drive 0..1 sets charge target; when charged, discharge through the coil.
  *
- * @param {object} state
- * @param {number} dt
- * @param {number} drive 0..1 from speed slider
+ * @param drive 0..1 from speed slider
  */
-export function stepPulseCoilPhysics(state, dt, drive) {
+export const stepPulseCoilPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const { R_ohm: R, L_H: L, C_F: C, vChargeMax, armatureMassKg: m,
     armatureTravelMaxM: xMax, kAttract, cDamp } = PULSE_COIL;
 
@@ -178,17 +178,17 @@ export function stepPulseCoilPhysics(state, dt, drive) {
     state.pulseCoilHistV = new Float32Array(histN);
     state.pulseCoilHistIdx = 0;
   }
-  const hi = state.pulseCoilHistIdx | 0;
+  const hi = state.pulseCoilHistIdx! | 0;
   state.pulseCoilHistI[hi] = current;
-  state.pulseCoilHistV[hi] = vCap;
+  state.pulseCoilHistV![hi] = vCap;
   state.pulseCoilHistIdx = (hi + 1) % histN;
   state.energyLevel = Math.min(1,
     drive * 0.25
     + Math.min(1, peakI / 80) * 0.45
     + Math.min(1, Math.abs(vCap) / vChargeMax) * 0.3);
-}
+};
 
-export function createPulseCoilPhysicsState() {
+export function createPulseCoilPhysicsState(): Partial<DevicePhysicsState> {
   return {
     pulseCoilVCap: 0,
     pulseCoilCurrent: 0,
@@ -203,16 +203,21 @@ export function createPulseCoilPhysicsState() {
 }
 
 /** Draw a simple I/V discharge sparkline into a 2D canvas context (classroom). */
-export function drawPulseCoilOscilloscope(ctx, state, width = 200, height = 48) {
+export function drawPulseCoilOscilloscope(
+  ctx: CanvasRenderingContext2D | null | undefined,
+  state: Partial<DevicePhysicsState> | null | undefined,
+  width = 200,
+  height = 48
+): void {
   if (!ctx || !state?.pulseCoilHistI) return;
   const histI = state.pulseCoilHistI;
-  const histV = state.pulseCoilHistV;
+  const histV = state.pulseCoilHistV!;
   const n = histI.length;
-  const start = state.pulseCoilHistIdx | 0;
+  const start = state.pulseCoilHistIdx! | 0;
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = '#0a1520';
   ctx.fillRect(0, 0, width, height);
-  const draw = (arr, color, scale) => {
+  const draw = (arr: Float32Array, color: string, scale: number) => {
     ctx.beginPath();
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.25;
@@ -250,19 +255,19 @@ export const PULSE_COIL_REFERENCES = [
   }
 ];
 
-function pulseCoilUpdateMesh(instance) {
+const pulseCoilUpdateMesh: NonNullable<DevicePlugin['updateMesh']> = (instance) => {
   const travel = instance.physicsState?.pulseCoilArmatureM ?? 0;
   const iA = instance.physicsState?.pulseCoilCurrentA ?? 0;
   const vCap = instance.physicsState?.pulseCoilVCap ?? 0;
   writeMeshCylinders(instance, buildPulseCoilMesh(travel, iA, vCap));
-}
+};
 
-function pulseCoilComputeRawEnergy(instance, ctx) {
+const pulseCoilComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (instance, ctx) => {
   const iN = Math.min(1, Math.abs(instance.physicsState?.pulseCoilCurrentA ?? 0) / 80);
   return Math.min(1.0, (instance.physicsState?.energyLevel ?? iN) * 0.75 + ctx.speedNorm * 0.25);
-}
+};
 
-function pulseCoilUpdateEffects(instance, ctx) {
+const pulseCoilUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, energy, gate, pushParticle, time } = ctx;
   const pulseGate = Math.pow(gate(energy, 0.12, 0.7), 1.15);
   const burstCount = Math.floor(budget * 0.4 * pulseGate);
@@ -274,9 +279,9 @@ function pulseCoilUpdateEffects(instance, ctx) {
     pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 3.0 + Math.random());
   }
   return true;
-}
+};
 
-export const pulseCoilPlugin = {
+export const pulseCoilPlugin: DevicePlugin = {
   id: 'pulse-coil',
   label: 'Pulse Coil (R–L)',
   category: 'quanta',

@@ -58,9 +58,9 @@ import type {
   MeshBuffers,
   VertexOnlyBuffers,
   GltfDrawable,
-  SegFrameBuffers
+  SegFrameBuffers,
+  SegLayout
 } from './devices/types';
-import type { SegLayoutSummary } from './window-globals';
 import type { HeronLayout } from './renderers/shared/device-physics';
 import type { PrototypePreset } from './renderers/shared/url-params.js';
 import type { LightingLook } from './seg-lighting-presets.js';
@@ -177,7 +177,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   postBloomStrength: number;
 
   segLayoutPreset: string;
-  segLayout: SegLayoutSummary | null;
+  segLayout: SegLayout | null;
 
   heronLayoutPreset: string;
   heronLayout: HeronLayoutWithMeta | null;
@@ -503,8 +503,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     ]));
   }
 
-  refreshSEGLayout(qualityScale = 1.0): SegLayoutSummary {
-    this.segLayout = computeSEGLayout(this.segLayoutPreset, qualityScale);
+  refreshSEGLayout(qualityScale = 1.0): SegLayout {
+    this.segLayout = computeSEGLayout(this.segLayoutPreset, qualityScale) as SegLayout;
     if (this.segLayoutUniformBuffer && this.device) {
       this.device.queue.writeBuffer(
         this.segLayoutUniformBuffer,
@@ -523,7 +523,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
    * Switch SEG layout preset at runtime (rebuilds shared SEG meshes + uniform buffer).
    * @param presetName - 'searl', 'roschin', or 'legacy'
    */
-  async setSEGLayoutPreset(presetName: string): Promise<SegLayoutSummary | null> {
+  async setSEGLayoutPreset(presetName: string): Promise<SegLayout | null> {
     const presets = Object.values(SEG_LAYOUT_PRESETS);
     if (!presets.includes(presetName)) {
       console.warn('[SEG] Unknown layout preset:', presetName);

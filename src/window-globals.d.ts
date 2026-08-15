@@ -1,15 +1,15 @@
 import type { SEGOperatorState } from './seg-operator-state';
 import type { TelemetryHub } from './telemetry-hub';
-import type { HeronLayout } from './renderers/shared/device-physics';
+import type { HeronLayout, DevicePhysicsState } from './renderers/shared/device-physics';
 import type { SEGTourPlayer } from './seg-explainer/seg-tour-player.js';
+import type { SegLayout } from './devices/types';
 
-/** Minimal summary of a computed SEG roller layout (see seg-layout.js computeSEGLayout). */
-export interface SegLayoutSummary {
-  name?: string;
-  totalRollers?: number;
-  ringCount?: number;
-  cameraOffset?: number[];
-}
+/**
+ * Minimal window-facing view of SegLayout. Kept separate (rather than reusing
+ * SegLayout directly) because window.multiVisualizer may be the untyped WebGL2
+ * fallback, whose segLayout field can't be verified against the full shape.
+ */
+export type SegLayoutSummary = Partial<Pick<SegLayout, 'name' | 'totalRollers' | 'ringCount' | 'cameraOffset'>>;
 
 /** Shared window hooks used by telemetry export, replay, and operator UI. */
 export interface MultiVisualizerWindowRef {
@@ -21,7 +21,7 @@ export interface MultiVisualizerWindowRef {
   anomalousEffectsEnabled?: boolean;
   segLayout?: SegLayoutSummary | null;
   heronLayout?: (HeronLayout & { name?: string; description?: string }) | null;
-  devices?: Record<string, { physicsState?: unknown }>;
+  devices?: Record<string, { physicsState?: DevicePhysicsState | null }>;
   getSEGLayoutPreset?: () => string;
   setSEGLayoutPreset?: (preset: string) => void;
   getHeronLayoutPreset?: () => string;

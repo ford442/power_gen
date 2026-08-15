@@ -4,19 +4,20 @@ import {
   stepPeltierPhysics,
   peltierUpdateMesh
 } from './peltier-mesh.js';
+import type { DevicePlugin } from '../types';
 
 export { buildPeltierMesh, createPeltierPhysicsState, stepPeltierPhysics, peltierUpdateMesh };
 
-export function peltierComputeRawEnergy(instance, ctx) {
+export const peltierComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (instance, ctx) => {
   const thermalN = instance.physicsState?.peltierDeltaT != null
     ? Math.min(1.0, instance.physicsState.energyLevel ?? 0)
     : null;
   return thermalN != null
     ? Math.min(1.0, thermalN * 0.7 + ctx.speedNorm * 0.2 + ctx.overdriveBoost * 0.3)
     : Math.min(1.0, ctx.speedNorm * 0.6 + ctx.overdriveBoost * 0.4);
-}
+};
 
-export function peltierUpdateEffects(instance, ctx) {
+export const peltierUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, energy, gate, pushParticle } = ctx;
   const deltaTN = Math.min(1, Math.abs(instance.physicsState?.peltierDeltaT ?? 20) / 80);
   const thermalGate = Math.pow(gate(energy, 0.2, 0.68), 1.35) * (0.45 + deltaTN * 0.55);
@@ -32,4 +33,4 @@ export function peltierUpdateEffects(instance, ctx) {
     pushParticle(x, y, z, 3.0 + Math.random() + (rising ? 0.2 : 0));
   }
   return true;
-}
+};

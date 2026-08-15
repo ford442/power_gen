@@ -1,5 +1,6 @@
 import { frameVibrationOffset } from '../../seg-frame-model.js';
 import { MATERIAL_COIL_FORMER, MATERIAL_LAB_BASE, MATERIAL_STRUCTURAL } from '../material-roles.js';
+import type { DeviceInstanceLike, DevicePlugin } from '../types';
 
 const SEG_RINGS = [
   { count: 8, radius: 2.5, speed: 2.0, index: 0 },
@@ -7,11 +8,11 @@ const SEG_RINGS = [
   { count: 16, radius: 5.5, speed: 0.5, index: 2 }
 ];
 
-export function segGetComputeSpeed(instance, baseSpeed) {
+export const segGetComputeSpeed: NonNullable<DevicePlugin['getComputeSpeed']> = (instance, baseSpeed) => {
   return baseSpeed * (0.15 + 0.85 * (instance.visualizer.segOmega ?? 0));
-}
+};
 
-export function segUpdateDynamics(instance, ctx) {
+export const segUpdateDynamics: NonNullable<DevicePlugin['updateDynamics']> = (instance, ctx) => {
   if (!instance.rollerInstances) return;
 
   const time = instance.visualizer.time;
@@ -47,11 +48,11 @@ export function segUpdateDynamics(instance, ctx) {
 
   const hw = instance.visualizer.hardwareBridge;
   const useHardware = hw?.isConnected && (hw.mirrorEnabled || hw.twinMode === 'closed');
-  const hardwarePhaseRad = useHardware ? (hw.actualPhase * Math.PI / 180) : null;
+  const hardwarePhaseRad = useHardware ? (hw!.actualPhase! * Math.PI / 180) : null;
   const spinFactor = Math.max(0.02, instance.visualizer.segOmega ?? 1.0);
 
   const layout = instance.visualizer.segLayout;
-  const rollerPositions = instance._rollerPositions;
+  const rollerPositions = instance._rollerPositions!;
   let rollerOffset = 0;
 
   if (layout?.rings?.length) {
@@ -63,7 +64,7 @@ export function segUpdateDynamics(instance, ctx) {
         const speedJitter = 1.0 + 0.04 * Math.sin(time * 1.3 + jitterNoise * 12.7);
         let angle;
         if (useHardware) {
-          angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad * ring.speed;
+          angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad! * ring.speed;
         } else {
           angle = (i / ring.count) * Math.PI * 2
             + time * 0.5 * ring.speed * speedJitter * startupRamp * spinFactor
@@ -82,7 +83,7 @@ export function segUpdateDynamics(instance, ctx) {
         const speedJitter = 1.0 + 0.04 * Math.sin(time * 1.3 + jitterNoise * 12.7);
         let angle;
         if (useHardware) {
-          angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad * ring.speed;
+          angle = (i / ring.count) * Math.PI * 2 + hardwarePhaseRad! * ring.speed;
         } else {
           angle = (i / ring.count) * Math.PI * 2
             + time * 0.5 * ring.speed * speedJitter * startupRamp * spinFactor
@@ -97,19 +98,19 @@ export function segUpdateDynamics(instance, ctx) {
 
   segUpdatePickupCoilEnergies(instance, rollerPositions, true);
   segUpdateElectromagnetCoils(instance);
-}
+};
 
-export function segComputeRawEnergy(instance) {
+export const segComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (instance) => {
   const coilMean = instance.coilEnergies && instance.coilEnergies.length
     ? instance.coilEnergies.reduce((sum, v) => sum + v, 0) / instance.coilEnergies.length
     : 0.0;
   const coilNorm = Math.min(1.0, coilMean * 1.6);
   const opOmega = instance.visualizer.segOmega ?? 0;
   const opCorona = instance.visualizer.corona ?? 0;
-  return opOmega * 0.45 + coilNorm * 0.30 + instance.pwmEnergyLevel * 0.25 + opCorona * 0.2;
-}
+  return opOmega * 0.45 + coilNorm * 0.30 + instance.pwmEnergyLevel! * 0.25 + opCorona * 0.2;
+};
 
-export function segUpdateEffects(instance, ctx) {
+export const segUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, energy, time, speedMult, pushParticle, gate } = ctx;
   const coilEnergy = instance.coilEnergies
     ? instance.coilEnergies.reduce((sum, e) => sum + e, 0) / instance.coilEnergies.length
@@ -142,7 +143,7 @@ export function segUpdateEffects(instance, ctx) {
     const a = Math.random() * Math.PI * 2;
     const r = 2.0 + Math.random() * 4.5;
     const y = (Math.random() - 0.5) * 1.2;
-    pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 2.5 + Math.random() * 0.3);
+    pushParticle(Math.cos(a) * r, y, Math.sin(a) * r, 2.5 + Math.random());
   }
 
   const burstBase = Math.floor(budget * (0.08 + coronaStrength * 0.35));
@@ -162,9 +163,9 @@ export function segUpdateEffects(instance, ctx) {
     }
   }
   return true;
-}
+};
 
-export function segUpdateElectromagnetCoils(instance) {
+export function segUpdateElectromagnetCoils(instance: DeviceInstanceLike): void {
   if (!instance.electromagnetInstances) return;
 
   const hw = instance.visualizer.hardwareBridge;
@@ -173,30 +174,30 @@ export function segUpdateElectromagnetCoils(instance) {
 
   let numCoils = em?.numCoils || 8;
   let coilMask = 0;
-  let pwmValues = null;
+  let pwmValues: number[] | null = null;
 
-  let phaseDeg;
+  let phaseDeg: number;
   if (useHardware) {
-    phaseDeg = hw.actualPhase;
-    numCoils = hw.config.numCoils;
-    coilMask = hw.coilMask || 0;
+    phaseDeg = hw!.actualPhase!;
+    numCoils = hw!.config!.numCoils!;
+    coilMask = hw!.coilMask || 0;
   } else if (em) {
     const simulatedSpeed = 30;
     phaseDeg = (instance.visualizer.time * simulatedSpeed * 6) % 360;
     if (phaseDeg < 0) phaseDeg += 360;
-    coilMask = em.computeCoilMask(phaseDeg, 1);
-    pwmValues = em.computePwmValues(phaseDeg, 1);
+    coilMask = em.computeCoilMask!(phaseDeg, 1);
+    pwmValues = em.computePwmValues!(phaseDeg, 1);
   } else {
     instance.pwmEnergyLevel = 0.0;
     return;
   }
 
   if (useHardware && coilMask === 0 && em) {
-    coilMask = em.computeCoilMask(phaseDeg, 1);
+    coilMask = em.computeCoilMask!(phaseDeg, 1);
   }
 
   if (instance._lastCoilCount !== numCoils) {
-    instance.geometry.updateElectromagnetLayout(numCoils, em?.offsetAngle || 0);
+    instance.geometry.updateElectromagnetLayout?.(numCoils, em?.offsetAngle || 0);
     instance._lastCoilCount = numCoils;
   }
 
@@ -256,7 +257,11 @@ export function segUpdateElectromagnetCoils(instance) {
   instance.device.queue.writeBuffer(instance.electromagnetInstances, 0, instanceData);
 }
 
-export function segUpdatePickupCoilEnergies(instance, rollerData, compact = false) {
+export function segUpdatePickupCoilEnergies(
+  instance: DeviceInstanceLike,
+  rollerData?: Float32Array,
+  compact = false
+): void {
   if (!instance.coilInstances) return;
 
   const numCoils = 24;
@@ -277,8 +282,8 @@ export function segUpdatePickupCoilEnergies(instance, rollerData, compact = fals
     let nearestRollerSpeed = 0;
 
     for (let r = 0; r < 36; r++) {
-      const rollerX = compact ? rollerData[r * 2] : rollerData[r * 12];
-      const rollerZ = compact ? rollerData[r * 2 + 1] : rollerData[r * 12 + 2];
+      const rollerX = compact ? rollerData![r * 2] : rollerData![r * 12];
+      const rollerZ = compact ? rollerData![r * 2 + 1] : rollerData![r * 12 + 2];
 
       const dx = coilX - rollerX;
       const dz = coilZ - rollerZ;
@@ -316,7 +321,7 @@ export function segUpdatePickupCoilEnergies(instance, rollerData, compact = fals
   }
 }
 
-export function segUpdateEnergyArcs(instance) {
+export function segUpdateEnergyArcs(instance: DeviceInstanceLike): void {
   if (!instance.arcSegments) return;
   const arcCount = 200;
   const arcData = new Float32Array(arcCount * 8);
@@ -342,7 +347,7 @@ export function segUpdateEnergyArcs(instance) {
   instance.device.queue.writeBuffer(instance.arcSegments, 0, arcData);
 }
 
-export function segUpdateFrameVibration(instance) {
+export function segUpdateFrameVibration(instance: DeviceInstanceLike): void {
   const v = instance.visualizer;
   if (v.segFrameLevel === 'off' || !v.frameStructuralInstanceBuffer) return;
 
@@ -350,7 +355,7 @@ export function segUpdateFrameVibration(instance) {
   const omega = Math.min(1.2, (instance.speedMult || 0) * 0.012 + instance.energyLevel * 0.35);
   const [dx, dy, dz] = frameVibrationOffset(omega, statorH);
 
-  const writeInst = (buf, ringIndex, color) => {
+  const writeInst = (buf: GPUBuffer | null | undefined, ringIndex: number, color: number[]) => {
     if (!buf) return;
     instance.device.queue.writeBuffer(buf, 0, new Float32Array([
       dx, dy, dz,

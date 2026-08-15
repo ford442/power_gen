@@ -10,7 +10,7 @@
  * References: standard undergrad transformer phasor model (Chapman / Fitzgerald).
  */
 
-import { packInstance } from '../../device-mesh-layouts.js';
+import { packInstance, type InstanceArray } from '../../device-mesh-layouts.js';
 import {
   MATERIAL_STEEL_BASE,
   MATERIAL_STRUCTURAL,
@@ -18,6 +18,8 @@ import {
   MATERIAL_COIL_FORMER
 } from '../material-roles.js';
 import { writeMeshCylinders } from '../update-helpers';
+import type { DevicePlugin } from '../types';
+import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 
 export const TRANSFORMER = Object.freeze({
   fHz: 60,
@@ -33,12 +35,12 @@ export const TRANSFORMER = Object.freeze({
   vPrimaryPeak: 28 // low-voltage classroom metaphor
 });
 
-function yawQuat(angleRad) {
+function yawQuat(angleRad: number): number[] {
   const half = angleRad * 0.5;
   return [0, Math.sin(half), 0, Math.cos(half)];
 }
 
-export function buildTransformerMesh(ipA = 0, isA = 0, fluxN = 0.3) {
+export function buildTransformerMesh(ipA = 0, isA = 0, fluxN = 0.3): { cylinders: () => InstanceArray } {
   const steel = [0.4, 0.42, 0.46];
   const copperP = [0.85, 0.5, 0.22];
   const copperS = [0.75, 0.55, 0.18];
@@ -46,7 +48,7 @@ export function buildTransformerMesh(ipA = 0, isA = 0, fluxN = 0.3) {
   const isGlow = Math.min(0.55, 0.06 + Math.abs(isA) * 0.05);
   const coreGlow = 0.05 + fluxN * 0.35;
   return {
-    cylinders: () => [
+    cylinders: (): InstanceArray => [
       packInstance([0, -0.65, 0], MATERIAL_STEEL_BASE, [0, 0, 0, 1], steel, 0.03),
       // Laminated core limbs (visual)
       packInstance([-0.55, 0.2, 0], MATERIAL_STRUCTURAL, [0, 0, 0, 1], [0.48, 0.5, 0.54], coreGlow),
@@ -69,11 +71,9 @@ export function buildTransformerMesh(ipA = 0, isA = 0, fluxN = 0.3) {
  * Phasor-domain ideal coupled inductors at line frequency.
  * Primary driven as V_p = Vpeak·drive·sin(ωt); secondary loaded by R_load.
  *
- * @param {object} state
- * @param {number} dt
- * @param {number} drive 0..1
+ * @param drive 0..1
  */
-export function stepTransformerPhysics(state, dt, drive) {
+export const stepTransformerPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const t = TRANSFORMER;
   const omega = 2 * Math.PI * t.fHz;
   state.transformerPhase = (state.transformerPhase ?? 0) + omega * dt;
@@ -105,9 +105,9 @@ export function stepTransformerPhysics(state, dt, drive) {
   state.transformerFluxN = fluxN;
   state.transformerTurnsRatio = n;
   state.energyLevel = Math.min(1, drive * 0.55 + Math.abs(is) / 3 * 0.45);
-}
+};
 
-export function createTransformerPhysicsState() {
+export function createTransformerPhysicsState(): Partial<DevicePhysicsState> {
   return {
     transformerPhase: 0,
     transformerLeakage: false,
@@ -137,20 +137,20 @@ export const TRANSFORMER_REFERENCES = [
   }
 ];
 
-function transformerUpdateMesh(instance) {
-  const s = instance.physicsState || {};
+const transformerUpdateMesh: NonNullable<DevicePlugin['updateMesh']> = (instance) => {
+  const s = instance.physicsState;
   writeMeshCylinders(
     instance,
-    buildTransformerMesh(s.transformerIpA ?? 0, s.transformerIsA ?? 0, s.transformerFluxN ?? 0.3)
+    buildTransformerMesh(s?.transformerIpA ?? 0, s?.transformerIsA ?? 0, s?.transformerFluxN ?? 0.3)
   );
-}
+};
 
-function transformerComputeRawEnergy(instance, ctx) {
+const transformerComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (instance, ctx) => {
   const e = instance.physicsState?.energyLevel ?? instance.energyLevel;
   return Math.min(1.0, e * 0.75 + ctx.speedNorm * 0.25);
-}
+};
 
-function transformerUpdateEffects(instance, ctx) {
+const transformerUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, energy, gate, pushParticle, time } = ctx;
   const fluxGate = Math.pow(gate(energy, 0.15, 0.7), 1.25);
   const count = Math.floor(budget * 0.4 * fluxGate);
@@ -168,8 +168,8 @@ function transformerUpdateEffects(instance, ctx) {
       y = 0.15 + Math.sin(a) * 0.2;
       z = Math.sin(a * 2) * 0.12;
     } else if (u < 0.65) {
-      const t = (u - 0.35) / 0.3;
-      x = -0.55 + t * 1.1;
+      const tt = (u - 0.35) / 0.3;
+      x = -0.55 + tt * 1.1;
       y = 0.55 + Math.sin(time * 4 + i) * 0.05 * Math.abs(is);
       z = 0;
     } else {
@@ -181,15 +181,15 @@ function transformerUpdateEffects(instance, ctx) {
     pushParticle(x, y, z, 3.0 + Math.random());
   }
   return true;
-}
+};
 
 /** Toggle ideal (high-k) vs leakage coupling — classroom switch. */
-export function setTransformerLeakage(state, enabled) {
+export function setTransformerLeakage(state: Partial<DevicePhysicsState> | null | undefined, enabled: boolean): void {
   if (!state) return;
   state.transformerLeakage = !!enabled;
 }
 
-export const transformerPlugin = {
+export const transformerPlugin: DevicePlugin = {
   id: 'transformer',
   label: 'Mutual Induction',
   category: 'quanta',
