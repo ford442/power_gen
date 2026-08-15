@@ -55,7 +55,7 @@ export function setRendererPreference(renderer) {
 
 /**
  * Apply canvas data attributes and window.currentRenderer for Playwright / agents.
- * @param {HTMLCanvasElement} canvas
+ * @param {HTMLCanvasElement | null} canvas
  * @param {'webgpu' | 'webgl2'} renderer
  */
 export function exposeRenderer(canvas, renderer) {

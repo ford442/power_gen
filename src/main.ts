@@ -6,7 +6,7 @@
  *   - WebGL2MultiDeviceVisualizer (fallback / ?renderer=webgl2)
  *
  * There is no legacy SEGVisualizer path. Physics, geometry, and pipelines live
- * under multi-device-visualizer.js, device-*, and renderers/shared/.
+ * under multi-device-visualizer.ts, device-*, and renderers/shared/.
  */
 
 import './devices/register-plugins.js';
@@ -25,13 +25,14 @@ import { initSEGDiagram2D } from './seg-diagram-2d.js';
 import { initTelemetryExportPanel } from './telemetry/telemetry-export-panel';
 import { initExplainerUI } from './seg-explainer/explainer-ui.js';
 import { restoreSimulationSeedFromStorage } from './telemetry/deterministic-rng';
-import { applyReplay } from './telemetry/replay-format';
+import { applyReplay, type ReplayFile } from './telemetry/replay-format';
 import { telemetryHub } from './telemetry-hub';
 import {
   downloadTelemetryCsv,
   downloadConfigJson,
   downloadBenchmarkPack
 } from './telemetry/telemetry-export';
+import type { TelemetryCsvRow } from './telemetry/telemetry-schema';
 import {
   HERON_LAYOUT_DESCRIPTIONS,
   getHeronLayout
@@ -49,13 +50,13 @@ assertParticleLayouts();
 // Mode / layout window API (used by index.html controls)
 // ─────────────────────────────────────────────────────────────
 
-const SEG_LAYOUT_DESCRIPTIONS = {
+const SEG_LAYOUT_DESCRIPTIONS: Record<string, string> = {
   searl: 'Searl documented configuration: 10 / 25 / 35 rollers on three rings, gap-derived proportions (~3 mm air gap).',
   roschin: 'Roschin–Godin 1 m converter: single ring of 12 rollers with 1 mm measured air gap; pairs with lab material preset.',
   legacy: 'Legacy 8 / 12 / 16 layout at 2.5 / 4.0 / 5.5 radii — retained for regression comparison.'
 };
 
-const MODE_DESCRIPTIONS = {
+const MODE_DESCRIPTIONS: Record<string, string> = {
   seg: 'Searl Effect Generator: literature-grounded 10/25/35 or Roschin–Godin 12-roller layouts with gap-derived proportions, pole-banded rollers, and RK4 flux lines.',
   heron: "Heron's Fountain: Fluid dynamics with siphon-driven water jets. Particles simulate hydraulic pressure differentials.",
   kelvin: "Kelvin's Thunderstorm: Electrostatic induction with falling water droplets charging conductors.",
@@ -69,8 +70,8 @@ const MODE_DESCRIPTIONS = {
   transformer: 'Quanta Magnetics — Mutual Induction: two-winding classroom transformer with coupling k, primary drive, and secondary load. Toggle leakage vs ideal coupling; watch Vp/Vs/Ip/Is and flux particles. Textbook phasor model (not FEM); WASM L–M optional Phase 2.'
 };
 
-window.setMode = (mode) => {
-  if (window.multiVisualizer) window.multiVisualizer.onModeChange(mode);
+window.setMode = (mode: string): void => {
+  if (window.multiVisualizer) window.multiVisualizer.onModeChange?.(mode);
 
   document.body.classList.toggle('overview-mode', mode === 'overview');
 
@@ -94,17 +95,17 @@ window.setMode = (mode) => {
 };
 
 /** Classroom toggle: ideal high-k vs leakage coupling on the transformer demo. */
-window.setTransformerLeakage = (enabled) => {
+window.setTransformerLeakage = (enabled: boolean): void => {
   const phys = window.multiVisualizer?.devices?.transformer?.physicsState;
   if (phys) setTransformerLeakage(phys, !!enabled);
-  document.querySelectorAll('[data-transformer-leakage]').forEach((btn) => {
+  document.querySelectorAll<HTMLElement>('[data-transformer-leakage]').forEach((btn) => {
     btn.classList.toggle('active', String(enabled) === btn.dataset.transformerLeakage);
   });
 };
 
-function syncSEGLayoutUI() {
+function syncSEGLayoutUI(): void {
   const v = window.multiVisualizer;
-  const buttons = document.querySelectorAll('[data-seg-layout]');
+  const buttons = document.querySelectorAll<HTMLElement>('[data-seg-layout]');
   const infoEl = document.getElementById('seg-layout-info');
   if (!v || typeof v.getSEGLayoutPreset !== 'function') return;
 
@@ -128,7 +129,7 @@ function syncSEGLayoutUI() {
   }
 }
 
-window.setSEGLayout = async (preset) => {
+window.setSEGLayout = async (preset: string): Promise<void> => {
   const v = window.multiVisualizer;
   if (!v?.setSEGLayoutPreset) {
     console.warn('[main] Layout switching requires multi-device visualizer');
@@ -138,7 +139,7 @@ window.setSEGLayout = async (preset) => {
   syncSEGLayoutUI();
 };
 
-window.setSegFrameLevel = (level) => {
+window.setSegFrameLevel = (level: string): void => {
   const v = window.multiVisualizer;
   if (v?.setSegFrameLevel) {
     v.setSegFrameLevel(level);
@@ -148,7 +149,7 @@ window.setSegFrameLevel = (level) => {
   console.log(`[main] SEG frame level → ${level}`);
 };
 
-window.setLightingLook = (look) => {
+window.setLightingLook = (look: string): void => {
   const v = window.multiVisualizer;
   if (v?.setLightingLook) {
     v.setLightingLook(look);
@@ -158,7 +159,7 @@ window.setLightingLook = (look) => {
 
 window.syncSEGLayoutUI = syncSEGLayoutUI;
 
-function syncLayoutPanelsVisibility() {
+function syncLayoutPanelsVisibility(): void {
   const view = window.multiVisualizer?.currentView || 'overview';
   const segSec = document.getElementById('seg-layout-section');
   const heronSec = document.getElementById('heron-layout-section');
@@ -168,9 +169,9 @@ function syncLayoutPanelsVisibility() {
 
 window.syncLayoutPanelsVisibility = syncLayoutPanelsVisibility;
 
-function syncHeronLayoutUI() {
+function syncHeronLayoutUI(): void {
   const v = window.multiVisualizer;
-  const buttons = document.querySelectorAll('[data-heron-layout]');
+  const buttons = document.querySelectorAll<HTMLElement>('[data-heron-layout]');
   const infoEl = document.getElementById('heron-layout-info');
   if (!v || typeof v.getHeronLayoutPreset !== 'function') return;
 
@@ -181,7 +182,9 @@ function syncHeronLayoutUI() {
 
   const layout = v.heronLayout || getHeronLayout(preset);
   if (infoEl) {
-    const ps = v.devices?.heron?.physicsState;
+    const ps = v.devices?.heron?.physicsState as
+      | { heronHead: number; heronFlowRateLmin: number; heronPressureKPa: number }
+      | undefined;
     if (ps && v.currentView === 'heron') {
       infoEl.textContent = [
         layout.name,
@@ -200,7 +203,7 @@ function syncHeronLayoutUI() {
   }
 }
 
-window.setHeronLayout = async (preset) => {
+window.setHeronLayout = async (preset: string): Promise<void> => {
   const v = window.multiVisualizer;
   if (!v?.setHeronLayoutPreset) {
     console.warn('[main] Heron layout switching requires multi-device visualizer');
@@ -212,19 +215,19 @@ window.setHeronLayout = async (preset) => {
 
 window.syncHeronLayoutUI = syncHeronLayoutUI;
 
-function wireHeronLayoutControls() {
-  document.querySelectorAll('[data-heron-layout]').forEach((btn) => {
+function wireHeronLayoutControls(): void {
+  document.querySelectorAll<HTMLElement>('[data-heron-layout]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      window.setHeronLayout(btn.dataset.heronLayout);
+      window.setHeronLayout?.(btn.dataset.heronLayout ?? '');
     });
   });
   syncHeronLayoutUI();
 }
 
-function wireSEGLayoutControls() {
-  document.querySelectorAll('[data-seg-layout]').forEach((btn) => {
+function wireSEGLayoutControls(): void {
+  document.querySelectorAll<HTMLElement>('[data-seg-layout]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      window.setSEGLayout(btn.dataset.segLayout);
+      window.setSEGLayout?.(btn.dataset.segLayout ?? '');
     });
   });
   syncSEGLayoutUI();
@@ -234,10 +237,9 @@ function wireSEGLayoutControls() {
 // WASM sim_core initialisation
 // ─────────────────────────────────────────────────────────────
 
-/** @type {SEGSim | null} */
-let wasmSim = null;
+let wasmSim: SEGSim | null = null;
 
-function updateWasmBadge(state, text) {
+function updateWasmBadge(state: string, text: string): void {
   const dot = document.getElementById('wasmDot');
   const span = document.getElementById('wasmStatus');
   if (!dot || !span) return;
@@ -245,7 +247,7 @@ function updateWasmBadge(state, text) {
   span.textContent = text;
 }
 
-async function initWasm() {
+async function initWasm(): Promise<void> {
   updateWasmBadge('loading', 'WASM…');
   try {
     wasmSim = await SEGSim.create();
@@ -259,7 +261,7 @@ async function initWasm() {
     updateWasmBadge('missing', 'WASM –');
   }
 
-  const benchBtn = document.getElementById('wasmBenchBtn');
+  const benchBtn = document.getElementById('wasmBenchBtn') as HTMLButtonElement | null;
   if (!benchBtn) return;
 
   benchBtn.addEventListener('click', async () => {
@@ -295,9 +297,9 @@ async function initWasm() {
 // Renderer bootstrap
 // ─────────────────────────────────────────────────────────────
 
-async function bootstrapVisualizer() {
+async function bootstrapVisualizer(): Promise<void> {
   const renderer = resolveRenderer();
-  const canvas = document.getElementById('gpuCanvas');
+  const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement | null;
   console.log(`[main] Selected renderer: ${renderer}`);
 
   if (renderer === RENDERER_WEBGL2) {
@@ -327,7 +329,7 @@ async function bootstrapVisualizer() {
   }
 }
 
-window.setRenderer = (name) => {
+window.setRenderer = (name: string): void => {
   const n = String(name).toLowerCase();
   if (n !== RENDERER_WEBGPU && n !== RENDERER_WEBGL2) {
     console.warn('Use setRenderer("webgpu") or setRenderer("webgl2")');
@@ -347,7 +349,7 @@ window.addEventListener('load', () => {
   initWasm();
 
   initSEGOperatorPanel({
-    onParticleCountChange(count) {
+    onParticleCountChange(count: number) {
       const v = window.multiVisualizer;
       if (v?.setParticleCount) v.setParticleCount(count);
     }
@@ -377,7 +379,7 @@ window.addEventListener('load', () => {
     const explainer = initExplainerUI();
     await explainer.applyLabFromHash();
 
-    const hzSlider = document.getElementById('telemetrySampleHz');
+    const hzSlider = document.getElementById('telemetrySampleHz') as HTMLInputElement | null;
     const hzVal = document.getElementById('telemetryHzVal');
     hzSlider?.addEventListener('input', () => {
       if (hzVal) hzVal.textContent = hzSlider.value;
@@ -389,24 +391,24 @@ window.addEventListener('load', () => {
       console.warn('[main] SEG 2D diagram init failed:', e);
     }
 
-    const anomalyToggle = document.getElementById('anomalyToggle');
+    const anomalyToggle = document.getElementById('anomalyToggle') as HTMLInputElement | null;
     const v = window.multiVisualizer;
     if (anomalyToggle && v) {
-      anomalyToggle.checked = v.anomalousEffectsEnabled;
+      anomalyToggle.checked = !!v.anomalousEffectsEnabled;
       anomalyToggle.addEventListener('change', (e) => {
-        v.anomalousEffectsEnabled = e.target.checked;
+        v.anomalousEffectsEnabled = (e.target as HTMLInputElement).checked;
       });
     }
 
     if (v?.captureParticleSubset) {
       window.captureParticleSubset = (opts = {}) =>
-        v.captureParticleSubset(opts.deviceId || 'seg', opts.maxCount ?? 64);
+        v.captureParticleSubset!(opts.deviceId || 'seg', opts.maxCount ?? 64);
     }
 
     document.body.classList.toggle('overview-mode', v?.currentView === 'overview');
 
-    const tickClassroomUi = () => {
-      const canvas = document.getElementById('pulse-coil-scope');
+    const tickClassroomUi = (): void => {
+      const canvas = document.getElementById('pulse-coil-scope') as HTMLCanvasElement | null;
       const wrap = document.getElementById('pulse-coil-scope-wrap');
       const vis = window.multiVisualizer;
       if (canvas && wrap && vis?.currentView === 'pulse-coil') {
@@ -426,17 +428,17 @@ window.addEventListener('load', () => {
 window.exportTelemetryCsv = () => {
   const rows = telemetryHub.getRecordedRows();
   if (!rows.length) return { ok: false, error: 'No recorded samples' };
-  downloadTelemetryCsv(rows);
+  downloadTelemetryCsv(rows as TelemetryCsvRow[]);
   return { ok: true, rows: rows.length };
 };
 window.exportConfigJson = () => downloadConfigJson();
 window.startTelemetryRecording = (sec = 10, hz) => telemetryHub.startRecording(sec, hz);
 window.stopTelemetryRecording = () => telemetryHub.stopRecording();
-window.applyReplayFile = (replay) => applyReplay(replay);
+window.applyReplayFile = (replay) => applyReplay(replay as ReplayFile);
 window.exportBenchmarkPack = () => {
   const p = window.multiVisualizer?.profiler;
   if (!p) return null;
-  const bench = p.benchmarkSamples?.length ? p.endBenchmark?.() : { stats: p.getStats() };
+  const bench = p.benchmarkSamples?.length ? p.endBenchmark?.() : { stats: p.getStats?.() };
   downloadBenchmarkPack(bench);
   return bench;
 };
