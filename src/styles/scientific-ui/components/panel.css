@@ -1,9 +1,6 @@
-/**
- * Scientific UI - Main Panel Styles
- * Panel container, header, and content areas
- */
-
-/* Main Panel Container */
+/* ============================================
+   MAIN PANEL CONTAINER
+   ============================================ */
 .sci-panel {
   position: fixed;
   top: 20px;
@@ -32,7 +29,9 @@
   cursor: grabbing;
 }
 
-/* Panel Header */
+/* ============================================
+   PANEL HEADER
+   ============================================ */
 .sci-panel-header {
   display: flex;
   align-items: center;
@@ -52,15 +51,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: 0.8rem;
+  font-weight: 700;
   color: var(--sci-cyan);
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 2px;
 }
 
 .sci-panel-icon {
-  font-size: 1.1rem;
+  font-size: 1.0rem;
+  line-height: 1;
 }
 
 .sci-panel-controls {
@@ -88,7 +88,9 @@
   color: var(--sci-bg-primary);
 }
 
-/* Panel Content */
+/* ============================================
+   PANEL CONTENT
+   ============================================ */
 .sci-panel-content {
   padding: 16px;
   overflow-y: auto;

@@ -1,36 +1,32 @@
 /**
- * Scientific UI - Main Stylesheet
- * Imports all component styles for the scientific UI panel
+ * SEG WebGPU Visualizer - Scientific UI Styles
+ * Professional dark theme with cyan/magenta accents
+ * Enhanced with LED + Solar Cell monitoring styles
+ *
+ * Barrel: imports all scientific-ui style modules.
  */
 
 /* Base */
 @import './base/variables.css';
-@import './base/responsive.css';
 
 /* Components */
 @import './components/panel.css';
+@import './components/toggle-button.css';
 @import './components/status-indicator.css';
 @import './components/gauge-base.css';
+@import './components/cache-status.css';
 
 /* Gauges */
 @import './gauges/circular-gauge.css';
 @import './gauges/bar-gauge.css';
+@import './gauges/torque-gauge.css';
+@import './gauges/particle-flux-gauge.css';
+@import './gauges/battery-gauge.css';
+@import './gauges/solar-panel-gauge.css';
+@import './gauges/ledarray-gauge.css';
+@import './gauges/energy-balance-display.css';
 
-/* Animations */
-@import './animations/keyframes.css';
-
-/* 
- * NOTE: Additional gauge styles (torque, flux, cache, energy balance,
- * LED array, solar panel, battery, magnetic field) have been extracted
- * to separate files but are imported above through the main components.
- * 
- * For full extraction of all gauge types, add these imports:
- * @import './gauges/torque-gauge.css';
- * @import './gauges/flux-gauge.css';
- * @import './gauges/cache-status.css';
- * @import './gauges/energy-balance.css';
- * @import './gauges/led-array.css';
- * @import './gauges/solar-panel.css';
- * @import './gauges/battery-gauge.css';
- * @import './gauges/magnetic-field.css';
- */
+/* Responsive overrides — must load last: .sci-panel / .sci-panel-toggle
+   rules here share specificity with the component rules above, so import
+   order (not specificity) decides which wins at each breakpoint. */
+@import './base/responsive.css';

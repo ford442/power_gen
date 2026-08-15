@@ -1,0 +1,148 @@
+/* ============================================
+   BATTERY GAUGE
+   ============================================ */
+.battery-gauge {
+  --charge-low: #ff4444;
+  --charge-med: #ffaa00;
+  --charge-high: #44ff44;
+}
+
+.battery-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+}
+
+.battery-circular {
+  position: relative;
+  width: 80px;
+  height: 80px;
+}
+
+.battery-circular canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.battery-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 48px;
+  border: 2px solid #666;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.battery-icon::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 4px;
+  background: #666;
+  border-radius: 2px 2px 0 0;
+}
+
+.battery-level {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  right: 3px;
+  top: 3px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.battery-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--charge-high);
+  transition: height 0.3s ease, background 0.3s ease;
+}
+
+.battery-readout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.battery-percentage {
+  font-family: var(--sci-font-mono);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--sci-cyan);
+}
+
+.battery-voltage {
+  font-family: var(--sci-font-mono);
+  font-size: 0.9rem;
+  color: var(--sci-text-secondary);
+}
+
+.battery-current {
+  font-family: var(--sci-font-mono);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.battery-current.charging {
+  color: var(--sci-green);
+  animation: chargingPulse 1s ease-in-out infinite;
+}
+
+.battery-current.discharging {
+  color: var(--sci-orange);
+}
+
+@keyframes chargingPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.battery-details {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.battery-temp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--sci-text-secondary);
+}
+
+.temp-icon {
+  font-size: 0.9rem;
+}
+
+.temp-value {
+  font-family: var(--sci-font-mono);
+  font-weight: 500;
+}
+
+.battery-sparkline {
+  width: 100px;
+  height: 30px;
+}
+
+.battery-sparkline canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

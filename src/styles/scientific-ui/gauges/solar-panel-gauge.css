@@ -1,0 +1,128 @@
+/* ============================================
+   SOLAR PANEL GAUGE
+   ============================================ */
+.solar-gauge {
+  --irradiance-low: #4444ff;
+  --irradiance-std: #44ff44;
+  --irradiance-high: #ffff44;
+}
+
+.solar-main {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+}
+
+.solar-sun-container {
+  position: relative;
+  width: 60px;
+  height: 60px;
+}
+
+.solar-sun-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.sun-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.5rem;
+  pointer-events: none;
+}
+
+.solar-metrics {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.solar-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metric-label {
+  font-size: 0.65rem;
+  color: var(--sci-text-muted);
+  text-transform: uppercase;
+}
+
+.metric-value {
+  font-family: var(--sci-font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.am15g-ref {
+  font-size: 0.6rem;
+  color: var(--sci-yellow);
+  opacity: 0.8;
+}
+
+.solar-power-bar {
+  margin-top: 4px;
+}
+
+.power-bar-bg {
+  height: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.power-bar-fill {
+  height: 100%;
+  background: var(--sci-green);
+  border-radius: 4px;
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+.power-label {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--sci-font-mono);
+  font-size: 0.65rem;
+  color: var(--sci-text-secondary);
+  text-align: right;
+}
+
+.solar-iv-curve {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.iv-label {
+  font-size: 0.65rem;
+  color: var(--sci-text-muted);
+  text-transform: uppercase;
+}
+
+.solar-iv-curve canvas {
+  width: 50px;
+  height: 30px;
+}
+
+.operating-point {
+  font-size: 0.7rem;
+  color: var(--sci-magenta);
+}
+
+/* Sun ray rotation animation */
+@keyframes sunRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.solar-canvas {
+  animation: sunRotate 20s linear infinite;
+}

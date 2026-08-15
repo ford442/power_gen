@@ -1,0 +1,34 @@
+/* ============================================
+   TOGGLE BUTTON
+   ============================================ */
+.sci-panel-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--sci-bg-panel);
+  border: 1px solid var(--sci-border-cyan);
+  border-radius: 6px;
+  box-shadow: var(--sci-shadow-cyan);
+  backdrop-filter: blur(10px);
+  color: var(--sci-cyan);
+  font-size: 1.1rem;
+  cursor: pointer;
+  z-index: 999;
+  transition: all var(--sci-transition-normal);
+  letter-spacing: 0;
+}
+
+.sci-panel-toggle:hover {
+  background: var(--sci-cyan);
+  color: var(--sci-bg-primary);
+}
+
+.sci-panel-toggle.hidden {
+  opacity: 0;
+  pointer-events: none;
+}

@@ -1,8 +1,6 @@
-/**
- * Scientific UI - Circular Gauge Styles
- * Canvas-based circular gauge component
- */
-
+/* ============================================
+   CIRCULAR GAUGE (CANVAS)
+   ============================================ */
 .sci-circular-gauge {
   position: relative;
   height: 140px;
