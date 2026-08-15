@@ -8,7 +8,6 @@
 
 /* Base */
 @import './base/variables.css';
-@import './base/responsive.css';
 
 /* Components */
 @import './components/panel.css';
@@ -26,3 +25,8 @@
 @import './gauges/solar-panel-gauge.css';
 @import './gauges/ledarray-gauge.css';
 @import './gauges/energy-balance-display.css';
+
+/* Responsive overrides — must load last: .sci-panel / .sci-panel-toggle
+   rules here share specificity with the component rules above, so import
+   order (not specificity) decides which wins at each breakpoint. */
+@import './base/responsive.css';
