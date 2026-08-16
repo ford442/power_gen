@@ -37,6 +37,8 @@ import { initSEGAnnotations } from './seg-annotations.js';
 import { explainerState } from './seg-explainer/explainer-state.js';
 import { isDeviceActive as isDeviceVisible } from './renderers/shared/device-view.js';
 import { EnergyNetwork, ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network';
+import { gpuChores } from './gpu-chores';
+import { showWebGPUHardFail, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import {
   parsePrototypePreset,
   parseSegLayoutPreset,
@@ -324,8 +326,11 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.frameCageInstanceBuffer = null;
     this.frameLabBenchInstanceBuffer = null;
 
-    this.init();
+    this.ready = this.init();
   }
+
+  /** Settles when WebGPU session init finishes (or rejects on hard-fail). */
+  ready: Promise<void>;
 
   /** Proxies WebGPUManager's device — non-null once init() has completed. */
   get device(): GPUDevice {
@@ -434,6 +439,35 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
       this.render(0);
 
+      gpuChores.adopt({
+        sessionApi: 'webgpu',
+        device: this.device,
+        pipelineCache: this.pipelineCache
+      });
+      window.getRendererInfo = () => ({
+        renderer: 'webgpu',
+        fps: (this.profiler as { lastFps?: number; fps?: number } | null)?.fps
+          ?? (this.profiler as { lastFps?: number } | null)?.lastFps
+          ?? 0,
+        particleCount: 0,
+        view: this.currentView,
+        speedMult: this.speedMult,
+        segOmega: this.segOmega,
+        corona: this.corona,
+        segLayoutPreset: this.segLayoutPreset,
+        prototypePreset: this.prototypePreset,
+        anomalousEffectsEnabled: this.anomalousEffectsEnabled,
+        heronLayoutPreset: this.heronLayoutPreset,
+        devicesEnabled: { ...this.devicesEnabled },
+        wasmPhysics: !!(typeof window !== 'undefined' && (window as Window & { segWasm?: { enabled?: boolean } }).segWasm?.enabled),
+        telemetry: telemetryHub.getSnapshot()?.seg ?? null,
+        devices: {},
+        debug: {},
+        intentionalGaps: [],
+        hardwareTwin: telemetryHub.getSnapshot()?.hardwareTwin ?? null,
+        chores: gpuChores.breadcrumb()
+      });
+
       window.runSEGSpeedTest = (speeds?: number[], durationMs?: number) => this.runSpeedTest(speeds, durationMs);
 
       try {
@@ -474,8 +508,26 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       }
 
     } catch (e) {
-      console.error(e);
-      alert('Init failed: ' + (e instanceof Error ? e.message : String(e)));
+      console.error('[MultiDeviceVisualizer] init failed — hard-fail (no WebGL2):', e);
+      const message = e instanceof Error ? e.message : String(e);
+      const prev = (typeof window !== 'undefined' ? window.webgpuProbe : null) as WebGPUProbeResult | undefined;
+      const fail: WebGPUProbeResult = {
+        ok: false,
+        timestamp: new Date().toISOString(),
+        browser: prev?.browser || { brand: 'unknown', version: '', userAgent: navigator.userAgent, brands: [] },
+        hasNavigatorGpu: !!navigator.gpu,
+        adapter: prev?.adapter || null,
+        features: prev?.features || [],
+        limits: prev?.limits || {},
+        preferredCanvasFormat: prev?.preferredCanvasFormat || null,
+        error: message,
+        chromeVsEdge: (prev?.chromeVsEdge || '') + ' MultiDeviceVisualizer init failed after probe.',
+        probeDeviceDestroyed: prev?.probeDeviceDestroyed ?? false
+      };
+      if (typeof window !== 'undefined') window.webgpuProbe = fail;
+      showWebGPUHardFail(fail);
+      gpuChores.adopt({ sessionApi: 'webgpu', device: null, pipelineCache: null });
+      throw e;
     }
   }
 

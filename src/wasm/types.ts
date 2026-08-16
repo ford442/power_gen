@@ -131,6 +131,12 @@ export interface SimCoreModule {
   axialBField(z: number, radius: number, height: number, Br: number): number;
   estimateHalbachFieldT?(gapM: number, remanenceT?: number): number;
   sim_core_version(): string;
+  chores_reduce_f32?(data: number[] | Float32Array): number[] | { size: () => number; get: (i: number) => number };
+  chores_map_scale_f32?(
+    data: number[] | Float32Array,
+    scale: number,
+    bias: number
+  ): number[] | { size: () => number; get: (i: number) => number };
 }
 
 export type SimCoreFactory = (opts?: Record<string, unknown>) => Promise<SimCoreModule>;

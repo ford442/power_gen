@@ -58,6 +58,7 @@ import { parseSegFrameLevel } from '../../seg-frame-model.js';
 import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets.js';
 import { segOperator } from '../../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../../telemetry-hub';
+import { gpuChores, collectDeviceEnergies, meterLabEnergy, meterScalarFlux } from '../../gpu-chores';
 import { explainerState } from '../../seg-explainer/explainer-state.js';
 import { initSEGAnnotations } from '../../seg-annotations.js';
 import { segWasm } from '../../wasm/seg-physics-bridge.js';
@@ -282,7 +283,8 @@ export class WebGL2MultiDeviceVisualizer {
           'Roschin–Godin magnetic wall shells',
           'WebGPU timestamp queries'
         ],
-        hardwareTwin: snap?.hardwareTwin ?? null
+        hardwareTwin: snap?.hardwareTwin ?? null,
+        chores: gpuChores.breadcrumb()
       };
     };
   }
@@ -308,6 +310,7 @@ export class WebGL2MultiDeviceVisualizer {
 
       // Optional WASM init (non-blocking; enable via ?wasmPhysics=1)
       segWasm.init().catch(() => {});
+      gpuChores.adopt({ sessionApi: 'webgl2', device: null, pipelineCache: null });
 
       try {
         this.segAnnotations = initSEGAnnotations(() => this);
@@ -520,7 +523,8 @@ export class WebGL2MultiDeviceVisualizer {
       gpuTimeMs: this.profiler?.lastGpuTimeMs
     });
     const drive = segOperator.getDrive();
-    const useWasm = segWasm.enabled;
+    const replayLocked = !!(segOperator.replayMode || telemetryHub.isReplayMode?.());
+    const useWasm = segWasm.enabled && !replayLocked;
     const focus = this.currentView === 'overview' ? 'seg' : this.currentView;
 
     if (useWasm) {
@@ -637,7 +641,7 @@ export class WebGL2MultiDeviceVisualizer {
           }
         }
       }
-    } else {
+    } else if (!replayLocked) {
       for (const subDt of simSteps) {
         if (subDt > 0) segOperator.step(subDt);
       }
@@ -676,7 +680,7 @@ export class WebGL2MultiDeviceVisualizer {
           || ((device.id === 'maglev' || device.id === 'homopolar' || device.id === 'transformer')
             && device.physics._wasmPlantActive)
         );
-        if (!wasmOwnsFocus) {
+        if (!wasmOwnsFocus && !replayLocked) {
           for (let s = 0; s < substeps; s++) {
             const heronLayout = device.id === 'heron' ? this.heronLayout : null;
             stepDevicePhysics(device.physics, subDt, drive, { heronLayout });
@@ -775,6 +779,11 @@ export class WebGL2MultiDeviceVisualizer {
 
     // Telemetry hub — same path as WebGPU (START → non-zero RPM/V/I/P)
     const omega = this.segOmega || 0;
+    const lab = meterLabEnergy(collectDeviceEnergies(this.devices));
+    const flux = meterScalarFlux(
+      Object.values(this.devices).map((d) => d.scaledParticleCount || d.particleCount || 0),
+      speed
+    );
     const segTelemetry = segOperator.computeTelemetry(deltaTime);
     const netSnap = this.energyNetwork.update({
       devices: this.devices,
@@ -784,15 +793,18 @@ export class WebGL2MultiDeviceVisualizer {
       deltaTime
     });
     syncEnergyCouplingDisclaimer(netSnap.couplingEnabled, netSnap);
-    telemetryHub.publishFrame({
+    if (!telemetryHub.isReplayMode()) telemetryHub.publishFrame({
       dt: deltaTime,
       view: this.currentView || 'overview',
       renderer: 'webgl2',
       devicePhysics: TelemetryHub.collectDevicePhysics(this.devices),
       scientific: {
-        particleFlux: totalParticles * Math.max(0.05, speed),
+        particleFlux: flux.particleFlux || (totalParticles * Math.max(0.05, speed)),
         maxFieldMagnitude: 0.7048 * (0.35 + 0.65 * Math.min(1, Math.abs(omega))),
-        avgEnergyDensity: 1.976e6 * (0.2 + 0.8 * Math.min(1, Math.abs(omega)))
+        avgEnergyDensity: lab.avgEnergyDensity,
+        labEnergySum: lab.labEnergySum,
+        labEnergyRms: lab.labEnergyRms,
+        choresBackend: gpuChores.breadcrumb().backend
       },
       segTelemetry,
       energyNetwork: {

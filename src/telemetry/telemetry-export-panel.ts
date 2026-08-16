@@ -8,9 +8,11 @@ import {
   downloadConfigJson,
   downloadReplayJson,
   downloadBenchmarkPack,
-  buildReplayFromRecording
+  buildReplayFromRecording,
+  reduceRecordingColumn
 } from './telemetry-export';
-import { applyReplay } from './replay-format';
+import { replayPlayer } from './replay-player';
+import { setReplayBarVisible } from './replay-ui';
 import { setSimulationSeed } from './deterministic-rng';
 import { runOfflineSegExportInWorker, runOfflineSegExport } from '../wasm/offline-runner.js';
 
@@ -61,7 +63,11 @@ export function initTelemetryExportPanel(): void {
       return;
     }
     downloadTelemetryCsv(rows as Parameters<typeof downloadTelemetryCsv>[0]);
-    setStatus(statusEl, `Downloaded CSV (${rows.length} rows)`);
+    const summary = reduceRecordingColumn(rows, 'power_w');
+    const extra = summary
+      ? ` · power RMS ${summary.rms.toFixed(2)} W (${summary.backend})`
+      : '';
+    setStatus(statusEl, `Downloaded CSV (${rows.length} rows)${extra}`);
   });
 
   jsonBtn?.addEventListener('click', () => {
@@ -126,11 +132,9 @@ export function initTelemetryExportPanel(): void {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
     try {
-      const text = await file.text();
-      const replay = JSON.parse(text);
-      if (replay.seed != null) setSimulationSeed(replay.seed);
-      applyReplay(replay);
-      setStatus(statusEl, `Replay loaded (v${replay.replayVersion})`);
+      setReplayBarVisible(true);
+      await replayPlayer.loadFile(file);
+      setStatus(statusEl, `Replay loaded — ${replayPlayer.state.filename}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Invalid replay file';
       setStatus(statusEl, message, false);

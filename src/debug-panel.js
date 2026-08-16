@@ -132,6 +132,18 @@ export class DebugPanel {
         </button>
         <div id="wasmBenchResults" style="margin-top: 6px; font-size: 10px; color: #aaa; display: none;"></div>
       </div>
+      <div style="margin-bottom: 10px; padding: 8px; background: rgba(0,40,60,0.5); border-radius: 4px;">
+        <div style="color: #8cf; font-weight: bold; margin-bottom: 6px;">Telemetry Replay</div>
+        <button id="replayScrubberBtn" style="width: 100%; padding: 6px; background: #111; color: #f0a; border: 1px solid #f0a; border-radius: 4px; cursor: pointer; font-size: 11px;">
+          Show replay scrubber
+        </button>
+        <div style="font-size: 10px; color: #666; margin-top: 6px;">Or open with <code>?replay=1</code>. Live plant is paused while a file is loaded.</div>
+      </div>
+      <div style="margin-bottom: 10px; padding: 8px; background: rgba(0,40,60,0.5); border-radius: 4px;">
+        <div style="color: #8cf; font-weight: bold; margin-bottom: 6px;">gpu-chores meters</div>
+        <div id="gpuChoresStatus" style="font-size: 10px; color: #888;">session — · backend —</div>
+        <div style="font-size: 10px; color: #666; margin-top: 4px;">Exclusive API: chores adopt the boot renderer device. <code>?gpuChores=0</code> forces JS.</div>
+      </div>
       <div style="display: flex; gap: 8px; margin-top: 15px;">
         <button id="startBenchmark" style="flex: 1; padding: 8px; background: #0ff; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Start Benchmark</button>
         <button id="applyOptimal" style="flex: 1; padding: 8px; background: #111; color: #0ff; border: 1px solid #0ff; border-radius: 4px; cursor: pointer;">Apply Optimal</button>
@@ -262,6 +274,23 @@ export class DebugPanel {
   }
 
   _wireWasmControls() {
+    const choresEl = document.getElementById('gpuChoresStatus');
+    const refreshChores = () => {
+      const c = window.gpuChores?.breadcrumb?.();
+      if (choresEl && c) {
+        choresEl.textContent =
+          `session ${c.sessionApi} · backend ${c.backend} · adoptedDevice=${c.adoptedDevice ? 'yes' : 'no'}`
+          + (c.killSwitch ? ' · kill-switch' : '');
+      }
+    };
+    refreshChores();
+    setInterval(refreshChores, 2000);
+
+    document.getElementById('replayScrubberBtn')?.addEventListener('click', async () => {
+      const { showReplayBar } = await import('./telemetry/replay-ui');
+      showReplayBar();
+    });
+
     const statusEl = document.getElementById('wasmPhysicsStatus');
     const toggle = document.getElementById('wasmPhysicsToggle');
     const diffToggle = document.getElementById('wasmDiffToggle');

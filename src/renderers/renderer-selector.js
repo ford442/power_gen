@@ -1,17 +1,14 @@
 /**
- * Renderer selection for WebGPU vs WebGL2 fallback.
+ * Renderer selection — WebGPU is the default required path.
  *
  * Priority (first match wins):
- *   1. URL param  ?renderer=webgpu|webgl2
+ *   1. URL param  ?renderer=webgpu|webgl2  (webgl2 is explicit opt-in only)
  *   2. global     DEBUG_RENDERER = 'webgpu' | 'webgl2'
  *   3. localStorage seg-renderer
- *   4. default    webgpu (when navigator.gpu is available)
+ *   4. default    webgpu (always — missing GPU → probe hard-fail, not WebGL2)
  *
- * WebGL2 → WebGPU mapping notes:
- *   - GPU compute shaders  → CPU particle-physics.js (or transform feedback later)
- *   - Storage buffers      → Float32Array + gl.bufferData / bufferSubData
- *   - Instanced draw       → gl.drawElementsInstanced + per-instance attributes
- *   - Bind groups          → uniform blocks (UBO) + texture units
+ * Automatic WebGL2 fallback on WebGPU failure is **disabled**.
+ * WebGL2 code stays in-tree for agents via ?renderer=webgl2 only.
  */
 
 export const RENDERER_WEBGPU = 'webgpu';
@@ -35,10 +32,17 @@ export function resolveRenderer() {
 
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === RENDERER_WEBGL2 || stored === RENDERER_WEBGPU) return stored;
+    // Do not auto-prefer stored webgl2 as a silent fallback for missing GPU —
+    // only honor explicit webgpu preference from storage; default is webgpu.
+    if (stored === RENDERER_WEBGPU) return RENDERER_WEBGPU;
+    if (stored === RENDERER_WEBGL2) {
+      console.warn(
+        '[renderer-selector] Ignoring localStorage webgl2 preference for default boot; ' +
+        'use ?renderer=webgl2 to opt in. Default is WebGPU-required.'
+      );
+    }
   } catch (_) { /* private browsing */ }
 
-  if (!navigator.gpu) return RENDERER_WEBGL2;
   return RENDERER_WEBGPU;
 }
 

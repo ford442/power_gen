@@ -210,6 +210,28 @@ static int run_transformer_smoke() {
     return 0;
 }
 
+static int run_chores_smoke() {
+    const float data[] = { 1.f, -2.f, 3.f, 0.f, 4.f };
+    float out[5] = {};
+    chores_reduce_f32(data, 5, out);
+    printf("chores reduce sum=%.1f min=%.1f max=%.1f sumSq=%.1f n=%.0f\n",
+           out[0], out[1], out[2], out[3], out[4]);
+    if (std::fabs(out[0] - 6.f) > 1e-5f || std::fabs(out[1] + 2.f) > 1e-5f
+        || std::fabs(out[2] - 4.f) > 1e-5f || std::fabs(out[3] - 30.f) > 1e-5f
+        || std::fabs(out[4] - 5.f) > 1e-5f) {
+        printf("FAIL: chores reduce golden mismatch\n");
+        return 1;
+    }
+    float mapped[5] = {};
+    chores_map_scale_f32(data, mapped, 5, 0.8f, 0.2f);
+    if (std::fabs(mapped[0] - 1.0f) > 1e-5f || std::fabs(mapped[1] + 1.4f) > 1e-5f) {
+        printf("FAIL: chores map golden mismatch (got %.3f %.3f)\n", mapped[0], mapped[1]);
+        return 1;
+    }
+    printf("chores reduce/map goldens OK\n");
+    return 0;
+}
+
 static int run_energy_network_smoke() {
     SEGSimulator sim;
     // Mirror ENERGY_PIPE_EDGES (from, to, maxW, eff, latency)
@@ -288,8 +310,9 @@ int main(int argc, char** argv) {
             if (std::strcmp(argv[i + 1], "maglev") == 0)  return run_maglev_smoke();
             if (std::strcmp(argv[i + 1], "homopolar") == 0) return run_homopolar_smoke();
             if (std::strcmp(argv[i + 1], "transformer") == 0) return run_transformer_smoke();
+            if (std::strcmp(argv[i + 1], "chores") == 0) return run_chores_smoke();
             if (std::strcmp(argv[i + 1], "energy-network") == 0) return run_energy_network_smoke();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|energy-network)\n", argv[i + 1]);
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|chores|energy-network)\n", argv[i + 1]);
             return 2;
         }
     }
@@ -368,6 +391,7 @@ int main(int argc, char** argv) {
     if (run_maglev_smoke() != 0) return 1;
     if (run_homopolar_smoke() != 0) return 1;
     if (run_transformer_smoke() != 0) return 1;
+    if (run_chores_smoke() != 0) return 1;
     if (run_energy_network_smoke() != 0) return 1;
 
     // Zero-copy packing smoke

@@ -8,7 +8,7 @@ Real-time multi-device physics lab centered on the Searl Effect Generator (SEG),
 
 > **Note:** The old URL `https://ford442.github.io/seg-webgpu-visualizer/` now redirects here (see [ford442/seg-webgpu-visualizer](https://github.com/ford442/seg-webgpu-visualizer)).
 
-WebGL2 fallback (no WebGPU required): [open with `?renderer=webgl2`](https://ford442.github.io/power_gen/?renderer=webgl2)
+Default boot **requires WebGPU**. GPU-less / agent path (explicit opt-in): [open with `?renderer=webgl2`](https://ford442.github.io/power_gen/?renderer=webgl2)
 
 ## Preview
 
@@ -39,23 +39,22 @@ WebGL2 fallback (no WebGPU required): [open with `?renderer=webgl2`](https://for
 See the [Device Gallery](docs/DEVICE_GALLERY.md) for screenshots and literature links.
 
 ## Browser Support
-- **WebGPU (default):** Chrome/Edge 113+ with WebGPU enabled. Requires HTTPS or localhost.
-- **WebGL2 fallback:** Any browser with WebGL2 — for debugging, CI, and agent-driven visual testing when WebGPU is unavailable or hard to automate.
+- **WebGPU (default, required):** Chrome/Edge 113+ with WebGPU enabled. HTTPS or localhost. Probe fail → **hard-fail** UI (`window.webgpuProbe`); **no** automatic WebGL2.
+- **WebGL2 (explicit opt-in only):** `?renderer=webgl2` for agents / CI / GPU-less VMs. Not used as a silent rescue path.
 
-## WebGL2 Fallback Renderer
+## WebGL2 opt-in renderer
 
-A toggleable WebGL2 path renders the same multi-device scene (SEG rollers, particles, sky/grid) using shared simulation state. Use it for Playwright screenshots, geometry/material iteration, and porting features to WebGPU.
+In-tree WebGL2 path for Playwright and no-GPU VMs. **Not** auto-selected when WebGPU fails.
 
 ### Enable WebGL2 mode
 
 | Method | Example |
 |--------|---------|
-| URL parameter | `?renderer=webgl2` |
+| URL parameter | `?renderer=webgl2` (**required** for opt-in) |
 | Browser console | `setRenderer('webgl2')` then reload |
-| localStorage | `localStorage.setItem('seg-renderer', 'webgl2')` |
 | Global (dev) | `window.DEBUG_RENDERER = 'webgl2'` before load |
 
-Switch back: `?renderer=webgpu` or `setRenderer('webgpu')`.
+`localStorage` webgl2 is **ignored** for default boot (prevents silent fallback). Switch back: `?renderer=webgpu`.
 
 ### Debug keys (WebGL2 only)
 
@@ -87,8 +86,8 @@ Single client-side app under `src/` (Vite root). No dual legacy tree.
 
 | Path | Module | Backend |
 |------|--------|---------|
-| Primary | `MultiDeviceVisualizer` | WebGPU |
-| Fallback | `WebGL2MultiDeviceVisualizer` | WebGL2 (`?renderer=webgl2`) |
+| Primary (default) | `MultiDeviceVisualizer` | WebGPU (required) |
+| Opt-in | `WebGL2MultiDeviceVisualizer` | WebGL2 (`?renderer=webgl2` only) |
 
 `src/main.js` is bootstrap + window API only. Shared CPU physics/geometry lives in
 `src/renderers/shared/`. Agent/dev details: [`docs/AGENTS.md`](docs/AGENTS.md)

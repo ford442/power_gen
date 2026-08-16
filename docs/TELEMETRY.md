@@ -61,7 +61,8 @@ const unsub = telemetryHub.subscribe((snap) => {
 | B-field (display) | T | `snap.meta.B_surface` (ValidatedConstants / scientific-data) |
 | Energy density | J/m³ in hub; scientific gauge shows kJ/m³ | `snap.meta.energyDensity_surface` |
 | Torque | N·m | `snap.meta.torque_inner` |
-| Particle flux | particles/s (proxy) | — |
+| Particle flux | particles/s (proxy) | chores `reduce_f32` over device particle counts × speed |
+| Lab energy sum / RMS | 0–1 scalars | chores reduce of per-device `energyLevel` (`snap.scientific.labEnergySum`) |
 | Battery SOC | 0–1 in devices.solar | — |
 | Lab bus `powerInW` / `powerOutW` | W (simulated) | `snap.devices[id]` via `EnergyNetwork` — **not metrology** |
 | Lab bus efficiency | % | `snap.devices[id].efficiency` — SEG uses operator model when coupled |
@@ -121,7 +122,8 @@ Ring-buffer sampling lives on `telemetryHub.sampler` (1–60 Hz). UI: left sideb
 | Download CSV | `window.exportTelemetryCsv()` — columns in `src/telemetry/telemetry-schema.ts` (includes optional `phase_error_deg`, `rpm_error`, `voltage_error_v`, `current_error_a`, `energy_residual_w`, `hw_connection_state`) |
 | Config JSON | `window.exportConfigJson()` — constants + layout + operator setpoints |
 | WASM offline 10s | **WASM 10s** — worker runs `SEGSimulator` headless, same CSV schema |
-| Replay file | v1 JSON: seed, layout presets, speed curve (`src/telemetry/replay-format.js`) |
+| Replay file | v1 JSON: seed, layout presets, speed curve + samples (`src/telemetry/replay-format.ts`) |
+| Replay scrubber | `?replay=1` or debug **Show replay scrubber** — drag-drop / file picker, play-pause-step. Parses in `src/workers/replay-worker.ts`. CSV load reconstructs a minimal replay. Live `publishFrame` and `segOperator.step()` are bypassed; gauges read injected hub snapshots. |
 | Benchmark pack | `window.exportBenchmarkPack()` — profiler FPS/memory snapshot |
 | Particle readback | `window.captureParticleSubset({ deviceId, maxCount })` (WebGPU, debug) |
 
@@ -133,6 +135,20 @@ cd cpp && make native   # smoke + writes build/seg_telemetry.csv
 ```
 
 Deterministic particles: set **RNG seed** in export panel or `localStorage seg-sim-seed`.
+
+### Replay playback
+
+1. Record with **Record 10s**, then **Replay** to download `.seg-replay.json` (or **CSV**).
+2. Open `?replay=1` (or the debug-panel button) and load the file — parse runs in a Web Worker.
+3. Scrub / play / step. The header shows a **REPLAY** badge; `telemetryHub.getSnapshot().replay` is set; the sampler does not record replay frames.
+4. **×** exits replay and live plant / telemetry resume.
+
+```js
+await window.loadReplayFile(file);          // JSON or CSV
+window.replayPlayer.play();
+window.replayPlayer.seek(2.5);
+window.replayPlayer.exit();
+```
 
 ## Scientific UI layout
 

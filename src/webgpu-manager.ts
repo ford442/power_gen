@@ -1,6 +1,7 @@
 /**
  * WebGPU device/context init. For renderer switching see renderers/renderer-selector.js.
- * WebGL2 fallback uses WebGL2Context — same canvas, shared simulation in renderers/shared/.
+ * Automatic WebGL2 fallback on failure is disabled (boot hard-fails; see webgpu-probe.ts).
+ * Explicit ?renderer=webgl2 remains an agent opt-in path only.
  *
  * Feature / limit matrix: docs/WEBGPU.md (and docs/AGENTS.md summary).
  */
@@ -189,7 +190,7 @@ export class WebGPUManager {
 
   async init(): Promise<void> {
     if (!navigator.gpu) {
-      alert('WebGPU not supported. Use Chrome 113+ or Edge 113+.');
+      // Hard-fail UI is shown by main.ts / webgpu-probe — avoid a second alert.
       throw new Error('WebGPU not supported');
     }
 
@@ -213,6 +214,7 @@ export class WebGPUManager {
       this.enabledFeatures = requiredFeatures;
       this.requestedLimits = requiredLimits;
 
+      // Single long-lived device for multi-device visualizer (not a second device).
       this.device = await adapter.requestDevice({
         requiredFeatures: requiredFeatures as GPUFeatureName[],
         requiredLimits,
@@ -240,9 +242,7 @@ export class WebGPUManager {
 
       await this.setupGlobalResources();
     } catch (e) {
-      console.error(e);
-      const message = e instanceof Error ? e.message : String(e);
-      alert('WebGPU init failed: ' + message);
+      console.error('[WebGPU] init failed (no WebGL2 auto-fallback):', e);
       throw e;
     }
   }

@@ -23,8 +23,10 @@ No backend, database, or server-side service.
 
 ### Browser testing caveat (important)
 
-- This VM has **no GPU adapter** → WebGPU fails (“No adapter”). Always use:
+- This VM has **no GPU adapter** → default WebGPU boot **hard-fails** (no
+  automatic WebGL2). Always use:
   **`http://localhost:5173/?renderer=webgl2`**
+  Probe JSON: `window.webgpuProbe` (Chrome vs Edge guidance included).
 - Operator flow: START → non-zero RPM/V/I/P (TelemetryHub), mode focus,
   SEG/Heron layouts, optional `?wasmPhysics=1`. Debug keys: `W` wireframe,
   `P` particles, `N` normals, `Space` pause, `.` step, `[` / `]` slow-mo.

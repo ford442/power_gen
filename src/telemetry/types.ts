@@ -133,6 +133,9 @@ export interface ScientificTelemetry {
   innerRingTorque: number;
   middleRingTorque: number;
   outerRingTorque: number;
+  labEnergySum?: number;
+  labEnergyRms?: number;
+  choresBackend?: string;
 }
 
 export interface TelemetrySnapshot {
@@ -149,6 +152,13 @@ export interface TelemetrySnapshot {
   /** Null when twin disconnected / unused. */
   hardwareTwin: HardwareTwinTelemetry | null;
   meta: TelemetryMeta;
+  /** Present only while the replay player owns the hub (never mixed into live recording). */
+  replay?: {
+    active: true;
+    t: number;
+    duration: number;
+    filename: string;
+  } | null;
 }
 
 export interface PublishFrameScientific {
@@ -158,6 +168,9 @@ export interface PublishFrameScientific {
   innerRingTorque?: number;
   middleRingTorque?: number;
   outerRingTorque?: number;
+  labEnergySum?: number;
+  labEnergyRms?: number;
+  choresBackend?: string;
 }
 
 export interface PublishFrameEnergyNetwork {

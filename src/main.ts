@@ -1,12 +1,9 @@
 /**
  * Application bootstrap: renderer selection, window API, control wiring.
  *
- * Live render paths:
- *   - MultiDeviceVisualizer (WebGPU, default)
- *   - WebGL2MultiDeviceVisualizer (fallback / ?renderer=webgl2)
- *
- * There is no legacy SEGVisualizer path. Physics, geometry, and pipelines live
- * under multi-device-visualizer.ts, device-*, and renderers/shared/.
+ * Default path: MultiDeviceVisualizer (WebGPU required).
+ * WebGL2MultiDeviceVisualizer remains in-tree for explicit ?renderer=webgl2 only —
+ * automatic WebGL2 rescue on probe failure is disabled.
  */
 
 import './devices/register-plugins.js';
@@ -19,14 +16,18 @@ import {
   RENDERER_WEBGPU,
   RENDERER_WEBGL2
 } from './renderers/renderer-selector.js';
+import { probeWebGPU, showWebGPUHardFail, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 import { initSEGOperatorPanel } from './seg-operator-panel.js';
 import { initSEGDiagram2D } from './seg-diagram-2d.js';
 import { initTelemetryExportPanel } from './telemetry/telemetry-export-panel';
+import { initReplayUI } from './telemetry/replay-ui';
+import { replayPlayer } from './telemetry/replay-player';
 import { initExplainerUI } from './seg-explainer/explainer-ui.js';
 import { restoreSimulationSeedFromStorage } from './telemetry/deterministic-rng';
 import { applyReplay, type ReplayFile } from './telemetry/replay-format';
 import { telemetryHub } from './telemetry-hub';
+import { gpuChores } from './gpu-chores';
 import {
   downloadTelemetryCsv,
   downloadConfigJson,
@@ -253,6 +254,7 @@ async function initWasm(): Promise<void> {
     wasmSim = await SEGSim.create();
     if (wasmSim.wasmAvailable) {
       updateWasmBadge('loaded', 'WASM ✓');
+      gpuChores.refreshBackend();
     } else {
       updateWasmBadge('missing', 'WASM –');
     }
@@ -302,30 +304,69 @@ async function bootstrapVisualizer(): Promise<void> {
   const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement | null;
   console.log(`[main] Selected renderer: ${renderer}`);
 
+  // Explicit opt-in only — not an automatic rescue when WebGPU fails.
   if (renderer === RENDERER_WEBGL2) {
+    console.warn(
+      '[main] Explicit ?renderer=webgl2 — automatic WebGL2 fallback is disabled; ' +
+      'this path is agent/CI opt-in only.'
+    );
     try {
       window.multiVisualizer = new WebGL2MultiDeviceVisualizer();
       exposeRenderer(canvas, RENDERER_WEBGL2);
       return;
     } catch (e) {
-      console.warn('[main] WebGL2 path failed, trying WebGPU:', e);
+      console.error('[main] Explicit WebGL2 path failed (no WebGPU rescue):', e);
+      const probe: WebGPUProbeResult = {
+        ok: false,
+        timestamp: new Date().toISOString(),
+        browser: { brand: 'unknown', version: '', userAgent: navigator.userAgent, brands: [] },
+        hasNavigatorGpu: !!navigator.gpu,
+        adapter: null,
+        features: [],
+        limits: {},
+        preferredCanvasFormat: null,
+        error: e instanceof Error ? e.message : String(e),
+        chromeVsEdge: 'Explicit WebGL2 opt-in failed; default path requires WebGPU.',
+        probeDeviceDestroyed: false
+      };
+      window.webgpuProbe = probe;
+      showWebGPUHardFail(probe);
+      return;
     }
   }
 
-  try {
-    window.multiVisualizer = new MultiDeviceVisualizer();
-    exposeRenderer(canvas, RENDERER_WEBGPU);
+  // Required WebGPU probe — never opens WebGL2 on failure.
+  const probe = await probeWebGPU();
+  window.webgpuProbe = probe;
+  if (!probe.ok) {
+    showWebGPUHardFail(probe);
+    // Chores must not request a GPU device after probe failure.
+    gpuChores.adopt({ sessionApi: 'webgpu', device: null, pipelineCache: null });
     return;
-  } catch (e) {
-    console.warn('[main] MultiDeviceVisualizer failed, trying WebGL2 fallback:', e);
   }
 
   try {
-    window.multiVisualizer = new WebGL2MultiDeviceVisualizer();
-    exposeRenderer(canvas, RENDERER_WEBGL2);
-  } catch (e2) {
-    console.error('[main] All renderers failed:', e2);
-    alert('No compatible graphics API (WebGPU or WebGL2).');
+    const vis = new MultiDeviceVisualizer();
+    window.multiVisualizer = vis;
+    await (vis as MultiDeviceVisualizer & { ready?: Promise<void> }).ready;
+    if (window.webgpuProbe && !window.webgpuProbe.ok) {
+      // init already showed hard-fail UI
+      return;
+    }
+    exposeRenderer(canvas, RENDERER_WEBGPU);
+  } catch (e) {
+    console.error('[main] MultiDeviceVisualizer failed — hard-fail (no WebGL2):', e);
+    if (!window.webgpuProbe || window.webgpuProbe.ok) {
+      const failProbe: WebGPUProbeResult = {
+        ...probe,
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+        chromeVsEdge: `${probe.chromeVsEdge} Visualizer init failed after probe OK.`
+      };
+      window.webgpuProbe = failProbe;
+      showWebGPUHardFail(failProbe);
+    }
+    gpuChores.adopt({ sessionApi: 'webgpu', device: null, pipelineCache: null });
   }
 }
 
@@ -376,6 +417,7 @@ window.addEventListener('load', () => {
     wireHeronLayoutControls();
     syncLayoutPanelsVisibility();
     initTelemetryExportPanel();
+    initReplayUI();
     const explainer = initExplainerUI();
     await explainer.applyLabFromHash();
 
@@ -438,7 +480,19 @@ window.exportTelemetryCsv = () => {
 window.exportConfigJson = () => downloadConfigJson();
 window.startTelemetryRecording = (sec = 10, hz) => telemetryHub.startRecording(sec, hz);
 window.stopTelemetryRecording = () => telemetryHub.stopRecording();
-window.applyReplayFile = (replay) => applyReplay(replay as ReplayFile);
+window.applyReplayFile = (replay) => {
+  const file = replay as ReplayFile;
+  if (file?.samples && (file.samples as unknown[]).length) {
+    replayPlayer.attach(file, 'applyReplayFile.json', 'json');
+    replayPlayer.play();
+    return () => replayPlayer.exit();
+  }
+  return applyReplay(file);
+};
+window.loadReplayFile = (file: File) => replayPlayer.loadFile(file);
+window.showReplayBar = () => {
+  import('./telemetry/replay-ui').then((m) => m.setReplayBarVisible(true));
+};
 window.exportBenchmarkPack = () => {
   const p = window.multiVisualizer?.profiler;
   if (!p) return null;

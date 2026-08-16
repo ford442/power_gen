@@ -5,6 +5,7 @@ import {
 import { getHeronLayout } from '../heron-layout.js';
 import { overviewLodParticleCount } from '../renderers/shared/view-lod.js';
 import { segWasm } from '../wasm/seg-physics-bridge.js';
+import { telemetryHub } from '../telemetry-hub';
 import type {
   DeviceEffectContext,
   DeviceEnergyContext,
@@ -81,9 +82,10 @@ export const DeviceUpdateMixin = {
       const wasmOwnsPlant = segWasm.enabled
         && this.physicsState._wasmPlantActive
         && pluginWasmSkipsJsPhysics(this);
-      if (!wasmOwnsPlant) {
+      const replayOwnsPlant = telemetryHub.isReplayMode();
+      if (!wasmOwnsPlant && !replayOwnsPlant) {
         stepDevicePhysics(this.physicsState, deltaTime, ctx.drive, { heronLayout });
-      } else {
+      } else if (wasmOwnsPlant) {
         this.physicsState._wasmPlantActive = false;
       }
       runSyncAfterPhysics(this, ctx);

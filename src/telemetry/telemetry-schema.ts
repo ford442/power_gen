@@ -167,6 +167,60 @@ export function rowFromWasmSeg({
   };
 }
 
+function parseCsvCell(raw: string): string {
+  const s = raw.trim();
+  if (s.startsWith('"') && s.endsWith('"')) {
+    return s.slice(1, -1).replace(/""/g, '"');
+  }
+  return s;
+}
+
+function coerceCsvValue(col: TelemetryCsvColumn, raw: string): number | string {
+  if (raw === '') {
+    if (col === 'view' || col === 'mode' || col === 'status' || col === 'hw_connection_state') {
+      return col === 'status' ? 'standby' : col === 'hw_connection_state' ? 'disconnected' : '';
+    }
+    return 0;
+  }
+  if (
+    col === 'view' || col === 'mode' || col === 'status' || col === 'hw_connection_state'
+    || col === 'phase_error_deg' || col === 'rpm_error' || col === 'voltage_error_v'
+    || col === 'current_error_a' || col === 'energy_residual_w'
+  ) {
+    const n = Number(raw);
+    if (col !== 'view' && col !== 'mode' && col !== 'status' && col !== 'hw_connection_state' && Number.isFinite(n)) {
+      return n;
+    }
+    return raw;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Parse a telemetry CSV (header + rows) back into {@link TelemetryCsvRow}s.
+ * Unknown columns are ignored; missing known columns default to 0 / ''.
+ */
+export function csvToRows(text: string): TelemetryCsvRow[] {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(',').map(parseCsvCell);
+  const colIndex = new Map<string, number>();
+  header.forEach((name, i) => colIndex.set(name, i));
+
+  const rows: TelemetryCsvRow[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = lines[i].split(',').map(parseCsvCell);
+    const row = {} as TelemetryCsvRow;
+    for (const col of TELEMETRY_CSV_COLUMNS) {
+      const idx = colIndex.get(col);
+      row[col] = idx == null ? coerceCsvValue(col, '') : coerceCsvValue(col, cells[idx] ?? '');
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 export function rowsToCsv(rows: TelemetryCsvRow[]): string {
   const header = TELEMETRY_CSV_COLUMNS.join(',');
   const lines = rows.map((row) =>

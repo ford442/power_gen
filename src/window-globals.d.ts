@@ -59,6 +59,14 @@ export interface RendererInfoSnapshot {
   debug: unknown;
   intentionalGaps: string[];
   hardwareTwin: unknown;
+  chores?: {
+    sessionApi: string;
+    backend: string;
+    killSwitch: boolean;
+    adoptedDevice: boolean;
+    lastOp?: string | null;
+    lastCount?: number;
+  };
 }
 
 /** Canvas readback returned by window.captureCanvasFrame() (WebGL2 fallback + agent/e2e hooks). */
@@ -83,6 +91,16 @@ declare global {
     telemetryHub: TelemetryHub;
     multiVisualizer?: MultiVisualizerWindowRef;
     currentRenderer?: string | null;
+    /** Boot probe result (WebGPU required path). See renderers/webgpu-probe.ts. */
+    webgpuProbe?: {
+      ok: boolean;
+      error: string | null;
+      chromeVsEdge: string;
+      browser?: { brand: string; version: string };
+      adapter?: unknown;
+      features?: string[];
+      hasNavigatorGpu?: boolean;
+    };
     setSEGLayout?: (preset: string) => void;
     setHeronLayout?: (preset: string) => void;
 
@@ -111,6 +129,19 @@ declare global {
     startTelemetryRecording?: (sec?: number, hz?: number) => void;
     stopTelemetryRecording?: () => void;
     applyReplayFile?: (replay: unknown) => () => void;
+    loadReplayFile?: (file: File) => Promise<unknown>;
+    showReplayBar?: () => void;
+    replayPlayer?: unknown;
+    gpuChores?: {
+      breadcrumb: () => {
+        sessionApi: string;
+        backend: string;
+        killSwitch: boolean;
+        adoptedDevice: boolean;
+        lastOp: string | null;
+        lastCount: number;
+      };
+    };
     exportBenchmarkPack?: () => unknown;
     startSEGTour?: () => void;
     shareLabLink?: () => Promise<unknown>;

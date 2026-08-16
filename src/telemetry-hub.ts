@@ -79,6 +79,10 @@ export interface PublishFrameOpts {
   segTelemetry?: SegOperatorTelemetry;
   energyNetwork?: PublishFrameEnergyNetwork | null;
   hardwareTwin?: PublishFrameHardwareTwin | null;
+  /** Live render loop vs replay player. Replay frames skip the sampler. */
+  source?: 'live' | 'replay';
+  simTimeS?: number;
+  replayMeta?: { t: number; duration: number; filename: string };
 }
 
 export interface DevicePhysicsSource {
@@ -215,6 +219,7 @@ export class TelemetryHub {
   private _snapshot: TelemetrySnapshot;
   sampler: TelemetrySampler;
   private _simTimeS = 0;
+  private _replayActive = false;
 
   constructor() {
     this._snapshot = this._blankSnapshot();
@@ -243,17 +248,41 @@ export class TelemetryHub {
       },
       energyNetwork: null,
       hardwareTwin: null,
-      meta: TELEMETRY_META
+      meta: TELEMETRY_META,
+      replay: null
     };
   }
 
   /**
    * Publish one simulation frame. Call after physics steps on either renderer.
    */
+  isReplayMode(): boolean {
+    return this._replayActive;
+  }
+
+  setReplayMode(active: boolean): void {
+    this._replayActive = !!active;
+    if (this._replayActive && this.sampler.recording) {
+      this.sampler.stop();
+    }
+    if (!this._replayActive && this._snapshot.replay) {
+      this._snapshot = { ...this._snapshot, replay: null };
+    }
+  }
+
   publishFrame(opts: PublishFrameOpts = {}): TelemetrySnapshot {
+    const source = opts.source ?? 'live';
+    if (this._replayActive && source !== 'replay') {
+      return this._snapshot;
+    }
+
     const dt = opts.dt ?? 0.016;
     this._frameId += 1;
-    this._simTimeS += dt;
+    if (source === 'replay' && opts.simTimeS != null) {
+      this._simTimeS = opts.simTimeS;
+    } else {
+      this._simTimeS += dt;
+    }
 
     const segTelemetry = opts.segTelemetry || segOperator.computeTelemetry(dt);
 
@@ -296,7 +325,10 @@ export class TelemetryHub {
       innerRingTorque: sciIn.innerRingTorque
         ?? (TELEMETRY_META.torque_inner.value * segOperator.physics.segOmega),
       middleRingTorque: sciIn.middleRingTorque ?? 0,
-      outerRingTorque: sciIn.outerRingTorque ?? 0
+      outerRingTorque: sciIn.outerRingTorque ?? 0,
+      labEnergySum: sciIn.labEnergySum ?? this._snapshot.scientific.labEnergySum ?? 0,
+      labEnergyRms: sciIn.labEnergyRms ?? this._snapshot.scientific.labEnergyRms ?? 0,
+      choresBackend: sciIn.choresBackend ?? this._snapshot.scientific.choresBackend
     };
 
     this._snapshot = {
@@ -320,11 +352,16 @@ export class TelemetryHub {
       hardwareTwin: opts.hardwareTwin !== undefined
         ? opts.hardwareTwin
         : this._snapshot.hardwareTwin,
-      meta: TELEMETRY_META
+      meta: TELEMETRY_META,
+      replay: source === 'replay' && opts.replayMeta
+        ? { active: true, ...opts.replayMeta }
+        : null
     };
 
-    this.sampler.setLoadOhm(segOperator.loadResistance ?? 100);
-    this.sampler.onFrame(this._snapshot, dt);
+    if (source !== 'replay') {
+      this.sampler.setLoadOhm(segOperator.loadResistance ?? 100);
+      this.sampler.onFrame(this._snapshot, dt);
+    }
 
     this._notify();
     return this._snapshot;

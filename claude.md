@@ -27,9 +27,11 @@ npm run dev          # http://localhost:5173/  (https: false; localhost is fine 
 
 | Goal | URL |
 |------|-----|
-| No GPU / agents | `http://localhost:5173/?renderer=webgl2` |
+| No GPU / agents | `http://localhost:5173/?renderer=webgl2` (required — default WebGPU hard-fails without GPU) |
 | WASM plant | `?wasmPhysics=1` |
 | Mock hardware | `?mockHardware=1` |
+
+Default boot no longer falls back to WebGL2. Probe: `window.webgpuProbe`.
 
 Full query matrix: **docs/AGENTS.md → Query-parameter matrix**.
 

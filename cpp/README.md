@@ -67,6 +67,7 @@ smoke runs:
 ./build/sim_core_test --mode maglev    # Quanta gap ODE smoke
 ./build/sim_core_test --mode homopolar # Faraday disc L–R smoke
 ./build/sim_core_test --mode transformer # coupled-inductor L–M smoke
+./build/sim_core_test --mode chores      # gpu-chores reduce/map goldens
 ```
 
 Plant modes (SimMode enum): `0=SEG` RK4 rollers, `1=Heron` Bernoulli /
