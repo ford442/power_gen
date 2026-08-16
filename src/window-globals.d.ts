@@ -31,6 +31,7 @@ export interface MultiVisualizerWindowRef {
   setParticleCount?: (count: number) => void;
   onModeChange?: (mode: string) => void;
   captureParticleSubset?: (deviceId: string, maxCount: number) => Promise<unknown>;
+  captureOverviewCull?: () => Promise<unknown>;
   profiler?: {
     benchmarkSamples?: unknown[];
     endBenchmark?: () => unknown;
@@ -103,6 +104,7 @@ declare global {
     sciUI?: { toggle: () => void } | null;
     segTour?: SEGTourPlayer;
     captureParticleSubset?: (opts?: { deviceId?: string; maxCount?: number }) => Promise<unknown>;
+    captureOverviewCull?: () => Promise<unknown>;
     runSEGSpeedTest?: (speeds?: number[], durationMs?: number) => Promise<unknown>;
     exportTelemetryCsv?: () => { ok: boolean; error?: string; rows?: number };
     exportConfigJson?: () => void;

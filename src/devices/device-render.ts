@@ -191,7 +191,16 @@ export const DeviceRenderMixin = {
 
     renderPass.setPipeline(this.particlePipeline);
     renderPass.setBindGroup(0, particleBindGroup);
-    renderPass.draw(4, scaledCount);
+
+    // Overview: instance count comes from the GPU cull pass (ADR-0005 WS4) —
+    // culled devices resolve to instanceCount 0 without a CPU round trip.
+    const cull = this.visualizer.overviewCull;
+    const argsOffset = cull?.active ? cull.drawArgsOffset(this.id) : -1;
+    if (cull?.drawArgsBuffer && argsOffset >= 0) {
+      renderPass.drawIndirect(cull.drawArgsBuffer, argsOffset);
+    } else {
+      renderPass.draw(4, scaledCount);
+    }
     this.visualizer.profiler?.recordDraw?.(1);
 
     if (this.effectParticleCount > 0 && this.effectsParticles && !skipEffects) {

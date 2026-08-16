@@ -1,4 +1,5 @@
 // Speed test harness and GPU particle readback for debugging.
+import { CULL_OUTPUT_HEADER_BYTES, DRAW_ARGS_STRIDE } from '../devices/overview-cull.js';
 
 export const diagnosticsMethods = {
   /**
@@ -90,5 +91,47 @@ export const diagnosticsMethods = {
       });
     }
     return { deviceId, count, particles: out, renderer: 'webgpu' };
+  },
+
+  /**
+   * Debug: read back the overview cull pass results (ADR-0005 WS4 acceptance).
+   * Exposed as window.captureOverviewCull(). Returns null outside overview or
+   * when the GPU cull path is inactive.
+   */
+  async captureOverviewCull() {
+    const cull = this.overviewCull;
+    if (!cull?.active || !cull.outputBuffer || !cull.drawArgsBuffer) return null;
+
+    const headerBytes = CULL_OUTPUT_HEADER_BYTES + cull.deviceCount * 4;
+    const argsBytes = cull.deviceCount * DRAW_ARGS_STRIDE;
+    const staging = this.device.createBuffer({
+      size: headerBytes + argsBytes,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+    });
+    const enc = this.device.createCommandEncoder();
+    enc.copyBufferToBuffer(cull.outputBuffer, 0, staging, 0, headerBytes);
+    enc.copyBufferToBuffer(cull.drawArgsBuffer, 0, staging, headerBytes, argsBytes);
+    this.device.queue.submit([enc.finish()]);
+    await staging.mapAsync(GPUMapMode.READ);
+    const raw = new Uint32Array(staging.getMappedRange().slice(0));
+    staging.unmap();
+    staging.destroy();
+
+    const argsBase = headerBytes / 4;
+    const devices = cull.slots.map((slot, i) => ({
+      id: slot.id,
+      lodLevel: slot.lodLevel,
+      baseCount: slot.baseCount,
+      instanceCount: raw[argsBase + i * 4 + 1],
+      visible: raw[argsBase + i * 4 + 1] > 0
+    }));
+
+    return {
+      visibleCount: raw[0],
+      drawnInstances: raw[1],
+      deviceCount: cull.deviceCount,
+      drawPrepMs: this.profiler?.drawPrepMs ?? 0,
+      devices
+    };
   }
 };

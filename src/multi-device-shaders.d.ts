@@ -28,6 +28,7 @@ export declare class MultiDeviceShaders {
   readonly computeShader: string;
   readonly segRollerComputeShader: string;
   readonly segFieldAdvectShader: string;
+  readonly overviewCullComputeShader: string;
   readonly skyVertShader: string;
   readonly skyFragShader: string;
   readonly gridVertShader: string;

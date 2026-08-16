@@ -22,15 +22,16 @@ class DeviceComputeManager {
     this.computePipeline = this.pipelineManager.computePipeline;
     if (!this.computePipeline) return;
 
-    // Compute uniform buffer: time, mode, particleCount, speedMult, physics×4 (32 bytes)
+    // Compute uniform buffer: time, mode, particleCount, speedMult,
+    // physics×4, lodLevel + 3 pad (48 bytes) — see common/compute-uniforms.wgsl
     this.computeUniformBuffer = this.device.createBuffer({
-      size: 32,
+      size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
     // Track buffer for profiling if visualizer is available (optional)
     if (this.pipelineManager.visualizer && this.pipelineManager.visualizer.profiler) {
-      this.pipelineManager.visualizer.profiler.trackBuffer(`device-${this.id}-compute-uniforms`, 32, GPUBufferUsage.UNIFORM);
+      this.pipelineManager.visualizer.profiler.trackBuffer(`device-${this.id}-compute-uniforms`, 48, GPUBufferUsage.UNIFORM);
     }
 
     // Compute bind group: binding 0 = particles storage, binding 1 = uniforms
@@ -50,10 +51,15 @@ class DeviceComputeManager {
         });
   }
 
-  updateComputeUniforms(time, mode, particleCount, speedMult = 1.0, physicsState = null) {
+  /**
+   * @param {number} particleCount count *before* GPU LOD — the shader applies
+   *   `lodLevel` itself (common/overview-lod.wgsl).
+   * @param {number} [lodLevel] overview particle LOD 0..3
+   */
+  updateComputeUniforms(time, mode, particleCount, speedMult = 1.0, physicsState = null, lodLevel = 0) {
     if (!this.computeUniformBuffer) return;
 
-    this.scaledParticleCount = particleCount;
+    this.scaledParticleCount = particleCount >>> Math.max(0, Math.min(3, lodLevel | 0));
     this.speedMult = speedMult;
 
     let p0 = 0, p1 = 0, p2 = 0, p3 = 0;
@@ -99,7 +105,11 @@ class DeviceComputeManager {
 
     this.device.queue.writeBuffer(
       this.computeUniformBuffer, 0,
-      new Float32Array([time, mode, particleCount, speedMult, p0, p1, p2, p3])
+      new Float32Array([
+        time, mode, particleCount, speedMult,
+        p0, p1, p2, p3,
+        Math.max(0, Math.min(3, lodLevel | 0)), 0, 0, 0
+      ])
     );
   }
 

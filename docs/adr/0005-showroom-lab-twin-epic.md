@@ -68,9 +68,31 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 ### Workstream 4 — Performance headroom (8–12 devices)
 
 - [x] Continue LOD / particle budgets (`particle-budgets.js`, mesh LOD ladder, pipe tiers)
-- [x] Overview culling (frustum for 20 m plugin ring + CPU instance prefix; full GPU compute cull deferred)
+- [x] Overview culling (frustum for 20 m plugin ring + CPU instance prefix)
+- [x] GPU compute cull → draw-indirect (`passes/overview-cull-compute.wgsl`,
+      `devices/overview-cull.js`, layout `overviewCull`). One thread per device
+      slot writes the particle draw args at a stable byte offset; the CPU never
+      reads the result back. Culled/disabled devices get `instanceCount = 0`.
+- [x] GPU particle LOD: per-device `lodLevel` 0–3 in `ComputeUniforms`; the
+      particle compute pass keeps `particleCount >> lodLevel` and the cull pass
+      sizes the indirect draw with the same ladder
+      (`shaders/common/overview-lod.wgsl` ↔ `overviewLodParticleCount`). This
+      replaces the per-frame `resolveScaledParticleCount` ladder in overview
+      with one distance compare per device.
 - [x] Shared pipeline cache (already)
 - [x] Profiler: per-device CPU ms + draw-call estimate + adapter summary (F3)
+- [x] Profiler: `drawPrepMs` (CPU draw-prep scope) + `overviewCullActive`, so
+      the GPU path can be compared against the CPU-prefix baseline in F3
+
+**GPU cull fallbacks (CPU instance prefix still applies):** focus views,
+explainer tours that cap particles (`explainerScale < 1`), and any frame where
+the cull pipeline failed to build. Both paths keep `scaledParticleCount` as the
+live count, so diagnostics and effect budgets are unchanged.
+
+**Measuring WS4 acceptance:** `window.captureOverviewCull()` reads back the
+pass's visible count, per-device LOD level, and the actual `instanceCount` the
+GPU wrote, alongside `drawPrepMs`. F3 shows `Draw prep (CPU)` with a `GPU cull`
+marker while the path is active.
 
 ### Acceptance (epic-level)
 

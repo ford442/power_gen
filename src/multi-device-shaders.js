@@ -24,7 +24,8 @@ import { getSegEnhancedVertShader, getSegEnhancedFragShader } from './shaders/ge
 import {
   getComputeShader,
   getSegRollerComputeShader,
-  getSegFieldAdvectShader
+  getSegFieldAdvectShader,
+  getOverviewCullComputeShader
 } from './shaders/generators/compute-shaders.js';
 import {
   getSkyVertShader,
@@ -132,6 +133,10 @@ export class MultiDeviceShaders {
 
   get segFieldAdvectShader() {
     return getSegFieldAdvectShader();
+  }
+
+  get overviewCullComputeShader() {
+    return getOverviewCullComputeShader();
   }
 
   get skyVertShader() {

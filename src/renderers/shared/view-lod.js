@@ -163,6 +163,69 @@ export function isDeviceInCameraFrustum(devicePos, camera, opts = {}) {
   return cosAngle > Math.cos(halfCone);
 }
 
+/** Coarsest GPU particle LOD level. Level L keeps `baseCount >> L` particles. */
+export const OVERVIEW_LOD_MAX = 3;
+
+/**
+ * Camera distances (world units) at which the overview particle LOD steps down.
+ * Entry i is the distance at which level i+1 takes over.
+ */
+export const OVERVIEW_LOD_DISTANCES = [22, 38, 60];
+
+/**
+ * Particles kept at a LOD level — mirrors `overviewLodCount` in
+ * `shaders/common/overview-lod.wgsl`. Both the cull pass (draw-indirect
+ * instance count) and the particle compute pass (integration threshold) use
+ * this ladder, so a device never draws particles that were not integrated.
+ *
+ * @param {number} baseCount
+ * @param {number} lodLevel 0..3
+ * @returns {number}
+ */
+export function overviewLodParticleCount(baseCount, lodLevel) {
+  const base = Math.max(0, Math.floor(baseCount) | 0);
+  const lod = Math.max(0, Math.min(OVERVIEW_LOD_MAX, Math.floor(lodLevel) | 0));
+  return base >>> lod;
+}
+
+/**
+ * Per-device LOD level for the GPU particle path.
+ *
+ * This is the only per-frame CPU particle math left in overview: one distance
+ * plus a quality bias, versus the full `resolveScaledParticleCount` ladder.
+ * The value is uploaded once per device (compute uniform + cull bounds entry),
+ * and the GPU derives both the integration threshold and the draw count.
+ *
+ * @param {object} opts
+ * @param {number[]} opts.devicePos
+ * @param {number[]} opts.cameraPos
+ * @param {number} [opts.qualityLevel=1] 0..1 auto-quality
+ * @param {boolean} [opts.focused=false] device is the focused view (full detail)
+ * @returns {number} 0..3
+ */
+export function overviewLodLevel({ devicePos, cameraPos, qualityLevel = 1, focused = false }) {
+  if (focused) return 0;
+  if (!devicePos || !cameraPos) return 0;
+
+  const dist = Math.hypot(
+    devicePos[0] - cameraPos[0],
+    (devicePos[1] || 0) - (cameraPos[1] || 0),
+    devicePos[2] - cameraPos[2]
+  );
+
+  let level = 0;
+  for (const edge of OVERVIEW_LOD_DISTANCES) {
+    if (dist > edge) level += 1;
+  }
+
+  // Auto-quality pushes the whole ring one or two steps coarser.
+  const q = Math.max(0, Math.min(1, qualityLevel));
+  if (q < 0.4) level += 2;
+  else if (q < 0.7) level += 1;
+
+  return Math.max(0, Math.min(OVERVIEW_LOD_MAX, level));
+}
+
 /**
  * Whether the camera sits inside the SEG roller ring (optional instance culling).
  * @param {number[]} cameraPos

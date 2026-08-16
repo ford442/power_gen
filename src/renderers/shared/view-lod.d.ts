@@ -29,6 +29,15 @@ export function isDeviceInCameraFrustum(
   camera: { position: number[]; target?: number[]; fov?: number },
   opts?: { aspect?: number; radius?: number; margin?: number }
 ): boolean;
+export const OVERVIEW_LOD_MAX: number;
+export const OVERVIEW_LOD_DISTANCES: number[];
+export function overviewLodParticleCount(baseCount: number, lodLevel: number): number;
+export function overviewLodLevel(opts: {
+  devicePos: number[];
+  cameraPos: number[];
+  qualityLevel?: number;
+  focused?: boolean;
+}): number;
 export function isCameraInsideSegRing(
   cameraPos: number[],
   segPos: number[],

@@ -5,6 +5,7 @@
 
 #include "common/particle.wgsl"
 #include "common/compute-uniforms.wgsl"
+#include "common/overview-lod.wgsl"
 
 @binding(0) @group(0) var<storage, read_write> particles: array<GpuParticle>;
 @binding(1) @group(0) var<uniform> uniforms: ComputeUniforms;
@@ -193,7 +194,11 @@ fn posTransformer(phase: f32, t: f32, idx: u32) -> vec3f {
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let idx = id.x;
-  if (idx >= u32(uniforms.particleCount)) { return; }
+  // GPU LOD: high-index particles above the level's threshold are never
+  // integrated, and the cull pass sizes the indirect draw with the same
+  // ladder — so nothing stale is ever drawn.
+  let liveCount = overviewLodCount(u32(uniforms.particleCount), u32(uniforms.lodLevel));
+  if (idx >= liveCount) { return; }
 
   let p = particles[idx];
   let phase = p.phase;

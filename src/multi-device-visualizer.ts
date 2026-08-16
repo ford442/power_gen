@@ -10,6 +10,7 @@ import { DebugPanel, DEVICE_CONFIG } from './debug-panel.js';
 import { getMergedDeviceConfig, getAllSimDeviceIds } from './devices/device-registry.js';
 import { DeviceInstance } from './device-instance.js';
 import { EnergyPipe } from './energy-pipe.js';
+import { OverviewCullPass } from './devices/overview-cull.js';
 import {
   computeSEGLayout,
   SEG_LAYOUT_PRESETS,
@@ -118,6 +119,7 @@ export interface MultiDeviceVisualizer {
   // diagnosticsMethods
   runSpeedTest(speeds?: number[], durationMs?: number): Promise<void>;
   captureParticleSubset(deviceId?: string, maxCount?: number): Promise<unknown>;
+  captureOverviewCull(): Promise<unknown>;
 
   // gltfSetupMethods
   ensureGltfPropsForView(view: string): Promise<void>;
@@ -195,6 +197,9 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   lightingUniformBuffer?: GPUBuffer | null;
   energyPipePipeline?: GPURenderPipeline;
   energyPipeComputePipeline?: GPUComputePipeline;
+  overviewCullPipeline?: GPUComputePipeline;
+  /** GPU frustum cull → draw-indirect for the overview ring (ADR-0005 WS4). */
+  overviewCull?: OverviewCullPass | null;
   segAnnotations?: unknown;
 
   // Populated by the merged-in mixins below (setup-geometry.js, scene-setup.js,
@@ -405,6 +410,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       await this.setupSharedGeometry();
       await this.setupDevices();
       await this.setupEnergyPipes();
+      await this.setupOverviewCull();
       await this.setupFloorGrid();
       await this.setupSkyGradient();
 
@@ -672,6 +678,22 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     }
     await this.setupEnergyPipePipeline();
     initEnergyCouplingDisclaimer();
+  }
+
+  /**
+   * Overview GPU cull pass. Optional: if the pipeline fails to build the
+   * render loop keeps the CPU prefix path.
+   */
+  async setupOverviewCull(): Promise<void> {
+    if (!this.pipelineCache) return;
+    try {
+      this.overviewCullPipeline = await this.pipelineCache.ensureOverviewCullPipeline(this.shaders);
+      const pass = new OverviewCullPass(this.device, this);
+      this.overviewCull = pass.init(this.overviewCullPipeline) ? pass : null;
+    } catch (err) {
+      console.warn('[overview-cull] disabled — falling back to CPU instance prefix', err);
+      this.overviewCull = null;
+    }
   }
 
   async setupEnergyPipePipeline(): Promise<void> {

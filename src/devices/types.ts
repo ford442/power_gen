@@ -10,6 +10,7 @@ import type { DevicePhysicsState } from '../renderers/shared/device-physics';
 import type { PipelineLayoutCache, BindGroupLayoutName } from '../pipeline-layout-cache';
 import type { BindGroupCache } from '../renderers/shared/bind-group-cache';
 import type { DeviceMeshLayout } from '../device-mesh-layouts.js';
+import type { OverviewCullPass } from './overview-cull.js';
 
 export type { BindGroupLayoutName };
 
@@ -181,6 +182,8 @@ export interface VisualizerLike {
     beginFrameDraws?: () => void;
   } | null;
   pipelineCache?: PipelineLayoutCache | null;
+  /** GPU overview cull pass — drives indirect particle draws (ADR-0005 WS4). */
+  overviewCull?: OverviewCullPass | null;
   isOverviewMode?: () => boolean;
 
   heronLayout?: unknown;
@@ -282,6 +285,10 @@ export interface DeviceInstanceLike {
   meshCylinderCount?: number;
   /** Overview mesh LOD ladder: full | simplified | proxy | skip */
   _meshDrawDetail?: string;
+  /** GPU particle LOD level 0..3 assigned by the overview cull pass. */
+  particleLodLevel?: number;
+  /** Particle count before LOD when the GPU cull path drives this device. */
+  particleBaseCount?: number;
   fieldLineCount: number;
 
   computeManager: {
@@ -290,7 +297,8 @@ export interface DeviceInstanceLike {
       ringIndex: number,
       particleCount: number,
       speed: number,
-      physicsState: DevicePhysicsState | null
+      physicsState: DevicePhysicsState | null,
+      lodLevel?: number
     ) => void;
   };
   uniformManager: {

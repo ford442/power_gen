@@ -68,6 +68,16 @@ export class PerformanceProfiler {
     this.drawCallsEstimate = 0;
     this._drawCallsAcc = 0;
 
+    /**
+     * CPU time spent preparing draws (instance/particle budget math, cull
+     * upload, indirect-arg setup). ADR-0005 WS4 acceptance metric — the GPU
+     * cull path should push this down versus the CPU instance prefix.
+     */
+    this.drawPrepMs = 0;
+    this._drawPrepAcc = 0;
+    /** Set by the render loop when the GPU overview cull path drove the draws. */
+    this.overviewCullActive = false;
+
     // Benchmark mode
     this.benchmarkMode = false;
     this.benchmarkStartTime = 0;
@@ -237,6 +247,20 @@ export class PerformanceProfiler {
     this._frameCpuStart = performance.now();
     this._deviceTimesAcc = {};
     this._deviceScopeStack.length = 0;
+    this._drawPrepAcc = 0;
+  }
+
+  /**
+   * Time a draw-preparation block; accumulates across the frame.
+   * @template T @param {() => T} fn @returns {T}
+   */
+  measureDrawPrep(fn) {
+    const t0 = performance.now();
+    try {
+      return fn();
+    } finally {
+      this._drawPrepAcc += performance.now() - t0;
+    }
   }
 
   /** Reset draw-call estimate accumulator (call before device draws). */
@@ -259,6 +283,7 @@ export class PerformanceProfiler {
     this.deviceTimesMs = this._deviceTimesAcc;
     this._deviceTimesAcc = {};
     this.drawCallsEstimate = this._drawCallsAcc;
+    this.drawPrepMs = this._drawPrepAcc;
   }
 
   /**
@@ -436,6 +461,8 @@ export class PerformanceProfiler {
       qualityLevel: this.qualityLevel,
       qualityTier: this.qualityTier,
       drawCallsEstimate: this.drawCallsEstimate,
+      drawPrepMs: this.drawPrepMs,
+      overviewCullActive: this.overviewCullActive,
       postQualityGates: postGates,
       postQualitySummary: formatPostQualitySummary(postGates),
       gpuTier: this.gpuTier,
