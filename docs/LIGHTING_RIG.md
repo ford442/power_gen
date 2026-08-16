@@ -23,21 +23,49 @@ Exposure and bloom strength sliders in the debug panel adjust `postExposure` and
 Each preset defines key / fill / rim / ground lights uploaded to `lightingUniformBuffer` (192 bytes) every frame. PBR evaluation is in `src/shaders/generators/pbr-wgsl-chunks.js`:
 
 - Cook-Torrance GGX specular (anisotropic on rollers)
-- Hemispherical studio IBL (`approximateIBL` + analytic `envRadiance` mips) — softbox ceiling + floor bounce; roughness selects sharp / mid / irradiance lobes (no Three.js PMREM)
+- **Prefiltered GGX split-sum IBL** (`evaluateIBL`) — see below
 - Rim term from view-dependent Fresnel
 - `shadowStrength` modulates crevice ambient and IBL occlusion
+
+### Prefiltered environment (ADR-0005 WS2)
+
+`src/ibl-prefilter.js` bakes the active preset into an octahedral `rgba16float`
+**2D array texture** at startup (segEnhanced bindings 7–8):
+
+| Layer | Contents |
+|-------|----------|
+| `0 … IBL_SPEC_LEVELS-1` | GGX-prefiltered radiance, roughness `i/(n-1)` |
+| `IBL_SPEC_LEVELS` | Cosine-convolved irradiance (`E/π`) |
+
+- Defaults: `IBL_TEX_SIZE = 64`, `IBL_SPEC_LEVELS = 6` → 7 layers, **224 KB**.
+  Small enough to be **always-on**; it is not quality-gated.
+- The split-sum's DFG term is Lazarov's analytic fit (`envBRDFApprox`), so there
+  is no BRDF LUT texture.
+- Bake cost is ~270 ms on the main thread, **memoised per look** — switching
+  studio → lab → drama pays it once each, and `setLightingLook()` re-uploads
+  into the same texture so no bind group is rebuilt.
+- Constants are duplicated in `pbr-eval.wgsl`; `assertIblShaderContract()` (and
+  `npm run check:post`) fail on drift.
+- `LightingConfig.iblLevels` is `0` until the bake is uploaded — `pbr-eval.wgsl`
+  then falls back to the previous analytic `approximateIBL` polynomial, which is
+  retained for exactly that purpose.
+- `IBL_DIFFUSE_SCALE` (0.45) holds the previous exposure calibration: the old
+  polynomial folded no albedo into its irradiance term, so the honest
+  `E · albedo` result is scaled to keep the looks matching their references.
 
 ## Post-processing pipeline (WebGPU)
 
 Scene renders to an HDR-ish offscreen target (`bloomSceneTexture`). Passes:
 
+0. **SSR** (compute, high/ultra tier only) — `passes/ssr-compute.wgsl`
 1. **Extract** — luminance threshold with **corona boost** (green/cyan plasma weighted higher than bare metal specular)
 2. **Blur H / V** — 5-tap Gaussian
-3. **Composite** — scene + wide bloom + **filmic tonemap** + vignette + film grain
+3. **Composite** — scene + SSR + wide bloom + **filmic tonemap** + vignette + film grain
 
 Composite also applies:
 
 - **SSAO** — 6-tap depth comparison (cheap screen-space AO)
+- **SSR** — screen-space reflections, added *after* the AO term (see below)
 - **Contact shadows** — depth-gradient creases + ground-plane darkening
 - **Motion blur** — mix with previous frame at high overdrive speed
 - **Chromatic aberration** — scales with energy level
@@ -55,12 +83,15 @@ Mesh shaders output **linear HDR** (no per-object tonemap); tonemapping happens 
 `qualityTier` from `PerformanceProfiler` maps to multipliers in
 `src/post-processing-config.js` (`POST_QUALITY_GATES` → `getPostQualityGates`):
 
-| Tier | Bloom extract/blur | SSAO | Contact shadow | Motion blur |
-|------|--------------------|------|----------------|-------------|
-| `high` | on | 100% | 100% | 100% |
-| `medium` | on | 70% | 85% | 70% |
-| `low` | on | 30% | 55% | **off** |
-| `critical` | **skipped** | **off** | 35% | **off** |
+| Tier | Bloom extract/blur | SSAO | Contact shadow | Motion blur | SSR |
+|------|--------------------|------|----------------|-------------|-----|
+| `ultra` | on | 100% | 100% | 100% | on |
+| `high` | on | 100% | 100% | 100% | on |
+| `medium` | on | 70% | 85% | 70% | **off** |
+| `low` | on | 30% | 55% | **off** | **off** |
+| `critical` | **skipped** | **off** | 35% | **off** | **off** |
+
+The prefiltered IBL chain is **not** in this table — it is always on.
 
 `packPostUniforms({ qualityGates })` scales strengths. When `bloom: 0`, the render
 loop skips extract + blur passes (composite still runs for exposure / filmic).
@@ -82,7 +113,7 @@ See also **Post stack** notes in [`SHADERS.md`](./SHADERS.md).
 
 See prior sections in this doc — 48 floats CPU / WGSL `LightData` × 4 + ambient + envMapStrength + shadowStrength.
 
-### BloomParams (64 bytes)
+### BloomParams (80 bytes)
 
 | Index | Field |
 |-------|-------|
@@ -97,12 +128,47 @@ See prior sections in this doc — 48 floats CPU / WGSL `LightData` × 4 + ambie
 | 13 | ssaoStrength |
 | 14 | contactShadow |
 | 15 | skyMode |
+| 16 | ssrStrength |
+| 17–19 | padding (16-byte alignment) |
 
-Packed by `packPostUniforms()` in `seg-lighting-presets.js`.
+Packed by `packPostUniforms()` in `seg-lighting-presets.js`. The struct is
+duplicated in three generator templates plus `bloom-composite.wgsl`;
+`npm run check:post` asserts all four match the packer's float count.
+
+## Screen-space reflections (WebGPU, high/ultra only)
+
+`src/shaders/passes/ssr-compute.wgsl` runs between the scene pass and bloom:
+
+- Reconstructs view-space position **and normal** from the existing depth
+  buffer — this renderer has no G-buffer — then marches the reflected ray with
+  a geometrically growing step and a 5-step binary refine on hit.
+- Writes premultiplied reflection colour + confidence into a **half-resolution**
+  `rgba16float` storage texture, which the composite adds after its AO term.
+- `SsrParams` uploads the camera's own projection and its inverse
+  (`MultiDeviceCamera.getProjMatrix` / `invertMatrix`) so depth is unprojected
+  exactly the way the scene pass projected it.
+- **Known limitation:** with depth as the only geometric input, per-pixel
+  roughness and metalness are unavailable, so the reflection is weighted by a
+  grazing Fresnel term and hit confidence rather than by material. That reads
+  correctly on the SEG chrome/nickel rollers this pass exists for, but it also
+  applies a weak reflection to non-metals. A roughness G-buffer channel is the
+  fix if that becomes visible.
+
+### Disabling SSR
+
+| Control | Effect |
+|---------|--------|
+| `?ssr=0` (or `off` / `false` / `no`) | Off at **any** tier; parsed by `parseSsrEnabled` in `renderers/shared/url-params.js` |
+| `window.SEG_SSR_ENABLED = false` | Same, for agent / console use |
+| Tier `medium` and below | Compute pass not dispatched, `ssrStrength` packs to 0 |
+
+The reflection texture stays allocated in every case, because `bloomComposite`
+always binds it; only the dispatch and the strength are gated.
 
 ## WebGL2 fallback
 
-No full bloom chain (performance / complexity). Instead:
+No SSR and no full bloom chain (performance / complexity); the WebGL2 path is
+untouched by ADR-0005 WS2. Instead:
 
 - 3-point PBR in `MESH_FRAG` / `ROLLER_FRAG` (key + fill + rim + IBL)
 - Studio / lab / drama sky via `u_skyMode`
@@ -113,4 +179,7 @@ No full bloom chain (performance / complexity). Instead:
 
 1. Edit presets in `src/seg-lighting-presets.js`
 2. If changing struct layouts, update WGSL in `bloom-shaders.js` and CPU packers together
-3. Run `npm run build:site`
+3. Run `npm run check:post` (struct/packer contracts) and `npm run check:wgsl`
+4. Changing the lighting rig changes the IBL bake — clear the memo with
+   `clearIblCache()` if you are editing presets live
+5. Run `npm run build:site`

@@ -6,6 +6,7 @@
  */
 import fluxLinesWgsl from './shaders/flux-lines.wgsl?raw';
 import segAnomalyWallsWgsl from './shaders/seg-anomaly-walls.wgsl?raw';
+import ssrComputeWgsl from './shaders/passes/ssr-compute.wgsl?raw';
 
 import { getRollerVertShader, getRollerFragShader } from './shaders/generators/roller-shaders.js';
 import { getParticleVertShader, getParticleFragShader } from './shaders/generators/particle-shaders.js';
@@ -169,6 +170,11 @@ export class MultiDeviceShaders {
 
   get bloomCompositeShader() {
     return getBloomCompositeShader();
+  }
+
+  /** Screen-space reflections compute pass (ADR-0005 WS2). */
+  get ssrComputeShader() {
+    return ssrComputeWgsl;
   }
 
   get anomalyWallsShader() {

@@ -32,6 +32,27 @@ export function parsePrototypePreset(params = defaultParams()) {
 }
 
 /**
+ * Screen-space reflections kill switch: `?ssr=0` (aliases: off / false / no).
+ *
+ * Independent of the quality tier — the tier gate in post-processing-config.js
+ * already turns SSR off below high/ultra; this lets a capture or a bug report
+ * disable it without also dropping SSAO, bloom and motion blur.
+ *
+ * @param {URLSearchParams} [params]
+ * @returns {boolean} true when SSR may run (subject to the tier gate)
+ */
+export function parseSsrEnabled(params = defaultParams()) {
+  const raw = params.get('ssr');
+  if (raw !== null) {
+    return !(raw === '0' || raw === 'off' || raw === 'false' || raw === 'no');
+  }
+  if (typeof window !== 'undefined' && window.SEG_SSR_ENABLED !== undefined) {
+    return !!window.SEG_SSR_ENABLED;
+  }
+  return true;
+}
+
+/**
  * Whether Roschin–Godin anomalous environmental effects (magnetic walls, etc.) are enabled.
  * @param {PrototypePreset} prototypePreset
  */

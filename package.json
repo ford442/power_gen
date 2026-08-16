@@ -18,11 +18,12 @@
     "generate:seg-gltf": "npm run generate:housing-glb && npm run generate:coil-former-glb",
     "check:wgsl": "bash scripts/check-wgsl.sh",
     "test:e2e": "playwright test",
-    "validate": "npm run codegen:constants && npm run check:constants && npm run typecheck && npm run wasm:native && npm run check:wgsl",
+    "validate": "npm run codegen:constants && npm run check:constants && npm run typecheck && npm run wasm:native && npm run check:wgsl && npm run check:post",
     "deploy": "npm run build:site && python deploy.py",
     "wasm:build": "bash scripts/build-wasm.sh",
     "wasm:build-debug": "bash scripts/build-wasm.sh --debug",
-    "wasm:native": "bash scripts/build-wasm.sh --native"
+    "wasm:native": "bash scripts/build-wasm.sh --native",
+    "check:post": "node scripts/check-post-contracts.mjs"
   },
   "keywords": [
     "webgpu",

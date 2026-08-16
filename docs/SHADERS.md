@@ -24,6 +24,7 @@ src/shaders/
     field-advect-compute.wgsl
     energy-pipe-compute.wgsl
     overview-cull-compute.wgsl
+    ssr-compute.wgsl      # screen-space reflections (depth-only ray march)
   generators/             # JS factories used by MultiDeviceShaders
   *.wgsl                  # Legacy / specialized modules (flux, bloom, led-solar, …)
   wgsl-include.js         # Node preprocessor (#include)
@@ -129,6 +130,28 @@ Flow:
 
 Allowlist: `KNOWN_NAGA_FAILURES` in `scripts/check-wgsl.sh`. Prefer fixing
 shaders over growing the list.
+
+### CPU ↔ WGSL contracts
+
+```bash
+npm run check:post          # scripts/check-post-contracts.mjs
+```
+
+naga validates each module in isolation, so it cannot see a uniform packed as
+N floats on the CPU and read as M fields in WGSL — both sides stay individually
+valid while the frame silently corrupts. `check:post` closes that gap for the
+post stack:
+
+- every `BloomParams` copy (3 generator templates + `bloom-composite.wgsl`)
+  has the same field count `packPostUniforms()` emits, and `bloomParamsBuffer`
+  is sized for it
+- `SsrParams` in `ssr-compute.wgsl` matches `SSR_PARAMS_BYTES` and is 16-byte
+  aligned
+- `IBL_TEX_SIZE` / `IBL_SPEC_LEVELS` agree between `ibl-prefilter.js` and
+  `pbr-eval.wgsl`
+
+Add a case here whenever you introduce a new struct that is written on the CPU
+and declared in WGSL.
 
 ## Particle mode indices
 

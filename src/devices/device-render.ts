@@ -42,6 +42,8 @@ export const DeviceRenderMixin = {
     const segLayout = requireBuffer(v.segLayoutUniformBuffer, 'segLayoutUniformBuffer');
     const lighting = requireBuffer(v.lightingUniformBuffer, 'lightingUniformBuffer');
     const materialTable = requireBuffer(v.materialTableBuffer, 'materialTableBuffer');
+    const ibl = v.iblResources;
+    if (!ibl) throw new Error('[DeviceRender] visualizer.iblResources missing');
     return this._cacheBg(key, 'segEnhanced', [
       { binding: 0, resource: { buffer: globalUniformBuffer } },
       { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
@@ -49,7 +51,9 @@ export const DeviceRenderMixin = {
       { binding: 3, resource: { buffer: this.materialUniformBuffer } },
       { binding: 4, resource: { buffer: segLayout } },
       { binding: 5, resource: { buffer: lighting } },
-      { binding: 6, resource: { buffer: materialTable } }
+      { binding: 6, resource: { buffer: materialTable } },
+      { binding: 7, resource: ibl.view },
+      { binding: 8, resource: ibl.sampler }
     ], `seg-enhanced-${this.id}-${keySuffix}`);
   },
 

@@ -159,16 +159,24 @@ export function getSegEnhancedFragShader() {
         detailParams: vec4f
       }
 
+      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
+      @binding(3) @group(0) var<uniform> material: MaterialUniforms;
+      @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
+      // Prefiltered GGX environment (2D array: roughness levels + irradiance),
+      // baked at startup by src/ibl-prefilter.js. Declared ahead of the PBR
+      // chunks because pbr-eval.wgsl samples these globals directly.
+      @binding(7) @group(0) var iblEnvTex: texture_2d_array<f32>;
+      @binding(8) @group(0) var iblEnvSampler: sampler;
+
       ${PBR_LIGHTING_STRUCT_WGSL}
       ${PBR_SURFACE_WGSL}
       ${PBR_BRDF_WGSL}
       ${PBR_EVAL_WGSL}
 
-      @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(3) @group(0) var<uniform> material: MaterialUniforms;
+      // LightingConfig comes from the chunk above; the PBR helpers take it as a
+      // parameter, so this binding can follow them.
       @binding(5) @group(0) var<uniform> lighting: LightingConfig;
-      @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
 
       struct FragmentInput {
         @location(0) worldPos: vec3f,

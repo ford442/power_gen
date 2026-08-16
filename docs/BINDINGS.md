@@ -61,8 +61,15 @@ WGSL: `particle-shaders.js` + `common/particle.wgsl` (`GpuParticle`)
 | 4 | uniform | VS | SEG layout pack |
 | 5 | uniform | FS | Lighting config |
 | 6 | storage (read) | FS | Material table |
+| 7 | texture (2d-array) | FS | Prefiltered GGX environment |
+| 8 | sampler | FS | Environment sampler (linear, clamp) |
 
 WGSL: `seg-enhanced-shaders.js`
+
+Bindings 7–8 are the always-on prefiltered IBL chain (ADR-0005 WS2): a
+`rgba16float` 2D array baked at startup by `src/ibl-prefilter.js` and sampled in
+`common/pbr-eval.wgsl`. Layers `0..IBL_SPEC_LEVELS-1` hold octahedral GGX
+radiance for roughness `i/(n-1)`; the last layer holds cosine irradiance.
 
 ### `fluxSegment` — RK4 flux billboards
 
@@ -162,7 +169,12 @@ nothing in the frame path reads it.
 | `anomalyWall` | 0 global, 1 wall params |
 | `bloomExtract` | 0 scene tex, 1 sampler, 2 params |
 | `bloomBlur` | 0 tex, 1 sampler, 2 params, 3 direction |
-| `bloomComposite` | 0 scene, 1 bloom, 2 sampler, 3 params, 4 depth, 5 prev scene |
+| `bloomComposite` | 0 scene, 1 bloom, 2 sampler, 3 params, 4 depth, 5 prev scene, 6 SSR reflection |
+| `ssr` | 0 depth, 1 scene, 2 sampler, 3 SsrParams, 4 reflection out (storage) |
+
+`ssr` is a compute layout (`passes/ssr-compute.wgsl`) — all five entries are
+`COMPUTE`-visible, and binding 4 is a write-only `rgba16float` storage texture at
+half canvas resolution.
 
 ## Shared pipeline compile policy
 

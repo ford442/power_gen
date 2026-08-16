@@ -35,7 +35,8 @@ const PRESETS = {
       aberration: 0.012,
       vignette: 0.22,
       ssaoStrength: 0.55,
-      contactShadow: 0.28
+      contactShadow: 0.28,
+      ssrStrength: 0.85
     },
     sky: { mode: 1, top: [0.42, 0.44, 0.48], horizon: [0.62, 0.64, 0.68], energy: 0.04 }
   },
@@ -61,7 +62,8 @@ const PRESETS = {
       aberration: 0.006,
       vignette: 0.12,
       ssaoStrength: 0.38,
-      contactShadow: 0.18
+      contactShadow: 0.18,
+      ssrStrength: 0.45
     },
     sky: { mode: 2, top: [0.72, 0.74, 0.78], horizon: [0.82, 0.84, 0.87], energy: 0.02 }
   },
@@ -87,7 +89,8 @@ const PRESETS = {
       aberration: 0.022,
       vignette: 0.42,
       ssaoStrength: 0.72,
-      contactShadow: 0.38
+      contactShadow: 0.38,
+      ssrStrength: 0.70
     },
     sky: { mode: 0, top: [0.008, 0.012, 0.04], horizon: [0.04, 0.08, 0.16], energy: 0.10 }
   }
@@ -112,10 +115,12 @@ export function getLightingPreset(look = LIGHTING_LOOKS.studio) {
 }
 
 /**
- * Pack bloom/post uniform (16 floats) for bloom-shaders.js BloomParams.
- * Optional `qualityGates` scales bloom / SSAO / contact / motionBlur for auto-quality.
+ * Pack bloom/post uniform (20 floats / 80 bytes) for bloom-shaders.js BloomParams.
+ * Optional `qualityGates` scales bloom / SSAO / contact / motionBlur / SSR for
+ * auto-quality. `ssrEnabled: false` (from `?ssr=0`) zeroes SSR at any tier.
  * @param {object} opts
- * @param {{ bloom?: number, ssao?: number, contactShadow?: number, motionBlur?: number }} [opts.qualityGates]
+ * @param {{ bloom?: number, ssao?: number, contactShadow?: number, motionBlur?: number, ssr?: number }} [opts.qualityGates]
+ * @param {boolean} [opts.ssrEnabled]
  */
 export function packPostUniforms(opts) {
   const {
@@ -125,7 +130,8 @@ export function packPostUniforms(opts) {
     energy = 0,
     speedMult = 1,
     motionBlur = 0,
-    qualityGates = null
+    qualityGates = null,
+    ssrEnabled = true
   } = opts;
 
   const p = preset?.post ?? PRESETS.studio.post;
@@ -136,6 +142,7 @@ export function packPostUniforms(opts) {
   const ssaoMul = qualityGates?.ssao ?? 1;
   const contactMul = qualityGates?.contactShadow ?? 1;
   const motionMul = qualityGates?.motionBlur ?? 1;
+  const ssrMul = ssrEnabled === false ? 0 : (qualityGates?.ssr ?? 1);
 
   const bloomStrength =
     bloomMul <= 0
@@ -158,6 +165,10 @@ export function packPostUniforms(opts) {
     p.coronaBoost,
     p.ssaoStrength * ssaoMul,
     p.contactShadow * contactMul,
-    preset?.sky?.mode ?? 1
+    preset?.sky?.mode ?? 1,
+    (p.ssrStrength ?? 0) * ssrMul,
+    0,
+    0,
+    0
   ]);
 }
