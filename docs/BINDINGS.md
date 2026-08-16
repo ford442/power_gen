@@ -151,6 +151,16 @@ nothing in the frame path reads it.
 | 0 | storage (rw) | CS | Field particles |
 | 1 | uniform | CS | Field uniforms |
 
+### `transformerFlux` — transformer toroidal-core flux segments
+
+Same shape as `fieldAdvect`. Writes packed `FluxSegment` (32 B) for the
+`fluxSegment` render pipeline.
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | storage (rw) | CS | Flux segments |
+| 1 | uniform | CS | `time`, `fluxN`, `k`, `segmentCount` |
+
 ### `fluxTracer` — RK4 flux line tracer
 
 | Binding | Type | Stages | Resource |

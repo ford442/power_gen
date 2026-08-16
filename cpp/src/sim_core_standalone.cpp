@@ -176,6 +176,40 @@ static int run_homopolar_smoke() {
     return 0;
 }
 
+static int run_transformer_smoke() {
+    SEGSimulator sim;
+    sim.setMode(SIM_MODE_TRANSFORMER);
+    sim.setDrive(0.9f);
+    const float dt = 1.f / 60.f;
+    const int steps = 60; // 1 s
+    for (int i = 0; i < steps; ++i) {
+        sim.step(dt, 0.f);
+        const float i1 = sim.getTransformerI1();
+        const float i2 = sim.getTransformerI2();
+        const float v2 = sim.getTransformerV2();
+        if (!std::isfinite(i1) || !std::isfinite(i2) || !std::isfinite(v2)) {
+            printf("FAIL: transformer NaN at step %d (I1=%g I2=%g V2=%g)\n", i, i1, i2, v2);
+            return 1;
+        }
+    }
+    printf("Transformer I1=%.3f A  I2=%.3f A  V1=%.2f V  V2=%.2f V  k=%.2f  flux=%.3f\n",
+           sim.getTransformerI1(), sim.getTransformerI2(),
+           sim.getTransformerV1(), sim.getTransformerV2(),
+           sim.getTransformerK(), sim.getTransformerFluxN());
+    if (std::abs(sim.getTransformerI1()) < 1e-4f
+        && std::abs(sim.getTransformerI2()) < 1e-4f
+        && std::abs(sim.getTransformerV2()) < 1e-4f) {
+        printf("FAIL: transformer plant did not develop I1/I2/V2 under drive\n");
+        return 1;
+    }
+    if (!std::isfinite(sim.getEnergyLevel()) || sim.getEnergyLevel() < 0.f || sim.getEnergyLevel() > 1.f) {
+        printf("FAIL: transformer energy level out of range\n");
+        return 1;
+    }
+    printf("Transformer smoke OK (energyLevel=%.3f)\n", sim.getEnergyLevel());
+    return 0;
+}
+
 static int run_energy_network_smoke() {
     SEGSimulator sim;
     // Mirror ENERGY_PIPE_EDGES (from, to, maxW, eff, latency)
@@ -253,8 +287,9 @@ int main(int argc, char** argv) {
             if (std::strcmp(argv[i + 1], "mhd") == 0)     return run_mhd_smoke();
             if (std::strcmp(argv[i + 1], "maglev") == 0)  return run_maglev_smoke();
             if (std::strcmp(argv[i + 1], "homopolar") == 0) return run_homopolar_smoke();
+            if (std::strcmp(argv[i + 1], "transformer") == 0) return run_transformer_smoke();
             if (std::strcmp(argv[i + 1], "energy-network") == 0) return run_energy_network_smoke();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|energy-network)\n", argv[i + 1]);
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|energy-network)\n", argv[i + 1]);
             return 2;
         }
     }
@@ -332,6 +367,7 @@ int main(int argc, char** argv) {
     if (run_mhd_smoke() != 0) return 1;
     if (run_maglev_smoke() != 0) return 1;
     if (run_homopolar_smoke() != 0) return 1;
+    if (run_transformer_smoke() != 0) return 1;
     if (run_energy_network_smoke() != 0) return 1;
 
     // Zero-copy packing smoke

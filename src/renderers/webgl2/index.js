@@ -525,8 +525,13 @@ export class WebGL2MultiDeviceVisualizer {
 
     if (useWasm) {
       const loadT = 0.01 * (1 - drive * 0.5);
-      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar'].includes(focus)) {
+      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer'].includes(focus)) {
         segWasm.setMode(focus);
+      }
+      if (focus === 'transformer') {
+        const leak = !!(this.devices.transformer?.physics?.transformerLeakage
+          ?? this.devices.transformer?.physicsState?.transformerLeakage);
+        segWasm.setTransformerLeakage?.(leak);
       }
       for (const subDt of simSteps) {
         if (subDt <= 0) continue;
@@ -617,6 +622,19 @@ export class WebGL2MultiDeviceVisualizer {
             homo.energyLevel = plant.energyLevel ?? 0;
             homo._wasmPlantActive = true;
           }
+        } else if (focus === 'transformer') {
+          const plant = segWasm.getModePlant();
+          const xfmr = this.devices.transformer?.physics;
+          if (xfmr && plant?.mode === 'transformer') {
+            xfmr.transformerIpA = plant.i1 ?? 0;
+            xfmr.transformerIsA = plant.i2 ?? 0;
+            xfmr.transformerVp = plant.v1 ?? 0;
+            xfmr.transformerVs = plant.v2 ?? 0;
+            xfmr.transformerK = plant.k ?? xfmr.transformerK;
+            xfmr.transformerFluxN = plant.fluxN ?? 0;
+            xfmr.energyLevel = plant.energyLevel ?? 0;
+            xfmr._wasmPlantActive = true;
+          }
         }
       }
     } else {
@@ -655,7 +673,8 @@ export class WebGL2MultiDeviceVisualizer {
         const coreWasmModes = ['heron', 'kelvin', 'solar', 'peltier', 'mhd'];
         const wasmOwnsFocus = useWasm && device.id === focus && (
           coreWasmModes.includes(device.id)
-          || ((device.id === 'maglev' || device.id === 'homopolar') && device.physics._wasmPlantActive)
+          || ((device.id === 'maglev' || device.id === 'homopolar' || device.id === 'transformer')
+            && device.physics._wasmPlantActive)
         );
         if (!wasmOwnsFocus) {
           for (let s = 0; s < substeps; s++) {

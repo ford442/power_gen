@@ -29,6 +29,7 @@ export interface SegWasmBridge {
   setMode(mode: number): void;
   getMode(): number;
   setDrive(drive: number): void;
+  setTransformerLeakage(enabled: boolean): void;
   getModePlant(): unknown;
 
   getParticles(maxCount?: number): unknown;

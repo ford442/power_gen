@@ -22,6 +22,7 @@ src/shaders/
     particle-compute.wgsl
     seg-roller-compute.wgsl
     field-advect-compute.wgsl
+    transformer-flux-compute.wgsl
     energy-pipe-compute.wgsl
     overview-cull-compute.wgsl
     ssr-compute.wgsl      # screen-space reflections (depth-only ray march)

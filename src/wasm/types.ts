@@ -78,6 +78,14 @@ export interface SEGSimulatorInstance {
   getHomopolarEmfV?(): number;
   getHomopolarCurrentA?(): number;
   getHomopolarFieldT?(): number;
+  getTransformerI1?(): number;
+  getTransformerI2?(): number;
+  getTransformerV1?(): number;
+  getTransformerV2?(): number;
+  getTransformerK?(): number;
+  getTransformerFluxN?(): number;
+  getTransformerLeakage?(): boolean;
+  setTransformerLeakage?(enabled: boolean): void;
   getEnergyLevel?(): number;
   setNetworkEdges?(flatEdges: number[] | Float32Array): void;
   getNetworkEdgeCount?(): number;

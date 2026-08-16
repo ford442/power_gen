@@ -113,8 +113,12 @@ export const renderLoopMethods = {
       const drive = segOperator.getDrive();
       const loadT = 0.01 * (1 - drive * 0.5);
       const focus = this.currentView === 'overview' ? 'seg' : this.currentView;
-      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar'].includes(focus)) {
+      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer'].includes(focus)) {
         segWasm.setMode(focus);
+      }
+      if (focus === 'transformer') {
+        const leak = !!this.devices.transformer?.physicsState?.transformerLeakage;
+        segWasm.setTransformerLeakage?.(leak);
       }
       for (const subDt of simSteps) {
         if (subDt <= 0) continue;
@@ -204,6 +208,19 @@ export const renderLoopMethods = {
             homo.physicsState.homopolarFieldT = plant.fieldT ?? 0;
             homo.physicsState.energyLevel = plant.energyLevel ?? 0;
             homo.physicsState._wasmPlantActive = true;
+          }
+        } else if (focus === 'transformer') {
+          const plant = segWasm.getModePlant();
+          const xfmr = this.devices.transformer;
+          if (xfmr?.physicsState && plant?.mode === 'transformer') {
+            xfmr.physicsState.transformerIpA = plant.i1 ?? 0;
+            xfmr.physicsState.transformerIsA = plant.i2 ?? 0;
+            xfmr.physicsState.transformerVp = plant.v1 ?? 0;
+            xfmr.physicsState.transformerVs = plant.v2 ?? 0;
+            xfmr.physicsState.transformerK = plant.k ?? xfmr.physicsState.transformerK;
+            xfmr.physicsState.transformerFluxN = plant.fluxN ?? 0;
+            xfmr.physicsState.energyLevel = plant.energyLevel ?? 0;
+            xfmr.physicsState._wasmPlantActive = true;
           }
         }
       }
@@ -516,6 +533,15 @@ export const renderLoopMethods = {
         const fluxLines = this.segLayout?.totalFluxLines ?? 168;
         computePass.dispatchWorkgroups(Math.ceil(fluxLines / 64));
       }
+    }
+
+    const xfmrDevice = this.devices['transformer'];
+    if (xfmrDevice && isDeviceVisible(xfmrDevice)
+        && xfmrDevice.transformerFluxPipeline && xfmrDevice.transformerFluxBindGroup
+        && this.profiler.qualityLevel > 0.28) {
+      computePass.setPipeline(xfmrDevice.transformerFluxPipeline);
+      computePass.setBindGroup(0, xfmrDevice.transformerFluxBindGroup);
+      computePass.dispatchWorkgroups(Math.ceil((xfmrDevice.transformerFluxLineCount || 24) / 64));
     }
 
     for (const device of Object.values(this.devices)) {

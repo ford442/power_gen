@@ -24,17 +24,17 @@ export class DeviceInstance {
     this.uniformManager = new DeviceUniformManager(device, id, config, visualizer);
     this.computeManager = new DeviceComputeManager(device, id, config, this.pipelineManager, this.geometry);
     
-    // Delegate properties
-    Object.defineProperty(this, 'particles', { get: () => this.geometry.particles });
-    // Bind every extracted mixin method. Enumerating them by hand used to drop
-    // helpers the mixins call on `this` (`updateDeviceFlowPaths`, the bind-group
-    // builders), which threw on the first frame; binding whole mixins keeps the
-    // instance surface in step as the mixins grow.
-    for (const mixin of [DeviceSetupMixin, DeviceRenderMixin, DeviceUpdateMixin]) {
+// Delegate properties
+Object.defineProperty(this, 'particles', { get: () => this.geometry.particles });
+// Bind every extracted mixin method. Enumerating them by hand used to drop
+// helpers the mixins call on `this` (`updateDeviceFlowPaths`, the bind-group
+// builders), which threw on the first frame; binding whole mixins keeps the
+// instance surface in step as the mixins grow.
+for (const mixin of [DeviceSetupMixin, DeviceRenderMixin, DeviceUpdateMixin]) {
       for (const [name, fn] of Object.entries(mixin)) {
         if (typeof fn === 'function') this[name] = fn.bind(this);
       }
-    }
+}
 
     Object.defineProperty(this, 'rollerInstances', { get: () => this.geometry.rollerInstances });
     Object.defineProperty(this, 'fieldLineParticles', { get: () => this.geometry.fieldLineParticles });
@@ -167,6 +167,9 @@ export class DeviceInstance {
       await this.setupFluxLineTracer();
     } else if (DEVICE_MESH_LAYOUTS[this.id] || getPluginMeshLayouts()[this.id]) {
       await this.geometry.initializeDeviceMesh();
+      if (this.id === 'transformer') {
+        await this.setupTransformerFlux();
+      }
     }
   }
 

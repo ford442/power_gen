@@ -26,7 +26,7 @@ WebGL2 fallback (no WebGPU required): [open with `?renderer=webgl2`](https://for
 - **Multi-device dashboard** — overview with energy pipes, or focus any registered apparatus
 - SEG: three concentric rings of instanced magnetic rollers; RK4 flux lines (WebGPU); layout presets
 - GPU particles (10k–50k scaled by quality) via WGSL compute; CPU fallback on WebGL2
-- **Plant models (honest fidelity):** SEG and Heron/Kelvin/solar lead; Peltier/MHD gained two-node / Hartmann telemetry + mesh cues; Quanta plugins (maglev, homopolar, Halbach, pulse-coil, transformer) vary — see [`docs/AGENTS.md`](docs/AGENTS.md) device table
+- **Plant models (honest fidelity):** SEG and Heron/Kelvin/solar lead; Peltier/MHD gained two-node / Hartmann telemetry + mesh cues; Quanta plugins (maglev, homopolar, Halbach, pulse-coil, transformer) vary — transformer has a WASM coupled-inductor ODE (`?wasmPhysics=1`) plus JS phasor fallback; see [`docs/AGENTS.md`](docs/AGENTS.md) device table
 - Interactive orbital camera (drag to rotate, scroll to zoom)
 
 ## Future Plans

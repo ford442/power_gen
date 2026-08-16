@@ -67,7 +67,7 @@ const MODE_DESCRIPTIONS: Record<string, string> = {
   homopolar: 'Quanta Magnetics — Homopolar Generator: rotating copper disc in an axial magnetic field. Brushed radial path produces EMF ∝ ω×B×r. Watch disc RPM, EMF, current proxy, and B-field in telemetry.',
   'halbach-viz': 'Quanta Magnetics — Halbach Field Visualizer: configurable N-segment ring or linear array. Speed slider adjusts segment count and magnetization angle; field lines and |B| slice heatmap update in real time. Telemetry: peak B, period, dipole force proxy.',
   'pulse-coil': 'Quanta Magnetics — Pulse Coil (classroom R–L): capacitor-bank discharge through a series inductor. Watch coil current, cap voltage, peak B from amp-turns, and armature travel proxy. JS plant only (no WASM SimMode). Educational model — not a projectile or weapons simulation.',
-  transformer: 'Quanta Magnetics — Mutual Induction: two-winding classroom transformer with coupling k, primary drive, and secondary load. Toggle leakage vs ideal coupling; watch Vp/Vs/Ip/Is and flux particles. Textbook phasor model (not FEM); WASM L–M optional Phase 2.'
+  transformer: 'Quanta Magnetics — Mutual Induction: two-winding classroom transformer with coupling k, primary drive, and secondary load. Toggle leakage vs ideal coupling; watch Vp/Vs/Ip/Is and flux. JS phasor fallback; `?wasmPhysics=1` uses the C++ coupled-inductor ODE.'
 };
 
 window.setMode = (mode: string): void => {

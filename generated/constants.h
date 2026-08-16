@@ -36,11 +36,12 @@ struct WasmSegDefaults {
 
 /** Simulated nameplate watts per SimMode (order-of-magnitude — not metrology). */
 struct EnergyNetworkNameplates {
-  static constexpr int MODE_COUNT = 8;
+  static constexpr int MODE_COUNT = 9;
   static constexpr float WATTS[MODE_COUNT] = {
     2000.0f, 400.0f, 150.0f,
     300.0f, 120.0f, 350.0f,
-    200.0f, 250.0f
+    200.0f, 250.0f,
+    110.0f
   };
 };
 
