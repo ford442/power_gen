@@ -28,6 +28,7 @@ export type BindGroupLayoutName =
   | 'overviewCull'
   | 'rollerCompute'
   | 'fieldAdvect'
+  | 'transformerFlux'
   | 'fluxTracer'
   | 'sky'
   | 'empty'
@@ -288,6 +289,13 @@ export class PipelineLayoutCache {
       uniform(1, CS)
     ]);
     this._pl('fieldAdvect', ['fieldAdvect']);
+
+    // Transformer toroidal flux (same shape as fieldAdvect)
+    this._bgl('transformerFlux', [
+      storage(0, CS, false),
+      uniform(1, CS)
+    ]);
+    this._pl('transformerFlux', ['transformerFlux']);
 
     // Flux line tracer (0 rw, 1 uniform, 2 storage read, 3 uniform)
     this._bgl('fluxTracer', [
@@ -798,6 +806,19 @@ export class PipelineLayoutCache {
         compute: { module, entryPoint: 'main' }
       });
       this.pipelines.set('fieldAdvect', p);
+      return p;
+    });
+  }
+
+  async ensureTransformerFluxPipeline(code: string): Promise<GPUComputePipeline> {
+    return this.getOrCreatePipeline(`transformerFlux_${this._hash(code)}`, async () => {
+      const module = this.shaderModule('transformer-flux-compute-module', code);
+      const p = await this.device.createComputePipelineAsync({
+        label: 'transformer-flux-compute-pipeline',
+        layout: this.getPipelineLayout('transformerFlux'),
+        compute: { module, entryPoint: 'main' }
+      });
+      this.pipelines.set('transformerFlux', p);
       return p;
     });
   }

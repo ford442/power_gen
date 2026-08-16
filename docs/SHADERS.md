@@ -22,6 +22,7 @@ src/shaders/
     particle-compute.wgsl
     seg-roller-compute.wgsl
     field-advect-compute.wgsl
+    transformer-flux-compute.wgsl
     energy-pipe-compute.wgsl
     overview-cull-compute.wgsl
   generators/             # JS factories used by MultiDeviceShaders

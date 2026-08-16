@@ -19,6 +19,7 @@ SEGSimulator::SEGSimulator() {
     _kelvin.vBreak = 3.0e6f * 0.02f;
     _homopolar.fieldT = std::min(0.55f, PhysicsConstants::Br_DEFAULT * 0.28f);
     _maglev.fieldT = estimateHalbachFieldT(_maglev.gap);
+    _transformer.k = _transformer.kIdeal;
 }
 
 void SEGSimulator::step(float dt, float loadTorque) {
@@ -35,6 +36,7 @@ void SEGSimulator::setDrive(float drive) {
     _mhd.drive = _drive;
     _maglev.drive = _drive;
     _homopolar.drive = _drive;
+    _transformer.drive = _drive;
 }
 
 void SEGSimulator::stepWithPerRingTorques(float dt) {
@@ -63,6 +65,9 @@ void SEGSimulator::stepWithPerRingTorques(float dt) {
         case SIM_MODE_HOMOPOLAR:
             _stepHomopolar(dt);
             break;
+        case SIM_MODE_TRANSFORMER:
+            _stepTransformer(dt);
+            break;
         default:
             break;
     }
@@ -81,7 +86,7 @@ void SEGSimulator::setRingLoadTorques(float tInner, float tMiddle, float tOuter)
 }
 
 void SEGSimulator::setMode(int mode) {
-    if (mode >= 0 && mode <= SIM_MODE_HOMOPOLAR) _mode = mode;
+    if (mode >= 0 && mode <= SIM_MODE_TRANSFORMER) _mode = mode;
 }
 
 int SEGSimulator::getMode() const { return _mode; }
@@ -104,6 +109,7 @@ float SEGSimulator::estimatePower(float loadTorque) const {
     if (_mode == SIM_MODE_MHD)     return _mhd.powerW;
     if (_mode == SIM_MODE_MAGLEV)  return _maglev.liftN * _maglev.gapVel; // mechanical proxy
     if (_mode == SIM_MODE_HOMOPOLAR) return _homopolar.emfV * _homopolar.currentA;
+    if (_mode == SIM_MODE_TRANSFORMER) return std::abs(_transformer.v2 * _transformer.i2);
     if (_numRollers == 0) return 0.f;
     return loadTorque * _rollers[0].omega * static_cast<float>(_numRollers) / 3.f;
 }
@@ -127,6 +133,9 @@ float SEGSimulator::getEnergyLevel() const {
         }
         case SIM_MODE_HOMOPOLAR:
             return clampf(_homopolar.drive * 0.45f + (_homopolar.rpm / 3600.f) * 0.55f, 0.f, 1.f);
+        case SIM_MODE_TRANSFORMER:
+            return clampf(_transformer.drive * 0.55f
+                          + std::abs(_transformer.i2) / 3.f * 0.45f, 0.f, 1.f);
         default:
             return clampf(_rollers[0].omega / 50.f, 0.f, 1.f);
     }

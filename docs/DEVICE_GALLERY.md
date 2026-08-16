@@ -205,7 +205,8 @@ Capture: `?renderer=webgl2` → START → `setMode('pulse-coil')` → `captureCa
 
 **Mutual Induction** — Quanta classroom transformer: primary drive, secondary
 resistive load, coupling coefficient *k*, and an ideal-vs-leakage toggle.
-Textbook two-winding / phasor model (Chapman / Fitzgerald) — **not FEM**.
+Textbook two-winding model (Chapman / Fitzgerald) — **not FEM**. JS path is
+a phasor approx; `?wasmPhysics=1` runs the C++ coupled-inductor ODE.
 
 | View | Screenshot |
 |------|------------|
@@ -220,10 +221,10 @@ Capture: `?renderer=webgl2` → START → `setMode('transformer')` →
 
 | Field | Unit | Source |
 |-------|------|--------|
-| Primary V | V | Phasor plant (`transformerVp`) |
-| Secondary V | V | Referred ideal × *k* (`transformerVs`) |
-| Primary I | A | Drive / impedance (`transformerIpA`) |
-| Secondary I | A | Load current (`transformerIsA`) |
+| Primary V | V | Plant (`transformerVp`) |
+| Secondary V | V | Plant (`transformerVs`) |
+| Primary I | A | Plant (`transformerIpA`) |
+| Secondary I | A | Plant (`transformerIsA`) |
 | Coupling *k* | — | Ideal ≈ 0.97 / leakage ≈ 0.72 |
 | Flux (norm) | — | Visual flux bridge cue (`transformerFluxN`) |
 
@@ -234,13 +235,14 @@ Capture: `?renderer=webgl2` → START → `setMode('transformer')` →
 
 ### Implementation
 
-- Plugin: `src/devices/quanta/transformer.js` (registered via `quanta/index.js` — **no**
-  `MultiDeviceVisualizer` body edits)
+- Plugin: `src/devices/quanta/transformer.ts` (registered via `quanta/index.ts`)
 - WGSL mode index: `10` (`posTransformer` in `shaders/passes/particle-compute.wgsl`)
+- WASM `SimMode`: `8` (`SIM_MODE_TRANSFORMER`); plugin `wasmMode: 8`
 - UI: Mutual Induction mode button; Ideal / Leakage coupling controls;
   `window.setTransformerLeakage(bool)`
-- Plant: **JS only** (WASM L–M circuit optional Phase 2 — reserve next free
-  `SimMode`, do not assume `modeIndex === wasmMode`)
+- Plant: C++ coupled-inductor ODE when `?wasmPhysics=1`; JS phasor fallback
+- Flux: WebGPU `passes/transformer-flux-compute.wgsl` (toroidal-core billboards
+  in focus); WebGL2 keeps CPU flux particles
 
 ---
 
@@ -261,7 +263,7 @@ Capture: `?renderer=webgl2` → START → `setMode('transformer')` →
 | Homopolar / Faraday disc | **Live** (`homopolar`) | WASM `SimMode=7` + JS fallback |
 | Halbach array field visualizer | **Live** (`halbach-viz`) | Field line overlay + slice heatmap |
 | Pulse magnet / coilgun (sandboxed) | **Live** (`pulse-coil`) | Educational R–L only; JS-only forever unless new SimMode reserved |
-| Mutual induction / transformer | **Live** (`transformer`) | Phasor classroom model; WASM L–M Phase 2 |
+| Mutual induction / transformer | **Live** (`transformer`) | WASM L–M ODE (`SimMode=8`) + JS phasor fallback |
 | Van de Graaff educational twin | Candidate | Pairs with Kelvin |
 | Simple railgun / Lorentz sled | Candidate | Pairs with MHD |
 | Hall-effect sensor bench | Candidate | Sensor metrology classroom |

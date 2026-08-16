@@ -4,8 +4,8 @@
  * Ideal two-winding model with coupling coefficient k, primary drive, and
  * resistive secondary load. Leakage toggle reduces k. Not FEM.
  *
- * modeIndex: 10 (first free JS/shader slot — see docs/MODE_MATRIX.md).
- * WASM L–M circuit: optional Phase 2 (no SimMode yet).
+ * modeIndex: 10 (JS/shader slot — see docs/MODE_MATRIX.md).
+ * wasmMode: 8 (SIM_MODE_TRANSFORMER) — coupled-inductor ODE when ?wasmPhysics=1.
  *
  * References: standard undergrad transformer phasor model (Chapman / Fitzgerald).
  */
@@ -150,6 +150,40 @@ const transformerComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']>
   return Math.min(1.0, e * 0.75 + ctx.speedNorm * 0.25);
 };
 
+const transformerUpdateDynamics: NonNullable<DevicePlugin['updateDynamics']> = (instance) => {
+  const buf = instance.transformerFluxUniformBuffer;
+  if (!buf) return;
+  const s = instance.physicsState;
+  instance.device.queue.writeBuffer(
+    buf,
+    0,
+    new Float32Array([
+      instance.visualizer.time ?? 0,
+      s?.transformerFluxN ?? 0,
+      s?.transformerK ?? TRANSFORMER.kIdeal,
+      instance.geometry.fluxTotalSegments ?? 1152
+    ])
+  );
+};
+
+const transformerDrawWebgpu: NonNullable<DevicePlugin['drawWebgpu']> = (
+  instance,
+  renderPass,
+  _globalUniformBuffer,
+  skipEffects
+) => {
+  if (skipEffects) return;
+  if (!instance.fluxSegmentRenderBindGroup || !instance.pipelineManager?.fluxSegmentPipeline) return;
+  if (instance.fieldLineEnabled === false) return;
+  const qualityScale = instance.visualizer.profiler?.qualityLevel ?? 1;
+  if (qualityScale <= 0.28) return;
+  const totalSegments = Math.floor((instance.geometry.fluxTotalSegments ?? 0) * qualityScale);
+  if (totalSegments <= 0) return;
+  renderPass.setPipeline(instance.pipelineManager.fluxSegmentPipeline);
+  renderPass.setBindGroup(0, instance.fluxSegmentRenderBindGroup);
+  renderPass.draw(4, totalSegments);
+};
+
 const transformerUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, energy, gate, pushParticle, time } = ctx;
   const fluxGate = Math.pow(gate(energy, 0.15, 0.7), 1.25);
@@ -194,7 +228,9 @@ export const transformerPlugin: DevicePlugin = {
   label: 'Mutual Induction',
   category: 'quanta',
   modeIndex: 10,
+  wasmMode: 8,
   needsPhysicsState: true,
+  wasmSkipsJsPhysics: true,
   defaults: {
     particleCount: 5000,
     color: [0.95, 0.7, 0.25],
@@ -214,7 +250,9 @@ export const transformerPlugin: DevicePlugin = {
   },
   createPhysicsState: createTransformerPhysicsState,
   stepPhysics: stepTransformerPhysics,
+  updateDynamics: transformerUpdateDynamics,
   updateMesh: transformerUpdateMesh,
+  drawWebgpu: transformerDrawWebgpu,
   computeRawEnergy: transformerComputeRawEnergy,
   updateEffects: transformerUpdateEffects,
   wantsThermalHaze: false

@@ -74,8 +74,7 @@ export const PIPE_COLORS: Record<string, [number, number, number]> = {
 /** Simulated nameplate draw per device when telemetry watts are unavailable. */
 export const DEVICE_NOMINAL_WATTS: Record<string, number> = {
   ...ENERGY_NETWORK_NAMEPLATES.deviceNameplateWatts,
-  'pulse-coil': 90,
-  transformer: 110
+  'pulse-coil': 90
 };
 
 /** True when non-SEG nameplates are order-of-magnitude estimates (not calibrated). */

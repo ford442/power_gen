@@ -25,7 +25,8 @@ import {
   getComputeShader,
   getSegRollerComputeShader,
   getSegFieldAdvectShader,
-  getOverviewCullComputeShader
+  getOverviewCullComputeShader,
+  getTransformerFluxShader
 } from './shaders/generators/compute-shaders.js';
 import {
   getSkyVertShader,
@@ -137,6 +138,10 @@ export class MultiDeviceShaders {
 
   get overviewCullComputeShader() {
     return getOverviewCullComputeShader();
+  }
+
+  get transformerFluxShader() {
+    return getTransformerFluxShader();
   }
 
   get skyVertShader() {

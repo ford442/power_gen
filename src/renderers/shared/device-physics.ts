@@ -137,6 +137,7 @@ export interface TransformerPhysicsExtension {
   transformerK?: number;
   transformerFluxN?: number;
   transformerTurnsRatio?: number;
+  _wasmPlantActive?: boolean;
 }
 
 /** Full per-device physics plant state (built-in + plugin extensions). */

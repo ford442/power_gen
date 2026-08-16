@@ -85,6 +85,52 @@ export const DeviceSetupMixin = {
     );
   },
 
+  setupTransformerFlux: async function () {
+    const LINE_COUNT = 24;
+    const SEGS_PER_LINE = 48;
+    const total = LINE_COUNT * SEGS_PER_LINE;
+    this.geometry.fluxTotalSegments = total;
+    this.geometry.fluxSegmentBuffer = this.device.createBuffer({
+      label: 'transformer-flux-segments',
+      size: total * 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.visualizer.profiler.trackBuffer(
+      `device-${this.id}-transformer-flux`,
+      total * 32,
+      GPUBufferUsage.STORAGE
+    );
+
+    this.transformerFluxUniformBuffer = this.device.createBuffer({
+      label: 'transformer-flux-uniforms',
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+
+    const cache = this.visualizer.pipelineCache;
+    const code = this.visualizer.shaders.transformerFluxShader;
+    this.transformerFluxPipeline = await cache.ensureTransformerFluxPipeline(code);
+    this.transformerFluxBindGroup = cache.createBindGroup(
+      'transformerFlux',
+      [
+        { binding: 0, resource: { buffer: this.geometry.fluxSegmentBuffer } },
+        { binding: 1, resource: { buffer: this.transformerFluxUniformBuffer } }
+      ],
+      'transformer-flux-bg'
+    );
+    this.fluxSegmentRenderBindGroup = cache.createBindGroup(
+      'fluxSegment',
+      [
+        { binding: 0, resource: { buffer: this.visualizer.globalUniformBuffer } },
+        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 2, resource: { buffer: this.geometry.fluxSegmentBuffer } }
+      ],
+      'transformer-flux-segment-render-bg'
+    );
+    this.fieldLineEnabled = true;
+    this.transformerFluxLineCount = LINE_COUNT;
+  },
+
   setupEffectsParticles: function () {
     this.effectsParticles = this.device.createBuffer({
       size: this.maxEffectParticles * 16,

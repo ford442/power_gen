@@ -14,7 +14,8 @@ export const WASM_DEVICE_MODE_MAP: Record<string, number> = {
   peltier: 4,
   mhd: 5,
   maglev: 6,
-  homopolar: 7
+  homopolar: 7,
+  transformer: 8
 };
 
 const WASM_MODE_DEVICE_IDS = Object.keys(WASM_DEVICE_MODE_MAP);
@@ -242,6 +243,10 @@ export class SEGSim {
     this._sim?.setDrive?.(drive);
   }
 
+  setTransformerLeakage(enabled: boolean): void {
+    this._sim?.setTransformerLeakage?.(!!enabled);
+  }
+
   getDrive(): number {
     return this._sim?.getDrive?.() ?? 0;
   }
@@ -319,6 +324,19 @@ export class SEGSim {
         emfV: this._sim.getHomopolarEmfV?.() ?? 0,
         currentA: this._sim.getHomopolarCurrentA?.() ?? 0,
         fieldT: this._sim.getHomopolarFieldT?.() ?? 0,
+        energyLevel: this._sim.getEnergyLevel?.() ?? 0
+      };
+    }
+    if (m === 8) {
+      return {
+        mode: 'transformer',
+        i1: this._sim.getTransformerI1?.() ?? 0,
+        i2: this._sim.getTransformerI2?.() ?? 0,
+        v1: this._sim.getTransformerV1?.() ?? 0,
+        v2: this._sim.getTransformerV2?.() ?? 0,
+        k: this._sim.getTransformerK?.() ?? 0,
+        fluxN: this._sim.getTransformerFluxN?.() ?? 0,
+        leakage: !!this._sim.getTransformerLeakage?.(),
         energyLevel: this._sim.getEnergyLevel?.() ?? 0
       };
     }

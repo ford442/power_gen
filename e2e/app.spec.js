@@ -126,6 +126,56 @@ test.describe('WASM physics (optional)', () => {
     expect(wasm.segWasmEnabled).toBe(true);
     expect(wasm.wasmPhysics).toBe(true);
   });
+
+  test('transformer ?wasmPhysics=1 uses C++ plant (SimMode 8)', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'wasmPhysics=1');
+
+    await page.waitForFunction(
+      () => window.segWasm?.enabled === true && window.multiVisualizer != null,
+      { timeout: 25_000 }
+    );
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('transformer');
+    });
+
+    await page.waitForFunction(
+      () => {
+        const plant = window.segWasm?.getModePlant?.();
+        return window.segWasm?.getMode?.() === 8
+          && plant?.mode === 'transformer'
+          && Number.isFinite(plant.i1) && Number.isFinite(plant.i2) && Number.isFinite(plant.v2)
+          && (Math.abs(plant.i1) + Math.abs(plant.i2) + Math.abs(plant.v1) > 0.05);
+      },
+      { timeout: 12_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const plant = window.segWasm.getModePlant();
+      const phys = window.multiVisualizer?.devices?.transformer?.physicsState
+        ?? window.multiVisualizer?.devices?.transformer?.physics;
+      return {
+        mode: window.segWasm.getMode(),
+        plantMode: plant?.mode,
+        i1: plant?.i1 ?? 0,
+        i2: plant?.i2 ?? 0,
+        v2: plant?.v2 ?? 0,
+        k: plant?.k ?? 0,
+        jsIp: phys?.transformerIpA ?? 0,
+      };
+    });
+
+    expect(snap.mode).toBe(8);
+    expect(snap.plantMode).toBe('transformer');
+    expect(Number.isFinite(snap.i1)).toBe(true);
+    expect(Number.isFinite(snap.i2)).toBe(true);
+    expect(Number.isFinite(snap.v2)).toBe(true);
+    expect(Math.abs(snap.i1) + Math.abs(snap.i2) + Math.abs(snap.v2)).toBeGreaterThan(0.05);
+    expect(Math.abs(snap.jsIp)).toBeGreaterThan(0.001);
+    expect(snap.k).toBeGreaterThan(0.5);
+  });
 });
 
 test.describe('Hardware twin mock', () => {

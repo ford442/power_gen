@@ -102,7 +102,8 @@ enum SimMode {
     SIM_MODE_PELTIER = 4,
     SIM_MODE_MHD = 5,
     SIM_MODE_MAGLEV = 6,
-    SIM_MODE_HOMOPOLAR = 7
+    SIM_MODE_HOMOPOLAR = 7,
+    SIM_MODE_TRANSFORMER = 8
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -220,6 +221,29 @@ struct HomopolarState {
     float drive{0.f};
 };
 
+/// Coupled-inductor two-winding transformer — Quanta classroom L–M ODE.
+/// Mirrors TRANSFORMER constants in devices/quanta/transformer.ts.
+struct TransformerState {
+    float i1{0.f};             // primary current, A
+    float i2{0.f};             // secondary current, A
+    float v1{0.f};             // primary drive voltage, V
+    float v2{0.f};             // secondary terminal voltage (−R_load i2), V
+    float k{0.97f};            // coupling coefficient
+    float fluxN{0.f};          // normalized flux linkage 0..1
+    float phase{0.f};          // rad, ωt
+    float fHz{60.f};
+    float l1H{0.85f};
+    float l2H{0.095f};
+    float kIdeal{0.97f};
+    float kLeakage{0.72f};
+    float r1Ohm{1.8f};
+    float r2Ohm{0.45f};
+    float rLoadOhm{12.f};
+    float vPeak{28.f};
+    bool  leakage{false};
+    float drive{0.f};
+};
+
 // ─────────────────────────────────────────────────────────────
 // Lab energy bus (ADR-0004 Phase B) — declarative edges + budget
 // ─────────────────────────────────────────────────────────────
@@ -319,6 +343,15 @@ public:
     float getHomopolarCurrentA() const { return _homopolar.currentA; }
     float getHomopolarFieldT() const { return _homopolar.fieldT; }
 
+    float getTransformerI1() const { return _transformer.i1; }
+    float getTransformerI2() const { return _transformer.i2; }
+    float getTransformerV1() const { return _transformer.v1; }
+    float getTransformerV2() const { return _transformer.v2; }
+    float getTransformerK() const { return _transformer.k; }
+    float getTransformerFluxN() const { return _transformer.fluxN; }
+    bool  getTransformerLeakage() const { return _transformer.leakage; }
+    void  setTransformerLeakage(bool enabled);
+
     // ── Accessors ─────────────────────────────────────────────
     float getOmega()        const { return _rollers[0].omega; }
     float getRPM()          const { return _rollers[0].omega * 60.f / PhysicsConstants::TAU; }
@@ -390,8 +423,9 @@ private:
     SolarState     _solar;
     PeltierState   _peltier;
     MHDState       _mhd;
-    MaglevState    _maglev;
-    HomopolarState _homopolar;
+    MaglevState      _maglev;
+    HomopolarState   _homopolar;
+    TransformerState _transformer;
 
     // Lab energy bus state
     std::vector<EnergyNetworkEdgeSpec> _networkEdges;
@@ -407,6 +441,7 @@ private:
     void _stepMHD(float dt);
     void _stepMaglev(float dt);
     void _stepHomopolar(float dt);
+    void _stepTransformer(float dt);
     void _stepSegRollers(float dt);
 };
 

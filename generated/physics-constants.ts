@@ -94,6 +94,7 @@ export const ENERGY_NETWORK_NAMEPLATES = {
     mhd: 350,
     maglev: 200,
     homopolar: 250,
+    transformer: 110,
     'halbach-viz': 80,
   },
 } as const;

@@ -30,6 +30,7 @@ export class DeviceInstance {
     this.setupRollerCompute = DeviceSetupMixin.setupRollerCompute.bind(this);
     this.setupFieldAdvect = DeviceSetupMixin.setupFieldAdvect.bind(this);
     this.setupFluxLineTracer = DeviceSetupMixin.setupFluxLineTracer.bind(this);
+    this.setupTransformerFlux = DeviceSetupMixin.setupTransformerFlux.bind(this);
     this.setupEffectsParticles = DeviceSetupMixin.setupEffectsParticles.bind(this);
     this.render = DeviceRenderMixin.render.bind(this);
     this.renderBase = DeviceRenderMixin.renderBase.bind(this);
@@ -182,6 +183,9 @@ export class DeviceInstance {
       await this.setupFluxLineTracer();
     } else if (DEVICE_MESH_LAYOUTS[this.id] || getPluginMeshLayouts()[this.id]) {
       await this.geometry.initializeDeviceMesh();
+      if (this.id === 'transformer') {
+        await this.setupTransformerFlux();
+      }
     }
   }
 

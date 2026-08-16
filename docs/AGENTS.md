@@ -72,7 +72,7 @@ Client-side **multi-device physics lab**: real-time visualization of research ap
 | `homopolar` | Quanta Faraday disc (plugin) | L–R + back-EMF; WASM plant with `?wasmPhysics=1` — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
 | `halbach-viz` | Quanta Halbach viz (plugin) | CPU RK4 field lines + heatmap (JS); see gallery |
 | `pulse-coil` | Quanta pulse coil (plugin) | Classroom series R–L + cap discharge + I/V oscilloscope sparkline; **JS plant only (by design)** — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
-| `transformer` | Quanta mutual induction (plugin) | Two-winding phasor model (k / leakage toggle); flux particles; **JS only** (WASM L–M Phase 2) — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md#transformer) |
+| `transformer` | Quanta mutual induction (plugin) | Two-winding phasor fallback + WASM coupled-inductor ODE (`?wasmPhysics=1`, `SimMode=8`); flux billboards in focus — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md#transformer) |
 
 Dashboard overview can enable **all** registered sim devices (typically 6 core + plugins). Particle budgets and mesh detail are **not** equal across devices — auto-quality and view LOD scale further. Do not document “full physical fidelity on every device.”
 
@@ -100,7 +100,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 |----------|-----|------------|
 | **JavaScript** | Bootstrap, multi-device orchestration, geometry buffers, UI wiring, WebGL2 path | New authoritative physics formulas (prefer TS); new device plugin hooks (typed via `devices/types.ts`) |
 | **TypeScript** | Constants (`ValidatedConstants.ts`), `integration.ts`, shared plant (`renderers/shared/`), telemetry, `webgpu-manager.ts`, `seg-operator-state.ts`, WASM types, **device update/render mixins**, **`pipeline-layout-cache.ts`**, **`devices/types.ts`** | Full visualizer / frame loop (until a deliberate split) |
-| **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar/Peltier/MHD state) | Browser DOM or GPU API calls |
+| **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar/Peltier/MHD/Quanta state) | Browser DOM or GPU API calls |
 | **WGSL** | WebGPU compute + render (`src/shaders/`) | WebGL2 fallback |
 | **GLSL** | WebGL2 only (`renderers/webgl2/shaders.js`) | WebGPU path |
 | **Python** | `deploy.py` only | App logic |

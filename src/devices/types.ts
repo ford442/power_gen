@@ -360,6 +360,10 @@ export interface DeviceInstanceLike {
   fieldAdvectUniformBuffer?: GPUBuffer | null;
   fluxTracerUniformBuffer?: GPUBuffer | null;
   fluxSegmentRenderBindGroup?: GPUBindGroup | null;
+  transformerFluxUniformBuffer?: GPUBuffer | null;
+  transformerFluxPipeline?: GPUComputePipeline | null;
+  transformerFluxBindGroup?: GPUBindGroup | null;
+  transformerFluxLineCount?: number;
   fieldLineEnabled?: boolean;
   /** Flat [x0,z0, x1,z1, ...] roller position scratch buffer, sized for the active layout. */
   _rollerPositions?: Float32Array;
