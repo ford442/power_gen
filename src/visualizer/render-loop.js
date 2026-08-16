@@ -10,6 +10,7 @@ import { explainerState } from '../seg-explainer/explainer-state.js';
 import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
 import { resolveScaledParticleCount } from '../devices/particle-budgets.js';
+import { expectedInstanceCount } from '../devices/overview-cull.js';
 import { syncEnergyCouplingDisclaimer } from '../renderers/shared/energy-network.ts';
 
 function smoothstep(edge0, edge1, x) {
@@ -196,6 +197,9 @@ export const renderLoopMethods = {
     // Update camera
     this.cameraController.updateCamera(deltaTime);
 
+    // Needed twice: the GPU cull pass frustum and the global uniform upload.
+    const viewProj = this.cameraController.getViewProjMatrix();
+
     const canvasAspect = (this.canvas.width || 1) / Math.max(1, this.canvas.height || 1);
     const cullCamera = this.camera?.camera;
     // Plugin overview ring is 20 m — cull sphere must cover device extents there.
@@ -222,6 +226,29 @@ export const renderLoopMethods = {
 
     this.profiler.beginFrameDraws?.();
 
+    // ── GPU cull / LOD path (ADR-0005 WS4) ───────────────────────────
+    // In overview the CPU no longer resolves a particle budget per device:
+    // it uploads one flat bounds array with a LOD level, and the cull pass
+    // writes the draw-indirect args the particle draw consumes. The CPU
+    // prefix path below stays as the fallback (focus views, no pipeline).
+    const cull = this.isOverviewMode() && explainerScale >= 1 ? this.overviewCull : null;
+    // Measured inside the draw-prep scope: the bounds upload is the CPU cost
+    // this path trades the per-device budget ladder for.
+    const cullActive = !!(cull?.ready) && this.profiler.measureDrawPrep(() => cull.update({
+      devices: Object.values(this.devices),
+      cameraPos: cullCamera?.position || [0, 0, 0],
+      currentView: this.currentView,
+      qualityLevel: this.profiler.qualityLevel,
+      qualityTier: this.profiler.qualityTier || 'high',
+      defaultRadius: cullOpts.radius,
+      isEnabled: (d) => isDeviceVisible(d),
+      viewProj,
+      margin: cullOpts.margin
+    })) > 0;
+    if (!cullActive) this.overviewCull?.setInactive();
+    this._overviewCullActive = cullActive;
+    this.profiler.overviewCullActive = cullActive;
+
     let totalParticles = 0;
     const qualityTier = this.profiler.qualityTier || 'high';
     for (const device of Object.values(this.devices)) {
@@ -230,31 +257,47 @@ export const renderLoopMethods = {
       const viewLod = getViewParticleLod(this.currentView, device.id);
       if (viewLod <= 0) continue;
 
-      const scaledCount = resolveScaledParticleCount({
-        deviceId: device.id,
-        baseCount: device.particleCount,
-        qualityLevel: this.profiler.qualityLevel,
-        qualityTier,
-        viewLod,
-        explainerScale,
-        isPlugin: !!device.config?.plugin
-      });
-      // Keep a scale for effect budgets / legacy paths (avoid 0 when capped).
-      const particleScale = device.particleCount > 0
-        ? Math.max(0.05, scaledCount / device.particleCount)
-        : getDeviceParticleScale({
-            currentView: this.currentView,
+      let scaledCount = 0;
+      let particleScale = 1;
+      const slot = cullActive ? cull.slots[cull.slotIndex.get(device.id) ?? -1] : null;
+      this.profiler.measureDrawPrep(() => {
+        if (slot) {
+          // One distance-derived level; the GPU derives both the integration
+          // threshold and the instance count from it.
+          device.particleBaseCount = slot.baseCount;
+          device.particleLodLevel = slot.lodLevel;
+          scaledCount = expectedInstanceCount(slot);
+        } else {
+          device.particleBaseCount = 0;
+          device.particleLodLevel = 0;
+          scaledCount = resolveScaledParticleCount({
             deviceId: device.id,
+            baseCount: device.particleCount,
             qualityLevel: this.profiler.qualityLevel,
-            explainerScale
+            qualityTier,
+            viewLod,
+            explainerScale,
+            isPlugin: !!device.config?.plugin
           });
+        }
+        // Keep a scale for effect budgets / legacy paths (avoid 0 when capped).
+        particleScale = device.particleCount > 0
+          ? Math.max(0.05, scaledCount / device.particleCount)
+          : getDeviceParticleScale({
+              currentView: this.currentView,
+              deviceId: device.id,
+              qualityLevel: this.profiler.qualityLevel,
+              explainerScale
+            });
+      });
 
       device._meshDrawDetail = this.isOverviewMode?.() ? meshDetail : 'full';
 
       this.profiler.measureDevice(device.id, () => {
         device.update(deltaTime * speed, particleScale);
-        // Budget may be below qualityScale*base — enforce resolved count.
-        if (scaledCount > 0) device.scaledParticleCount = scaledCount;
+        // CPU path: budget may be below qualityScale*base — enforce resolved
+        // count. GPU path: device.update already applied the LOD ladder.
+        if (!slot && scaledCount > 0) device.scaledParticleCount = scaledCount;
       });
       totalParticles += device.scaledParticleCount || scaledCount;
     }
@@ -262,7 +305,6 @@ export const renderLoopMethods = {
     this.profiler.recordFrame(deltaTime, totalParticles);
 
     // Update global uniforms with extended lighting data
-    const viewProj = this.cameraController.getViewProjMatrix();
     const globalData = new Float32Array(128); // 512 bytes / 4 = 128 floats
     
     // Base uniforms (offset 0-23: 96 bytes)
@@ -411,6 +453,10 @@ export const renderLoopMethods = {
     
     // ─── COMPUTE PASS: animate particles on GPU ───
     const computePass = encoder.beginComputePass({ label: 'particle-compute' });
+
+    // Overview frustum cull → draw-indirect. Runs first: the instance render
+    // pass below consumes the draw args this dispatch writes.
+    if (cullActive) cull.dispatch(computePass);
 
     // SEG-specific compute: roller kinematics + RK4 flux line tracing.
     // These run first so rendering reads the freshly updated buffers.

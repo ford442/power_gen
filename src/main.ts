@@ -405,6 +405,10 @@ window.addEventListener('load', () => {
         v.captureParticleSubset!(opts.deviceId || 'seg', opts.maxCount ?? 64);
     }
 
+    if (v?.captureOverviewCull) {
+      window.captureOverviewCull = () => v.captureOverviewCull!();
+    }
+
     document.body.classList.toggle('overview-mode', v?.currentView === 'overview');
 
     const tickClassroomUi = (): void => {

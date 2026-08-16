@@ -14,13 +14,16 @@ src/shaders/
     roller-instance.wgsl
     frame-uniforms.wgsl   # viewProj / time / cameraPos
     device-uniforms.wgsl  # 48 B device pack
-    compute-uniforms.wgsl # particle compute uniforms
+    compute-uniforms.wgsl # particle compute uniforms (incl. GPU LOD level)
+    overview-lod.wgsl     # overview particle LOD ladder (shared by 2 passes)
+    overview-cull.wgsl    # device bounds / draw-indirect args / frustum test
     pbr-*.wgsl            # surface / BRDF / lighting / eval
   passes/                 # Full entry-point modules (preferred for new work)
     particle-compute.wgsl
     seg-roller-compute.wgsl
     field-advect-compute.wgsl
     energy-pipe-compute.wgsl
+    overview-cull-compute.wgsl
   generators/             # JS factories used by MultiDeviceShaders
   *.wgsl                  # Legacy / specialized modules (flux, bloom, led-solar, …)
   wgsl-include.js         # Node preprocessor (#include)

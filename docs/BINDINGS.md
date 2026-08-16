@@ -102,7 +102,32 @@ WGSL: `seg-enhanced-shaders.js`
 | Binding | Type | Stages | Resource |
 |---------|------|--------|----------|
 | 0 | storage (rw) | CS | Particles |
-| 1 | uniform | CS | Time / mode / physics |
+| 1 | uniform | CS | `ComputeUniforms` — time / mode / particleCount / physics / lodLevel (48 B) |
+
+`particleCount` is the count **before** GPU LOD; the shader keeps
+`particleCount >> lodLevel` particles (`common/overview-lod.wgsl`). The
+`overviewCull` pass sizes its indirect draw with the same ladder, so a device
+never draws particles the compute pass skipped.
+
+### `overviewCull` — overview frustum cull → draw-indirect
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | storage (read) | CS | `array<DeviceBounds>` device instance spheres (32 B stride) |
+| 1 | uniform | CS | `CullUniforms` — viewProj, cameraPos, deviceCount, margin, vertexCount (96 B) |
+| 2 | storage (rw) | CS | `array<DrawArgs>` draw-indirect args, one **stable** slot per device (16 B) |
+| 3 | storage (rw) | CS | `CullOutput` — atomic visibleCount / drawnInstances + compacted index list |
+
+WGSL: `passes/overview-cull-compute.wgsl` + `common/overview-cull.wgsl`
+JS: `src/devices/overview-cull.js` (`OverviewCullPass`) — buffer packing lives there.
+
+One thread per device slot. Binding 2 is created with `STORAGE | INDIRECT | COPY_DST`
+and consumed by `renderPass.drawIndirect(buffer, slot × 16)` in `device-render.ts`:
+the slot index is stable so the CPU never needs the cull result back. Culled or
+disabled devices resolve to `instanceCount = 0`.
+
+Binding 3's compacted list is diagnostics only (`window.captureOverviewCull()`);
+nothing in the frame path reads it.
 
 ### `rollerCompute` — SEG roller instance compute
 

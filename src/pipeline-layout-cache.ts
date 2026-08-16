@@ -25,6 +25,7 @@ export type BindGroupLayoutName =
   | 'energyPipeCompute'
   | 'coil'
   | 'particleCompute'
+  | 'overviewCull'
   | 'rollerCompute'
   | 'fieldAdvect'
   | 'fluxTracer'
@@ -262,6 +263,16 @@ export class PipelineLayoutCache {
       uniform(1, CS)
     ]);
     this._pl('particleCompute', ['particleCompute']);
+
+    // Overview frustum cull → draw-indirect
+    // (0 bounds read, 1 uniform camera, 2 draw args rw, 3 compacted output rw)
+    this._bgl('overviewCull', [
+      storage(0, CS, true),
+      uniform(1, CS),
+      storage(2, CS, false),
+      storage(3, CS, false)
+    ]);
+    this._pl('overviewCull', ['overviewCull']);
 
     // SEG roller instance compute (0,1,2)
     this._bgl('rollerCompute', [
@@ -633,6 +644,21 @@ export class PipelineLayoutCache {
       this.pipelines.set('energyPipeCompute', pipeline);
     }
     return this.pipelines.get('energyPipeCompute') as GPUComputePipeline;
+  }
+
+  /** Overview frustum-cull compute (ADR-0005 WS4) — one thread per device slot. */
+  async ensureOverviewCullPipeline(shaders: MultiDeviceShaders): Promise<GPUComputePipeline> {
+    const code = shaders.overviewCullComputeShader;
+    return this.getOrCreatePipeline(`overviewCull_${this._hash(code)}`, () =>
+      this.device.createComputePipeline({
+        label: 'overviewCullPipeline',
+        layout: this.getPipelineLayout('overviewCull'),
+        compute: {
+          module: this.shaderModule('overview-cull-compute', code),
+          entryPoint: 'main'
+        }
+      })
+    );
   }
 
   async ensureSkyPipeline(shaders: MultiDeviceShaders): Promise<GPURenderPipeline> {

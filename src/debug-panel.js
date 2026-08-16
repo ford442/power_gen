@@ -445,6 +445,9 @@ export class DebugPanel {
 
       <div style="color: #888;">Draw calls (est.):</div>
       <div style="color: #0ff;">${stats.drawCallsEstimate ?? '—'}</div>
+
+      <div style="color: #888;">Draw prep (CPU):</div>
+      <div style="color: #0ff;">${(stats.drawPrepMs ?? 0).toFixed(2)} ms${stats.overviewCullActive ? ' · GPU cull' : ''}</div>
       <div style="color: #888;">Post Quality:</div>
       <div style="color: ${stats.qualityTier === 'critical' || stats.qualityTier === 'low' ? '#ff4' : '#4f4'}; font-size: 10px;">${stats.postQualitySummary || '—'}</div>
 

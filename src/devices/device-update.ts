@@ -3,6 +3,7 @@ import {
   stepDevicePhysics
 } from '../renderers/shared/device-physics';
 import { getHeronLayout } from '../heron-layout.js';
+import { overviewLodParticleCount } from '../renderers/shared/view-lod.js';
 import { segWasm } from '../wasm/seg-physics-bridge.js';
 import type {
   DeviceEffectContext,
@@ -39,7 +40,12 @@ import {
 
 export const DeviceUpdateMixin = {
   update: function (this: DeviceInstanceLike, deltaTime: number, qualityScale: number): void {
-    const scaledParticleCount = Math.floor(this.particleCount * qualityScale);
+    // GPU LOD path (overview): the render loop assigns a base count + level and
+    // the compute shader drops high-index particles. Otherwise the legacy CPU
+    // scale applies. Either way `scaledParticleCount` is the live count.
+    const lodLevel = this.particleLodLevel || 0;
+    const baseCount = this.particleBaseCount || Math.floor(this.particleCount * qualityScale);
+    const scaledParticleCount = overviewLodParticleCount(baseCount, lodLevel);
     const ringIndex = this.getRingIndex();
     this.scaledParticleCount = scaledParticleCount;
 
@@ -47,9 +53,10 @@ export const DeviceUpdateMixin = {
     this.computeManager.updateComputeUniforms(
       this.visualizer.time,
       ringIndex,
-      scaledParticleCount,
+      baseCount,
       computeSpeed,
-      this.physicsState
+      this.physicsState,
+      lodLevel
     );
 
     if (!this.physicsState && deviceNeedsPhysicsState(this.id)) {
