@@ -1,6 +1,9 @@
 # Shared Emscripten link flags for sim_core WASM (Makefile + CMakeLists.txt).
 # One flag per line. Lines starting with # are ignored.
 # Optimization (-O3 / -O0) is applied by each build driver, not here.
+# Release-only flags (-g0, --closure 1) live in the `wasm` Makefile target /
+# CMakeLists.txt instead of here, since `wasm-dbg` needs the opposite
+# (debug symbols, unminified JS) — see cpp/README.md for the full mapping.
 --bind
 -s WASM=1
 -s MODULARIZE=1
@@ -10,3 +13,4 @@
 -s INITIAL_MEMORY=16777216
 -s ENVIRONMENT=web
 -s NO_EXIT_RUNTIME=1
+-s MALLOC=emmalloc

@@ -25,7 +25,10 @@ if(EMSCRIPTEN)
       target_link_options(sim_core PRIVATE "SHELL:${_flag}")
     endif()
   endforeach()
-  target_link_options(sim_core PRIVATE -O3)
+  # -g0/--closure 1 match the Makefile `wasm` (release) target — this
+  # CMake path has no separate debug configuration, so it always builds
+  # release-optimized output.
+  target_link_options(sim_core PRIVATE -O3 -g0 --closure 1)
 
   # Output directly into the Vite public/wasm directory so the dev
   # server can serve sim_core.js and sim_core.wasm without copying.

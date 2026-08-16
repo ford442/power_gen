@@ -59,6 +59,15 @@ jobs:
       - name: Native sim_core smoke test
         run: npm run wasm:native
 
+      - name: WASM build (only if Emscripten is on PATH)
+        run: |
+          if command -v emcc >/dev/null 2>&1; then
+            echo "emcc found ($(emcc --version | head -1)) — building sim_core WASM"
+            npm run wasm:build
+          else
+            echo "emcc not on PATH — skipping WASM build (native smoke test above already ran)"
+          fi
+
   wgsl:
     name: WGSL (naga)
     runs-on: ubuntu-latest
