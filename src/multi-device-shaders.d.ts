@@ -39,5 +39,6 @@ export declare class MultiDeviceShaders {
   readonly bloomExtractShader: string;
   readonly bloomBlurShader: string;
   readonly bloomCompositeShader: string;
+  readonly ssrComputeShader: string;
   readonly anomalyWallsShader: string;
 }

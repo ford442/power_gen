@@ -1,8 +1,55 @@
-// Floor grid, sky, bloom, depth, and canvas resize.
+// Floor grid, sky, bloom, SSR, IBL prefilter, depth, and canvas resize.
 import { WebGPUManager, DEPTH_FORMAT } from '../webgpu-manager';
 import { packPostUniforms } from '../seg-lighting-presets.js';
+import { SSR_FORMAT } from '../pipeline-layout-cache';
+import { createIblResources, uploadIblForPreset } from '../ibl-prefilter.js';
+
+/** SSR runs at half resolution; the composite samples it with linear filtering. */
+export const SSR_RESOLUTION_SCALE = 0.5;
+
+/** Bytes of the SsrParams uniform block — see passes/ssr-compute.wgsl. */
+export const SSR_PARAMS_BYTES = 176;
 
 export const sceneSetupMethods = {
+  /**
+   * Bake the prefiltered GGX environment for the active lighting look and
+   * upload it to the device (ADR-0005 WS2). Always-on: the texture is 224 KiB
+   * and every SEG-enhanced pipeline binds it.
+   */
+  setupIblPrefilter() {
+    if (!this.iblResources) {
+      this.iblResources = createIblResources(this.device);
+      this.profiler?.trackTexture?.(
+        'iblSpecularArray',
+        this.iblResources.size,
+        this.iblResources.size * this.iblResources.layers,
+        'rgba16float'
+      );
+    }
+    const stats = uploadIblForPreset(
+      this.device,
+      this.iblResources,
+      this.postPreset,
+      this.lightingLook
+    );
+    this.iblLevels = stats.levels;
+    console.log(
+      `[MultiDeviceVisualizer] IBL prefilter "${this.lightingLook}": ` +
+      `${stats.levels} GGX levels + irradiance, ${(this.iblResources.byteLength / 1024).toFixed(0)} KB ` +
+      `(${stats.cached ? 'cached' : `${stats.ms.toFixed(0)} ms bake`})`
+    );
+    return stats;
+  },
+
+  /**
+   * Re-bake the IBL chain after a lighting-look switch. Bind groups keep
+   * pointing at the same texture, so nothing needs to be rebuilt.
+   */
+  refreshIblPrefilter() {
+    if (!this.iblResources || !this.device) return;
+    this.setupIblPrefilter();
+  },
+
   async setupFloorGrid() {
     this.gridPipeline = await this.pipelineCache.ensureGridPipeline(this.shaders);
 
@@ -131,6 +178,69 @@ export const sceneSetupMethods = {
     this.profiler.trackTexture('depthBuffer', width, height, depthFormat);
   },
 
+  /**
+   * (Re)allocate the half-res SSR reflection target. Kept allocated even when
+   * the quality tier gates SSR off, because bloomComposite always binds it —
+   * the pass is simply not dispatched and `ssrStrength` packs to 0.
+   */
+  setupSsrTexture() {
+    const { width: w, height: h } = WebGPUManager.canvasPixelSize(this.canvas);
+    const sw = Math.max(1, Math.floor(w * SSR_RESOLUTION_SCALE));
+    const sh = Math.max(1, Math.floor(h * SSR_RESOLUTION_SCALE));
+
+    if (this.ssrTexture && this.ssrWidth === sw && this.ssrHeight === sh) return;
+    if (this.ssrTexture) this.ssrTexture.destroy();
+
+    this.ssrWidth = sw;
+    this.ssrHeight = sh;
+    this.ssrTexture = this.device.createTexture({
+      label: 'ssr-reflection',
+      size: [sw, sh],
+      format: SSR_FORMAT,
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+    });
+    this.ssrTextureView = this.ssrTexture.createView();
+    this.profiler?.trackTexture?.('ssrReflection', sw, sh, SSR_FORMAT);
+    // Stale bind groups reference the destroyed texture.
+    this.ssrBindGroup = null;
+  },
+
+  /** SSR compute bind group — depends on depth + scene textures, so rebuilt on resize. */
+  _rebuildSsrBindGroup() {
+    if (!this.pipelineCache || !this.ssrTextureView || !this.depthSampleView
+        || !this.bloomSceneTexture || !this.bloomSampler || !this.ssrParamsBuffer) {
+      return;
+    }
+    this.ssrBindGroup = this.pipelineCache.createBindGroup('ssr', [
+      { binding: 0, resource: this.depthSampleView },
+      { binding: 1, resource: this.bloomSceneTexture.createView() },
+      { binding: 2, resource: this.bloomSampler },
+      { binding: 3, resource: { buffer: this.ssrParamsBuffer } },
+      { binding: 4, resource: this.ssrTextureView }
+    ], 'ssr-bg');
+  },
+
+  async setupSsrPipeline() {
+    this.ssrEnabled = this.ssrEnabled !== false;
+
+    this.ssrParamsBuffer = this.device.createBuffer({
+      label: 'ssr-params',
+      size: SSR_PARAMS_BYTES,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.profiler.trackBuffer('ssr-params', SSR_PARAMS_BYTES, GPUBufferUsage.UNIFORM);
+
+    this.setupSsrTexture();
+    try {
+      this.ssrPipeline = await this.pipelineCache.ensureSsrPipeline(this.shaders.ssrComputeShader);
+    } catch (e) {
+      console.warn('[MultiDeviceVisualizer] SSR pipeline unavailable — reflections disabled:', e);
+      this.ssrPipeline = null;
+      this.ssrEnabled = false;
+    }
+    this._rebuildSsrBindGroup();
+  },
+
   setupBloomTextures() {
     const { width: w, height: h } = WebGPUManager.canvasPixelSize(this.canvas);
     const fmt = navigator.gpu.getPreferredCanvasFormat();
@@ -162,17 +272,24 @@ export const sceneSetupMethods = {
     if (this.bloomParamsBuffer) {
       this.device.queue.writeBuffer(
         this.bloomParamsBuffer, 0,
-        packPostUniforms({ width: w, height: h, preset: this.postPreset })
+        packPostUniforms({
+          width: w,
+          height: h,
+          preset: this.postPreset,
+          ssrEnabled: this.ssrEnabled !== false
+        })
       );
     }
+    this.setupSsrTexture();
     this._rebuildBloomBindGroups();
+    this._rebuildSsrBindGroup();
   },
 
   /** Cached bloom bind groups — recreated when bloom textures resize. */
   _rebuildBloomBindGroups() {
     if (!this.pipelineCache || !this.bloomSceneTexture || !this.bloomBlurTexture
         || !this.bloomTempTexture || !this.prevSceneTexture || !this.bloomSampler
-        || !this.bloomParamsBuffer || !this.depthSampleView) {
+        || !this.bloomParamsBuffer || !this.depthSampleView || !this.ssrTextureView) {
       return;
     }
     const cache = this.pipelineCache;
@@ -204,7 +321,8 @@ export const sceneSetupMethods = {
       { binding: 2, resource: this.bloomSampler },
       { binding: 3, resource: { buffer: this.bloomParamsBuffer } },
       { binding: 4, resource: this.depthSampleView },
-      { binding: 5, resource: this.prevSceneTexture.createView() }
+      { binding: 5, resource: this.prevSceneTexture.createView() },
+      { binding: 6, resource: this.ssrTextureView }
     ], 'bloom-composite-bg');
   },
 
@@ -216,8 +334,10 @@ export const sceneSetupMethods = {
       addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge'
     });
 
+    // 20 floats — see packPostUniforms (BloomParams gained ssrStrength + pad).
     this.bloomParamsBuffer = this.device.createBuffer({
-      size: 64,
+      label: 'bloom-params',
+      size: 80,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.bloomBlurDirXBuffer = this.device.createBuffer({

@@ -39,6 +39,11 @@ export function getBloomExtractShader() {
         ssaoStrength: f32,
         contactShadow: f32,
         skyMode:    f32,
+        // SSR reflection gain: preset ssrStrength x tier gate x ?ssr= override.
+        ssrStrength: f32,
+        _pad0:      f32,
+        _pad1:      f32,
+        _pad2:      f32,
       }
 
       @group(0) @binding(0) var sceneTex    : texture_2d<f32>;
@@ -105,6 +110,11 @@ export function getBloomBlurShader() {
         ssaoStrength: f32,
         contactShadow: f32,
         skyMode:    f32,
+        // SSR reflection gain: preset ssrStrength x tier gate x ?ssr= override.
+        ssrStrength: f32,
+        _pad0:      f32,
+        _pad1:      f32,
+        _pad2:      f32,
       }
 
       @group(0) @binding(0) var bloomInput : texture_2d<f32>;
@@ -152,6 +162,11 @@ export function getBloomCompositeShader() {
         ssaoStrength: f32,
         contactShadow: f32,
         skyMode:    f32,
+        // SSR reflection gain: preset ssrStrength x tier gate x ?ssr= override.
+        ssrStrength: f32,
+        _pad0:      f32,
+        _pad1:      f32,
+        _pad2:      f32,
       }
 
       @group(0) @binding(0) var sceneTexC  : texture_2d<f32>;
@@ -160,6 +175,9 @@ export function getBloomCompositeShader() {
       @group(0) @binding(3) var<uniform> params: BloomParams;
       @group(0) @binding(4) var depthTexC: texture_depth_2d;
       @group(0) @binding(5) var prevSceneTexC: texture_2d<f32>;
+      // Half-res SSR reflection colour (rgb premultiplied by confidence in .a),
+      // produced by passes/ssr-compute.wgsl. Zeroed when the pass is gated off.
+      @group(0) @binding(6) var ssrTexC: texture_2d<f32>;
 
       struct FragInput {
         @location(0) uv: vec2f,
@@ -251,6 +269,13 @@ export function getBloomCompositeShader() {
         let shadow = contactShadow(input.uv, depth);
         let ao = ssao(input.uv, depth);
         scene *= ao * (1.0 - shadow);
+
+        // Screen-space reflections, composited after AO so cavities stay dark.
+        // The reflection is already confidence-weighted, so this is a plain add.
+        if (params.ssrStrength > 0.001) {
+          let refl = textureSample(ssrTexC, compSampler, input.uv);
+          scene += refl.rgb * params.ssrStrength * ao;
+        }
 
         let bloom = wideBloom(input.uv);
         var combined = scene + bloom * params.strength * (0.85 + params.power * 0.35);

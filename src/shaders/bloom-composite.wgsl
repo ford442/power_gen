@@ -1,7 +1,7 @@
 // Bloom pass 2: composite the original scene with the bloom layer, apply
 // filmic tone-mapping + preset exposure, and add a smooth screen-space vignette.
 //
-// Runtime path uses generators/bloom-shaders.js (full BloomParams + AO/shadow).
+// Runtime path uses generators/bloom-shaders.js (full BloomParams + AO/shadow/SSR).
 // This module mirrors the filmic/exposure contract for docs and offline checks.
 //
 // NOTE: BloomParams layout is shared with bloom-extract.wgsl so both passes
@@ -24,6 +24,10 @@ struct BloomParams {
   ssaoStrength: f32,
   contactShadow: f32,
   skyMode    : f32,
+  ssrStrength: f32,
+  _pad0      : f32,
+  _pad1      : f32,
+  _pad2      : f32,
 }
 
 @group(0) @binding(0) var sceneTexC   : texture_2d<f32>;
@@ -31,6 +35,7 @@ struct BloomParams {
 @group(0) @binding(2) var compSampler : sampler;
 @group(0) @binding(3) var<uniform>    compParams: BloomParams;
 @group(0) @binding(4) var depthTex    : texture_2d<f32>;
+@group(0) @binding(5) var ssrTex      : texture_2d<f32>;
 
 /** Filmic curve: ACES fitted with soft shoulder (see bloom-shaders.js). */
 fn filmicTonemap(x: vec3f) -> vec3f {
@@ -71,7 +76,12 @@ fn bloomCompositeFrag(input: FragInput) -> @location(0) vec4f {
   let bloom = textureSample(bloomTexC, compSampler, input.uv).rgb;
 
   let ao = cheapSSAO(input.uv);
-  let groundedScene = scene * (1.0 - ao * 0.35);
+  var groundedScene = scene * (1.0 - ao * 0.35);
+
+  // SSR is composited after the AO term (see passes/ssr-compute.wgsl).
+  if (compParams.ssrStrength > 0.001) {
+    groundedScene += textureSample(ssrTex, compSampler, input.uv).rgb * compParams.ssrStrength;
+  }
 
   let combined = (groundedScene + bloom * compParams.strength) * max(compParams.exposure, 0.05);
 

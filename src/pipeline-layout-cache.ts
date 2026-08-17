@@ -36,7 +36,8 @@ export type BindGroupLayoutName =
   | 'anomalyWall'
   | 'bloomExtract'
   | 'bloomBlur'
-  | 'bloomComposite';
+  | 'bloomComposite'
+  | 'ssr';
 
 /** Pipeline layouts mirror the bind group layouts, plus the zero-group variant. */
 export type PipelineLayoutName = BindGroupLayoutName | 'emptyGroups';
@@ -72,6 +73,22 @@ function depthTexture(binding: number, visibility: number): GPUBindGroupLayoutEn
     visibility,
     texture: { sampleType: 'depth', viewDimension: '2d' }
   };
+}
+
+function textureArray(
+  binding: number,
+  visibility: number,
+  sampleType: GPUTextureSampleType = 'float'
+): GPUBindGroupLayoutEntry {
+  return { binding, visibility, texture: { sampleType, viewDimension: '2d-array' } };
+}
+
+function storageTexture(
+  binding: number,
+  visibility: number,
+  format: GPUTextureFormat
+): GPUBindGroupLayoutEntry {
+  return { binding, visibility, storageTexture: { access: 'write-only', format, viewDimension: '2d' } };
 }
 
 function sampler(binding: number, visibility: number): GPUBindGroupLayoutEntry {
@@ -123,6 +140,9 @@ const ADDITIVE_BLEND: GPUBlendState = {
   color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
   alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
 };
+
+/** Storage format of the SSR reflection target (see ssr-compute.wgsl). */
+export const SSR_FORMAT: GPUTextureFormat = 'rgba16float';
 
 const ADDITIVE_SRC_ALPHA: GPUBlendState = {
   color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
@@ -215,7 +235,10 @@ export class PipelineLayoutCache {
       uniform(3, FS),
       uniform(4, VS),
       uniform(5, FS),
-      storage(6, FS, true)
+      storage(6, FS, true),
+      // Prefiltered GGX environment chain + its sampler (always bound).
+      textureArray(7, FS),
+      sampler(8, FS)
     ]);
     this._pl('segEnhanced', ['segEnhanced']);
 
@@ -353,16 +376,27 @@ export class PipelineLayoutCache {
     ]);
     this._pl('bloomBlur', ['bloomBlur']);
 
-    // Bloom composite
+    // Bloom composite (6 = SSR reflection colour, half-res)
     this._bgl('bloomComposite', [
       texture(0, FS),
       texture(1, FS),
       sampler(2, FS),
       uniform(3, FS),
       depthTexture(4, FS),
-      texture(5, FS)
+      texture(5, FS),
+      texture(6, FS)
     ]);
     this._pl('bloomComposite', ['bloomComposite']);
+
+    // Screen-space reflections compute (depth, scene, sampler, params, output)
+    this._bgl('ssr', [
+      depthTexture(0, CS),
+      texture(1, CS),
+      sampler(2, CS),
+      uniform(3, CS),
+      storageTexture(4, CS, SSR_FORMAT)
+    ]);
+    this._pl('ssr', ['ssr']);
   }
 
   getLayout(name: BindGroupLayoutName): GPUBindGroupLayout {
@@ -789,6 +823,24 @@ export class PipelineLayoutCache {
         primitive: { topology: 'triangle-list' }
       })
     );
+  }
+
+  /**
+   * Screen-space reflection compute pass (ADR-0005 WS2). Gated to the
+   * high/ultra tier by post-processing-config.js — the pipeline is still
+   * created so the tier can flip at runtime without a recompile hitch.
+   */
+  async ensureSsrPipeline(code: string): Promise<GPUComputePipeline> {
+    return this.getOrCreatePipeline(`ssrCompute_${this._hash(code)}`, async () => {
+      const module = this.shaderModule('ssr-compute-module', code);
+      const p = await this.device.createComputePipelineAsync({
+        label: 'ssr-compute-pipeline',
+        layout: this.getPipelineLayout('ssr'),
+        compute: { module, entryPoint: 'main' }
+      });
+      this.pipelines.set('ssr', p);
+      return p;
+    });
   }
 
   // ── SEG-only compute helpers ──

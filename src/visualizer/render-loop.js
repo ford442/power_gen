@@ -3,6 +3,7 @@ import { WebGPUManager } from '../webgpu-manager';
 import { MAX_ROLLERS } from '../seg-layout.js';
 import { packPostUniforms } from '../seg-lighting-presets.js';
 import { getPostQualityGates } from '../post-processing-config.js';
+import { SSR_PARAMS_BYTES } from './scene-setup.js';
 import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
 import { collectDeviceEnergies, meterLabEnergy, meterScalarFlux, gpuChores } from '../gpu-chores';
@@ -43,6 +44,43 @@ export const renderLoopMethods = {
     renderPass.setVertexBuffer(0, this.magneticWallBuffer.vertexBuffer);
     renderPass.setIndexBuffer(this.magneticWallBuffer.indexBuffer, 'uint16');
     renderPass.drawIndexed(this.magneticWallBuffer.indexCount, 1);
+  },
+
+  /**
+   * Encode the SSR compute pass. View-space march parameters are in world
+   * units; the camera's own projection is uploaded (plus its inverse) so the
+   * shader unprojects depth exactly the way the scene pass projected it.
+   *
+   * @param {GPUCommandEncoder} encoder
+   */
+  _dispatchSsr(encoder) {
+    const proj = this.cameraController.getProjMatrix();
+    const invProj = this.cameraController.invertMatrix(proj);
+
+    const params = new Float32Array(SSR_PARAMS_BYTES / 4);
+    params.set(invProj, 0);
+    params.set(proj, 16);
+    params[32] = this.ssrWidth || 1;          // outSize
+    params[33] = this.ssrHeight || 1;
+    params[34] = this.canvas.width || 1;      // depthSize (full-res)
+    params[35] = this.canvas.height || 1;
+    params[36] = 48;                          // maxSteps
+    params[37] = 0.14;                        // marchStride (view-space units)
+    params[38] = 24.0;                        // maxDistance
+    params[39] = 0.55;                        // thickness
+    params[40] = 1.0;                         // strength (gate applied on the composite)
+    params[41] = 0.12;                        // edgeFade
+    params[42] = 0.85;                        // jitter
+    this.device.queue.writeBuffer(this.ssrParamsBuffer, 0, params);
+
+    const pass = encoder.beginComputePass({ label: 'ssr' });
+    pass.setPipeline(this.ssrPipeline);
+    pass.setBindGroup(0, this.ssrBindGroup);
+    pass.dispatchWorkgroups(
+      Math.ceil((this.ssrWidth || 1) / 8),
+      Math.ceil((this.ssrHeight || 1) / 8)
+    );
+    pass.end();
   },
 
   render(timestamp) {
@@ -396,6 +434,9 @@ export const renderLoopMethods = {
     lightingData[32] = this.lightingConfig.ambient;
     lightingData[33] = this.lightingConfig.envMapStrength;
     lightingData[34] = this.lightingConfig.shadowStrength;
+    // 0 until the prefiltered chain is uploaded; pbr-eval.wgsl then switches
+    // from the analytic approximation to the baked GGX levels.
+    lightingData[35] = this.iblLevels || 0;
     this.device.queue.writeBuffer(this.lightingUniformBuffer, 0, lightingData);
 
     // Single telemetry write path after device physics (operator panel + gauges subscribe)
@@ -603,6 +644,21 @@ export const renderLoopMethods = {
       );
     }
 
+    // ── Screen-space reflections (high/ultra tier only) ───────────────────
+    // Runs between the scene pass and bloom so the composite can add the
+    // reflection after its SSAO term. `?ssr=0` forces this off at any tier.
+    // Tracks whether the pass actually ran: the composite must not weight a
+    // reflection texture nothing wrote this frame.
+    this._ssrActive =
+      this.ssrEnabled !== false &&
+      postGates.ssr > 0 &&
+      !!this.ssrPipeline &&
+      !!this.ssrBindGroup &&
+      !!this.ssrParamsBuffer;
+    if (this._ssrActive) {
+      this._dispatchSsr(encoder);
+    }
+
     // ── Bloom post-processing ─────────────────────────────────────────────
     if (this.bloomExtractPipeline && this.bloomBlurPipeline && this.bloomCompositePipeline &&
         this.bloomSceneTexture && this.bloomBlurTexture && this.bloomTempTexture && this.prevSceneTexture && this.depthTexture) {
@@ -631,7 +687,8 @@ export const renderLoopMethods = {
             energy,
             speedMult: this.simRateController.speedMult,
             motionBlur,
-            qualityGates: postGates
+            qualityGates: postGates,
+            ssrEnabled: this._ssrActive
           })
         );
       }

@@ -24,33 +24,17 @@ export class DeviceInstance {
     this.uniformManager = new DeviceUniformManager(device, id, config, visualizer);
     this.computeManager = new DeviceComputeManager(device, id, config, this.pipelineManager, this.geometry);
     
-    // Delegate properties
-    Object.defineProperty(this, 'particles', { get: () => this.geometry.particles });
-    // Bind extracted mixin methods
-    this.setupRollerCompute = DeviceSetupMixin.setupRollerCompute.bind(this);
-    this.setupFieldAdvect = DeviceSetupMixin.setupFieldAdvect.bind(this);
-    this.setupFluxLineTracer = DeviceSetupMixin.setupFluxLineTracer.bind(this);
-    this.setupTransformerFlux = DeviceSetupMixin.setupTransformerFlux.bind(this);
-    this.setupEffectsParticles = DeviceSetupMixin.setupEffectsParticles.bind(this);
-    this.render = DeviceRenderMixin.render.bind(this);
-    this.renderBase = DeviceRenderMixin.renderBase.bind(this);
-    this.renderDeviceMesh = DeviceRenderMixin.renderDeviceMesh.bind(this);
-    this.renderStatorRings = DeviceRenderMixin.renderStatorRings.bind(this);
-    this.renderWiring = DeviceRenderMixin.renderWiring.bind(this);
-    this.renderCore = DeviceRenderMixin.renderCore.bind(this);
-    this.renderFrame = DeviceRenderMixin.renderFrame.bind(this);
-    this.renderGltfHousing = DeviceRenderMixin.renderGltfHousing.bind(this);
-    this.renderPickupCoils = DeviceRenderMixin.renderPickupCoils.bind(this);
-    this.renderStand = DeviceRenderMixin.renderStand.bind(this);
-    this.renderWires = DeviceRenderMixin.renderWires.bind(this);
-    this.update = DeviceUpdateMixin.update.bind(this);
-    this._computeEnergyLevel = DeviceUpdateMixin._computeEnergyLevel.bind(this);
-    this._buildDeviceUniformData = DeviceUpdateMixin._buildDeviceUniformData.bind(this);
-    this.updateEmitterEffects = DeviceUpdateMixin.updateEmitterEffects.bind(this);
-    this.updateElectromagnetCoils = DeviceUpdateMixin.updateElectromagnetCoils.bind(this);
-    this.updatePickupCoilEnergies = DeviceUpdateMixin.updatePickupCoilEnergies.bind(this);
-    this.updateFieldLines = DeviceUpdateMixin.updateFieldLines.bind(this);
-    this.updateEnergyArcs = DeviceUpdateMixin.updateEnergyArcs.bind(this);
+// Delegate properties
+Object.defineProperty(this, 'particles', { get: () => this.geometry.particles });
+// Bind every extracted mixin method. Enumerating them by hand used to drop
+// helpers the mixins call on `this` (`updateDeviceFlowPaths`, the bind-group
+// builders), which threw on the first frame; binding whole mixins keeps the
+// instance surface in step as the mixins grow.
+for (const mixin of [DeviceSetupMixin, DeviceRenderMixin, DeviceUpdateMixin]) {
+      for (const [name, fn] of Object.entries(mixin)) {
+        if (typeof fn === 'function') this[name] = fn.bind(this);
+      }
+}
 
     Object.defineProperty(this, 'rollerInstances', { get: () => this.geometry.rollerInstances });
     Object.defineProperty(this, 'fieldLineParticles', { get: () => this.geometry.fieldLineParticles });

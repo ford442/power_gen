@@ -50,9 +50,20 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Filmic curve + exposure from lighting preset
 - [x] Cheap SSAO + contact shadow (composite)
 - [x] IBL irradiance polish for SEG metals (analytic env mips in `pbr-eval.wgsl`)
+- [x] **Prefiltered GGX split-sum IBL** — CPU bake per lighting preset into an
+      octahedral `rgba16float` 2D array (`src/ibl-prefilter.js`), sampled in
+      `pbr-eval.wgsl`; replaces the analytic polynomial, which is retained as the
+      pre-upload fallback. Always-on (224 KB), memoised per look.
+- [x] **Screen-space reflections** for SEG roller chrome/nickel
+      (`passes/ssr-compute.wgsl`) — view-space march against the existing depth
+      buffer, half-res reflection target composited after SSAO. Gated to the
+      high/ultra tier; `?ssr=0` disables at any tier.
 - [x] Wire post cost into auto-quality tiers (`post-processing-config.js` + render loop)
 - [x] Document stack + quality gates (`docs/SHADERS.md`, `docs/LIGHTING_RIG.md`)
+- [x] CPU↔WGSL uniform contract check in CI (`npm run check:post`)
 - [ ] Negotiate optional features only when present (`rg11b10ufloat-renderable`, etc.)
+- [ ] Roughness/metalness G-buffer channel so SSR can weight by material rather
+      than by grazing Fresnel alone (see `docs/LIGHTING_RIG.md` known limitation)
 
 ### Workstream 3 — Hardware twin maturation
 

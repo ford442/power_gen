@@ -42,8 +42,10 @@ import { showWebGPUHardFail, type WebGPUProbeResult } from './renderers/webgpu-p
 import {
   parsePrototypePreset,
   parseSegLayoutPreset,
-  parseAnomalousEffects
+  parseAnomalousEffects,
+  parseSsrEnabled
 } from './renderers/shared/url-params.js';
+import { createIblResources } from './ibl-prefilter.js';
 import {
   SEGIntegrationManager,
   PHYSICS_UNIFORM_BYTES
@@ -101,10 +103,15 @@ export interface MultiDeviceVisualizer {
   setupDepthBuffer(): Promise<void>;
   setupBloomTextures(): unknown;
   setupBloomPipeline(): Promise<void>;
+  setupIblPrefilter(): { levels: number; cached: boolean; ms: number };
+  refreshIblPrefilter(): void;
+  setupSsrTexture(): void;
+  setupSsrPipeline(): Promise<void>;
   _waitForCanvasLayout(): Promise<void>;
   _observeCanvasLayout(): void;
   _syncCanvasSize(): Promise<void>;
   _rebuildBloomBindGroups(): unknown;
+  _rebuildSsrBindGroup(): void;
 
   // renderLoopMethods
   render(timestamp: number): void;
@@ -197,6 +204,21 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   pipelineCache?: PipelineLayoutCache | null;
   segLayoutUniformBuffer?: GPUBuffer | null;
   lightingUniformBuffer?: GPUBuffer | null;
+
+  /** Prefiltered GGX environment chain + sampler (ADR-0005 WS2, always-on). */
+  iblResources?: ReturnType<typeof createIblResources> | null;
+  /** Roughness level count uploaded to LightingConfig.iblLevels (0 = analytic fallback). */
+  iblLevels?: number;
+
+  /** Screen-space reflections (high/ultra tier, `?ssr=0` kill switch). */
+  ssrEnabled: boolean;
+  ssrPipeline?: GPUComputePipeline | null;
+  ssrParamsBuffer?: GPUBuffer | null;
+  ssrTexture?: GPUTexture | null;
+  ssrTextureView?: GPUTextureView | null;
+  ssrBindGroup?: GPUBindGroup | null;
+  ssrWidth?: number;
+  ssrHeight?: number;
   energyPipePipeline?: GPURenderPipeline;
   energyPipeComputePipeline?: GPUComputePipeline;
   overviewCullPipeline?: GPUComputePipeline;
@@ -292,6 +314,9 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
     // SimRateController for speed-scaled physics and visuals
     this.simRateController = new SimRateController();
+
+    // Screen-space reflections: `?ssr=0` disables without touching the tier.
+    this.ssrEnabled = parseSsrEnabled(params);
 
     // Lighting / post look preset (studio | lab | drama)
     this.lightingLook = parseLightingLook(params);
@@ -412,6 +437,9 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       this.profiler.trackBuffer('seg-layout-uniforms', SEG_LAYOUT_UNIFORM_BYTES, GPUBufferUsage.UNIFORM);
       this.refreshSEGLayout(1.0);
 
+      // IBL must be resident before any SEG-enhanced bind group is built.
+      this.setupIblPrefilter();
+
       await this.setupSharedGeometry();
       await this.setupDevices();
       await this.setupEnergyPipes();
@@ -423,6 +451,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       await this._waitForCanvasLayout();
       await this._syncCanvasSize();
       await this.setupBloomPipeline();
+      await this.setupSsrPipeline();
       await this.setupAnomalyWallPipeline();
 
       // Track initial allocations
@@ -548,6 +577,9 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.postExposure = preset.post.exposure;
     this.postBloomStrength = preset.post.bloomStrength;
     this._uploadSkyUniforms();
+    // The prefiltered environment is baked per preset — rebake (memoised) so
+    // reflections and irradiance follow the new rig.
+    this.refreshIblPrefilter();
     console.log(`[SEG] Lighting look → ${look}`);
   }
 

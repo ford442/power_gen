@@ -227,6 +227,16 @@ export interface VisualizerLike {
   lightingUniformBuffer?: GPUBuffer | null;
   materialTableBuffer?: GPUBuffer | null;
 
+  /** Prefiltered GGX environment chain (ADR-0005 WS2) — bound by segEnhanced. */
+  iblResources?: {
+    texture: GPUTexture;
+    sampler: GPUSampler;
+    view: GPUTextureView;
+    size: number;
+    layers: number;
+    byteLength: number;
+  } | null;
+
   // Shared geometry
   cylinderBuffer?: MeshBuffers | null;
   kelvinRingBuffer?: MeshBuffers | null;

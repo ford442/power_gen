@@ -13,5 +13,9 @@ struct LightData {
     ambient: f32,
     envMapStrength: f32,
     shadowStrength: f32,
-    _padEnd: f32,
+    /**
+     * Prefiltered-IBL roughness level count (0 = bake not uploaded yet, so
+     * pbr-eval.wgsl falls back to the analytic approximation).
+     */
+    iblLevels: f32,
   }
