@@ -29,6 +29,7 @@ export type BindGroupLayoutName =
   | 'rollerCompute'
   | 'fieldAdvect'
   | 'transformerFlux'
+  | 'choresReduce'
   | 'fluxTracer'
   | 'sky'
   | 'empty'
@@ -319,6 +320,14 @@ export class PipelineLayoutCache {
       uniform(1, CS)
     ]);
     this._pl('transformerFlux', ['transformerFlux']);
+
+    // gpu-chores reduce_f32 (0 input, 1 partials rw, 2 uniform)
+    this._bgl('choresReduce', [
+      storage(0, CS, true),
+      storage(1, CS, false),
+      uniform(2, CS)
+    ]);
+    this._pl('choresReduce', ['choresReduce']);
 
     // Flux line tracer (0 rw, 1 uniform, 2 storage read, 3 uniform)
     this._bgl('fluxTracer', [
@@ -858,6 +867,19 @@ export class PipelineLayoutCache {
         compute: { module, entryPoint: 'main' }
       });
       this.pipelines.set('fieldAdvect', p);
+      return p;
+    });
+  }
+
+  async ensureChoresReducePipeline(code: string): Promise<GPUComputePipeline> {
+    return this.getOrCreatePipeline(`choresReduce_${this._hash(code)}`, async () => {
+      const module = this.shaderModule('chores-reduce-f32-module', code);
+      const p = await this.device.createComputePipelineAsync({
+        label: 'chores-reduce-f32-pipeline',
+        layout: this.getPipelineLayout('choresReduce'),
+        compute: { module, entryPoint: 'main' }
+      });
+      this.pipelines.set('choresReduce', p);
       return p;
     });
   }

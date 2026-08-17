@@ -8,6 +8,7 @@ import segRollerComputeWgsl from '../passes/seg-roller-compute.wgsl?raw';
 import fieldAdvectComputeWgsl from '../passes/field-advect-compute.wgsl?raw';
 import overviewCullComputeWgsl from '../passes/overview-cull-compute.wgsl?raw';
 import transformerFluxComputeWgsl from '../passes/transformer-flux-compute.wgsl?raw';
+import choresReduceF32Wgsl from '../passes/chores-reduce-f32.wgsl?raw';
 
 export function getComputeShader() {
   return particleComputeWgsl;
@@ -27,4 +28,8 @@ export function getOverviewCullComputeShader() {
 
 export function getTransformerFluxShader() {
   return transformerFluxComputeWgsl;
+}
+
+export function getChoresReduceShader() {
+  return choresReduceF32Wgsl;
 }

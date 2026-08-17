@@ -50,6 +50,8 @@ EMSCRIPTEN_BINDINGS(sim_core) {
     function("sim_core_version", optional_override([]() -> std::string {
         return std::string(sim_core_version());
     }));
+    function("chores_reduce_f32", &chores_reduce_f32_vec);
+    function("chores_map_scale_f32", &chores_map_scale_f32_vec);
 
     class_<SEGSimulator>("SEGSimulator")
         .constructor()

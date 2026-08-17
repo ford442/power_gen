@@ -47,12 +47,14 @@ npm run validate     # typecheck + native C++ smoke + WGSL (naga if installed)
 
 | Environment | URL |
 |-------------|-----|
-| Default (WebGPU if available) | http://localhost:5173/ |
-| Agent / no-GPU VM | http://localhost:5173/?renderer=webgl2 |
+| Default (**WebGPU required**) | http://localhost:5173/ |
+| Agent / no-GPU VM (explicit opt-in) | http://localhost:5173/?renderer=webgl2 |
 | WASM plant | `?wasmPhysics=1` |
 | Mock hardware twin | `?mockHardware=1` |
 
-Cloud VMs often have **no GPU adapter** — use WebGL2. Details: root [`AGENTS.md`](../AGENTS.md) (Cursor Cloud notes).
+Default boot **hard-fails** if WebGPU probe fails (no automatic WebGL2).  
+Cloud VMs with **no GPU adapter** must pass **`?renderer=webgl2`** intentionally.  
+Probe breadcrumbs: `window.webgpuProbe`. Details: root [`AGENTS.md`](../AGENTS.md).
 
 ---
 
@@ -194,7 +196,7 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 
 | Param | Values | Default | Effect |
 |-------|--------|---------|--------|
-| `renderer` | `webgpu` \| `webgl2` | auto (`webgpu` if `navigator.gpu`, else webgl2) | Force backend; also `localStorage` key `seg-renderer`, `window.DEBUG_RENDERER` |
+| `renderer` | `webgpu` \| `webgl2` | **webgpu** (required) | Force backend. `webgl2` is **opt-in only** (not auto-fallback). `localStorage` webgl2 is ignored for default boot. |
 | `wasmPhysics` | `1` | off | Enable C++ WASM plant (`seg-physics-bridge`) |
 | `wasm` | `1` | off | Alias of `wasmPhysics=1` |
 | `gpuTiming` | `1` | off | Request `timestamp-query` feature; enable queries in debug panel after reload |
@@ -207,6 +209,8 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | Lighting + post look |
 | `mockHardware` | `1` | off | Hardware twin mock transport (no serial port) |
 | `energyCoupling` | `1` \| `0` | off (visual-only pipes) | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`) |
+| `replay` | `1` | off | Show telemetry replay scrubber (load `.seg-replay.json` / CSV; plant step bypassed) |
+| `gpuChores` | `0` / `js` / `wasm` / `webgpu` | auto | Meter backend kill / force. `0` = JS goldens. Never opens a second GPU API. |
 
 **Related (not always query):**
 

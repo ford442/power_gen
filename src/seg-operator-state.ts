@@ -44,6 +44,8 @@ export type OperatorStatus = (typeof STATUS)[keyof typeof STATUS];
 export class SEGOperatorState {
   status: OperatorStatus = STATUS.STANDBY;
   isRunning = false;
+  /** When true, {@link step} is a no-op — telemetry is injected by the replay player. */
+  replayMode = false;
   /** Drive setpoint 0–1 (operator throttle, not sim time dilation) */
   targetDrive = 0.5;
   magneticFieldStrength = 0.5;
@@ -100,7 +102,58 @@ export class SEGOperatorState {
     return this.targetDrive;
   }
 
+  enterReplayMode(): void {
+    this.replayMode = true;
+  }
+
+  exitReplayMode(): void {
+    this.replayMode = false;
+  }
+
+  /**
+   * Drive plant display fields from a recorded telemetry row.
+   * Does not integrate physics.
+   */
+  applyReplaySample(sample: {
+    seg_omega?: number | string;
+    corona?: number | string;
+    drive?: number | string;
+    excitation_pct?: number | string;
+    load_ohm?: number | string;
+    status?: number | string;
+    rpm_inner?: number | string;
+    field_sim_t?: number | string;
+    efficiency_pct?: number | string;
+  }): void {
+    const omega = Number(sample.seg_omega);
+    const corona = Number(sample.corona);
+    const drive = Number(sample.drive);
+    const exc = Number(sample.excitation_pct);
+    const load = Number(sample.load_ohm);
+    if (Number.isFinite(omega)) this.physics.segOmega = omega;
+    if (Number.isFinite(corona)) this.physics.corona = corona;
+    if (Number.isFinite(drive)) this.targetDrive = Math.max(0, Math.min(1, drive));
+    if (Number.isFinite(exc)) {
+      this.magneticFieldStrength = Math.max(0, Math.min(1, exc / 100));
+      this.physics.magneticFieldStrength = this.magneticFieldStrength;
+    }
+    if (Number.isFinite(load) && load > 0) this.loadResistance = load;
+    const st = String(sample.status || '');
+    if (st === STATUS.STANDBY || st === STATUS.SPINUP || st === STATUS.OPERATIONAL
+      || st === STATUS.STOPPING || st === STATUS.ESTOP) {
+      this.status = st;
+      this.isRunning = st === STATUS.SPINUP || st === STATUS.OPERATIONAL;
+    }
+    const rpm = Number(sample.rpm_inner);
+    if (Number.isFinite(rpm)) this._displayRpm = rpm;
+    const field = Number(sample.field_sim_t);
+    if (Number.isFinite(field)) this._displayField = field;
+    const eff = Number(sample.efficiency_pct);
+    if (Number.isFinite(eff)) this._efficiency = eff;
+  }
+
   step(dt: number, substeps = 1): void {
+    if (this.replayMode) return;
     if (dt <= 0) return;
 
     this.physics.magneticFieldStrength = this.magneticFieldStrength;

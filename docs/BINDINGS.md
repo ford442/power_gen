@@ -151,6 +151,16 @@ nothing in the frame path reads it.
 | 0 | storage (rw) | CS | Field particles |
 | 1 | uniform | CS | Field uniforms |
 
+### `choresReduce` — gpu-chores `reduce_f32`
+
+Adopts the session `GPUDevice`. Packed f32 input only — not particle/field structs.
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | storage (read) | CS | `array<f32>` input |
+| 1 | storage (rw) | CS | Workgroup partials (`sum, min, max, sumSq`) |
+| 2 | uniform | CS | `count` + pad |
+
 ### `transformerFlux` — transformer toroidal-core flux segments
 
 Same shape as `fieldAdvect`. Writes packed `FluxSegment` (32 B) for the

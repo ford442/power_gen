@@ -23,6 +23,7 @@ src/shaders/
     seg-roller-compute.wgsl
     field-advect-compute.wgsl
     transformer-flux-compute.wgsl
+    chores-reduce-f32.wgsl
     energy-pipe-compute.wgsl
     overview-cull-compute.wgsl
     ssr-compute.wgsl      # screen-space reflections (depth-only ray march)

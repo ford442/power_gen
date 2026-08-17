@@ -91,6 +91,12 @@ void solar_particle_step(SimParticle& p, float transmittance, float dt, float si
 void peltier_particle_step(SimParticle& p, float deltaTN, float dt, float simTime);
 void mhd_particle_step(SimParticle& p, float flowU, float bField, float dt, float simTime);
 
+/// gpu-chores: packed f32 reduce. out[5] = {sum, min, max, sumSq, count}.
+void chores_reduce_f32(const float* data, int count, float out[5]);
+void chores_map_scale_f32(const float* in, float* out, int count, float scale, float bias);
+std::vector<float> chores_reduce_f32_vec(const std::vector<float>& data);
+std::vector<float> chores_map_scale_f32_vec(const std::vector<float>& data, float scale, float bias);
+
 // ─────────────────────────────────────────────────────────────
 // SimMode
 // ─────────────────────────────────────────────────────────────

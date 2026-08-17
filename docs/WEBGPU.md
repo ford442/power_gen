@@ -1,17 +1,33 @@
 # WebGPU device setup
 
 Primary path: `src/webgpu-manager.ts` → `MultiDeviceVisualizer`.  
-Fallback: `src/renderers/webgl2/` (no WebGPU device).
+**Automatic WebGL2 fallback is disabled** — probe fail → hard-fail UI
+(`src/renderers/webgpu-probe.ts`, `window.webgpuProbe`).  
+WebGL2 stays in-tree for explicit `?renderer=webgl2` only (`docs/WEBGL2.md`).
 
-## Single adapter request
+## Boot probe (required)
+
+| Step | Module |
+|------|--------|
+| Browser brand + `navigator.gpu` | `probeWebGPU()` |
+| `requestAdapter` + adapter.info / features / limits | same |
+| Ephemeral `requestDevice` then **destroy** | validates device path without leaving a second live device |
+| Fail | `showWebGPUHardFail` — **no** `getContext('webgl2')` |
+
+Long-lived device: only `WebGPUManager.init()` / multi-device visualizer.
+gpu-chores adopts that device; it never requests one after a failed probe.
+
+## Single long-lived device
 
 | Who | Calls `requestAdapter`? |
 |-----|-------------------------|
-| `WebGPUManager.init()` | **Yes — once** (`powerPreference: "high-performance"`) |
+| Boot probe | Once (then optional ephemeral device destroyed) |
+| `WebGPUManager.init()` | Once for the session device |
 | `PerformanceProfiler` | **No** — receives `{ adapter, adapterInfo }` from the manager |
+| gpu-chores | **No** — adopts session device only |
 | Debug / GPU tier | Uses profiler’s cached `adapterInfo` |
 
-Never call `requestAdapter()` again for feature probing; pass the manager’s adapter/info.
+Do not open a WebGL2 context to “rescue” multi-device after probe failure.
 
 ## Canvas configuration
 

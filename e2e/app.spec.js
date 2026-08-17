@@ -378,3 +378,169 @@ test.describe('Hardware twin mock', () => {
     expect(disc.text).toMatch(/not metrology/i);
   });
 });
+
+test.describe('WebGPU required boot', () => {
+  test.afterEach(async ({ page }) => {
+    await page.close();
+  });
+
+  test('default boot hard-fails without opening WebGL2', async ({ page }) => {
+    trackPageErrors(page);
+    // No ?renderer=webgl2 — GPU-less VMs must hard-fail, not GL-rescue.
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+
+    await page.waitForFunction(
+      () => window.webgpuProbe && window.webgpuProbe.ok === false,
+      { timeout: 30_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const canvas = document.getElementById('gpuCanvas');
+      return {
+        probeOk: window.webgpuProbe?.ok,
+        error: window.webgpuProbe?.error,
+        chromeVsEdge: window.webgpuProbe?.chromeVsEdge,
+        currentRenderer: window.currentRenderer,
+        multiVisualizer: !!window.multiVisualizer,
+        hardFailUi: !!document.getElementById('webgpu-hard-fail'),
+        bodyClass: document.body.classList.contains('webgpu-hard-fail'),
+        canvasRenderer: canvas?.dataset.renderer,
+        canvasWebgpuFail: canvas?.dataset.webgpuFail,
+        // Do not call getContext('webgl2') — that would create a context.
+        hasWebglAttr: canvas?.dataset.webglVersion || ''
+      };
+    });
+
+    expect(snap.probeOk).toBe(false);
+    expect(snap.error).toBeTruthy();
+    expect(snap.chromeVsEdge).toBeTruthy();
+    expect(snap.currentRenderer).toBeFalsy();
+    expect(snap.hardFailUi).toBe(true);
+    expect(snap.bodyClass).toBe(true);
+    expect(snap.canvasRenderer).toBe('none');
+    expect(snap.canvasWebgpuFail).toBe('1');
+    expect(snap.hasWebglAttr).toBe('');
+  });
+});
+
+test.describe('gpu-chores exclusive session', () => {
+  test.afterEach(async ({ page }) => {
+    await page.close();
+  });
+
+  test('WebGL2 session breadcrumbs are webgl2 + wasm/js (no extra GPU device)', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    await page.waitForFunction(
+      () => window.getRendererInfo?.()?.renderer === 'webgl2',
+      { timeout: 20_000 }
+    );
+
+    const info = await page.evaluate(() => {
+      const i = window.getRendererInfo();
+      const c = i.chores || window.gpuChores?.breadcrumb?.();
+      return {
+        renderer: i.renderer,
+        sessionApi: c?.sessionApi,
+        backend: c?.backend,
+        adoptedDevice: c?.adoptedDevice,
+        canvas: document.getElementById('gpuCanvas')?.dataset.renderer
+      };
+    });
+
+    expect(info.renderer).toBe('webgl2');
+    expect(info.canvas).toBe('webgl2');
+    expect(info.sessionApi).toBe('webgl2');
+    expect(['js', 'wasm']).toContain(info.backend);
+    expect(info.adoptedDevice).toBe(false);
+  });
+});
+
+test.describe('Telemetry replay scrubber', () => {
+  test.afterEach(async ({ page }) => {
+    await page.close();
+  });
+
+  test('?replay=1 loads a recorded file and overlays gauges without live recording', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'replay=1');
+
+    await page.waitForFunction(
+      () => typeof window.applyReplayFile === 'function' && window.telemetryHub,
+      { timeout: 20_000 }
+    );
+
+    await expect(page.locator('#replay-bar')).toBeVisible();
+
+    await page.evaluate(() => {
+      window.applyReplayFile({
+        replayVersion: 1,
+        createdAt: new Date().toISOString(),
+        seed: null,
+        segLayoutPreset: 'searl',
+        heronLayoutPreset: 'classic',
+        renderer: 'webgl2',
+        speedCurve: [{ t: 0, drive: 0.8, simRate: 1 }, { t: 1, drive: 0.8, simRate: 1 }],
+        config: { loadOhm: 100, magneticFieldStrength: 0.5, sampleHz: 10 },
+        samples: [
+          {
+            time_s: 0, frame_id: 1, view: 'seg', mode: 'seg', status: 'operational',
+            rpm_inner: 1200, seg_omega: 0.4, corona: 0.1, voltage_v: 50, current_a: 0.5,
+            power_w: 25, field_sim_t: 0.3, energy_density_j_m3: 1e5, drive: 0.8,
+            excitation_pct: 50, temperature_c: 30, efficiency_pct: 88, particle_flux: 10,
+            load_ohm: 100, hw_connected: 0, hw_connection_state: 'disconnected',
+            phase_error_deg: '', rpm_error: '', voltage_error_v: '', current_error_a: '',
+            energy_residual_w: '', energy_coupled: 0
+          },
+          {
+            time_s: 1, frame_id: 2, view: 'seg', mode: 'seg', status: 'operational',
+            rpm_inner: 2400, seg_omega: 0.8, corona: 0.3, voltage_v: 100, current_a: 1,
+            power_w: 100, field_sim_t: 0.5, energy_density_j_m3: 2e5, drive: 0.8,
+            excitation_pct: 50, temperature_c: 35, efficiency_pct: 90, particle_flux: 20,
+            load_ohm: 100, hw_connected: 0, hw_connection_state: 'disconnected',
+            phase_error_deg: '', rpm_error: '', voltage_error_v: '', current_error_a: '',
+            energy_residual_w: '', energy_coupled: 0
+          }
+        ]
+      });
+      window.replayPlayer.seek(1);
+    });
+
+    await page.waitForFunction(
+      () => window.telemetryHub?.getSnapshot?.()?.replay?.active === true
+        && window.telemetryHub.getSnapshot().seg?.rpmInner >= 2000
+        && window.segOperator?.replayMode === true,
+      { timeout: 8_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const s = window.telemetryHub.getSnapshot();
+      return {
+        replay: s.replay,
+        rpm: s.seg?.rpmInner,
+        voltage: s.seg?.voltage,
+        recording: window.telemetryHub.isRecording(),
+        badgeHidden: document.getElementById('replay-badge')?.hidden,
+        plantStepped: window.segOperator.replayMode
+      };
+    });
+
+    expect(snap.replay?.active).toBe(true);
+    expect(snap.rpm).toBeGreaterThanOrEqual(2000);
+    expect(snap.voltage).toBeGreaterThan(50);
+    expect(snap.recording).toBe(false);
+    expect(snap.badgeHidden).toBe(false);
+    expect(snap.plantStepped).toBe(true);
+
+    await page.evaluate(() => window.replayPlayer.exit());
+    const after = await page.evaluate(() => ({
+      replayMode: window.segOperator.replayMode,
+      hubReplay: window.telemetryHub.isReplayMode(),
+      snapReplay: window.telemetryHub.getSnapshot().replay
+    }));
+    expect(after.replayMode).toBe(false);
+    expect(after.hubReplay).toBe(false);
+    expect(after.snapReplay).toBeFalsy();
+  });
+});

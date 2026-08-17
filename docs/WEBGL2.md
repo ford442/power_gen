@@ -1,9 +1,14 @@
-# WebGL2 fallback renderer
+# WebGL2 renderer (opt-in only — automatic fallback disabled)
 
-Enable: `?renderer=webgl2` (or `setRenderer('webgl2')`).
+Enable **only** with explicit `?renderer=webgl2` (or `setRenderer('webgl2')`).
 
-This path is the **agent / CI / GPU-less VM** visualizer. It shares plant physics
-and telemetry with WebGPU; it does **not** implement every WebGPU visual feature.
+**Default boot requires WebGPU.** If the WebGPU probe fails, the app **hard-fails**
+and does **not** open a WebGL2 context (no dual-hot rescue). See
+`src/renderers/webgpu-probe.ts`, `window.webgpuProbe`, and ADR-0001 / ADR-0007.
+
+This path remains in-tree for **agents / CI / GPU-less VMs** that pass
+`?renderer=webgl2` on purpose. It shares plant physics and telemetry with
+WebGPU; it does **not** implement every WebGPU visual feature.
 
 ## What works (parity with operator workflow)
 
@@ -21,7 +26,8 @@ and telemetry with WebGPU; it does **not** implement every WebGPU visual feature
 | `?wasmPhysics=1` plant | Yes — SEG/Heron/Kelvin/Solar via `segWasm` |
 | Overview energy pipes | Yes — simplified **line-strip Bézier** arcs; shared `EnergyNetwork` budget clamp when `?energyCoupling=1` |
 | `captureCanvasFrame()` | Yes — `{ width, height, pixels, view, flipY? }` |
-| `getRendererInfo()` | Yes — fps, view, telemetry snapshot, gaps list |
+| `getRendererInfo()` | Yes — fps, view, telemetry snapshot, gaps list, `chores` breadcrumbs |
+| gpu-chores meters | Yes — WASM/JS `reduce_f32` (no WebGPU device; exclusive session) |
 
 ## Intentional visual gaps vs WebGPU
 

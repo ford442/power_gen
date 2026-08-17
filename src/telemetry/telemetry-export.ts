@@ -9,6 +9,8 @@ import {
   type TelemetryCsvRow
 } from './telemetry-schema';
 import { buildReplayFile, type ReplayFile } from './replay-format';
+import { replayFromCsvText } from './replay-parse';
+import { gpuChores } from '../gpu-chores';
 
 export { rowsToCsv, downloadText, downloadJson };
 
@@ -56,6 +58,17 @@ export function downloadTelemetryCsv(rows: TelemetryCsvRow[], filename?: string)
   downloadText(filename || `seg-telemetry-${ts}.csv`, rowsToCsv(rows));
 }
 
+/** WASM/JS reduce over a recorded numeric column (export traces without WebGPU). */
+export function reduceRecordingColumn(
+  rows: Array<Record<string, number | string>>,
+  column: string
+): { backend: string; sum: number; min: number; max: number; rms: number; count: number } | null {
+  const vals = rows.map((r) => Number(r[column])).filter((n) => Number.isFinite(n));
+  if (!vals.length) return null;
+  const r = gpuChores.reduceF32(vals);
+  return { backend: r.backend, sum: r.sum, min: r.min, max: r.max, rms: r.rms, count: r.count };
+}
+
 export function downloadConfigJson(filename?: string): void {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   downloadJson(filename || `seg-config-${ts}.json`, buildConfigSnapshot());
@@ -87,4 +100,9 @@ export function buildReplayFromRecording(
     ...opts,
     samples: rows
   });
+}
+
+/** Reconstruct a ReplayFile from an exported telemetry CSV string. */
+export function loadCsvAsReplay(text: string): ReplayFile {
+  return replayFromCsvText(text);
 }

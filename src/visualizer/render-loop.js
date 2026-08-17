@@ -6,6 +6,7 @@ import { getPostQualityGates } from '../post-processing-config.js';
 import { SSR_PARAMS_BYTES } from './scene-setup.js';
 import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
+import { collectDeviceEnergies, meterLabEnergy, meterScalarFlux, gpuChores } from '../gpu-chores';
 import { segWasm } from '../wasm/seg-physics-bridge.js';
 import { explainerState } from '../seg-explainer/explainer-state.js';
 import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
@@ -108,7 +109,8 @@ export const renderLoopMethods = {
     });
     this.profiler.beginFrameCpu();
     // Optional C++ WASM plant (?wasmPhysics=1) — drives SEG omega + mode plant
-    const useWasm = segWasm.enabled;
+    const replayLocked = !!(segOperator.replayMode || telemetryHub.isReplayMode?.());
+    const useWasm = segWasm.enabled && !replayLocked;
     if (useWasm) {
       const drive = segOperator.getDrive();
       const loadT = 0.01 * (1 - drive * 0.5);
@@ -224,7 +226,7 @@ export const renderLoopMethods = {
           }
         }
       }
-    } else {
+    } else if (!replayLocked) {
       for (const subDt of simSteps) {
         if (subDt > 0) segOperator.step(subDt);
       }
@@ -439,12 +441,20 @@ export const renderLoopMethods = {
 
     // Single telemetry write path after device physics (operator panel + gauges subscribe)
     const omega = this.segOmega || 0;
-    const particleFlux = totalParticles * Math.max(0.05, this.speedMult);
+    const lab = meterLabEnergy(collectDeviceEnergies(this.devices));
+    const flux = meterScalarFlux(
+      Object.values(this.devices).map((d) => d.scaledParticleCount || d.particleCount || 0),
+      this.speedMult
+    );
+    const particleFlux = flux.particleFlux || (totalParticles * Math.max(0.05, this.speedMult));
     const scientific = {
       particleFlux,
       maxFieldMagnitude: 0.7048 * (0.35 + 0.65 * Math.min(1, Math.abs(omega))),
-      avgEnergyDensity: 1.976e6 * (0.2 + 0.8 * Math.min(1, Math.abs(omega))),
-      middleRingTorque: (this.devices.seg?.energyLevel ?? omega) * 12.0
+      avgEnergyDensity: lab.avgEnergyDensity,
+      middleRingTorque: (this.devices.seg?.energyLevel ?? omega) * 12.0,
+      labEnergySum: lab.labEnergySum,
+      labEnergyRms: lab.labEnergyRms,
+      choresBackend: gpuChores.breadcrumb().backend
     };
     const segTelemetry = segOperator.computeTelemetry(deltaTime);
     const netSnap = this.energyNetwork?.update({
@@ -457,7 +467,7 @@ export const renderLoopMethods = {
     if (netSnap) {
       syncEnergyCouplingDisclaimer(netSnap.couplingEnabled, netSnap);
     }
-    telemetryHub.publishFrame({
+    if (!replayLocked) telemetryHub.publishFrame({
       dt: deltaTime,
       view: this.currentView || 'overview',
       renderer: 'webgpu',

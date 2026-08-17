@@ -1,29 +1,33 @@
-# ADR-0001: Dual renderer (WebGPU primary, WebGL2 fallback)
+# ADR-0001: Dual renderer (WebGPU primary, WebGL2 opt-in)
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-08 — auto-fallback disabled)
 - **Date:** 2026-07
 
 ## Context
 
 The product targets cinematic multi-device visualization on WebGPU (compute particles, explicit bind groups, bloom). Many environments lack a usable WebGPU adapter: headless CI VMs, locked-down browsers, agent sandboxes without GPU.
 
+Automatic “WebGPU fail → WebGL2” rescue looked helpful but created dual-hot / dual-context pressure (VRAM, Chrome vs Edge flakes). gpu-chores (ADR-0007) forbids a third device and dual-live APIs.
+
 ## Decision
 
-Ship **two** multi-device backends behind one bootstrap (`src/main.js` + `renderer-selector.js`):
+Ship **two** multi-device backends behind one bootstrap (`src/main.ts` + `renderer-selector.js`):
 
-1. **WebGPU** — `MultiDeviceVisualizer` (full fidelity).
-2. **WebGL2** — `WebGL2MultiDeviceVisualizer` (shared CPU physics, intentional visual gaps).
+1. **WebGPU** — `MultiDeviceVisualizer` (full fidelity) — **default required path**.
+2. **WebGL2** — `WebGL2MultiDeviceVisualizer` — **explicit opt-in only** (`?renderer=webgl2`).
 
-Selection priority: `?renderer=` → `window.DEBUG_RENDERER` → `localStorage seg-renderer` → default WebGPU if `navigator.gpu`, else WebGL2.
+**Default boot:** WebGPU probe (`webgpu-probe.ts`) → success → WebGPU session; **failure → hard-fail UI, do not open WebGL2**.
 
-Shared simulation and mesh primitives live in `src/renderers/shared/` so plant/telemetry stay aligned.
+Selection priority: `?renderer=` → `DEBUG_RENDERER` → default **webgpu**. Stored `localStorage` webgl2 is **not** applied as silent default.
+
+Shared simulation and mesh primitives live in `src/renderers/shared/` so plant/telemetry stay aligned when WebGL2 is opted in.
 
 ## Consequences
 
-- **Positive:** Demo and operator UI work without WebGPU; agents can screenshot via WebGL2; physics iteration is not blocked on GPU drivers.
-- **Negative:** Feature parity is incomplete (bloom, RK4 flux, energy-arc billboards, full PBR — see `docs/WEBGL2.md`). Two shader languages (WGSL + GLSL).
-- **Neutral:** Telemetry is one hub; both paths call `publishFrame` after physics.
+- **Positive:** Single session API; clear Chrome vs Edge probe breadcrumbs (`window.webgpuProbe`); no dual-hot GL+GPU rescue.
+- **Negative:** GPU-less agents must pass `?renderer=webgl2` explicitly; feature parity incomplete on that path (`docs/WEBGL2.md`).
+- **Neutral:** Telemetry is one hub when either path runs; both call `publishFrame` after physics.
 
 ## Related
 
-- `docs/WEBGL2.md`, `docs/WEBGPU.md`, `docs/AGENTS.md`
+- `docs/WEBGL2.md`, `docs/WEBGPU.md`, `docs/AGENTS.md`, ADR-0007
