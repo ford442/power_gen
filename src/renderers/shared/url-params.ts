@@ -4,19 +4,34 @@
 
 import { SEG_LAYOUT_PRESETS } from '../../seg-layout.js';
 
-/** @typedef {'showroom'|'lab'} PrototypePreset */
+export type PrototypePreset = 'showroom' | 'lab';
 
-function defaultParams() {
+export interface SegLayoutRingDrawOpts {
+  count: number;
+  index: number;
+  rollerRadius: number;
+  scale: number;
+}
+
+/** Minimal layout shape consumed by WebGL2 drawRollers. */
+export interface SegLayoutForDraw {
+  rings?: Array<{
+    count: number;
+    index: number;
+    rollerRadiusM: number;
+  }>;
+  worldScale?: number;
+}
+
+function defaultParams(): URLSearchParams {
   return new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
 }
 
 /**
  * Parse SEG prototype preset from URL or window override.
  * Lab aliases: lab, roschin, godin. Showroom aliases: showroom, searl.
- * @param {URLSearchParams} [params]
- * @returns {PrototypePreset}
  */
-export function parsePrototypePreset(params = defaultParams()) {
+export function parsePrototypePreset(params: URLSearchParams = defaultParams()): PrototypePreset {
   const protoParam = params.get('prototype');
   if (protoParam === 'lab' || protoParam === 'roschin' || protoParam === 'godin') {
     return 'lab';
@@ -38,10 +53,9 @@ export function parsePrototypePreset(params = defaultParams()) {
  * already turns SSR off below high/ultra; this lets a capture or a bug report
  * disable it without also dropping SSAO, bloom and motion blur.
  *
- * @param {URLSearchParams} [params]
- * @returns {boolean} true when SSR may run (subject to the tier gate)
+ * @returns true when SSR may run (subject to the tier gate)
  */
-export function parseSsrEnabled(params = defaultParams()) {
+export function parseSsrEnabled(params: URLSearchParams = defaultParams()): boolean {
   const raw = params.get('ssr');
   if (raw !== null) {
     return !(raw === '0' || raw === 'off' || raw === 'false' || raw === 'no');
@@ -52,22 +66,19 @@ export function parseSsrEnabled(params = defaultParams()) {
   return true;
 }
 
-/**
- * Whether Roschin–Godin anomalous environmental effects (magnetic walls, etc.) are enabled.
- * @param {PrototypePreset} prototypePreset
- */
-export function parseAnomalousEffects(prototypePreset) {
+/** Whether Roschin–Godin anomalous environmental effects (magnetic walls, etc.) are enabled. */
+export function parseAnomalousEffects(prototypePreset: PrototypePreset): boolean {
   return prototypePreset === 'lab';
 }
 
 /**
  * Literature-grounded SEG layout preset id (searl | roschin | legacy).
  * When prototype=lab and layout is omitted, defaults to Roschin like WebGPU.
- * @param {URLSearchParams} [params]
- * @param {PrototypePreset} [prototypePreset]
- * @returns {string}
  */
-export function parseSegLayoutPreset(params = defaultParams(), prototypePreset = 'showroom') {
+export function parseSegLayoutPreset(
+  params: URLSearchParams = defaultParams(),
+  prototypePreset: PrototypePreset = 'showroom'
+): string {
   const layoutParam = params.get('layout');
   if (layoutParam === 'roschin' || layoutParam === 'lab' || layoutParam === 'godin') {
     return SEG_LAYOUT_PRESETS.roschin;
@@ -87,11 +98,10 @@ export function parseSegLayoutPreset(params = defaultParams(), prototypePreset =
   return SEG_LAYOUT_PRESETS.searl;
 }
 
-/**
- * Map computed SEG layout rings for WebGL2 drawRollers opts.
- * @param {import('../../seg-layout.js').SEGLayout | null | undefined} layout
- */
-export function segLayoutRingsForDraw(layout) {
+/** Map computed SEG layout rings for WebGL2 drawRollers opts. */
+export function segLayoutRingsForDraw(
+  layout: SegLayoutForDraw | null | undefined
+): SegLayoutRingDrawOpts[] | undefined {
   if (!layout?.rings?.length) return undefined;
   const ws = layout.worldScale ?? 1;
   return layout.rings.map((r) => ({

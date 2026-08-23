@@ -3,20 +3,80 @@
  *
  * ADR-0003 / ADR-0005 — no Three.js Object3D. Nodes feed the existing
  * WebGPU (and future reduced WebGL2) mesh path via flattenDrawables().
- *
- * @typedef {'housing'|'coil_former'|'annotation'|'prop'|string|null} SceneNodeRole
- * @typedef {{ name: string, position: [number, number, number], worldPosition?: [number, number, number] }} SceneAnchor
- * @typedef {{ annotationId: string, name: string, worldPosition: [number, number, number], node: SceneNode }} SceneAnnotation
- * @typedef {{ ringIndex?: number, color?: [number, number, number], metallic?: number, roughness?: number }} SceneMaterial
  */
+
+export type SceneNodeRole = 'housing' | 'coil_former' | 'annotation' | 'prop' | string | null;
+
+export interface SceneAnchor {
+  name: string;
+  position: [number, number, number];
+  worldPosition?: [number, number, number];
+}
+
+export interface SceneAnnotation {
+  annotationId: string;
+  name: string;
+  worldPosition: [number, number, number];
+  node: SceneNode;
+}
+
+export interface SceneMaterial {
+  ringIndex?: number;
+  color?: [number, number, number];
+  metallic?: number;
+  roughness?: number;
+}
+
+export interface SceneMeshPrimitive {
+  name: string;
+  [key: string]: unknown;
+}
+
+export interface SceneDrawable {
+  name: string;
+  mesh: SceneMeshPrimitive;
+  worldMatrix: Float32Array;
+  materialRingIndex: number;
+  annotationId: string | null;
+  role: SceneNodeRole;
+  propId: string | null;
+  node: SceneNode;
+}
+
+export interface SceneNodeExtras {
+  annotationId?: string;
+  power_gen?: {
+    role?: SceneNodeRole;
+    anchors?: Array<{ name: string; position: [number, number, number] }>;
+  };
+  [key: string]: unknown;
+}
+
+export interface SceneNodeOptions {
+  name?: string;
+  translation?: [number, number, number];
+  rotation?: [number, number, number, number];
+  scale?: [number, number, number];
+  meshPrimitives?: SceneMeshPrimitive[] | null;
+  material?: SceneMaterial;
+  extras?: SceneNodeExtras;
+  role?: SceneNodeRole;
+  annotationId?: string | null;
+  propId?: string | null;
+  source?: unknown;
+}
 
 /**
  * Column-major 4×4 TRS compose (glTF convention).
- * @param {[number, number, number]} t
- * @param {[number, number, number, number]} r quaternion xyzw
- * @param {[number, number, number]} s
+ * @param t translation
+ * @param r quaternion xyzw
+ * @param s scale
  */
-export function composeTrsMatrix(t, r, s) {
+export function composeTrsMatrix(
+  t: [number, number, number] | number[],
+  r: [number, number, number, number] | number[],
+  s: [number, number, number] | number[]
+): Float32Array {
   const m = new Float32Array(16);
   const [qx, qy, qz, qw] = r;
   const [sx, sy, sz] = s;
@@ -52,8 +112,11 @@ export function composeTrsMatrix(t, r, s) {
   return m;
 }
 
-/** @param {Float32Array} out @param {Float32Array|number[]} a @param {Float32Array|number[]} b */
-export function multiplyMat4(out, a, b) {
+export function multiplyMat4(
+  out: Float32Array,
+  a: Float32Array | number[],
+  b: Float32Array | number[]
+): void {
   for (let c = 0; c < 4; c++) {
     for (let r = 0; r < 4; r++) {
       out[c * 4 + r] =
@@ -65,8 +128,10 @@ export function multiplyMat4(out, a, b) {
   }
 }
 
-/** @param {Float32Array|number[]} m @param {[number, number, number]|number[]} p */
-export function transformPoint(m, p) {
+export function transformPoint(
+  m: Float32Array | number[],
+  p: [number, number, number] | number[]
+): [number, number, number] {
   const x = p[0];
   const y = p[1];
   const z = p[2];
@@ -78,25 +143,25 @@ export function transformPoint(m, p) {
 }
 
 export class SceneNode {
-  /**
-   * @param {object} [opts]
-   * @param {string} [opts.name]
-   * @param {[number, number, number]} [opts.translation]
-   * @param {[number, number, number, number]} [opts.rotation]
-   * @param {[number, number, number]} [opts.scale]
-   * @param {object[]|null} [opts.meshPrimitives]
-   * @param {SceneMaterial} [opts.material]
-   * @param {object} [opts.extras]
-   * @param {SceneNodeRole} [opts.role]
-   * @param {string|null} [opts.annotationId]
-   * @param {string|null} [opts.propId] registry id (`housing`, `coilFormer`, …)
-   */
-  constructor(opts = {}) {
+  name: string;
+  visible = true;
+  parent: SceneNode | null = null;
+  children: SceneNode[] = [];
+  localTranslation: number[];
+  localRotation: number[];
+  localScale: number[];
+  worldMatrix: Float32Array;
+  meshPrimitives: SceneMeshPrimitive[] | null;
+  material: SceneMaterial;
+  materialRingIndex: number;
+  extras: SceneNodeExtras;
+  annotationId: string | null;
+  role: SceneNodeRole;
+  propId: string | null;
+  source: unknown;
+
+  constructor(opts: SceneNodeOptions = {}) {
     this.name = opts.name || 'node';
-    this.visible = true;
-    this.parent = null;
-    /** @type {SceneNode[]} */
-    this.children = [];
     this.localTranslation = opts.translation ? [...opts.translation] : [0, 0, 0];
     this.localRotation = opts.rotation ? [...opts.rotation] : [0, 0, 0, 1];
     this.localScale = opts.scale ? [...opts.scale] : [1, 1, 1];
@@ -105,18 +170,17 @@ export class SceneNode {
     this.material = opts.material || { ringIndex: 11.0 };
     this.materialRingIndex = this.material.ringIndex ?? 11.0;
     this.extras = opts.extras || {};
-    this.annotationId = opts.annotationId
-      ?? this.extras.annotationId
-      ?? null;
-    this.role = opts.role
-      ?? this.extras?.power_gen?.role
-      ?? (this.annotationId ? 'annotation' : null);
+    this.annotationId =
+      opts.annotationId ?? this.extras.annotationId ?? null;
+    this.role =
+      opts.role ??
+      this.extras?.power_gen?.role ??
+      (this.annotationId ? 'annotation' : null);
     this.propId = opts.propId ?? null;
-    /** Optional back-ref to source glTF node descriptor */
     this.source = opts.source ?? null;
   }
 
-  updateWorldTransform(parentMatrix = null) {
+  updateWorldTransform(parentMatrix: Float32Array | null = null): void {
     const local = composeTrsMatrix(
       this.localTranslation,
       this.localRotation,
@@ -132,10 +196,8 @@ export class SceneNode {
     }
   }
 
-  /** @returns {SceneAnnotation[]} */
-  collectAnnotations() {
-    /** @type {SceneAnnotation[]} */
-    const out = [];
+  collectAnnotations(): SceneAnnotation[] {
+    const out: SceneAnnotation[] = [];
     if (this.annotationId) {
       out.push({
         annotationId: this.annotationId,
@@ -150,10 +212,8 @@ export class SceneNode {
     return out;
   }
 
-  /** @returns {SceneAnchor[]} */
-  collectAnchors() {
-    /** @type {SceneAnchor[]} */
-    const out = [];
+  collectAnchors(): SceneAnchor[] {
+    const out: SceneAnchor[] = [];
     const pg = this.extras.power_gen;
     if (pg?.anchors) {
       for (const a of pg.anchors) {
@@ -167,13 +227,9 @@ export class SceneNode {
     return out;
   }
 
-  /**
-   * Flatten visible mesh primitives with baked world transforms.
-   * @returns {object[]}
-   */
-  flattenDrawables() {
-    /** @type {object[]} */
-    const out = [];
+  /** Flatten visible mesh primitives with baked world transforms. */
+  flattenDrawables(): SceneDrawable[] {
+    const out: SceneDrawable[] = [];
     if (this.visible && this.meshPrimitives) {
       for (const prim of this.meshPrimitives) {
         out.push({

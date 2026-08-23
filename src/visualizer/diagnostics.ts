@@ -1,46 +1,60 @@
 // Speed test harness and GPU particle readback for debugging.
 import { CULL_OUTPUT_HEADER_BYTES, DRAW_ARGS_STRIDE } from '../devices/overview-cull.js';
+import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
+import type { DeviceInstance } from '../device-instance.js';
 
-export const diagnosticsMethods = {
+type Host = MultiDeviceVisualizer;
+type DiagDevice = DeviceInstance & { _prevEffectBudget?: number };
+
+export const diagnosticsMethods: ThisType<Host> & {
+  runSpeedTest(speeds?: number[], durationMs?: number): Promise<void>;
+  captureParticleSubset(deviceId?: string, maxCount?: number): Promise<unknown>;
+  captureOverviewCull(): Promise<unknown>;
+} = {
   /**
    * Quality/perf test harness: step through a set of speed multipliers for a
    * fixed duration, then print average frame time, FPS, and SEG effect metrics.
    * Exposed as window.runSEGSpeedTest([0.1, 1, 10, 30], 3000).
    */
-  async runSpeedTest(speeds = [0.1, 1, 10, 30], durationMs = 3000) {
-    const slider = document.getElementById('speedControl');
+  async runSpeedTest(speeds: number[] = [0.1, 1, 10, 30], durationMs: number = 3000) {
+    const slider = document.getElementById('speedControl') as HTMLInputElement | null;
     if (!slider) {
       console.warn('[SpeedTest] #speedControl not found');
       return;
     }
-    const speedToSlider = (speed) => Math.max(0, Math.min(100, 100 * Math.log(speed / 0.05) / Math.log(400)));
-    const segDevice = this.devices['seg'];
+    const speedToSlider = (speed: number) => Math.max(0, Math.min(100, 100 * Math.log(speed / 0.05) / Math.log(400)));
+    const segDevice = this.devices['seg'] as DiagDevice | undefined;
 
     console.log('[SpeedTest] starting — speeds:', speeds, 'duration:', durationMs, 'ms');
-    const results = [];
+    const results: Array<{
+      speed: number;
+      fps: number;
+      minFps: number;
+      maxFps: number;
+      frames: number;
+      energy: number;
+      effectBudget: number;
+    }> = [];
 
     for (const speed of speeds) {
-      slider.value = speedToSlider(speed);
-      await new Promise(r => setTimeout(r, 500));
+      slider.value = String(speedToSlider(speed));
+      await new Promise((r) => setTimeout(r, 500));
 
-      const startFps = this.fps || 0;
-      const startFrame = this.profiler?.frameCount || 0;
+      const startFrame = (this.profiler as { frameCount?: number } | null)?.frameCount || 0;
       const startTime = performance.now();
       let minFps = 999;
       let maxFps = 0;
-      let samples = 0;
 
       while (performance.now() - startTime < durationMs) {
-        await new Promise(r => requestAnimationFrame(r));
+        await new Promise((r) => requestAnimationFrame(r));
         const f = this.fps || 0;
         if (f > 0) {
           minFps = Math.min(minFps, f);
           maxFps = Math.max(maxFps, f);
-          samples++;
         }
       }
 
-      const endFrame = this.profiler?.frameCount || startFrame;
+      const endFrame = (this.profiler as { frameCount?: number } | null)?.frameCount || startFrame;
       results.push({
         speed,
         fps: this.fps || 0,
@@ -61,8 +75,8 @@ export const diagnosticsMethods = {
    * Debug: read back first N GPU particles for WASM / CPU validation.
    * Enable via ?debugParticles=1 or window.captureParticleSubset.
    */
-  async captureParticleSubset(deviceId = 'seg', maxCount = 64) {
-    const dev = this.devices?.[deviceId];
+  async captureParticleSubset(deviceId: string = 'seg', maxCount: number = 64) {
+    const dev = this.devices?.[deviceId] as DiagDevice | undefined;
     const buf = dev?.particles;
     if (!buf || !this.device) return null;
 
@@ -83,7 +97,7 @@ export const diagnosticsMethods = {
     staging.unmap();
     staging.destroy();
 
-    const out = [];
+    const out: Array<{ x: number; y: number; z: number; phase: number }> = [];
     for (let i = 0; i < count; i++) {
       const b = i * 4;
       out.push({

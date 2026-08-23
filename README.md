@@ -89,7 +89,7 @@ Single client-side app under `src/` (Vite root). No dual legacy tree.
 | Primary (default) | `MultiDeviceVisualizer` | WebGPU (required) |
 | Opt-in | `WebGL2MultiDeviceVisualizer` | WebGL2 (`?renderer=webgl2` only) |
 
-`src/main.js` is bootstrap + window API only. Shared CPU physics/geometry lives in
+`src/main.ts` is bootstrap + window API only. Shared CPU physics/geometry lives in
 `src/renderers/shared/`. Agent/dev details: [`docs/AGENTS.md`](docs/AGENTS.md)
 (query-param matrix, language roles, device fidelity). Decisions: [`docs/adr/`](docs/adr/).
 WebGPU adapter/device setup: [`docs/WEBGPU.md`](docs/WEBGPU.md).

@@ -15,12 +15,22 @@ import {
 import {
   parseGltfHousingEnabled,
   SEG_GLTF_PROPS,
-  resolvePropMaterial
+  resolvePropMaterial,
+  type SegGltfPropDef
 } from '../assets/gltf/prop-registry.js';
 import { attachGltfHousingPickHandler } from '../assets/gltf/gltf-housing-pick.js';
 import { computeFrameDimensions } from '../seg-frame-model.js';
+import type { SceneAnchor } from '../assets/scene/scene-node.js';
+import type { MultiDeviceVisualizer, GltfPickable } from '../multi-device-visualizer.js';
 
-function bakeWorldVertices(vertices, worldMatrix, scale, offsetY = 0) {
+type Host = MultiDeviceVisualizer;
+
+function bakeWorldVertices(
+  vertices: Float32Array | number[],
+  worldMatrix: Float32Array | number[],
+  scale: number,
+  offsetY = 0
+): Float32Array {
   const out = new Float32Array(vertices.length);
   const m = worldMatrix;
   for (let i = 0; i < vertices.length; i += 8) {
@@ -39,7 +49,7 @@ function bakeWorldVertices(vertices, worldMatrix, scale, offsetY = 0) {
   return out;
 }
 
-function destroyGpuBuffer(buf) {
+function destroyGpuBuffer(buf: { destroy?: () => void } | null | undefined) {
   try {
     buf?.destroy?.();
   } catch {
@@ -47,16 +57,29 @@ function destroyGpuBuffer(buf) {
   }
 }
 
-export const gltfSetupMethods = {
+export const gltfSetupMethods: ThisType<Host> & {
+  parseGltfHousingEnabled: typeof parseGltfHousingEnabled;
+  setupGltfAssets(
+    embeddedGlb?: ArrayBuffer,
+    opts?: { propBuffers?: Record<string, ArrayBuffer> }
+  ): Promise<void>;
+  ensureGltfPropsForView(view: string): Promise<void>;
+  _loadGltfPropsForSegFocus(): Promise<void>;
+  _loadGltfPropsForSegFocusInner(): Promise<void>;
+  _uploadGltfProp(
+    prop: SegGltfPropDef,
+    ctx: { scale: number; yOffset: number; pickables: GltfPickable[] }
+  ): Promise<void>;
+  _disposeFocusOnlyGltfProps(): void;
+  updateGltfHousingState(): void;
+} = {
   parseGltfHousingEnabled,
 
   /**
    * Prepare empty CAD prop state. Heavy GLB decode is deferred until SEG focus
    * via {@link ensureGltfPropsForView} so overview stays light.
-   * @param {ArrayBuffer} [embeddedGlb] optional preloaded housing buffer (tests)
-   * @param {{ propBuffers?: Record<string, ArrayBuffer> }} [opts]
    */
-  async setupGltfAssets(embeddedGlb, opts = {}) {
+  async setupGltfAssets(embeddedGlb?: ArrayBuffer, opts: { propBuffers?: Record<string, ArrayBuffer> } = {}) {
     this.gltfHousingEnabled = parseGltfHousingEnabled();
     this.gltfHousingDrawables = [];
     this.gltfHousingAnchors = [];
@@ -83,9 +106,8 @@ export const gltfSetupMethods = {
 
   /**
    * Load / dispose props for the active view (SEG focus only).
-   * @param {string} view
    */
-  async ensureGltfPropsForView(view) {
+  async ensureGltfPropsForView(view: string) {
     if (!this.gltfHousingEnabled) return;
     if (view === 'seg') {
       await this._loadGltfPropsForSegFocus();
@@ -109,11 +131,10 @@ export const gltfSetupMethods = {
     const frameDims = computeFrameDimensions(layout);
     const scale = layout.worldScale;
     const yOffset = frameDims.baseBottomY;
-    /** @type {import('../assets/gltf/gltf-pick.js').GltfPickable[]} */
-    const pickables = [...(this.gltfHousingPickables || [])];
+    const pickables: GltfPickable[] = [...(this.gltfHousingPickables || [])];
     const already = new Set(this.gltfLoadedProps || []);
 
-    for (const prop of SEG_GLTF_PROPS) {
+    for (const prop of SEG_GLTF_PROPS as SegGltfPropDef[]) {
       if (this.currentView !== 'seg') {
         this._disposeFocusOnlyGltfProps();
         return;
@@ -122,7 +143,7 @@ export const gltfSetupMethods = {
       if (already.has(prop.id)) continue;
       try {
         await this._uploadGltfProp(prop, { scale, yOffset, pickables });
-        this.gltfLoadedProps.push(prop.id);
+        this.gltfLoadedProps!.push(prop.id);
         already.add(prop.id);
       } catch (err) {
         console.warn(`[gltf] ${prop.id} load failed`, err);
@@ -148,17 +169,18 @@ export const gltfSetupMethods = {
     }
 
     console.log(
-      `[gltf] CAD props ready: ${this.gltfLoadedProps.join(', ') || '(none)'} — ` +
-      `${this.gltfHousingDrawables.length} drawable(s), ${pickables.length} pick(s)`
+      `[gltf] CAD props ready: ${this.gltfLoadedProps!.join(', ') || '(none)'} — ` +
+      `${this.gltfHousingDrawables!.length} drawable(s), ${pickables.length} pick(s)`
     );
   },
 
   /**
    * @private
-   * @param {import('../assets/gltf/prop-registry.js').SegGltfPropDef} prop
-   * @param {{ scale: number, yOffset: number, pickables: object[] }} ctx
    */
-  async _uploadGltfProp(prop, ctx) {
+  async _uploadGltfProp(
+    prop: SegGltfPropDef,
+    ctx: { scale: number; yOffset: number; pickables: GltfPickable[] }
+  ) {
     const { scale, yOffset, pickables } = ctx;
     let doc;
     if (prop.id === 'housing' && this._gltfEmbeddedHousing) {
@@ -173,7 +195,12 @@ export const gltfSetupMethods = {
 
     // Apply registry material overrides onto scene nodes before flatten.
     for (const root of scene.roots) {
-      const applyMat = (node) => {
+      const applyMat = (node: {
+        propId?: string;
+        materialRingIndex?: number;
+        material?: Record<string, unknown>;
+        children?: unknown[];
+      }) => {
         if (node.propId === prop.id || !node.propId) {
           const mat = resolvePropMaterial(prop, {
             materialRingIndex: node.materialRingIndex,
@@ -182,25 +209,28 @@ export const gltfSetupMethods = {
           node.material = { ...node.material, ...mat };
           node.materialRingIndex = mat.ringIndex;
         }
-        for (const child of node.children || []) applyMat(child);
+        for (const child of (node.children || []) as typeof node[]) applyMat(child);
       };
       applyMat(root);
     }
 
-    this.gltfHousingAnchors.push(
-      ...scene.anchors.map((a) => ({
-        ...a,
-        propId: prop.id,
-        worldPosition: [
-          a.worldPosition[0] * scale,
-          a.worldPosition[1] * scale + yOffset,
-          a.worldPosition[2] * scale
-        ]
-      }))
+    this.gltfHousingAnchors!.push(
+      ...scene.anchors.map((a: SceneAnchor) => {
+        const wp = a.worldPosition ?? a.position;
+        return {
+          ...a,
+          propId: prop.id,
+          worldPosition: [
+            wp[0] * scale,
+            wp[1] * scale + yOffset,
+            wp[2] * scale
+          ] as [number, number, number]
+        };
+      })
     );
 
-    this.gltfAnnotationPoints.push(
-      ...scene.annotations.map((a) => ({
+    this.gltfAnnotationPoints!.push(
+      ...scene.annotations.map((a: { annotationId: string; worldPosition: number[] }) => ({
         id: a.annotationId,
         propId: prop.id,
         pos: [
@@ -212,7 +242,13 @@ export const gltfSetupMethods = {
     );
 
     let drawableCount = 0;
-    for (const drawable of scene.roots.flatMap((r) => r.flattenDrawables())) {
+    for (const drawable of scene.roots.flatMap((r: { flattenDrawables: () => unknown[] }) => r.flattenDrawables()) as Array<{
+      annotationId?: string;
+      mesh: { vertices: Float32Array; indices: Uint16Array | Uint32Array };
+      worldMatrix: Float32Array;
+      name: string;
+      role?: string;
+    }>) {
       const isAnnotation = !!drawable.annotationId;
       const scaledVerts = bakeWorldVertices(
         drawable.mesh.vertices,
@@ -243,11 +279,11 @@ export const gltfSetupMethods = {
         color: mat.color,
         emissive: 0
       });
-      this.gltfHousingDrawables.push({
+      this.gltfHousingDrawables!.push({
         name: drawable.name,
         propId: prop.id,
         role: drawable.role || prop.role,
-        loadPolicy: prop.loadPolicy,
+        loadPolicy: prop.loadPolicy as 'resident' | 'focus',
         emissiveScale: mat.emissiveScale,
         gpu,
         instanceBuffer,
@@ -287,12 +323,12 @@ export const gltfSetupMethods = {
     this.gltfHousingDrawables = kept;
 
     const focusIds = new Set(
-      SEG_GLTF_PROPS.filter((p) => p.loadPolicy === 'focus').map((p) => p.id)
+      (SEG_GLTF_PROPS as SegGltfPropDef[]).filter((p) => p.loadPolicy === 'focus').map((p) => p.id)
     );
     this.gltfLoadedProps = (this.gltfLoadedProps || []).filter((id) => !focusIds.has(id));
-    this.gltfHousingAnchors = (this.gltfHousingAnchors || []).filter((a) => !focusIds.has(a.propId));
-    this.gltfAnnotationPoints = (this.gltfAnnotationPoints || []).filter((a) => !focusIds.has(a.propId));
-    this.gltfHousingPickables = (this.gltfHousingPickables || []).filter((p) => !focusIds.has(p.propId));
+    this.gltfHousingAnchors = (this.gltfHousingAnchors || []).filter((a) => !focusIds.has(a.propId || ''));
+    this.gltfAnnotationPoints = (this.gltfAnnotationPoints || []).filter((a) => !focusIds.has(a.propId || ''));
+    this.gltfHousingPickables = (this.gltfHousingPickables || []).filter((p) => !focusIds.has(p.propId || ''));
 
     if (freed > 0) {
       console.log(`[gltf] disposed ${freed} focus-only drawable(s) on mode leave`);

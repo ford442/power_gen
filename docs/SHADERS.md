@@ -90,7 +90,7 @@ uses `node:fs`. Use `?raw` imports and let the Vite plugin expand includes.
    @fragment
    fn fs_main(/* … */) -> @location(0) vec4f { /* … */ }
    ```
-3. **Bind group** — register layout in `pipeline-layout-cache.js` and document
+3. **Bind group** — register layout in `pipeline-layout-cache.ts` and document
    in `docs/BINDINGS.md`.
 4. **Wire runtime** — either:
    - `import code from '../passes/my-pass.wgsl?raw'` in a generator, or

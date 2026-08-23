@@ -126,7 +126,7 @@ window.SEG_PROTOTYPE_PRESET = 'lab';
 
 ### CPU plumbing
 
-- `src/multi-device-visualizer.js` reads the preset and stores it in `this.prototypePreset`.
+- `src/multi-device-visualizer.ts` reads the preset and stores it in `this.prototypePreset`.
 - `src/device-uniforms.js` encodes the preset into the SEG `materialUniformBuffer` `pad1` slot:
   - `0.0` = showroom
   - `1.0` = lab
@@ -135,7 +135,7 @@ window.SEG_PROTOTYPE_PRESET = 'lab';
 ## Files changed
 
 - `src/seg-geometry-generators.js` — new `generatePoleBandedRoller()` with caps, 8 segments, and grooves.
-- `src/multi-device-visualizer.js` — updated roller creation call; added `prototypePreset` parsing.
+- `src/multi-device-visualizer.ts` — updated roller creation call; added `prototypePreset` parsing.
 - `src/seg-enhanced-geometry.js` — updated default roller call to 8 bands / 64 segments.
 - `src/multi-device-shaders.js` — `segEnhancedVertShader` and `segEnhancedFragShader` roller logic.
 - `src/device-uniforms.js` — encode `prototypePreset` into SEG material uniform `pad1`.

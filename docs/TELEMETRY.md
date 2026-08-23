@@ -11,7 +11,7 @@ scientific derived fields   ─┘
 | Writer | Module |
 |--------|--------|
 | SEG plant (drive, ω, computeTelemetry) | `seg-operator-state.js` |
-| Multi-device frame publish | `multi-device-visualizer.js` (WebGPU) |
+| Multi-device frame publish | `multi-device-visualizer.ts` (WebGPU) |
 | Multi-device frame publish | `renderers/webgl2/index.js` |
 | Optional TS physics uniforms | `integration.ts` (syncs into hub scientific fields via multi-device) |
 
@@ -158,7 +158,7 @@ All gauge widgets live under `src/scientific-ui/gauges/`. Import the panel and g
 import { ScientificUIManager, MagneticFieldGauge } from './scientific-ui/index.js';
 ```
 
-`main.js` lazy-loads `ScientificUIManager` (Ctrl+Shift+S toggle). Legacy root shims `scientific-ui.js` and `scientific-ui-utils.js` re-export the package for backward compatibility.
+`main.ts` lazy-loads `ScientificUIManager` (Ctrl+Shift+S toggle). Legacy root shims `scientific-ui.js` and `scientific-ui-utils.js` re-export the package for backward compatibility.
 
 ## Removed duplicates
 

@@ -8,18 +8,18 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 
 ## Find the entry point (< 5 minutes)
 
-**New here?** (1) `npm install && npm run dev` → http://localhost:5173/ (2) open `src/main.js` and follow `resolveRenderer()` (3) skim [`adr/`](./adr/) for durable decisions.
+**New here?** (1) `npm install && npm run dev` → http://localhost:5173/ (2) open `src/main.ts` and follow `resolveRenderer()` (3) skim [`adr/`](./adr/) for durable decisions.
 
 | What | Where |
 |------|--------|
 | **HTML shell / UI** | `src/index.html` (Vite root = `src/`) |
-| **App bootstrap** | `src/main.js` — renderer select, `window.*` APIs, operator wiring |
-| **WebGPU scene** | `src/multi-device-visualizer.js` → `MultiDeviceVisualizer` |
+| **App bootstrap** | `src/main.ts` — renderer select, `window.*` APIs, operator wiring |
+| **WebGPU scene** | `src/multi-device-visualizer.ts` → `MultiDeviceVisualizer` |
 | **WebGL2 fallback** | `src/renderers/webgl2/` → `WebGL2MultiDeviceVisualizer` |
 | **Renderer choice** | `src/renderers/renderer-selector.js` |
-| **Device list** | `src/devices/device-registry.js` + `debug-panel.js` `DEVICE_CONFIG` |
+| **Device list** | `src/devices/device-registry.ts` + `src/devices/device-config.ts` (`DEVICE_CONFIG`) |
 | **Shaders** | `src/shaders/` — see [`SHADERS.md`](./SHADERS.md) |
-| **C++ / WASM physics** | `cpp/src/sim_core.*` + `src/wasm/seg-physics-bridge.js` |
+| **C++ / WASM physics** | `cpp/src/sim_core.*` + `src/wasm/seg-physics-bridge.ts` |
 | **Telemetry** | `src/telemetry-hub.ts` + `src/telemetry/` — see [`TELEMETRY.md`](./TELEMETRY.md) |
 | **Architecture decisions** | [`docs/adr/`](./adr/) (dual renderer, WASM, no Three.js, energy network) |
 
@@ -27,7 +27,7 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 Browser loads src/index.html
         │
         ▼
-   src/main.js  ── resolveRenderer() ──► WebGPU MultiDeviceVisualizer
+   src/main.ts  ── resolveRenderer() ──► WebGPU MultiDeviceVisualizer
                               │            or WebGL2MultiDeviceVisualizer
                               ▼
                     shared CPU physics (renderers/shared/)
@@ -100,8 +100,8 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 
 | Language | Own | Do not put |
 |----------|-----|------------|
-| **JavaScript** | Bootstrap, multi-device orchestration, geometry buffers, UI wiring, WebGL2 path | New authoritative physics formulas (prefer TS); new device plugin hooks (typed via `devices/types.ts`) |
-| **TypeScript** | Constants (`ValidatedConstants.ts`), `integration.ts`, shared plant (`renderers/shared/`), telemetry, `webgpu-manager.ts`, `seg-operator-state.ts`, WASM types, **device update/render mixins**, **`pipeline-layout-cache.ts`**, **`devices/types.ts`** | Full visualizer / frame loop (until a deliberate split) |
+| **JavaScript** | WebGL2 path, procedural geometry builders, scientific-ui gauges, debug-panel UI, some device managers (`device-geometry.js`, …) | New authoritative physics formulas; new device plugin hooks (typed via `devices/types.ts`); dashboard layout (`DEVICE_CONFIG`) |
+| **TypeScript** | `main.ts`, `multi-device-visualizer.ts`, device registry/config, `device-instance.ts`, visualizer mixins, WASM bridge, shared url-params/view-lod/device-view, constants (`ValidatedConstants.ts`), `integration.ts`, telemetry, `pipeline-layout-cache.ts`, `devices/types.ts`, core/Quanta strategies | WebGL2 GLSL path; Three.js / gl-matrix (ADR-0003) |
 | **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar/Peltier/MHD/Quanta state) | Browser DOM or GPU API calls |
 | **WGSL** | WebGPU compute + render (`src/shaders/`) | WebGL2 fallback |
 | **GLSL** | WebGL2 only (`renderers/webgl2/shaders.js`) | WebGPU path |
@@ -111,39 +111,51 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 
 - New physics math and public numeric APIs → **TypeScript** (or C++ if part of the WASM plant).
 - New draw/compute passes → **WGSL** + `pipeline-layout-cache.ts` (add the layout name to the `BindGroupLayoutName` union) + [`BINDINGS.md`](./BINDINGS.md); document in [`SHADERS.md`](./SHADERS.md).
-- New device plugins implement the `DevicePlugin` interface from `src/devices/types.ts` — the single source of truth for plugin hooks and the `DeviceInstanceLike` / `VisualizerLike` shapes the mixins bind to.
-- `npm run typecheck` covers **`src/**/*.ts` only** (`allowJs: false`), which now includes the device update/render hot path and the pipeline layout cache. Remaining JS is not typechecked in CI; JS modules that TS imports carry a hand-written `.d.ts`.
-- Runtime entry is **`src/main.js`**. `index.ts` is a typed **barrel**, not the app entry.
+- New device plugins implement the `DevicePlugin` interface from `src/devices/types.ts` — the single source of truth for plugin hooks and the `DeviceInstanceLike` / `VisualizerLike` shapes the mixins bind to. Layout defaults go on `plugin.defaults` (core devices share `DEVICE_CONFIG` from `devices/device-config.ts`).
+- `npm run typecheck` covers **`src/**/*.ts` only**. `tsconfig` uses **`allowJs: true` / `checkJs: false`** so JS modules can be imported; remaining JS is not typechecked in CI. JS modules that TS imports may carry a hand-written `.d.ts`.
+- Runtime entry is **`src/main.ts`**. `index.ts` is a typed **barrel**, not the app entry.
+- Physics constants SoT: `physics/constants.json` → codegen → `ValidatedConstants.ts` (ADR-0002/0006). Wolfram MCP manager was removed; do not reintroduce it on the default boot path.
 - **Import style:** JS entry paths import TypeScript modules **extensionless** (e.g. `./telemetry-hub` → `telemetry-hub.ts`). TypeScript sources may use a `.js` emit suffix for cross-file references (`moduleResolution: bundler`). Do not use `from '…ts'` in app code.
+
+### TypeScript migration (Wave 5 — complete)
+
+| Item | Status |
+|------|--------|
+| Extract `DEVICE_CONFIG` → `devices/device-config.ts`; invert debug-panel import | Done |
+| `device-registry.js` → `.ts`; core plugins register layout via `defaults` | Done |
+| `device-instance.js` → `.ts` | Done |
+| Visualizer mixins → `.ts` (`scene-setup`, `render-loop`, `setup-geometry`, …) | Done |
+| `wasm/seg-physics-bridge.js` → `.ts`; delete stub `.d.ts` | Done |
+| `assets/scene/scene-node.js` + shared `url-params` / `view-lod` / `device-view` → `.ts` | Done |
+| Delete `WolframMCPManager` from default boot; ADR-0006 updated | Done |
+
+**Still JavaScript (intentional for now):** WebGL2 path, procedural geometry builders, scientific-ui gauges, debug-panel UI, some device managers (`device-geometry.js`, uniforms/compute/pipeline managers).
+
+### TypeScript migration (Wave 4 — complete)
+
+| Item | Status |
+|------|--------|
+| `multi-device-visualizer.js`, `main.js` → TS | Done |
+| `devices/core/*.js`, `devices/quanta/*.js` strategies → TS | Done |
 
 ### TypeScript migration (Wave 3 — complete)
 
 | Item | Status |
 |------|--------|
-| `devices/types.ts` — canonical `DevicePlugin` + instance/visualizer contracts | Done (replaces `device-registry-types.d.ts`) |
+| `devices/types.ts` — canonical `DevicePlugin` + instance/visualizer contracts | Done |
 | `pipeline-layout-cache.js` → `.ts` with string-literal layout names | Done |
 | `devices/update-helpers.js` → `.ts` | Done |
-| `devices/device-update.js` → `.ts` | Done |
-| `devices/device-render.js` → `.ts` | Done |
+| `devices/device-update.js` / `device-render.js` → `.ts` | Done |
 | `renderers/shared/bind-group-cache.js` → `.ts` | Done |
-| `.d.ts` for JS modules the typed mixins import (`device-mesh-layouts`, `multi-device-shaders`, `wasm/seg-physics-bridge`, `devices/core/seg-update`) | Done |
-| `multi-device-visualizer.js`, `main.js` → TS | Wave 4 |
-| `devices/core/*.js`, `devices/quanta/*.js` strategies → TS | Wave 4 |
-
-**Still JavaScript (intentional for now):** `main.js`, `multi-device-visualizer.js`, `device-instance.js` and the other `device-*.js` managers, `devices/device-registry.js` (imports the legacy `DEVICE_CONFIG` from `debug-panel.js`), core/Quanta device strategies, WebGL2 path.
 
 ### TypeScript migration (Wave 2 — complete)
 
 | Item | Status |
 |------|--------|
 | Normalize imports (no `from '…ts'` in app paths) | Done |
-| `telemetry/` modules → `.ts` | Done (`types`, sampler, schema, export, replay, RNG) |
-| `telemetry-hub.ts` | Done (Wave 1 carry-over) |
-| `webgpu-manager.ts` | Done |
-| `seg-operator-state.ts` (delete `.d.ts` stub) | Done |
-| `pipeline-layout-cache.js` — `@ts-check` + layout name typedefs | Done (superseded by Wave 3 `.ts`) |
+| `telemetry/` modules → `.ts` | Done |
+| `telemetry-hub.ts`, `webgpu-manager.ts`, `seg-operator-state.ts` | Done |
 | Shared plant (`renderers/shared/*.ts`) | Done (Wave 1) |
-| Full visualizer / render-loop mixins → TS | Later (architecture issue) |
 
 ---
 
@@ -153,21 +165,22 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 power_gen/
 ├── src/                          # ← Vite root (not repo root)
 │   ├── index.html                # Dashboard chrome + canvas
-│   ├── main.js                   # Bootstrap only
-│   ├── multi-device-visualizer.js
+│   ├── main.ts                   # Bootstrap only
+│   ├── multi-device-visualizer.ts
 │   ├── webgpu-manager.ts
-│   ├── pipeline-layout-cache.js  # Explicit layouts; @ts-check + JSDoc names
-│   ├── device-*.js / devices/    # Per-device geometry, update, render, plugins
+│   ├── pipeline-layout-cache.ts  # Explicit layouts + BindGroupLayoutName
+│   ├── device-instance.ts / devices/  # Registry, config, plugins, mixins
+│   ├── visualizer/               # Frame loop / scene / geometry mixins (.ts)
 │   ├── energy-pipe.js            # Overview energy transfer viz (+ network)
 │   ├── telemetry-hub.ts
 │   ├── telemetry/                # Export, replay, sampler, schema (all .ts)
 │   ├── seg-operator-state.ts
 │   ├── renderers/
 │   │   ├── renderer-selector.js
-│   │   ├── shared/               # CPU physics both backends
-│   │   └── webgl2/
+│   │   ├── shared/               # CPU physics both backends (mostly .ts)
+│   │   └── webgl2/               # GLSL fallback (stays JS)
 │   ├── shaders/                  # WGSL common/ + passes/ + generators/
-│   ├── wasm/                     # JS bridge to sim_core
+│   ├── wasm/                     # Typed bridge + sim.ts → sim_core
 │   ├── *.ts                      # Typed physics / integration
 │   └── public/wasm/              # Committed sim_core.js + .wasm
 ├── cpp/                          # Native + Emscripten sources
@@ -234,18 +247,19 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 
 | Module | Role |
 |--------|------|
-| `src/main.js` | Renderer bootstrap, window control API, WASM badge, operator/diagram init |
-| `src/multi-device-visualizer.js` | WebGPU orchestrator: devices, pipes, bloom, frame loop, hardware twin hook |
+| `src/main.ts` | Renderer bootstrap, window control API, WASM badge, operator/diagram init |
+| `src/multi-device-visualizer.ts` | WebGPU orchestrator: devices, pipes, bloom, frame loop, hardware twin hook |
 | `src/webgpu-manager.ts` | Single adapter/device/canvas/depth path |
-| `src/pipeline-layout-cache.js` | Shared bind-group layouts + pipelines (`@ts-check`) |
-| `src/device-instance.js` + `devices/*` | Per-device update/render mixins, registry plugins |
+| `src/pipeline-layout-cache.ts` | Shared bind-group layouts + pipelines |
+| `src/device-instance.ts` + `devices/*` | Per-device update/render mixins, registry plugins, `device-config.ts` |
+| `src/visualizer/*.ts` | Object.assign mixins: render-loop, scene-setup, geometry, glTF, … |
 | `src/energy-pipe.js` | Overview Bézier energy transfer (visual; `EnergyNetwork` in `renderers/shared/`) |
 | `src/performance-profiler.js` | FPS, auto-quality, optional GPU timestamps, per-device CPU times |
 | `src/sim-rate-controller.js` | Speed mult / substeps; couples to quality under load |
 | `src/telemetry-hub.ts` | Single telemetry write path for gauges / operator |
 | `src/seg-operator-state.ts` | Authoritative SEG plant (drive, RPM, V/I/P) |
 | `src/seg-layout.js` | Layout presets (Searl / Roschin / legacy) — data-driven roller counts |
-| `src/assets/scene/scene-node.js` | Formal scene graph node (ADR-0005) |
+| `src/assets/scene/scene-node.ts` | Formal scene graph node (ADR-0005) |
 | `src/assets/gltf/*` | Hand-rolled glTF loader + lazy prop registry — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
 | `src/integration.ts` | Typed physics uniforms + scientific overlay hooks |
 | `src/wasm/seg-physics-bridge.js` | Optional WASM step + zero-copy views |

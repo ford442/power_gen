@@ -3,7 +3,7 @@
  * Manages orbital camera controls, device focus transitions, and view animations.
  * Depends on: canvas, camera state, visualizer instance (for devicesEnabled, debugPanel, currentView)
  */
-import { getMergedDeviceConfig } from './devices/device-registry.js';
+import { getMergedDeviceConfig } from './devices/device-registry';
 
 export class MultiDeviceCamera {
   constructor(canvas, camera, visualizer) {

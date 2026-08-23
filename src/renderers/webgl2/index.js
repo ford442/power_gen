@@ -15,8 +15,7 @@
 import { CameraController } from '../../camera-controller.js';
 import { MultiDeviceCamera } from '../../multi-device-camera.js';
 import { SimRateController } from '../../sim-rate-controller.js';
-import { DEVICE_CONFIG } from '../../debug-panel.js';
-import { getMergedDeviceConfig, getAllSimDeviceIds } from '../../devices/device-registry.js';
+import { getMergedDeviceConfig, getAllSimDeviceIds } from '../../devices/device-registry';
 import { buildMagLevMesh } from '../../devices/quanta/magnetic-levitation';
 import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator';
 import { buildHalbachVizMesh, halbachConfigFromState } from '../../devices/quanta/halbach-viz';
@@ -31,14 +30,14 @@ import {
   stepDevicePhysics,
   deviceModeIndex
 } from '../shared/device-physics';
-import { isDeviceActive as isDeviceVisible, shouldSimulateDevice } from '../shared/device-view.js';
+import { isDeviceActive as isDeviceVisible, shouldSimulateDevice } from '../shared/device-view';
 import {
   getOverviewCullOpts,
   getViewParticleLod,
   getViewMeshLod,
   getMeshDrawDetail,
   getDeviceParticleScale
-} from '../shared/view-lod.js';
+} from '../shared/view-lod';
 import { resolveScaledParticleCount } from '../../devices/particle-budgets.js';
 import { EnergyNetwork, initEnergyCouplingDisclaimer, syncEnergyCouplingDisclaimer } from '../shared/energy-network';
 import {
@@ -46,7 +45,7 @@ import {
   parseSegLayoutPreset,
   parseAnomalousEffects,
   segLayoutRingsForDraw
-} from '../shared/url-params.js';
+} from '../shared/url-params';
 import { WebGL2Context } from './webgl2-context.js';
 import { SkyGridRenderer } from './sky-grid-renderer.js';
 import { MeshRenderer } from './mesh-renderer.js';
@@ -61,7 +60,7 @@ import { telemetryHub, TelemetryHub } from '../../telemetry-hub';
 import { gpuChores, collectDeviceEnergies, meterLabEnergy, meterScalarFlux } from '../../gpu-chores';
 import { explainerState } from '../../seg-explainer/explainer-state.js';
 import { initSEGAnnotations } from '../../seg-annotations.js';
-import { segWasm } from '../../wasm/seg-physics-bridge.js';
+import { segWasm } from '../../wasm/seg-physics-bridge';
 import {
   getHeronLayout,
   HERON_LAYOUT_PRESETS,
@@ -73,7 +72,7 @@ import {
 } from '../../seg-layout.js';
 import { HardwareBridge, TWIN_MODES } from '../../hardware-bridge.js';
 import { initHardwarePanel } from '../../hardware-panel.js';
-import { buildHardwareTwinTelemetry } from '../../visualizer/hardware-twin.js';
+import { buildHardwareTwinTelemetry } from '../../visualizer/hardware-twin';
 
 class WebGL2DeviceState {
   constructor(id, config, visualizer) {

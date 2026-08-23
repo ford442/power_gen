@@ -119,7 +119,7 @@ declare global {
     syncHeronLayoutUI?: () => void;
     syncLayoutPanelsVisibility?: () => void;
     DEBUG_RENDERER?: string;
-    sciUI?: { toggle: () => void } | null;
+    sciUI?: { toggle: () => void; show?: () => void; hide?: () => void } | null;
     segTour?: SEGTourPlayer;
     captureParticleSubset?: (opts?: { deviceId?: string; maxCount?: number }) => Promise<unknown>;
     captureOverviewCull?: () => Promise<unknown>;
@@ -145,6 +145,14 @@ declare global {
     exportBenchmarkPack?: () => unknown;
     startSEGTour?: () => void;
     shareLabLink?: () => Promise<unknown>;
+
+    /** URL / window overrides shared by WebGPU + WebGL2 (url-params). */
+    SEG_PROTOTYPE_PRESET?: 'lab' | 'showroom';
+    SEG_SSR_ENABLED?: boolean;
+    SEG_LAYOUT_PRESET?: string;
+
+    /** WASM physics bridge singleton (seg-physics-bridge). */
+    segWasm?: unknown;
   }
 }
 

@@ -14,7 +14,7 @@
  * Layouts: docs/BINDINGS.md → `overviewCull`.
  */
 
-import { overviewLodLevel, overviewLodParticleCount } from '../renderers/shared/view-lod.js';
+import { overviewLodLevel, overviewLodParticleCount } from '../renderers/shared/view-lod';
 import { getDeviceParticleBudget } from './particle-budgets.js';
 
 /** Bytes per `DeviceBounds` entry (common/overview-cull.wgsl). */

@@ -1,7 +1,7 @@
 /**
  * SEG WebGPU Visualizer - TypeScript Module Exports
  *
- * Runtime entry is src/main.js (not this file). This barrel exports types,
+ * Runtime entry is src/main.ts (not this file). This barrel exports types,
  * constants, and integration helpers. Renderer selection lives in
  * src/renderers/renderer-selector.js (webgpu | webgl2).
  */
@@ -15,25 +15,19 @@ export type {
   Vec3,
   MagneticFieldVector,
   SEGPhysicsState,
-  
-  // Wolfram MCP types
-  MCPStatus,
-  WolframCacheEntry,
-  WolframMCPState,
-  WolframQueryOptions,
-  
+
   // Shader types
   ShaderModule,
   ComputePipelineConfig,
   RenderPipelineConfig,
-  
+
   // Integration types
   PhysicsConstants,
   SEGMagnetSpec,
   UncertaintyFlag,
   ValidationResult,
   PhysicsValueType,
-  MCPPersistenceData,
+  ConstantSource,
 } from './types';
 
 // ============================================
@@ -74,15 +68,6 @@ export {
 } from './fallback-physics';
 
 // ============================================
-// MCP Manager
-// ============================================
-
-export {
-  WolframMCPManager,
-  getWolframMCPManager,
-} from './mcp-manager';
-
-// ============================================
 // Integration Manager
 // ============================================
 
@@ -121,7 +106,6 @@ export {
 
 import { ValidatedConstants } from './ValidatedConstants';
 import { FallbackPhysics } from './fallback-physics';
-import { WolframMCPManager, getWolframMCPManager } from './mcp-manager';
 import { SEGIntegrationManager } from './integration';
 import type { SEGIntegrationOptions } from './integration';
 import { LEDSolarIntegration, LEDSolarSimulation, DEFAULT_BATTERY_CAPACITY } from './led-solar-integration';
@@ -133,8 +117,6 @@ import { LEDSolarConstants, LEDSolarPhysics, IVCurveCalculator } from './led-sol
 export default {
   ValidatedConstants,
   FallbackPhysics,
-  WolframMCPManager,
-  getWolframMCPManager,
   SEGIntegrationManager,
   LEDSolarIntegration,
   LEDSolarSimulation,

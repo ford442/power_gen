@@ -40,6 +40,7 @@ import {
 } from './heron-layout.js';
 import { setTransformerLeakage } from './devices/quanta/transformer.js';
 import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
+import { ScientificUIManager } from './scientific-ui/index.js';
 
 // Agent / e2e hooks
 window.telemetryHub = telemetryHub;
@@ -385,7 +386,11 @@ window.setRenderer = (name: string): void => {
   location.reload();
 };
 
-window.addEventListener('load', () => {
+/**
+ * Boot on DOMContentLoaded — do not wait for window `load`.
+ * Optional WASM/assets can delay `load`; agent hooks and sciUI must still start.
+ */
+function bootApp(): void {
   restoreSimulationSeedFromStorage();
   initWasm();
 
@@ -396,10 +401,10 @@ window.addEventListener('load', () => {
     }
   });
 
-  // Optional scientific gauge panel (Ctrl+Shift+S / toggle); subscribes to TelemetryHub
+  // Scientific gauge panel (Ctrl+Shift+S). Construct before WebGL2 bootstrap —
+  // SwiftShader can block the main thread so a late dynamic import never settles.
   try {
-    import('./scientific-ui/index.js').then(({ ScientificUIManager }) => {
-      if (window.sciUI) return;
+    if (!window.sciUI) {
       window.sciUI = new ScientificUIManager({ showToggle: true, subscribeToHub: true });
       window.addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.shiftKey && (e.key === 'S' || e.key === 's')) {
@@ -407,7 +412,7 @@ window.addEventListener('load', () => {
           window.sciUI?.toggle();
         }
       });
-    }).catch((err) => console.warn('[main] scientific-ui load skipped:', err));
+    }
   } catch (e) {
     console.warn('[main] scientific-ui init skipped:', e);
   }
@@ -468,7 +473,13 @@ window.addEventListener('load', () => {
     };
     requestAnimationFrame(tickClassroomUi);
   });
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootApp);
+} else {
+  bootApp();
+}
 
 // ── Telemetry / replay agent API ─────────────────────────────
 window.exportTelemetryCsv = () => {

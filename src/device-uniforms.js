@@ -2,7 +2,7 @@
  * DeviceUniformManager - Manages uniform buffer setup and updates for device instances
  * Handles: device uniforms, material uniforms, core material buffers, coil material buffers
  */
-import { getDeviceModeIndex } from './devices/device-registry.js';
+import { getDeviceModeIndex } from './devices/device-registry';
 
 class DeviceUniformManager {
   constructor(device, id, config, visualizer) {

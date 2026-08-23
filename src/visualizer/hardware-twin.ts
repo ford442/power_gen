@@ -2,19 +2,25 @@
 import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
 import { HardwareBridge, TWIN_MODES } from '../hardware-bridge.js';
+import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
+import type { HardwareTwinTelemetry } from '../telemetry/types';
+
+type Host = MultiDeviceVisualizer;
 
 /**
  * Build hub-facing hardware twin snapshot (includes shadowResidual).
- * @param {import('../hardware-bridge.js').HardwareBridge|null|undefined} hw
- * @returns {import('../telemetry/types').HardwareTwinTelemetry|null}
  */
-export function buildHardwareTwinTelemetry(hw) {
+export function buildHardwareTwinTelemetry(
+  hw: HardwareBridge | null | undefined
+): HardwareTwinTelemetry | null {
   if (!hw?.isConnected) return null;
+  const connectionState = hw.connectionKind as HardwareTwinTelemetry['connectionState'];
+  const twinMode = hw.twinMode as HardwareTwinTelemetry['twinMode'];
   return {
     connected: true,
     mock: !!hw.isMock,
-    connectionState: hw.connectionKind,
-    twinMode: hw.twinMode,
+    connectionState,
+    twinMode,
     sensorRpm: HardwareBridge.sanitizeRpm(hw.actualRpm),
     sensorPhase: hw.actualPhase,
     sensorVoltage: hw.actualVoltage ?? 0,
@@ -28,13 +34,17 @@ export function buildHardwareTwinTelemetry(hw) {
   };
 }
 
-export const hardwareTwinMethods = {
+export const hardwareTwinMethods: ThisType<Host> & {
+  _updateTachometer(): void;
+  _updateHardwareTwin(deltaTime: number): void;
+  _updateDeviceTelemetry(): void;
+} = {
   _updateTachometer() {
     const el = document.getElementById('tachometer');
     if (!el) return;
     const src = this.simRateController;
-    const fill = el.querySelector('.tach-fill');
-    const label = el.querySelector('.tach-label');
+    const fill = el.querySelector('.tach-fill') as HTMLElement | null;
+    const label = el.querySelector('.tach-label') as HTMLElement | null;
     if (fill) {
       fill.style.width = `${(src.tachFill * 100).toFixed(1)}%`;
       fill.style.background = `hsl(${src.tachHue}, 100%, 50%)`;
@@ -47,7 +57,7 @@ export const hardwareTwinMethods = {
     }
   },
 
-  _updateHardwareTwin(deltaTime) {
+  _updateHardwareTwin(deltaTime: number) {
     const hw = this.hardwareBridge;
     if (!hw?.isConnected) {
       this.hardwareTwinTelemetry = null;
@@ -100,7 +110,9 @@ export const hardwareTwinMethods = {
       dt: 0,
       view: this.currentView || 'overview',
       renderer: 'webgpu',
-      devicePhysics: TelemetryHub.collectDevicePhysics(this.devices),
+      devicePhysics: TelemetryHub.collectDevicePhysics(
+        this.devices as Record<string, { physicsState?: object; batteryCharge?: number }>
+      ),
       hardwareTwin: this.hardwareTwinTelemetry ?? null
     });
     if (this.currentView === 'heron' && typeof window.syncHeronLayoutUI === 'function') {

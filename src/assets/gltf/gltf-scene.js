@@ -2,10 +2,10 @@
  * Scene graph for loaded glTF assets — transform hierarchy, visibility, anchor baking.
  * Builds formal {@link SceneNode} trees (ADR-0005).
  */
-import { SceneNode } from '../scene/scene-node.js';
+import { SceneNode } from '../scene/scene-node';
 
-/** @typedef {import('../scene/scene-node.js').SceneAnchor} GltfAnchor */
-/** @typedef {import('../scene/scene-node.js').SceneAnnotation} GltfAnnotation */
+/** @typedef {import('../scene/scene-node').SceneAnchor} GltfAnchor */
+/** @typedef {import('../scene/scene-node').SceneAnnotation} GltfAnnotation */
 
 /**
  * @param {ReturnType<import('./gltf-loader.js').extractGltfMeshes>} extracted

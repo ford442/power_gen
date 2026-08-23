@@ -9,10 +9,11 @@
 | Item | Path |
 |------|------|
 | HTML | `src/index.html` |
-| Bootstrap | `src/main.js` |
-| WebGPU | `src/multi-device-visualizer.js` |
+| Bootstrap | `src/main.ts` |
+| WebGPU | `src/multi-device-visualizer.ts` |
 | WebGL2 | `src/renderers/webgl2/` |
 | Select backend | `src/renderers/renderer-selector.js` |
+| Device layout | `src/devices/device-config.ts` |
 | ADRs | `docs/adr/` |
 
 Vite **`root: 'src'`**. There is **no** root-level app tree and **no** `SEGVisualizer`.  
@@ -49,8 +50,8 @@ Hooks: `window.currentRenderer`, `window.getRendererInfo()`, `window.captureCanv
 
 | Use | For |
 |-----|-----|
-| **JS** | Bootstrap, renderers, geometry, UI |
-| **TS** | Constants, integration, WASM types |
+| **JS** | WebGL2, geometry builders, scientific-ui, debug-panel |
+| **TS** | Bootstrap, visualizer, registry/config, constants, WASM bridge |
 | **C++/WASM** | Optional plant (`?wasmPhysics=1`) |
 | **WGSL** | WebGPU shaders (`src/shaders/`) |
 | **GLSL** | WebGL2 only |

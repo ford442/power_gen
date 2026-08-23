@@ -2,6 +2,7 @@
 import { WebGPUManager } from '../webgpu-manager';
 import { MAX_ROLLERS } from '../seg-layout.js';
 import { packPostUniforms } from '../seg-lighting-presets.js';
+import { writeQueueBuffer } from '../gpu-buffer-write';
 import { getPostQualityGates } from '../post-processing-config.js';
 import { SSR_PARAMS_BYTES } from './scene-setup.js';
 import { segOperator } from '../seg-operator-state';
@@ -13,19 +14,82 @@ import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDra
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
 import { resolveScaledParticleCount } from '../devices/particle-budgets.js';
 import { expectedInstanceCount } from '../devices/overview-cull.js';
-import { syncEnergyCouplingDisclaimer } from '../renderers/shared/energy-network.ts';
+import { syncEnergyCouplingDisclaimer } from '../renderers/shared/energy-network.js';
+import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
+import type { DeviceInstance } from '../device-instance.js';
 
-function smoothstep(edge0, edge1, x) {
+type Host = MultiDeviceVisualizer;
+
+/** DeviceInstance plus optional plugin layout flags used by cull / budgets. */
+type RenderDevice = DeviceInstance & {
+  config: DeviceInstance['config'] & { cullRadius?: number; plugin?: boolean };
+};
+
+/** Loose WASM mode-plant snapshot (JS bridge return). */
+type WasmModePlant = {
+  mode?: string;
+  meanOmega?: number;
+  omega?: number;
+  head?: number;
+  vExit?: number;
+  flowLmin?: number;
+  pressureKPa?: number;
+  voltage?: number;
+  voltageN?: number;
+  E?: number;
+  sparkTimer?: number;
+  battery?: number;
+  hotK?: number;
+  coldK?: number;
+  deltaT?: number;
+  current?: number;
+  powerW?: number;
+  cop?: number;
+  energyLevel?: number;
+  flowU?: number;
+  bFieldT?: number;
+  hartmann?: number;
+  gap?: number;
+  gapVel?: number;
+  gapMm?: number;
+  fieldT?: number;
+  liftN?: number;
+  rpm?: number;
+  angle?: number;
+  emfV?: number;
+  currentA?: number;
+  i1?: number;
+  i2?: number;
+  v1?: number;
+  v2?: number;
+  k?: number;
+  fluxN?: number;
+};
+
+function smoothstep(edge0: number, edge1: number, x: number) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);
 }
 
-export const renderLoopMethods = {
-  renderAnomalyWalls(renderPass, globalUniformBuffer, segDevice) {
+export const renderLoopMethods: ThisType<Host> & {
+  renderAnomalyWalls(
+    renderPass: GPURenderPassEncoder,
+    globalUniformBuffer: GPUBuffer | null,
+    segDevice: DeviceInstance | null | undefined
+  ): void;
+  _dispatchSsr(encoder: GPUCommandEncoder): void;
+  render(timestamp: number): void;
+} = {
+  renderAnomalyWalls(
+    renderPass: GPURenderPassEncoder,
+    _globalUniformBuffer: GPUBuffer | null,
+    segDevice: DeviceInstance | null | undefined
+  ) {
     if (!this.anomalyWallPipeline || !this.magneticWallBuffer || !segDevice) return;
     if (this.anomalousEffectsEnabled === false) return;
+    if (!this.profiler || !this.anomalyWallParamsBuffer) return;
 
-    const envelope = segDevice._anomalyT || 0;
+    const envelope = (segDevice as RenderDevice)._anomalyT || 0;
     if (envelope <= 0.001) return;
 
     const quality = this.profiler.qualityLevel;
@@ -50,10 +114,11 @@ export const renderLoopMethods = {
    * Encode the SSR compute pass. View-space march parameters are in world
    * units; the camera's own projection is uploaded (plus its inverse) so the
    * shader unprojects depth exactly the way the scene pass projected it.
-   *
-   * @param {GPUCommandEncoder} encoder
    */
-  _dispatchSsr(encoder) {
+  _dispatchSsr(encoder: GPUCommandEncoder) {
+    if (!this.cameraController || !this.ssrParamsBuffer || !this.ssrPipeline || !this.ssrBindGroup) {
+      return;
+    }
     const proj = this.cameraController.getProjMatrix();
     const invProj = this.cameraController.invertMatrix(proj);
 
@@ -83,11 +148,26 @@ export const renderLoopMethods = {
     pass.end();
   },
 
-  render(timestamp) {
-    if (this.canvas.clientWidth < 1 || this.canvas.clientHeight < 1 || !this.depthAttachmentView) {
+  render(timestamp: number) {
+    if (
+      this.canvas.clientWidth < 1 ||
+      this.canvas.clientHeight < 1 ||
+      !this.depthAttachmentView ||
+      !this.profiler ||
+      !this.cameraController ||
+      !this.globalUniformBuffer ||
+      !this.lightingUniformBuffer ||
+      !this.context
+    ) {
       requestAnimationFrame((t) => this.render(t));
       return;
     }
+
+    const profiler = this.profiler;
+    const cameraController = this.cameraController;
+    const globalUniforms = this.globalUniformBuffer;
+    const lightingUniforms = this.lightingUniformBuffer;
+    const gpuContext = this.context;
 
     const deltaTime = (timestamp - this.lastFrameTime) / 1000;
     this.lastFrameTime = timestamp;
@@ -95,19 +175,20 @@ export const renderLoopMethods = {
     if (timestamp % 500 < 20) {
       this.fps = Math.round(1 / (deltaTime || 0.016));
       const fpsEl = document.getElementById('fps');
-      if (fpsEl) fpsEl.textContent = this.fps;
+      if (fpsEl) fpsEl.textContent = String(this.fps);
     }
     
-    const rawSpeed = parseFloat(document.getElementById('speedControl')?.value) ?? 50;
+    const speedControlEl = document.getElementById('speedControl') as HTMLInputElement | null;
+    const rawSpeed = parseFloat(speedControlEl?.value ?? '') || 50;
     // Logarithmic mapping: 0→0.05×, 50→1.0×, 100→20× (base 400)
     const speed = 0.05 * Math.pow(400, rawSpeed / 100);
     this.speedMult = speed;
     const simSteps = this.simRateController.tick(deltaTime, speed, {
-      qualityLevel: this.profiler.qualityLevel,
-      frameTimeMs: this.profiler.lastFrameTimeMs,
-      gpuTimeMs: this.profiler.lastGpuTimeMs
+      qualityLevel: profiler.qualityLevel,
+      frameTimeMs: profiler.lastFrameTimeMs,
+      gpuTimeMs: profiler.lastGpuTimeMs
     });
-    this.profiler.beginFrameCpu();
+    profiler.beginFrameCpu();
     // Optional C++ WASM plant (?wasmPhysics=1) — drives SEG omega + mode plant
     const replayLocked = !!(segOperator.replayMode || telemetryHub.isReplayMode?.());
     const useWasm = segWasm.enabled && !replayLocked;
@@ -119,22 +200,22 @@ export const renderLoopMethods = {
         segWasm.setMode(focus);
       }
       if (focus === 'transformer') {
-        const leak = !!this.devices.transformer?.physicsState?.transformerLeakage;
+        const leak = !!(this.devices.transformer as RenderDevice | undefined)?.physicsState?.transformerLeakage;
         segWasm.setTransformerLeakage?.(leak);
       }
       for (const subDt of simSteps) {
         if (subDt <= 0) continue;
         segOperator.step(subDt); // keep operator status machine in sync
-        const wr = segWasm.step(subDt, loadT, drive);
+        const wr = segWasm.step(subDt, loadT, drive) as WasmModePlant;
         // Live metric from zero-copy roller buffer / plant
         if (focus === 'seg' || focus === 'overview') {
           // Map WASM ring omega (rad/s) into normalized plant ω used by shaders
-          const wNorm = Math.min(1, Math.abs(wr.meanOmega ?? wr.omega) / 50);
+          const wNorm = Math.min(1, Math.abs(wr.meanOmega ?? wr.omega ?? 0) / 50);
           segOperator.physics.segOmega = Math.max(segOperator.physics.segOmega * 0.2, wNorm);
           segOperator.physics.corona = Math.max(0, Math.min(1, (wNorm - 0.6) / 0.4));
         } else if (focus === 'heron') {
-          const plant = segWasm.getModePlant();
-          const heron = this.devices.heron;
+          const plant = segWasm.getModePlant() as WasmModePlant | null;
+          const heron = this.devices.heron as RenderDevice | undefined;
           if (heron?.physicsState && plant) {
             heron.physicsState.heronHead = plant.head ?? heron.physicsState.heronHead;
             heron.physicsState.heronVExit = plant.vExit ?? heron.physicsState.heronVExit;
@@ -142,8 +223,8 @@ export const renderLoopMethods = {
             heron.physicsState.heronPressureKPa = plant.pressureKPa ?? 0;
           }
         } else if (focus === 'kelvin') {
-          const plant = segWasm.getModePlant();
-          const kelvin = this.devices.kelvin;
+          const plant = segWasm.getModePlant() as WasmModePlant | null;
+          const kelvin = this.devices.kelvin as RenderDevice | undefined;
           if (kelvin?.physicsState && plant) {
             kelvin.physicsState.kelvinV = plant.voltage ?? 0;
             kelvin.physicsState.kelvinVoltageN = plant.voltageN ?? 0;
@@ -151,15 +232,15 @@ export const renderLoopMethods = {
             kelvin.physicsState.kelvinSparkTimer = plant.sparkTimer ?? 0;
           }
         } else if (focus === 'solar') {
-          const plant = segWasm.getModePlant();
-          const solar = this.devices.solar;
+          const plant = segWasm.getModePlant() as WasmModePlant | null;
+          const solar = this.devices.solar as RenderDevice | undefined;
           if (solar && plant && typeof plant.battery === 'number') {
             solar.batteryCharge = plant.battery;
             if (solar.physicsState) solar.physicsState.batteryCharge = plant.battery;
           }
         } else if (focus === 'peltier') {
-          const plant = segWasm.getModePlant();
-          const peltier = this.devices.peltier;
+          const plant = segWasm.getModePlant() as WasmModePlant | null;
+          const peltier = this.devices.peltier as RenderDevice | undefined;
           if (peltier?.physicsState && plant) {
             peltier.physicsState.peltierHotK = plant.hotK ?? peltier.physicsState.peltierHotK;
             peltier.physicsState.peltierColdK = plant.coldK ?? peltier.physicsState.peltierColdK;
@@ -172,8 +253,8 @@ export const renderLoopMethods = {
             peltier.physicsState._wasmPlantActive = true;
           }
         } else if (focus === 'mhd') {
-          const plant = segWasm.getModePlant();
-          const mhd = this.devices.mhd;
+          const plant = segWasm.getModePlant() as WasmModePlant | null;
+          const mhd = this.devices.mhd as RenderDevice | undefined;
           if (mhd?.physicsState && plant) {
             mhd.physicsState.mhdFlowU = plant.flowU ?? 0;
             mhd.physicsState.mhdBFieldT = plant.bFieldT ?? 0;
@@ -185,8 +266,8 @@ export const renderLoopMethods = {
             mhd.physicsState._wasmPlantActive = true;
           }
         } else if (focus === 'maglev') {
-          const plant = segWasm.getModePlant();
-          const maglev = this.devices.maglev;
+          const plant = segWasm.getModePlant() as WasmModePlant | null;
+          const maglev = this.devices.maglev as RenderDevice | undefined;
           if (maglev?.physicsState && plant?.mode === 'maglev') {
             maglev.physicsState.maglevGap = plant.gap ?? maglev.physicsState.maglevGap;
             maglev.physicsState.maglevGapVel = plant.gapVel ?? maglev.physicsState.maglevGapVel;
@@ -198,8 +279,8 @@ export const renderLoopMethods = {
             maglev.physicsState._wasmPlantActive = true;
           }
         } else if (focus === 'homopolar') {
-          const plant = segWasm.getModePlant();
-          const homo = this.devices.homopolar;
+          const plant = segWasm.getModePlant() as WasmModePlant | null;
+          const homo = this.devices.homopolar as RenderDevice | undefined;
           if (homo?.physicsState && plant?.mode === 'homopolar') {
             homo.physicsState.homopolarOmega = plant.omega ?? 0;
             homo.physicsState.homopolarAngle = plant.angle ?? 0;
@@ -212,8 +293,8 @@ export const renderLoopMethods = {
             homo.physicsState._wasmPlantActive = true;
           }
         } else if (focus === 'transformer') {
-          const plant = segWasm.getModePlant();
-          const xfmr = this.devices.transformer;
+          const plant = segWasm.getModePlant() as WasmModePlant | null;
+          const xfmr = this.devices.transformer as RenderDevice | undefined;
           if (xfmr?.physicsState && plant?.mode === 'transformer') {
             xfmr.physicsState.transformerIpA = plant.i1 ?? 0;
             xfmr.physicsState.transformerIsA = plant.i2 ?? 0;
@@ -252,21 +333,21 @@ export const renderLoopMethods = {
     this._updateHardwareTwin(deltaTime);
 
     // Update camera
-    this.cameraController.updateCamera(deltaTime);
+    cameraController.updateCamera(deltaTime);
 
     // Needed twice: the GPU cull pass frustum and the global uniform upload.
-    const viewProj = this.cameraController.getViewProjMatrix();
+    const viewProj = cameraController.getViewProjMatrix();
 
     const canvasAspect = (this.canvas.width || 1) / Math.max(1, this.canvas.height || 1);
     const cullCamera = this.camera?.camera;
     // Plugin overview ring is 20 m — cull sphere must cover device extents there.
     const cullOpts = getOverviewCullOpts({ aspect: canvasAspect });
 
-    const isDeviceVisible = (device) => shouldSimulateDevice(
+    const isDeviceVisible = (device: RenderDevice) => shouldSimulateDevice(
       this.currentView,
       this.devicesEnabled,
       device.id,
-      device.position,
+      device.position as number[],
       cullCamera,
       {
         ...cullOpts,
@@ -276,12 +357,12 @@ export const renderLoopMethods = {
 
     // Update devices with view LOD × auto-quality × per-device tier budgets
     const explainerScale = explainerState.getParticleCapScale();
-    const meshLod = getViewMeshLod(this.currentView, this.profiler.qualityLevel);
+    const meshLod = getViewMeshLod(this.currentView, profiler.qualityLevel);
     const meshDetail = getMeshDrawDetail(meshLod);
     this._overviewMeshDetail = meshDetail;
     this.refreshSEGLayout(meshLod * explainerScale);
 
-    this.profiler.beginFrameDraws?.();
+    profiler.beginFrameDraws?.();
 
     // ── GPU cull / LOD path (ADR-0005 WS4) ───────────────────────────
     // In overview the CPU no longer resolves a particle budget per device:
@@ -291,24 +372,32 @@ export const renderLoopMethods = {
     const cull = this.isOverviewMode() && explainerScale >= 1 ? this.overviewCull : null;
     // Measured inside the draw-prep scope: the bounds upload is the CPU cost
     // this path trades the per-device budget ladder for.
-    const cullActive = !!(cull?.ready) && this.profiler.measureDrawPrep(() => cull.update({
-      devices: Object.values(this.devices),
-      cameraPos: cullCamera?.position || [0, 0, 0],
+    const cullActive = !!(cull?.ready) && profiler.measureDrawPrep(() => cull!.update({
+      devices: (Object.values(this.devices) as RenderDevice[]).map((d) => ({
+        id: d.id,
+        position: Array.from(d.position || [0, 0, 0]),
+        particleCount: d.particleCount,
+        config: d.config
+      })),
+      cameraPos: Array.from(cullCamera?.position || [0, 0, 0]),
       currentView: this.currentView,
-      qualityLevel: this.profiler.qualityLevel,
-      qualityTier: this.profiler.qualityTier || 'high',
+      qualityLevel: profiler.qualityLevel,
+      qualityTier: profiler.qualityTier || 'high',
       defaultRadius: cullOpts.radius,
-      isEnabled: (d) => isDeviceVisible(d),
-      viewProj,
+      isEnabled: (d: { id: string }) => {
+        const full = this.devices[d.id] as RenderDevice | undefined;
+        return !!full && isDeviceVisible(full);
+      },
+      viewProj: viewProj as Float32Array,
       margin: cullOpts.margin
     })) > 0;
     if (!cullActive) this.overviewCull?.setInactive();
     this._overviewCullActive = cullActive;
-    this.profiler.overviewCullActive = cullActive;
+    profiler.overviewCullActive = cullActive;
 
     let totalParticles = 0;
-    const qualityTier = this.profiler.qualityTier || 'high';
-    for (const device of Object.values(this.devices)) {
+    const qualityTier = profiler.qualityTier || 'high';
+    for (const device of Object.values(this.devices) as RenderDevice[]) {
       if (!isDeviceVisible(device)) continue;
 
       const viewLod = getViewParticleLod(this.currentView, device.id);
@@ -316,8 +405,8 @@ export const renderLoopMethods = {
 
       let scaledCount = 0;
       let particleScale = 1;
-      const slot = cullActive ? cull.slots[cull.slotIndex.get(device.id) ?? -1] : null;
-      this.profiler.measureDrawPrep(() => {
+      const slot = cullActive ? cull!.slots[cull!.slotIndex.get(device.id) ?? -1] : null;
+      profiler.measureDrawPrep(() => {
         if (slot) {
           // One distance-derived level; the GPU derives both the integration
           // threshold and the instance count from it.
@@ -330,7 +419,7 @@ export const renderLoopMethods = {
           scaledCount = resolveScaledParticleCount({
             deviceId: device.id,
             baseCount: device.particleCount,
-            qualityLevel: this.profiler.qualityLevel,
+            qualityLevel: profiler.qualityLevel,
             qualityTier,
             viewLod,
             explainerScale,
@@ -343,14 +432,14 @@ export const renderLoopMethods = {
           : getDeviceParticleScale({
               currentView: this.currentView,
               deviceId: device.id,
-              qualityLevel: this.profiler.qualityLevel,
+              qualityLevel: profiler.qualityLevel,
               explainerScale
             });
       });
 
       device._meshDrawDetail = this.isOverviewMode?.() ? meshDetail : 'full';
 
-      this.profiler.measureDevice(device.id, () => {
+      profiler.measureDevice(device.id, () => {
         device.update(deltaTime * speed, particleScale);
         // CPU path: budget may be below qualityScale*base — enforce resolved
         // count. GPU path: device.update already applied the LOD ladder.
@@ -359,7 +448,7 @@ export const renderLoopMethods = {
       totalParticles += device.scaledParticleCount || scaledCount;
     }
 
-    this.profiler.recordFrame(deltaTime, totalParticles);
+    profiler.recordFrame(deltaTime, totalParticles);
 
     // Update global uniforms with extended lighting data
     const globalData = new Float32Array(128); // 512 bytes / 4 = 128 floats
@@ -419,7 +508,7 @@ export const renderLoopMethods = {
     globalData[54] = ground.color[2];
     // padding at 55
     
-    this.device.queue.writeBuffer(this.globalUniformBuffer, 0, globalData);
+    this.device.queue.writeBuffer(globalUniforms, 0, globalData);
 
     // Upload centralized 3-point + environment lighting rig for all lit passes
     const lightingData = new Float32Array(48);
@@ -437,11 +526,18 @@ export const renderLoopMethods = {
     // 0 until the prefiltered chain is uploaded; pbr-eval.wgsl then switches
     // from the analytic approximation to the baked GGX levels.
     lightingData[35] = this.iblLevels || 0;
-    this.device.queue.writeBuffer(this.lightingUniformBuffer, 0, lightingData);
+    this.device.queue.writeBuffer(lightingUniforms, 0, lightingData);
 
     // Single telemetry write path after device physics (operator panel + gauges subscribe)
     const omega = this.segOmega || 0;
-    const lab = meterLabEnergy(collectDeviceEnergies(this.devices));
+    const lab = meterLabEnergy(
+      collectDeviceEnergies(
+        this.devices as Record<
+          string,
+          { energyLevel?: number; physicsState?: { energyLevel?: number } }
+        >
+      )
+    );
     const flux = meterScalarFlux(
       Object.values(this.devices).map((d) => d.scaledParticleCount || d.particleCount || 0),
       this.speedMult
@@ -458,7 +554,10 @@ export const renderLoopMethods = {
     };
     const segTelemetry = segOperator.computeTelemetry(deltaTime);
     const netSnap = this.energyNetwork?.update({
-      devices: this.devices,
+      devices: this.devices as Record<
+        string,
+        { energyLevel?: number; physicsState?: { energyLevel?: number } }
+      >,
       devicesEnabled: this.devicesEnabled,
       segPowerW: segTelemetry.power,
       segEfficiencyPct: segTelemetry.efficiency,
@@ -471,7 +570,9 @@ export const renderLoopMethods = {
       dt: deltaTime,
       view: this.currentView || 'overview',
       renderer: 'webgpu',
-      devicePhysics: TelemetryHub.collectDevicePhysics(this.devices),
+      devicePhysics: TelemetryHub.collectDevicePhysics(
+        this.devices as Record<string, { physicsState?: object; batteryCharge?: number }>
+      ),
       scientific,
       segTelemetry,
       energyNetwork: netSnap
@@ -493,9 +594,9 @@ export const renderLoopMethods = {
 
     if (this.isOverviewMode()) {
       const pipeLod = meshLod;
-      const pipeTier = this.profiler.qualityTier || 'high';
+      const pipeTier = profiler.qualityTier || 'high';
       for (const pipe of this.energyPipes) {
-        this.profiler.measureDevice(`pipe:${pipe.config.from}-${pipe.config.to}`, () => {
+        profiler.measureDevice(`pipe:${pipe.config.from}-${pipe.config.to}`, () => {
           pipe.update(deltaTime, this.devices, this.time, {
             lodScale: pipeLod,
             qualityTier: pipeTier
@@ -504,7 +605,7 @@ export const renderLoopMethods = {
       }
     }
 
-    const enabledDevices = Object.values(this.devices).filter((d) => this.isDeviceActive(d.id));
+    const enabledDevices = (Object.values(this.devices) as RenderDevice[]).filter((d) => this.isDeviceActive(d.id));
     const targetGlobalEnergy = enabledDevices.length
       ? enabledDevices.reduce((sum, d) => sum + (d.energyLevel || 0), 0) / enabledDevices.length
       : 0.0;
@@ -512,8 +613,9 @@ export const renderLoopMethods = {
     this.globalEnergyLevel += (targetGlobalEnergy - this.globalEnergyLevel) * globalSmooth;
     this._uploadSkyUniforms(this.globalEnergyLevel);
 
-    if (this.segAnnotations?.enabled) {
-      this.profiler.measureDevice('annotations', () => this.segAnnotations.update());
+    const annotations = this.segAnnotations as { enabled?: boolean; update?: () => void } | null | undefined;
+    if (annotations?.enabled) {
+      profiler.measureDevice('annotations', () => annotations.update?.());
     }
 
     // Begin command encoding
@@ -528,7 +630,7 @@ export const renderLoopMethods = {
 
     // SEG-specific compute: roller kinematics + RK4 flux line tracing.
     // These run first so rendering reads the freshly updated buffers.
-    const segDevice = this.devices['seg'];
+    const segDevice = this.devices['seg'] as RenderDevice | undefined;
     if (segDevice && isDeviceVisible(segDevice)) {
       if (segDevice.rollerComputePipeline && segDevice.rollerComputeBindGroup) {
         computePass.setPipeline(segDevice.rollerComputePipeline);
@@ -537,7 +639,7 @@ export const renderLoopMethods = {
       }
       // RK4 flux line tracer: one thread per flux line (up to 108).
       if (segDevice.fluxTracerPipeline && segDevice.fluxTracerBindGroup &&
-          this.profiler.qualityLevel > 0.32) {
+          profiler.qualityLevel > 0.32) {
         computePass.setPipeline(segDevice.fluxTracerPipeline);
         computePass.setBindGroup(0, segDevice.fluxTracerBindGroup);
         const fluxLines = this.segLayout?.totalFluxLines ?? 168;
@@ -545,16 +647,16 @@ export const renderLoopMethods = {
       }
     }
 
-    const xfmrDevice = this.devices['transformer'];
+    const xfmrDevice = this.devices['transformer'] as RenderDevice | undefined;
     if (xfmrDevice && isDeviceVisible(xfmrDevice)
         && xfmrDevice.transformerFluxPipeline && xfmrDevice.transformerFluxBindGroup
-        && this.profiler.qualityLevel > 0.28) {
+        && profiler.qualityLevel > 0.28) {
       computePass.setPipeline(xfmrDevice.transformerFluxPipeline);
       computePass.setBindGroup(0, xfmrDevice.transformerFluxBindGroup);
       computePass.dispatchWorkgroups(Math.ceil((xfmrDevice.transformerFluxLineCount || 24) / 64));
     }
 
-    for (const device of Object.values(this.devices)) {
+    for (const device of Object.values(this.devices) as RenderDevice[]) {
       if (!isDeviceVisible(device)) continue;
       if (device.computePipeline && device.computeBindGroup) {
         computePass.setPipeline(device.computePipeline);
@@ -571,11 +673,11 @@ export const renderLoopMethods = {
     }
     computePass.end();
     
-    this.profiler.writeTimestamp(encoder, 0);
+    profiler.writeTimestamp(encoder, 0);
     
     const sceneView = (this.bloomSceneTexture)
       ? this.bloomSceneTexture.createView()
-      : this.context.getCurrentTexture().createView();
+      : gpuContext.getCurrentTexture().createView();
 
     const renderPass = encoder.beginRenderPass({
       colorAttachments: [{
@@ -603,32 +705,32 @@ export const renderLoopMethods = {
     }
 
     // Render devices (scaled by quality)
-    const scaledQuality = this.profiler.qualityLevel;
-    for (const device of Object.values(this.devices)) {
+    const scaledQuality = profiler.qualityLevel;
+    for (const device of Object.values(this.devices) as RenderDevice[]) {
       if (!isDeviceVisible(device)) continue;
       // Skip expensive VFX at low quality — keep core meshes visible.
       const skipEffects = scaledQuality < 0.5;
-      this.profiler.measureDevice(`render:${device.id}`, () => {
-        device.render(renderPass, this.globalUniformBuffer, skipEffects);
+      profiler.measureDevice(`render:${device.id}`, () => {
+        device.render(renderPass, globalUniforms, skipEffects);
       });
     }
 
     // Roschin–Godin magnetic wall shells (drawn after SEG so they overlay the scene).
     if (segDevice && isDeviceVisible(segDevice)) {
-      this.renderAnomalyWalls(renderPass, this.globalUniformBuffer, segDevice);
+      this.renderAnomalyWalls(renderPass, globalUniforms, segDevice);
     }
 
     // Energy transfer pipes between devices (overview only).
     if (this.isOverviewMode() && this.energyPipePipeline && scaledQuality > 0.35) {
       for (const pipe of this.energyPipes) {
-        pipe.render(renderPass, this.globalUniformBuffer, this.energyPipePipeline);
+        pipe.render(renderPass, globalUniforms, this.energyPipePipeline);
       }
     }
 
     renderPass.end();
 
     // Auto-quality post gates (ADR-0005) — critical skips bloom extract/blur.
-    const postGates = getPostQualityGates(this.profiler?.qualityTier || 'high');
+    const postGates = getPostQualityGates(profiler.qualityTier || 'high');
     this._postQualityGates = postGates;
 
     // Preserve scene for overdrive motion blur only when the gate allows it.
@@ -678,8 +780,9 @@ export const renderLoopMethods = {
             bloomStrength: this.postBloomStrength ?? this.postPreset.post.bloomStrength
           }
         };
-        this.device.queue.writeBuffer(
-          this.bloomParamsBuffer, 0,
+        writeQueueBuffer(
+          this.device,
+          this.bloomParamsBuffer,
           packPostUniforms({
             width: w,
             height: h,
@@ -744,7 +847,7 @@ export const renderLoopMethods = {
       // Pass 4: composite scene + bloom → canvas with tonemap/post FX
       const compositePass = encoder.beginRenderPass({
         colorAttachments: [{
-          view: this.context.getCurrentTexture().createView(),
+          view: gpuContext.getCurrentTexture().createView(),
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
           loadOp: 'clear', storeOp: 'store'
         }]
@@ -756,15 +859,15 @@ export const renderLoopMethods = {
       compositePass.draw(3);
       compositePass.end();
     }
-    this.profiler.writeTimestamp(encoder, 1);
+    profiler.writeTimestamp(encoder, 1);
 
-    this.profiler.endFrameCpu();
+    profiler.endFrameCpu();
     
     this.device.queue.submit([encoder.finish()]);
     
     // Resolve timestamps asynchronously (guarded against overlapping map/submit)
-    if (this.profiler.timingEnabled) {
-      this.profiler.scheduleResolveTimestamps();
+    if (profiler.timingEnabled) {
+      profiler.scheduleResolveTimestamps();
     }
     
     requestAnimationFrame((t) => this.render(t));

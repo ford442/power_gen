@@ -4,7 +4,7 @@ import {
   instancesToBufferData,
   countInstances
 } from './device-mesh-layouts.js';
-import { getPluginMeshLayouts } from './devices/device-registry.js';
+import { getPluginMeshLayouts } from './devices/device-registry';
 import { MATERIAL_COPPER, MATERIAL_SHAFT, MATERIAL_STRUCTURAL } from './devices/material-roles.js';
 import { simRandom } from './telemetry/deterministic-rng';
 import { PARTICLE_LAYOUTS } from '../generated/physics-constants.js';

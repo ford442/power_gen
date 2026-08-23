@@ -299,7 +299,7 @@ export class DebugPanel {
 
     const refreshStatus = async () => {
       try {
-        const { segWasm } = await import('./wasm/seg-physics-bridge.js');
+        const { segWasm } = await import('./wasm/seg-physics-bridge');
         await segWasm.init();
         if (toggle) toggle.checked = segWasm.enabled;
         if (statusEl) {
@@ -314,7 +314,7 @@ export class DebugPanel {
     refreshStatus();
 
     toggle?.addEventListener('change', async (e) => {
-      const { segWasm } = await import('./wasm/seg-physics-bridge.js');
+      const { segWasm } = await import('./wasm/seg-physics-bridge');
       await segWasm.init();
       segWasm.setEnabled(e.target.checked);
       // Reload so MultiDeviceVisualizer picks enabled flag at init paths cleanly
@@ -339,7 +339,7 @@ export class DebugPanel {
       benchOut.style.display = 'block';
       benchOut.textContent = 'Running JS vs WASM benchmark…';
       try {
-        const { segWasm } = await import('./wasm/seg-physics-bridge.js');
+        const { segWasm } = await import('./wasm/seg-physics-bridge');
         await segWasm.init();
         const r = await segWasm.runJsVsWasmBenchmark(2000);
         benchOut.innerHTML = r.wasmAvailable
@@ -392,7 +392,7 @@ export class DebugPanel {
   async _updateWasmDiff() {
     const el = document.getElementById('wasmDiffReadout');
     if (!el) return;
-    const { segWasm } = await import('./wasm/seg-physics-bridge.js');
+    const { segWasm } = await import('./wasm/seg-physics-bridge');
     if (!segWasm.enabled) {
       el.textContent = 'Diff: enable WASM physics first';
       return;
@@ -782,66 +782,3 @@ export class DebugPanel {
           `• Target FPS: ${settings.targetFPS}`);
   }
 }
-
-// ============================================
-// DEVICE CONFIGURATION
-// ============================================
-export const DEVICE_CONFIG = {
-  seg: {
-    position: [0, 0, -8],
-    rotation: [0, 0, 0, 1],
-    cameraOffset: [0, 3, 8],
-    particleCount: 10000,
-    color: [0.0, 0.9, 1.0],
-    core: {
-      shaftRadius: 0.5,
-      shaftHeight: 6.0,
-      coreRadius: 1.2,
-      coreHeight: 3.0,
-      plateRadius: 3.0,
-      plateThickness: 0.3,
-      plateY: 2.5,
-      boltCount: 24,
-      boltRadius: 0.08,
-      boltHeight: 0.25,
-      baseColor: [0.53, 0.6, 0.67], // Steel gray #8899aa
-      coreColor: [0.0, 0.8, 0.9],   // Cyan-tinted NdFeB
-      glowColor: [0.0, 0.9, 1.0]    // Magnetic glow
-    }
-  },
-  heron: {
-    position: [-7, 0, 4],
-    rotation: [0, Math.PI / 6, 0],
-    cameraOffset: [0, 4, 8],
-    particleCount: 10000,
-    color: [0.0, 0.6, 1.0]
-  },
-  kelvin: {
-    position: [7, 0, 4],
-    rotation: [0, -Math.PI / 6, 0],
-    cameraOffset: [0, 4, 8],
-    particleCount: 10000,
-    color: [0.8, 0.5, 1.0]
-  },
-  solar: {
-    position: [0, 0, 8],
-    rotation: [0, 0, 0],
-    cameraOffset: [0, 4, 10],
-    particleCount: 10000,
-    color: [1.0, 0.9, 0.2]
-  },
-  peltier: {
-    position: [15, 0, -15],
-    rotation: [0, Math.PI / 4, 0],
-    cameraOffset: [0, 4, 15],
-    particleCount: 12000,
-    color: [0.2, 0.9, 0.4]
-  },
-  mhd: {
-    position: [-15, 0, -15],
-    rotation: [0, -Math.PI / 4, 0],
-    cameraOffset: [0, 5, 18],
-    particleCount: 14000,
-    color: [0.7, 0.6, 0.8]
-  }
-};

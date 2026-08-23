@@ -6,7 +6,8 @@ import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager';
 import { PipelineLayoutCache } from './pipeline-layout-cache';
 import { CameraController } from './camera-controller.js';
 import { PerformanceProfiler } from './performance-profiler.js';
-import { DebugPanel, DEVICE_CONFIG } from './debug-panel.js';
+import { DebugPanel } from './debug-panel.js';
+import { DEVICE_CONFIG } from './devices/device-config';
 import { getMergedDeviceConfig, getAllSimDeviceIds } from './devices/device-registry.js';
 import { DeviceInstance } from './device-instance.js';
 import { EnergyPipe } from './energy-pipe.js';
@@ -27,6 +28,7 @@ import {
   parseLightingLook,
   getLightingPreset,
 } from './seg-lighting-presets.js';
+import { writeQueueBuffer } from './gpu-buffer-write';
 import { segOperator } from './seg-operator-state';
 import { telemetryHub, TelemetryHub } from './telemetry-hub';
 import { segWasm } from './wasm/seg-physics-bridge.js';
@@ -69,6 +71,8 @@ import type {
 import type { HeronLayout } from './renderers/shared/device-physics';
 import type { PrototypePreset } from './renderers/shared/url-params.js';
 import type { LightingLook } from './seg-lighting-presets.js';
+import type { HardwareTwinTelemetry } from './telemetry/types';
+import { getPostQualityGates } from './post-processing-config.js';
 
 type HeronLayoutWithMeta = HeronLayout & { name: string; description: string };
 
@@ -77,31 +81,42 @@ type HeronLayoutWithMeta = HeronLayout & { name: string; description: string };
  * (Object.assign) — declared here via interface merging so the class body
  * above can call them with real signatures instead of falling back to `any`.
  */
+type PrimitiveMesh = { vertices: Float32Array; indices: Uint16Array };
+
 export interface MultiDeviceVisualizer {
   // primitiveMethods
-  generateCylinder(
-    radius: number,
-    height: number,
+  generateCylinder(radius: number, height: number, segments: number): PrimitiveMesh;
+  generateCylinderWithUVs(radius: number, height: number, segments: number): PrimitiveMesh;
+  generateDisc(
+    innerRadius: number,
+    outerRadius: number,
+    thickness: number,
     segments: number
-  ): { vertices: Float32Array<ArrayBuffer>; indices: Uint16Array<ArrayBuffer> };
-  generateCylinderWithUVs(...args: unknown[]): unknown;
-  generateDisc(...args: unknown[]): unknown;
-  generateDiscWithUVs(...args: unknown[]): unknown;
-  generateBoxWithUVs(...args: unknown[]): unknown;
+  ): PrimitiveMesh;
+  generateDiscWithUVs(
+    innerRadius: number,
+    outerRadius: number,
+    thickness: number,
+    segments: number
+  ): PrimitiveMesh;
+  generateBoxWithUVs(width: number, height: number, depth: number): PrimitiveMesh;
 
   // geometrySetupMethods
   setupSharedGeometry(): Promise<void>;
-  setupDefaultPrimitiveGeometry(...args: unknown[]): unknown;
-  setupGltfAssets(...args: unknown[]): Promise<unknown>;
+  setupDefaultPrimitiveGeometry(deviceId: string, config: { color?: unknown }): Promise<void>;
+  setupGltfAssets(
+    embeddedGlb?: ArrayBuffer,
+    opts?: { propBuffers?: Record<string, ArrayBuffer> }
+  ): Promise<void>;
   _setupCoreSEGSharedMeshes(): Promise<void>;
-  _setupAlternateDeviceSharedMeshes(...args: unknown[]): unknown;
+  _setupAlternateDeviceSharedMeshes(): Promise<void>;
 
   // sceneSetupMethods
   setupFloorGrid(): Promise<void>;
   setupSkyGradient(): Promise<void>;
   setupAnomalyWallPipeline(): Promise<void>;
   setupDepthBuffer(): Promise<void>;
-  setupBloomTextures(): unknown;
+  setupBloomTextures(): void;
   setupBloomPipeline(): Promise<void>;
   setupIblPrefilter(): { levels: number; cached: boolean; ms: number };
   refreshIblPrefilter(): void;
@@ -110,17 +125,23 @@ export interface MultiDeviceVisualizer {
   _waitForCanvasLayout(): Promise<void>;
   _observeCanvasLayout(): void;
   _syncCanvasSize(): Promise<void>;
-  _rebuildBloomBindGroups(): unknown;
+  _rebuildBloomBindGroups(): void;
   _rebuildSsrBindGroup(): void;
+  _uploadSkyUniforms(energy?: number): void;
+  _dispatchSsr(encoder: GPUCommandEncoder): void;
 
   // renderLoopMethods
   render(timestamp: number): void;
-  renderAnomalyWalls(...args: unknown[]): unknown;
+  renderAnomalyWalls(
+    renderPass: GPURenderPassEncoder,
+    globalUniformBuffer: GPUBuffer | null,
+    segDevice: DeviceInstance | null | undefined
+  ): void;
 
   // hardwareTwinMethods
-  _updateHardwareTwin(...args: unknown[]): unknown;
+  _updateHardwareTwin(deltaTime: number): void;
   _updateDeviceTelemetry(): void;
-  _updateTachometer(...args: unknown[]): unknown;
+  _updateTachometer(): void;
 
   // materialMethods
   setupMaterialTableBuffer(): void;
@@ -132,11 +153,33 @@ export interface MultiDeviceVisualizer {
 
   // gltfSetupMethods
   ensureGltfPropsForView(view: string): Promise<void>;
-  updateGltfHousingState(...args: unknown[]): unknown;
-  _loadGltfPropsForSegFocus(...args: unknown[]): unknown;
-  _loadGltfPropsForSegFocusInner(...args: unknown[]): unknown;
-  _disposeFocusOnlyGltfProps(...args: unknown[]): unknown;
-  _uploadGltfProp(...args: unknown[]): unknown;
+  updateGltfHousingState(): void;
+  _loadGltfPropsForSegFocus(): Promise<void>;
+  _loadGltfPropsForSegFocusInner(): Promise<void>;
+  _disposeFocusOnlyGltfProps(): void;
+  _uploadGltfProp(
+    prop: {
+      id: string;
+      url: string;
+      role: string;
+      loadPolicy: string;
+      enabled: () => boolean;
+      placeholder?: boolean;
+    },
+    ctx: { scale: number; yOffset: number; pickables: GltfPickable[] }
+  ): Promise<void>;
+}
+
+/** Minimal glTF pickable / annotation shapes used by CAD prop loaders. */
+export interface GltfPickable {
+  annotationId?: string | null;
+  propId?: string;
+  vertices?: Float32Array;
+  indices?: Uint16Array | Uint32Array;
+  worldMatrix?: Float32Array;
+  worldPosition?: number[];
+  pos?: number[];
+  id?: string;
 }
 
 export class MultiDeviceVisualizer implements VisualizerLike {
@@ -162,7 +205,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   hardwareTargetPhase: number;
   hardwareTargetSpeed: number;
   hardwareShadow: { phaseError: number; rpmError: number };
-  hardwareTwinTelemetry: unknown;
+  hardwareTwinTelemetry: HardwareTwinTelemetry | null;
 
   integration: SEGIntegrationManager | null;
   /** Manager-owned physics uniform buffer (alias). */
@@ -182,7 +225,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   simRateController: SimRateController;
 
   lightingLook: LightingLook;
-  lightingConfig: Record<string, unknown>;
+  lightingConfig: ReturnType<typeof getLightingPreset>['lighting'];
   postPreset: ReturnType<typeof getLightingPreset>;
   postExposure: number;
   postBloomStrength: number;
@@ -257,6 +300,67 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   // glTF housing (setup-gltf.js)
   gltfHousingEnabled?: boolean;
   gltfHousingDrawables?: GltfDrawable[] | null;
+  gltfHousingAnchors?: GltfPickable[];
+  gltfHousingPickables?: GltfPickable[];
+  gltfAnnotationPoints?: GltfPickable[];
+  gltfLoadedProps?: string[];
+  _gltfPropBuffers?: Record<string, ArrayBuffer> | null;
+  _gltfEmbeddedHousing?: ArrayBuffer | null;
+  _gltfLoadInFlight?: Promise<void> | null;
+  _gltfPickHandlerAttached?: boolean;
+
+  // Shared geometry extras (setup-geometry.js)
+  deviceGeometryBuffers?: Record<string, MeshBuffers & { color?: unknown }>;
+  coilUVBuffer?: MeshBuffers | null;
+  enhancedRollerBuffer?: MeshBuffers | null;
+  /** C-core pickup coil parts (core / winding / foot), not a single MeshBuffers. */
+  cCoreCoilBuffer?: {
+    core: MeshBuffers;
+    winding: MeshBuffers;
+    foot: MeshBuffers;
+  } | null;
+  coilWindingBuffer?: MeshBuffers | null;
+  magneticWallBuffer?: MeshBuffers | null;
+  connectionRingInstances?: GPUBuffer | null;
+  statorRingInstanceBuffer?: GPUBuffer | null;
+
+  // Scene / post (scene-setup.js)
+  depthTexture?: GPUTexture | null;
+  depthAttachmentView?: GPUTextureView | null;
+  depthSampleView?: GPUTextureView | null;
+  gridPipeline?: GPURenderPipeline | null;
+  gridVertexBuffer?: GPUBuffer | null;
+  gridBindGroup?: GPUBindGroup | null;
+  skyPipeline?: GPURenderPipeline | null;
+  skyBindGroup?: GPUBindGroup | null;
+  anomalyWallPipeline?: GPURenderPipeline | null;
+  anomalyWallParamsBuffer?: GPUBuffer | null;
+  anomalyWallBindGroup?: GPUBindGroup | null;
+  bloomSampler?: GPUSampler | null;
+  bloomParamsBuffer?: GPUBuffer | null;
+  bloomBlurDirXBuffer?: GPUBuffer | null;
+  bloomBlurDirYBuffer?: GPUBuffer | null;
+  bloomSceneTexture?: GPUTexture | null;
+  bloomBlurTexture?: GPUTexture | null;
+  bloomTempTexture?: GPUTexture | null;
+  prevSceneTexture?: GPUTexture | null;
+  bloomIntermediateFormat?: GPUTextureFormat;
+  bloomExtractPipeline?: GPURenderPipeline | null;
+  bloomBlurPipeline?: GPURenderPipeline | null;
+  bloomCompositePipeline?: GPURenderPipeline | null;
+  bloomExtractBindGroup?: GPUBindGroup | null;
+  bloomBlurXBindGroup?: GPUBindGroup | null;
+  bloomBlurYBindGroup?: GPUBindGroup | null;
+  bloomCompositeBindGroup?: GPUBindGroup | null;
+  _canvasResizeObserver?: ResizeObserver | null;
+  _lastCanvasWidth?: number;
+  _lastCanvasHeight?: number;
+
+  // Per-frame render-loop scratch
+  _overviewMeshDetail?: string;
+  _overviewCullActive?: boolean;
+  _postQualityGates?: ReturnType<typeof getPostQualityGates>;
+  _ssrActive?: boolean;
 
   constructor() {
     console.log('MultiDeviceVisualizer v5 starting - depthStencil fix applied');
@@ -586,7 +690,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   _uploadSkyUniforms(energy = 0): void {
     if (!this.skyUniformBuffer || !this.device) return;
     const sky = this.postPreset?.sky ?? getLightingPreset(this.lightingLook).sky;
-    this.device.queue.writeBuffer(this.skyUniformBuffer, 0, new Float32Array([
+    writeQueueBuffer(this.device, this.skyUniformBuffer, new Float32Array([
       sky.mode,
       sky.energy + energy * 0.5,
       0, 0
@@ -596,10 +700,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   refreshSEGLayout(qualityScale = 1.0): SegLayout {
     this.segLayout = computeSEGLayout(this.segLayoutPreset, qualityScale) as SegLayout;
     if (this.segLayoutUniformBuffer && this.device) {
-      this.device.queue.writeBuffer(
-        this.segLayoutUniformBuffer,
-        0,
-        packSEGLayoutUniforms(this.segLayout)
+      writeQueueBuffer(this.device, 
+        this.segLayoutUniformBuffer, packSEGLayoutUniforms(this.segLayout)
       );
     }
     return this.segLayout!;
@@ -712,8 +814,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     const maxH = 0.35;
     const height = minH + (maxH - minH) * clamped;
     const gaugeData = this.generateCylinder(0.3, height, 16);
-    this.device.queue.writeBuffer(this.batteryGaugeVertexBuffer, 0, gaugeData.vertices);
-    this.device.queue.writeBuffer(this.batteryGaugeIndexBuffer, 0, gaugeData.indices);
+    writeQueueBuffer(this.device, this.batteryGaugeVertexBuffer, gaugeData.vertices);
+    writeQueueBuffer(this.device, this.batteryGaugeIndexBuffer, gaugeData.indices);
     this.batteryGaugeIndexCount = gaugeData.indices.length;
   }
 

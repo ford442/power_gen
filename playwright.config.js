@@ -8,19 +8,22 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: process.env.CI ? 'github' : 'list',
-  timeout: 90_000,
+  // Cold Vite transform of the TS graph on SwiftShader VMs can exceed 90s.
+  timeout: 180_000,
   use: {
     baseURL: 'http://localhost:5173',
     ...devices['Desktop Chrome'],
     viewport: { width: 1280, height: 800 },
     trace: 'on-first-retry',
-    actionTimeout: 30_000,
-    navigationTimeout: 45_000,
+    actionTimeout: 60_000,
+    navigationTimeout: 90_000,
   },
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:5173',
+    // Hit the WebGL2 path so the first transform of main + webgl2 graph is warm
+    // before tests call gotoWebGL2.
+    url: 'http://localhost:5173/?renderer=webgl2',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 180_000,
   },
 });

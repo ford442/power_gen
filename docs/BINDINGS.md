@@ -1,7 +1,7 @@
 # WebGPU bind group contracts
 
 Canonical binding numbers for the multi-device WebGPU path.  
-**JS source of truth:** `src/pipeline-layout-cache.js`  
+**JS source of truth:** `src/pipeline-layout-cache.ts`  
 **WGSL source of truth:** `src/shaders/generators/*` and `src/shaders/*.wgsl`
 
 When changing a binding, update **both** the layout cache and the shaders in the same PR.
@@ -9,7 +9,7 @@ When changing a binding, update **both** the layout cache and the shaders in the
 ## New compute pass checklist
 
 1. Add a `@compute` entry in `src/shaders/passes/` (or a generator) with explicit `@binding` / `@group(0)`.
-2. Register `GPUBindGroupLayout` + `GPUPipelineLayout` in `src/pipeline-layout-cache.js` — **no** `layout: 'auto'`.
+2. Register `GPUBindGroupLayout` + `GPUPipelineLayout` in `src/pipeline-layout-cache.ts` — **no** `layout: 'auto'`.
 3. Document bindings in this file (table under **Group 0 layouts**).
 4. Run `npm run check:wgsl` so naga validates the expanded module.
 
@@ -208,4 +208,4 @@ Expect: **O(1) pipeline compiles per shader family**, not O(devices).
 
 ## Optional future: schema codegen
 
-A shared JSON/TS schema could emit WGSL `@binding` constants and JS layout entries. Until then, keep this file and `pipeline-layout-cache.js` manually aligned.
+A shared JSON/TS schema could emit WGSL `@binding` constants and JS layout entries. Until then, keep this file and `pipeline-layout-cache.ts` manually aligned.

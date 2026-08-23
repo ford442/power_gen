@@ -1,6 +1,6 @@
 /**
  * Core Type Definitions for SEG WebGPU Visualizer
- * Physics types, Wolfram MCP types, and Shader types
+ * Physics types and shader / integration helpers.
  */
 
 /// <reference types="@webgpu/types" />
@@ -31,35 +31,6 @@ export interface SEGPhysicsState {
   maxFieldMagnitude: number; // Tesla
   avgEnergyDensity: number;  // J/m³
   particleFlux: number;      // particles/second
-}
-
-// ============================================
-// Wolfram MCP types
-// ============================================
-
-export type MCPStatus = 'connected' | 'disconnected' | 'fallback';
-
-export interface WolframCacheEntry<T> {
-  query: string;
-  result: T;
-  timestamp: number;
-  source: 'wolfram' | 'cached' | 'fallback';
-  ttl: number;  // time to live in ms
-}
-
-export interface WolframMCPState {
-  status: MCPStatus;
-  lastQuery: number;
-  cacheHits: number;
-  cacheMisses: number;
-  fallbackCount: number;
-}
-
-export interface WolframQueryOptions {
-  timeout?: number;        // ms, default 5000
-  ttl?: number;            // ms, default 3600000 (1 hour)
-  retryCount?: number;     // default 3
-  useCache?: boolean;      // default true
 }
 
 // ============================================
@@ -111,11 +82,14 @@ export interface SEGMagnetSpec {
   magnetization: number;  // A/m
 }
 
+/** Provenance tag on UncertaintyFlag — 'wolfram' means validated offline, not a live MCP query. */
+export type ConstantSource = 'wolfram' | 'calculated' | 'estimated';
+
 export interface UncertaintyFlag {
   value: number;
   uncertainty: number;    // percentage (e.g., 0.05 for 5%)
   isValidated: boolean;
-  source: 'wolfram' | 'calculated' | 'estimated';
+  source: ConstantSource;
 }
 
 export interface ValidationResult {
@@ -126,9 +100,3 @@ export interface ValidationResult {
 }
 
 export type PhysicsValueType = 'field' | 'energy' | 'torque' | 'voltage' | 'force';
-
-export interface MCPPersistenceData {
-  cache: Array<[string, WolframCacheEntry<unknown>]>;
-  state: WolframMCPState;
-  timestamp: number;
-}

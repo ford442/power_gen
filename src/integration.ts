@@ -1,21 +1,16 @@
 /**
  * SEG Integration Manager
- * 
- * Main integration hub that coordinates:
- * - Wolfram MCP for physics calculations
- * - Scientific UI for visualization
- * - Physics state management
- * - Shader uniform generation
+ *
+ * Owns the typed physics GPU uniform buffer and LED/solar mode helpers.
+ * Authoritative constants: physics/constants.json → ValidatedConstants (ADR-0002/0006).
+ * Dashboard telemetry is TelemetryHub — not this manager's UI surface.
  */
 
 import type {
-  MCPStatus,
   SEGPhysicsState,
-  Vec3,
   PhysicsValueType,
   ValidationResult,
 } from './types';
-import { WolframMCPManager } from './mcp-manager';
 import { ValidatedConstants, formatUncertainValue } from './ValidatedConstants';
 import { FallbackPhysics, validatePhysics, UNCERTAINTY_LEVELS } from './fallback-physics';
 import { LEDSolarSimulation, LEDSolarSystemState, DEFAULT_BATTERY_CAPACITY } from './led-solar-integration';
@@ -67,7 +62,6 @@ interface PhysicsUniforms {
 
 interface ScientificUISurface {
   updateGauge(name: string, value: number | string, uncertainty?: number, isValidated?: boolean): void;
-  updateMCPStatus(status: MCPStatus): void;
   showError(message: string): void;
   destroy(): void;
 }
@@ -78,7 +72,6 @@ interface ScientificUISurface {
  */
 class NoOpScientificUI implements ScientificUISurface {
   updateGauge(): void { /* no-op — use TelemetryHub subscribers */ }
-  updateMCPStatus(): void { /* no-op */ }
   showError(message: string): void {
     console.error('[ScientificUI]', message);
   }
@@ -90,7 +83,6 @@ class NoOpScientificUI implements ScientificUISurface {
 // ============================================
 
 export class SEGIntegrationManager {
-  private wolfram: WolframMCPManager;
   private ui: ScientificUISurface;
   private physicsState: SEGPhysicsState;
   private device: GPUDevice;
@@ -99,8 +91,7 @@ export class SEGIntegrationManager {
   private physicsUniformBuffer: GPUBuffer | null = null;
   private lastUpdateTime: number = 0;
   private updateInterval: number = 100; // Update every 100ms
-  private pendingQueries: Set<string> = new Set();
-  
+
   // LED/Solar mode support
   private ledSolarSimulation: LEDSolarSimulation | null = null;
   private mode: 'seg' | 'ledsolar' | 'heron' | 'kelvin' = 'seg';
@@ -112,7 +103,6 @@ export class SEGIntegrationManager {
   ) {
     this.device = device;
     this.canvas = canvas;
-    this.wolfram = new WolframMCPManager();
     // Dashboard owns UI; enableScientificOverlay is retained for API compatibility only.
     this.ui = new NoOpScientificUI();
     if (options.enableScientificOverlay) {
@@ -123,8 +113,8 @@ export class SEGIntegrationManager {
     if (typeof options.updateIntervalMs === 'number' && options.updateIntervalMs > 0) {
       this.updateInterval = options.updateIntervalMs;
     }
-    
-    // Initialize physics state with fallback values
+
+    // Initialize physics state from ValidatedConstants / FallbackPhysics
     this.physicsState = this.initializePhysicsState();
 
     // GPU buffer for multi-device / shader binding (always allocated)
@@ -133,9 +123,6 @@ export class SEGIntegrationManager {
       size: PHYSICS_UNIFORM_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-
-    // Initialize MCP and UI
-    this.initialize();
   }
 
   private initializePhysicsState(): SEGPhysicsState {
@@ -152,44 +139,23 @@ export class SEGIntegrationManager {
     };
   }
 
-  private async initialize(): Promise<void> {
-    // NOTE: Wolfram MCP is disabled at runtime - using pre-calculated fallback values
-    // The physics constants were validated during development using Wolfram
-    this.ui.updateMCPStatus('disconnected');
-    
-    // Skip all MCP connection attempts - use fallback physics only
-    console.log('[SEGIntegration] Wolfram MCP disabled - using pre-validated fallback physics');
-  }
-
-  private async retryConnection(): Promise<void> {
-    // Disabled - no runtime Wolfram MCP calls
-    console.log('[SEGIntegration] MCP retry skipped - using fallback physics');
-  }
-
   /**
    * Called every simulation frame
    */
-  update(deltaTime: number, fieldData?: Float32Array): void {
+  update(_deltaTime: number, fieldData?: Float32Array): void {
     const now = Date.now();
-    
+
     // Throttle updates to avoid overwhelming the UI
     if (now - this.lastUpdateTime < this.updateInterval) {
       return;
     }
     this.lastUpdateTime = now;
 
-    // 1. Update physics calculations based on field data
     if (fieldData) {
       this.updatePhysicsFromFieldData(fieldData);
     }
 
-    // 2. Query Wolfram for any new needed values (async, non-blocking)
-    this.queryUpdatedValues();
-
-    // 3. Update UI gauges
     this.updateUIGauges();
-
-    // 4. Update timestamp
     this.physicsState.timestamp = now;
   }
 
@@ -221,12 +187,7 @@ export class SEGIntegrationManager {
     }
   }
 
-  private queryUpdatedValues(): void {
-    // DISABLED: No runtime Wolfram MCP queries
-    // Physics values use pre-calculated fallback constants from ValidatedConstants
-    // These were validated during development using Wolfram Alpha
-    return;
-  }
+
 
   private updateUIGauges(): void {
     const inner = ValidatedConstants.SEG_PHYSICS.INNER_RING_TORQUE;
@@ -350,38 +311,10 @@ export class SEGIntegrationManager {
   }
 
   /**
-   * Handle MCP connection events
-   */
-  onMCPStatusChange(status: MCPStatus): void {
-    this.ui.updateMCPStatus(status);
-    
-    switch (status) {
-      case 'connected':
-        console.log('[SEGIntegration] MCP connected - using authoritative values');
-        // Re-query physics constants with authoritative source
-        this.wolfram.initializePhysicsCache();
-        break;
-      case 'fallback':
-        console.log('[SEGIntegration] MCP in fallback mode - using estimated values');
-        break;
-      case 'disconnected':
-        console.log('[SEGIntegration] MCP disconnected - using cached/fallback values');
-        break;
-    }
-  }
-
-  /**
    * Get current physics state
    */
   getPhysicsState(): SEGPhysicsState {
     return { ...this.physicsState };
-  }
-
-  /**
-   * Get Wolfram MCP manager for direct access
-   */
-  getWolframManager(): WolframMCPManager {
-    return this.wolfram;
   }
 
   /**
@@ -395,11 +328,9 @@ export class SEGIntegrationManager {
    * Get physics statistics
    */
   getStats(): {
-    mcp: ReturnType<WolframMCPManager['getStats']>;
     physics: SEGPhysicsState;
   } {
     return {
-      mcp: this.wolfram.getStats(),
       physics: this.getPhysicsState(),
     };
   }

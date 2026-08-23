@@ -27,13 +27,10 @@ export const DEFAULT_DEVICE_CULL_RADIUS = 16;
 /** Matches `applyAutoLayout(..., { radius: 20 })` in device-registry. */
 export const OVERVIEW_LAYOUT_RADIUS = 20;
 
-/**
- * Extra particle LOD for a device given the current view.
- * @param {string} currentView
- * @param {string} deviceId
- * @returns {number} 0..1
- */
-export function getViewParticleLod(currentView, deviceId) {
+export type MeshDrawDetail = 'full' | 'simplified' | 'proxy' | 'skip';
+
+/** Extra particle LOD for a device given the current view (0..1). */
+export function getViewParticleLod(currentView: string | null | undefined, deviceId: string): number {
   if (!currentView || currentView === 'overview') return OVERVIEW_PARTICLE_LOD;
   if (currentView === deviceId) return FOCUS_PARTICLE_LOD;
   return 0;
@@ -42,11 +39,8 @@ export function getViewParticleLod(currentView, deviceId) {
 /**
  * Mesh / SEG layout quality scale for the active view.
  * Focus SEG keeps full qualityLevel; overview caps mesh fidelity.
- * @param {string} currentView
- * @param {number} qualityLevel 0..1
- * @returns {number}
  */
-export function getViewMeshLod(currentView, qualityLevel) {
+export function getViewMeshLod(currentView: string | null | undefined, qualityLevel: number): number {
   const q = Math.max(0, Math.min(1, qualityLevel));
   if (!currentView || currentView === 'overview') {
     return Math.min(q, OVERVIEW_MESH_LOD);
@@ -54,14 +48,8 @@ export function getViewMeshLod(currentView, qualityLevel) {
   return q;
 }
 
-/**
- * Overview / quality mesh draw ladder for non-SEG cylinder meshes.
- * @typedef {'full'|'simplified'|'proxy'|'skip'} MeshDrawDetail
- *
- * @param {number} meshLod from getViewMeshLod
- * @returns {MeshDrawDetail}
- */
-export function getMeshDrawDetail(meshLod) {
+/** Overview / quality mesh draw ladder for non-SEG cylinder meshes. */
+export function getMeshDrawDetail(meshLod: number): MeshDrawDetail {
   const m = Math.max(0, Math.min(1, meshLod));
   if (m >= 0.55) return 'full';
   if (m >= 0.35) return 'simplified';
@@ -69,13 +57,8 @@ export function getMeshDrawDetail(meshLod) {
   return 'skip';
 }
 
-/**
- * Instance count after mesh LOD (CPU prefix — draw first N instances).
- * @param {number} fullCount
- * @param {MeshDrawDetail|string} detail
- * @returns {number}
- */
-export function meshLodInstanceCount(fullCount, detail) {
+/** Instance count after mesh LOD (CPU prefix — draw first N instances). */
+export function meshLodInstanceCount(fullCount: number, detail: MeshDrawDetail | string): number {
   const n = Math.max(0, fullCount | 0);
   if (n <= 0 || detail === 'skip') return 0;
   if (detail === 'full') return n;
@@ -86,31 +69,28 @@ export function meshLodInstanceCount(fullCount, detail) {
 
 /**
  * Combined particle scale: auto-quality × view LOD × explainer cap.
- * Prefer {@link resolveScaledParticleCount} from particle-budgets.js when a
+ * Prefer resolveScaledParticleCount from particle-budgets.js when a
  * tier budget is available; this remains for callers that only need a scale.
- *
- * @param {object} opts
- * @param {string} opts.currentView
- * @param {string} opts.deviceId
- * @param {number} opts.qualityLevel
- * @param {number} [opts.explainerScale=1]
  */
-export function getDeviceParticleScale({
-  currentView,
-  deviceId,
-  qualityLevel,
-  explainerScale = 1
-}) {
+export function getDeviceParticleScale(opts: {
+  currentView: string;
+  deviceId: string;
+  qualityLevel: number;
+  explainerScale?: number;
+}): number {
+  const { currentView, deviceId, qualityLevel, explainerScale = 1 } = opts;
   const viewLod = getViewParticleLod(currentView, deviceId);
   if (viewLod <= 0) return 0;
   return Math.max(0.05, qualityLevel * viewLod * explainerScale);
 }
 
-/**
- * Cull options for overview frustum tests (plugin ring aware).
- * @param {{ aspect?: number, radius?: number, margin?: number, layoutRadius?: number }} [opts]
- */
-export function getOverviewCullOpts(opts = {}) {
+/** Cull options for overview frustum tests (plugin ring aware). */
+export function getOverviewCullOpts(opts: {
+  aspect?: number;
+  radius?: number;
+  margin?: number;
+  layoutRadius?: number;
+} = {}): { aspect: number; margin: number; radius: number } {
   const layoutRadius = opts.layoutRadius ?? OVERVIEW_LAYOUT_RADIUS;
   // Sphere must cover device extent on the layout ring without false-culling.
   const radius = opts.radius ?? Math.max(DEFAULT_DEVICE_CULL_RADIUS, layoutRadius * 0.8);
@@ -123,12 +103,12 @@ export function getOverviewCullOpts(opts = {}) {
 
 /**
  * Sphere-vs-camera frustum test (conservative; false negatives avoided via margin).
- * @param {number[]} devicePos [x,y,z]
- * @param {{ position: number[], target?: number[], fov?: number }} camera
- * @param {{ aspect?: number, radius?: number, margin?: number }} [opts]
- * @returns {boolean}
  */
-export function isDeviceInCameraFrustum(devicePos, camera, opts = {}) {
+export function isDeviceInCameraFrustum(
+  devicePos: number[],
+  camera: { position: number[]; target?: number[]; fov?: number },
+  opts: { aspect?: number; radius?: number; margin?: number } = {}
+): boolean {
   if (!devicePos || !camera?.position) return true;
 
   const radius = opts.radius ?? DEFAULT_DEVICE_CULL_RADIUS;
@@ -177,12 +157,8 @@ export const OVERVIEW_LOD_DISTANCES = [22, 38, 60];
  * `shaders/common/overview-lod.wgsl`. Both the cull pass (draw-indirect
  * instance count) and the particle compute pass (integration threshold) use
  * this ladder, so a device never draws particles that were not integrated.
- *
- * @param {number} baseCount
- * @param {number} lodLevel 0..3
- * @returns {number}
  */
-export function overviewLodParticleCount(baseCount, lodLevel) {
+export function overviewLodParticleCount(baseCount: number, lodLevel: number): number {
   const base = Math.max(0, Math.floor(baseCount) | 0);
   const lod = Math.max(0, Math.min(OVERVIEW_LOD_MAX, Math.floor(lodLevel) | 0));
   return base >>> lod;
@@ -195,15 +171,14 @@ export function overviewLodParticleCount(baseCount, lodLevel) {
  * plus a quality bias, versus the full `resolveScaledParticleCount` ladder.
  * The value is uploaded once per device (compute uniform + cull bounds entry),
  * and the GPU derives both the integration threshold and the draw count.
- *
- * @param {object} opts
- * @param {number[]} opts.devicePos
- * @param {number[]} opts.cameraPos
- * @param {number} [opts.qualityLevel=1] 0..1 auto-quality
- * @param {boolean} [opts.focused=false] device is the focused view (full detail)
- * @returns {number} 0..3
  */
-export function overviewLodLevel({ devicePos, cameraPos, qualityLevel = 1, focused = false }) {
+export function overviewLodLevel(opts: {
+  devicePos: number[];
+  cameraPos: number[];
+  qualityLevel?: number;
+  focused?: boolean;
+}): number {
+  const { devicePos, cameraPos, qualityLevel = 1, focused = false } = opts;
   if (focused) return 0;
   if (!devicePos || !cameraPos) return 0;
 
@@ -228,12 +203,12 @@ export function overviewLodLevel({ devicePos, cameraPos, qualityLevel = 1, focus
 
 /**
  * Whether the camera sits inside the SEG roller ring (optional instance culling).
- * @param {number[]} cameraPos
- * @param {number[]} segPos device origin
- * @param {number} outerOrbitRadius world units
- * @returns {boolean}
  */
-export function isCameraInsideSegRing(cameraPos, segPos, outerOrbitRadius) {
+export function isCameraInsideSegRing(
+  cameraPos: number[],
+  segPos: number[],
+  outerOrbitRadius: number
+): boolean {
   if (!cameraPos || !segPos || !(outerOrbitRadius > 0)) return false;
   const dx = cameraPos[0] - segPos[0];
   const dz = cameraPos[2] - segPos[2];
@@ -246,11 +221,12 @@ export function isCameraInsideSegRing(cameraPos, segPos, outerOrbitRadius) {
  * Instance count for SEG rollers: when the camera is inside the ring, drop the
  * rear half of instances (rough backface / occupancy cull). Layout order is
  * angular, so striding by 2 keeps rings evenly populated.
- * @param {number} totalRollers
- * @param {boolean} cameraInside
- * @param {boolean} [enabled=true]
  */
-export function cullSegRollerInstances(totalRollers, cameraInside, enabled = true) {
+export function cullSegRollerInstances(
+  totalRollers: number,
+  cameraInside: boolean,
+  enabled = true
+): number {
   if (!enabled || !cameraInside || totalRollers <= 4) return totalRollers;
   return Math.max(4, Math.floor(totalRollers * 0.55));
 }

@@ -1,8 +1,12 @@
 // Floor grid, sky, bloom, SSR, IBL prefilter, depth, and canvas resize.
 import { WebGPUManager, DEPTH_FORMAT } from '../webgpu-manager';
 import { packPostUniforms } from '../seg-lighting-presets.js';
-import { SSR_FORMAT } from '../pipeline-layout-cache';
+import { SSR_FORMAT, type BindGroupLayoutName } from '../pipeline-layout-cache';
 import { createIblResources, uploadIblForPreset } from '../ibl-prefilter.js';
+import { writeQueueBuffer } from '../gpu-buffer-write';
+import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
+
+type Host = MultiDeviceVisualizer;
 
 /** SSR runs at half resolution; the composite samples it with linear filtering. */
 export const SSR_RESOLUTION_SCALE = 0.5;
@@ -10,7 +14,23 @@ export const SSR_RESOLUTION_SCALE = 0.5;
 /** Bytes of the SsrParams uniform block — see passes/ssr-compute.wgsl. */
 export const SSR_PARAMS_BYTES = 176;
 
-export const sceneSetupMethods = {
+export const sceneSetupMethods: ThisType<Host> & {
+  setupIblPrefilter(): { levels: number; cached: boolean; ms: number };
+  refreshIblPrefilter(): void;
+  setupFloorGrid(): Promise<void>;
+  setupSkyGradient(): Promise<void>;
+  setupAnomalyWallPipeline(): Promise<void>;
+  _waitForCanvasLayout(): Promise<void>;
+  _observeCanvasLayout(): void;
+  _syncCanvasSize(): Promise<void>;
+  setupDepthBuffer(): Promise<void>;
+  setupSsrTexture(): void;
+  _rebuildSsrBindGroup(): void;
+  setupSsrPipeline(): Promise<void>;
+  setupBloomTextures(): void;
+  _rebuildBloomBindGroups(): void;
+  setupBloomPipeline(): Promise<void>;
+} = {
   /**
    * Bake the prefiltered GGX environment for the active lighting look and
    * upload it to the device (ADR-0005 WS2). Always-on: the texture is 224 KiB
@@ -51,7 +71,9 @@ export const sceneSetupMethods = {
   },
 
   async setupFloorGrid() {
-    this.gridPipeline = await this.pipelineCache.ensureGridPipeline(this.shaders);
+    const cache = this.pipelineCache;
+    if (!cache || !this.profiler) return;
+    this.gridPipeline = await cache.ensureGridPipeline(this.shaders);
 
     const gridVertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
     this.gridVertexBuffer = this.device.createBuffer({
@@ -62,19 +84,21 @@ export const sceneSetupMethods = {
     this.profiler.trackBuffer('gridVertices', gridVertices.byteLength, GPUBufferUsage.VERTEX);
 
     // Explicit empty bind group layout (grid shaders have no bindings)
-    this.gridBindGroup = this.pipelineCache.createBindGroup('empty', [], 'grid-bg');
+    this.gridBindGroup = cache.createBindGroup('empty', [], 'grid-bg');
   },
 
   async setupSkyGradient() {
+    const cache = this.pipelineCache;
+    if (!cache) return;
     this.skyUniformBuffer = this.device.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this._uploadSkyUniforms();
 
-    this.skyPipeline = await this.pipelineCache.ensureSkyPipeline(this.shaders);
+    this.skyPipeline = await cache.ensureSkyPipeline(this.shaders);
 
-    this.skyBindGroup = this.pipelineCache.createBindGroup(
+    this.skyBindGroup = cache.createBindGroup(
       'sky',
       [{ binding: 0, resource: { buffer: this.skyUniformBuffer } }],
       'sky-bg'
@@ -82,7 +106,9 @@ export const sceneSetupMethods = {
   },
 
   async setupAnomalyWallPipeline() {
-    this.anomalyWallPipeline = await this.pipelineCache.ensureAnomalyWallPipeline(this.shaders);
+    const cache = this.pipelineCache;
+    if (!cache || !this.profiler || !this.globalUniformBuffer) return;
+    this.anomalyWallPipeline = await cache.ensureAnomalyWallPipeline(this.shaders);
 
     this.anomalyWallParamsBuffer = this.device.createBuffer({
       label: 'anomaly-wall-params',
@@ -91,7 +117,7 @@ export const sceneSetupMethods = {
     });
     this.profiler.trackBuffer('anomaly-wall-params', 24, GPUBufferUsage.UNIFORM);
 
-    this.anomalyWallBindGroup = this.pipelineCache.createBindGroup(
+    this.anomalyWallBindGroup = cache.createBindGroup(
       'anomalyWall',
       [
         { binding: 0, resource: { buffer: this.globalUniformBuffer } },
@@ -101,7 +127,7 @@ export const sceneSetupMethods = {
     );
   },
 
-  _waitForCanvasLayout() {
+  _waitForCanvasLayout(): Promise<void> {
     const canvas = this.canvas;
     if (canvas.clientWidth >= 1 && canvas.clientHeight >= 1) {
       return Promise.resolve();
@@ -160,10 +186,13 @@ export const sceneSetupMethods = {
   },
 
   async setupDepthBuffer() {
+    if (!this.profiler) return;
     const { width, height } = WebGPUManager.canvasPixelSize(this.canvas);
     const depthFormat = this.depthFormat || this.webgpu.depthFormat || DEPTH_FORMAT;
     if (this.depthTexture) {
-      this.profiler.textureAllocations = this.profiler.textureAllocations.filter(t => !t.name.includes('depth'));
+      this.profiler.textureAllocations = this.profiler.textureAllocations.filter(
+        (t: { name: string }) => !t.name.includes('depth')
+      );
       this.depthTexture.destroy();
     }
     this.depthTexture = this.device.createTexture({
@@ -221,6 +250,8 @@ export const sceneSetupMethods = {
   },
 
   async setupSsrPipeline() {
+    const cache = this.pipelineCache;
+    if (!cache || !this.profiler) return;
     this.ssrEnabled = this.ssrEnabled !== false;
 
     this.ssrParamsBuffer = this.device.createBuffer({
@@ -232,7 +263,7 @@ export const sceneSetupMethods = {
 
     this.setupSsrTexture();
     try {
-      this.ssrPipeline = await this.pipelineCache.ensureSsrPipeline(this.shaders.ssrComputeShader);
+      this.ssrPipeline = await cache.ensureSsrPipeline(this.shaders.ssrComputeShader);
     } catch (e) {
       console.warn('[MultiDeviceVisualizer] SSR pipeline unavailable — reflections disabled:', e);
       this.ssrPipeline = null;
@@ -270,8 +301,9 @@ export const sceneSetupMethods = {
     });
 
     if (this.bloomParamsBuffer) {
-      this.device.queue.writeBuffer(
-        this.bloomParamsBuffer, 0,
+      writeQueueBuffer(
+        this.device,
+        this.bloomParamsBuffer,
         packPostUniforms({
           width: w,
           height: h,
@@ -293,33 +325,38 @@ export const sceneSetupMethods = {
       return;
     }
     const cache = this.pipelineCache;
-    const mk = (name, entries, label) => cache.createBindGroup(name, entries, label);
+    const paramsBuf = this.bloomParamsBuffer;
+    const dirX = this.bloomBlurDirXBuffer;
+    const dirY = this.bloomBlurDirYBuffer;
+    if (!paramsBuf || !dirX || !dirY) return;
+    const mk = (name: BindGroupLayoutName, entries: GPUBindGroupEntry[], label: string) =>
+      cache.createBindGroup(name, entries, label);
 
     this.bloomExtractBindGroup = mk('bloomExtract', [
       { binding: 0, resource: this.bloomSceneTexture.createView() },
       { binding: 1, resource: this.bloomSampler },
-      { binding: 2, resource: { buffer: this.bloomParamsBuffer } }
+      { binding: 2, resource: { buffer: paramsBuf } }
     ], 'bloom-extract-bg');
 
     this.bloomBlurXBindGroup = mk('bloomBlur', [
       { binding: 0, resource: this.bloomTempTexture.createView() },
       { binding: 1, resource: this.bloomSampler },
-      { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
-      { binding: 3, resource: { buffer: this.bloomBlurDirXBuffer } }
+      { binding: 2, resource: { buffer: paramsBuf } },
+      { binding: 3, resource: { buffer: dirX } }
     ], 'bloom-blur-x-bg');
 
     this.bloomBlurYBindGroup = mk('bloomBlur', [
       { binding: 0, resource: this.bloomBlurTexture.createView() },
       { binding: 1, resource: this.bloomSampler },
-      { binding: 2, resource: { buffer: this.bloomParamsBuffer } },
-      { binding: 3, resource: { buffer: this.bloomBlurDirYBuffer } }
+      { binding: 2, resource: { buffer: paramsBuf } },
+      { binding: 3, resource: { buffer: dirY } }
     ], 'bloom-blur-y-bg');
 
     this.bloomCompositeBindGroup = mk('bloomComposite', [
       { binding: 0, resource: this.bloomSceneTexture.createView() },
       { binding: 1, resource: this.bloomTempTexture.createView() },
       { binding: 2, resource: this.bloomSampler },
-      { binding: 3, resource: { buffer: this.bloomParamsBuffer } },
+      { binding: 3, resource: { buffer: paramsBuf } },
       { binding: 4, resource: this.depthSampleView },
       { binding: 5, resource: this.prevSceneTexture.createView() },
       { binding: 6, resource: this.ssrTextureView }
@@ -327,7 +364,8 @@ export const sceneSetupMethods = {
   },
 
   async setupBloomPipeline() {
-    const fmt = navigator.gpu.getPreferredCanvasFormat();
+    const cache = this.pipelineCache;
+    if (!cache) return;
 
     this.bloomSampler = this.device.createSampler({
       magFilter: 'linear', minFilter: 'linear',
@@ -349,10 +387,10 @@ export const sceneSetupMethods = {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
-    await this.pipelineCache.ensureBloomPipelines(this.shaders);
-    this.bloomExtractPipeline = this.pipelineCache.getPipeline('bloomExtract');
-    this.bloomBlurPipeline = this.pipelineCache.getPipeline('bloomBlur');
-    this.bloomCompositePipeline = this.pipelineCache.getPipeline('bloomComposite');
+    await cache.ensureBloomPipelines(this.shaders);
+    this.bloomExtractPipeline = cache.getPipeline('bloomExtract') as GPURenderPipeline;
+    this.bloomBlurPipeline = cache.getPipeline('bloomBlur') as GPURenderPipeline;
+    this.bloomCompositePipeline = cache.getPipeline('bloomComposite') as GPURenderPipeline;
 
     this.device.queue.writeBuffer(this.bloomBlurDirXBuffer, 0, new Float32Array([1, 0, 0, 0]));
     this.device.queue.writeBuffer(this.bloomBlurDirYBuffer, 0, new Float32Array([0, 1, 0, 0]));

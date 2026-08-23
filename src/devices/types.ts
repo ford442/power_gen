@@ -11,6 +11,7 @@ import type { PipelineLayoutCache, BindGroupLayoutName } from '../pipeline-layou
 import type { BindGroupCache } from '../renderers/shared/bind-group-cache';
 import type { DeviceMeshLayout } from '../device-mesh-layouts.js';
 import type { OverviewCullPass } from './overview-cull.js';
+import type { DeviceDashboardDefaults } from './device-config';
 
 export type { BindGroupLayoutName };
 
@@ -273,7 +274,7 @@ export interface VisualizerLike {
 
 /**
  * Structural view of DeviceInstance as seen by the update/render mixins.
- * DeviceInstance itself stays JS; the mixins bind against this contract.
+ * The mixins bind against this contract (implementation: `device-instance.ts`).
  */
 export interface DeviceInstanceLike {
   readonly id: string;
@@ -350,7 +351,7 @@ export interface DeviceInstanceLike {
   segEnhancedPipeline?: GPURenderPipeline | null;
   coilPipeline?: GPURenderPipeline | null;
   ringPipeline?: GPURenderPipeline | null;
-  /** Getter proxying pipelineManager.energyArcPipeline (device-instance.js). */
+  /** Getter proxying pipelineManager.energyArcPipeline (device-instance.ts). */
   energyArcPipeline?: GPURenderPipeline | null;
 
   // Scratch buffers lazily allocated by the mixins
@@ -387,7 +388,7 @@ export interface DeviceInstanceLike {
 
   getRingIndex: () => number;
 
-  // Mixin methods (bound onto the instance by device-instance.js)
+  // Mixin methods (bound onto the instance by device-instance.ts)
   _ensureBgCache: () => BindGroupCache;
   _cacheBg: (
     key: string,
@@ -439,7 +440,8 @@ export interface DevicePlugin {
   category?: string;
   modeIndex?: number;
   wasmMode?: number;
-  defaults?: Record<string, unknown>;
+  /** Floor layout / particle defaults (core devices share DEVICE_CONFIG entries). */
+  defaults?: DeviceDashboardDefaults;
   references?: unknown[];
   telemetrySchema?: Record<string, { label: string; unit?: string; source?: string }>;
   meshLayout?: DeviceMeshLayout;

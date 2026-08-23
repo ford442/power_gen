@@ -1,9 +1,10 @@
 /**
  * Register built-in core apparatus update/render strategies into the device registry.
- * Legacy DEVICE_CONFIG in debug-panel.js still supplies dashboard positions until full migration.
+ * Dashboard layout comes from DEVICE_CONFIG via each plugin's `defaults`.
  */
 
 import { registerDevice } from '../device-registry.js';
+import { DEVICE_CONFIG } from '../device-config';
 import { DEVICE_MESH_LAYOUTS } from '../../device-mesh-layouts.js';
 import type { DevicePlugin } from '../types';
 import {
@@ -42,6 +43,7 @@ const segPlugin: DevicePlugin = {
   category: 'core',
   modeIndex: 0,
   wasmMode: 0,
+  defaults: DEVICE_CONFIG.seg,
   getComputeSpeed: segGetComputeSpeed,
   updateDynamics: segUpdateDynamics,
   computeRawEnergy: segComputeRawEnergy,
@@ -57,6 +59,7 @@ const heronPlugin: DevicePlugin = {
   category: 'core',
   modeIndex: 1,
   wasmMode: 1,
+  defaults: DEVICE_CONFIG.heron,
   needsPhysicsState: true,
   meshLayout: DEVICE_MESH_LAYOUTS.heron,
   syncAfterPhysics: heronSyncAfterPhysics,
@@ -72,6 +75,7 @@ const kelvinPlugin: DevicePlugin = {
   category: 'core',
   modeIndex: 2,
   wasmMode: 2,
+  defaults: DEVICE_CONFIG.kelvin,
   needsPhysicsState: true,
   meshLayout: DEVICE_MESH_LAYOUTS.kelvin,
   syncAfterPhysics: kelvinSyncAfterPhysics,
@@ -87,6 +91,7 @@ const solarPlugin: DevicePlugin = {
   category: 'core',
   modeIndex: 3,
   wasmMode: 3,
+  defaults: DEVICE_CONFIG.solar,
   needsPhysicsState: true,
   meshLayout: DEVICE_MESH_LAYOUTS.solar,
   syncAfterPhysics: solarSyncAfterPhysics,
@@ -104,6 +109,7 @@ const peltierPlugin: DevicePlugin = {
   category: 'core',
   modeIndex: 4,
   wasmMode: 4,
+  defaults: DEVICE_CONFIG.peltier,
   needsPhysicsState: true,
   wasmSkipsJsPhysics: true,
   computeRawEnergy: peltierComputeRawEnergy,
@@ -133,6 +139,7 @@ const mhdPlugin: DevicePlugin = {
   category: 'core',
   modeIndex: 5,
   wasmMode: 5,
+  defaults: DEVICE_CONFIG.mhd,
   needsPhysicsState: true,
   wasmSkipsJsPhysics: true,
   computeRawEnergy: mhdComputeRawEnergy,

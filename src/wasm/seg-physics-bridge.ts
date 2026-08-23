@@ -1,17 +1,26 @@
 // =============================================================
-// seg-physics-bridge.js  –  Drop-in bridge for C++ WASM physics
+// seg-physics-bridge.ts  –  Drop-in bridge for C++ WASM physics
 //
 // Enable: ?wasmPhysics=1  or  localStorage useWasmPhysics=true
 // =============================================================
 
-import { SEGSim } from './sim';
+import {
+  SEGSim,
+  type SEGBenchmarkResult,
+  type JsVsWasmBenchmark,
+  type SEGNetworkEdgeInput,
+  type SEGNetworkSummary,
+  type SEGNetworkUpdateInput,
+  type SEGDevicePower,
+  type SEGStepResult
+} from './sim';
 
-let _instance = null;
+let _instance: SEGSim | null = null;
 let _enabled = false;
 /** Last zero-copy roller view used as a live metric */
 let _lastRollerMeanOmega = 0;
 
-function isWasmEnabled() {
+function isWasmEnabled(): boolean {
   if (typeof window === 'undefined') return false;
   const params = new URLSearchParams(window.location.search);
   if (params.get('wasmPhysics') === '1') return true;
@@ -19,9 +28,78 @@ function isWasmEnabled() {
   return localStorage.getItem('useWasmPhysics') === 'true';
 }
 
-const MODE_MAP = { seg: 0, heron: 1, kelvin: 2, solar: 3, peltier: 4, mhd: 5, maglev: 6, homopolar: 7, transformer: 8 };
+const MODE_MAP: Record<string, number> = {
+  seg: 0,
+  heron: 1,
+  kelvin: 2,
+  solar: 3,
+  peltier: 4,
+  mhd: 5,
+  maglev: 6,
+  homopolar: 7,
+  transformer: 8
+};
 
-export const segWasm = {
+export interface SegWasmStepResult extends SEGStepResult {
+  wasm: boolean;
+  meanOmega?: number;
+}
+
+export interface SegWasmBridge {
+  readonly available: boolean;
+  readonly enabled: boolean;
+  readonly lastRollerMeanOmega: number;
+
+  init(): Promise<SEGSim | null>;
+  dispose(): void;
+  setEnabled(enabled: boolean): void;
+  getVersion(): Promise<string>;
+
+  step(dt: number, loadTorque?: number, drive?: number): SegWasmStepResult | SEGStepResult;
+  getRollerState(loadTorque?: number): Promise<SegWasmStepResult | SEGStepResult>;
+  runBenchmark(steps?: number, loadTorque?: number): Promise<SEGBenchmarkResult>;
+  runJsVsWasmBenchmark(steps?: number): Promise<JsVsWasmBenchmark>;
+
+  setRingLoadTorque(ring: number, torque: number): void;
+  setRingLoadTorques(t0: number, t1: number, t2: number): void;
+  stepWithPerRingTorques(dt?: number): Promise<SegWasmStepResult | SEGStepResult>;
+
+  setMode(mode: string | number): void;
+  getMode(): number;
+  setDrive(drive: number): void;
+  setTransformerLeakage(enabled: boolean): void;
+  getModePlant(): unknown;
+
+  getParticles(maxCount?: number): unknown[];
+  getParticleFloatView(): Float32Array | null;
+  getRollerStateFloatView(): Float32Array | null;
+  meanParticleRadius(sample?: number): number;
+  seedParticles(count: number): void;
+  stepParticles(dt: number): void;
+
+  setNetworkEdges(edges: SEGNetworkEdgeInput[] | null | undefined): void;
+  updateEnergyNetwork(opts: {
+    couplingEnabled?: boolean;
+    segPowerW?: number;
+    segEfficiencyPct?: number;
+    energyByDevice?: Record<string, number>;
+    enabledByDevice?: Record<string, boolean>;
+  }): SEGNetworkSummary;
+  getNetworkSummary(): SEGNetworkSummary;
+  getNetworkEdgeAllocatedW(edgeIndex: number): number;
+  getNetworkDevicePower(deviceId: string): SEGDevicePower;
+}
+
+const idleStep = (): SegWasmStepResult => ({
+  omega: 0,
+  rpm: 0,
+  powerW: 0,
+  energyDensityJm3: 0,
+  simTimeS: 0,
+  wasm: false
+});
+
+export const segWasm: SegWasmBridge = {
   get available() {
     return _instance?.wasmAvailable ?? false;
   },
@@ -56,13 +134,12 @@ export const segWasm = {
    * Step plant for current mode. Uses setDrive + step.
    * Updates zero-copy roller metric when in SEG mode.
    */
-  step(dt, loadTorque = 0.01, drive = 0.5) {
+  step(dt: number, loadTorque = 0.01, drive = 0.5) {
     if (!this.enabled || !_instance) {
-      return { omega: 0, rpm: 0, powerW: 0, energyDensityJm3: 0, simTimeS: 0, wasm: false };
+      return idleStep();
     }
     _instance.setDrive?.(drive);
     const res = _instance.step(dt, loadTorque);
-    // Zero-copy live metric: mean omega from packed roller buffer
     const rollers = _instance.getRollerStateFloatView?.();
     if (rollers && rollers.length >= 4) {
       let s = 0;
@@ -106,7 +183,7 @@ export const segWasm = {
     return _instance.benchmarkJsVsWasm(steps);
   },
 
-  setEnabled(enabled) {
+  setEnabled(enabled: boolean) {
     _enabled = !!enabled;
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('useWasmPhysics', _enabled ? 'true' : 'false');
@@ -116,7 +193,7 @@ export const segWasm = {
 
   async getVersion() {
     if (!_instance) await this.init();
-    return _instance ? SEGSim.getVersion() : 'WASM not available';
+    return _instance ? await SEGSim.getVersion() : 'WASM not available';
   },
 
   dispose() {
@@ -124,23 +201,23 @@ export const segWasm = {
     _instance = null;
   },
 
-  setRingLoadTorque(ring, torque) {
+  setRingLoadTorque(ring: number, torque: number) {
     _instance?.setRingLoadTorque?.(ring, torque);
   },
 
-  setRingLoadTorques(t0, t1, t2) {
+  setRingLoadTorques(t0: number, t1: number, t2: number) {
     _instance?.setRingLoadTorques?.(t0, t1, t2);
   },
 
   async stepWithPerRingTorques(dt = 1 / 60) {
     if (!this.enabled || !_instance) {
-      return { omega: 0, rpm: 0, powerW: 0, energyDensityJm3: 0, simTimeS: 0, wasm: false };
+      return idleStep();
     }
     const res = _instance.stepWithPerRingTorques(dt);
     return { ...res, wasm: true };
   },
 
-  setMode(mode) {
+  setMode(mode: string | number) {
     const m = typeof mode === 'string' ? (MODE_MAP[mode] ?? 0) : mode;
     _instance?.setMode?.(m);
   },
@@ -149,11 +226,11 @@ export const segWasm = {
     return _instance?.getMode?.() ?? 0;
   },
 
-  setDrive(drive) {
+  setDrive(drive: number) {
     _instance?.setDrive?.(drive);
   },
 
-  setTransformerLeakage(enabled) {
+  setTransformerLeakage(enabled: boolean) {
     _instance?.setTransformerLeakage?.(!!enabled);
   },
 
@@ -166,7 +243,6 @@ export const segWasm = {
     return _instance.getParticles(maxCount) || [];
   },
 
-  /** Zero-copy particle Float32Array (or null) */
   getParticleFloatView() {
     if (!this.enabled || !_instance) return null;
     return _instance.getParticleFloatView?.() ?? null;
@@ -182,37 +258,42 @@ export const segWasm = {
     return _instance.meanParticleRadius?.(sample) ?? 0;
   },
 
-  seedParticles(count) {
+  seedParticles(count: number) {
     _instance?.seedParticles?.(count);
   },
 
-  stepParticles(dt) {
+  stepParticles(dt: number) {
     _instance?.stepParticles?.(dt);
   },
 
-  /**
-   * Lab energy bus — declarative edges (ADR-0004 Phase B).
-   * @param {Array<{from:string,to:string,maxWatts:number,efficiency?:number,latency?:number}>} edges
-   */
-  setNetworkEdges(edges) {
+  setNetworkEdges(edges: SEGNetworkEdgeInput[] | null | undefined) {
     _instance?.setNetworkEdges?.(edges ?? []);
   },
 
-  /**
-   * Update WASM bus allocation from per-device energy levels.
-   * @returns {{ couplingEnabled: boolean, labBudgetW: number, totalAllocatedW: number, residualW: number }}
-   */
-  updateEnergyNetwork({ couplingEnabled, segPowerW, segEfficiencyPct, energyByDevice, enabledByDevice }) {
+  updateEnergyNetwork({
+    couplingEnabled,
+    segPowerW,
+    segEfficiencyPct,
+    energyByDevice,
+    enabledByDevice
+  }: {
+    couplingEnabled?: boolean;
+    segPowerW?: number;
+    segEfficiencyPct?: number;
+    energyByDevice?: Record<string, number>;
+    enabledByDevice?: Record<string, boolean>;
+  }) {
     if (!this.enabled || !_instance) {
       return { couplingEnabled: false, labBudgetW: 0, totalAllocatedW: 0, residualW: 0 };
     }
-    return _instance.updateEnergyNetwork({
+    const input: SEGNetworkUpdateInput = {
       couplingEnabled: !!couplingEnabled,
       segPowerW: segPowerW ?? 0,
       segEfficiencyPct: segEfficiencyPct ?? 0,
       energyByDevice: energyByDevice ?? {},
       enabledByDevice: enabledByDevice ?? {}
-    });
+    };
+    return _instance.updateEnergyNetwork(input);
   },
 
   getNetworkSummary() {
@@ -222,12 +303,12 @@ export const segWasm = {
     return _instance.getNetworkSummary();
   },
 
-  getNetworkEdgeAllocatedW(edgeIndex) {
+  getNetworkEdgeAllocatedW(edgeIndex: number) {
     if (!this.enabled || !_instance) return 0;
     return _instance.getNetworkEdgeAllocatedW(edgeIndex) ?? 0;
   },
 
-  getNetworkDevicePower(deviceId) {
+  getNetworkDevicePower(deviceId: string) {
     if (!this.enabled || !_instance) {
       return { powerInW: 0, powerOutW: 0, efficiency: 0 };
     }
