@@ -40,8 +40,14 @@ jobs:
       - name: Physics constants codegen (CI check)
         run: npm run check:constants
 
+      - name: Device catalog codegen (CI check)
+        run: npm run check:catalog
+
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Post uniform contracts
+        run: npm run check:post
 
       - name: Build site (no WASM rebuild)
         run: npm run build:site

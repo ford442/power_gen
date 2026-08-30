@@ -1,17 +1,17 @@
 # WebGPU bind group contracts
 
 Canonical binding numbers for the multi-device WebGPU path.  
-**JS source of truth:** `src/pipeline-layout-cache.ts`  
-**WGSL source of truth:** `src/shaders/generators/*` and `src/shaders/*.wgsl`
+**Layout source of truth:** `src/pipeline-layout/` (re-exported from `src/pipeline-layout-cache.ts`)  
+**WGSL source of truth:** `src/shaders/passes/` + `src/shaders/common/`
 
-When changing a binding, update **both** the layout cache and the shaders in the same PR.
+When changing a binding, update **both** the layout module and the pass WGSL in the same PR.
 
-## New compute pass checklist
+## New pass checklist
 
-1. Add a `@compute` entry in `src/shaders/passes/` (or a generator) with explicit `@binding` / `@group(0)`.
-2. Register `GPUBindGroupLayout` + `GPUPipelineLayout` in `src/pipeline-layout-cache.ts` — **no** `layout: 'auto'`.
+1. Add a pass in `src/shaders/passes/` with explicit `@binding` / `@group(0)`.
+2. Register `GPUBindGroupLayout` + `GPUPipelineLayout` in the matching `src/pipeline-layout/layouts/*.ts` module — **no** `layout: 'auto'`.
 3. Document bindings in this file (table under **Group 0 layouts**).
-4. Run `npm run check:wgsl` so naga validates the expanded module.
+4. Run `npm run check:wgsl` and `npm run check:post` when CPU↔WGSL struct coupling exists.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ All current shaders use **@group(0)** only. Multi-group layouts can be added lat
 | 3 | uniform | FS | Material uniforms |
 | 5 | storage (read) | FS | Material table |
 
-WGSL: `roller-shaders.js`
+WGSL: `passes/roller-vert.wgsl`, `passes/roller-frag.wgsl`
 
 ### `particle` — particle billboards
 
@@ -48,7 +48,7 @@ WGSL: `roller-shaders.js`
 | 3 | uniform | FS | Material |
 | 4 | storage (read) | VS | `array<GpuParticle>` particles (16 B stride) |
 
-WGSL: `particle-shaders.js` + `common/particle.wgsl` (`GpuParticle`)
+WGSL: `passes/particle-vert.wgsl`, `passes/particle-frag.wgsl` + `common/particle.wgsl` (`GpuParticle`)
 
 ### `segEnhanced` — SEG PBR meshes
 
@@ -64,7 +64,7 @@ WGSL: `particle-shaders.js` + `common/particle.wgsl` (`GpuParticle`)
 | 7 | texture (2d-array) | FS | Prefiltered GGX environment |
 | 8 | sampler | FS | Environment sampler (linear, clamp) |
 
-WGSL: `seg-enhanced-shaders.js`
+WGSL: `passes/seg-enhanced-vert.wgsl`, `passes/seg-enhanced-frag.wgsl`
 
 Bindings 7–8 are the always-on prefiltered IBL chain (ADR-0005 WS2): a
 `rgba16float` 2D array baked at startup by `src/ibl-prefilter.js` and sampled in
@@ -94,6 +94,15 @@ radiance for roughness `i/(n-1)`; the last layer holds cosine irradiance.
 | 0 | uniform | VS+FS | Global frame |
 | 1 | uniform | VS+FS | Pipe uniforms |
 | 2 | storage (read) | VS | Pipe particles |
+
+### `energyPipeCompute` — overview pipe particle advection
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | storage (rw) | CS | `array<PipeParticle>` |
+| 1 | uniform | CS | `PipeCurve` (Bezier endpoints + flow) |
+
+WGSL: `passes/energy-pipe-compute.wgsl`
 
 ### `coil` — electromagnet coils
 
@@ -208,4 +217,4 @@ Expect: **O(1) pipeline compiles per shader family**, not O(devices).
 
 ## Optional future: schema codegen
 
-A shared JSON/TS schema could emit WGSL `@binding` constants and JS layout entries. Until then, keep this file and `pipeline-layout-cache.ts` manually aligned.
+A shared JSON/TS schema could emit WGSL `@binding` constants and JS layout entries. Until then, keep this file and `src/pipeline-layout/layouts/*.ts` manually aligned.

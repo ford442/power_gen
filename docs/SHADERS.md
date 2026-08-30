@@ -9,33 +9,26 @@ src/shaders/
   common/                 # Shared structs & PBR fragments (#include targets)
     particle.wgsl         # GpuParticle (16 B) + SimParticle (32 B, C++)
     pipe-particle.wgsl    # PipeParticle / PipeCurve (energy pipes)
-    field-particle.wgsl   # FieldParticle (SEG field lines)
-    seg-layout-uniforms.wgsl
-    roller-instance.wgsl
+    bloom-params.wgsl     # BloomParams (post stack — check:post contract)
     frame-uniforms.wgsl   # viewProj / time / cameraPos
     device-uniforms.wgsl  # 48 B device pack
     compute-uniforms.wgsl # particle compute uniforms (incl. GPU LOD level)
     overview-lod.wgsl     # overview particle LOD ladder (shared by 2 passes)
     overview-cull.wgsl    # device bounds / draw-indirect args / frustum test
     pbr-*.wgsl            # surface / BRDF / lighting / eval
-  passes/                 # Full entry-point modules (preferred for new work)
+  passes/                 # Full entry-point modules (canonical runtime WGSL)
     particle-compute.wgsl
-    seg-roller-compute.wgsl
-    field-advect-compute.wgsl
-    transformer-flux-compute.wgsl
-    chores-reduce-f32.wgsl
-    energy-pipe-compute.wgsl
-    overview-cull-compute.wgsl
-    ssr-compute.wgsl      # screen-space reflections (depth-only ray march)
-  generators/             # JS factories used by MultiDeviceShaders
-  *.wgsl                  # Legacy / specialized modules (flux, bloom, led-solar, …)
+    bloom-*.wgsl          # vert / extract / blur / composite
+    roller-*.wgsl, seg-enhanced-*.wgsl, …
+    ssr-compute.wgsl      # screen-space reflections
+  generators/             # Thin ?raw re-exports for MultiDeviceShaders
+  archive/                # Legacy / experimental WGSL (excluded from naga)
   wgsl-include.js         # Node preprocessor (#include)
   vite-plugin-wgsl-include.js
 ```
 
-**Runtime source of truth for multi-device:** `generators/*` + `passes/*` via
-`multi-device-shaders.js`. Prefer editing `passes/` and `common/` for anything
-shared; keep generators thin (import `?raw` or concatenate chunks).
+**Runtime source of truth:** `passes/*` + `common/*`. Generators only re-export
+`?raw` strings; **do not** add new `/* wgsl */` template literals in JS.
 
 ## Particle layout (single contract)
 
@@ -90,39 +83,26 @@ uses `node:fs`. Use `?raw` imports and let the Vite plugin expand includes.
    @fragment
    fn fs_main(/* … */) -> @location(0) vec4f { /* … */ }
    ```
-3. **Bind group** — register layout in `pipeline-layout-cache.ts` and document
-   in `docs/BINDINGS.md`.
-4. **Wire runtime** — either:
-   - `import code from '../passes/my-pass.wgsl?raw'` in a generator, or
-   - add getters on `MultiDeviceShaders`.
-5. **Validate** — `npm run check:wgsl` (requires naga for hard fail in CI).
-6. **Optional WebGL2** — mirror in `renderers/webgl2/` only if the feature is
-   required on the fallback path (`docs/WEBGL2.md`).
+3. **Bind group** — register layout in `src/pipeline-layout/layouts/*.ts` and
+   document in `docs/BINDINGS.md`.
+4. **Wire runtime** — thin `?raw` re-export in a generator (or direct import in
+   `multi-device-shaders.js`).
+5. **Validate** — `npm run check:wgsl`; add a `check:post` case if CPU packs a
+   matching struct.
+6. **Optional WebGL2** — mirror in `renderers/webgl2/` only if required
+   (`docs/WEBGL2.md`).
 
-### Generator-only passes (legacy style)
-
-```js
-import frame from '../common/frame-uniforms.wgsl?raw';
-
-export function getMyVertShader() {
-  return /* wgsl */ `
-${frame}
-@vertex fn main() -> @builtin(position) vec4f {
-  return vec4f(0.0);
-}
-`;
-}
-```
-
-`scripts/extract-wgsl.mjs` pulls these templates for naga when they contain
-entry-point attributes.
+**Rule:** no new `/* wgsl */` strings in JS on the WebGPU path.
 
 ## CI validation
 
 ```bash
 npm run check:wgsl          # local: skip if naga missing
+npm run check:post          # CPU↔WGSL post contracts
 REQUIRE_NAGA=1 npm run check:wgsl   # CI (validate.yml)
 ```
+
+`npm run validate` runs both checks (among others).
 
 Flow:
 
@@ -144,9 +124,8 @@ N floats on the CPU and read as M fields in WGSL — both sides stay individuall
 valid while the frame silently corrupts. `check:post` closes that gap for the
 post stack:
 
-- every `BloomParams` copy (3 generator templates + `bloom-composite.wgsl`)
-  has the same field count `packPostUniforms()` emits, and `bloomParamsBuffer`
-  is sized for it
+- `BloomParams` in `common/bloom-params.wgsl` has the same field count
+  `packPostUniforms()` emits, and `bloomParamsBuffer` is sized for it
 - `SsrParams` in `ssr-compute.wgsl` matches `SSR_PARAMS_BYTES` and is 16-byte
   aligned
 - `IBL_TEX_SIZE` / `IBL_SPEC_LEVELS` agree between `ibl-prefilter.js` and
@@ -157,23 +136,11 @@ and declared in WGSL.
 
 ## Particle mode indices
 
-`passes/particle-compute.wgsl` (and WebGL2 `particle-physics.ts`) branch on
-`uniforms.mode` / device mode index from `getDeviceModeIndex()`:
-
-| Mode | Device id | Position helper |
-|------|-----------|-----------------|
-| 0 | `seg` | `posSEG` |
-| 1 | `heron` | `posHeron` |
-| 2 | `kelvin` | `posKelvin` |
-| 3 | `solar` | `posSolar` |
-| 4–5 | `peltier` / `mhd` | `posPeltier` (shared thermal/channel cue) |
-| 6 | `maglev` | `posMagLev` |
-| 7 | `pulse-coil` | `posPulseCoil` |
-| 8 | `homopolar` | `posHomopolar` |
-| 9 | `halbach-viz` | `posHalbach` |
-
-Plugin devices register `modeIndex` in `device-registry`. Physics uniforms
-`physics0..3` carry per-mode scalars (gap, current, armature travel, …).
+`passes/particle-compute.wgsl` compares `u32(uniforms.mode + 0.5)` to named
+constants from `#include "generated/device-catalog.wgsl"` (`MODE_HOMOPOLAR`,
+…). Numbers come from `physics/devices.json` `shaderMode` (not C++ `SimMode`).
+See [`MODE_MATRIX.md`](MODE_MATRIX.md). Physics uniforms `physics0..3` carry
+per-mode scalars.
 
 ## naga vs Chrome (Tint) differences
 
@@ -201,9 +168,7 @@ cargo install naga-cli --version 0.19.0 --locked
 
 ## PBR chunks
 
-`common/pbr-*.wgsl` are the source files. `generators/pbr-wgsl-chunks.js`
-re-exports them via `?raw` for string concatenation in roller / seg-enhanced
-shaders. Passes may also:
+`common/pbr-*.wgsl` are the source files. Pass files `#include` them directly:
 
 ```wgsl
 #include "common/pbr-surface.wgsl"
@@ -212,16 +177,18 @@ shaders. Passes may also:
 #include "common/pbr-eval.wgsl"
 ```
 
-## Legacy root `.wgsl` files
+`generators/pbr-wgsl-chunks.js` remains a thin `?raw` re-export for any legacy
+call sites.
 
-Some top-level files (`compute.wgsl`, `particles.wgsl`, `lightning.wgsl`) are
-**stale duplicates** of flux-related content and are **not** the multi-device
-particle path. Prefer `passes/particle-compute.wgsl` and generators. Flux lines
-live in `flux-lines.wgsl` and `generators/field-line-shaders.js`.
+## Archive
+
+Stale duplicates (`compute.wgsl`, `particles.wgsl`, `lightning.wgsl`, …) and
+the experimental LED/solar suite live under `src/shaders/archive/`. That tree
+is **excluded** from `npm run check:wgsl` unless explicitly opted in.
 
 ## Post stack (WebGPU bloom / filmic)
 
-Runtime source: `src/shaders/generators/bloom-shaders.js` (wired via
+Runtime source: `passes/bloom-*.wgsl` (via thin `generators/bloom-shaders.js` →
 `multi-device-shaders.js` → `pipeline-layout-cache`).
 
 | Pass | Entry | Notes |
@@ -238,7 +205,7 @@ Runtime source: `src/shaders/generators/bloom-shaders.js` (wired via
    `packPostUniforms()` in `seg-lighting-presets.js`.
 3. Auto-quality tiers scale post cost via `getPostQualityGates()` in
    `post-processing-config.js` (critical skips bloom extract/blur; disables SSAO + motion blur).
-4. Run `npm run check:wgsl` after editing bloom generators.
+4. Run `npm run check:wgsl` and `npm run check:post` after editing bloom passes.
 5. WebGL2 does **not** run this stack — document gaps in `WEBGL2.md`.
 
 IBL: `approximateIBL` / `envRadiance` in `common/pbr-eval.wgsl` — analytic 3-mip

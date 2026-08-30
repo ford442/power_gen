@@ -9,8 +9,8 @@
  * is skipped entirely below that, independent of the `?ssr=0` kill switch in
  * renderers/shared/url-params.js (which disables SSR at any tier).
  *
- * The prefiltered IBL chain is deliberately *not* gated — it is a 224 KiB
- * texture read that replaces a longer polynomial, so it is always on.
+ * The prefiltered IBL chain is skipped on fallback/software adapters
+ * (`iblLevels = 0` → analytic PBR). On real GPUs it stays on — 224 KiB.
  */
 
 export {

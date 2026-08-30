@@ -21,7 +21,7 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 | **Shaders** | `src/shaders/` — see [`SHADERS.md`](./SHADERS.md) |
 | **C++ / WASM physics** | `cpp/src/sim_core.*` + `src/wasm/seg-physics-bridge.ts` |
 | **Telemetry** | `src/telemetry-hub.ts` + `src/telemetry/` — see [`TELEMETRY.md`](./TELEMETRY.md) |
-| **Architecture decisions** | [`docs/adr/`](./adr/) (dual renderer, WASM, no Three.js, energy network) |
+| **Architecture decisions** | [`docs/adr/`](./adr/) (dual renderer, WASM, device catalog, …) |
 
 ```text
 Browser loads src/index.html
@@ -110,7 +110,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 **Rules**
 
 - New physics math and public numeric APIs → **TypeScript** (or C++ if part of the WASM plant).
-- New draw/compute passes → **WGSL** + `pipeline-layout-cache.ts` (add the layout name to the `BindGroupLayoutName` union) + [`BINDINGS.md`](./BINDINGS.md); document in [`SHADERS.md`](./SHADERS.md).
+- New draw/compute passes → **WGSL** in `passes/` + layout in `src/pipeline-layout/layouts/*.ts` + [`BINDINGS.md`](./BINDINGS.md); `check:wgsl` + `check:post` when CPU structs couple; document in [`SHADERS.md`](./SHADERS.md). No new `/* wgsl */` in JS.
 - New device plugins implement the `DevicePlugin` interface from `src/devices/types.ts` — the single source of truth for plugin hooks and the `DeviceInstanceLike` / `VisualizerLike` shapes the mixins bind to. Layout defaults go on `plugin.defaults` (core devices share `DEVICE_CONFIG` from `devices/device-config.ts`).
 - `npm run typecheck` covers **`src/**/*.ts` only**. `tsconfig` uses **`allowJs: true` / `checkJs: false`** so JS modules can be imported; remaining JS is not typechecked in CI. JS modules that TS imports may carry a hand-written `.d.ts`.
 - Runtime entry is **`src/main.ts`**. `index.ts` is a typed **barrel**, not the app entry.
@@ -197,7 +197,7 @@ power_gen/
 
 **Frame loop (both backends):** SimRateController substeps → optional WASM plant → per-device update → `TelemetryHub.publishFrame` → encode draw.
 
-**WebGPU context (high level):** one `requestAdapter` / device in `WebGPUManager`; depth `depth24plus`; canvas preferred format, `alphaMode: 'opaque'`. Full matrix: [`WEBGPU.md`](./WEBGPU.md). WebGL2 gaps: [`WEBGL2.md`](./WEBGL2.md).
+**WebGPU context (high level):** one adapter/device in `WebGPUManager` (`featureLevel: core` with compatibility retry); depth `depth24plus` or `depth32float` when SSR is on; canvas preferred format, `alphaMode: 'opaque'`, explicit `colorSpace` + `toneMapping`. Full matrix: [`WEBGPU.md`](./WEBGPU.md). WebGL2 gaps: [`WEBGL2.md`](./WEBGL2.md).
 
 Architecture decisions: [`docs/adr/`](./adr/).
 
@@ -213,6 +213,9 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `wasmPhysics` | `1` | off | Enable C++ WASM plant (`seg-physics-bridge`) |
 | `wasm` | `1` | off | Alias of `wasmPhysics=1` |
 | `gpuTiming` | `1` | off | Request `timestamp-query` feature; enable queries in debug panel after reload |
+| `p3` | `1` | off | WebGPU canvas `colorSpace: 'display-p3'` (default `srgb` for CI screenshots) |
+| `hdr` | `1` | off | Canvas `toneMapping.mode: 'extended'` **only if** the display reports `(dynamic-range: high)`; can double-tonemap vs bloom ACES |
+| `capture` | `1` | off | WebGL2 `preserveDrawingBuffer: true` (also on when `navigator.webdriver`) |
 | `layout` | `searl` \| `roschin` \| `legacy` | preset default | SEG layout pack |
 | `heronLayout` | preset id | stored / default | Heron vessel layout |
 | `prototype` | `lab` \| `showroom` \| `searl` \| `roschin` \| `godin` | showroom-ish | SEG roller prototype look / lab effects |
@@ -287,8 +290,9 @@ npm run dev           # Vite → http://localhost:5173/
 npm run build:site    # vite build (uses committed WASM)
 npm run build         # wasm:build + build:site (needs emcc / EMSDK)
 npm run typecheck     # tsc --noEmit
-npm run check:wgsl    # extract includes/generators → naga
-npm run validate      # typecheck + wasm:native + check:wgsl
+npm run check:wgsl    # extract includes → naga
+npm run check:post    # CPU↔WGSL post contracts
+npm run validate      # typecheck + wasm:native + check:post + check:wgsl
 npm run wasm:native   # g++ smoke test, no Emscripten
 npm run wasm:build    # scripts/build-wasm.sh
 ```
@@ -375,13 +379,13 @@ as the graphics/content epic once the plant stays maintainable.
 
 ## Extension points
 
-- **New apparatus:** `devices/register-plugins.js` / Quanta plugins — avoid hardcoding into the visualizer when possible.
-- **New shader pass:** `docs/SHADERS.md` checklist + `pipeline-layout-cache` + BINDINGS.
-- **New plant mode in WASM:** `cpp/src/sim_core.*` + bridge mode switch.
+- **New apparatus:** catalog row in `physics/devices.json` + plugin + plant (if `wasmMode` set). Do not add a fourth magic map.
+- **New shader pass:** `.wgsl` in `passes/` + layout name in `pipeline-layout/` + BINDINGS row + `check:wgsl` (+ `check:post` if CPU struct).
+- **New plant mode in WASM:** next `reservedWasmModes` slot in the catalog, then `cpp/src/sim_core.*`. Bridge `setMode` takes a device **id**, not `shaderMode`.
 - **Energy coupling:** pipes are visual today; physical network intent is ADR-0004.
 
 ## Code style (short)
 
 - ES modules with `.js` import suffixes; async WebGPU init.
 - Prefer explicit WGSL types and documented bindings over `layout: 'auto'`.
-- Physics numbers: [`physics/constants.json`](../physics/constants.json) → codegen → TS/C++/WGSL ([`docs/PHYSICS_CONSTANTS.md`](PHYSICS_CONSTANTS.md)); layout presets stay in `seg-layout.js`.
+- Physics numbers: [`physics/constants.json`](../physics/constants.json) → codegen ([`docs/PHYSICS_CONSTANTS.md`](PHYSICS_CONSTANTS.md)). Device identity: [`physics/devices.json`](../physics/devices.json) → `npm run codegen:catalog` ([`MODE_MATRIX.md`](MODE_MATRIX.md)). Layout presets stay in `seg-layout.js`.

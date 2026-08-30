@@ -4,21 +4,7 @@
 
 import { loadSimCore, getSimCore } from './index';
 import type { SEGSimulatorInstance, Vec3, SimParticle } from './types';
-
-/** Maps device registry ids to sim_core SimMode indices. */
-export const WASM_DEVICE_MODE_MAP: Record<string, number> = {
-  seg: 0,
-  heron: 1,
-  kelvin: 2,
-  solar: 3,
-  peltier: 4,
-  mhd: 5,
-  maglev: 6,
-  homopolar: 7,
-  transformer: 8
-};
-
-const WASM_MODE_DEVICE_IDS = Object.keys(WASM_DEVICE_MODE_MAP);
+import { WASM_MODE_BY_ID, WASM_DEVICE_IDS } from '../../generated/device-catalog';
 
 export interface SEGNetworkSummary {
   couplingEnabled: boolean;
@@ -426,14 +412,14 @@ export class SEGSim {
     if (!this._sim?.setNetworkEdges) return;
     const flat: number[] = [];
     for (const e of edges) {
-      const from = WASM_DEVICE_MODE_MAP[e.from];
-      const to = WASM_DEVICE_MODE_MAP[e.to];
+      const from = WASM_MODE_BY_ID[e.from];
+      const to = WASM_MODE_BY_ID[e.to];
       if (from === undefined || to === undefined) continue;
       flat.push(from, to, e.maxWatts, e.efficiency ?? 1, e.latency ?? 0);
     }
     this._sim.setNetworkEdges(flat);
     this._networkEdges = edges.filter(
-      (e) => WASM_DEVICE_MODE_MAP[e.from] !== undefined && WASM_DEVICE_MODE_MAP[e.to] !== undefined
+      (e) => WASM_MODE_BY_ID[e.from] !== undefined && WASM_MODE_BY_ID[e.to] !== undefined
     );
   }
 
@@ -441,8 +427,8 @@ export class SEGSim {
     if (!this._sim?.updateEnergyNetwork) {
       return { couplingEnabled: false, labBudgetW: 0, totalAllocatedW: 0, residualW: 0 };
     }
-    const energyLevels = WASM_MODE_DEVICE_IDS.map((id) => input.energyByDevice[id] ?? 0);
-    const enabledFlags = WASM_MODE_DEVICE_IDS.map((id) => (input.enabledByDevice[id] !== false ? 1 : 0));
+    const energyLevels = WASM_DEVICE_IDS.map((id) => input.energyByDevice[id] ?? 0);
+    const enabledFlags = WASM_DEVICE_IDS.map((id) => (input.enabledByDevice[id] !== false ? 1 : 0));
     this._sim.updateEnergyNetwork(
       input.couplingEnabled,
       input.segPowerW,
@@ -471,7 +457,7 @@ export class SEGSim {
   }
 
   getNetworkDevicePowerById(deviceId: string): SEGDevicePower {
-    const mode = WASM_DEVICE_MODE_MAP[deviceId];
+    const mode = WASM_MODE_BY_ID[deviceId];
     if (mode === undefined) return { powerInW: 0, powerOutW: 0, efficiency: 0 };
     const p = this._sim?.getNetworkDevicePower?.(mode);
     return {

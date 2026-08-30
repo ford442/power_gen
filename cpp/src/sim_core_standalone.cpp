@@ -301,6 +301,39 @@ static int run_energy_network_smoke() {
     return 0;
 }
 
+static int run_catalog_smoke() {
+    bool seen[SIM_MODE_COUNT]{};
+    for (int i = 0; i < DEVICE_CATALOG_COUNT; i++) {
+        const DeviceCatalogRow& r = DEVICE_CATALOG[i];
+        if (r.wasmMode < 0) {
+            printf("%s -> wasmMode none (shaderMode %d)\n", r.id, r.shaderMode);
+            continue;
+        }
+        printf("%s -> wasmMode %d (shaderMode %d)\n", r.id, r.wasmMode, r.shaderMode);
+        if (r.wasmMode >= SIM_MODE_COUNT) {
+            fprintf(stderr, "FAIL: wasmMode out of range for %s\n", r.id);
+            return 1;
+        }
+        if (seen[r.wasmMode]) {
+            fprintf(stderr, "FAIL: duplicate wasmMode %d\n", r.wasmMode);
+            return 1;
+        }
+        seen[r.wasmMode] = true;
+    }
+    for (int i = 0; i < SIM_MODE_COUNT; i++) {
+        if (!seen[i]) {
+            fprintf(stderr, "FAIL: wasmMode hole at %d\n", i);
+            return 1;
+        }
+    }
+    printf("catalog OK (%d devices, %d wasm plants, reserved", DEVICE_CATALOG_COUNT, SIM_MODE_COUNT);
+    for (int i = 0; i < RESERVED_WASM_MODE_COUNT; i++) {
+        printf(" %d", RESERVED_WASM_MODES[i]);
+    }
+    printf(")\n");
+    return 0;
+}
+
 int main(int argc, char** argv) {
     // --mode <peltier|mhd|maglev|homopolar>: run a single-mode smoke test
     for (int i = 1; i < argc; ++i) {
@@ -312,7 +345,8 @@ int main(int argc, char** argv) {
             if (std::strcmp(argv[i + 1], "transformer") == 0) return run_transformer_smoke();
             if (std::strcmp(argv[i + 1], "chores") == 0) return run_chores_smoke();
             if (std::strcmp(argv[i + 1], "energy-network") == 0) return run_energy_network_smoke();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|chores|energy-network)\n", argv[i + 1]);
+            if (std::strcmp(argv[i + 1], "catalog") == 0) return run_catalog_smoke();
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|chores|energy-network|catalog)\n", argv[i + 1]);
             return 2;
         }
     }

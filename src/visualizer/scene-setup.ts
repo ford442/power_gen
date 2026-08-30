@@ -32,11 +32,16 @@ export const sceneSetupMethods: ThisType<Host> & {
   setupBloomPipeline(): Promise<void>;
 } = {
   /**
-   * Bake the prefiltered GGX environment for the active lighting look and
-   * upload it to the device (ADR-0005 WS2). Always-on: the texture is 224 KiB
-   * and every SEG-enhanced pipeline binds it.
+   * Bake the prefiltered GGX environment for the active lighting look.
+   * Skipped on fallback/software adapters (analytic PBR path when iblLevels = 0).
    */
   setupIblPrefilter() {
+    const fallbackSoft = !!(this.webgpu?.adapterInfo?.fallback || this.webgpu?.adapterInfo?.software);
+    if (fallbackSoft) {
+      this.iblLevels = 0;
+      console.log('[MultiDeviceVisualizer] IBL prefilter skipped (fallback/software adapter)');
+      return { levels: 0, cached: true, ms: 0 };
+    }
     if (!this.iblResources) {
       this.iblResources = createIblResources(this.device);
       this.profiler?.trackTexture?.(
@@ -283,10 +288,14 @@ export const sceneSetupMethods: ThisType<Host> & {
     if (this.bloomTempTexture)  this.bloomTempTexture.destroy();
     if (this.prevSceneTexture)  this.prevSceneTexture.destroy();
 
-    this.bloomSceneTexture = this.device.createTexture({
-      size: [w, h], format: fmt,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC
-    });
+    this.bloomSceneTexture = this.device.createTexture(
+      WebGPUManager.offscreenColorDescriptor({
+        label: 'bloom-scene',
+        size: [w, h],
+        format: fmt,
+        sampleCount: 1
+      })
+    );
     this.bloomBlurTexture = this.device.createTexture({
       size: [w, h], format: bloomFmt,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING

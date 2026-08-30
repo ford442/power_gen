@@ -1,0 +1,106 @@
+{
+  "$comment": "Device identity catalog — shaderMode (WGSL/uniforms) and wasmMode (C++ SimMode) are independent namespaces. Do not assume they are equal. Never reuse a retired shaderMode. Edit this file and run npm run codegen:catalog.",
+  "reservedWasmModes": [9, 10],
+  "reservedShaderModes": [11],
+  "devices": [
+    {
+      "id": "seg",
+      "label": "SEG",
+      "category": "core",
+      "shaderMode": 0,
+      "wasmMode": 0,
+      "telemetryKeys": ["rpm", "omega", "corona", "voltage", "current", "power", "fieldSim", "energyDensity"],
+      "fidelity": "WASM RK4 (full plant)"
+    },
+    {
+      "id": "heron",
+      "label": "Heron's Fountain",
+      "category": "core",
+      "shaderMode": 1,
+      "wasmMode": 1,
+      "telemetryKeys": ["heronHead", "heronVExit", "heronFlowLmin", "heronPressureKPa"],
+      "fidelity": "WASM (Bernoulli/Swamee–Jain)"
+    },
+    {
+      "id": "kelvin",
+      "label": "Kelvin's Thunderstorm",
+      "category": "core",
+      "shaderMode": 2,
+      "wasmMode": 2,
+      "telemetryKeys": ["kelvinVoltage", "kelvinVoltageN", "kelvinE", "kelvinSparkTimer"],
+      "fidelity": "WASM (capacitive + spark)"
+    },
+    {
+      "id": "solar",
+      "label": "Solar / LED",
+      "category": "core",
+      "shaderMode": 3,
+      "wasmMode": 3,
+      "telemetryKeys": ["solarBattery"],
+      "fidelity": "WASM (battery SOC)"
+    },
+    {
+      "id": "peltier",
+      "label": "Peltier",
+      "category": "core",
+      "shaderMode": 4,
+      "wasmMode": 4,
+      "telemetryKeys": ["peltierHotK", "peltierColdK", "peltierDeltaT", "peltierVoltage", "peltierCurrent", "peltierPowerW", "peltierCOP"],
+      "fidelity": "WASM (two-node Seebeck/Peltier stack)"
+    },
+    {
+      "id": "mhd",
+      "label": "MHD Channel",
+      "category": "core",
+      "shaderMode": 5,
+      "wasmMode": 5,
+      "telemetryKeys": ["mhdFlowU", "mhdBFieldT", "mhdHartmann", "mhdVoltage", "mhdCurrent", "mhdPowerW"],
+      "fidelity": "WASM (Hartmann channel)"
+    },
+    {
+      "id": "maglev",
+      "label": "Magnetic Levitation",
+      "category": "quanta",
+      "shaderMode": 6,
+      "wasmMode": 6,
+      "telemetryKeys": ["maglevGapMm", "maglevFieldT", "maglevLiftN", "maglevRpm"],
+      "fidelity": "WASM (spring–damper gap ODE), JS fallback mirrors it"
+    },
+    {
+      "id": "pulse-coil",
+      "label": "Pulse Coil (R–L)",
+      "category": "quanta",
+      "shaderMode": 7,
+      "wasmMode": null,
+      "telemetryKeys": ["pulseCoilCurrentA", "pulseCoilVCap", "pulseCoilBPeakT", "pulseCoilArmatureMm"],
+      "fidelity": "JS-only (fallback-physics for pulseCoilBPeakT)"
+    },
+    {
+      "id": "homopolar",
+      "label": "Homopolar Generator",
+      "category": "quanta",
+      "shaderMode": 8,
+      "wasmMode": 7,
+      "telemetryKeys": ["homopolarRpm", "homopolarEmfV", "homopolarCurrentA", "homopolarFieldT"],
+      "fidelity": "WASM (Faraday disc L–R + back-EMF)"
+    },
+    {
+      "id": "halbach-viz",
+      "label": "Halbach Field Viz",
+      "category": "quanta",
+      "shaderMode": 9,
+      "wasmMode": null,
+      "telemetryKeys": ["halbachSegmentCount", "halbachMagAngleDeg", "halbachPeakBT", "halbachPeriodM", "halbachDipoleForceN"],
+      "fidelity": "JS-only (CPU field-line viz); estimateHalbachFieldT is a free WASM helper, not a plant"
+    },
+    {
+      "id": "transformer",
+      "label": "Mutual Induction",
+      "category": "quanta",
+      "shaderMode": 10,
+      "wasmMode": 8,
+      "telemetryKeys": ["transformerVp", "transformerVs", "transformerIpA", "transformerIsA", "transformerK", "transformerFluxN"],
+      "fidelity": "WASM coupled-inductor ODE (?wasmPhysics=1); JS phasor fallback"
+    }
+  ]
+}

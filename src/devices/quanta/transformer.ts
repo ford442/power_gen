@@ -4,8 +4,7 @@
  * Ideal two-winding model with coupling coefficient k, primary drive, and
  * resistive secondary load. Leakage toggle reduces k. Not FEM.
  *
- * modeIndex: 10 (JS/shader slot — see docs/MODE_MATRIX.md).
- * wasmMode: 8 (SIM_MODE_TRANSFORMER) — coupled-inductor ODE when ?wasmPhysics=1.
+ * Shader/wasm indices: physics/devices.json (codegen) — do not hardcode.
  *
  * References: standard undergrad transformer phasor model (Chapman / Fitzgerald).
  */
@@ -20,6 +19,7 @@ import {
 import { writeMeshCylinders } from '../update-helpers';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
+import { catalogIdentity } from '../../../generated/device-catalog';
 
 export const TRANSFORMER = Object.freeze({
   fHz: 60,
@@ -224,11 +224,7 @@ export function setTransformerLeakage(state: Partial<DevicePhysicsState> | null 
 }
 
 export const transformerPlugin: DevicePlugin = {
-  id: 'transformer',
-  label: 'Mutual Induction',
-  category: 'quanta',
-  modeIndex: 10,
-  wasmMode: 8,
+  ...catalogIdentity('transformer'),
   needsPhysicsState: true,
   wasmSkipsJsPhysics: true,
   defaults: {

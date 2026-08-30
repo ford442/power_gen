@@ -23,6 +23,7 @@ import {
 import type { HalbachConfig } from './halbach-field';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
+import { catalogIdentity } from '../../../generated/device-catalog';
 
 const SCENE_SCALE = 10;
 const RADIUS_M = 0.14;
@@ -228,10 +229,7 @@ const halbachUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instan
 };
 
 export const halbachVizPlugin: DevicePlugin = {
-  id: 'halbach-viz',
-  label: 'Halbach Field Viz',
-  category: 'quanta',
-  modeIndex: 9,
+  ...catalogIdentity('halbach-viz'),
   needsPhysicsState: true,
   defaults: {
     particleCount: 4500,

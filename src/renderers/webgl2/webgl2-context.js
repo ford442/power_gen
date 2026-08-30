@@ -11,13 +11,17 @@ export class WebGL2Context {
   }
 
   init() {
+    const capture = typeof location !== 'undefined'
+      && new URLSearchParams(location.search).get('capture') === '1';
     const gl = this.canvas.getContext('webgl2', {
       alpha: false,
       antialias: true,
       depth: true,
       stencil: false,
       premultipliedAlpha: true,
-      preserveDrawingBuffer: true // Playwright screenshots
+      powerPreference: 'high-performance',
+      failIfMajorPerformanceCaveat: false,
+      preserveDrawingBuffer: !!(typeof navigator !== 'undefined' && navigator.webdriver) || capture
     });
 
     if (!gl) {

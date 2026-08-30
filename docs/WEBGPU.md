@@ -35,17 +35,35 @@ Do not open a WebGL2 context to “rescue” multi-device after probe failure.
 |---------|-------|-----|
 | `format` | `navigator.gpu.getPreferredCanvasFormat()` | Platform preferred (`bgra8unorm` / `rgba8unorm`) |
 | `alphaMode` | **`opaque`** | Full-viewport canvas; HTML overlays do not need canvas alpha (slight compositing win) |
+| `colorSpace` | **`srgb`** default; **`display-p3`** if `?p3=1` | CI screenshots stay sRGB; P3 is opt-in for showroom metals |
+| `toneMapping` | `{ mode: 'standard' }` default; `'extended'` if `?hdr=1` **and** `(dynamic-range: high)` | Bloom composite already ACES-maps to `[0,1]` (`filmicTonemap`). `extended` can **double-tonemap** until composite outputs linear HDR — leave ACES as-is for now |
+| `viewFormats` | preferred UNORM + `-srgb` sibling when it exists | Post/readback stay UNORM; sampling may reinterpret as sRGB |
 | `usage` | `RENDER_ATTACHMENT \| COPY_SRC` | Present + optional readback/screenshots |
 
+Scene color is **not** the swapchain (`bloomSceneTexture`). Do **not** set MSAA on `configure()`. Offscreen `sampleCount` is `1` via `WebGPUManager.offscreenColorDescriptor()` until a G-buffer/showroom resolve lands.
+
 Override: `new WebGPUManager(canvas, { alphaMode: 'premultiplied' })` if a future UI needs canvas alpha.
+
+## Adapter request (`featureLevel`)
+
+`WebGPUManager.requestPreferredAdapter()` (shared with the boot probe):
+
+1. `{ powerPreference: 'high-performance', forceFallbackAdapter: false, featureLevel: 'core' }`
+2. If that returns **null**, retry with `featureLevel: 'compatibility'` (Safari/Android).
+3. If `featureLevel` throws (older Chromium), one legacy `requestAdapter` without the key.
+
+This is **not** a second long-lived device. Probe still destroys its ephemeral device; the session still uses one `seg-primary-device`.
+
+Fallback/software adapters (`adapter.info.isFallbackAdapter`, SwiftShader / llvmpipe / WARP) are recorded on `adapterInfo` and `window.webgpuProbe.adapter`. Profiler starts at **low** tier; SSR and IBL bake are skipped.
 
 ## Depth format
 
 | Setting | Value | Why |
 |---------|-------|-----|
-| Scene depth | **`depth24plus`** | Stencil unused; lower memory than `depth24plus-stencil8` |
+| Default | **`depth24plus`** | Stencil unused; lower memory than `depth24plus-stencil8` |
+| When SSR is on (and not fallback/software) | **`depth32float`** | Better ray-march precision |
 | Pipelines | `visualizer.depthFormat` / `webgpu.depthFormat` | Single source of truth |
-| Render pass | `WebGPUManager.depthStencilAttachment(view)` | Depth ops only — **no** stencil load/store on depth-only formats |
+| Render pass | `WebGPUManager.depthStencilAttachment(view, { format })` | Depth ops only — **no** stencil load/store on depth-only formats |
 
 Bloom still samples depth via `createView({ aspect: 'depth-only' })`.
 
@@ -56,10 +74,10 @@ Negotiated in `WebGPUManager.negotiateFeatures()` when the adapter supports them
 | Feature | Status | When enabled | Notes |
 |---------|--------|----------------|-------|
 | `timestamp-query` | **used** | URL has `?gpuTiming=1` | Default **off**. Writing timestamps into the main render encoder blanks the canvas on some D3D12/ANGLE stacks. Profiler keeps `timingEnabled = false` until the debug panel toggle. |
-| `float32-filterable` | **reserved** | Always if present | Not consumed yet — bloom/post sample `texture_2d<f32>` on 8-bit canvas formats. Keep for future `rgba32float` / filterable float targets. |
 | `rg11b10ufloat-renderable` | **used** | Always if present | Bloom extract/blur intermediates (`bloomTempTexture`, `bloomBlurTexture`) via `WebGPUManager.bloomIntermediateFormat()`. Scene + prev-scene stay on the canvas format. |
-
-`texture-compression-bc` and `bgra8unorm-storage` are **not** negotiated until a pipeline needs them (reduces dead feature cost).
+| `texture-compression-bc` / `etc2` / `astc` | **reserved** | If the adapter supports them | Requested at `requestDevice` so a later CAD path can use compressed textures without a new device. Unused until GLB consumes them. |
+| `float32-filterable` | **not requested** | — | No sampled `rgba32float` targets (bloom is `rg11b10`; SSR is `rgba16float`). |
+| `bgra8unorm-storage` | **not requested** | — | No compute pass writes the swapchain. |
 
 Missing features are skipped and logged; init does not fail.
 

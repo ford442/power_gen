@@ -62,7 +62,8 @@ Details: docs/AGENTS.md → Language strategy. Shaders: **docs/SHADERS.md**.
 
 Registered core ids: `seg`, `heron`, `kelvin`, `solar`, `peltier`, `mhd`
 (+ Quanta plugins: `maglev`, `homopolar`, `halbach-viz`, `pulse-coil`).
-WASM `SimMode` 0–5 core; 6=maglev, 7=homopolar, 8=transformer (`?wasmPhysics=1`).
+WASM plants: `physics/devices.json` `wasmMode` (codegen `enum SimMode`). Shader
+slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 
 - **SEG** is the highest-fidelity path (layout presets, flux, PBR).
 - **Peltier / MHD** are lighter models — geometry + particles, not full plant parity.
@@ -78,14 +79,16 @@ WASM `SimMode` 0–5 core; 6=maglev, 7=homopolar, 8=transformer (`?wasmPhysics=1
 
 ```bash
 npm run typecheck
-npm run validate      # codegen check + typecheck + native C++ + WGSL
+npm run codegen:catalog  # physics/devices.json → TS/C++/WGSL/docs
+npm run validate      # constants + catalog + typecheck + native C++ + check:post + WGSL
 npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline
+npm run check:post    # post uniform contracts
 ```
 
 ## WebGPU notes
 
-- One adapter path: `webgpu-manager.ts`. Depth: `depth24plus`.
+- One adapter path: `webgpu-manager.ts`. Depth: `depth24plus` (or `depth32float` when SSR is on). Canvas: `colorSpace` sRGB (`?p3=1` for Display P3).
 - GPU timing: `?gpuTiming=1` then debug panel.
 - Details: **docs/WEBGPU.md**.
 

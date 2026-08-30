@@ -112,6 +112,10 @@ export class PerformanceProfiler {
 
     // Detect GPU tier
     this.detectGPUTier();
+    if (this.gpuTier === 'low' && (this.adapterInfo?.fallback || this.adapterInfo?.software)) {
+      this.qualityLevel = 0.5;
+      this.qualityTier = 'low';
+    }
 
     // Timestamp writes require the device feature, not just a query set allocation.
     // Feature is only requested when ?gpuTiming=1 (see WebGPUManager.wantsGpuTiming).
@@ -146,9 +150,15 @@ export class PerformanceProfiler {
   }
 
   detectGPUTier() {
-    const info = this.adapterInfo;
+    const info = this.adapterInfo || {};
     const vendor = (info.vendor || '').toLowerCase();
     const architecture = (info.architecture || '').toLowerCase();
+
+    if (info.fallback || info.software) {
+      this.gpuTier = 'low';
+      console.log(`GPU Tier detected: ${this.gpuTier} (fallback/software adapter)`, info);
+      return;
+    }
 
     // Heuristic GPU tier detection
     if (vendor.includes('nvidia') || vendor.includes('amd')) {
@@ -486,7 +496,10 @@ export class PerformanceProfiler {
 
   _adapterSummary() {
     const info = this.adapterInfo || {};
-    const parts = [info.vendor, info.architecture || info.device, this.gpuTier]
+    const flags = [];
+    if (info.fallback) flags.push('fallback');
+    if (info.software) flags.push('software');
+    const parts = [info.vendor, info.architecture || info.device, this.gpuTier, ...flags]
       .filter(Boolean)
       .map(String);
     return parts.length ? parts.join(' / ') : `tier:${this.gpuTier}`;

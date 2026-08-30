@@ -3,11 +3,11 @@
 Catalog of multi-device lab apparatuses. Screenshots use the WebGL2 fallback
 (`?renderer=webgl2`) for broad browser compatibility; capture via:
 
-> **`modeIndex` vs WASM mode:** the `modeIndex` shown below (and used in the
-> plugin registration example) is the JS/shader mode-selector namespace and
-> is **not** guaranteed to equal the C++ `SimMode` enum value used by the
-> WASM physics core. See `docs/MODE_MATRIX.md` for the authoritative table,
-> including the known `homopolar` `modeIndex=8` vs `SimMode=7` mismatch.
+> **`shaderMode` vs `wasmMode`:** plugin `modeIndex` is the WGSL/uniform
+> namespace (`shaderMode` in [`physics/devices.json`](../physics/devices.json)).
+> It is **not** the C++ `SimMode`. See generated [`MODE_MATRIX.md`](./MODE_MATRIX.md).
+> Homopolar shader **8** / wasm **7** is intentional. Add devices via the catalog
+> first; do not invent a fourth magic number.
 
 ```js
 // After START (non-zero drive) and a short settle:
@@ -27,18 +27,18 @@ New devices register through `src/devices/device-registry.js` without editing
 
 ```js
 import { registerDevice } from '../device-registry.js';
+import { catalogIdentity, NEXT_SHADER_MODE } from '../../generated/device-catalog';
 
 registerDevice({
-  id: 'my-device',
-  label: 'My Apparatus',
-  category: 'quanta',
-  modeIndex: 11, // next free JS/shader slot — see MODE_MATRIX.md
+  ...catalogIdentity('my-device'), // after adding the row to physics/devices.json
   meshLayout: { cylinders: () => [...] },
   stepPhysics(state, dt, drive) { /* ... */ },
   createPhysicsState() { return { /* ... */ }; },
   telemetrySchema: { fieldT: { label: 'B-field', unit: 'T' } },
   references: [{ title: '...', authors: '...', year: 1980 }]
 });
+// Next unused shaderMode (do not reuse retired slots): NEXT_SHADER_MODE
+```
 ```
 
 Import side-effect bundle: `src/devices/register-plugins.js` (loaded from `main.ts`).
@@ -237,7 +237,7 @@ Capture: `?renderer=webgl2` → START → `setMode('transformer')` →
 
 - Plugin: `src/devices/quanta/transformer.ts` (registered via `quanta/index.ts`)
 - WGSL mode index: `10` (`posTransformer` in `shaders/passes/particle-compute.wgsl`)
-- WASM `SimMode`: `8` (`SIM_MODE_TRANSFORMER`); plugin `wasmMode: 8`
+- WASM `SimMode`: `8` (`SIM_MODE_TRANSFORMER` from `physics/devices.json`); plugin uses `catalogIdentity('transformer')`
 - UI: Mutual Induction mode button; Ideal / Leakage coupling controls;
   `window.setTransformerLeakage(bool)`
 - Plant: C++ coupled-inductor ODE when `?wasmPhysics=1`; JS phasor fallback

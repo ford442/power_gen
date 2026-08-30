@@ -6,6 +6,7 @@
 #include "common/particle.wgsl"
 #include "common/compute-uniforms.wgsl"
 #include "common/overview-lod.wgsl"
+#include "generated/device-catalog.wgsl"
 
 @binding(0) @group(0) var<storage, read_write> particles: array<GpuParticle>;
 @binding(1) @group(0) var<uniform> uniforms: ComputeUniforms;
@@ -203,30 +204,30 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let p = particles[idx];
   let phase = p.phase;
   let t = uniforms.time;
-  let mode = uniforms.mode;
+  let m = u32(uniforms.mode + 0.5);
 
   var newPos: vec3f;
-  if (mode < 0.5) {
+  if (m == MODE_SEG) {
     newPos = posSEG(phase, t, idx);
-  } else if (mode < 1.5) {
+  } else if (m == MODE_HERON) {
     newPos = posHeron(phase, t, idx);
-  } else if (mode < 2.5) {
+  } else if (m == MODE_KELVIN) {
     newPos = posKelvin(phase, t, idx);
-  } else if (mode < 3.5) {
+  } else if (m == MODE_SOLAR) {
     newPos = posSolar(phase, t, idx, uniforms.speedMult);
-  } else if (mode < 4.5) {
+  } else if (m == MODE_PELTIER) {
     newPos = posPeltier(phase, t, idx);
-  } else if (mode < 5.5) {
+  } else if (m == MODE_MHD) {
     newPos = posMhd(phase, t, idx);
-  } else if (mode < 6.5) {
+  } else if (m == MODE_MAGLEV) {
     newPos = posMagLev(phase, t, idx);
-  } else if (mode < 7.5) {
+  } else if (m == MODE_PULSE_COIL) {
     newPos = posPulseCoil(phase, t, idx);
-  } else if (mode < 8.5) {
+  } else if (m == MODE_HOMOPOLAR) {
     newPos = posHomopolar(phase, t, idx);
-  } else if (mode < 9.5) {
+  } else if (m == MODE_HALBACH_VIZ) {
     newPos = posHalbach(phase, t, idx);
-  } else if (mode < 10.5) {
+  } else if (m == MODE_TRANSFORMER) {
     newPos = posTransformer(phase, t, idx);
   } else {
     newPos = posMagLev(phase, t, idx);

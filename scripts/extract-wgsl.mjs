@@ -31,7 +31,7 @@ function walkWgsl(dir, acc = []) {
   for (const name of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, name.name);
     if (name.isDirectory()) {
-      if (name.name === 'generators') continue; // JS templates handled separately
+      if (name.name === 'generators' || name.name === 'archive') continue;
       walkWgsl(p, acc);
     } else if (name.name.endsWith('.wgsl')) {
       acc.push(p);

@@ -71,6 +71,7 @@ struct SEGRollerState {
 static constexpr int ROLLER_EXPORT_STRIDE = 4;
 
 #include "../../generated/constants.h"
+#include "../../generated/device-catalog.h"
 
 // ─────────────────────────────────────────────────────────────
 // Free functions
@@ -97,20 +98,7 @@ void chores_map_scale_f32(const float* in, float* out, int count, float scale, f
 std::vector<float> chores_reduce_f32_vec(const std::vector<float>& data);
 std::vector<float> chores_map_scale_f32_vec(const std::vector<float>& data, float scale, float bias);
 
-// ─────────────────────────────────────────────────────────────
-// SimMode
-// ─────────────────────────────────────────────────────────────
-enum SimMode {
-    SIM_MODE_SEG   = 0,
-    SIM_MODE_HERON = 1,
-    SIM_MODE_KELVIN = 2,
-    SIM_MODE_SOLAR = 3,
-    SIM_MODE_PELTIER = 4,
-    SIM_MODE_MHD = 5,
-    SIM_MODE_MAGLEV = 6,
-    SIM_MODE_HOMOPOLAR = 7,
-    SIM_MODE_TRANSFORMER = 8
-};
+// SimMode comes from generated/device-catalog.h (physics/devices.json).
 
 // ─────────────────────────────────────────────────────────────
 // Mode plant state (mirrors device-physics.js / led-solar constants)

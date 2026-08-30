@@ -478,6 +478,10 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     try {
       await this.webgpu.init();
       this.depthFormat = this.webgpu.depthFormat || DEPTH_FORMAT;
+      if (this.webgpu.adapterInfo?.fallback || this.webgpu.adapterInfo?.software) {
+        this.ssrEnabled = false;
+        console.log('[MultiDeviceVisualizer] SSR disabled (fallback/software adapter)');
+      }
       this.webgpu.resize();
 
       // Explicit bind-group / pipeline layouts + shared device pipelines (once)

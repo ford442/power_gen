@@ -81,6 +81,21 @@ const frame = window.captureCanvasFrame({ flipY: true });
 Debug keys (WebGL2 only): `W` wireframe, `P` particle debug, `N` normals,
 `Space` pause, `.` step, `[` / `]` slow-mo.
 
+## Context attributes
+
+`WebGL2Context.init()` uses:
+
+| Option | Value | Why |
+|--------|-------|-----|
+| `alpha` | `false` | Matches WebGPU `opaque` |
+| `antialias` | `true` | Cheap MSAA on this path. WebGPU has no implicit canvas MSAA — **do not** disable for “parity” |
+| `depth` | `true` | Matches depth buffer |
+| `stencil` | `false` | Matches `depth24plus` (no stencil) |
+| `premultipliedAlpha` | `true` | HTML overlay compositing |
+| `powerPreference` | `'high-performance'` | Same intent as WebGPU |
+| `failIfMajorPerformanceCaveat` | `false` | SwiftShader / agent VMs must still boot |
+| `preserveDrawingBuffer` | **`false`** unless `navigator.webdriver` or `?capture=1` | Playwright `captureCanvasFrame` / `readPixels`; default-off saves GPU memory for humans |
+
 ## Architecture
 
 ```

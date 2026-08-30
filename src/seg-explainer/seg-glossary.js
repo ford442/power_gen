@@ -41,7 +41,7 @@ export const SEG_GLOSSARY = {
   flux: {
     title: 'RK4 flux lines',
     body: 'Bidirectional magnetic field line traces integrated around roller rings (WebGPU path).',
-    source: 'flux-lines.wgsl'
+    source: 'passes/flux-line-tracer.wgsl'
   },
   ionization: {
     title: 'Ionization / corona torus',

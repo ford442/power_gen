@@ -14,6 +14,7 @@ import {
   type SEGDevicePower,
   type SEGStepResult
 } from './sim';
+import { wasmModeForDevice } from '../../generated/device-catalog';
 
 let _instance: SEGSim | null = null;
 let _enabled = false;
@@ -27,18 +28,6 @@ function isWasmEnabled(): boolean {
   if (params.get('wasm') === '1') return true;
   return localStorage.getItem('useWasmPhysics') === 'true';
 }
-
-const MODE_MAP: Record<string, number> = {
-  seg: 0,
-  heron: 1,
-  kelvin: 2,
-  solar: 3,
-  peltier: 4,
-  mhd: 5,
-  maglev: 6,
-  homopolar: 7,
-  transformer: 8
-};
 
 export interface SegWasmStepResult extends SEGStepResult {
   wasm: boolean;
@@ -64,7 +53,7 @@ export interface SegWasmBridge {
   setRingLoadTorques(t0: number, t1: number, t2: number): void;
   stepWithPerRingTorques(dt?: number): Promise<SegWasmStepResult | SEGStepResult>;
 
-  setMode(mode: string | number): void;
+  setMode(deviceId: string): void;
   getMode(): number;
   setDrive(drive: number): void;
   setTransformerLeakage(enabled: boolean): void;
@@ -217,8 +206,9 @@ export const segWasm: SegWasmBridge = {
     return { ...res, wasm: true };
   },
 
-  setMode(mode: string | number) {
-    const m = typeof mode === 'string' ? (MODE_MAP[mode] ?? 0) : mode;
+  setMode(deviceId: string) {
+    const m = wasmModeForDevice(deviceId);
+    if (m == null) return;
     _instance?.setMode?.(m);
   },
 

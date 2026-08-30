@@ -15,6 +15,7 @@ import { writeMeshCylinders } from '../update-helpers';
 import { estimateHalbachFieldT, MAGNET_BR } from './halbach-field';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
+import { catalogIdentity } from '../../../generated/device-catalog';
 
 /** Ring magnet segments in a simplified Halbach-like azimuthal pattern. */
 function buildHalbachRingInstances(): InstanceArray {
@@ -155,10 +156,7 @@ const maglevUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instanc
 };
 
 export const magneticLevitationPlugin: DevicePlugin = {
-  id: 'maglev',
-  label: 'Magnetic Levitation',
-  category: 'quanta',
-  modeIndex: 6,
+  ...catalogIdentity('maglev'),
   needsPhysicsState: true,
   wasmSkipsJsPhysics: true,
   defaults: {

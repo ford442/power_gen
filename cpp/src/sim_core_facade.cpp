@@ -86,7 +86,7 @@ void SEGSimulator::setRingLoadTorques(float tInner, float tMiddle, float tOuter)
 }
 
 void SEGSimulator::setMode(int mode) {
-    if (mode >= 0 && mode <= SIM_MODE_TRANSFORMER) _mode = mode;
+    if (mode >= 0 && mode < SIM_MODE_COUNT) _mode = mode;
 }
 
 int SEGSimulator::getMode() const { return _mode; }

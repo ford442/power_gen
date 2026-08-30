@@ -3,6 +3,7 @@
  * Dashboard layout comes from DEVICE_CONFIG via each plugin's `defaults`.
  */
 
+import { catalogIdentity } from '../../../generated/device-catalog';
 import { registerDevice } from '../device-registry.js';
 import { DEVICE_CONFIG } from '../device-config';
 import { DEVICE_MESH_LAYOUTS } from '../../device-mesh-layouts.js';
@@ -38,11 +39,7 @@ import { drawSegWebgpu } from './seg-render.js';
 import { drawSolarGaugeWebgpu } from './solar-render.js';
 
 const segPlugin: DevicePlugin = {
-  id: 'seg',
-  label: 'SEG',
-  category: 'core',
-  modeIndex: 0,
-  wasmMode: 0,
+  ...catalogIdentity('seg'),
   defaults: DEVICE_CONFIG.seg,
   getComputeSpeed: segGetComputeSpeed,
   updateDynamics: segUpdateDynamics,
@@ -54,11 +51,7 @@ const segPlugin: DevicePlugin = {
 registerDevice(segPlugin);
 
 const heronPlugin: DevicePlugin = {
-  id: 'heron',
-  label: "Heron's Fountain",
-  category: 'core',
-  modeIndex: 1,
-  wasmMode: 1,
+  ...catalogIdentity('heron'),
   defaults: DEVICE_CONFIG.heron,
   needsPhysicsState: true,
   meshLayout: DEVICE_MESH_LAYOUTS.heron,
@@ -70,11 +63,7 @@ const heronPlugin: DevicePlugin = {
 registerDevice(heronPlugin);
 
 const kelvinPlugin: DevicePlugin = {
-  id: 'kelvin',
-  label: "Kelvin's Thunderstorm",
-  category: 'core',
-  modeIndex: 2,
-  wasmMode: 2,
+  ...catalogIdentity('kelvin'),
   defaults: DEVICE_CONFIG.kelvin,
   needsPhysicsState: true,
   meshLayout: DEVICE_MESH_LAYOUTS.kelvin,
@@ -86,11 +75,7 @@ const kelvinPlugin: DevicePlugin = {
 registerDevice(kelvinPlugin);
 
 const solarPlugin: DevicePlugin = {
-  id: 'solar',
-  label: 'Solar / LED',
-  category: 'core',
-  modeIndex: 3,
-  wasmMode: 3,
+  ...catalogIdentity('solar'),
   defaults: DEVICE_CONFIG.solar,
   needsPhysicsState: true,
   meshLayout: DEVICE_MESH_LAYOUTS.solar,
@@ -104,11 +89,7 @@ const solarPlugin: DevicePlugin = {
 registerDevice(solarPlugin);
 
 const peltierPlugin: DevicePlugin = {
-  id: 'peltier',
-  label: 'Peltier',
-  category: 'core',
-  modeIndex: 4,
-  wasmMode: 4,
+  ...catalogIdentity('peltier'),
   defaults: DEVICE_CONFIG.peltier,
   needsPhysicsState: true,
   wasmSkipsJsPhysics: true,
@@ -134,11 +115,7 @@ const peltierPlugin: DevicePlugin = {
 registerDevice(peltierPlugin);
 
 const mhdPlugin: DevicePlugin = {
-  id: 'mhd',
-  label: 'MHD Channel',
-  category: 'core',
-  modeIndex: 5,
-  wasmMode: 5,
+  ...catalogIdentity('mhd'),
   defaults: DEVICE_CONFIG.mhd,
   needsPhysicsState: true,
   wasmSkipsJsPhysics: true,

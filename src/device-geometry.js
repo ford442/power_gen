@@ -9,7 +9,7 @@ import { MATERIAL_COPPER, MATERIAL_SHAFT, MATERIAL_STRUCTURAL } from './devices/
 import { simRandom } from './telemetry/deterministic-rng';
 import { PARTICLE_LAYOUTS } from '../generated/physics-constants.js';
 
-// Matches TOTAL_FLUX_LINES × SEGMENTS_PER_LINE constants in flux-lines.wgsl
+// Matches TOTAL_FLUX_LINES × SEGMENTS_PER_LINE constants in passes/flux-line-tracer.wgsl
 // (168 lines × 120 segments). Update both if the WGSL constants change.
 const FLUX_TOTAL_SEGMENTS = 20160;
 

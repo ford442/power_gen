@@ -8,6 +8,7 @@
  */
 
 import { applyAutoLayout } from './layout-packer.js';
+import { wasmModeForDevice } from '../../generated/device-catalog';
 import type {
   DeviceEffectContext,
   DeviceEnergyContext,
@@ -61,11 +62,16 @@ export function getAllSimDeviceIds(): string[] {
   return getPluginDeviceIds();
 }
 
-/** WGSL / uniform mode index for a device id. */
+/** WGSL / uniform shaderMode for a device id. Independent of wasmMode. */
 export function getDeviceModeIndex(id: string): number {
   const plugin = plugins.get(id);
   if (plugin?.modeIndex != null) return plugin.modeIndex;
   return 0;
+}
+
+/** C++ SimMode for a device id, or null if JS-only. Never equal to shaderMode by assumption. */
+export function getDeviceWasmMode(id: string): number | null {
+  return wasmModeForDevice(id);
 }
 
 /**

@@ -11,5 +11,6 @@ Lightweight ADRs for the SEG WebGPU Visualizer. Each file is a short record of a
 | [0005](./0005-showroom-lab-twin-epic.md) | Showroom / Lab / Twin epic (north star) |
 | [0006](./0006-wolfram-mcp-demotion.md) | Wolfram MCP is optional/experimental, not a source of truth |
 | [0007](./0007-gpu-chores-exclusive-session.md) | gpu-chores exclusive session (no third GPU device) |
+| [0008](./0008-device-catalog.md) | Device identity catalog (`shaderMode` vs `wasmMode`) |
 
 Status values: **Accepted** · **Superseded** · **Proposed**

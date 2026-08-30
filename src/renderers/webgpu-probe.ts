@@ -1,8 +1,8 @@
-/**
- * Required WebGPU boot probe. Does not open WebGL2.
- * The multi-device visualizer still owns the long-lived GPUDevice (one device).
- * This probe may create a short-lived device to validate requestDevice, then destroy it.
- */
+import {
+  WebGPUManager,
+  type AdapterFeatureLevel,
+  type AdapterInfoSnapshot
+} from '../webgpu-manager';
 
 export interface BrowserBrandSnapshot {
   brand: string;
@@ -22,6 +22,8 @@ export interface WebGPUProbeResult {
     device: string;
     description: string;
     isFallbackAdapter: boolean;
+    software: boolean;
+    featureLevel: AdapterFeatureLevel | null;
   } | null;
   features: string[];
   limits: Record<string, number>;
@@ -159,8 +161,13 @@ export async function probeWebGPU(): Promise<WebGPUProbeResult> {
   }
 
   let adapter: GPUAdapter | null = null;
+  let featureLevel: AdapterFeatureLevel | null = null;
   try {
-    adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    const preferred = await WebGPUManager.requestPreferredAdapter(navigator.gpu);
+    if (preferred) {
+      adapter = preferred.adapter;
+      featureLevel = preferred.featureLevel;
+    }
   } catch (e) {
     return fail(browser, `requestAdapter threw: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -168,13 +175,15 @@ export async function probeWebGPU(): Promise<WebGPUProbeResult> {
     return fail(browser, 'No adapter');
   }
 
-  const info = adapter.info || ({} as GPUAdapterInfo);
+  const info: AdapterInfoSnapshot = WebGPUManager.readAdapterInfo(adapter, featureLevel);
   const adapterSnap = {
-    vendor: info.vendor || 'unknown',
-    architecture: info.architecture || 'unknown',
-    device: info.device || 'unknown',
-    description: info.description || '',
-    isFallbackAdapter: !!(adapter as GPUAdapter & { isFallbackAdapter?: boolean }).isFallbackAdapter
+    vendor: info.vendor,
+    architecture: info.architecture,
+    device: info.device,
+    description: info.description,
+    isFallbackAdapter: info.fallback,
+    software: info.software,
+    featureLevel: info.featureLevel
   };
   const features = [...adapter.features].sort();
   const limits = limitSnapshot(adapter.limits);

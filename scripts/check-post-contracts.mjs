@@ -50,8 +50,7 @@ function check(label, condition, detail) {
   const packed = packPostUniforms({ preset: getLightingPreset('studio') }).length;
 
   const sources = {
-    'generators/bloom-shaders.js': read('src/shaders/generators/bloom-shaders.js'),
-    'bloom-composite.wgsl': read('src/shaders/bloom-composite.wgsl')
+    'common/bloom-params.wgsl': read('src/shaders/common/bloom-params.wgsl')
   };
   for (const [name, src] of Object.entries(sources)) {
     const blocks = [...src.matchAll(/struct BloomParams \{([\s\S]*?)\n\s*\}/g)];
@@ -66,7 +65,7 @@ function check(label, condition, detail) {
     });
   }
 
-  const sceneSetup = read('src/visualizer/scene-setup.js');
+  const sceneSetup = read('src/visualizer/scene-setup.ts');
   const bloomBuf = /bloom-params'[\s\S]{0,120}?size:\s*(\d+)/.exec(sceneSetup);
   check(
     `bloomParamsBuffer sized for ${packed} floats`,
@@ -87,7 +86,7 @@ function check(label, condition, detail) {
     const scalars = [...body.matchAll(/:\s*f32\s*,/g)].length;
     const bytes = mats * 64 + vecs * 8 + scalars * 4;
 
-    const declared = /SSR_PARAMS_BYTES = (\d+)/.exec(read('src/visualizer/scene-setup.js'));
+    const declared = /SSR_PARAMS_BYTES = (\d+)/.exec(read('src/visualizer/scene-setup.ts'));
     check(
       `SsrParams is ${bytes} B (${mats} mat4 + ${vecs} vec2 + ${scalars} f32)`,
       declared && Number(declared[1]) === bytes,

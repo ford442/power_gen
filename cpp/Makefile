@@ -42,6 +42,7 @@ native:
 	mkdir -p build
 	$(CXX) -std=c++17 -O2 -DSIM_CORE_STANDALONE -I src $(SRC) -o build/sim_core_test
 	./build/sim_core_test
+	./build/sim_core_test --mode catalog
 	./build/sim_core_test --export-csv 10 build/seg_telemetry.csv 10
 	@echo "✓  CSV export smoke → build/seg_telemetry.csv"
 

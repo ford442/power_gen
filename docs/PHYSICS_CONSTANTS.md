@@ -22,6 +22,10 @@ Outputs:
 
 **Do not hand-edit generated files.** Change `physics/constants.json` and rerun codegen.
 
+Device **identity** (shader vs WASM mode numbers) is a separate catalog:
+[`physics/devices.json`](../physics/devices.json) → `npm run codegen:catalog` /
+`npm run check:catalog`. See [`MODE_MATRIX.md`](MODE_MATRIX.md) and ADR-0008.
+
 ## What belongs in JSON vs elsewhere
 
 | In `constants.json` | Elsewhere (intentionally) |

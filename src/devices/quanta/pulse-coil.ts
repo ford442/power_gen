@@ -13,6 +13,7 @@ import { writeMeshCylinders } from '../update-helpers';
 import { ValidatedConstants } from '../../ValidatedConstants';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
+import { catalogIdentity } from '../../../generated/device-catalog';
 
 const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-7;
 
@@ -282,10 +283,7 @@ const pulseCoilUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (inst
 };
 
 export const pulseCoilPlugin: DevicePlugin = {
-  id: 'pulse-coil',
-  label: 'Pulse Coil (R–L)',
-  category: 'quanta',
-  modeIndex: 7,
+  ...catalogIdentity('pulse-coil'),
   needsPhysicsState: true,
   defaults: {
     particleCount: 4800,

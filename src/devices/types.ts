@@ -438,7 +438,9 @@ export interface DevicePlugin {
   id: string;
   label?: string;
   category?: string;
+  /** WGSL / uniform shaderMode (from physics/devices.json). Not SimMode. */
   modeIndex?: number;
+  /** C++ SimMode when a WASM plant exists. Omit or undefined for JS-only. */
   wasmMode?: number;
   /** Floor layout / particle defaults (core devices share DEVICE_CONFIG entries). */
   defaults?: DeviceDashboardDefaults;

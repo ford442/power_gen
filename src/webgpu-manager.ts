@@ -6,6 +6,8 @@
  * Feature / limit matrix: docs/WEBGPU.md (and docs/AGENTS.md summary).
  */
 
+import { parseSsrEnabled } from './renderers/shared/url-params';
+
 /** Depth-only format — stencil is unused; saves memory vs depth24plus-stencil8. */
 export const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
 
@@ -16,11 +18,23 @@ export const CANVAS_ALPHA_MODE: GPUCanvasAlphaMode = 'opaque';
  * Optional device features to enable when the adapter supports them.
  * Never hard-required — missing features are logged and skipped.
  * `timestamp-query` is gated separately (?gpuTiming=1) to avoid blank-canvas bugs.
+ * Compression is requested if present so a later CAD path does not need a new device.
+ * `float32-filterable` is not requested (no sampled rgba32float targets).
+ * `bgra8unorm-storage` is not requested (no compute write to the swapchain).
  */
 export const OPTIONAL_DEVICE_FEATURES = [
-  'float32-filterable',
   'rg11b10ufloat-renderable',
+  'texture-compression-bc',
+  'texture-compression-etc2',
+  'texture-compression-astc',
 ] as const;
+
+export type AdapterFeatureLevel = 'core' | 'compatibility';
+
+export interface PreferredAdapterResult {
+  adapter: GPUAdapter;
+  featureLevel: AdapterFeatureLevel;
+}
 
 /** Device feature required for HDR bloom blur/extract intermediates. */
 export const BLOOM_HDR_FEATURE = 'rg11b10ufloat-renderable';
@@ -58,12 +72,15 @@ export interface AdapterInfoSnapshot {
   device: string;
   description: string;
   fallback: boolean;
+  software: boolean;
+  featureLevel: AdapterFeatureLevel | null;
 }
 
 export interface DepthStencilAttachmentOpts {
   depthClearValue?: number;
   depthLoadOp?: GPULoadOp;
   depthStoreOp?: GPUStoreOp;
+  format?: GPUTextureFormat;
 }
 
 export class WebGPUManager {
@@ -80,6 +97,9 @@ export class WebGPUManager {
   depthFormat: GPUTextureFormat = DEPTH_FORMAT;
   canvasFormat: GPUTextureFormat | null = null;
   alphaMode: GPUCanvasAlphaMode;
+  colorSpace: PredefinedColorSpace = 'srgb';
+  toneMappingMode: 'standard' | 'extended' = 'standard';
+  featureLevel: AdapterFeatureLevel | null = null;
 
   enabledFeatures: string[] = [];
   requestedLimits: Record<string, number> = {};
@@ -123,6 +143,131 @@ export class WebGPUManager {
     }
   }
 
+  static searchParams(search = typeof location !== 'undefined' ? location.search : ''): URLSearchParams {
+    try {
+      return new URLSearchParams(search);
+    } catch {
+      return new URLSearchParams();
+    }
+  }
+
+  static wantsDisplayP3(search = typeof location !== 'undefined' ? location.search : ''): boolean {
+    return WebGPUManager.searchParams(search).get('p3') === '1';
+  }
+
+  /**
+   * Canvas toneMapping. Default `standard` because bloom composite already
+   * ACES-maps to [0,1]. `extended` only with `?hdr=1` and an HDR display —
+   * can double-tonemap until composite outputs linear HDR.
+   */
+  static canvasToneMappingMode(
+    search = typeof location !== 'undefined' ? location.search : ''
+  ): 'standard' | 'extended' {
+    if (WebGPUManager.searchParams(search).get('hdr') !== '1') return 'standard';
+    try {
+      if (typeof matchMedia === 'function' && matchMedia('(dynamic-range: high)').matches) {
+        return 'extended';
+      }
+    } catch { /* ignore */ }
+    return 'standard';
+  }
+
+  static canvasViewFormats(format: GPUTextureFormat): GPUTextureFormat[] {
+    if (format === 'bgra8unorm') return ['bgra8unorm', 'bgra8unorm-srgb'];
+    if (format === 'rgba8unorm') return ['rgba8unorm', 'rgba8unorm-srgb'];
+    return [format];
+  }
+
+  /**
+   * Offscreen scene-color descriptor. MSAA belongs here (not on canvas.configure).
+   * sampleCount stays 1 until a G-buffer/showroom pass adds a resolve.
+   */
+  static offscreenColorDescriptor(opts: {
+    format: GPUTextureFormat;
+    size: GPUExtent3D;
+    sampleCount?: number;
+    usage?: GPUTextureUsageFlags;
+    label?: string;
+  }): GPUTextureDescriptor {
+    return {
+      label: opts.label,
+      size: opts.size,
+      format: opts.format,
+      sampleCount: opts.sampleCount ?? 1,
+      usage: opts.usage ?? (
+        GPUTextureUsage.RENDER_ATTACHMENT
+        | GPUTextureUsage.TEXTURE_BINDING
+        | GPUTextureUsage.COPY_DST
+        | GPUTextureUsage.COPY_SRC
+      )
+    };
+  }
+
+  static isSoftwareAdapterText(...parts: Array<string | undefined>): boolean {
+    const blob = parts.filter(Boolean).join(' ').toLowerCase();
+    return (
+      blob.includes('swiftshader')
+      || blob.includes('llvmpipe')
+      || blob.includes('softpipe')
+      || blob.includes('microsoft basic render')
+    );
+  }
+
+  /**
+   * Prefer core feature level; retry compatibility for mobile/Safari.
+   * Does not request a device — probe and session still own their requestDevice calls.
+   */
+  static async requestPreferredAdapter(
+    gpu: GPU = navigator.gpu
+  ): Promise<PreferredAdapterResult | null> {
+    const base = {
+      powerPreference: 'high-performance' as GPUPowerPreference,
+      forceFallbackAdapter: false
+    };
+    const withLevel = async (
+      featureLevel: AdapterFeatureLevel
+    ): Promise<{ adapter: GPUAdapter | null; threw: boolean }> => {
+      try {
+        const adapter = await gpu.requestAdapter({
+          ...base,
+          featureLevel
+        } as GPURequestAdapterOptions);
+        return { adapter, threw: false };
+      } catch {
+        return { adapter: null, threw: true };
+      }
+    };
+
+    const legacy = async (): Promise<GPUAdapter | null> => {
+      try {
+        return await gpu.requestAdapter(base);
+      } catch {
+        return null;
+      }
+    };
+
+    const core = await withLevel('core');
+    if (core.threw) {
+      const adapter = await legacy();
+      if (adapter) {
+        console.log('[WebGPU] requestAdapter (featureLevel unsupported; implicit core)');
+        return { adapter, featureLevel: 'core' };
+      }
+      return null;
+    }
+    if (core.adapter) {
+      console.log('[WebGPU] requestAdapter featureLevel=core');
+      return { adapter: core.adapter, featureLevel: 'core' };
+    }
+
+    const compat = await withLevel('compatibility');
+    if (compat.adapter) {
+      console.log('[WebGPU] requestAdapter featureLevel=compatibility (core returned null)');
+      return { adapter: compat.adapter, featureLevel: 'compatibility' };
+    }
+    return null;
+  }
+
   static negotiateFeatures(adapter: GPUAdapter, opts: { gpuTiming?: boolean } = {}): string[] {
     const features: string[] = [];
     const available = adapter.features;
@@ -161,15 +306,31 @@ export class WebGPUManager {
     return canvasFormat;
   }
 
-  static readAdapterInfo(adapter: GPUAdapter): AdapterInfoSnapshot {
-    const info = adapter.info || {} as GPUAdapterInfo;
+  static readAdapterInfo(
+    adapter: GPUAdapter,
+    featureLevel: AdapterFeatureLevel | null = null
+  ): AdapterInfoSnapshot {
+    const info = (adapter.info || {}) as GPUAdapterInfo & { isFallbackAdapter?: boolean };
+    const legacyFallback = !!(adapter as GPUAdapter & { isFallbackAdapter?: boolean }).isFallbackAdapter;
+    const vendor = info.vendor || 'unknown';
+    const architecture = info.architecture || 'unknown';
+    const device = info.device || 'unknown';
+    const description = info.description || '';
+    const fallback = !!(info.isFallbackAdapter || legacyFallback);
+    const software = fallback || WebGPUManager.isSoftwareAdapterText(vendor, architecture, device, description);
     return {
-      vendor: info.vendor || 'unknown',
-      architecture: info.architecture || 'unknown',
-      device: info.device || 'unknown',
-      description: info.description || '',
-      fallback: false
+      vendor,
+      architecture,
+      device,
+      description,
+      fallback,
+      software,
+      featureLevel
     };
+  }
+
+  static resolveDepthFormat(ssrEnabled: boolean): GPUTextureFormat {
+    return ssrEnabled ? 'depth32float' : DEPTH_FORMAT;
   }
 
   logAdapterSummary(adapter: GPUAdapter, features: string[], limits: Record<string, number>): void {
@@ -195,13 +356,13 @@ export class WebGPUManager {
     }
 
     try {
-      const adapter = await navigator.gpu.requestAdapter({
-        powerPreference: 'high-performance'
-      });
-      if (!adapter) throw new Error('No adapter');
+      const preferred = await WebGPUManager.requestPreferredAdapter(navigator.gpu);
+      if (!preferred) throw new Error('No adapter');
 
+      const { adapter, featureLevel } = preferred;
       this.adapter = adapter;
-      this.adapterInfo = WebGPUManager.readAdapterInfo(adapter);
+      this.featureLevel = featureLevel;
+      this.adapterInfo = WebGPUManager.readAdapterInfo(adapter, featureLevel);
 
       this.gpuTimingRequested = WebGPUManager.wantsGpuTiming();
       const requiredFeatures = WebGPUManager.negotiateFeatures(adapter, {
@@ -224,19 +385,32 @@ export class WebGPUManager {
       this.deviceLost = false;
       this._attachDeviceHooks(this.device);
 
+      const ssrOn = parseSsrEnabled();
+      const fallbackSoft = !!(this.adapterInfo.fallback || this.adapterInfo.software);
+      this.depthFormat = WebGPUManager.resolveDepthFormat(ssrOn && !fallbackSoft);
+
       this.context = this.canvas.getContext('webgpu');
       if (!this.context) throw new Error('Failed to get webgpu canvas context');
 
       this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+      this.colorSpace = WebGPUManager.wantsDisplayP3() ? 'display-p3' : 'srgb';
+      this.toneMappingMode = WebGPUManager.canvasToneMappingMode();
+      const viewFormats = WebGPUManager.canvasViewFormats(this.canvasFormat);
+
       this.context.configure({
         device: this.device,
         format: this.canvasFormat,
         alphaMode: this.alphaMode,
+        colorSpace: this.colorSpace,
+        toneMapping: { mode: this.toneMappingMode } as GPUCanvasToneMapping,
+        viewFormats,
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
-      });
+      } as GPUCanvasConfiguration);
 
       console.log(
-        `[WebGPU] Canvas configured: format=${this.canvasFormat} alphaMode=${this.alphaMode} depth=${this.depthFormat}` +
+        `[WebGPU] Canvas configured: format=${this.canvasFormat} alphaMode=${this.alphaMode}` +
+        ` colorSpace=${this.colorSpace} toneMapping=${this.toneMappingMode}` +
+        ` depth=${this.depthFormat} featureLevel=${featureLevel}` +
         (this.gpuTimingRequested ? ' gpuTiming=on' : ' gpuTiming=off (default; ?gpuTiming=1 to request)')
       );
 
@@ -323,7 +497,8 @@ export class WebGPUManager {
       depthLoadOp: opts.depthLoadOp ?? 'clear',
       depthStoreOp: opts.depthStoreOp ?? 'store'
     };
-    if (DEPTH_FORMAT.includes('stencil')) {
+    const format = opts.format ?? DEPTH_FORMAT;
+    if (format.includes('stencil')) {
       attachment.stencilClearValue = 0;
       attachment.stencilLoadOp = 'clear';
       attachment.stencilStoreOp = 'store';

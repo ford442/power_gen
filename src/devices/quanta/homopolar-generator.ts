@@ -14,6 +14,7 @@ import { writeMeshCylinders } from '../update-helpers';
 import { ValidatedConstants } from '../../ValidatedConstants';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
+import { catalogIdentity } from '../../../generated/device-catalog';
 
 const BR = ValidatedConstants.MAGNET_BR?.value ?? 1.48;
 const DISC_RADIUS = 0.14;
@@ -175,10 +176,7 @@ const homopolarUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (inst
 };
 
 export const homopolarGeneratorPlugin: DevicePlugin = {
-  id: 'homopolar',
-  label: 'Homopolar Generator',
-  category: 'quanta',
-  modeIndex: 8,
+  ...catalogIdentity('homopolar'),
   needsPhysicsState: true,
   wasmSkipsJsPhysics: true,
   defaults: {

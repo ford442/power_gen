@@ -68,6 +68,7 @@ smoke runs:
 ./build/sim_core_test --mode homopolar # Faraday disc L–R smoke
 ./build/sim_core_test --mode transformer # coupled-inductor L–M smoke
 ./build/sim_core_test --mode chores      # gpu-chores reduce/map goldens
+./build/sim_core_test --mode catalog     # print id → wasmMode; fail on holes/dupes
 ```
 
 Plant modes (SimMode enum): `0=SEG` RK4 rollers, `1=Heron` Bernoulli /
@@ -224,8 +225,8 @@ Each `plant/*.cpp` implements a subset of `SEGSimulator`'s private `_step*`
 methods plus that mode's free functions declared in `sim_core.h`; the
 Emscripten `--bind` class name (`SimCore`/`SEGSimulator`) and its public
 method surface are declared in `sim_core_embind.cpp`; plant physics lives in
-this split. See `docs/MODE_MATRIX.md` for how each plant's `SimMode` value
-maps to the JS device registry and shader `modeIndex`.
+this split. See `docs/MODE_MATRIX.md` (generated from `physics/devices.json`)
+for `shaderMode` vs `wasmMode` — they are two namespaces, not one.
 
 ## JavaScript / TypeScript API
 

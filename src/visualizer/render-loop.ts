@@ -686,7 +686,9 @@ export const renderLoopMethods: ThisType<Host> & {
         loadOp: 'clear',
         storeOp: 'store'
       }],
-      depthStencilAttachment: WebGPUManager.depthStencilAttachment(this.depthAttachmentView)
+      depthStencilAttachment: WebGPUManager.depthStencilAttachment(this.depthAttachmentView, {
+        format: this.depthFormat
+      })
     });
 
     // Render sky gradient first (fullscreen, before all geometry)
