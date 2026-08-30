@@ -14,3 +14,6 @@
 -s ENVIRONMENT=web
 -s NO_EXIT_RUNTIME=1
 -s MALLOC=emmalloc
+-s FILESYSTEM=0
+-fno-exceptions
+-s DISABLE_EXCEPTION_CATCHING=1

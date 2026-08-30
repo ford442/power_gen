@@ -7,6 +7,7 @@
 #include "sim_core.h"
 #include "telemetry_export.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -334,6 +335,38 @@ static int run_catalog_smoke() {
     return 0;
 }
 
+// --mode bench: report SEG RK4 roller step throughput (steps/s) and
+// particle-replay throughput, as a plain "key=value" line CI can grep to
+// track regressions from compile-flag changes (SIMD, LTO, etc.) over time.
+static int run_bench_smoke() {
+    SEGSimulator sim;
+    const float dt = 1.f / 60.f;
+    const int warmup = 2000;
+    const int steps = 100000;
+    for (int i = 0; i < warmup; ++i) sim.step(dt, 0.01f);
+
+    auto t0 = std::chrono::steady_clock::now();
+    for (int i = 0; i < steps; ++i) sim.step(dt, 0.01f);
+    auto t1 = std::chrono::steady_clock::now();
+    const double stepSec = std::chrono::duration<double>(t1 - t0).count();
+    const double stepsPerSec = steps / stepSec;
+
+    sim.seedParticles(2000);
+    const int particleWarmup = 500;
+    const int particleSteps = 5000;
+    for (int i = 0; i < particleWarmup; ++i) sim.stepParticles(dt);
+
+    auto t2 = std::chrono::steady_clock::now();
+    for (int i = 0; i < particleSteps; ++i) sim.stepParticles(dt);
+    auto t3 = std::chrono::steady_clock::now();
+    const double particleSec = std::chrono::duration<double>(t3 - t2).count();
+    const double particleStepsPerSec = particleSteps / particleSec;
+
+    printf("bench_seg_steps_per_sec=%.0f\n", stepsPerSec);
+    printf("bench_particle_steps_per_sec=%.0f\n", particleStepsPerSec);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     // --mode <peltier|mhd|maglev|homopolar>: run a single-mode smoke test
     for (int i = 1; i < argc; ++i) {
@@ -346,7 +379,8 @@ int main(int argc, char** argv) {
             if (std::strcmp(argv[i + 1], "chores") == 0) return run_chores_smoke();
             if (std::strcmp(argv[i + 1], "energy-network") == 0) return run_energy_network_smoke();
             if (std::strcmp(argv[i + 1], "catalog") == 0) return run_catalog_smoke();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|chores|energy-network|catalog)\n", argv[i + 1]);
+            if (std::strcmp(argv[i + 1], "bench") == 0) return run_bench_smoke();
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|chores|energy-network|catalog|bench)\n", argv[i + 1]);
             return 2;
         }
     }

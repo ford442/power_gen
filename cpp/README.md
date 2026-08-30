@@ -69,6 +69,7 @@ smoke runs:
 ./build/sim_core_test --mode transformer # coupled-inductor L–M smoke
 ./build/sim_core_test --mode chores      # gpu-chores reduce/map goldens
 ./build/sim_core_test --mode catalog     # print id → wasmMode; fail on holes/dupes
+./build/sim_core_test --mode bench       # print bench_seg_steps_per_sec / bench_particle_steps_per_sec
 ```
 
 Plant modes (SimMode enum): `0=SEG` RK4 rollers, `1=Heron` Bernoulli /
@@ -101,13 +102,26 @@ Enable live WASM plant: `?wasmPhysics=1` or debug panel toggle (persists to loca
 
 **Single source of Emscripten flags:** `cpp/emscripten.flags` (consumed by `Makefile` and
 `CMakeLists.txt`). Do not duplicate `-s EXPORT_*` / memory settings in one build path only.
+`CMakeLists.txt` applies every line to both the per-file compile step and the final link
+step (the Makefile's single `em++ … $(SRC)` invocation does both at once, so it needed no
+such split) — this matters now that `-fno-exceptions` is in the shared file: a codegen flag
+like that has to reach each translation unit's compile command, not just the link command,
+or it's a silent no-op. (The `-s KEY=VALUE` settings are harmless — and expected — no-ops at
+compile time; ignore the `linker setting ignored during compilation` warnings CMake's build
+prints for those.) The `file(STRINGS ...)` read of this file also needs `ENCODING UTF-8`:
+without it, CMake's byte-oriented `strings`-style reader treats the em-dash in this file's
+header comment as a line terminator and leaks the comment's remainder in as a bogus flag.
 
 `cpp/emscripten.flags` carries the flags shared by both `wasm` and `wasm-dbg`: `--bind`,
 `MODULARIZE=1`, `EXPORT_NAME=SimCore`, the required `EXPORTED_RUNTIME_METHODS`,
-`ALLOW_MEMORY_GROWTH=1`, `INITIAL_MEMORY=16777216` (16 MB), `ENVIRONMENT=web`, and
-`NO_EXIT_RUNTIME=1` — confirmed clean of `ASSERTIONS`/`SAFE_HEAP` (those are added only by
+`ALLOW_MEMORY_GROWTH=1`, `INITIAL_MEMORY=16777216` (16 MB), `ENVIRONMENT=web`,
+`NO_EXIT_RUNTIME=1`, `MALLOC=emmalloc`, `FILESYSTEM=0` (this module never `fopen`s at
+runtime), and `-fno-exceptions -s DISABLE_EXCEPTION_CATCHING=1` (every plant is already
+noexcept-style) — confirmed clean of `ASSERTIONS`/`SAFE_HEAP` (those are added only by
 the `wasm-dbg` / `npm run wasm:build-debug` target below, on top of `-O0 -g`, never by the
-release `wasm` / `npm run wasm:build` path, which uses `-O3`).
+release `wasm` / `npm run wasm:build` path, which uses `-O3`). See "SIMD, LTO,
+`FILESYSTEM=0`, exceptions — evaluated" below for what else was measured and why SIMD/LTO
+didn't land.
 
 **`npm run wasm:build` vs `npm run wasm:build-debug`:** use the release build
 (`wasm:build`, `-O3`, no assertions) for anything that ships — it's what CI commits to
@@ -168,6 +182,41 @@ Emscripten 3.1.6 + a Closure Compiler build from the same era):
 Exact percentages will vary with the Emscripten/Closure Compiler/Binaryen versions used for a
 given build (`build-wasm.yml` pins `3.1.61`, newer than what produced the numbers above), but
 the combined reduction comfortably clears a 15% target on every toolchain tested.
+
+### SIMD, LTO, `FILESYSTEM=0`, exceptions — evaluated
+
+Six more candidate flags were prototyped and measured against the `-O3 -g0 --closure 1`
+release build above (same source, same toolchain, only the flag under test changed). Two
+landed in `emscripten.flags`; two were rejected for not clearing their bar; one was skipped
+because its precondition doesn't hold yet; native warnings were enabled separately.
+
+| Flag | Verdict | Measured effect |
+|------|---------|------------------|
+| `-s FILESYSTEM=0` | **Landed** (shared `emscripten.flags`) | This module never `fopen`s at runtime (`ENVIRONMENT=web`, no file I/O in `plant/*.cpp`), so the emulated filesystem shim is dead weight. Combined with `-fno-exceptions` below: **32,690 B → 32,282 B** combined gzip (**−1.2%**). Zero risk, zero runtime cost — landed even though `--closure 1`'s dead-code elimination already strips most of the unused FS glue, because it documents the intent explicitly and the saving holds even on a non-Closure (`wasm-dbg`) build |
+| `-fno-exceptions` + `-s DISABLE_EXCEPTION_CATCHING=1` | **Landed** (shared `emscripten.flags`) | `plant/*.cpp` and `sim_core_*.cpp` contain no `try`/`catch`/`throw` — every plant is already noexcept-style. Disabling exception support removes the unwind tables and landing pads Binaryen otherwise has to keep around. Measured **`sim_core.js` 25,706 B → 25,309 B raw (−1.5%)**, **`sim_core.wasm` 51,698 B → 51,151 B raw (−1.1%)** |
+| `-msimd128` (`wasm` / `wasm-dbg`) | **Rejected** | RK4 roller stepping and particle CPU replay don't auto-vectorize into a size or speed win here: `sim_core.wasm` grew **51,698 B → 55,301 B raw (+7.0%)** (wider SIMD opcodes, code the roller/particle loops don't exploit), while step throughput was flat within run-to-run noise (SEG RK4 step/s and particle step/s both **±1–2%** across repeated Node-harness runs — no consistent gain). Rejected: it only adds bytes without a measurable step/s win. `wasm-dbg` was confirmed to still compile with `-msimd128` in case a future plant makes this worth revisiting. (Browser support was not the blocker — WebGPU already sets a Safari 16.4+ / Chrome 91+-or-newer floor for this lab, which comfortably covers `-msimd128`'s own requirement.) |
+| `-flto` (release `em++`) | **Rejected** | `sim_core.wasm` was flat (**51,698 B → 51,722 B raw**, ~0%) — nowhere near the ≥10% size or ≥15% step/s bar this issue set. Worse, the particle-replay throughput was **consistently ~5% slower** with LTO across three repeated runs (RK4 roller step/s unaffected). Given a flat size result and a repeatable regression on one of the two benchmarked paths, `-flto` is rejected rather than landed as a wash |
+| `-s WASM_BIGINT=1` | **Skipped** | Only useful once a `u64` counter crosses the JS `Number` boundary. Nothing in `sim_core_embind.cpp`'s current bound surface returns/accepts `u64` — revisit if that changes |
+| `make native`: `-Wall -Wextra -Wpedantic` | **Landed** | `plant/*.cpp` and `sim_core_*.cpp` already build warning-free under `g++`/`clang++` `-std=c++17 -O2 -Wall -Wextra -Wpedantic` — no code changes were needed. Not `-Werror` yet (per this issue's scope: no drive-by hardening beyond what's already clean) |
+
+Measured with a distro-packaged Emscripten 3.1.6 + a version-matched `google-closure-compiler`
+(the CI-pinned 3.1.61 in `build-wasm.yml` was unavailable in the measurement environment);
+absolute byte counts will shift slightly under 3.1.61, but the relative deltas that drove each
+verdict — SIMD/LTO not clearing their bar, `FILESYSTEM=0`/no-exceptions being small free wins —
+are toolchain-independent enough to act on. `cpp/build/sim_core_test --mode bench` (`npm run
+wasm:native`) prints `bench_seg_steps_per_sec=<N>` / `bench_particle_steps_per_sec=<N>` so CI
+and local runs can track step-rate regressions from future flag changes without needing a
+browser or a WASM harness.
+
+Zero-copy contract re-verified after this change: `mod.HEAPF32` / `mod.HEAPU8` are still
+exported and instantiate correctly with both new flags enabled (checked via a Node harness
+loading the built `.wasm` directly with `Module.wasmBinary`, bypassing the `ENVIRONMENT=web`
+fetch path).
+
+Rejected for reasons unrelated to measurement, per this issue's explicit scope: `-sSHARED_MEMORY`
+/ pthreads (this build is single-threaded — `ENVIRONMENT=web`, `emmalloc`, ADR-0002), Eigen/ODE
+libraries (`Vec3` + per-plant ODEs are the right size for this codebase), and `wasm64` /
+memory64 (not ready for this ABI).
 
 ### `SINGLE_FILE` — evaluated, not enabled
 
