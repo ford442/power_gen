@@ -64,6 +64,11 @@ type WasmModePlant = {
   v2?: number;
   k?: number;
   fluxN?: number;
+  beltMps?: number;
+  chargeC?: number;
+  sparkHz?: number;
+  coeff?: number;
+  carrierMetal?: boolean;
 };
 
 function smoothstep(edge0: number, edge1: number, x: number) {
@@ -200,12 +205,16 @@ export const renderLoopMethods: ThisType<Host> & {
       const drive = segOperator.getDrive();
       const loadT = 0.01 * (1 - drive * 0.5);
       const focus = this.currentView === 'overview' ? 'seg' : this.currentView;
-      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer'].includes(focus)) {
+      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall'].includes(focus)) {
         segWasm.setMode(focus);
       }
       if (focus === 'transformer') {
         const leak = !!(this.devices.transformer as RenderDevice | undefined)?.physicsState?.transformerLeakage;
         segWasm.setTransformerLeakage?.(leak);
+      }
+      if (focus === 'hall') {
+        const metal = (this.devices.hall as RenderDevice | undefined)?.physicsState?.hallCarrierType === 'metal';
+        segWasm.setHallCarrierMetal?.(metal);
       }
       for (const subDt of simSteps) {
         if (subDt <= 0) continue;
@@ -308,6 +317,28 @@ export const renderLoopMethods: ThisType<Host> & {
             xfmr.physicsState.transformerFluxN = plant.fluxN ?? 0;
             xfmr.physicsState.energyLevel = plant.energyLevel ?? 0;
             xfmr.physicsState._wasmPlantActive = true;
+          }
+        } else if (focus === 'vdg') {
+          const plant = segWasm.getModePlant() as WasmModePlant | null;
+          const vdg = this.devices.vdg as RenderDevice | undefined;
+          if (vdg?.physicsState && plant?.mode === 'vdg') {
+            vdg.physicsState.vdgVoltage = plant.voltage ?? 0;
+            vdg.physicsState.vdgBeltMps = plant.beltMps ?? 0;
+            vdg.physicsState.vdgChargeC = plant.chargeC ?? 0;
+            vdg.physicsState.vdgSparkHz = plant.sparkHz ?? 0;
+            vdg.physicsState.energyLevel = plant.energyLevel ?? 0;
+            vdg.physicsState._wasmPlantActive = true;
+          }
+        } else if (focus === 'hall') {
+          const plant = segWasm.getModePlant() as WasmModePlant | null;
+          const hall = this.devices.hall as RenderDevice | undefined;
+          if (hall?.physicsState && plant?.mode === 'hall') {
+            hall.physicsState.hallVoltage = plant.voltage ?? 0;
+            hall.physicsState.hallCurrent = plant.current ?? 0;
+            hall.physicsState.hallFieldT = plant.fieldT ?? 0;
+            hall.physicsState.hallCoeff = plant.coeff ?? 0;
+            hall.physicsState.energyLevel = plant.energyLevel ?? 0;
+            hall.physicsState._wasmPlantActive = true;
           }
         }
       }

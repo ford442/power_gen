@@ -112,6 +112,7 @@ declare global {
     captureCanvasFrame?(opts?: CaptureCanvasFrameOptions): CanvasFrameCapture;
 
     setTransformerLeakage?: (enabled: boolean) => void;
+    setHallCarrierType?: (carrier: 'semiconductor' | 'metal') => void;
     setSegFrameLevel?: (level: string) => void;
     setLightingLook?: (look: string) => void;
     setRenderer?: (name: string) => void;
@@ -121,6 +122,8 @@ declare global {
     DEBUG_RENDERER?: string;
     sciUI?: { toggle: () => void; show?: () => void; hide?: () => void } | null;
     segTour?: SEGTourPlayer;
+    vdgTour?: SEGTourPlayer;
+    goToVdgStep?: (id: string) => void;
     captureParticleSubset?: (opts?: { deviceId?: string; maxCount?: number }) => Promise<unknown>;
     captureOverviewCull?: () => Promise<unknown>;
     runSEGSpeedTest?: (speeds?: number[], durationMs?: number) => Promise<unknown>;
@@ -144,6 +147,7 @@ declare global {
     };
     exportBenchmarkPack?: () => unknown;
     startSEGTour?: () => void;
+    startVdgTour?: () => void;
     shareLabLink?: () => Promise<unknown>;
 
     /** URL / window overrides shared by WebGPU + WebGL2 (url-params). */

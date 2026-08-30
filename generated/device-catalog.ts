@@ -113,6 +113,24 @@ export const DEVICE_CATALOG = [
     telemetryKeys: ['transformerVp', 'transformerVs', 'transformerIpA', 'transformerIsA', 'transformerK', 'transformerFluxN'] as const,
     fidelity: "WASM coupled-inductor ODE (?wasmPhysics=1); JS phasor fallback",
   },
+  {
+    id: 'vdg',
+    label: "Van de Graaff",
+    category: 'quanta',
+    shaderMode: 12,
+    wasmMode: 9 as number | null,
+    telemetryKeys: ['vdgVoltage', 'vdgBeltMps', 'vdgChargeC', 'vdgSparkHz'] as const,
+    fidelity: "WASM belt-charge/sphere-capacitance/spark-gap ODE (?wasmPhysics=1); JS fallback",
+  },
+  {
+    id: 'hall',
+    label: "Hall-Effect Bench",
+    category: 'quanta',
+    shaderMode: 13,
+    wasmMode: 10 as number | null,
+    telemetryKeys: ['hallVoltage', 'hallCurrent', 'hallFieldT', 'hallCoeff'] as const,
+    fidelity: "WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback",
+  },
 ] as const;
 
 export const DEVICE_BY_ID: Record<string, DeviceCatalogEntry> = Object.fromEntries(
@@ -130,15 +148,17 @@ export const WASM_MODE_BY_ID: Record<string, number> = {
   'maglev': 6,
   'homopolar': 7,
   'transformer': 8,
+  'vdg': 9,
+  'hall': 10,
 };
 
-export const WASM_DEVICE_IDS = ['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer'] as const;
+export const WASM_DEVICE_IDS = ['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall'] as const;
 
-export const SIM_MODE_COUNT = 9;
+export const SIM_MODE_COUNT = 11;
 
-export const RESERVED_WASM_MODES = [9, 10] as const;
+export const RESERVED_WASM_MODES = [] as const;
 
-export const NEXT_SHADER_MODE = 11;
+export const NEXT_SHADER_MODE = 14;
 
 /** Identity fields for DevicePlugin registration (modeIndex = shaderMode). */
 export function catalogIdentity(id: string): {

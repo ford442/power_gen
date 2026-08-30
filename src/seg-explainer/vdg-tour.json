@@ -1,0 +1,68 @@
+{
+  "tourVersion": 1,
+  "id": "vdg-intro",
+  "title": "Van de Graaff Generator Tour",
+  "description": "Guided walkthrough of the belt-charge column, isolated sphere, and spark gap.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 6,
+      "view": "vdg",
+      "camera": { "position": [0, 2.8, 9], "target": [0, 1.5, 0] },
+      "title": "Welcome to the Van de Graaff bench",
+      "body": "A classroom electrostatic generator: an insulating belt carries charge up a column to an isolated metal sphere. This is a lumped, textbook model — not a high-voltage engineering design.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "belt",
+      "durationSec": 8,
+      "view": "vdg",
+      "camera": { "position": [1.8, 1.6, 3.2], "target": [0, 1.2, 0] },
+      "title": "The charging belt",
+      "body": "A grounded lower comb sprays charge onto the moving belt; an upper comb strips it off near the sphere. Belt current scales with belt speed — try the drive slider and watch belt m/s rise.",
+      "highlights": ["vdg-belt"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "belt-charge"
+    },
+    {
+      "id": "sphere",
+      "durationSec": 8,
+      "view": "vdg",
+      "camera": { "position": [0, 3.0, 2.2], "target": [0, 2.5, 0] },
+      "title": "The isolated sphere",
+      "body": "Charge accumulates on the sphere's outer surface. Capacitance C = 4πε₀r sets how much voltage builds per coulomb — watch sphere voltage climb as charge (nC) accumulates.",
+      "highlights": ["vdg-sphere"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "sphere-capacitance"
+    },
+    {
+      "id": "leakage",
+      "durationSec": 7,
+      "view": "vdg",
+      "camera": { "position": [-1.8, 2.2, 2.6], "target": [0, 2.0, 0] },
+      "title": "Leakage keeps it honest",
+      "body": "Real air and support insulation aren't perfect — a leakage resistance bleeds charge continuously. Voltage settles where belt current in balances leakage current out, well below breakdown, until a spark resets the balance.",
+      "highlights": ["vdg-sphere"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": null
+    },
+    {
+      "id": "spark",
+      "durationSec": 8,
+      "view": "vdg",
+      "camera": { "position": [0.5, 3.4, 1.6], "target": [0, 2.8, 0] },
+      "title": "Spark gap discharge",
+      "body": "When the field at the sphere surface exceeds the classroom air-breakdown estimate, a spark discharges part of the stored charge and the cycle restarts. Watch the spark-rate telemetry (Hz) as you raise the drive.",
+      "highlights": ["vdg-spark"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "corona"
+    }
+  ]
+}

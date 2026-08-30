@@ -40,7 +40,9 @@ export const DEVICE_PARTICLE_BUDGETS = {
   maglev: { high: 4500, medium: 2800, low: 1600, critical: 800 },
   homopolar: { high: 5000, medium: 3200, low: 1800, critical: 900 },
   'halbach-viz': { high: 4000, medium: 2500, low: 1400, critical: 700 },
-  'pulse-coil': { high: 4200, medium: 2600, low: 1500, critical: 750 }
+  'pulse-coil': { high: 4200, medium: 2600, low: 1500, critical: 750 },
+  vdg: { high: 3600, medium: 2400, low: 1400, critical: 700 },
+  hall: { high: 3200, medium: 2100, low: 1200, critical: 600 }
 };
 
 /** Core / legacy ids that use DEFAULT_CORE when not listed above. */

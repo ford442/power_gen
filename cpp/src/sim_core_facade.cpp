@@ -20,6 +20,9 @@ SEGSimulator::SEGSimulator() {
     _homopolar.fieldT = std::min(0.55f, PhysicsConstants::Br_DEFAULT * 0.28f);
     _maglev.fieldT = estimateHalbachFieldT(_maglev.gap);
     _transformer.k = _transformer.kIdeal;
+    // Isolated-sphere capacitance C = 4*pi*eps0*r; breakdown V = E_air(3e6 V/m) * gapM.
+    _vdg.capacitanceF = 4.f * PhysicsConstants::PI * PhysicsConstants::EPSILON_0 * 0.14f;
+    _vdg.vBreak = 3.0e6f * 0.05f;
 }
 
 void SEGSimulator::step(float dt, float loadTorque) {
@@ -37,6 +40,8 @@ void SEGSimulator::setDrive(float drive) {
     _maglev.drive = _drive;
     _homopolar.drive = _drive;
     _transformer.drive = _drive;
+    _vdg.drive = _drive;
+    _hall.drive = _drive;
 }
 
 void SEGSimulator::stepWithPerRingTorques(float dt) {
@@ -67,6 +72,12 @@ void SEGSimulator::stepWithPerRingTorques(float dt) {
             break;
         case SIM_MODE_TRANSFORMER:
             _stepTransformer(dt);
+            break;
+        case SIM_MODE_VDG:
+            _stepVdg(dt);
+            break;
+        case SIM_MODE_HALL:
+            _stepHall(dt);
             break;
         default:
             break;
@@ -110,6 +121,16 @@ float SEGSimulator::estimatePower(float loadTorque) const {
     if (_mode == SIM_MODE_MAGLEV)  return _maglev.liftN * _maglev.gapVel; // mechanical proxy
     if (_mode == SIM_MODE_HOMOPOLAR) return _homopolar.emfV * _homopolar.currentA;
     if (_mode == SIM_MODE_TRANSFORMER) return std::abs(_transformer.v2 * _transformer.i2);
+    if (_mode == SIM_MODE_VDG) {
+        // Capacitive energy dump rate proxy, same shape as Kelvin's.
+        return 0.5f * _vdg.capacitanceF * _vdg.voltage * _vdg.voltage / std::max(_vdg.sparkDurS, 0.01f)
+               * (_vdg.sparkTimer > 0.f ? 1.f : 0.1f);
+    }
+    if (_mode == SIM_MODE_HALL) {
+        // I^2 R dissipation proxy (R_strip ~ 0.5 Ohm, order-of-magnitude — the
+        // bench's own power draw is not the pedagogical point, V_H is).
+        return _hall.current * _hall.current * 0.5f;
+    }
     if (_numRollers == 0) return 0.f;
     return loadTorque * _rollers[0].omega * static_cast<float>(_numRollers) / 3.f;
 }
@@ -136,6 +157,10 @@ float SEGSimulator::getEnergyLevel() const {
         case SIM_MODE_TRANSFORMER:
             return clampf(_transformer.drive * 0.55f
                           + std::abs(_transformer.i2) / 3.f * 0.45f, 0.f, 1.f);
+        case SIM_MODE_VDG:
+            return clampf(_vdg.voltage / std::max(_vdg.vBreak, 1.f), 0.f, 1.f);
+        case SIM_MODE_HALL:
+            return clampf(_hall.current / std::max(_hall.iMaxA, 0.01f), 0.f, 1.f);
         default:
             return clampf(_rollers[0].omega / 50.f, 0.f, 1.f);
     }

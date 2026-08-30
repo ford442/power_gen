@@ -140,6 +140,30 @@ export interface TransformerPhysicsExtension {
   _wasmPlantActive?: boolean;
 }
 
+/** Quanta Van de Graaff classroom demo (belt charge transport, sphere V, spark gap). */
+export interface VdgPhysicsExtension {
+  vdgVoltage?: number;
+  vdgBeltMps?: number;
+  vdgChargeC?: number;
+  vdgSparkHz?: number;
+  /** Internal: decaying spark timer and rolling spark-rate accumulator. */
+  vdgSparkTimer?: number;
+  vdgSparkAccum?: number;
+  vdgSparkWindowT?: number;
+  _wasmPlantActive?: boolean;
+}
+
+/** Quanta Hall-effect sensor bench classroom demo. */
+export interface HallPhysicsExtension {
+  hallVoltage?: number;
+  hallCurrent?: number;
+  hallFieldT?: number;
+  hallCoeff?: number;
+  /** 'semiconductor' (default, larger V_H) or 'metal' (much smaller V_H). */
+  hallCarrierType?: 'semiconductor' | 'metal';
+  _wasmPlantActive?: boolean;
+}
+
 /** Full per-device physics plant state (built-in + plugin extensions). */
 export type DevicePhysicsState = BaseDevicePhysicsState &
   Partial<MaglevPhysicsExtension> &
@@ -148,7 +172,9 @@ export type DevicePhysicsState = BaseDevicePhysicsState &
   Partial<PulseCoilPhysicsExtension> &
   Partial<PeltierPhysicsExtension> &
   Partial<MhdPhysicsExtension> &
-  Partial<TransformerPhysicsExtension>;
+  Partial<TransformerPhysicsExtension> &
+  Partial<VdgPhysicsExtension> &
+  Partial<HallPhysicsExtension>;
 
 export interface CreateDevicePhysicsOpts {
   heronLayout?: HeronLayout;

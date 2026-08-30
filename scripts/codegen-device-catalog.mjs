@@ -138,6 +138,8 @@ function pluginSourceForId(id) {
     'halbach-viz': 'halbach-viz.ts',
     'pulse-coil': 'pulse-coil.ts',
     transformer: 'transformer.ts',
+    vdg: 'van-de-graaff.ts',
+    hall: 'hall-effect.ts',
   };
   if (quantaMap[id]) {
     return join(ROOT, 'src', 'devices', 'quanta', quantaMap[id]);

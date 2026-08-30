@@ -192,6 +192,42 @@ fn posTransformer(phase: f32, t: f32, idx: u32) -> vec3f {
   }
 }
 
+/// Mode 12 — Van de Graaff: charge packets riding the belt loop; near the
+/// terminal, sparkGlow adds outward jitter toward the discharge electrode.
+fn posVdg(phase: f32, t: f32, idx: u32) -> vec3f {
+  let chargeN = uniforms.physics0;
+  let sparkGlow = uniforms.physics1;
+  let side = select(-1.0, 1.0, (idx & 1u) == 1u);
+  let topY = 1.13;
+  let botY = -0.55;
+  let cycleT = fract(t * (0.4 + chargeN * 0.3) + phase);
+  let y = mix(botY, topY, cycleT);
+  let jitter = sin(t * 6.0 + phase * 20.0) * 0.02;
+  var x = side * 0.09 + jitter;
+  var z = jitter * 0.5;
+  if (cycleT > 0.92) {
+    let burst = sparkGlow * sin(phase * 53.0 + t * 15.0);
+    x = x + burst * 0.5;
+    z = z + burst * 0.3;
+  }
+  return vec3f(x, y, z);
+}
+
+/// Mode 13 — Hall bench: carriers drifting along the strip, deflected
+/// toward one edge by the transverse field (illustrative, not a real
+/// per-particle Lorentz-force integrator).
+fn posHall(phase: f32, t: f32, idx: u32) -> vec3f {
+  let iN = uniforms.physics0;
+  let bN = uniforms.physics1;
+  let stripL = 0.5;
+  let stripW = 0.08;
+  let cycleT = fract(t * (0.3 + iN * 0.6) + phase);
+  let x = mix(-stripL * 0.5, stripL * 0.5, cycleT);
+  let z = (fract(f32(idx) * 0.271) - 0.5) * stripW * (1.0 - bN * 0.6) + bN * stripW * 0.5;
+  let y = sin(t * 3.0 + phase * 12.0 + f32(idx) * 0.05) * 0.02;
+  return vec3f(x, y, z);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let idx = id.x;
@@ -229,6 +265,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     newPos = posHalbach(phase, t, idx);
   } else if (m == MODE_TRANSFORMER) {
     newPos = posTransformer(phase, t, idx);
+  } else if (m == MODE_VDG) {
+    newPos = posVdg(phase, t, idx);
+  } else if (m == MODE_HALL) {
+    newPos = posHall(phase, t, idx);
   } else {
     newPos = posMagLev(phase, t, idx);
   }

@@ -61,6 +61,40 @@ export const SEG_GLOSSARY = {
     unit: 'H/m',
     value: String(PHYSICAL_CONSTANTS.MU_0),
     source: 'CODATA / PHYSICAL_CONSTANTS'
+  },
+  'belt-charge': {
+    title: 'Belt charge transfer',
+    body: 'An insulating belt physically carries charge from a grounded comb to an upper comb near the sphere — dQ/dt scales with belt speed. Classroom Van de Graaff model, not a metrology instrument.',
+    source: 'devices/quanta/van-de-graaff.ts'
+  },
+  'sphere-capacitance': {
+    title: 'Isolated-sphere capacitance',
+    body: 'C = 4πε₀r for a sphere far from other conductors. Voltage V = Q/C rises until leakage and corona losses balance the belt current.',
+    unit: 'F',
+    source: 'Electrostatics — isolated conductor capacitance'
+  },
+  corona: {
+    title: 'Corona / spark discharge',
+    body: 'When the sphere field exceeds the classroom air-breakdown estimate (~3×10⁶ V/m × gap), a spark discharges a fraction of the stored charge.',
+    source: 'devices/quanta/van-de-graaff.ts spark-gap model'
+  },
+  'hall-voltage': {
+    title: 'Hall voltage (V_H)',
+    body: 'Transverse voltage induced across a current-carrying strip in a perpendicular magnetic field: V_H = I·B / (n·e·t).',
+    unit: 'V',
+    source: 'Hall 1879 / devices/quanta/hall-effect.ts'
+  },
+  'hall-coefficient': {
+    title: 'Hall coefficient (R_H)',
+    body: 'R_H = 1 / (n·e) — depends only on the carrier density of the sample, not its geometry or drive current.',
+    unit: 'm³/C',
+    source: 'devices/quanta/hall-effect.ts'
+  },
+  'carrier-density': {
+    title: 'Charge carrier density (n)',
+    body: 'Semiconductors have carrier densities ~1e21 m⁻³ (large Hall voltage); metals ~1e28 m⁻³ (Hall voltage nearly vanishes at the same current and field).',
+    unit: 'm⁻³',
+    source: 'devices/quanta/hall-effect.ts HALL_CARRIER_PROFILES'
   }
 };
 
@@ -73,7 +107,13 @@ export const HIGHLIGHT_GLOSSARY = {
   flux: 'flux',
   ionization: 'ionization',
   separator: 'air-gap',
-  shaft: 'B-field'
+  shaft: 'B-field',
+  'vdg-belt': 'belt-charge',
+  'vdg-sphere': 'sphere-capacitance',
+  'vdg-spark': 'corona',
+  'hall-strip': 'hall-voltage',
+  'hall-probe': 'hall-coefficient',
+  'hall-carrier': 'carrier-density'
 };
 
 export function glossaryForHighlight(highlightId) {

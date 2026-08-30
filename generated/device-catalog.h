@@ -11,10 +11,12 @@ enum SimMode {
     SIM_MODE_MHD = 5,
     SIM_MODE_MAGLEV = 6,
     SIM_MODE_HOMOPOLAR = 7,
-    SIM_MODE_TRANSFORMER = 8
+    SIM_MODE_TRANSFORMER = 8,
+    SIM_MODE_VDG = 9,
+    SIM_MODE_HALL = 10
 };
 
-static constexpr int SIM_MODE_COUNT = 9;
+static constexpr int SIM_MODE_COUNT = 11;
 
 struct DeviceCatalogRow {
     const char* id;
@@ -33,12 +35,14 @@ static constexpr DeviceCatalogRow DEVICE_CATALOG[] = {
     { "pulse-coil", 7, -1 },
     { "homopolar", 8, 7 },
     { "halbach-viz", 9, -1 },
-    { "transformer", 10, 8 }
+    { "transformer", 10, 8 },
+    { "vdg", 12, 9 },
+    { "hall", 13, 10 }
 };
 
-static constexpr int DEVICE_CATALOG_COUNT = 11;
+static constexpr int DEVICE_CATALOG_COUNT = 13;
 
-static constexpr int RESERVED_WASM_MODES[] = { 9, 10 };
-static constexpr int RESERVED_WASM_MODE_COUNT = 2;
+static constexpr int RESERVED_WASM_MODES[] = { 0 };
+static constexpr int RESERVED_WASM_MODE_COUNT = 0;
 
-static_assert(SIM_MODE_COUNT == 9, "SIM_MODE_COUNT must match physics/devices.json wasm plants");
+static_assert(SIM_MODE_COUNT == 11, "SIM_MODE_COUNT must match physics/devices.json wasm plants");

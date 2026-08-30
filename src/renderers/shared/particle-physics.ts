@@ -50,6 +50,12 @@ export interface ParticleUniforms {
   transformerIpA?: number;
   transformerIsA?: number;
   transformerFluxN?: number;
+  /** Van de Graaff (mode 12) */
+  vdgVoltage?: number;
+  vdgSparkHz?: number;
+  /** Hall-effect bench (mode 13) */
+  hallCurrent?: number;
+  hallFieldT?: number;
 }
 
 interface SpawnParticle {
@@ -267,6 +273,49 @@ function integrateTransformer(
   return [0.55 + Math.cos(a) * 0.24, 0.15 + Math.sin(a) * 0.2, Math.sin(a * 2.0 + 1.0) * 0.1];
 }
 
+/** Mirrors posVdg in particle-compute.wgsl. */
+function integrateVdg(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  chargeN = 0,
+  sparkGlow = 0
+): [number, number, number] {
+  const phase = p.phase;
+  const side = (idx & 1) === 1 ? 1 : -1;
+  const topY = 1.13;
+  const botY = -0.55;
+  const cycleT = (((t * (0.4 + chargeN * 0.3) + phase) % 1) + 1) % 1;
+  const y = botY + (topY - botY) * cycleT;
+  const jitter = Math.sin(t * 6.0 + phase * 20.0) * 0.02;
+  let x = side * 0.09 + jitter;
+  let z = jitter * 0.5;
+  if (cycleT > 0.92) {
+    const burst = sparkGlow * Math.sin(phase * 53.0 + t * 15.0);
+    x += burst * 0.5;
+    z += burst * 0.3;
+  }
+  return [x, y, z];
+}
+
+/** Mirrors posHall in particle-compute.wgsl. */
+function integrateHall(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  iN = 0,
+  bN = 0
+): [number, number, number] {
+  const phase = p.phase;
+  const stripL = 0.5;
+  const stripW = 0.08;
+  const cycleT = (((t * (0.3 + iN * 0.6) + phase) % 1) + 1) % 1;
+  const x = -stripL * 0.5 + stripL * cycleT;
+  const z = ((((idx * 0.271) % 1) + 1) % 1 - 0.5) * stripW * (1.0 - bN * 0.6) + bN * stripW * 0.5;
+  const y = Math.sin(t * 3.0 + phase * 12.0 + idx * 0.05) * 0.02;
+  return [x, y, z];
+}
+
 /**
  * Advance particle buffer in-place (8 floats per particle).
  */
@@ -397,6 +446,17 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
       const flowN = Math.min(1, (u.mhdFlowU ?? 1) / 3.5);
       const bN = Math.min(1, (u.mhdBFieldT ?? 0.4) / 1.0);
       const pos = integrateMHD({ phase }, idx, u.time, flowN, bN);
+      px = pos[0]; py = pos[1]; pz = pos[2];
+    } else if (mode >= 13.0) {
+      const iN = Math.min(1, (u.hallCurrent ?? 0) / 1.2);
+      const bN = Math.min(1, (u.hallFieldT ?? 0) / 0.65);
+      const pos = integrateHall({ phase }, idx, u.time, iN, bN);
+      px = pos[0]; py = pos[1]; pz = pos[2];
+    } else if (mode >= 12.0) {
+      // 150000 mirrors VDG_V_BREAK in devices/quanta/van-de-graaff.ts.
+      const chargeN = Math.min(1, (u.vdgVoltage ?? 0) / 150000);
+      const sparkGlow = (u.vdgSparkHz ?? 0) > 0 ? 1 : 0;
+      const pos = integrateVdg({ phase }, idx, u.time, chargeN, sparkGlow);
       px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode >= 10.0) {
       const ipN = Math.min(1, Math.abs(u.transformerIpA ?? 0) / 4);
