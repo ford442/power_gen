@@ -139,20 +139,86 @@ duplicated in three generator templates plus `bloom-composite.wgsl`;
 
 `src/shaders/passes/ssr-compute.wgsl` runs between the scene pass and bloom:
 
-- Reconstructs view-space position **and normal** from the existing depth
-  buffer — this renderer has no G-buffer — then marches the reflected ray with
-  a geometrically growing step and a 5-step binary refine on hit.
+- Reconstructs view-space position and normal from the existing depth buffer,
+  then marches the reflected ray with a geometrically growing step and a
+  5-step binary refine on hit.
 - Writes premultiplied reflection colour + confidence into a **half-resolution**
   `rgba16float` storage texture, which the composite adds after its AO term.
 - `SsrParams` uploads the camera's own projection and its inverse
   (`MultiDeviceCamera.getProjMatrix` / `invertMatrix`) so depth is unprojected
   exactly the way the scene pass projected it.
-- **Known limitation:** with depth as the only geometric input, per-pixel
-  roughness and metalness are unavailable, so the reflection is weighted by a
-  grazing Fresnel term and hit confidence rather than by material. That reads
-  correctly on the SEG chrome/nickel rollers this pass exists for, but it also
-  applies a weak reflection to non-metals. A roughness G-buffer channel is the
-  fix if that becomes visible.
+- **Metalness/roughness G-buffer (ADR-0005 WS2):** the scene render pass has a
+  second color attachment — `rg8unorm`, full canvas resolution, r=metallic
+  g=roughness — written only by `seg-enhanced-frag.wgsl` and `roller-frag.wgsl`
+  (chrome/nickel rollers, and the CAD housing/frame, which is drawn with the
+  same segEnhanced pipeline). Every other pass in the scene declares a `null`
+  second target, so its pixels keep the pass's clear value (metallic=0,
+  roughness=1 — "non-metal") by default. `ssr-compute.wgsl` samples this at
+  binding 5, at the *reflecting* pixel's own UV, and weights each reflection by
+  `hitConfidence * fresnel * metallic * (1 - roughness)^2` — a painted/plastic
+  surface (near-zero metalness) now contributes ~0 regardless of viewing
+  angle, replacing the previous Fresnel-only approximation. Memory: `rg8unorm`
+  at 2 bytes/px is **≈3.96 MB at 1080p** (1920×1080) and **≈15.82 MB at 4K**
+  (3840×2160), on top of the existing scene-color/depth/SSR textures.
+
+### 4x MSAA (ADR-0005 WS2 showroom pass)
+
+Gated on `qualityTier === 'high'` **and** focus mode (a single device selected,
+not overview) — `'ultra'` is defined in this doc's quality table and in
+`post-processing-config.js`, but the auto-quality system in
+`performance-profiler.js` never actually assigns it (`_updateQualityTier()`
+only ever picks critical/low/medium/high), so `'high'` is the practical
+ceiling gate today rather than a deliberate downgrade from `'ultra'`.
+
+WebGPU resolves multisampled **color** attachments automatically via
+`resolveTarget`, but has no equivalent for depth. When MSAA is active:
+
+- The scene color and metalness/roughness G-buffer render into 4x-sample
+  textures and resolve automatically into the existing single-sample
+  `bloomSceneTexture` / `materialGBufferTexture` — bloom and SSR never know
+  MSAA happened for those two.
+- Depth is manually resolved: `passes/depth-resolve.wgsl`, a fullscreen
+  triangle, runs right after the scene pass and writes sample 0 of the 4x
+  depth buffer into `depthResolvedTexture` via `@builtin(frag_depth)`. SSR
+  and bloom-composite bind that (via `ssrBindGroupResolved` /
+  `bloomCompositeBindGroupResolved`) instead of the regular depth texture on
+  MSAA frames.
+- Every render pipeline drawn in the scene pass (sky, grid, all device
+  meshes, anomaly walls, energy pipes) has a second, otherwise-identical
+  `GPURenderPipeline` compiled with `multisample.count: 4` — `multisample` is
+  baked into a pipeline at creation, so this can't be a runtime toggle on one
+  pipeline object. Both variants are created eagerly at init (not lazily on
+  first use) specifically so the per-frame render loop never awaits pipeline
+  creation mid-frame; `DevicePipelineManager.applyMsaaState()` swaps the
+  active reference once per frame (cheap — no GPU work).
+- Debug panel (`src/debug-panel.js`) shows `MSAA: 4x` / `1x (off)` next to
+  the FPS readout so a "measured FPS note" is visible when toggling into
+  focus mode at `high` tier.
+
+**Memory** — these four textures (plus the second, `multisample.count: 4`
+copy of every scene-pass pipeline) are allocated **eagerly at init**, for
+every session regardless of whether that user's tier/view ever reaches
+`high` + focus — a deliberate simplicity/safety tradeoff over lazy
+allocation, since this renderer's WebGPU-level pipeline/attachment
+correctness (sample-count matching, `resolveTarget` semantics) isn't
+exercised by anything runnable outside a browser, and a lazy path would add
+an async pipeline-readiness state the per-frame render loop would have to
+account for. A future pass could gate allocation on ever reaching `high`
+tier if the unconditional ≈87 MB / ≈348 MB below proves worth avoiding for
+users who never focus a device:
+
+| Texture | Format | Bytes/px | 1080p | 4K |
+|---|---|---|---|---|
+| `sceneMsaaTexture` | canvas format, 4x | 16 | ≈31.6 MB | ≈126.6 MB |
+| `materialGBufferMsaaTexture` | `rg8unorm`, 4x | 8 | ≈15.8 MB | ≈63.3 MB |
+| `depthMsaaTexture` | depth format, 4x | 16 | ≈31.6 MB | ≈126.6 MB |
+| `depthResolvedTexture` | depth format, 1x | 4 | ≈7.9 MB | ≈31.7 MB |
+| **Total extra** | | | **≈87 MB** | **≈348 MB** |
+
+Per the issue's auto-quality guidance, MSAA is the thing to drop first under
+memory/perf pressure — it's gated on `qualityTier` already, so a downgrade
+away from `'high'` drops it automatically; IBL (224 KB, always-on) is never
+touched by that same downgrade path.
 
 ### Disabling SSR
 

@@ -180,7 +180,12 @@ export class WebGPUManager {
 
   /**
    * Offscreen scene-color descriptor. MSAA belongs here (not on canvas.configure).
-   * sampleCount stays 1 until a G-buffer/showroom pass adds a resolve.
+   * Base scene/G-buffer textures stay sampleCount 1 — the ADR-0005 WS2
+   * showroom MSAA path (`high` tier + focus mode) allocates separate
+   * sampleCount-4 textures alongside these (see scene-setup.ts
+   * `sceneMsaaTexture` / `materialGBufferMsaaTexture`) rather than passing
+   * sampleCount here, since color resolves via `resolveTarget` into exactly
+   * these single-sample textures.
    */
   static offscreenColorDescriptor(opts: {
     format: GPUTextureFormat;

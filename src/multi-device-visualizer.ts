@@ -122,13 +122,15 @@ export interface MultiDeviceVisualizer {
   refreshIblPrefilter(): void;
   setupSsrTexture(): void;
   setupSsrPipeline(): Promise<void>;
+  setupDepthResolvePipeline(): Promise<void>;
   _waitForCanvasLayout(): Promise<void>;
   _observeCanvasLayout(): void;
   _syncCanvasSize(): Promise<void>;
   _rebuildBloomBindGroups(): void;
   _rebuildSsrBindGroup(): void;
+  _rebuildDepthResolveBindGroup(): void;
   _uploadSkyUniforms(energy?: number): void;
-  _dispatchSsr(encoder: GPUCommandEncoder): void;
+  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean): void;
 
   // renderLoopMethods
   render(timestamp: number): void;
@@ -263,6 +265,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   ssrWidth?: number;
   ssrHeight?: number;
   energyPipePipeline?: GPURenderPipeline;
+  energyPipePipelineBase?: GPURenderPipeline;
+  energyPipePipelineMsaa4?: GPURenderPipeline;
   energyPipeComputePipeline?: GPUComputePipeline;
   overviewCullPipeline?: GPUComputePipeline;
   /** GPU frustum cull → draw-indirect for the overview ring (ADR-0005 WS4). */
@@ -328,12 +332,33 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   depthTexture?: GPUTexture | null;
   depthAttachmentView?: GPUTextureView | null;
   depthSampleView?: GPUTextureView | null;
+  /** 4x MSAA scene attachments (ADR-0005 WS2, `high` tier + focus only) — see render-loop.ts `msaaActive`. */
+  sceneMsaaTexture?: GPUTexture | null;
+  sceneMsaaView?: GPUTextureView | null;
+  materialGBufferMsaaTexture?: GPUTexture | null;
+  materialGBufferMsaaView?: GPUTextureView | null;
+  depthMsaaTexture?: GPUTexture | null;
+  depthMsaaAttachmentView?: GPUTextureView | null;
+  depthMsaaSampleView?: GPUTextureView | null;
+  /** Manually resolved (frag_depth) single-sample copy of depthMsaaTexture — see passes/depth-resolve.wgsl. */
+  depthResolvedTexture?: GPUTexture | null;
+  depthResolvedAttachmentView?: GPUTextureView | null;
+  depthResolvedSampleView?: GPUTextureView | null;
+  depthResolvePipeline?: GPURenderPipeline | null;
+  _depthResolveBindGroup?: GPUBindGroup | null;
+  ssrBindGroupResolved?: GPUBindGroup | null;
   gridPipeline?: GPURenderPipeline | null;
+  gridPipelineBase?: GPURenderPipeline | null;
+  gridPipelineMsaa4?: GPURenderPipeline | null;
   gridVertexBuffer?: GPUBuffer | null;
   gridBindGroup?: GPUBindGroup | null;
   skyPipeline?: GPURenderPipeline | null;
+  skyPipelineBase?: GPURenderPipeline | null;
+  skyPipelineMsaa4?: GPURenderPipeline | null;
   skyBindGroup?: GPUBindGroup | null;
   anomalyWallPipeline?: GPURenderPipeline | null;
+  anomalyWallPipelineBase?: GPURenderPipeline | null;
+  anomalyWallPipelineMsaa4?: GPURenderPipeline | null;
   anomalyWallParamsBuffer?: GPUBuffer | null;
   anomalyWallBindGroup?: GPUBindGroup | null;
   bloomSampler?: GPUSampler | null;
@@ -341,6 +366,9 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   bloomBlurDirXBuffer?: GPUBuffer | null;
   bloomBlurDirYBuffer?: GPUBuffer | null;
   bloomSceneTexture?: GPUTexture | null;
+  /** Metalness/roughness G-buffer (ADR-0005 WS2) — second color target on the scene pass, read by SSR. */
+  materialGBufferTexture?: GPUTexture | null;
+  materialGBufferView?: GPUTextureView | null;
   bloomBlurTexture?: GPUTexture | null;
   bloomTempTexture?: GPUTexture | null;
   prevSceneTexture?: GPUTexture | null;
@@ -352,6 +380,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   bloomBlurXBindGroup?: GPUBindGroup | null;
   bloomBlurYBindGroup?: GPUBindGroup | null;
   bloomCompositeBindGroup?: GPUBindGroup | null;
+  bloomCompositeBindGroupResolved?: GPUBindGroup | null;
   _canvasResizeObserver?: ResizeObserver | null;
   _lastCanvasWidth?: number;
   _lastCanvasHeight?: number;
@@ -490,6 +519,12 @@ export class MultiDeviceVisualizer implements VisualizerLike {
         depthFormat: this.depthFormat
       });
       await this.pipelineCache.ensureDevicePipelines(this.shaders);
+      // 4x MSAA variants (ADR-0005 WS2 showroom pass, `high` tier + focus
+      // mode — see render-loop.ts `msaaActive`), created eagerly here rather
+      // than lazily on first use so the per-frame render loop never awaits
+      // pipeline creation. DevicePipelineManager.applyMsaaState() picks
+      // between the two per frame.
+      await this.pipelineCache.ensureDevicePipelines(this.shaders, { sampleCount: 4 });
       console.log(
         `[MultiDeviceVisualizer] Pipeline cache: ${this.pipelineCache.stats.pipelineCreates} creates ` +
         `(shared across all devices)`
@@ -560,6 +595,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       await this._syncCanvasSize();
       await this.setupBloomPipeline();
       await this.setupSsrPipeline();
+      await this.setupDepthResolvePipeline();
       await this.setupAnomalyWallPipeline();
 
       // Track initial allocations
@@ -887,7 +923,9 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   }
 
   async setupEnergyPipePipeline(): Promise<void> {
-    this.energyPipePipeline = await this.pipelineCache!.ensureEnergyPipePipeline(this.shaders);
+    this.energyPipePipelineBase = await this.pipelineCache!.ensureEnergyPipePipeline(this.shaders);
+    this.energyPipePipelineMsaa4 = await this.pipelineCache!.ensureEnergyPipePipeline(this.shaders, { sampleCount: 4 });
+    this.energyPipePipeline = this.energyPipePipelineBase;
     this.energyPipeComputePipeline = await this.pipelineCache!.ensureEnergyPipeComputePipeline(this.shaders);
     for (const pipe of this.energyPipes) {
       pipe._setupComputeResources();

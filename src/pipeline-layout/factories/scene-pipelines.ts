@@ -1,14 +1,18 @@
 import type { MultiDeviceShaders } from '../../multi-device-shaders.js';
 import type { PipelineLayoutCache } from '../pipeline-layout-cache.js';
 import { VB_GRID, VB_POS_NORMAL_UV, ALPHA_BLEND, ADDITIVE_SRC_ALPHA, hashString } from '../helpers.js';
+import type { DevicePipelineOptions } from './device-pipelines.js';
 
 export async function ensureEnergyPipePipeline(
   cache: PipelineLayoutCache,
-  shaders: MultiDeviceShaders
+  shaders: MultiDeviceShaders,
+  opts: DevicePipelineOptions = {}
 ): Promise<GPURenderPipeline> {
-  return cache.getOrCreatePipeline('energyPipe', () =>
+  const sampleCount = opts.sampleCount ?? 1;
+  const suffix = sampleCount === 4 ? '_msaa4' : '';
+  return cache.getOrCreatePipeline(`energyPipe${suffix}`, () =>
     cache.device.createRenderPipeline({
-      label: 'energyPipePipeline',
+      label: `energyPipePipeline${suffix}`,
       layout: cache.getPipelineLayout('energyPipe'),
       vertex: {
         module: cache.shaderModule('energy-pipe-vert', shaders.energyPipeVertShader),
@@ -18,10 +22,13 @@ export async function ensureEnergyPipePipeline(
       fragment: {
         module: cache.shaderModule('energy-pipe-frag', shaders.energyPipeFragShader),
         entryPoint: 'main',
-        targets: [{ format: cache.canvasFormat, blend: ADDITIVE_SRC_ALPHA }]
+        // No material G-buffer write — null keeps this compatible with the
+        // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
+        targets: [{ format: cache.canvasFormat, blend: ADDITIVE_SRC_ALPHA }, null]
       },
       primitive: { topology: 'triangle-strip' },
-      depthStencil: cache.depthStencil(false, 'less')
+      depthStencil: cache.depthStencil(false, 'less'),
+      multisample: { count: sampleCount }
     })
   );
 }
@@ -69,11 +76,14 @@ export async function ensureOverviewCullPipeline(
 
 export async function ensureSkyPipeline(
   cache: PipelineLayoutCache,
-  shaders: MultiDeviceShaders
+  shaders: MultiDeviceShaders,
+  opts: DevicePipelineOptions = {}
 ): Promise<GPURenderPipeline> {
-  return cache.getOrCreatePipeline('sky', () =>
+  const sampleCount = opts.sampleCount ?? 1;
+  const suffix = sampleCount === 4 ? '_msaa4' : '';
+  return cache.getOrCreatePipeline(`sky${suffix}`, () =>
     cache.device.createRenderPipeline({
-      label: 'skyPipeline',
+      label: `skyPipeline${suffix}`,
       layout: cache.getPipelineLayout('sky'),
       vertex: {
         module: cache.shaderModule('sky-vert', shaders.skyVertShader),
@@ -82,21 +92,27 @@ export async function ensureSkyPipeline(
       fragment: {
         module: cache.shaderModule('sky-frag', shaders.skyFragShader),
         entryPoint: 'main',
-        targets: [{ format: cache.canvasFormat }]
+        // No material G-buffer write — null keeps this compatible with the
+        // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
+        targets: [{ format: cache.canvasFormat }, null]
       },
       primitive: { topology: 'triangle-list' },
-      depthStencil: cache.depthStencil(false, 'always')
+      depthStencil: cache.depthStencil(false, 'always'),
+      multisample: { count: sampleCount }
     })
   );
 }
 
 export async function ensureGridPipeline(
   cache: PipelineLayoutCache,
-  shaders: MultiDeviceShaders
+  shaders: MultiDeviceShaders,
+  opts: DevicePipelineOptions = {}
 ): Promise<GPURenderPipeline> {
-  return cache.getOrCreatePipeline('grid', () =>
+  const sampleCount = opts.sampleCount ?? 1;
+  const suffix = sampleCount === 4 ? '_msaa4' : '';
+  return cache.getOrCreatePipeline(`grid${suffix}`, () =>
     cache.device.createRenderPipeline({
-      label: 'gridPipeline',
+      label: `gridPipeline${suffix}`,
       layout: cache.getPipelineLayout('empty'),
       vertex: {
         module: cache.shaderModule('grid-vert', shaders.gridVertShader),
@@ -106,22 +122,28 @@ export async function ensureGridPipeline(
       fragment: {
         module: cache.shaderModule('grid-frag', shaders.gridFragShader),
         entryPoint: 'main',
-        targets: [{ format: cache.canvasFormat, blend: ALPHA_BLEND }]
+        // No material G-buffer write — null keeps this compatible with the
+        // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
+        targets: [{ format: cache.canvasFormat, blend: ALPHA_BLEND }, null]
       },
       primitive: { topology: 'triangle-list' },
-      depthStencil: cache.depthStencil(false, 'less')
+      depthStencil: cache.depthStencil(false, 'less'),
+      multisample: { count: sampleCount }
     })
   );
 }
 
 export async function ensureAnomalyWallPipeline(
   cache: PipelineLayoutCache,
-  shaders: MultiDeviceShaders
+  shaders: MultiDeviceShaders,
+  opts: DevicePipelineOptions = {}
 ): Promise<GPURenderPipeline> {
   const code = shaders.anomalyWallsShader;
-  return cache.getOrCreatePipeline('anomalyWall', () =>
+  const sampleCount = opts.sampleCount ?? 1;
+  const suffix = sampleCount === 4 ? '_msaa4' : '';
+  return cache.getOrCreatePipeline(`anomalyWall${suffix}`, () =>
     cache.device.createRenderPipeline({
-      label: 'anomalyWallPipeline',
+      label: `anomalyWallPipeline${suffix}`,
       layout: cache.getPipelineLayout('anomalyWall'),
       vertex: {
         module: cache.shaderModule('anomaly-walls', code),
@@ -131,10 +153,42 @@ export async function ensureAnomalyWallPipeline(
       fragment: {
         module: cache.shaderModule('anomaly-walls', code),
         entryPoint: 'fsMain',
-        targets: [{ format: cache.canvasFormat, blend: ALPHA_BLEND }]
+        // No material G-buffer write — null keeps this compatible with the
+        // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
+        targets: [{ format: cache.canvasFormat, blend: ALPHA_BLEND }, null]
       },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: cache.depthStencil(false, 'less')
+      depthStencil: cache.depthStencil(false, 'less'),
+      multisample: { count: sampleCount }
+    })
+  );
+}
+
+/**
+ * Manual MSAA depth resolve (ADR-0005 WS2) — see passes/depth-resolve.wgsl.
+ * Depth-only: no color targets, `depthCompare: 'always'` so every fragment of
+ * the fullscreen triangle unconditionally writes its @builtin(frag_depth).
+ */
+export async function ensureDepthResolvePipeline(
+  cache: PipelineLayoutCache,
+  shaders: MultiDeviceShaders
+): Promise<GPURenderPipeline> {
+  const code = shaders.depthResolveShader;
+  return cache.getOrCreatePipeline('depthResolve', () =>
+    cache.device.createRenderPipeline({
+      label: 'depthResolvePipeline',
+      layout: cache.getPipelineLayout('depthResolve'),
+      vertex: {
+        module: cache.shaderModule('depth-resolve', code),
+        entryPoint: 'vsMain'
+      },
+      fragment: {
+        module: cache.shaderModule('depth-resolve', code),
+        entryPoint: 'fsMain',
+        targets: []
+      },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: cache.depthStencil(true, 'always')
     })
   );
 }

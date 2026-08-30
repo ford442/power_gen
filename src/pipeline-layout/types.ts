@@ -21,7 +21,8 @@ export type BindGroupLayoutName =
   | 'bloomExtract'
   | 'bloomBlur'
   | 'bloomComposite'
-  | 'ssr';
+  | 'ssr'
+  | 'depthResolve';
 
 export type PipelineLayoutName = BindGroupLayoutName | 'emptyGroups';
 

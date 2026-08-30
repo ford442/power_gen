@@ -40,7 +40,7 @@ Do not open a WebGL2 context to “rescue” multi-device after probe failure.
 | `viewFormats` | preferred UNORM + `-srgb` sibling when it exists | Post/readback stay UNORM; sampling may reinterpret as sRGB |
 | `usage` | `RENDER_ATTACHMENT \| COPY_SRC` | Present + optional readback/screenshots |
 
-Scene color is **not** the swapchain (`bloomSceneTexture`). Do **not** set MSAA on `configure()`. Offscreen `sampleCount` is `1` via `WebGPUManager.offscreenColorDescriptor()` until a G-buffer/showroom resolve lands.
+Scene color is **not** the swapchain (`bloomSceneTexture`). Do **not** set MSAA on `configure()`. Offscreen `sampleCount` is `1` via `WebGPUManager.offscreenColorDescriptor()` for the base scene/G-buffer textures; the ADR-0005 WS2 showroom MSAA path (`high` tier + focus mode) uses separate `sampleCount: 4` textures with manual color `resolveTarget` + a manual depth resolve — see "4x MSAA" in `docs/LIGHTING_RIG.md`.
 
 Override: `new WebGPUManager(canvas, { alphaMode: 'premultiplied' })` if a future UI needs canvas alpha.
 

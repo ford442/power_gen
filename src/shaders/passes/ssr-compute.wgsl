@@ -2,21 +2,22 @@
 // Screen-space reflections (view-space ray march) — ADR-0005 Workstream 2
 // ============================================================================
 // Runs after the scene pass and before bloom composite. Reconstructs view-space
-// position and normal from the existing depth buffer (there is no G-buffer in
-// this renderer), marches the reflected ray, and writes a reflection colour +
-// confidence into a half-resolution rgba16float storage texture that
-// bloom-composite samples after its SSAO / contact-shadow term.
+// position and normal from the existing depth buffer, marches the reflected
+// ray, and writes a reflection colour + confidence into a half-resolution
+// rgba16float storage texture that bloom-composite samples after its SSAO /
+// contact-shadow term.
 //
-// Because depth is the only geometric input, per-pixel roughness / metalness are
-// unknown: the reflection is weighted by a Fresnel-style grazing term plus hit
-// confidence, and the global strength comes from the lighting preset
-// (`ssrStrength`) scaled by the quality-tier gate. That reads correctly on the
-// SEG chrome/nickel rollers, which are the surfaces this pass exists for.
+// The reflection is weighted by a Fresnel-style grazing term, hit confidence,
+// AND the metalness/roughness G-buffer (binding 5, ADR-0005 WS2) sampled at
+// the reflecting pixel's own UV — so painted/plastic surfaces (near-zero
+// metalness) contribute ~0 regardless of viewing angle, while the SEG
+// chrome/nickel rollers and CAD housing (drawn by the same material-aware
+// pipeline) read as reflective.
 //
 // Bindings — see docs/BINDINGS.md ("ssr" group):
 //   0 depth (texture_depth_2d, full-res)   1 scene colour (full-res)
 //   2 filtering sampler                    3 SsrParams
-//   4 reflection output (storage, half-res)
+//   4 reflection output (storage, half-res) 5 metalness/roughness G-buffer (full-res)
 
 struct SsrParams {
   invProj      : mat4x4f,  // clip → view (matches the camera's GL-style proj)
@@ -38,6 +39,7 @@ struct SsrParams {
 @group(0) @binding(2) var ssrSampler    : sampler;
 @group(0) @binding(3) var<uniform> ssr  : SsrParams;
 @group(0) @binding(4) var ssrOut        : texture_storage_2d<rgba16float, write>;
+@group(0) @binding(5) var ssrMaterialTex: texture_2d<f32>;
 
 const SSR_MAX_STEPS: i32 = 64;
 
@@ -192,13 +194,24 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   }
 
   // Fade at the screen border, with ray length, and at head-on incidence
-  // (Schlick-style grazing weight standing in for the missing roughness).
+  // (Schlick-style grazing weight, F_schlick).
   let border = min(min(hitUv.x, 1.0 - hitUv.x), min(hitUv.y, 1.0 - hitUv.y));
   let edge = smoothstep(0.0, max(ssr.edgeFade, 0.001), border);
   let distFade = 1.0 - smoothstep(ssr.maxDistance * 0.55, ssr.maxDistance, hitDist);
   let fresnel = 0.06 + 0.94 * pow(1.0 - NdotV, 4.0);
+  let hitConfidence = edge * distFade * dirFade;
 
-  let weight = clamp(edge * distFade * dirFade * fresnel, 0.0, 1.0);
+  // Material weighting (ADR-0005 WS2): sampled at the ORIGIN pixel — the
+  // reflecting surface's own material, not the surface it hits — so a
+  // painted/plastic part reflects at ~0 regardless of what's behind it.
+  let materialDim = vec2f(ssr.depthSize);
+  let materialCoord = vec2i(clamp(uv * materialDim, vec2f(0.0), materialDim - vec2f(1.0)));
+  let mat = textureLoad(ssrMaterialTex, materialCoord, 0);
+  let metallic = mat.r;
+  let roughness = mat.g;
+  let roughnessAtten = pow(1.0 - roughness, 2.0);
+
+  let weight = clamp(hitConfidence * fresnel * metallic * roughnessAtten, 0.0, 1.0);
   let color = textureSampleLevel(ssrSceneTex, ssrSampler, hitUv, 0.0).rgb;
 
   textureStore(ssrOut, coord, vec4f(color * weight, weight));

@@ -77,6 +77,8 @@ export class PerformanceProfiler {
     this._drawPrepAcc = 0;
     /** Set by the render loop when the GPU overview cull path drove the draws. */
     this.overviewCullActive = false;
+    /** Set by the render loop when 4x MSAA drove this frame (ADR-0005 WS2 — `high` tier + focus mode). */
+    this.msaaActive = false;
 
     // Benchmark mode
     this.benchmarkMode = false;
@@ -206,15 +208,17 @@ export class PerformanceProfiler {
     return entry;
   }
 
-  // Track texture allocation
-  trackTexture(name, width, height, format) {
+  // Track texture allocation. `sampleCount` > 1 (MSAA) multiplies the
+  // per-sample storage the GPU actually allocates for the attachment.
+  trackTexture(name, width, height, format, sampleCount = 1) {
     const bytesPerPixel = this.getBytesPerPixel(format);
-    const size = width * height * bytesPerPixel;
+    const size = width * height * bytesPerPixel * sampleCount;
     const entry = {
       name,
       width,
       height,
       format,
+      sampleCount,
       size,
       timestamp: Date.now()
     };
@@ -473,6 +477,7 @@ export class PerformanceProfiler {
       drawCallsEstimate: this.drawCallsEstimate,
       drawPrepMs: this.drawPrepMs,
       overviewCullActive: this.overviewCullActive,
+      msaaActive: this.msaaActive,
       postQualityGates: postGates,
       postQualitySummary: formatPostQualitySummary(postGates),
       gpuTier: this.gpuTier,
