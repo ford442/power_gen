@@ -68,6 +68,29 @@ jobs:
           test -f src/public/wasm/sim_core.js   || (echo "sim_core.js missing" && exit 1)
           test -f src/public/wasm/sim_core.wasm || (echo "sim_core.wasm missing" && exit 1)
 
+      # ── 6b. Size / bench note ─────────────────────────────────
+      #    Logs sim_core.js/.wasm raw+gzip bytes and the native
+      #    sim_core_test step rate on every run, so a future compile-flag
+      #    change (SIMD, LTO, …) shows up as a diff in the Actions log
+      #    instead of regressing silently.
+      - name: Size / bench note
+        run: |
+          {
+            echo "### sim_core size / bench note"
+            echo
+            echo "| Artefact | Raw bytes | Gzip bytes |"
+            echo "|---|---|---|"
+            for f in src/public/wasm/sim_core.js src/public/wasm/sim_core.wasm; do
+              raw=$(stat -c%s "$f")
+              gz=$(gzip -9 -c "$f" | wc -c)
+              echo "| $f | $raw | $gz |"
+            done
+            echo
+            echo "\`\`\`"
+            ./cpp/build/sim_core_test --mode bench
+            echo "\`\`\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       # ── 7. Upload artefacts ──────────────────────────────────
       - name: Upload WASM artefacts
         uses: actions/upload-artifact@v4

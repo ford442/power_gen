@@ -28,11 +28,11 @@ EMCC_FLAGS := $(shell grep -vE '^\s*#' emscripten.flags | grep -vE '^\s*$$' | tr
 .PHONY: wasm wasm-dbg native clean
 
 wasm: $(OUT_DIR)
-	em++ -O3 -g0 --closure 1 $(EMCC_FLAGS) $(SRC) -o $(OUT_JS)
+	em++ -std=c++17 -O3 -g0 --closure 1 $(EMCC_FLAGS) $(SRC) -o $(OUT_JS)
 	@echo "✓  WASM build complete → $(OUT_JS)"
 
 wasm-dbg: $(OUT_DIR)
-	em++ -O0 -g $(EMCC_FLAGS) \
+	em++ -std=c++17 -O0 -g $(EMCC_FLAGS) \
 	  -s ASSERTIONS=1 \
 	  -s SAFE_HEAP=1 \
 	  $(SRC) -o $(OUT_DIR)/sim_core_dbg.js
@@ -40,7 +40,7 @@ wasm-dbg: $(OUT_DIR)
 
 native:
 	mkdir -p build
-	$(CXX) -std=c++17 -O2 -DSIM_CORE_STANDALONE -I src $(SRC) -o build/sim_core_test
+	$(CXX) -std=c++17 -O2 -Wall -Wextra -Wpedantic -DSIM_CORE_STANDALONE -I src $(SRC) -o build/sim_core_test
 	./build/sim_core_test
 	./build/sim_core_test --mode catalog
 	./build/sim_core_test --export-csv 10 build/seg_telemetry.csv 10

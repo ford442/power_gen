@@ -18,10 +18,20 @@ target_include_directories(sim_core PRIVATE src)
 if(EMSCRIPTEN)
   set_target_properties(sim_core PROPERTIES SUFFIX ".js")
 
-  # Shared link flags — cpp/emscripten.flags (same set as Makefile wasm target)
-  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/emscripten.flags" _emcc_flag_lines)
+  # Shared flags — cpp/emscripten.flags (same set as Makefile wasm target).
+  # Applied to both compile and link steps: CMake compiles each .cpp to its
+  # own object file before linking (unlike the Makefile's single em++
+  # invocation), so a codegen flag like -fno-exceptions must reach the
+  # per-file compile command too, not just the final link — link-only
+  # settings like `-s FILESYSTEM=0` are harmless no-ops at compile time.
+  # ENCODING UTF-8: without it, file(STRINGS) treats the em-dash in this
+  # file's header comment as a line terminator (it reads non-ASCII bytes
+  # the way the `strings` utility does), truncating that comment line and
+  # leaking its remainder in as a bogus flag.
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/emscripten.flags" _emcc_flag_lines ENCODING UTF-8)
   foreach(_flag IN LISTS _emcc_flag_lines)
     if(NOT _flag MATCHES "^#")
+      target_compile_options(sim_core PRIVATE "SHELL:${_flag}")
       target_link_options(sim_core PRIVATE "SHELL:${_flag}")
     endif()
   endforeach()
