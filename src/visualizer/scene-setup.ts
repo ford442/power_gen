@@ -1,7 +1,7 @@
 // Floor grid, sky, bloom, SSR, IBL prefilter, depth, and canvas resize.
 import { WebGPUManager, DEPTH_FORMAT } from '../webgpu-manager';
 import { packPostUniforms } from '../seg-lighting-presets.js';
-import { SSR_FORMAT, type BindGroupLayoutName } from '../pipeline-layout-cache';
+import { SSR_FORMAT, MATERIAL_GBUFFER_FORMAT, type BindGroupLayoutName } from '../pipeline-layout-cache';
 import { createIblResources, uploadIblForPreset } from '../ibl-prefilter.js';
 import { writeQueueBuffer } from '../gpu-buffer-write';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
@@ -24,6 +24,8 @@ export const sceneSetupMethods: ThisType<Host> & {
   _observeCanvasLayout(): void;
   _syncCanvasSize(): Promise<void>;
   setupDepthBuffer(): Promise<void>;
+  _rebuildDepthResolveBindGroup(): void;
+  setupDepthResolvePipeline(): Promise<void>;
   setupSsrTexture(): void;
   _rebuildSsrBindGroup(): void;
   setupSsrPipeline(): Promise<void>;
@@ -78,7 +80,9 @@ export const sceneSetupMethods: ThisType<Host> & {
   async setupFloorGrid() {
     const cache = this.pipelineCache;
     if (!cache || !this.profiler) return;
-    this.gridPipeline = await cache.ensureGridPipeline(this.shaders);
+    this.gridPipelineBase = await cache.ensureGridPipeline(this.shaders);
+    this.gridPipelineMsaa4 = await cache.ensureGridPipeline(this.shaders, { sampleCount: 4 });
+    this.gridPipeline = this.gridPipelineBase;
 
     const gridVertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
     this.gridVertexBuffer = this.device.createBuffer({
@@ -101,7 +105,9 @@ export const sceneSetupMethods: ThisType<Host> & {
     });
     this._uploadSkyUniforms();
 
-    this.skyPipeline = await cache.ensureSkyPipeline(this.shaders);
+    this.skyPipelineBase = await cache.ensureSkyPipeline(this.shaders);
+    this.skyPipelineMsaa4 = await cache.ensureSkyPipeline(this.shaders, { sampleCount: 4 });
+    this.skyPipeline = this.skyPipelineBase;
 
     this.skyBindGroup = cache.createBindGroup(
       'sky',
@@ -113,7 +119,9 @@ export const sceneSetupMethods: ThisType<Host> & {
   async setupAnomalyWallPipeline() {
     const cache = this.pipelineCache;
     if (!cache || !this.profiler || !this.globalUniformBuffer) return;
-    this.anomalyWallPipeline = await cache.ensureAnomalyWallPipeline(this.shaders);
+    this.anomalyWallPipelineBase = await cache.ensureAnomalyWallPipeline(this.shaders);
+    this.anomalyWallPipelineMsaa4 = await cache.ensureAnomalyWallPipeline(this.shaders, { sampleCount: 4 });
+    this.anomalyWallPipeline = this.anomalyWallPipelineBase;
 
     this.anomalyWallParamsBuffer = this.device.createBuffer({
       label: 'anomaly-wall-params',
@@ -200,6 +208,9 @@ export const sceneSetupMethods: ThisType<Host> & {
       );
       this.depthTexture.destroy();
     }
+    if (this.depthMsaaTexture) this.depthMsaaTexture.destroy();
+    if (this.depthResolvedTexture) this.depthResolvedTexture.destroy();
+
     this.depthTexture = this.device.createTexture({
       label: 'scene-depth',
       size: [width, height, 1],
@@ -210,6 +221,32 @@ export const sceneSetupMethods: ThisType<Host> & {
     this.depthAttachmentView = this.depthTexture.createView();
     this.depthSampleView = this.depthTexture.createView({ aspect: 'depth-only' });
     this.profiler.trackTexture('depthBuffer', width, height, depthFormat);
+
+    // 4x MSAA depth (ADR-0005 WS2 showroom pass, `high` tier + focus mode
+    // only — see render-loop.ts `msaaActive`). WebGPU has no automatic
+    // resolveTarget for depth, so `depth-resolve.wgsl` manually resolves
+    // this into `depthResolvedTexture` (single-sample) each MSAA frame,
+    // which SSR/bloom then read exactly as they read `depthTexture` today.
+    this.depthMsaaTexture = this.device.createTexture({
+      label: 'scene-depth-msaa4',
+      size: [width, height, 1],
+      format: depthFormat,
+      sampleCount: 4,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
+    this.depthMsaaAttachmentView = this.depthMsaaTexture.createView();
+    this.depthMsaaSampleView = this.depthMsaaTexture.createView({ aspect: 'depth-only' });
+    this.depthResolvedTexture = this.device.createTexture({
+      label: 'scene-depth-resolved',
+      size: [width, height, 1],
+      format: depthFormat,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
+    this.depthResolvedAttachmentView = this.depthResolvedTexture.createView();
+    this.depthResolvedSampleView = this.depthResolvedTexture.createView({ aspect: 'depth-only' });
+    this.profiler.trackTexture('depthMsaa', width, height, depthFormat, 4);
+    this.profiler.trackTexture('depthResolved', width, height, depthFormat);
+    this._rebuildDepthResolveBindGroup();
   },
 
   /**
@@ -239,10 +276,17 @@ export const sceneSetupMethods: ThisType<Host> & {
     this.ssrBindGroup = null;
   },
 
-  /** SSR compute bind group — depends on depth + scene textures, so rebuilt on resize. */
+  /**
+   * SSR compute bind group(s) — depend on depth + scene textures, so rebuilt
+   * on resize. Two variants: `ssrBindGroup` binds the regular single-sample
+   * depth; `ssrBindGroupResolved` binds `depthResolvedTexture` (ADR-0005 WS2
+   * MSAA path — see render-loop.ts `msaaActive`) so SSR never has to know
+   * whether MSAA ran this frame, just which bind group to pick.
+   */
   _rebuildSsrBindGroup() {
     if (!this.pipelineCache || !this.ssrTextureView || !this.depthSampleView
-        || !this.bloomSceneTexture || !this.bloomSampler || !this.ssrParamsBuffer) {
+        || !this.bloomSceneTexture || !this.bloomSampler || !this.ssrParamsBuffer
+        || !this.materialGBufferView) {
       return;
     }
     this.ssrBindGroup = this.pipelineCache.createBindGroup('ssr', [
@@ -250,8 +294,40 @@ export const sceneSetupMethods: ThisType<Host> & {
       { binding: 1, resource: this.bloomSceneTexture.createView() },
       { binding: 2, resource: this.bloomSampler },
       { binding: 3, resource: { buffer: this.ssrParamsBuffer } },
-      { binding: 4, resource: this.ssrTextureView }
+      { binding: 4, resource: this.ssrTextureView },
+      { binding: 5, resource: this.materialGBufferView }
     ], 'ssr-bg');
+
+    if (this.depthResolvedSampleView) {
+      this.ssrBindGroupResolved = this.pipelineCache.createBindGroup('ssr', [
+        { binding: 0, resource: this.depthResolvedSampleView },
+        { binding: 1, resource: this.bloomSceneTexture.createView() },
+        { binding: 2, resource: this.bloomSampler },
+        { binding: 3, resource: { buffer: this.ssrParamsBuffer } },
+        { binding: 4, resource: this.ssrTextureView },
+        { binding: 5, resource: this.materialGBufferView }
+      ], 'ssr-bg-resolved');
+    }
+  },
+
+  /** Manual MSAA depth-resolve bind group — depends on depthMsaaTexture, so rebuilt on resize. */
+  _rebuildDepthResolveBindGroup() {
+    if (!this.pipelineCache || !this.depthMsaaSampleView) return;
+    this._depthResolveBindGroup = this.pipelineCache.createBindGroup('depthResolve', [
+      { binding: 0, resource: this.depthMsaaSampleView }
+    ], 'depth-resolve-bg');
+  },
+
+  async setupDepthResolvePipeline() {
+    const cache = this.pipelineCache;
+    if (!cache) return;
+    try {
+      this.depthResolvePipeline = await cache.ensureDepthResolvePipeline(this.shaders);
+    } catch (e) {
+      console.warn('[MultiDeviceVisualizer] Depth-resolve pipeline unavailable — 4x MSAA disabled:', e);
+      this.depthResolvePipeline = null;
+    }
+    this._rebuildDepthResolveBindGroup();
   },
 
   async setupSsrPipeline() {
@@ -284,6 +360,9 @@ export const sceneSetupMethods: ThisType<Host> & {
     this.bloomIntermediateFormat = bloomFmt;
 
     if (this.bloomSceneTexture) this.bloomSceneTexture.destroy();
+    if (this.materialGBufferTexture) this.materialGBufferTexture.destroy();
+    if (this.sceneMsaaTexture) this.sceneMsaaTexture.destroy();
+    if (this.materialGBufferMsaaTexture) this.materialGBufferMsaaTexture.destroy();
     if (this.bloomBlurTexture)  this.bloomBlurTexture.destroy();
     if (this.bloomTempTexture)  this.bloomTempTexture.destroy();
     if (this.prevSceneTexture)  this.prevSceneTexture.destroy();
@@ -296,6 +375,47 @@ export const sceneSetupMethods: ThisType<Host> & {
         sampleCount: 1
       })
     );
+    // Metalness/roughness G-buffer (ADR-0005 WS2): second color target on the
+    // scene pass, written only by seg-enhanced/roller (chrome/nickel + CAD
+    // housing), read by SSR to weight reflections by material instead of a
+    // Fresnel-only grazing term. Every other pass declares a `null` second
+    // target, so its texels keep the render pass's clear value below —
+    // metallic=0 / roughness=1, i.e. "non-metal" by default.
+    this.materialGBufferTexture = this.device.createTexture(
+      WebGPUManager.offscreenColorDescriptor({
+        label: 'material-gbuffer',
+        size: [w, h],
+        format: MATERIAL_GBUFFER_FORMAT,
+        sampleCount: 1,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      })
+    );
+    this.materialGBufferView = this.materialGBufferTexture.createView();
+    this.profiler?.trackTexture?.('materialGBuffer', w, h, MATERIAL_GBUFFER_FORMAT);
+
+    // 4x MSAA scene color + G-buffer (`high` tier + focus mode only — see
+    // render-loop.ts `msaaActive`). Render-attachment only: both resolve
+    // automatically into bloomSceneTexture/materialGBufferTexture above via
+    // `resolveTarget`, so neither needs TEXTURE_BINDING usage.
+    this.sceneMsaaTexture = this.device.createTexture({
+      label: 'scene-color-msaa4',
+      size: [w, h],
+      format: fmt,
+      sampleCount: 4,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    this.sceneMsaaView = this.sceneMsaaTexture.createView();
+    this.materialGBufferMsaaTexture = this.device.createTexture({
+      label: 'material-gbuffer-msaa4',
+      size: [w, h],
+      format: MATERIAL_GBUFFER_FORMAT,
+      sampleCount: 4,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    this.materialGBufferMsaaView = this.materialGBufferMsaaTexture.createView();
+    this.profiler?.trackTexture?.('sceneMsaa', w, h, fmt, 4);
+    this.profiler?.trackTexture?.('materialGBufferMsaa', w, h, MATERIAL_GBUFFER_FORMAT, 4);
+
     this.bloomBlurTexture = this.device.createTexture({
       size: [w, h], format: bloomFmt,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
@@ -370,6 +490,21 @@ export const sceneSetupMethods: ThisType<Host> & {
       { binding: 5, resource: this.prevSceneTexture.createView() },
       { binding: 6, resource: this.ssrTextureView }
     ], 'bloom-composite-bg');
+
+    // MSAA variant (ADR-0005 WS2) — binds depthResolvedTexture instead of
+    // the regular depth for the contact-shadow term. Picked per frame in
+    // render-loop.ts alongside ssrBindGroupResolved.
+    if (this.depthResolvedSampleView) {
+      this.bloomCompositeBindGroupResolved = mk('bloomComposite', [
+        { binding: 0, resource: this.bloomSceneTexture.createView() },
+        { binding: 1, resource: this.bloomTempTexture.createView() },
+        { binding: 2, resource: this.bloomSampler },
+        { binding: 3, resource: { buffer: paramsBuf } },
+        { binding: 4, resource: this.depthResolvedSampleView },
+        { binding: 5, resource: this.prevSceneTexture.createView() },
+        { binding: 6, resource: this.ssrTextureView }
+      ], 'bloom-composite-bg-resolved');
+    }
   },
 
   async setupBloomPipeline() {

@@ -199,17 +199,55 @@ Same shape as `fieldAdvect`. Writes packed `FluxSegment` (32 B) for the
 | `bloomExtract` | 0 scene tex, 1 sampler, 2 params |
 | `bloomBlur` | 0 tex, 1 sampler, 2 params, 3 direction |
 | `bloomComposite` | 0 scene, 1 bloom, 2 sampler, 3 params, 4 depth, 5 prev scene, 6 SSR reflection |
-| `ssr` | 0 depth, 1 scene, 2 sampler, 3 SsrParams, 4 reflection out (storage) |
+| `ssr` | 0 depth, 1 scene, 2 sampler, 3 SsrParams, 4 reflection out (storage), 5 material G-buffer |
+| `depthResolve` | 0 multisampled depth |
 
-`ssr` is a compute layout (`passes/ssr-compute.wgsl`) — all five entries are
-`COMPUTE`-visible, and binding 4 is a write-only `rgba16float` storage texture at
-half canvas resolution.
+`ssr` is a compute layout (`passes/ssr-compute.wgsl`) — all six entries are
+`COMPUTE`-visible; binding 4 is a write-only `rgba16float` storage texture at
+half canvas resolution, and binding 5 is the `rg8unorm` metalness/roughness
+G-buffer (full canvas resolution, r=metallic g=roughness) written by the scene
+pass's second color target — see "Metalness/roughness G-buffer" in
+`docs/LIGHTING_RIG.md`.
+
+The scene render pass itself (`sky` → `grid` → per-device meshes →
+`anomalyWall` → `energyPipe`, encoded in `render-loop.ts`) has **two** color
+attachments once the G-buffer is allocated: slot 0 is the existing scene
+color, slot 1 is the `rg8unorm` G-buffer. Every pipeline drawn in that pass
+must declare a `fragment.targets` array with two entries to stay compatible —
+`segEnhanced`/`roller` write real `{ format: 'rg8unorm' }` values at slot 1;
+every other pipeline in that pass (`sky`, `grid`, `particle`, `fluxSegment`,
+`energyArc`, `fieldLine`, `coil`, `anomalyWall`, `energyPipe`) declares `null`
+at slot 1 instead, which is valid WebGPU (that pipeline simply doesn't write
+the attachment) and needs no shader change.
+
+`depthResolve` (`passes/depth-resolve.wgsl`) is a `FRAGMENT`-visible layout
+with one `texture_depth_multisampled_2d` binding — the manual MSAA depth
+resolve (ADR-0005 WS2; WebGPU has no `resolveTarget` for depth). Its pipeline
+has zero color targets (`fragment.targets: []`) and writes
+`@builtin(frag_depth)` into a regular single-sample depth attachment with
+`depthCompare: 'always'`. See "4x MSAA" in `docs/LIGHTING_RIG.md`.
+
+**MSAA pipeline variants:** every render pipeline in the scene pass listed
+above (11 total) is compiled **twice** — once at `multisample.count: 1`
+(the default) and once at `count: 4`, cache key suffix `_msaa4` — since
+`multisample` is baked into a `GPURenderPipeline` at creation and can't be a
+runtime toggle. Both are created eagerly in `ensureDevicePipelines(shaders,
+{ sampleCount: 4 })` / the equivalent `ensureXPipeline(..., { sampleCount: 4
+})` calls, not lazily on first use. `DevicePipelineManager.applyMsaaState()`
+(per-device) and a handful of `if (this.XPipelineBase) this.XPipeline =
+msaaActive ? ... : ...` lines in `render-loop.ts` (for the four
+non-per-device pipelines: sky, grid, anomalyWall, energyPipe) pick the active
+variant once per frame — cheap reference reassignment, no GPU work. Layouts
+(bind group + pipeline layout) are identical between variants; only
+`multisample` differs.
 
 ## Shared pipeline compile policy
 
-`PipelineLayoutCache.ensureDevicePipelines(shaders)` runs **once** at multi-device init:
+`PipelineLayoutCache.ensureDevicePipelines(shaders)` runs **twice** at multi-device init
+(`{ sampleCount: 4 }` on the second call — see "MSAA pipeline variants" above):
 
 - Creates roller, particle, segEnhanced, fluxSegment, energyArc, fieldLine, coil, particleCompute
+  (the last only on the `sampleCount: 1` call — compute pipelines have no multisample state)
 - Each `DevicePipelineManager.setupPipelines()` only **assigns references** (cache hits)
 - SEG-only compute (roller / field advect / flux tracer) is also cached by shader hash
 

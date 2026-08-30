@@ -323,9 +323,11 @@ export interface DeviceInstanceLike {
     batteryCharge?: number;
     updateGaugeBuffer?: (position: ArrayLike<number>, ringIndex: number) => void;
   };
-  /** DevicePipelineManager instance (device-pipeline-manager.js) — only fluxSegmentPipeline is consumed here. */
+  /** DevicePipelineManager instance (device-pipeline-manager.js). */
   pipelineManager?: {
     fluxSegmentPipeline?: GPURenderPipeline | null;
+    /** Swap every render pipeline between its base/MSAA-4x variant (ADR-0005 WS2) — called once per frame from render-loop.ts. */
+    applyMsaaState?: (active: boolean) => void;
   };
 
   // Buffers owned by the instance / delegated from geometry

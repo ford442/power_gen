@@ -11,7 +11,7 @@ import { registerCullLayouts } from './layouts/cull.js';
 import { registerSegEnhancedLayouts } from './layouts/seg-enhanced.js';
 import { registerDeviceMeshLayouts } from './layouts/device-mesh.js';
 import { registerPostLayouts } from './layouts/post.js';
-import { ensureDevicePipelines as ensureDevicePipelinesImpl } from './factories/device-pipelines.js';
+import { ensureDevicePipelines as ensureDevicePipelinesImpl, type DevicePipelineOptions } from './factories/device-pipelines.js';
 import {
   ensureEnergyPipePipeline as ensureEnergyPipePipelineImpl,
   ensureEnergyPipeComputePipeline as ensureEnergyPipeComputePipelineImpl,
@@ -20,7 +20,8 @@ import {
   ensureGridPipeline as ensureGridPipelineImpl,
   ensureAnomalyWallPipeline as ensureAnomalyWallPipelineImpl,
   ensureBloomPipelines as ensureBloomPipelinesImpl,
-  ensureSsrPipeline as ensureSsrPipelineImpl
+  ensureSsrPipeline as ensureSsrPipelineImpl,
+  ensureDepthResolvePipeline as ensureDepthResolvePipelineImpl
 } from './factories/scene-pipelines.js';
 import {
   ensureRollerComputePipeline as ensureRollerComputePipelineImpl,
@@ -31,12 +32,14 @@ import {
 } from './factories/seg-compute.js';
 
 export type { BindGroupLayoutName, PipelineLayoutName } from './types.js';
+export type { DevicePipelineOptions } from './factories/device-pipelines.js';
 export {
   VB_POS_NORMAL,
   VB_POS_NORMAL_UV,
   VB_ENERGY_ARC,
   VB_GRID,
-  SSR_FORMAT
+  SSR_FORMAT,
+  MATERIAL_GBUFFER_FORMAT
 } from './helpers.js';
 
 export class PipelineLayoutCache implements LayoutRegistrar {
@@ -171,8 +174,8 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     };
   }
 
-  async ensureDevicePipelines(shaders: MultiDeviceShaders): Promise<void> {
-    return ensureDevicePipelinesImpl(this, shaders);
+  async ensureDevicePipelines(shaders: MultiDeviceShaders, opts?: DevicePipelineOptions): Promise<void> {
+    return ensureDevicePipelinesImpl(this, shaders, opts);
   }
 
   getPipeline(key: string): GPURenderPipeline | GPUComputePipeline | null {
@@ -183,8 +186,8 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     return this.pipelines.get('particleCompute') || null;
   }
 
-  async ensureEnergyPipePipeline(shaders: MultiDeviceShaders): Promise<GPURenderPipeline> {
-    return ensureEnergyPipePipelineImpl(this, shaders);
+  async ensureEnergyPipePipeline(shaders: MultiDeviceShaders, opts?: DevicePipelineOptions): Promise<GPURenderPipeline> {
+    return ensureEnergyPipePipelineImpl(this, shaders, opts);
   }
 
   async ensureEnergyPipeComputePipeline(shaders: MultiDeviceShaders): Promise<GPUComputePipeline> {
@@ -195,16 +198,16 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     return ensureOverviewCullPipelineImpl(this, shaders);
   }
 
-  async ensureSkyPipeline(shaders: MultiDeviceShaders): Promise<GPURenderPipeline> {
-    return ensureSkyPipelineImpl(this, shaders);
+  async ensureSkyPipeline(shaders: MultiDeviceShaders, opts?: DevicePipelineOptions): Promise<GPURenderPipeline> {
+    return ensureSkyPipelineImpl(this, shaders, opts);
   }
 
-  async ensureGridPipeline(shaders: MultiDeviceShaders): Promise<GPURenderPipeline> {
-    return ensureGridPipelineImpl(this, shaders);
+  async ensureGridPipeline(shaders: MultiDeviceShaders, opts?: DevicePipelineOptions): Promise<GPURenderPipeline> {
+    return ensureGridPipelineImpl(this, shaders, opts);
   }
 
-  async ensureAnomalyWallPipeline(shaders: MultiDeviceShaders): Promise<GPURenderPipeline> {
-    return ensureAnomalyWallPipelineImpl(this, shaders);
+  async ensureAnomalyWallPipeline(shaders: MultiDeviceShaders, opts?: DevicePipelineOptions): Promise<GPURenderPipeline> {
+    return ensureAnomalyWallPipelineImpl(this, shaders, opts);
   }
 
   async ensureBloomPipelines(shaders: MultiDeviceShaders): Promise<void> {
@@ -213,6 +216,10 @@ export class PipelineLayoutCache implements LayoutRegistrar {
 
   async ensureSsrPipeline(code: string): Promise<GPUComputePipeline> {
     return ensureSsrPipelineImpl(this, code);
+  }
+
+  async ensureDepthResolvePipeline(shaders: MultiDeviceShaders): Promise<GPURenderPipeline> {
+    return ensureDepthResolvePipelineImpl(this, shaders);
   }
 
   async ensureRollerComputePipeline(code: string): Promise<GPUComputePipeline> {

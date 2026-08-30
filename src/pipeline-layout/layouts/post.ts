@@ -1,10 +1,10 @@
 import type { LayoutRegistrar } from '../types.js';
 import {
-  uniform, texture, depthTexture, sampler, storageTexture,
+  uniform, texture, depthTexture, depthTextureMultisampled, sampler, storageTexture,
   VF, FS, CS, SSR_FORMAT
 } from '../helpers.js';
 
-/** Sky, grid, anomaly walls, bloom stack, SSR. */
+/** Sky, grid, anomaly walls, bloom stack, SSR, MSAA depth resolve. */
 export function registerPostLayouts(r: LayoutRegistrar): void {
   r.bgl('sky', [uniform(0, FS)]);
   r.pl('sky', ['sky']);
@@ -54,7 +54,13 @@ export function registerPostLayouts(r: LayoutRegistrar): void {
     texture(1, CS),
     sampler(2, CS),
     uniform(3, CS),
-    storageTexture(4, CS, SSR_FORMAT)
+    storageTexture(4, CS, SSR_FORMAT),
+    texture(5, CS)
   ]);
   r.pl('ssr', ['ssr']);
+
+  r.bgl('depthResolve', [
+    depthTextureMultisampled(0, FS)
+  ]);
+  r.pl('depthResolve', ['depthResolve']);
 }

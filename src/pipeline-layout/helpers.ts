@@ -31,6 +31,15 @@ export function depthTexture(binding: number, visibility: number): GPUBindGroupL
   };
 }
 
+/** Multisampled depth binding (`texture_depth_multisampled_2d`) — the depth-resolve pass reads this. */
+export function depthTextureMultisampled(binding: number, visibility: number): GPUBindGroupLayoutEntry {
+  return {
+    binding,
+    visibility,
+    texture: { sampleType: 'depth', viewDimension: '2d', multisampled: true }
+  };
+}
+
 export function textureArray(
   binding: number,
   visibility: number,
@@ -99,6 +108,9 @@ export const ADDITIVE_SRC_ALPHA: GPUBlendState = {
 };
 
 export const SSR_FORMAT: GPUTextureFormat = 'rgba16float';
+
+/** Metalness (r) / roughness (g) G-buffer packed into the scene render pass's second color target. */
+export const MATERIAL_GBUFFER_FORMAT: GPUTextureFormat = 'rg8unorm';
 
 export function hashString(str: string): string {
   let hash = 0;

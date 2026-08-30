@@ -86,8 +86,16 @@ struct Uniforms {
         return materialTable[min(id, MATERIAL_COUNT - 1u)];
       }
 
+      // Location 1: metalness (r) / roughness (g) G-buffer (ADR-0005 WS2) —
+      // read by passes/ssr-compute.wgsl to weight reflections by material
+      // instead of a Fresnel-only grazing term. See docs/BINDINGS.md.
+      struct FragOut {
+        @location(0) color: vec4f,
+        @location(1) material: vec2f,
+      }
+
       @fragment
-      fn main(input: FragmentInput) -> @location(0) vec4f {
+      fn main(input: FragmentInput) -> FragOut {
         let mode = i32(round(device.ringIndex));
         let renderMode = i32(round(device.renderMode));
         let energy = clamp(device.timeScale, 0.0, 1.0);
@@ -293,6 +301,9 @@ struct Uniforms {
 
         // ACES tonemapping
         color = color * (2.51 * color + 0.03) / (color * (2.43 * color + 0.59) + 0.14);
-        
-        return vec4f(color, 1.0);
+
+        var out: FragOut;
+        out.color = vec4f(color, 1.0);
+        out.material = vec2f(metallic, roughness);
+        return out;
       }

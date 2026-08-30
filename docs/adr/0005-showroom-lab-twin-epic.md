@@ -62,8 +62,11 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Document stack + quality gates (`docs/SHADERS.md`, `docs/LIGHTING_RIG.md`)
 - [x] CPU↔WGSL uniform contract check in CI (`npm run check:post`)
 - [ ] Negotiate optional features only when present (`rg11b10ufloat-renderable`, etc.)
-- [ ] Roughness/metalness G-buffer channel so SSR can weight by material rather
-      than by grazing Fresnel alone (see `docs/LIGHTING_RIG.md` known limitation)
+- [x] **Metalness/roughness G-buffer** — second `rg8unorm` color target on the
+      scene render pass (r=metallic, g=roughness), written by
+      `seg-enhanced-frag.wgsl`/`roller-frag.wgsl`; `passes/ssr-compute.wgsl`
+      samples it (binding 5) to weight reflections by material instead of a
+      Fresnel-only grazing term. See `docs/LIGHTING_RIG.md`.
 
 ### Workstream 3 — Hardware twin maturation
 

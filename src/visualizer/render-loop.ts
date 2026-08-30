@@ -77,7 +77,7 @@ export const renderLoopMethods: ThisType<Host> & {
     globalUniformBuffer: GPUBuffer | null,
     segDevice: DeviceInstance | null | undefined
   ): void;
-  _dispatchSsr(encoder: GPUCommandEncoder): void;
+  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean): void;
   render(timestamp: number): void;
 } = {
   renderAnomalyWalls(
@@ -115,8 +115,12 @@ export const renderLoopMethods: ThisType<Host> & {
    * units; the camera's own projection is uploaded (plus its inverse) so the
    * shader unprojects depth exactly the way the scene pass projected it.
    */
-  _dispatchSsr(encoder: GPUCommandEncoder) {
-    if (!this.cameraController || !this.ssrParamsBuffer || !this.ssrPipeline || !this.ssrBindGroup) {
+  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean) {
+    // On an MSAA frame, bind the manually resolved depth (depth-resolve.wgsl
+    // ran earlier this frame) instead of the regular single-sample depth —
+    // see docs/LIGHTING_RIG.md / docs/BINDINGS.md.
+    const bindGroup = msaaActive ? (this.ssrBindGroupResolved || this.ssrBindGroup) : this.ssrBindGroup;
+    if (!this.cameraController || !this.ssrParamsBuffer || !this.ssrPipeline || !bindGroup) {
       return;
     }
     const proj = this.cameraController.getProjMatrix();
@@ -140,7 +144,7 @@ export const renderLoopMethods: ThisType<Host> & {
 
     const pass = encoder.beginComputePass({ label: 'ssr' });
     pass.setPipeline(this.ssrPipeline);
-    pass.setBindGroup(0, this.ssrBindGroup);
+    pass.setBindGroup(0, bindGroup);
     pass.dispatchWorkgroups(
       Math.ceil((this.ssrWidth || 1) / 8),
       Math.ceil((this.ssrHeight || 1) / 8)
@@ -674,21 +678,90 @@ export const renderLoopMethods: ThisType<Host> & {
     computePass.end();
     
     profiler.writeTimestamp(encoder, 0);
-    
+
+    // 4x MSAA (ADR-0005 WS2 showroom pass): `high` tier + focus mode only.
+    // `'ultra'` is defined in config/docs but the auto-quality system never
+    // assigns it (performance-profiler.js only ever picks
+    // critical/low/medium/high), so gating on `'high'` is the practical
+    // ceiling today. Requires the MSAA/resolved-depth textures and both
+    // pipeline variants to exist — set up unconditionally at init, so this
+    // is just a state check, never an async wait mid-frame.
+    const msaaActive = !!(
+      profiler.qualityTier === 'high' &&
+      !this.isOverviewMode() &&
+      this.sceneMsaaView && this.materialGBufferMsaaView &&
+      this.depthMsaaAttachmentView && this.depthResolvedAttachmentView &&
+      this.depthResolvePipeline && this._depthResolveBindGroup
+    );
+    profiler.msaaActive = msaaActive;
+
+    // Swap every scene/device pipeline to its MSAA-4x variant (or back) —
+    // cheap reference reassignment, no GPU work; the pipelines themselves
+    // were created eagerly for both sample counts at init.
+    if (this.skyPipelineBase) this.skyPipeline = msaaActive ? (this.skyPipelineMsaa4 || this.skyPipelineBase) : this.skyPipelineBase;
+    if (this.gridPipelineBase) this.gridPipeline = msaaActive ? (this.gridPipelineMsaa4 || this.gridPipelineBase) : this.gridPipelineBase;
+    if (this.anomalyWallPipelineBase) this.anomalyWallPipeline = msaaActive ? (this.anomalyWallPipelineMsaa4 || this.anomalyWallPipelineBase) : this.anomalyWallPipelineBase;
+    if (this.energyPipePipelineBase) this.energyPipePipeline = msaaActive ? (this.energyPipePipelineMsaa4 || this.energyPipePipelineBase) : this.energyPipePipelineBase;
+    for (const device of Object.values(this.devices) as RenderDevice[]) {
+      device.pipelineManager?.applyMsaaState?.(msaaActive);
+    }
+
     const sceneView = (this.bloomSceneTexture)
       ? this.bloomSceneTexture.createView()
       : gpuContext.getCurrentTexture().createView();
 
-    const renderPass = encoder.beginRenderPass({
-      colorAttachments: [{
+    // Color 1: metalness (r) / roughness (g) G-buffer (ADR-0005 WS2). Cleared
+    // to metallic=0, roughness=1 ("non-metal, fully rough") so any pipeline
+    // below that declares a `null` second target — everything except
+    // seg-enhanced/roller — reads back as non-reflective by default; only
+    // those two actually write real values.
+    const gbufferView = this.materialGBufferView;
+    const gbufferClear = { r: 0.0, g: 1.0, b: 0.0, a: 0.0 };
+    let colorAttachments: GPURenderPassColorAttachment[];
+    if (msaaActive) {
+      // MSAA color resolves automatically into the regular single-sample
+      // textures via `resolveTarget` — bloom/SSR downstream never know MSAA
+      // happened. `storeOp: 'discard'` on the multisampled view is correct
+      // here: only the resolved copy is read afterward.
+      colorAttachments = [{
+        view: this.sceneMsaaView!,
+        resolveTarget: sceneView,
+        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1 },
+        loadOp: 'clear',
+        storeOp: 'discard'
+      }];
+      if (gbufferView) {
+        colorAttachments.push({
+          view: this.materialGBufferMsaaView!,
+          resolveTarget: gbufferView,
+          clearValue: gbufferClear,
+          loadOp: 'clear',
+          storeOp: 'discard'
+        });
+      }
+    } else {
+      colorAttachments = [{
         view: sceneView,
         clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1 },
         loadOp: 'clear',
         storeOp: 'store'
-      }],
-      depthStencilAttachment: WebGPUManager.depthStencilAttachment(this.depthAttachmentView, {
-        format: this.depthFormat
-      })
+      }];
+      if (gbufferView) {
+        colorAttachments.push({
+          view: gbufferView,
+          clearValue: gbufferClear,
+          loadOp: 'clear',
+          storeOp: 'store'
+        });
+      }
+    }
+
+    const renderPass = encoder.beginRenderPass({
+      colorAttachments,
+      depthStencilAttachment: WebGPUManager.depthStencilAttachment(
+        msaaActive ? this.depthMsaaAttachmentView! : this.depthAttachmentView,
+        { format: this.depthFormat }
+      )
     });
 
     // Render sky gradient first (fullscreen, before all geometry)
@@ -731,6 +804,22 @@ export const renderLoopMethods: ThisType<Host> & {
 
     renderPass.end();
 
+    // Manual MSAA depth resolve (ADR-0005 WS2) — WebGPU has no automatic
+    // resolveTarget for depth. Must run before SSR/bloom below, both of
+    // which read a single-sample depth texture. See passes/depth-resolve.wgsl.
+    if (msaaActive) {
+      const resolvePass = encoder.beginRenderPass({
+        colorAttachments: [],
+        depthStencilAttachment: WebGPUManager.depthStencilAttachment(this.depthResolvedAttachmentView!, {
+          format: this.depthFormat
+        })
+      });
+      resolvePass.setPipeline(this.depthResolvePipeline!);
+      resolvePass.setBindGroup(0, this._depthResolveBindGroup!);
+      resolvePass.draw(3);
+      resolvePass.end();
+    }
+
     // Auto-quality post gates (ADR-0005) — critical skips bloom extract/blur.
     const postGates = getPostQualityGates(profiler.qualityTier || 'high');
     this._postQualityGates = postGates;
@@ -760,7 +849,7 @@ export const renderLoopMethods: ThisType<Host> & {
       !!this.ssrBindGroup &&
       !!this.ssrParamsBuffer;
     if (this._ssrActive) {
-      this._dispatchSsr(encoder);
+      this._dispatchSsr(encoder, msaaActive);
     }
 
     // ── Bloom post-processing ─────────────────────────────────────────────
@@ -855,8 +944,13 @@ export const renderLoopMethods: ThisType<Host> & {
         }]
       });
       compositePass.setPipeline(this.bloomCompositePipeline);
-      if (this.bloomCompositeBindGroup) {
-        compositePass.setBindGroup(0, this.bloomCompositeBindGroup);
+      // MSAA frame: bind depthResolvedTexture for the contact-shadow term
+      // (see ssrBindGroupResolved / `msaaActive` above).
+      const compositeBindGroup = msaaActive
+        ? (this.bloomCompositeBindGroupResolved || this.bloomCompositeBindGroup)
+        : this.bloomCompositeBindGroup;
+      if (compositeBindGroup) {
+        compositePass.setBindGroup(0, compositeBindGroup);
       }
       compositePass.draw(3);
       compositePass.end();

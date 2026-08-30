@@ -6,6 +6,7 @@
  */
 import segAnomalyWallsWgsl from './shaders/passes/seg-anomaly-walls.wgsl?raw';
 import ssrComputeWgsl from './shaders/passes/ssr-compute.wgsl?raw';
+import depthResolveWgsl from './shaders/passes/depth-resolve.wgsl?raw';
 
 import { getRollerVertShader, getRollerFragShader } from './shaders/generators/roller-shaders.js';
 import { getParticleVertShader, getParticleFragShader } from './shaders/generators/particle-shaders.js';
@@ -188,6 +189,11 @@ export class MultiDeviceShaders {
 
   get anomalyWallsShader() {
     return segAnomalyWallsWgsl;
+  }
+
+  /** Manual MSAA depth resolve, vsMain/fsMain (ADR-0005 WS2 — see passes/depth-resolve.wgsl). */
+  get depthResolveShader() {
+    return depthResolveWgsl;
   }
 
   // Legacy / compatibility alias sometimes referenced in older code

@@ -80,6 +80,8 @@ type DevicePipelineManagerHost = NonNullable<DeviceInstanceLike['pipelineManager
   ringPipeline: GPURenderPipeline | null;
   fluxSegmentPipeline: GPURenderPipeline | null;
   setupPipelines: () => Promise<void>;
+  /** Swap every render pipeline between its base/MSAA-4x variant (ADR-0005 WS2) — see device-pipeline-manager.js. */
+  applyMsaaState: (active: boolean) => void;
 };
 
 /**
