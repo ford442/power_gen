@@ -92,7 +92,9 @@
       "maglev": 200,
       "homopolar": 250,
       "transformer": 110,
-      "halbach-viz": 80
+      "halbach-viz": 80,
+      "vdg": 60,
+      "hall": 30
     }
   }
 }

@@ -13,3 +13,5 @@ const MODE_PULSE_COIL: u32 = 7u;
 const MODE_HOMOPOLAR: u32 = 8u;
 const MODE_HALBACH_VIZ: u32 = 9u;
 const MODE_TRANSFORMER: u32 = 10u;
+const MODE_VDG: u32 = 12u;
+const MODE_HALL: u32 = 13u;

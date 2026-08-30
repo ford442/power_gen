@@ -374,7 +374,9 @@ export class SEGOperatorPanel {
       homopolar: 'Homopolar Generator',
       'halbach-viz': 'Halbach Field Viz',
       'pulse-coil': 'Pulse Coil (R–L)',
-      transformer: 'Mutual Induction'
+      transformer: 'Mutual Induction',
+      vdg: 'Van de Graaff',
+      hall: 'Hall-Effect Bench'
     };
     if (modeFooter) modeFooter.textContent = modeLabels[view] || view.toUpperCase();
 
@@ -452,6 +454,23 @@ export class SEGOperatorPanel {
           `Ip ${(t.transformerIpA || 0).toFixed(2)} A`,
           `Is ${(t.transformerIsA || 0).toFixed(2)} A`,
           `k ${(t.transformerK || 0).toFixed(2)}`
+        ].join(' · ');
+      } else if (view === 'vdg' && snap.devices?.vdg) {
+        const v = snap.devices.vdg;
+        const spark = (v.vdgSparkHz || 0) > 0 ? ' ⚡' : '';
+        batteryFooter.textContent = [
+          `V ${(v.vdgVoltage || 0).toFixed(0)} V${spark}`,
+          `belt ${(v.vdgBeltMps || 0).toFixed(2)} m/s`,
+          `Q ${((v.vdgChargeC || 0) * 1e9).toFixed(1)} nC`,
+          `${(v.vdgSparkHz || 0).toFixed(2)} Hz`
+        ].join(' · ');
+      } else if (view === 'hall' && snap.devices?.hall) {
+        const h = snap.devices.hall;
+        batteryFooter.textContent = [
+          `V_H ${((h.hallVoltage || 0) * 1000).toFixed(2)} mV`,
+          `I ${(h.hallCurrent || 0).toFixed(2)} A`,
+          `B ${(h.hallFieldT || 0).toFixed(2)} T`,
+          `R_H ${(h.hallCoeff || 0).toExponential(2)}`
         ].join(' · ');
       } else {
         batteryFooter.textContent = '—';

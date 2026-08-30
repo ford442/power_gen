@@ -737,6 +737,8 @@
         <button class="mode-btn"        id="btn-halbach-viz" onclick="setMode('halbach-viz')">🧭 Halbach Field</button>
         <button class="mode-btn"        id="btn-pulse-coil" onclick="setMode('pulse-coil')">🔋 Pulse Coil</button>
         <button class="mode-btn"        id="btn-transformer" onclick="setMode('transformer')">🔌 Mutual Induction</button>
+        <button class="mode-btn"        id="btn-vdg" onclick="setMode('vdg')">⚡️ Van de Graaff</button>
+        <button class="mode-btn"        id="btn-hall" onclick="setMode('hall')">🧲 Hall-Effect Bench</button>
       </div>
 
       <!-- Transformer classroom controls -->
@@ -745,6 +747,14 @@
         <button type="button" class="layout-btn active" data-transformer-leakage="false" onclick="setTransformerLeakage(false)">Ideal (high k)</button>
         <button type="button" class="layout-btn" data-transformer-leakage="true" onclick="setTransformerLeakage(true)">Leakage</button>
         <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Textbook two-winding model — not FEM. k drops under leakage.</div>
+      </div>
+
+      <!-- Hall-effect bench classroom controls -->
+      <div class="panel-section" id="hall-controls" style="display:none;">
+        <h3>Carrier density</h3>
+        <button type="button" class="layout-btn active" data-hall-carrier="semiconductor" onclick="setHallCarrierType('semiconductor')">Semiconductor</button>
+        <button type="button" class="layout-btn" data-hall-carrier="metal" onclick="setHallCarrierType('metal')">Metal</button>
+        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Lumped V_H = IB/(net) model — not a calibrated metrology instrument. Metal's high carrier density gives a much smaller Hall voltage.</div>
       </div>
 
       <!-- SEG roller/stator layout preset -->
@@ -808,6 +818,7 @@
         <h3>SEG Learning</h3>
         <div class="ctrl-row" style="flex-wrap:wrap;gap:4px;">
           <button class="ctrl-btn" id="explainerTourBtn" type="button" style="font-size:0.68rem;">▶ Guided Tour</button>
+          <button class="ctrl-btn" id="explainerVdgTourBtn" type="button" style="font-size:0.68rem;">▶ Van de Graaff Tour</button>
           <button class="ctrl-btn" id="explainerShareBtn" type="button" style="font-size:0.68rem;">⎘ Lab Link</button>
         </div>
         <div class="slider-row">

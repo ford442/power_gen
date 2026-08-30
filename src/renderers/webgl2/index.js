@@ -21,6 +21,8 @@ import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator';
 import { buildHalbachVizMesh, halbachConfigFromState } from '../../devices/quanta/halbach-viz';
 import { buildPulseCoilMesh } from '../../devices/quanta/pulse-coil';
 import { buildTransformerMesh } from '../../devices/quanta/transformer';
+import { buildVdgMesh } from '../../devices/quanta/van-de-graaff';
+import { buildHallMesh } from '../../devices/quanta/hall-effect';
 import { buildPeltierMesh } from '../../devices/core/peltier-mesh';
 import { buildMhdMesh } from '../../devices/core/mhd-mesh';
 import { exposeRenderer, RENDERER_WEBGL2 } from '../renderer-selector.js';
@@ -528,13 +530,18 @@ export class WebGL2MultiDeviceVisualizer {
 
     if (useWasm) {
       const loadT = 0.01 * (1 - drive * 0.5);
-      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer'].includes(focus)) {
+      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall'].includes(focus)) {
         segWasm.setMode(focus);
       }
       if (focus === 'transformer') {
         const leak = !!(this.devices.transformer?.physics?.transformerLeakage
           ?? this.devices.transformer?.physicsState?.transformerLeakage);
         segWasm.setTransformerLeakage?.(leak);
+      }
+      if (focus === 'hall') {
+        const metal = (this.devices.hall?.physics?.hallCarrierType
+          ?? this.devices.hall?.physicsState?.hallCarrierType) === 'metal';
+        segWasm.setHallCarrierMetal?.(metal);
       }
       for (const subDt of simSteps) {
         if (subDt <= 0) continue;
@@ -638,6 +645,28 @@ export class WebGL2MultiDeviceVisualizer {
             xfmr.energyLevel = plant.energyLevel ?? 0;
             xfmr._wasmPlantActive = true;
           }
+        } else if (focus === 'vdg') {
+          const plant = segWasm.getModePlant();
+          const vdg = this.devices.vdg?.physics;
+          if (vdg && plant?.mode === 'vdg') {
+            vdg.vdgVoltage = plant.voltage ?? 0;
+            vdg.vdgBeltMps = plant.beltMps ?? 0;
+            vdg.vdgChargeC = plant.chargeC ?? 0;
+            vdg.vdgSparkHz = plant.sparkHz ?? 0;
+            vdg.energyLevel = plant.energyLevel ?? 0;
+            vdg._wasmPlantActive = true;
+          }
+        } else if (focus === 'hall') {
+          const plant = segWasm.getModePlant();
+          const hall = this.devices.hall?.physics;
+          if (hall && plant?.mode === 'hall') {
+            hall.hallVoltage = plant.voltage ?? 0;
+            hall.hallCurrent = plant.current ?? 0;
+            hall.hallFieldT = plant.fieldT ?? 0;
+            hall.hallCoeff = plant.coeff ?? 0;
+            hall.energyLevel = plant.energyLevel ?? 0;
+            hall._wasmPlantActive = true;
+          }
         }
       }
     } else if (!replayLocked) {
@@ -676,7 +705,8 @@ export class WebGL2MultiDeviceVisualizer {
         const coreWasmModes = ['heron', 'kelvin', 'solar', 'peltier', 'mhd'];
         const wasmOwnsFocus = useWasm && device.id === focus && (
           coreWasmModes.includes(device.id)
-          || ((device.id === 'maglev' || device.id === 'homopolar' || device.id === 'transformer')
+          || ((device.id === 'maglev' || device.id === 'homopolar' || device.id === 'transformer'
+              || device.id === 'vdg' || device.id === 'hall')
             && device.physics._wasmPlantActive)
         );
         if (!wasmOwnsFocus && !replayLocked) {
@@ -738,6 +768,10 @@ export class WebGL2MultiDeviceVisualizer {
           transformerIpA: device.physics.transformerIpA,
           transformerIsA: device.physics.transformerIsA,
           transformerFluxN: device.physics.transformerFluxN,
+          vdgVoltage: device.physics.vdgVoltage,
+          vdgSparkHz: device.physics.vdgSparkHz,
+          hallCurrent: device.physics.hallCurrent,
+          hallFieldT: device.physics.hallFieldT,
           simClock: this.simClock,
           speedMult: speed
         });
@@ -934,6 +968,18 @@ if (device.id === 'seg') {
         device.physics.transformerFluxN
       ).cylinders(),
       renderOpts
+    );
+  } else if (drawMeshes && device.id === 'vdg') {
+    const chargeNorm = Math.min(1, (device.physics.vdgVoltage ?? 0) / 150000);
+    const sparkGlow = (device.physics.vdgSparkHz ?? 0) > 0 ? 1 : 0;
+    this.meshRenderer.drawPluginDevice(
+      viewProj, pos, buildVdgMesh(chargeNorm, sparkGlow).cylinders(), renderOpts
+    );
+  } else if (drawMeshes && device.id === 'hall') {
+    const currentNorm = Math.min(1, (device.physics.hallCurrent ?? 0) / 1.2);
+    const fieldNorm = Math.min(1, (device.physics.hallFieldT ?? 0) / 0.65);
+    this.meshRenderer.drawPluginDevice(
+      viewProj, pos, buildHallMesh(currentNorm, fieldNorm).cylinders(), renderOpts
     );
   }
 

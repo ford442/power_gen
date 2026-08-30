@@ -1,4 +1,5 @@
 import tourScript from './seg-tour.json';
+import vdgTourScript from './vdg-tour.json';
 import { explainerState } from './explainer-state.js';
 import { glossaryForHighlight, SEG_GLOSSARY } from './seg-glossary.js';
 
@@ -229,6 +230,17 @@ export function initSEGTour(getVisualizer = () => window.multiVisualizer) {
     window.segTour = player;
     window.startSEGTour = () => player.start(0);
     window.goToSEGStep = (id) => player.goToStepForHighlight(id);
+  }
+  return player;
+}
+
+/** Van de Graaff explainer tour — same player shape, its own script + overlay. */
+export function initVdgTour(getVisualizer = () => window.multiVisualizer) {
+  const player = new SEGTourPlayer(getVisualizer, vdgTourScript);
+  if (typeof window !== 'undefined') {
+    window.vdgTour = player;
+    window.startVdgTour = () => player.start(0);
+    window.goToVdgStep = (id) => player.goToStepForHighlight(id);
   }
   return player;
 }

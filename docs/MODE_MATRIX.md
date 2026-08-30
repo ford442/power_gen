@@ -13,7 +13,7 @@ to `sim.setMode()`. The WASM bridge accepts a **device id string** and looks
 up `wasmMode`; JS-only devices (`wasmMode: null`) do not call into C++.
 
 Never reuse a retired `shaderMode`. New WASM plants take the next value in
-`reservedWasmModes` (9, 10), then bump that list — do not
+`reservedWasmModes` (), then bump that list — do not
 invent a plant by silently reclaiming pulse-coil's shader slot 7.
 
 ## Matrix
@@ -31,6 +31,8 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 | `homopolar` | 8 | 7 (`SIM_MODE_HOMOPOLAR`) | `homopolarRpm`, `homopolarEmfV`, `homopolarCurrentA`, `homopolarFieldT` | WASM (Faraday disc L–R + back-EMF) |
 | `halbach-viz` | 9 | none (`wasmMode: null`) | `halbachSegmentCount`, `halbachMagAngleDeg`, `halbachPeakBT`, `halbachPeriodM`, `halbachDipoleForceN` | JS-only (CPU field-line viz); estimateHalbachFieldT is a free WASM helper, not a plant |
 | `transformer` | 10 | 8 (`SIM_MODE_TRANSFORMER`) | `transformerVp`, `transformerVs`, `transformerIpA`, `transformerIsA`, `transformerK`, `transformerFluxN` | WASM coupled-inductor ODE (?wasmPhysics=1); JS phasor fallback |
+| `vdg` | 12 | 9 (`SIM_MODE_VDG`) | `vdgVoltage`, `vdgBeltMps`, `vdgChargeC`, `vdgSparkHz` | WASM belt-charge/sphere-capacitance/spark-gap ODE (?wasmPhysics=1); JS fallback |
+| `hall` | 13 | 10 (`SIM_MODE_HALL`) | `hallVoltage`, `hallCurrent`, `hallFieldT`, `hallCoeff` | WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback |
 
 ## How to add a device
 

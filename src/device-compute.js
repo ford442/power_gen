@@ -100,6 +100,13 @@ class DeviceComputeManager {
         p0 = Math.min(1, Math.abs(physicsState.pulseCoilCurrentA ?? 0) / 80);
         p1 = Math.min(1, (physicsState.pulseCoilBPeakT ?? 0) / 1.5);
         p2 = Math.min(1, (physicsState.pulseCoilArmatureM ?? 0) / 0.12);
+      } else if (physicsState.deviceId === 'vdg') {
+        // 150000 mirrors VDG_V_BREAK in devices/quanta/van-de-graaff.ts.
+        p0 = Math.min(1, (physicsState.vdgVoltage ?? 0) / 150000);
+        p1 = (physicsState.vdgSparkHz ?? 0) > 0 ? 1 : 0;
+      } else if (physicsState.deviceId === 'hall') {
+        p0 = Math.min(1, (physicsState.hallCurrent ?? 0) / 1.2);
+        p1 = Math.min(1, (physicsState.hallFieldT ?? 0) / 0.65);
       }
     }
 

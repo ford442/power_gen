@@ -196,6 +196,195 @@ test.describe('WASM physics (optional)', () => {
     expect(Math.abs(snap.jsIp)).toBeGreaterThan(0.001);
     expect(snap.k).toBeGreaterThan(0.5);
   });
+
+  test('vdg ?wasmPhysics=1 uses C++ plant (SimMode 9)', async ({ page }) => {
+    test.setTimeout(300_000);
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'wasmPhysics=1');
+
+    await waitForEval(page,
+      () => document.getElementById('wasmStatus')?.textContent === 'WASM ✓'
+        || window.segWasm?.available === true,
+      { timeout: 90_000 }
+    );
+    await waitForEval(page,
+      () => window.segWasm?.enabled === true && window.multiVisualizer != null,
+      { timeout: 60_000 }
+    );
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('vdg');
+      window.segWasm?.setMode?.('vdg');
+    });
+
+    await waitForEval(page,
+      () => {
+        const plant = window.segWasm?.getModePlant?.();
+        return window.segWasm?.getMode?.() === 9
+          && plant?.mode === 'vdg'
+          && Number.isFinite(plant.voltage) && Number.isFinite(plant.beltMps)
+          && plant.voltage > 0;
+      },
+      { timeout: 90_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const plant = window.segWasm.getModePlant();
+      const phys = window.multiVisualizer?.devices?.vdg?.physicsState
+        ?? window.multiVisualizer?.devices?.vdg?.physics;
+      return {
+        mode: window.segWasm.getMode(),
+        plantMode: plant?.mode,
+        voltage: plant?.voltage ?? 0,
+        beltMps: plant?.beltMps ?? 0,
+        chargeC: plant?.chargeC ?? 0,
+        sparkHz: plant?.sparkHz ?? 0,
+        jsVoltage: phys?.vdgVoltage ?? 0
+      };
+    });
+
+    expect(snap.mode).toBe(9);
+    expect(snap.plantMode).toBe('vdg');
+    expect(Number.isFinite(snap.voltage)).toBe(true);
+    expect(Number.isFinite(snap.beltMps)).toBe(true);
+    expect(Number.isFinite(snap.chargeC)).toBe(true);
+    expect(Number.isFinite(snap.sparkHz)).toBe(true);
+    expect(snap.voltage).toBeGreaterThan(0);
+    expect(snap.beltMps).toBeGreaterThan(0);
+    expect(snap.jsVoltage).toBeGreaterThan(0);
+  });
+
+  test('hall ?wasmPhysics=1 uses C++ plant (SimMode 10)', async ({ page }) => {
+    test.setTimeout(300_000);
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'wasmPhysics=1');
+
+    await waitForEval(page,
+      () => document.getElementById('wasmStatus')?.textContent === 'WASM ✓'
+        || window.segWasm?.available === true,
+      { timeout: 90_000 }
+    );
+    await waitForEval(page,
+      () => window.segWasm?.enabled === true && window.multiVisualizer != null,
+      { timeout: 60_000 }
+    );
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('hall');
+      window.segWasm?.setMode?.('hall');
+    });
+
+    await waitForEval(page,
+      () => {
+        const plant = window.segWasm?.getModePlant?.();
+        return window.segWasm?.getMode?.() === 10
+          && plant?.mode === 'hall'
+          && Number.isFinite(plant.voltage) && Number.isFinite(plant.current)
+          && Math.abs(plant.voltage) > 0;
+      },
+      { timeout: 90_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const plant = window.segWasm.getModePlant();
+      const phys = window.multiVisualizer?.devices?.hall?.physicsState
+        ?? window.multiVisualizer?.devices?.hall?.physics;
+      return {
+        mode: window.segWasm.getMode(),
+        plantMode: plant?.mode,
+        voltage: plant?.voltage ?? 0,
+        current: plant?.current ?? 0,
+        fieldT: plant?.fieldT ?? 0,
+        coeff: plant?.coeff ?? 0,
+        jsVoltage: phys?.hallVoltage ?? 0
+      };
+    });
+
+    expect(snap.mode).toBe(10);
+    expect(snap.plantMode).toBe('hall');
+    expect(Number.isFinite(snap.voltage)).toBe(true);
+    expect(Number.isFinite(snap.current)).toBe(true);
+    expect(Number.isFinite(snap.fieldT)).toBe(true);
+    expect(Number.isFinite(snap.coeff)).toBe(true);
+    expect(Math.abs(snap.voltage)).toBeGreaterThan(0);
+    expect(snap.current).toBeGreaterThan(0);
+    expect(Math.abs(snap.jsVoltage)).toBeGreaterThan(0);
+  });
+});
+
+test.describe('Quanta plugin devices (JS fallback)', () => {
+
+  test('vdg JS fallback produces finite telemetry', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('vdg');
+    });
+
+    await waitForEval(page,
+      () => {
+        const phys = window.multiVisualizer?.devices?.vdg?.physics;
+        return !!phys && Number.isFinite(phys.vdgVoltage) && phys.vdgVoltage > 0;
+      },
+      { timeout: 30_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const phys = window.multiVisualizer.devices.vdg.physics;
+      return {
+        voltage: phys.vdgVoltage,
+        beltMps: phys.vdgBeltMps,
+        chargeC: phys.vdgChargeC,
+        sparkHz: phys.vdgSparkHz
+      };
+    });
+
+    expect(Number.isFinite(snap.voltage)).toBe(true);
+    expect(Number.isFinite(snap.beltMps)).toBe(true);
+    expect(Number.isFinite(snap.chargeC)).toBe(true);
+    expect(Number.isFinite(snap.sparkHz)).toBe(true);
+    expect(snap.voltage).toBeGreaterThan(0);
+    expect(snap.beltMps).toBeGreaterThan(0);
+  });
+
+  test('hall JS fallback produces finite telemetry', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('hall');
+    });
+
+    await waitForEval(page,
+      () => {
+        const phys = window.multiVisualizer?.devices?.hall?.physics;
+        return !!phys && Number.isFinite(phys.hallVoltage) && phys.hallCurrent > 0;
+      },
+      { timeout: 30_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const phys = window.multiVisualizer.devices.hall.physics;
+      return {
+        voltage: phys.hallVoltage,
+        current: phys.hallCurrent,
+        fieldT: phys.hallFieldT,
+        coeff: phys.hallCoeff
+      };
+    });
+
+    expect(Number.isFinite(snap.voltage)).toBe(true);
+    expect(Number.isFinite(snap.current)).toBe(true);
+    expect(Number.isFinite(snap.fieldT)).toBe(true);
+    expect(Number.isFinite(snap.coeff)).toBe(true);
+    expect(Math.abs(snap.voltage)).toBeGreaterThan(0);
+    expect(snap.current).toBeGreaterThan(0);
+  });
 });
 
 test.describe('Hardware twin mock', () => {

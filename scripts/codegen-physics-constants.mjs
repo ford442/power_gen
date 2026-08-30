@@ -100,12 +100,12 @@ struct WasmSegDefaults {
 
 /** Simulated nameplate watts per SimMode (order-of-magnitude — not metrology). */
 struct EnergyNetworkNameplates {
-  static constexpr int MODE_COUNT = 9;
+  static constexpr int MODE_COUNT = 11;
   static constexpr float WATTS[MODE_COUNT] = {
     ${f32(en.deviceNameplateWatts.seg)}, ${f32(en.deviceNameplateWatts.heron)}, ${f32(en.deviceNameplateWatts.kelvin)},
     ${f32(en.deviceNameplateWatts.solar)}, ${f32(en.deviceNameplateWatts.peltier)}, ${f32(en.deviceNameplateWatts.mhd)},
     ${f32(en.deviceNameplateWatts.maglev)}, ${f32(en.deviceNameplateWatts.homopolar)},
-    ${f32(en.deviceNameplateWatts.transformer)}
+    ${f32(en.deviceNameplateWatts.transformer)}, ${f32(en.deviceNameplateWatts.vdg)}, ${f32(en.deviceNameplateWatts.hall)}
   };
 };
 

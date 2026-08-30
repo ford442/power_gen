@@ -1,6 +1,6 @@
 {
   "$comment": "Device identity catalog — shaderMode (WGSL/uniforms) and wasmMode (C++ SimMode) are independent namespaces. Do not assume they are equal. Never reuse a retired shaderMode. Edit this file and run npm run codegen:catalog.",
-  "reservedWasmModes": [9, 10],
+  "reservedWasmModes": [],
   "reservedShaderModes": [11],
   "devices": [
     {
@@ -101,6 +101,24 @@
       "wasmMode": 8,
       "telemetryKeys": ["transformerVp", "transformerVs", "transformerIpA", "transformerIsA", "transformerK", "transformerFluxN"],
       "fidelity": "WASM coupled-inductor ODE (?wasmPhysics=1); JS phasor fallback"
+    },
+    {
+      "id": "vdg",
+      "label": "Van de Graaff",
+      "category": "quanta",
+      "shaderMode": 12,
+      "wasmMode": 9,
+      "telemetryKeys": ["vdgVoltage", "vdgBeltMps", "vdgChargeC", "vdgSparkHz"],
+      "fidelity": "WASM belt-charge/sphere-capacitance/spark-gap ODE (?wasmPhysics=1); JS fallback"
+    },
+    {
+      "id": "hall",
+      "label": "Hall-Effect Bench",
+      "category": "quanta",
+      "shaderMode": 13,
+      "wasmMode": 10,
+      "telemetryKeys": ["hallVoltage", "hallCurrent", "hallFieldT", "hallCoeff"],
+      "fidelity": "WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback"
     }
   ]
 }

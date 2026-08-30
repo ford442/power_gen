@@ -3,14 +3,16 @@
  */
 
 import { explainerState } from './explainer-state.js';
-import { initSEGTour } from './seg-tour-player.js';
+import { initSEGTour, initVdgTour } from './seg-tour-player.js';
 import { shareLabLink, decodeLabHash, applyLabState } from './lab-url.js';
 import { SEG_GLOSSARY } from './seg-glossary.js';
 
 export function initExplainerUI() {
   const tour = initSEGTour();
+  const vdgTour = initVdgTour();
 
   const tourBtn = document.getElementById('explainerTourBtn');
+  const vdgTourBtn = document.getElementById('explainerVdgTourBtn');
   const shareBtn = document.getElementById('explainerShareBtn');
   const classroomCb = document.getElementById('explainerClassroom');
   const motionCb = document.getElementById('explainerReducedMotion');
@@ -24,9 +26,17 @@ export function initExplainerUI() {
   const setStatus = (t) => { if (statusEl) statusEl.textContent = t; };
 
   tourBtn?.addEventListener('click', () => {
+    if (vdgTour.playing) vdgTour.stop();
     if (tour.playing) tour.stop();
     else tour.start(0);
     setStatus(tour.playing ? 'Tour playing — Space to pause sim' : 'Tour ended');
+  });
+
+  vdgTourBtn?.addEventListener('click', () => {
+    if (tour.playing) tour.stop();
+    if (vdgTour.playing) vdgTour.stop();
+    else vdgTour.start(0);
+    setStatus(vdgTour.playing ? 'Van de Graaff tour playing' : 'Tour ended');
   });
 
   shareBtn?.addEventListener('click', () => {
@@ -93,7 +103,7 @@ export function initExplainerUI() {
     }
   });
 
-  return { tour, applyLabFromHash: async () => {
+  return { tour, vdgTour, applyLabFromHash: async () => {
     const lab = decodeLabHash();
     if (lab) {
       await applyLabState(lab);

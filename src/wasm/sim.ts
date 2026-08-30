@@ -233,6 +233,10 @@ export class SEGSim {
     this._sim?.setTransformerLeakage?.(!!enabled);
   }
 
+  setHallCarrierMetal(metal: boolean): void {
+    this._sim?.setHallCarrierMetal?.(!!metal);
+  }
+
   getDrive(): number {
     return this._sim?.getDrive?.() ?? 0;
   }
@@ -323,6 +327,27 @@ export class SEGSim {
         k: this._sim.getTransformerK?.() ?? 0,
         fluxN: this._sim.getTransformerFluxN?.() ?? 0,
         leakage: !!this._sim.getTransformerLeakage?.(),
+        energyLevel: this._sim.getEnergyLevel?.() ?? 0
+      };
+    }
+    if (m === 9) {
+      return {
+        mode: 'vdg',
+        voltage: this._sim.getVdgVoltage?.() ?? 0,
+        beltMps: this._sim.getVdgBeltMps?.() ?? 0,
+        chargeC: this._sim.getVdgChargeC?.() ?? 0,
+        sparkHz: this._sim.getVdgSparkHz?.() ?? 0,
+        energyLevel: this._sim.getEnergyLevel?.() ?? 0
+      };
+    }
+    if (m === 10) {
+      return {
+        mode: 'hall',
+        voltage: this._sim.getHallVoltage?.() ?? 0,
+        current: this._sim.getHallCurrent?.() ?? 0,
+        fieldT: this._sim.getHallFieldT?.() ?? 0,
+        coeff: this._sim.getHallCoeff?.() ?? 0,
+        carrierMetal: !!this._sim.getHallCarrierMetal?.(),
         energyLevel: this._sim.getEnergyLevel?.() ?? 0
       };
     }

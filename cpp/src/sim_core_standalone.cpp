@@ -211,6 +211,91 @@ static int run_transformer_smoke() {
     return 0;
 }
 
+static int run_vdg_smoke() {
+    SEGSimulator sim;
+    sim.setMode(SIM_MODE_VDG);
+    sim.setDrive(1.0f);
+    const float dt = 1.f / 60.f;
+    const int steps = 300; // 5 s — long enough to charge past breakdown and spark at least once
+    bool sawSpark = false;
+    float prevCharge = sim.getVdgChargeC();
+    for (int i = 0; i < steps; ++i) {
+        sim.step(dt, 0.f);
+        const float v = sim.getVdgVoltage();
+        const float q = sim.getVdgChargeC();
+        if (!std::isfinite(v) || !std::isfinite(q)) {
+            printf("FAIL: vdg NaN at step %d (V=%g Q=%g)\n", i, v, q);
+            return 1;
+        }
+        if (v < 0.f) {
+            printf("FAIL: vdg voltage went negative at step %d (V=%g)\n", i, v);
+            return 1;
+        }
+        // A spark discharges the sphere to sparkDischargeFrac (0.05) of its
+        // charge in a single step — a >50% single-step drop is that event's
+        // unambiguous fingerprint (robust to the 1s rolling sparkHz window).
+        if (prevCharge > 1e-9f && q < prevCharge * 0.5f) sawSpark = true;
+        prevCharge = q;
+    }
+    printf("VdG voltage=%.1f V  belt=%.2f m/s  charge=%.4g C  sparkHz=%.3f\n",
+           sim.getVdgVoltage(), sim.getVdgBeltMps(), sim.getVdgChargeC(), sim.getVdgSparkHz());
+    if (sim.getVdgBeltMps() <= 0.f) {
+        printf("FAIL: VdG belt did not move under drive\n");
+        return 1;
+    }
+    if (!sawSpark) {
+        printf("FAIL: VdG sphere never discharged (no spark) in %d steps\n", steps);
+        return 1;
+    }
+    if (!std::isfinite(sim.getEnergyLevel()) || sim.getEnergyLevel() < 0.f || sim.getEnergyLevel() > 1.f) {
+        printf("FAIL: VdG energy level out of range\n");
+        return 1;
+    }
+    printf("VdG smoke OK (energyLevel=%.3f)\n", sim.getEnergyLevel());
+    return 0;
+}
+
+static int run_hall_smoke() {
+    SEGSimulator sim;
+    sim.setMode(SIM_MODE_HALL);
+    sim.setDrive(0.8f);
+    const float dt = 1.f / 60.f;
+    for (int i = 0; i < 180; ++i) sim.step(dt, 0.f); // 3 s — settle the smoothed I/B
+
+    const float vSemi = sim.getHallVoltage();
+    const float iA = sim.getHallCurrent();
+    const float bT = sim.getHallFieldT();
+    printf("Hall (semiconductor) V_H=%.4g V  I=%.3f A  B=%.3f T  R_H=%.4g m^3/C\n",
+           vSemi, iA, bT, sim.getHallCoeff());
+    if (!std::isfinite(vSemi) || !std::isfinite(iA) || !std::isfinite(bT)) {
+        printf("FAIL: hall NaN (semiconductor)\n");
+        return 1;
+    }
+    if (iA <= 0.f || bT <= 0.f || vSemi <= 0.f) {
+        printf("FAIL: Hall bench did not develop I/B/V_H under drive\n");
+        return 1;
+    }
+
+    sim.setHallCarrierMetal(true);
+    for (int i = 0; i < 60; ++i) sim.step(dt, 0.f);
+    const float vMetal = sim.getHallVoltage();
+    printf("Hall (metal) V_H=%.4g V  R_H=%.4g m^3/C\n", vMetal, sim.getHallCoeff());
+    if (!std::isfinite(vMetal) || vMetal <= 0.f) {
+        printf("FAIL: hall metal-carrier voltage invalid\n");
+        return 1;
+    }
+    if (vMetal >= vSemi) {
+        printf("FAIL: metal V_H (%.4g) should be far smaller than semiconductor V_H (%.4g)\n", vMetal, vSemi);
+        return 1;
+    }
+    if (!std::isfinite(sim.getEnergyLevel()) || sim.getEnergyLevel() < 0.f || sim.getEnergyLevel() > 1.f) {
+        printf("FAIL: Hall energy level out of range\n");
+        return 1;
+    }
+    printf("Hall smoke OK (energyLevel=%.3f)\n", sim.getEnergyLevel());
+    return 0;
+}
+
 static int run_chores_smoke() {
     const float data[] = { 1.f, -2.f, 3.f, 0.f, 4.f };
     float out[5] = {};
@@ -376,11 +461,13 @@ int main(int argc, char** argv) {
             if (std::strcmp(argv[i + 1], "maglev") == 0)  return run_maglev_smoke();
             if (std::strcmp(argv[i + 1], "homopolar") == 0) return run_homopolar_smoke();
             if (std::strcmp(argv[i + 1], "transformer") == 0) return run_transformer_smoke();
+            if (std::strcmp(argv[i + 1], "vdg") == 0) return run_vdg_smoke();
+            if (std::strcmp(argv[i + 1], "hall") == 0) return run_hall_smoke();
             if (std::strcmp(argv[i + 1], "chores") == 0) return run_chores_smoke();
             if (std::strcmp(argv[i + 1], "energy-network") == 0) return run_energy_network_smoke();
             if (std::strcmp(argv[i + 1], "catalog") == 0) return run_catalog_smoke();
             if (std::strcmp(argv[i + 1], "bench") == 0) return run_bench_smoke();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|chores|energy-network|catalog|bench)\n", argv[i + 1]);
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|chores|energy-network|catalog|bench)\n", argv[i + 1]);
             return 2;
         }
     }
@@ -459,6 +546,8 @@ int main(int argc, char** argv) {
     if (run_maglev_smoke() != 0) return 1;
     if (run_homopolar_smoke() != 0) return 1;
     if (run_transformer_smoke() != 0) return 1;
+    if (run_vdg_smoke() != 0) return 1;
+    if (run_hall_smoke() != 0) return 1;
     if (run_chores_smoke() != 0) return 1;
     if (run_energy_network_smoke() != 0) return 1;
 

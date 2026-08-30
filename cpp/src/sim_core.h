@@ -238,6 +238,44 @@ struct TransformerState {
     float drive{0.f};
 };
 
+/// Van de Graaff belt-charge / isolated-sphere / spark-gap ODE — mirrors
+/// VDG constants in devices/quanta/van-de-graaff.ts. Isolated-sphere
+/// capacitance C = 4*pi*eps0*r (r=0.14m); breakdown V = E_air(3e6 V/m) *
+/// gapM(0.05m), same rule of thumb KelvinState uses for its spark gap.
+struct VdgState {
+    float chargeC{0.f};              // sphere charge, C
+    float voltage{0.f};              // sphere voltage, V (= chargeC / capacitanceF)
+    float beltMps{0.f};              // belt surface speed, m/s
+    float capacitanceF{1.5567e-11f}; // isolated sphere, C = 4*pi*eps0*r
+    float vBreak{150000.f};          // V
+    float beltMaxMps{6.f};
+    float beltMaxCurrentA{2.2e-6f};  // charge transfer current at full belt speed
+    float leakageROhm{5.0e13f};      // air/corona leakage resistance
+    float sparkDischargeFrac{0.05f}; // fraction of charge remaining right after a spark
+    float sparkTimer{0.f};
+    float sparkDurS{0.15f};
+    float sparkAccum{0.f};           // sparks counted in the current rate window
+    float sparkWindowT{0.f};
+    float sparkWindowS{1.f};
+    float sparkHz{0.f};              // derived rolling spark rate
+    float drive{0.f};
+};
+
+/// Hall-effect bench: I, B -> Hall voltage V_H = I*B/(n*e*t), R_H = 1/(n*e)
+/// — mirrors HALL constants in devices/quanta/hall-effect.ts. `carrierMetal`
+/// toggles the classroom semiconductor-vs-metal carrier-density comparison.
+struct HallState {
+    float current{0.f};        // strip current, A
+    float fieldT{0.f};         // applied field, T
+    float voltage{0.f};        // derived Hall voltage, V
+    float coeff{0.f};          // derived R_H = 1/(n*e), m^3/C
+    float iMaxA{1.2f};
+    float bMaxT{0.65f};
+    float smoothingTau{0.25f};
+    bool  carrierMetal{false}; // false = semiconductor (n~1e21/m^3), true = metal (n~8.5e28/m^3)
+    float drive{0.f};
+};
+
 // ─────────────────────────────────────────────────────────────
 // Lab energy bus (ADR-0004 Phase B) — declarative edges + budget
 // ─────────────────────────────────────────────────────────────
@@ -346,6 +384,18 @@ public:
     bool  getTransformerLeakage() const { return _transformer.leakage; }
     void  setTransformerLeakage(bool enabled);
 
+    float getVdgVoltage() const { return _vdg.voltage; }
+    float getVdgBeltMps() const { return _vdg.beltMps; }
+    float getVdgChargeC() const { return _vdg.chargeC; }
+    float getVdgSparkHz() const { return _vdg.sparkHz; }
+
+    float getHallVoltage() const { return _hall.voltage; }
+    float getHallCurrent() const { return _hall.current; }
+    float getHallFieldT() const { return _hall.fieldT; }
+    float getHallCoeff() const { return _hall.coeff; }
+    bool  getHallCarrierMetal() const { return _hall.carrierMetal; }
+    void  setHallCarrierMetal(bool metal);
+
     // ── Accessors ─────────────────────────────────────────────
     float getOmega()        const { return _rollers[0].omega; }
     float getRPM()          const { return _rollers[0].omega * 60.f / PhysicsConstants::TAU; }
@@ -420,6 +470,8 @@ private:
     MaglevState      _maglev;
     HomopolarState   _homopolar;
     TransformerState _transformer;
+    VdgState         _vdg;
+    HallState        _hall;
 
     // Lab energy bus state
     std::vector<EnergyNetworkEdgeSpec> _networkEdges;
@@ -436,6 +488,8 @@ private:
     void _stepMaglev(float dt);
     void _stepHomopolar(float dt);
     void _stepTransformer(float dt);
+    void _stepVdg(float dt);
+    void _stepHall(float dt);
     void _stepSegRollers(float dt);
 };
 

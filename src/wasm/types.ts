@@ -86,6 +86,16 @@ export interface SEGSimulatorInstance {
   getTransformerFluxN?(): number;
   getTransformerLeakage?(): boolean;
   setTransformerLeakage?(enabled: boolean): void;
+  getVdgVoltage?(): number;
+  getVdgBeltMps?(): number;
+  getVdgChargeC?(): number;
+  getVdgSparkHz?(): number;
+  getHallVoltage?(): number;
+  getHallCurrent?(): number;
+  getHallFieldT?(): number;
+  getHallCoeff?(): number;
+  getHallCarrierMetal?(): boolean;
+  setHallCarrierMetal?(metal: boolean): void;
   getEnergyLevel?(): number;
   setNetworkEdges?(flatEdges: number[] | Float32Array): void;
   getNetworkEdgeCount?(): number;

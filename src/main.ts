@@ -39,6 +39,7 @@ import {
   getHeronLayout
 } from './heron-layout.js';
 import { setTransformerLeakage } from './devices/quanta/transformer.js';
+import { setHallCarrierType } from './devices/quanta/hall-effect.js';
 import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
 import { ScientificUIManager } from './scientific-ui/index.js';
 
@@ -69,7 +70,9 @@ const MODE_DESCRIPTIONS: Record<string, string> = {
   homopolar: 'Quanta Magnetics — Homopolar Generator: rotating copper disc in an axial magnetic field. Brushed radial path produces EMF ∝ ω×B×r. Watch disc RPM, EMF, current proxy, and B-field in telemetry.',
   'halbach-viz': 'Quanta Magnetics — Halbach Field Visualizer: configurable N-segment ring or linear array. Speed slider adjusts segment count and magnetization angle; field lines and |B| slice heatmap update in real time. Telemetry: peak B, period, dipole force proxy.',
   'pulse-coil': 'Quanta Magnetics — Pulse Coil (classroom R–L): capacitor-bank discharge through a series inductor. Watch coil current, cap voltage, peak B from amp-turns, and armature travel proxy. JS plant only (no WASM SimMode). Educational model — not a projectile or weapons simulation.',
-  transformer: 'Quanta Magnetics — Mutual Induction: two-winding classroom transformer with coupling k, primary drive, and secondary load. Toggle leakage vs ideal coupling; watch Vp/Vs/Ip/Is and flux. JS phasor fallback; `?wasmPhysics=1` uses the C++ coupled-inductor ODE.'
+  transformer: 'Quanta Magnetics — Mutual Induction: two-winding classroom transformer with coupling k, primary drive, and secondary load. Toggle leakage vs ideal coupling; watch Vp/Vs/Ip/Is and flux. JS phasor fallback; `?wasmPhysics=1` uses the C++ coupled-inductor ODE.',
+  vdg: 'Quanta Magnetics — Van de Graaff Generator: belt-charged isolated sphere with leakage and a spark gap. Watch sphere voltage, belt speed, charge, and spark rate. Educational model — classroom electrostatics, not a high-voltage engineering design. JS charge/voltage fallback; `?wasmPhysics=1` uses the C++ belt-charge ODE.',
+  hall: 'Quanta Magnetics — Hall-Effect Bench: current-carrying strip in a transverse B field. Toggle semiconductor vs. metal carrier density; watch Hall voltage, current, field, and Hall coefficient. Educational model — not a calibrated metrology instrument. JS algebraic fallback; `?wasmPhysics=1` uses the C++ plant.'
 };
 
 window.setMode = (mode: string): void => {
@@ -94,6 +97,8 @@ window.setMode = (mode: string): void => {
   if (xfmrPanel) xfmrPanel.style.display = mode === 'transformer' ? 'block' : 'none';
   const scope = document.getElementById('pulse-coil-scope-wrap');
   if (scope) scope.style.display = mode === 'pulse-coil' ? 'block' : 'none';
+  const hallPanel = document.getElementById('hall-controls');
+  if (hallPanel) hallPanel.style.display = mode === 'hall' ? 'block' : 'none';
 };
 
 /** Classroom toggle: ideal high-k vs leakage coupling on the transformer demo. */
@@ -102,6 +107,15 @@ window.setTransformerLeakage = (enabled: boolean): void => {
   if (phys) setTransformerLeakage(phys, !!enabled);
   document.querySelectorAll<HTMLElement>('[data-transformer-leakage]').forEach((btn) => {
     btn.classList.toggle('active', String(enabled) === btn.dataset.transformerLeakage);
+  });
+};
+
+/** Classroom toggle: semiconductor vs. metal carrier density on the Hall-effect bench. */
+window.setHallCarrierType = (carrier: 'semiconductor' | 'metal'): void => {
+  const phys = window.multiVisualizer?.devices?.hall?.physicsState;
+  if (phys) setHallCarrierType(phys, carrier);
+  document.querySelectorAll<HTMLElement>('[data-hall-carrier]').forEach((btn) => {
+    btn.classList.toggle('active', carrier === btn.dataset.hallCarrier);
   });
 };
 

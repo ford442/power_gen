@@ -246,6 +246,90 @@ Capture: `?renderer=webgl2` → START → `setMode('transformer')` →
 
 ---
 
+## vdg
+
+**Van de Graaff Generator** — classroom electrostatic generator: an insulating
+belt carries charge from a grounded lower comb to an upper comb near an
+isolated metal sphere. Isolated-sphere capacitance `C = 4πε₀r`, a leakage
+resistance, and a spark-gap discharge when the surface field exceeds the
+classroom air-breakdown estimate (`E ≈ 3×10⁶ V/m`). **Educational model —
+classroom electrostatics, not a high-voltage engineering design.**
+
+| View | Screenshot |
+|------|------------|
+| Overview | See [`images/multi-device.png`](images/multi-device.png) |
+| Focus | ![Van de Graaff focus](images/vdg-focus.png) |
+
+Capture: `?renderer=webgl2` → START → `setMode('vdg')` → `captureCanvasFrame({ flipY: true })` → `docs/images/vdg-focus.png`.
+
+### Telemetry
+
+| Field | Unit | Source |
+|-------|------|--------|
+| Sphere voltage | V | Plant (`vdgVoltage`) |
+| Belt speed | m/s | Drive-scaled belt speed (`vdgBeltMps`) |
+| Sphere charge | C | Belt-charge minus leakage integral (`vdgChargeC`) |
+| Spark rate | Hz | Rolling 1 s discharge-event window (`vdgSparkHz`) |
+
+### References
+
+1. R. J. Van de Graaff — *A 1,500,000 volt electrostatic generator* (1931)
+2. D. J. Griffiths — *Introduction to Electrodynamics* (isolated-conductor capacitance, air-breakdown field)
+
+### Implementation
+
+- Plugin: `src/devices/quanta/van-de-graaff.ts` (registered via `quanta/index.ts`)
+- WGSL mode index: `12` (`posVdg` in `shaders/passes/particle-compute.wgsl`)
+- WASM `SimMode`: `9` (`SIM_MODE_VDG` from `physics/devices.json`); plugin uses `catalogIdentity('vdg')`
+- UI: Van de Graaff mode button; `#lab=` guided tour (`window.startVdgTour()`)
+- Plant: C++ belt-charge/leakage/spark-gap ODE when `?wasmPhysics=1`; JS fallback mirrors it exactly
+
+---
+
+## hall
+
+**Hall-Effect Bench** — current-carrying conducting strip in a perpendicular
+magnetic field: `V_H = I·B / (n·e·t)`, `R_H = 1/(n·e)`. A classroom toggle
+switches carrier density between a semiconductor (~1e21 m⁻³, large Hall
+voltage) and a metal (~1e28 m⁻³, Hall voltage nearly vanishes at the same
+drive). **Educational model — not a calibrated metrology instrument.**
+
+| View | Screenshot |
+|------|------------|
+| Overview | See [`images/multi-device.png`](images/multi-device.png) |
+| Focus | ![Hall-effect bench focus](images/hall-focus.png) |
+
+Capture: `?renderer=webgl2` → START → `setMode('hall')` →
+`setHallCarrierType('semiconductor'|'metal')` → `captureCanvasFrame({ flipY: true })` →
+`docs/images/hall-focus.png`.
+
+### Telemetry
+
+| Field | Unit | Source |
+|-------|------|--------|
+| Hall voltage | V | Plant (`hallVoltage`) |
+| Drive current | A | Smoothed drive-scaled current (`hallCurrent`) |
+| B-field | T | Local slider parameter (`hallFieldT`) |
+| Hall coefficient | m³/C | `R_H = 1/(n·e)` for the selected carrier (`hallCoeff`) |
+
+### References
+
+1. E. H. Hall — *On a new action of the magnet on electric currents* (1879)
+2. C. Kittel — *Introduction to Solid State Physics* (carrier density, Hall coefficient by material)
+
+### Implementation
+
+- Plugin: `src/devices/quanta/hall-effect.ts` (registered via `quanta/index.ts`)
+- WGSL mode index: `13` (`posHall` in `shaders/passes/particle-compute.wgsl`)
+- WASM `SimMode`: `10` (`SIM_MODE_HALL` from `physics/devices.json`); plugin uses `catalogIdentity('hall')`
+- UI: Hall-Effect Bench mode button; Semiconductor / Metal carrier-density controls;
+  `window.setHallCarrierType('semiconductor'|'metal')`
+- Plant: C++ algebraic I·B→Hall-voltage model when `?wasmPhysics=1`; JS fallback mirrors it exactly
+- B field is a local UI parameter here, not live-coupled to `halbach-viz`'s field estimate — the
+  simpler of the two options the design allows, documented rather than treated as a cut corner
+
+---
+
 ## Core secondary fidelity notes
 
 | Device | Notes |
@@ -264,7 +348,7 @@ Capture: `?renderer=webgl2` → START → `setMode('transformer')` →
 | Halbach array field visualizer | **Live** (`halbach-viz`) | Field line overlay + slice heatmap |
 | Pulse magnet / coilgun (sandboxed) | **Live** (`pulse-coil`) | Educational R–L only; JS-only forever unless new SimMode reserved |
 | Mutual induction / transformer | **Live** (`transformer`) | WASM L–M ODE (`SimMode=8`) + JS phasor fallback |
-| Van de Graaff educational twin | Candidate | Pairs with Kelvin |
+| Van de Graaff educational twin | **Live** (`vdg`) | WASM belt-charge/spark-gap ODE (`SimMode=9`) + JS fallback; pairs with Kelvin |
 | Simple railgun / Lorentz sled | Candidate | Pairs with MHD |
-| Hall-effect sensor bench | Candidate | Sensor metrology classroom |
+| Hall-effect sensor bench | **Live** (`hall`) | WASM I·B→Hall-voltage model (`SimMode=10`) + JS fallback; pairs with homopolar/Halbach |
 | Quanta product mockups | Blocked | Awaiting product specs |
