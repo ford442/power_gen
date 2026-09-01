@@ -155,10 +155,12 @@ export class BatteryGauge {
   }
   
   drawCircularGauge() {
+    if (this.width <= 0 || this.height <= 0) return;
+
     const ctx = this.ctx;
     const centerX = this.width / 2;
     const centerY = this.height / 2;
-    const radius = Math.min(centerX, centerY) - 8;
+    const radius = Math.max(0, Math.min(centerX, centerY) - 8);
     const startAngle = Math.PI * 0.8;
     const endAngle = Math.PI * 2.2;
     const totalAngle = endAngle - startAngle;
@@ -187,15 +189,17 @@ export class BatteryGauge {
     ctx.shadowBlur = 0;
     
     // Current indicator arc (small inner arc)
-    const currentAngle = Math.PI * 1.5 + (this.current / 1000) * Math.PI * 0.3;
+    const innerRadius = Math.max(0, radius - 15);
     ctx.beginPath();
-    ctx.arc(centerX, centerY, radius - 15, Math.PI * 1.3, Math.PI * 1.7);
+    ctx.arc(centerX, centerY, innerRadius, Math.PI * 1.3, Math.PI * 1.7);
     ctx.lineWidth = 4;
     ctx.strokeStyle = this.current >= 0 ? this.colors.charging : this.colors.discharging;
     ctx.stroke();
   }
   
   drawSparkline() {
+    if (this.sparkWidth <= 0 || this.sparkHeight <= 0) return;
+
     const ctx = this.sparklineCtx;
     ctx.clearRect(0, 0, this.sparkWidth, this.sparkHeight);
     

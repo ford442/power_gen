@@ -94,10 +94,17 @@ export const DeviceUpdateMixin = {
 
     runUpdateDynamics(this, ctx);
 
-    this._computeEnergyLevel(deltaTime);
+    if (typeof this._computeEnergyLevel === 'function') {
+      this._computeEnergyLevel(deltaTime);
+    }
     this.uniformManager.updateUniforms(this.position, this.rotation, this.renderMode, this.energyLevel);
-    this.updateDeviceFlowPaths(deltaTime);
-    this.updateEmitterEffects(deltaTime, qualityScale);
+    // Named helpers are bound in DeviceInstance; skip if a minified bundle dropped them.
+    if (typeof this.updateDeviceFlowPaths === 'function') {
+      this.updateDeviceFlowPaths(deltaTime);
+    }
+    if (typeof this.updateEmitterEffects === 'function') {
+      this.updateEmitterEffects(deltaTime, qualityScale);
+    }
   },
 
   updateDeviceFlowPaths: function (this: DeviceInstanceLike, deltaTime: number): void {

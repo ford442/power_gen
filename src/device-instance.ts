@@ -151,7 +151,7 @@ export interface DeviceInstance {
   _prevEffectBudget?: number;
 }
 
-function bindMixinFunctions(target: object, mixin: Record<string, unknown>): void {
+export function bindMixinFunctions(target: object, mixin: Record<string, unknown>): void {
   for (const [name, value] of Object.entries(mixin)) {
     if (typeof value === 'function') {
       Reflect.set(target, name, value.bind(target));
@@ -197,6 +197,9 @@ export class DeviceInstance {
   pwmEnergyLevel: number;
   flowEnergyLevel: number;
   voltageEnergyLevel: number;
+
+  /** Prototype/own-property fallback; constructor rebinds the mixin writer. */
+  updateDeviceFlowPaths: (deltaTime: number) => void = (_deltaTime: number) => {};
 
   // Delegated via Object.defineProperty — typed for DeviceInstanceLike / callers
   particles!: GPUBuffer;
@@ -281,6 +284,11 @@ export class DeviceInstance {
     for (const mixin of [DeviceSetupMixin, DeviceRenderMixin, DeviceUpdateMixin]) {
       bindMixinFunctions(this, mixin as Record<string, unknown>);
     }
+    // Static named reads so minifiers cannot DCE helpers that `update()` calls
+    // only via `this.*` (first render in MultiDeviceVisualizer.init).
+    this._computeEnergyLevel = DeviceUpdateMixin._computeEnergyLevel.bind(this);
+    this.updateDeviceFlowPaths = DeviceUpdateMixin.updateDeviceFlowPaths.bind(this);
+    this.updateEmitterEffects = DeviceUpdateMixin.updateEmitterEffects.bind(this);
 
     Object.defineProperty(this, 'rollerInstances', { get: () => this.geometry.rollerInstances });
     Object.defineProperty(this, 'fieldLineParticles', { get: () => this.geometry.fieldLineParticles });

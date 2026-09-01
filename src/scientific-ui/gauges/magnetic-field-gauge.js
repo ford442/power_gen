@@ -93,10 +93,12 @@ export class MagneticFieldGauge {
    * Draw the circular gauge
    */
   draw() {
+    if (this.width <= 0 || this.height <= 0) return;
+
     const ctx = this.ctx;
     const centerX = this.width / 2;
     const centerY = this.height / 2;
-    const radius = Math.min(centerX, centerY) - 10;
+    const radius = Math.max(0, Math.min(centerX, centerY) - 10);
     const startAngle = Math.PI * 0.75;
     const endAngle = Math.PI * 2.25;
     const totalAngle = endAngle - startAngle;
