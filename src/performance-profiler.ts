@@ -1,0 +1,757 @@
+import { getPostQualityGates, formatPostQualitySummary } from './post-processing-config';
+import type { AdapterInfoSnapshot } from './webgpu-manager';
+
+export interface PerformanceProfilerOptions {
+  /** Pass adapter/info from WebGPUManager — do not call requestAdapter again. */
+  adapter?: GPUAdapter | null;
+  adapterInfo?: Partial<AdapterInfoSnapshot> | null;
+}
+
+export interface BufferAllocation {
+  name: string;
+  size: number;
+  usage: GPUBufferUsageFlags;
+  timestamp: number;
+}
+
+export interface TextureAllocation {
+  name: string;
+  width: number;
+  height: number;
+  format: GPUTextureFormat;
+  sampleCount: number;
+  size: number;
+  timestamp: number;
+}
+
+export interface BenchmarkSample {
+  time: number;
+  fps: number;
+  particleCount: number;
+}
+
+export interface BenchmarkResults {
+  duration: number;
+  totalFrames: number;
+  averageFPS: number;
+  minFPS: number;
+  maxFPS: number;
+  p1FPS: number;
+  p99FPS: number;
+  onePercentLow: number;
+  samples: BenchmarkSample[];
+}
+
+export interface FpsGraphPoint {
+  x: number;
+  y: number;
+  fps: number;
+}
+
+export interface ParticleFpsCorrelationPoint {
+  particles: number;
+  fps: number;
+  frameTime: number;
+}
+
+export type GpuTier = 'unknown' | 'low' | 'medium' | 'high';
+export type QualityTier = 'high' | 'medium' | 'low' | 'critical';
+
+export interface ProfilerStats {
+  currentFPS: number;
+  averageFPS: number;
+  minFPS: number;
+  maxFPS: number;
+  qualityLevel: number;
+  qualityTier: QualityTier;
+  drawCallsEstimate: number;
+  drawPrepMs: number;
+  overviewCullActive: boolean;
+  msaaActive: boolean;
+  postQualityGates: ReturnType<typeof getPostQualityGates>;
+  postQualitySummary: string;
+  gpuTier: GpuTier;
+  frameTimeMs: number;
+  frameCpuMs: number;
+  lastGpuTimeMs: number;
+  deviceTimes: { id: string; ms: number }[];
+  deviceTimesMs: Record<string, number>;
+  bufferMemoryMB: string;
+  textureMemoryMB: string;
+  totalMemoryMB: string;
+  bufferCount: number;
+  textureCount: number;
+  timingEnabled: boolean;
+  benchmarkMode: boolean;
+  autoQualityEnabled: boolean;
+  /** Adapter info snippet for documenting mid-tier hardware in acceptance notes */
+  adapterSummary: string;
+}
+
+interface DeviceScope {
+  id: string;
+  t0: number;
+}
+
+export class PerformanceProfiler {
+  device: GPUDevice;
+  canvas: HTMLCanvasElement;
+
+  // GPU Timing
+  timestampQuerySet: GPUQuerySet | null;
+  timestampResolveBuffer: GPUBuffer | null;
+  timestampMappedBuffer: GPUBuffer | null;
+  timingEnabled: boolean;
+  private _timestampResolvePending: boolean;
+  queryCount: number;
+
+  // FPS History (60 seconds at 60fps = 3600 samples, but we'll use 1 sample per frame)
+  fpsHistory: Float32Array;
+  fpsIndex: number;
+  fpsHistoryFilled: boolean;
+
+  // Frame time history (ms)
+  frameTimeHistory: Float32Array;
+
+  // GPU time history (ms)
+  gpuTimeHistory: Float32Array;
+
+  // Particle count history
+  particleHistory: Uint32Array;
+
+  // Memory tracking
+  bufferAllocations: BufferAllocation[];
+  textureAllocations: TextureAllocation[];
+  totalBufferMemory: number;
+  totalTextureMemory: number;
+
+  // Shader compilation times
+  shaderCompileTimes: Map<string, number>;
+
+  // Auto-quality settings
+  autoQualityEnabled: boolean;
+  targetFPS: number;
+  minAcceptableFPS: number;
+  qualityLevel: number; // 0.0 to 1.0
+  consecutiveLowFPSFrames: number;
+  consecutiveHighFPSFrames: number;
+
+  // Per-device CPU time (ms) — last completed frame
+  deviceTimesMs: Record<string, number>;
+  private _deviceTimesAcc: Record<string, number>;
+  private _deviceScopeStack: DeviceScope[];
+  frameCpuMs: number;
+  private _frameCpuStart: number;
+  lastFrameTimeMs: number;
+  lastGpuTimeMs: number;
+
+  // Quality tier label derived from qualityLevel (for SimRate / UI)
+  qualityTier: QualityTier;
+
+  /** Estimated draw calls this frame (CPU-side count of draw/drawIndexed). */
+  drawCallsEstimate: number;
+  private _drawCallsAcc: number;
+
+  /**
+   * CPU time spent preparing draws (instance/particle budget math, cull
+   * upload, indirect-arg setup). ADR-0005 WS4 acceptance metric — the GPU
+   * cull path should push this down versus the CPU instance prefix.
+   */
+  drawPrepMs: number;
+  private _drawPrepAcc: number;
+  /** Set by the render loop when the GPU overview cull path drove the draws. */
+  overviewCullActive: boolean;
+  /** Set by the render loop when 4x MSAA drove this frame (ADR-0005 WS2 — `high` tier + focus mode). */
+  msaaActive: boolean;
+
+  // Benchmark mode
+  benchmarkMode: boolean;
+  benchmarkStartTime: number;
+  benchmarkFrames: number;
+  benchmarkSamples: BenchmarkSample[];
+  benchmarkDuration: number; // seconds
+
+  // GPU Info — prefer single adapter path from WebGPUManager
+  gpuTier: GpuTier;
+  adapter: GPUAdapter | null;
+  adapterInfo: Partial<AdapterInfoSnapshot> | null;
+  private _initPromise: Promise<void> | null;
+
+  /**
+   * @param options Pass adapter/info from WebGPUManager — do not call requestAdapter again.
+   */
+  constructor(device: GPUDevice, canvas: HTMLCanvasElement, options: PerformanceProfilerOptions = {}) {
+    this.device = device;
+    this.canvas = canvas;
+
+    // GPU Timing
+    this.timestampQuerySet = null;
+    this.timestampResolveBuffer = null;
+    this.timestampMappedBuffer = null;
+    this.timingEnabled = false;
+    this._timestampResolvePending = false;
+    this.queryCount = 8; // Space for multiple timestamps
+
+    // FPS History (60 seconds at 60fps = 3600 samples, but we'll use 1 sample per frame)
+    this.fpsHistory = new Float32Array(3600);
+    this.fpsIndex = 0;
+    this.fpsHistoryFilled = false;
+
+    // Frame time history (ms)
+    this.frameTimeHistory = new Float32Array(3600);
+
+    // GPU time history (ms)
+    this.gpuTimeHistory = new Float32Array(3600);
+
+    // Particle count history
+    this.particleHistory = new Uint32Array(3600);
+
+    // Memory tracking
+    this.bufferAllocations = [];
+    this.textureAllocations = [];
+    this.totalBufferMemory = 0;
+    this.totalTextureMemory = 0;
+
+    // Shader compilation times
+    this.shaderCompileTimes = new Map();
+
+    // Auto-quality settings
+    this.autoQualityEnabled = true;
+    this.targetFPS = 60;
+    this.minAcceptableFPS = 45;
+    this.qualityLevel = 1.0; // 0.0 to 1.0
+    this.consecutiveLowFPSFrames = 0;
+    this.consecutiveHighFPSFrames = 0;
+
+    // Per-device CPU time (ms) — last completed frame
+    this.deviceTimesMs = {};
+    this._deviceTimesAcc = {};
+    this._deviceScopeStack = [];
+    this.frameCpuMs = 0;
+    this._frameCpuStart = 0;
+    this.lastFrameTimeMs = 16.67;
+    this.lastGpuTimeMs = 0;
+
+    // Quality tier label derived from qualityLevel (for SimRate / UI)
+    this.qualityTier = 'high'; // high | medium | low | critical
+
+    this.drawCallsEstimate = 0;
+    this._drawCallsAcc = 0;
+
+    this.drawPrepMs = 0;
+    this._drawPrepAcc = 0;
+    this.overviewCullActive = false;
+    this.msaaActive = false;
+
+    // Benchmark mode
+    this.benchmarkMode = false;
+    this.benchmarkStartTime = 0;
+    this.benchmarkFrames = 0;
+    this.benchmarkSamples = [];
+    this.benchmarkDuration = 60; // seconds
+
+    // GPU Info — prefer single adapter path from WebGPUManager
+    this.gpuTier = 'unknown';
+    this.adapter = options.adapter || null;
+    this.adapterInfo = options.adapterInfo || (options.adapter?.info as Partial<AdapterInfoSnapshot> | undefined) || null;
+    this._initPromise = null;
+  }
+
+  async init(): Promise<void> {
+    if (this._initPromise) return this._initPromise;
+    this._initPromise = this._initInternal();
+    return this._initPromise;
+  }
+
+  private async _initInternal(): Promise<void> {
+    // Reuse adapter info from WebGPUManager (no second requestAdapter).
+    if (!this.adapterInfo) {
+      this.adapterInfo = (this.adapter?.info as Partial<AdapterInfoSnapshot> | undefined) || {};
+      if (!this.adapterInfo.vendor && this.adapterInfo.device === undefined) {
+        console.warn(
+          '[PerformanceProfiler] No adapterInfo passed — GPU tier heuristics may be incomplete. ' +
+          'Pass { adapter, adapterInfo } from WebGPUManager.'
+        );
+      }
+    }
+
+    // Detect GPU tier
+    this.detectGPUTier();
+    if (this.gpuTier === 'low' && (this.adapterInfo?.fallback || this.adapterInfo?.software)) {
+      this.qualityLevel = 0.5;
+      this.qualityTier = 'low';
+    }
+
+    // Timestamp writes require the device feature, not just a query set allocation.
+    // Feature is only requested when ?gpuTiming=1 (see WebGPUManager.wantsGpuTiming).
+    if (!this.device.features.has('timestamp-query')) {
+      this.timingEnabled = false;
+      return;
+    }
+
+    try {
+      this.timestampQuerySet = this.device.createQuerySet({
+        type: 'timestamp',
+        count: this.queryCount
+      });
+
+      this.timestampResolveBuffer = this.device.createBuffer({
+        size: this.queryCount * 8, // 8 bytes per timestamp
+        usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC
+      });
+
+      this.timestampMappedBuffer = this.device.createBuffer({
+        size: this.queryCount * 8,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+      });
+
+      // Never auto-enable: writeTimestamp in the render encoder blanks the canvas on some GPUs.
+      this.timingEnabled = false;
+      console.log('GPU timestamp queries available (off by default; enable in debug panel after ?gpuTiming=1)');
+    } catch (e) {
+      console.warn('GPU timestamp queries not supported:', e);
+      this.timingEnabled = false;
+    }
+  }
+
+  detectGPUTier(): void {
+    const info = this.adapterInfo || {};
+    const vendor = (info.vendor || '').toLowerCase();
+    const architecture = (info.architecture || '').toLowerCase();
+
+    if (info.fallback || info.software) {
+      this.gpuTier = 'low';
+      console.log(`GPU Tier detected: ${this.gpuTier} (fallback/software adapter)`, info);
+      return;
+    }
+
+    // Heuristic GPU tier detection
+    if (vendor.includes('nvidia') || vendor.includes('amd')) {
+      if (architecture?.includes('ampere') || architecture?.includes('ada') ||
+          architecture?.includes('rdna3') || architecture?.includes('rdna2')) {
+        this.gpuTier = 'high';
+      } else {
+        this.gpuTier = 'medium';
+      }
+    } else if (vendor.includes('intel')) {
+      if (architecture?.includes('xe') || architecture?.includes('arc')) {
+        this.gpuTier = 'medium';
+      } else {
+        this.gpuTier = 'low';
+      }
+    } else if (vendor.includes('apple')) {
+      this.gpuTier = 'medium'; // Apple Silicon
+    } else {
+      this.gpuTier = 'unknown';
+    }
+
+    console.log(`GPU Tier detected: ${this.gpuTier}`, info);
+  }
+
+  getOptimalSettings(): { particleCount: number; enableFieldLines: boolean; enableSPH: boolean; targetFPS: number } {
+    const settings: Record<GpuTier, { particleCount: number; enableFieldLines: boolean; enableSPH: boolean; targetFPS: number }> = {
+      high: { particleCount: 30000, enableFieldLines: true, enableSPH: true, targetFPS: 60 },
+      medium: { particleCount: 20000, enableFieldLines: true, enableSPH: true, targetFPS: 60 },
+      low: { particleCount: 10000, enableFieldLines: false, enableSPH: false, targetFPS: 45 },
+      unknown: { particleCount: 15000, enableFieldLines: false, enableSPH: true, targetFPS: 60 }
+    };
+    return settings[this.gpuTier];
+  }
+
+  // Track buffer allocation
+  trackBuffer(name: string, size: number, usage: GPUBufferUsageFlags): BufferAllocation {
+    const entry: BufferAllocation = {
+      name,
+      size,
+      usage,
+      timestamp: Date.now()
+    };
+    this.bufferAllocations.push(entry);
+    this.totalBufferMemory += size;
+    return entry;
+  }
+
+  // Track texture allocation. `sampleCount` > 1 (MSAA) multiplies the
+  // per-sample storage the GPU actually allocates for the attachment.
+  trackTexture(name: string, width: number, height: number, format: GPUTextureFormat, sampleCount = 1): TextureAllocation {
+    const bytesPerPixel = this.getBytesPerPixel(format);
+    const size = width * height * bytesPerPixel * sampleCount;
+    const entry: TextureAllocation = {
+      name,
+      width,
+      height,
+      format,
+      sampleCount,
+      size,
+      timestamp: Date.now()
+    };
+    this.textureAllocations.push(entry);
+    this.totalTextureMemory += size;
+    return entry;
+  }
+
+  getBytesPerPixel(format: GPUTextureFormat): number {
+    const formatSizes: Record<string, number> = {
+      'r8unorm': 1, 'r8uint': 1, 'r8sint': 1,
+      'r16uint': 2, 'r16sint': 2, 'r16float': 2,
+      'rg8unorm': 2, 'rg8uint': 2, 'rg8sint': 2,
+      'r32uint': 4, 'r32sint': 4, 'r32float': 4,
+      'rg16uint': 4, 'rg16sint': 4, 'rg16float': 4,
+      'rgba8unorm': 4, 'rgba8uint': 4, 'rgba8sint': 4,
+      'bgra8unorm': 4,
+      'rgb10a2unorm': 4,
+      'rg11b10ufloat': 4,
+      'rgba16uint': 8, 'rgba16sint': 8, 'rgba16float': 8,
+      'rgba32uint': 16, 'rgba32sint': 16, 'rgba32float': 16,
+      'depth24plus': 4, 'depth24plus-stencil8': 4,
+      'depth32float': 4, 'depth32float-stencil8': 5
+    };
+    return formatSizes[format] || 4;
+  }
+
+  // Track shader compilation time
+  async trackShaderCompile<T>(shaderName: string, compileFn: () => Promise<T>): Promise<T> {
+    const start = performance.now();
+    const result = await compileFn();
+    const duration = performance.now() - start;
+    this.shaderCompileTimes.set(shaderName, duration);
+    console.log(`Shader '${shaderName}' compiled in ${duration.toFixed(2)}ms`);
+    return result;
+  }
+
+  /** Start of CPU work for the current frame (call once near top of render). */
+  beginFrameCpu(): void {
+    this._frameCpuStart = performance.now();
+    this._deviceTimesAcc = {};
+    this._deviceScopeStack.length = 0;
+    this._drawPrepAcc = 0;
+  }
+
+  /** Time a draw-preparation block; accumulates across the frame. */
+  measureDrawPrep<T>(fn: () => T): T {
+    const t0 = performance.now();
+    try {
+      return fn();
+    } finally {
+      this._drawPrepAcc += performance.now() - t0;
+    }
+  }
+
+  /** Reset draw-call estimate accumulator (call before device draws). */
+  beginFrameDraws(): void {
+    this._drawCallsAcc = 0;
+  }
+
+  /** Record estimated draw/drawIndexed calls (CPU proxy — not GPU timestamps). */
+  recordDraw(n = 1): void {
+    this._drawCallsAcc += Math.max(0, n | 0);
+  }
+
+  /** End CPU work; promotes accumulated per-device times for the UI. */
+  endFrameCpu(): void {
+    while (this._deviceScopeStack.length) this.endDevice();
+    this.frameCpuMs = performance.now() - (this._frameCpuStart || performance.now());
+    this.deviceTimesMs = this._deviceTimesAcc;
+    this._deviceTimesAcc = {};
+    this.drawCallsEstimate = this._drawCallsAcc;
+    this.drawPrepMs = this._drawPrepAcc;
+  }
+
+  /**
+   * Time a named device (or subsystem) on the CPU.
+   * Nested scopes are supported; times attribute only to the innermost name.
+   */
+  beginDevice(deviceId: string): void {
+    this._deviceScopeStack.push({ id: deviceId, t0: performance.now() });
+  }
+
+  endDevice(): number {
+    const scope = this._deviceScopeStack.pop();
+    if (!scope) return 0;
+    const dt = performance.now() - scope.t0;
+    this._deviceTimesAcc[scope.id] = (this._deviceTimesAcc[scope.id] || 0) + dt;
+    return dt;
+  }
+
+  measureDevice<T>(deviceId: string, fn: () => T): T {
+    this.beginDevice(deviceId);
+    try {
+      return fn();
+    } finally {
+      this.endDevice();
+    }
+  }
+
+  private _updateQualityTier(): void {
+    const q = this.qualityLevel;
+    if (q < 0.4) this.qualityTier = 'critical';
+    else if (q < 0.6) this.qualityTier = 'low';
+    else if (q < 0.85) this.qualityTier = 'medium';
+    else this.qualityTier = 'high';
+  }
+
+  // Record frame metrics
+  recordFrame(deltaTime: number, particleCount: number, _encoder?: GPUCommandEncoder): number {
+    const safeDt = Math.max(1e-6, deltaTime || 0.016);
+    const fps = 1.0 / safeDt;
+    const frameMs = safeDt * 1000;
+    this.lastFrameTimeMs = frameMs;
+
+    // Store in history
+    this.fpsHistory[this.fpsIndex] = fps;
+    this.frameTimeHistory[this.fpsIndex] = frameMs;
+    this.particleHistory[this.fpsIndex] = particleCount;
+    this.gpuTimeHistory[this.fpsIndex] = this.lastGpuTimeMs;
+
+    this.fpsIndex = (this.fpsIndex + 1) % this.fpsHistory.length;
+    if (this.fpsIndex === 0) this.fpsHistoryFilled = true;
+
+    // Benchmark mode
+    if (this.benchmarkMode) {
+      this.benchmarkFrames++;
+      this.benchmarkSamples.push({
+        time: performance.now(),
+        fps,
+        particleCount
+      });
+
+      const elapsed = (performance.now() - this.benchmarkStartTime) / 1000;
+      if (elapsed >= this.benchmarkDuration) {
+        this.endBenchmark();
+      }
+    }
+
+    // Auto quality adjustment
+    if (this.autoQualityEnabled && !this.benchmarkMode) {
+      this.adjustQuality(fps);
+    }
+    this._updateQualityTier();
+
+    return this.fpsIndex;
+  }
+
+  adjustQuality(currentFPS: number): void {
+    if (currentFPS < this.minAcceptableFPS) {
+      this.consecutiveLowFPSFrames++;
+      this.consecutiveHighFPSFrames = 0;
+
+      if (this.consecutiveLowFPSFrames > 30) { // 0.5 seconds at 60fps
+        this.qualityLevel = Math.max(0.3, this.qualityLevel - 0.1);
+        this.consecutiveLowFPSFrames = 0;
+        console.log(`Quality reduced to ${(this.qualityLevel * 100).toFixed(0)}%`);
+      }
+    } else if (currentFPS > this.targetFPS - 5) {
+      this.consecutiveHighFPSFrames++;
+      this.consecutiveLowFPSFrames = 0;
+
+      if (this.consecutiveHighFPSFrames > 120) { // 2 seconds sustained
+        this.qualityLevel = Math.min(1.0, this.qualityLevel + 0.05);
+        this.consecutiveHighFPSFrames = 0;
+        console.log(`Quality increased to ${(this.qualityLevel * 100).toFixed(0)}%`);
+      }
+    } else {
+      this.consecutiveLowFPSFrames = 0;
+      this.consecutiveHighFPSFrames = 0;
+    }
+  }
+
+  // Start benchmark
+  startBenchmark(): number {
+    this.benchmarkMode = true;
+    this.benchmarkStartTime = performance.now();
+    this.benchmarkFrames = 0;
+    this.benchmarkSamples = [];
+    console.log('Benchmark started...');
+    return this.benchmarkDuration;
+  }
+
+  // End benchmark
+  endBenchmark(): BenchmarkResults {
+    this.benchmarkMode = false;
+    const elapsed = (performance.now() - this.benchmarkStartTime) / 1000;
+
+    // Calculate statistics
+    const fpsValues = this.benchmarkSamples.map(s => s.fps);
+    const avgFPS = fpsValues.reduce((a, b) => a + b, 0) / fpsValues.length;
+    const minFPS = Math.min(...fpsValues);
+    const maxFPS = Math.max(...fpsValues);
+
+    // Calculate percentiles
+    const sortedFPS = [...fpsValues].sort((a, b) => a - b);
+    const p1 = sortedFPS[Math.floor(sortedFPS.length * 0.01)];
+    const p99 = sortedFPS[Math.floor(sortedFPS.length * 0.99)];
+
+    const results: BenchmarkResults = {
+      duration: elapsed,
+      totalFrames: this.benchmarkFrames,
+      averageFPS: avgFPS,
+      minFPS,
+      maxFPS,
+      p1FPS: p1,
+      p99FPS: p99,
+      onePercentLow: p1,
+      samples: this.benchmarkSamples
+    };
+
+    console.log('Benchmark Results:', results);
+    return results;
+  }
+
+  // Get current stats
+  getStats(): ProfilerStats {
+    const count = this.fpsHistoryFilled ? this.fpsHistory.length : this.fpsIndex;
+    const recentCount = Math.min(60, count);
+
+    let avgFPS = 0;
+    let minFPS = Infinity;
+    let maxFPS = 0;
+
+    for (let i = 0; i < recentCount; i++) {
+      const idx = (this.fpsIndex - 1 - i + this.fpsHistory.length) % this.fpsHistory.length;
+      const fps = this.fpsHistory[idx];
+      avgFPS += fps;
+      minFPS = Math.min(minFPS, fps);
+      maxFPS = Math.max(maxFPS, fps);
+    }
+    avgFPS /= recentCount;
+
+    // Sort device times descending for the debug panel
+    const deviceTimes = Object.entries(this.deviceTimesMs || {})
+      .map(([id, ms]) => ({ id, ms }))
+      .sort((a, b) => b.ms - a.ms);
+
+    const postGates = getPostQualityGates(this.qualityTier);
+
+    return {
+      currentFPS: this.fpsHistory[(this.fpsIndex - 1 + this.fpsHistory.length) % this.fpsHistory.length],
+      averageFPS: avgFPS,
+      minFPS: minFPS === Infinity ? 0 : minFPS,
+      maxFPS,
+      qualityLevel: this.qualityLevel,
+      qualityTier: this.qualityTier,
+      drawCallsEstimate: this.drawCallsEstimate,
+      drawPrepMs: this.drawPrepMs,
+      overviewCullActive: this.overviewCullActive,
+      msaaActive: this.msaaActive,
+      postQualityGates: postGates,
+      postQualitySummary: formatPostQualitySummary(postGates),
+      gpuTier: this.gpuTier,
+      frameTimeMs: this.lastFrameTimeMs,
+      frameCpuMs: this.frameCpuMs,
+      lastGpuTimeMs: this.lastGpuTimeMs,
+      deviceTimes,
+      deviceTimesMs: { ...this.deviceTimesMs },
+      bufferMemoryMB: (this.totalBufferMemory / 1024 / 1024).toFixed(2),
+      textureMemoryMB: (this.totalTextureMemory / 1024 / 1024).toFixed(2),
+      totalMemoryMB: ((this.totalBufferMemory + this.totalTextureMemory) / 1024 / 1024).toFixed(2),
+      bufferCount: this.bufferAllocations.length,
+      textureCount: this.textureAllocations.length,
+      timingEnabled: this.timingEnabled,
+      benchmarkMode: this.benchmarkMode,
+      autoQualityEnabled: this.autoQualityEnabled,
+      /** Adapter info snippet for documenting mid-tier hardware in acceptance notes */
+      adapterSummary: this._adapterSummary()
+    };
+  }
+
+  private _adapterSummary(): string {
+    const info = this.adapterInfo || {};
+    const flags: string[] = [];
+    if (info.fallback) flags.push('fallback');
+    if (info.software) flags.push('software');
+    const parts = [info.vendor, info.architecture || info.device, this.gpuTier, ...flags]
+      .filter(Boolean)
+      .map(String);
+    return parts.length ? parts.join(' / ') : `tier:${this.gpuTier}`;
+  }
+
+  // Write timestamp to encoder
+  writeTimestamp(encoder: GPUCommandEncoder | GPURenderPassEncoder | GPUComputePassEncoder, index: number): void {
+    if (
+      this.timingEnabled &&
+      typeof (encoder as { writeTimestamp?: unknown }).writeTimestamp === 'function' &&
+      index < this.queryCount &&
+      this.timestampQuerySet
+    ) {
+      (encoder as unknown as { writeTimestamp(qs: GPUQuerySet, i: number): void }).writeTimestamp(this.timestampQuerySet, index);
+    }
+  }
+
+  /** Queue a single in-flight timestamp resolve (avoids buffer-in-use-during-submit). */
+  scheduleResolveTimestamps(): void {
+    if (!this.timingEnabled || this._timestampResolvePending) return;
+    this._timestampResolvePending = true;
+    this.resolveTimestamps()
+      .catch(() => {})
+      .finally(() => { this._timestampResolvePending = false; });
+  }
+
+  // Resolve timestamps
+  async resolveTimestamps(): Promise<number | undefined> {
+    if (!this.timingEnabled || !this.timestampQuerySet || !this.timestampResolveBuffer || !this.timestampMappedBuffer) return;
+
+    const commandEncoder = this.device.createCommandEncoder();
+    commandEncoder.resolveQuerySet(
+      this.timestampQuerySet,
+      0,
+      this.queryCount,
+      this.timestampResolveBuffer,
+      0
+    );
+    commandEncoder.copyBufferToBuffer(
+      this.timestampResolveBuffer,
+      0,
+      this.timestampMappedBuffer,
+      0,
+      this.queryCount * 8
+    );
+    this.device.queue.submit([commandEncoder.finish()]);
+
+    // Read results
+    await this.timestampMappedBuffer.mapAsync(GPUMapMode.READ);
+    const timestamps = new BigUint64Array(this.timestampMappedBuffer.getMappedRange());
+
+    // Convert to milliseconds (nanoseconds to ms)
+    const gpuTimeMs = Number(timestamps[1] - timestamps[0]) / 1_000_000;
+    this.lastGpuTimeMs = gpuTimeMs;
+
+    // Update history
+    const idx = (this.fpsIndex - 1 + this.gpuTimeHistory.length) % this.gpuTimeHistory.length;
+    this.gpuTimeHistory[idx] = gpuTimeMs;
+
+    this.timestampMappedBuffer.unmap();
+    return gpuTimeMs;
+  }
+
+  // Generate FPS graph data for canvas
+  getFPSGraphData(width: number, height: number): FpsGraphPoint[] {
+    const points: FpsGraphPoint[] = [];
+    const count = Math.min(width, this.fpsHistoryFilled ? this.fpsHistory.length : this.fpsIndex);
+
+    for (let i = 0; i < count; i++) {
+      const idx = (this.fpsIndex - count + i + this.fpsHistory.length) % this.fpsHistory.length;
+      const fps = this.fpsHistory[idx];
+      const x = (i / (count - 1)) * width;
+      const y = height - (fps / 80) * height; // Scale 0-80 FPS to height
+      points.push({ x, y, fps });
+    }
+
+    return points;
+  }
+
+  // Get particle vs FPS correlation data
+  getParticleFPSCorrelation(): ParticleFpsCorrelationPoint[] {
+    const data: ParticleFpsCorrelationPoint[] = [];
+    const count = this.fpsHistoryFilled ? this.fpsHistory.length : this.fpsIndex;
+
+    for (let i = 0; i < count; i++) {
+      data.push({
+        particles: this.particleHistory[i],
+        fps: this.fpsHistory[i],
+        frameTime: this.frameTimeHistory[i]
+      });
+    }
+
+    return data;
+  }
+}

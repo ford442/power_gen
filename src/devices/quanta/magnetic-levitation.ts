@@ -9,8 +9,8 @@
  *   - Passive magnetic levitation with diamagnetic/eddy stabilization (Berry, Eur. J. Phys., 1996)
  */
 
-import { packInstance, type InstanceArray } from '../../device-mesh-layouts.js';
-import { MATERIAL_QUANTA_COIL, MATERIAL_QUANTA_FLOATER, MATERIAL_QUANTA_FLOATER_POST, MATERIAL_STEEL_BASE } from '../material-roles.js';
+import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
+import { MATERIAL_QUANTA_COIL, MATERIAL_QUANTA_FLOATER, MATERIAL_QUANTA_FLOATER_POST, MATERIAL_STEEL_BASE } from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
 import { estimateHalbachFieldT, MAGNET_BR } from './halbach-field';
 import type { DevicePlugin } from '../types';

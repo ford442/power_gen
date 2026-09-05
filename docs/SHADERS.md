@@ -38,14 +38,14 @@ src/shaders/
 | C++ / WASM | `SimParticle` (x,y,z,phase,vx,vy,vz,aux) | **32 B** | `cpp/src/sim_core.h` |
 
 Both are defined in `common/particle.wgsl`. JS constant:
-`PARTICLE_BYTES_PER_INSTANCE = 16` in `device-geometry.js` (asserted in
-`device-pipeline-manager.js`).
+`PARTICLE_BYTES_PER_INSTANCE = 16` in `device-geometry.ts` (asserted in
+`device-pipeline-manager.ts`).
 
 When changing particle fields:
 
 1. Update `common/particle.wgsl`
 2. Update C++ `SimParticle` if the high-precision path is affected
-3. Update reseeding in `device-geometry.js` / WASM seed
+3. Update reseeding in `device-geometry.ts` / WASM seed
 4. Run `npm run check:wgsl`
 
 ## `#include` preprocessor
@@ -128,7 +128,7 @@ post stack:
   `packPostUniforms()` emits, and `bloomParamsBuffer` is sized for it
 - `SsrParams` in `ssr-compute.wgsl` matches `SSR_PARAMS_BYTES` and is 16-byte
   aligned
-- `IBL_TEX_SIZE` / `IBL_SPEC_LEVELS` agree between `ibl-prefilter.js` and
+- `IBL_TEX_SIZE` / `IBL_SPEC_LEVELS` agree between `ibl-prefilter.ts` and
   `pbr-eval.wgsl`
 
 Add a case here whenever you introduce a new struct that is written on the CPU
@@ -202,9 +202,9 @@ Runtime source: `passes/bloom-*.wgsl` (via thin `generators/bloom-shaders.js` â†
 1. Prefer negotiated HDR intermediate formats when the adapter supports them
    (`WebGPUManager.bloomIntermediateFormat`).
 2. Uniform layout (`BloomParams`, 16 floats) must stay in lockstep with
-   `packPostUniforms()` in `seg-lighting-presets.js`.
+   `packPostUniforms()` in `seg-lighting-presets.ts`.
 3. Auto-quality tiers scale post cost via `getPostQualityGates()` in
-   `post-processing-config.js` (critical skips bloom extract/blur; disables SSAO + motion blur).
+   `post-processing-config.ts` (critical skips bloom extract/blur; disables SSAO + motion blur).
 4. Run `npm run check:wgsl` and `npm run check:post` after editing bloom passes.
 5. WebGL2 does **not** run this stack â€” document gaps in `WEBGL2.md`.
 

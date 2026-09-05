@@ -9,7 +9,7 @@
  *   - M. V. Berry — levitation of spinning magnets (1996)
  */
 
-import { packInstance, type InstanceArray, type InstanceFloats } from '../../device-mesh-layouts.js';
+import { packInstance, type InstanceArray, type InstanceFloats } from '../../device-mesh-layouts';
 import { writeMeshCylinders } from '../update-helpers';
 import {
   buildHalbachSegments,

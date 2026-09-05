@@ -1,6 +1,6 @@
 /**
  * Fallback Physics Calculator
- * Analytical formulas for when Wolfram MCP is unavailable
+ * Analytical formulas used when a value isn't covered by ValidatedConstants
  * All formulas include uncertainty estimates
  */
 
@@ -35,12 +35,12 @@ export const PHYSICAL_BOUNDS: Record<PhysicsValueType, { min: number; max: numbe
 export function createUncertainValue(
   value: number,
   uncertainty: number,
-  source: 'wolfram' | 'calculated' | 'estimated' = 'calculated'
+  source: 'calculated' | 'estimated' = 'calculated'
 ): UncertaintyFlag {
   return {
     value,
     uncertainty,
-    isValidated: source === 'wolfram',
+    isValidated: false,
     source,
   };
 }

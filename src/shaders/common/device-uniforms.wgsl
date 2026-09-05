@@ -1,6 +1,6 @@
 // =============================================================
 // Per-device uniforms (48 B = 12 × f32)
-// Matches DeviceUniformManager / device-uniforms.js write order.
+// Matches DeviceUniformManager / device-uniforms.ts write order.
 // =============================================================
 
 struct DeviceUniforms {

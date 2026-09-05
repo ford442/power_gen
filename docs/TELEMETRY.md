@@ -10,14 +10,14 @@ scientific derived fields   ─┘
 
 | Writer | Module |
 |--------|--------|
-| SEG plant (drive, ω, computeTelemetry) | `seg-operator-state.js` |
+| SEG plant (drive, ω, computeTelemetry) | `seg-operator-state.ts` |
 | Multi-device frame publish | `multi-device-visualizer.ts` (WebGPU) |
 | Multi-device frame publish | `renderers/webgl2/index.js` |
 | Optional TS physics uniforms | `integration.ts` (syncs into hub scientific fields via multi-device) |
 
 | Subscriber | Role |
 |------------|------|
-| `seg-operator-panel.js` | Dashboard LED tiles, RPM gauge, footers |
+| `seg-operator-panel.ts` | Dashboard LED tiles, RPM gauge, footers |
 | `scientific-ui/` `ScientificUIManager` | Floating physics gauges (optional) |
 
 **Do not** write RPM/voltage/current/power DOM from the visualizer. Publish to the hub instead.
@@ -69,7 +69,7 @@ const unsub = telemetryHub.subscribe((snap) => {
 | Energy network summary | W | `snap.energyNetwork` — budget, allocated, residual |
 | Nameplate watts (non-SEG) | W | `physics/constants.json` → `energyNetwork.deviceNameplateWatts` — `simulatedOrderOfMagnitude: true` |
 
-`SEG_SPEC` in `seg-operator-state.js` is aligned with `ValidatedConstants` / `SEG_DATA`.
+`SEG_SPEC` in `seg-operator-state.ts` is aligned with `ValidatedConstants` / `SEG_DATA`.
 
 ### Residual definition
 

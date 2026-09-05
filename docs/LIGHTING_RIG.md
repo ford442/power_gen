@@ -4,7 +4,7 @@ Studio-quality lighting and a full-screen post pipeline for the WebGPU path, wit
 
 ## Lighting looks
 
-Presets live in `src/seg-lighting-presets.js`:
+Presets live in `src/seg-lighting-presets.ts`:
 
 | Look | Use case | Sky | Key character |
 |------|----------|-----|---------------|
@@ -29,7 +29,7 @@ Each preset defines key / fill / rim / ground lights uploaded to `lightingUnifor
 
 ### Prefiltered environment (ADR-0005 WS2)
 
-`src/ibl-prefilter.js` bakes the active preset into an octahedral `rgba16float`
+`src/ibl-prefilter.ts` bakes the active preset into an octahedral `rgba16float`
 **2D array texture** at startup (segEnhanced bindings 7–8):
 
 | Layer | Contents |
@@ -81,7 +81,7 @@ Mesh shaders output **linear HDR** (no per-object tonemap); tonemapping happens 
 ### Quality gates (auto-quality ↔ post cost)
 
 `qualityTier` from `PerformanceProfiler` maps to multipliers in
-`src/post-processing-config.js` (`POST_QUALITY_GATES` → `getPostQualityGates`):
+`src/post-processing-config.ts` (`POST_QUALITY_GATES` → `getPostQualityGates`):
 
 | Tier | Bloom extract/blur | SSAO | Contact shadow | Motion blur | SSR |
 |------|--------------------|------|----------------|-------------|-----|
@@ -131,7 +131,7 @@ See prior sections in this doc — 48 floats CPU / WGSL `LightData` × 4 + ambie
 | 16 | ssrStrength |
 | 17–19 | padding (16-byte alignment) |
 
-Packed by `packPostUniforms()` in `seg-lighting-presets.js`. The struct is
+Packed by `packPostUniforms()` in `seg-lighting-presets.ts`. The struct is
 duplicated in three generator templates plus `bloom-composite.wgsl`;
 `npm run check:post` asserts all four match the packer's float count.
 
@@ -165,8 +165,8 @@ duplicated in three generator templates plus `bloom-composite.wgsl`;
 
 Gated on `qualityTier === 'high'` **and** focus mode (a single device selected,
 not overview) — `'ultra'` is defined in this doc's quality table and in
-`post-processing-config.js`, but the auto-quality system in
-`performance-profiler.js` never actually assigns it (`_updateQualityTier()`
+`post-processing-config.ts`, but the auto-quality system in
+`performance-profiler.ts` never actually assigns it (`_updateQualityTier()`
 only ever picks critical/low/medium/high), so `'high'` is the practical
 ceiling gate today rather than a deliberate downgrade from `'ultra'`.
 
@@ -191,7 +191,7 @@ WebGPU resolves multisampled **color** attachments automatically via
   first use) specifically so the per-frame render loop never awaits pipeline
   creation mid-frame; `DevicePipelineManager.applyMsaaState()` swaps the
   active reference once per frame (cheap — no GPU work).
-- Debug panel (`src/debug-panel.js`) shows `MSAA: 4x` / `1x (off)` next to
+- Debug panel (`src/debug-panel.ts`) shows `MSAA: 4x` / `1x (off)` next to
   the FPS readout so a "measured FPS note" is visible when toggling into
   focus mode at `high` tier.
 
@@ -224,7 +224,7 @@ touched by that same downgrade path.
 
 | Control | Effect |
 |---------|--------|
-| `?ssr=0` (or `off` / `false` / `no`) | Off at **any** tier; parsed by `parseSsrEnabled` in `renderers/shared/url-params.js` |
+| `?ssr=0` (or `off` / `false` / `no`) | Off at **any** tier; parsed by `parseSsrEnabled` in `renderers/shared/url-params.ts` |
 | `window.SEG_SSR_ENABLED = false` | Same, for agent / console use |
 | Tier `medium` and below | Compute pass not dispatched, `ssrStrength` packs to 0 |
 
@@ -243,7 +243,7 @@ untouched by ADR-0005 WS2. Instead:
 
 ## Modifying looks
 
-1. Edit presets in `src/seg-lighting-presets.js`
+1. Edit presets in `src/seg-lighting-presets.ts`
 2. If changing struct layouts, update WGSL in `bloom-shaders.js` and CPU packers together
 3. Run `npm run check:post` (struct/packer contracts) and `npm run check:wgsl`
 4. Changing the lighting rig changes the IBL bake — clear the memo with

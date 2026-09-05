@@ -30,8 +30,8 @@ Device **identity** (shader vs WASM mode numbers) is a separate catalog:
 
 | In `constants.json` | Elsewhere (intentionally) |
 |---------------------|---------------------------|
-| CODATA μ₀, ε₀, G, k_B, e, c, π | Layout ring counts / radii presets → `src/seg-layout.js` `PRESET_DEFS` |
-| SEG NdFeB Br, μ_r, reference roller geometry | Per-preset world scale, flux-line counts → `seg-layout.js` + `SEGLayoutUniforms` |
+| CODATA μ₀, ε₀, G, k_B, e, c, π | Layout ring counts / radii presets → `src/seg-layout.ts` `PRESET_DEFS` |
+| SEG NdFeB Br, μ_r, reference roller geometry | Per-preset world scale, flux-line counts → `seg-layout.ts` + `SEGLayoutUniforms` |
 | Kelvin / Heron / LED–solar core efficiencies | LED spectral wavelengths, IV curve UI metadata → `led-solar-constants.ts` |
 | Particle byte strides (16 / 32 B) | WGSL struct definitions → `src/shaders/common/*.wgsl` |
 
@@ -42,7 +42,7 @@ WASM `SEGSimulator` default ring topology (12/22/32 at scene radii 3.5/5.5/7.5) 
 
 | Struct | Bytes | Floats | Where |
 |--------|-------|--------|-------|
-| **GpuParticle** | 16 | 4 (vec3f + phase) | WebGPU instance buffers, `device-geometry.js` |
+| **GpuParticle** | 16 | 4 (vec3f + phase) | WebGPU instance buffers, `device-geometry.ts` |
 | **SimParticle** | 32 | 8 | WASM `sim_core`, `common/particle.wgsl` |
 | **PipeParticle** | 32 | 8 | Energy pipes, `common/pipe-particle.wgsl` |
 | **FieldParticle** | 32 | 8 | Field-line advection, `common/field-particle.wgsl` |
@@ -54,7 +54,7 @@ Call `assertParticleLayouts()` once during bootstrap if you want a runtime check
 
 The visualizer uses **scene units**, not 1:1 metres on screen:
 
-1. **Layout presets** (`seg-layout.js`): each preset has `worldScale` (e.g. Searl = 2, Roschin = 4).
+1. **Layout presets** (`seg-layout.ts`): each preset has `worldScale` (e.g. Searl = 2, Roschin = 4).
    Real-metre reference dimensions from `segRollerComposite` in JSON are multiplied by preset scale.
 2. **WASM gravity**: `sim_core.cpp` applies fractional `G` (e.g. `G * 0.35`) for stable scene motion.
 3. **μ₀ and Br** are always SI/CODATA — field magnitudes are physically consistent; distances are scene-scaled.

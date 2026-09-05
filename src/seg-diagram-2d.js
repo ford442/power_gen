@@ -23,7 +23,7 @@ import {
   computeSEGLayout,
   computeRollerPositionsXZ,
   SEG_LAYOUT_PRESETS
-} from './seg-layout.js';
+} from './seg-layout';
 import { explainerState } from './seg-explainer/explainer-state.js';
 
 // Per-ring accent colours (inner → outer). Cyan-family to match the app skin,

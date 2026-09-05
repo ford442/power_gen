@@ -8,20 +8,27 @@
  * them, because both sides are individually valid.
  *
  * Checks:
- *   1. IBL_TEX_SIZE / IBL_SPEC_LEVELS match between ibl-prefilter.js and
+ *   1. IBL_TEX_SIZE / IBL_SPEC_LEVELS match between ibl-prefilter.ts and
  *      pbr-eval.wgsl (also enforced at runtime by assertIblShaderContract).
  *   2. Every BloomParams copy has the same field count as packPostUniforms
  *      emits, and the uniform buffer is allocated for exactly that many floats.
- *   3. The SsrParams block size in scene-setup.js matches ssr-compute.wgsl.
+ *   3. The SsrParams block size in scene-setup.ts matches ssr-compute.wgsl.
  *
  * Usage: node scripts/check-post-contracts.mjs   (exit 1 on drift)
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as esbuild from 'esbuild';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
+
+/** Transpile a .ts module (via the esbuild Vite already depends on) and import it directly — no ts-node/tsx dep, works on plain Node. */
+async function importTs(rel) {
+  const { code } = await esbuild.transform(read(rel), { loader: 'ts', format: 'esm' });
+  return import(`data:text/javascript,${encodeURIComponent(code)}`);
+}
 
 const failures = [];
 const ok = [];
@@ -34,7 +41,7 @@ function check(label, condition, detail) {
 // ── 1. IBL bake ↔ pbr-eval.wgsl ─────────────────────────────────────────────
 {
   const { assertIblShaderContract, IBL_TEX_SIZE, IBL_SPEC_LEVELS, IBL_LAYERS } =
-    await import(new URL('../src/ibl-prefilter.js', import.meta.url));
+    await importTs('src/ibl-prefilter.ts');
   try {
     assertIblShaderContract(read('src/shaders/common/pbr-eval.wgsl'));
     ok.push(`IBL contract: ${IBL_TEX_SIZE}² × ${IBL_LAYERS} layers (${IBL_SPEC_LEVELS} GGX + irradiance)`);
@@ -46,7 +53,7 @@ function check(label, condition, detail) {
 // ── 2. BloomParams ↔ packPostUniforms ───────────────────────────────────────
 {
   const { packPostUniforms, getLightingPreset } =
-    await import(new URL('../src/seg-lighting-presets.js', import.meta.url));
+    await importTs('src/seg-lighting-presets.ts');
   const packed = packPostUniforms({ preset: getLightingPreset('studio') }).length;
 
   const sources = {
@@ -90,7 +97,7 @@ function check(label, condition, detail) {
     check(
       `SsrParams is ${bytes} B (${mats} mat4 + ${vecs} vec2 + ${scalars} f32)`,
       declared && Number(declared[1]) === bytes,
-      `scene-setup.js declares ${declared ? declared[1] : '?'} B`
+      `scene-setup.ts declares ${declared ? declared[1] : '?'} B`
     );
     check('SsrParams is 16-byte aligned', bytes % 16 === 0, `${bytes} B is not a multiple of 16`);
   }

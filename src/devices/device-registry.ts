@@ -7,7 +7,7 @@
  * plugin's `defaults` (register-core). Quanta plugins supply their own defaults.
  */
 
-import { applyAutoLayout } from './layout-packer.js';
+import { applyAutoLayout } from './layout-packer';
 import { wasmModeForDevice } from '../../generated/device-catalog';
 import type {
   DeviceEffectContext,

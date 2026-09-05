@@ -2,12 +2,12 @@ import { linkProgram, getUniformLocations } from './shader-utils.js';
 import { MESH_VERT, MESH_FRAG, ROLLER_VERT, ROLLER_FRAG } from './shaders.js';
 import { generateCylinder, generateDisc, generateTorus, uploadMesh, uploadMeshWithUV } from '../shared/primitive-geometry.js';
 import { buildDetailedRollerMesh, poleTintColor, isNorthPole } from '../../seg-roller-model.js';
-import { computeSEGLayout, SEG_LAYOUT_PRESETS } from '../../seg-layout.js';
+import { computeSEGLayout, SEG_LAYOUT_PRESETS } from '../../seg-layout';
 import { computeFrameDimensions, parseSegFrameLevel } from '../../seg-frame-model.js';
 import {
   buildHeronMesh,
   HERON_LAYOUT_PRESETS
-} from '../../heron-layout.js';
+} from '../../heron-layout';
 import {
   buildKelvinInstances,
   buildKelvinBucketInstances,
@@ -19,7 +19,7 @@ import {
   buildSolarTubeInstances,
   TUBE_MESH_RADIUS,
   TUBE_MESH_HEIGHT,
-} from '../../device-mesh-layouts.js';
+} from '../../device-mesh-layouts';
 
 /** Instance record: vec3 position + vec4 rgba + vec4 rotation quat — 44 bytes. */
 const INSTANCE_STRIDE_FLOATS = 11;
@@ -55,7 +55,7 @@ export class MeshRenderer {
     this.lighting = null;
   }
 
-  /** @param {import('../../seg-lighting-presets.js').ReturnType<typeof import('../../seg-lighting-presets.js').getLightingPreset>} preset */
+  /** @param {import('../../seg-lighting-presets').ReturnType<typeof import('../../seg-lighting-presets').getLightingPreset>} preset */
   setLightingPreset(preset) {
     if (!preset) return;
     const k = preset.lighting.key;

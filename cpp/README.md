@@ -57,9 +57,9 @@ cd cpp && make native
 ```
 
 Native smoke exercises **SEG**, **Heron**, **Kelvin**, **Solar**, **Peltier**,
-**MHD**, **Maglev**, **Homopolar**, and **Transformer** plant modes plus
-zero-copy buffer packing (`getRollerStateFloatCount == 66*4`). Single-mode
-smoke runs:
+**MHD**, **Maglev**, **Homopolar**, **Transformer**, **Van de Graaff**, and
+**Hall-Effect Bench** plant modes plus zero-copy buffer packing
+(`getRollerStateFloatCount == 66*4`). Single-mode smoke runs:
 
 ```bash
 ./build/sim_core_test --mode peltier   # thermoelectric stack smoke
@@ -67,6 +67,8 @@ smoke runs:
 ./build/sim_core_test --mode maglev    # Quanta gap ODE smoke
 ./build/sim_core_test --mode homopolar # Faraday disc L–R smoke
 ./build/sim_core_test --mode transformer # coupled-inductor L–M smoke
+./build/sim_core_test --mode vdg         # belt-charge/leakage/spark-gap ODE smoke
+./build/sim_core_test --mode hall        # I·B → Hall-voltage smoke
 ./build/sim_core_test --mode chores      # gpu-chores reduce/map goldens
 ./build/sim_core_test --mode catalog     # print id → wasmMode; fail on holes/dupes
 ./build/sim_core_test --mode bench       # print bench_seg_steps_per_sec / bench_particle_steps_per_sec
@@ -78,16 +80,19 @@ Swamee–Jain, `2=Kelvin` capacitive + spark, `3=Solar` battery SOC,
 `5=MHD` Hartmann-style channel flow with Lorentz braking and induced load
 voltage, `6=Maglev` spring–damper gap ODE (mirrors Quanta JS),
 `7=Homopolar` Faraday disc L–R + back-EMF (mirrors Quanta JS),
-`8=Transformer` coupled-inductor ODE (JS phasor is the no-WASM fallback).
+`8=Transformer` coupled-inductor ODE (JS phasor is the no-WASM fallback),
+`9=VDG` Van de Graaff belt-charge/leakage/spark-gap ODE (mirrors Quanta JS),
+`10=Hall` algebraic I·B → Hall-voltage model (mirrors Quanta JS).
 Free helper `estimateHalbachFieldT(gap, Br)` mirrors the JS Halbach gap estimate
-for offline field sampling (halbach-viz remains CPU-JS for field lines).
+for offline field sampling (halbach-viz remains CPU-JS for field lines; Pulse
+Coil also stays CPU-JS — neither has a `wasmMode`).
 
 ### Zero-copy particle / roller buffers
 
 After `sim.step` / `packRollerState`:
 
 ```js
-import { segWasm } from './wasm/seg-physics-bridge.js';
+import { segWasm } from './wasm/seg-physics-bridge';
 await segWasm.init();
 // HEAPF32 view (invalidated if WASM heap grows — re-fetch each frame)
 const particles = segWasm.getParticleFloatView(); // Float32Array, 8 floats/particle
@@ -130,7 +135,7 @@ didn't land.
 source maps) only locally, when tracking down a WASM-side crash or memory-safety issue —
 it is slower and never committed.
 
-**Required `EXPORTED_RUNTIME_METHODS`** for `src/wasm/seg-physics-bridge.js` and `sim.ts`:
+**Required `EXPORTED_RUNTIME_METHODS`** for `src/wasm/seg-physics-bridge.ts` and `sim.ts`:
 
 | Method | Used for |
 |--------|----------|
@@ -263,7 +268,11 @@ cpp/
       mhd_plant.cpp         ← Hartmann-style MHD channel
       maglev_plant.cpp      ← Quanta magnetic-levitation gap ODE
       homopolar_plant.cpp   ← Faraday-disc homopolar generator
+      transformer_plant.cpp ← Mutual-induction coupled-inductor L–M model
+      vdg_plant.cpp         ← Van de Graaff belt-charge/leakage/spark-gap ODE
+      hall_plant.cpp        ← Hall-effect bench (I·B → Hall voltage)
       energy_network.cpp    ← Lab energy bus (ADR-0004 Phase B)
+      chores_reduce.cpp     ← GPU-chores CPU reduce fallback
       particles.cpp         ← mode-aware particle seed/step + accessors
   CMakeLists.txt     ← CMake / Emscripten build (globs src/plant/*.cpp)
   Makefile           ← simple make wasm / native targets ($(wildcard src/plant/*.cpp))
@@ -322,21 +331,27 @@ Recent non-breaking expansions (SEGSimulator API and all prior bindings preserve
 
 - **Particle buffer export**: `getParticles(maxCount?)` returns a JS array of
   `SimParticle` objects (full or prefix). Complements the existing single
-  `getParticle(i)`. JavaScript side (via `seg-physics-bridge.js` and `sim.ts`)
+  `getParticle(i)`. JavaScript side (via `seg-physics-bridge.ts` and `sim.ts`)
   can now pull the high-precision CPU particle state for seeding or diffing
   against the WebGPU side.
-- **Multi-mode plants**: `setMode(0..5)` / `getMode()`. 0 = SEG (full RK4
-  roller path), 1 = Heron (Bernoulli / Swamee–Jain), 2 = Kelvin (capacitive +
-  spark), 3 = Solar (battery SOC), 4 = Peltier (two-node Seebeck stack),
-  5 = MHD (Hartmann channel). Every mode has real dynamics, mode-aware
-  particle seeding/stepping, and dedicated telemetry getters.
+- **Multi-mode plants**: `setMode(0..10)` / `getMode()` (see `wasmMode` in
+  `physics/devices.json`). 0 = SEG (full RK4 roller path), 1 = Heron (Bernoulli /
+  Swamee–Jain), 2 = Kelvin (capacitive + spark), 3 = Solar (battery SOC),
+  4 = Peltier (two-node Seebeck stack), 5 = MHD (Hartmann channel),
+  6 = Magnetic Levitation (Quanta gap ODE), 7 = Homopolar Generator (Faraday
+  disc L–R), 8 = Mutual Induction / transformer (coupled-inductor L–M),
+  9 = Van de Graaff (belt-charge/leakage/spark-gap ODE), 10 = Hall-Effect Bench
+  (algebraic I·B → Hall voltage). Every mode has real dynamics, mode-aware
+  particle seeding/stepping, and dedicated telemetry getters. Pulse Coil and
+  the Halbach field visualizer stay JS-only (`wasmMode: null`) — no C++ plant.
 - **Per-ring load torque**: `setRingLoadTorque(ring, t)`, `setRingLoadTorques(t0, t1, t2)`,
   and `stepWithPerRingTorques(dt)`. The original `step(dt, loadTorque)` continues
   to broadcast its value to all rings (identical prior behaviour).
 
-Thin JS wrappers live in `src/wasm/seg-physics-bridge.js` and `src/wasm/sim.ts`
+Thin JS wrappers live in `src/wasm/seg-physics-bridge.ts` and `src/wasm/sim.ts`
 so the debug panel and future consumers can call the new functionality directly.
 
-Since implemented: real dynamics for all six modes (Heron, Kelvin, Solar,
-Peltier, MHD alongside SEG), zero-copy particle + roller buffers, and
-mode-aware particle seeding / stepping.
+Since implemented: real dynamics for all eleven WASM-backed modes (Heron,
+Kelvin, Solar, Peltier, MHD, Magnetic Levitation, Homopolar Generator,
+Mutual Induction, Van de Graaff, and Hall-Effect Bench alongside SEG),
+zero-copy particle + roller buffers, and mode-aware particle seeding / stepping.

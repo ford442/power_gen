@@ -1,9 +1,9 @@
 // Per-frame simulation update + GPU encode (scene + bloom).
 import { WebGPUManager } from '../webgpu-manager';
-import { MAX_ROLLERS } from '../seg-layout.js';
-import { packPostUniforms } from '../seg-lighting-presets.js';
+import { MAX_ROLLERS } from '../seg-layout';
+import { packPostUniforms } from '../seg-lighting-presets';
 import { writeQueueBuffer } from '../gpu-buffer-write';
-import { getPostQualityGates } from '../post-processing-config.js';
+import { getPostQualityGates } from '../post-processing-config';
 import { SSR_PARAMS_BYTES } from './scene-setup.js';
 import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
@@ -12,8 +12,8 @@ import { segWasm } from '../wasm/seg-physics-bridge.js';
 import { explainerState } from '../seg-explainer/explainer-state.js';
 import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
-import { resolveScaledParticleCount } from '../devices/particle-budgets.js';
-import { expectedInstanceCount } from '../devices/overview-cull.js';
+import { resolveScaledParticleCount } from '../devices/particle-budgets';
+import { expectedInstanceCount } from '../devices/overview-cull';
 import { syncEnergyCouplingDisclaimer } from '../renderers/shared/energy-network.js';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { DeviceInstance } from '../device-instance.js';
@@ -712,7 +712,7 @@ export const renderLoopMethods: ThisType<Host> & {
 
     // 4x MSAA (ADR-0005 WS2 showroom pass): `high` tier + focus mode only.
     // `'ultra'` is defined in config/docs but the auto-quality system never
-    // assigns it (performance-profiler.js only ever picks
+    // assigns it (performance-profiler.ts only ever picks
     // critical/low/medium/high), so gating on `'high'` is the practical
     // ceiling today. Requires the MSAA/resolved-depth textures and both
     // pipeline variants to exist — set up unconditionally at init, so this

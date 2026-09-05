@@ -1,5 +1,5 @@
 import { frameVibrationOffset } from '../../seg-frame-model.js';
-import { MATERIAL_COIL_FORMER, MATERIAL_LAB_BASE, MATERIAL_STRUCTURAL } from '../material-roles.js';
+import { MATERIAL_COIL_FORMER, MATERIAL_LAB_BASE, MATERIAL_STRUCTURAL } from '../material-roles';
 import type { DeviceInstanceLike, DevicePlugin } from '../types';
 
 const SEG_RINGS = [

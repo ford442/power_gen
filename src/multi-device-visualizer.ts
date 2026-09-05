@@ -1,40 +1,40 @@
 import { MultiDeviceShaders } from './multi-device-shaders.js';
 import './devices/register-plugins.js';
-import { MultiDeviceCamera } from './multi-device-camera.js';
-import { SimRateController } from './sim-rate-controller.js';
+import { MultiDeviceCamera } from './multi-device-camera';
+import { SimRateController } from './sim-rate-controller';
 import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager';
 import { PipelineLayoutCache } from './pipeline-layout-cache';
-import { CameraController } from './camera-controller.js';
-import { PerformanceProfiler } from './performance-profiler.js';
-import { DebugPanel } from './debug-panel.js';
+import { CameraController } from './camera-controller';
+import { PerformanceProfiler } from './performance-profiler';
+import { DebugPanel } from './debug-panel';
 import { DEVICE_CONFIG } from './devices/device-config';
 import { getMergedDeviceConfig, getAllSimDeviceIds } from './devices/device-registry.js';
 import { DeviceInstance } from './device-instance.js';
-import { EnergyPipe } from './energy-pipe.js';
-import { OverviewCullPass } from './devices/overview-cull.js';
+import { EnergyPipe } from './energy-pipe';
+import { OverviewCullPass } from './devices/overview-cull';
 import {
   computeSEGLayout,
   SEG_LAYOUT_PRESETS,
   SEG_LAYOUT_UNIFORM_BYTES,
   packSEGLayoutUniforms
-} from './seg-layout.js';
+} from './seg-layout';
 import {
   getHeronLayout,
   HERON_LAYOUT_PRESETS,
   parseHeronLayoutPreset
-} from './heron-layout.js';
+} from './heron-layout';
 import { parseSegFrameLevel } from './seg-frame-model.js';
 import {
   parseLightingLook,
   getLightingPreset,
-} from './seg-lighting-presets.js';
+} from './seg-lighting-presets';
 import { writeQueueBuffer } from './gpu-buffer-write';
 import { segOperator } from './seg-operator-state';
 import { telemetryHub, TelemetryHub } from './telemetry-hub';
 import { segWasm } from './wasm/seg-physics-bridge.js';
-import { HardwareBridge, TWIN_MODES } from './hardware-bridge.js';
+import { HardwareBridge, TWIN_MODES } from './hardware-bridge';
 import { ElectromagnetController } from './electromagnet-controller.js';
-import { initHardwarePanel } from './hardware-panel.js';
+import { initHardwarePanel } from './hardware-panel';
 import { initSEGAnnotations } from './seg-annotations.js';
 import { explainerState } from './seg-explainer/explainer-state.js';
 import { isDeviceActive as isDeviceVisible } from './renderers/shared/device-view.js';
@@ -47,7 +47,7 @@ import {
   parseAnomalousEffects,
   parseSsrEnabled
 } from './renderers/shared/url-params.js';
-import { createIblResources } from './ibl-prefilter.js';
+import { createIblResources } from './ibl-prefilter';
 import {
   SEGIntegrationManager,
   PHYSICS_UNIFORM_BYTES
@@ -70,9 +70,9 @@ import type {
 } from './devices/types';
 import type { HeronLayout } from './renderers/shared/device-physics';
 import type { PrototypePreset } from './renderers/shared/url-params.js';
-import type { LightingLook } from './seg-lighting-presets.js';
+import type { LightingLook } from './seg-lighting-presets';
 import type { HardwareTwinTelemetry } from './telemetry/types';
-import { getPostQualityGates } from './post-processing-config.js';
+import { getPostQualityGates } from './post-processing-config';
 
 type HeronLayoutWithMeta = HeronLayout & { name: string; description: string };
 
@@ -312,6 +312,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   _gltfEmbeddedHousing?: ArrayBuffer | null;
   _gltfLoadInFlight?: Promise<void> | null;
   _gltfPickHandlerAttached?: boolean;
+  /** Internal re-entrancy guard inside attachGltfHousingPickHandler (gltf-housing-pick.ts). */
+  _gltfPickBound?: boolean;
 
   // Shared geometry extras (setup-geometry.js)
   deviceGeometryBuffers?: Record<string, MeshBuffers & { color?: unknown }>;
@@ -471,7 +473,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.heronLayoutPreset = parseHeronLayoutPreset(params);
     try {
       const storedHeron = localStorage.getItem('heron-layout');
-      if (storedHeron && Object.values(HERON_LAYOUT_PRESETS).includes(storedHeron)) {
+      const heronPresets: string[] = Object.values(HERON_LAYOUT_PRESETS);
+      if (storedHeron && heronPresets.includes(storedHeron)) {
         this.heronLayoutPreset = storedHeron;
       }
     } catch (_) { /* ignore */ }
@@ -756,7 +759,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
    * @param presetName - 'searl', 'roschin', or 'legacy'
    */
   async setSEGLayoutPreset(presetName: string): Promise<SegLayout | null> {
-    const presets = Object.values(SEG_LAYOUT_PRESETS);
+    const presets: string[] = Object.values(SEG_LAYOUT_PRESETS);
     if (!presets.includes(presetName)) {
       console.warn('[SEG] Unknown layout preset:', presetName);
       return null;
@@ -797,7 +800,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
    * @param presetName - classic, compact, tower, wide, spiral
    */
   async setHeronLayoutPreset(presetName: string): Promise<HeronLayoutWithMeta | null> {
-    const presets = Object.values(HERON_LAYOUT_PRESETS);
+    const presets: string[] = Object.values(HERON_LAYOUT_PRESETS);
     if (!presets.includes(presetName)) {
       console.warn('[Heron] Unknown layout preset:', presetName);
       return null;

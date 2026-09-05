@@ -46,4 +46,4 @@ Overview mode places SEG, Heron, Kelvin, solar, Peltier, MHD (and plugins) in on
 
 ## Related
 
-- `src/renderers/shared/energy-network.ts`, `src/energy-pipe.js`, `docs/TELEMETRY.md`, ADR-0002
+- `src/renderers/shared/energy-network.ts`, `src/energy-pipe.ts`, `docs/TELEMETRY.md`, ADR-0002

@@ -16,7 +16,6 @@ export { SolarPanelGauge } from './gauges/solar-panel-gauge.js';
 export { LEDArrayGauge } from './gauges/ledarray-gauge.js';
 export { EnergyBalanceDisplay } from './gauges/energy-balance-display.js';
 export { ShadowResidualGauge } from './gauges/shadow-residual-gauge.js';
-export { WolframStatusPanel } from './gauges/wolfram-status-panel.js';
 
 export { ScientificUIManager } from './manager.js';
 export { ScientificUIManager as default } from './manager.js';

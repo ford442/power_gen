@@ -6,11 +6,11 @@
  * the hand-maintained `device-registry-types.d.ts` stub.
  */
 
-import type { DevicePhysicsState } from '../renderers/shared/device-physics';
+import type { DevicePhysicsState, HeronLayout } from '../renderers/shared/device-physics';
 import type { PipelineLayoutCache, BindGroupLayoutName } from '../pipeline-layout-cache';
 import type { BindGroupCache } from '../renderers/shared/bind-group-cache';
-import type { DeviceMeshLayout } from '../device-mesh-layouts.js';
-import type { OverviewCullPass } from './overview-cull.js';
+import type { DeviceMeshLayout } from '../device-mesh-layouts';
+import type { OverviewCullPass } from './overview-cull';
 import type { DeviceDashboardDefaults } from './device-config';
 
 export type { BindGroupLayoutName };
@@ -113,6 +113,8 @@ export interface DeviceGeometryLike {
   statorRingBuffer?: GPUBuffer | null;
   wiringBuffer?: GPUBuffer | null;
   baseBuffer?: GPUBuffer | null;
+  rollerInstances?: GPUBuffer | null;
+  fluxSegmentBuffer?: GPUBuffer | null;
   fluxTotalSegments?: number;
   /** Heron's Fountain jet/basin geometry, set from the active build preset. */
   heronFlow?: HeronFlowGeometry | null;
@@ -165,8 +167,8 @@ export interface SegFrameBuffers {
   structural?: MeshBuffers | null;
   controlBox?: MeshBuffers | null;
   safetyCage?: MeshBuffers | null;
-  /** computeFrameDimensions() output (seg-frame-model.js) — only statorH is consumed by the mixins. */
-  dims?: { statorH: number };
+  /** computeFrameDimensions() output (seg-frame-model.js). */
+  dims?: { statorH: number; plateY?: number };
 }
 
 /**
@@ -181,13 +183,22 @@ export interface VisualizerLike {
     qualityTier?: string;
     recordDraw?: (n?: number) => void;
     beginFrameDraws?: () => void;
+    trackBuffer?: (name: string, size: number, usage: GPUBufferUsageFlags) => unknown;
   } | null;
   pipelineCache?: PipelineLayoutCache | null;
   /** GPU overview cull pass — drives indirect particle draws (ADR-0005 WS4). */
   overviewCull?: OverviewCullPass | null;
   isOverviewMode?: () => boolean;
+  /** Compute/vertex/fragment shader source getters (multi-device-shaders.js). */
+  shaders?: {
+    segRollerComputeShader?: string;
+    segFieldAdvectShader?: string;
+    fluxLineTracerShader?: string;
+    transformerFluxShader?: string;
+  };
+  globalUniformBuffer?: GPUBuffer | null;
 
-  heronLayout?: unknown;
+  heronLayout?: (HeronLayout & { name?: string; description?: string }) | null;
   heronLayoutPreset?: string;
 
   // SEG operator physics + layout
@@ -198,7 +209,7 @@ export interface VisualizerLike {
   rollerInstanceCullEnabled?: boolean;
   enhancedRollerBuffer?: MeshBuffers | null;
 
-  // Hardware digital twin (Web Serial / mock) — see hardware-bridge.js
+  // Hardware digital twin (Web Serial / mock) — see hardware-bridge.ts
   hardwareBridge?: {
     isConnected?: boolean;
     mirrorEnabled?: boolean;
@@ -214,7 +225,7 @@ export interface VisualizerLike {
     computeCoilMask?: (phaseDeg: number, dir: number) => number;
     computePwmValues?: (phaseDeg: number, dir: number) => number[] | null;
   } | null;
-  // Orbit camera — see camera-controller.js
+  // Orbit camera — see camera-controller.ts
   camera?: { camera?: { position?: number[] } } | null;
 
   // Solar battery gauge (3D cylinder mesh resized from charge level)
@@ -257,6 +268,7 @@ export interface VisualizerLike {
 
   // Instance buffers
   baseInstanceBuffer?: GPUBuffer | null;
+  statorRingInstanceBuffer?: GPUBuffer | null;
   coreBoltInstanceBuffer?: GPUBuffer | null;
   coreBoltPositions?: ArrayLike<number>;
   frameStructuralInstanceBuffer?: GPUBuffer | null;
@@ -323,7 +335,7 @@ export interface DeviceInstanceLike {
     batteryCharge?: number;
     updateGaugeBuffer?: (position: ArrayLike<number>, ringIndex: number) => void;
   };
-  /** DevicePipelineManager instance (device-pipeline-manager.js). */
+  /** DevicePipelineManager instance (device-pipeline-manager.ts). */
   pipelineManager?: {
     fluxSegmentPipeline?: GPURenderPipeline | null;
     /** Swap every render pipeline between its base/MSAA-4x variant (ADR-0005 WS2) — called once per frame from render-loop.ts. */
@@ -370,8 +382,15 @@ export interface DeviceInstanceLike {
 
   // SEG roller / coil / flux / arc state
   rollerComputeUniformBuffer?: GPUBuffer | null;
+  rollerComputePipeline?: GPUComputePipeline | null;
+  rollerComputeBindGroup?: GPUBindGroup | null;
   fieldAdvectUniformBuffer?: GPUBuffer | null;
+  fieldAdvectPipeline?: GPUComputePipeline | null;
+  fieldAdvectBindGroup?: GPUBindGroup | null;
   fluxTracerUniformBuffer?: GPUBuffer | null;
+  fluxCoilBoostBuffer?: GPUBuffer | null;
+  fluxTracerPipeline?: GPUComputePipeline | null;
+  fluxTracerBindGroup?: GPUBindGroup | null;
   fluxSegmentRenderBindGroup?: GPUBindGroup | null;
   transformerFluxUniformBuffer?: GPUBuffer | null;
   transformerFluxPipeline?: GPUComputePipeline | null;

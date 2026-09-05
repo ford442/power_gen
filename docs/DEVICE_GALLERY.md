@@ -22,11 +22,11 @@ optional `docs/images/<device-id>-overview.png`). Regenerated on Cloud VMs with
 
 ## Plugin registration
 
-New devices register through `src/devices/device-registry.js` without editing
+New devices register through `src/devices/device-registry.ts` without editing
 `MultiDeviceVisualizer`:
 
 ```js
-import { registerDevice } from '../device-registry.js';
+import { registerDevice } from '../device-registry';
 import { catalogIdentity, NEXT_SHADER_MODE } from '../../generated/device-catalog';
 
 registerDevice({
@@ -44,7 +44,7 @@ registerDevice({
 Import side-effect bundle: `src/devices/register-plugins.js` (loaded from `main.ts`).
 
 Overview positions for plugin devices without an explicit `position` are assigned
-by `src/devices/layout-packer.js` on an outer ring (radius 20 m).
+by `src/devices/layout-packer.ts` on an outer ring (radius 20 m).
 
 ---
 
@@ -78,7 +78,7 @@ Capture: `?renderer=webgl2` → START → `setMode('maglev')` → `captureCanvas
 
 ### Implementation
 
-- Plugin: `src/devices/quanta/magnetic-levitation.js`
+- Plugin: `src/devices/quanta/magnetic-levitation.ts`
 - WGSL mode index: `6` (`posMagLev` in `shaders/passes/particle-compute.wgsl`)
 - WASM plant: `SimMode=6` (`?wasmPhysics=1`); JS spring–damper fallback when WASM off
 
@@ -114,7 +114,7 @@ Capture: `?renderer=webgl2` → START → `setMode('homopolar')` → `captureCan
 
 ### Implementation
 
-- Plugin: `src/devices/quanta/homopolar-generator.js`
+- Plugin: `src/devices/quanta/homopolar-generator.ts`
 - WGSL mode index: `8` (`posHomopolar` in `shaders/passes/particle-compute.wgsl`)
 - WebGL2: instanced disc + magnet poles via `mesh-renderer.drawPluginDevice`
 - WASM plant: `SimMode=7` (`?wasmPhysics=1`); JS L–R fallback when WASM off
@@ -153,7 +153,7 @@ Capture: `?renderer=webgl2` → START → `setMode('halbach-viz')` → `captureC
 
 ### Implementation
 
-- Plugin: `src/devices/quanta/halbach-viz.js`
+- Plugin: `src/devices/quanta/halbach-viz.ts`
 - Field math: `src/physics/magnetic-field.ts`, `src/devices/quanta/halbach-field.ts`
 - WGSL mode index: `9` (`posHalbach` in `shaders/passes/particle-compute.wgsl`)
 - WebGL2: CPU field lines + heatmap via `renderers/webgl2/halbach-field-renderer.js`
@@ -193,7 +193,7 @@ Capture: `?renderer=webgl2` → START → `setMode('pulse-coil')` → `captureCa
 
 ### Implementation
 
-- Plugin: `src/devices/quanta/pulse-coil.js`
+- Plugin: `src/devices/quanta/pulse-coil.ts`
 - WGSL mode index: `7` (`posPulseCoil` in `shaders/passes/particle-compute.wgsl`)
 - WebGL2: coil + cap bank + armature mesh via `drawPluginDevice`; basic particles
 - Plant: **JS only by design** (no WASM `SimMode`; sandboxed educational model + footer I/V oscilloscope sparkline)

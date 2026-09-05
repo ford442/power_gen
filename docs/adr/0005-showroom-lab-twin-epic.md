@@ -36,7 +36,7 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 
 ### Workstream 1 — Scene graph + glTF pipeline
 
-- [x] Formal `SceneNode` type (`src/assets/scene/scene-node.js`)
+- [x] Formal `SceneNode` type (`src/assets/scene/scene-node.ts`)
 - [x] Housing shell glTF (closed #102)
 - [x] Second CAD prop: coil former GLB in SEG focus
 - [x] Node hierarchy polish (lazy multi-prop registry, material overrides)
@@ -51,14 +51,14 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Cheap SSAO + contact shadow (composite)
 - [x] IBL irradiance polish for SEG metals (analytic env mips in `pbr-eval.wgsl`)
 - [x] **Prefiltered GGX split-sum IBL** — CPU bake per lighting preset into an
-      octahedral `rgba16float` 2D array (`src/ibl-prefilter.js`), sampled in
+      octahedral `rgba16float` 2D array (`src/ibl-prefilter.ts`), sampled in
       `pbr-eval.wgsl`; replaces the analytic polynomial, which is retained as the
       pre-upload fallback. Always-on (224 KB), memoised per look.
 - [x] **Screen-space reflections** for SEG roller chrome/nickel
       (`passes/ssr-compute.wgsl`) — view-space march against the existing depth
       buffer, half-res reflection target composited after SSAO. Gated to the
       high/ultra tier; `?ssr=0` disables at any tier.
-- [x] Wire post cost into auto-quality tiers (`post-processing-config.js` + render loop)
+- [x] Wire post cost into auto-quality tiers (`post-processing-config.ts` + render loop)
 - [x] Document stack + quality gates (`docs/SHADERS.md`, `docs/LIGHTING_RIG.md`)
 - [x] CPU↔WGSL uniform contract check in CI (`npm run check:post`)
 - [ ] Negotiate optional features only when present (`rg11b10ufloat-renderable`, etc.)
@@ -81,10 +81,10 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 
 ### Workstream 4 — Performance headroom (8–12 devices)
 
-- [x] Continue LOD / particle budgets (`particle-budgets.js`, mesh LOD ladder, pipe tiers)
+- [x] Continue LOD / particle budgets (`particle-budgets.ts`, mesh LOD ladder, pipe tiers)
 - [x] Overview culling (frustum for 20 m plugin ring + CPU instance prefix)
 - [x] GPU compute cull → draw-indirect (`passes/overview-cull-compute.wgsl`,
-      `devices/overview-cull.js`, layout `overviewCull`). One thread per device
+      `devices/overview-cull.ts`, layout `overviewCull`). One thread per device
       slot writes the particle draw args at a stable byte offset; the CPU never
       reads the result back. Culled/disabled devices get `instanceCount = 0`.
 - [x] GPU particle LOD: per-device `lodLevel` 0–3 in `ComputeUniforms`; the

@@ -67,7 +67,7 @@ WGSL: `passes/particle-vert.wgsl`, `passes/particle-frag.wgsl` + `common/particl
 WGSL: `passes/seg-enhanced-vert.wgsl`, `passes/seg-enhanced-frag.wgsl`
 
 Bindings 7–8 are the always-on prefiltered IBL chain (ADR-0005 WS2): a
-`rgba16float` 2D array baked at startup by `src/ibl-prefilter.js` and sampled in
+`rgba16float` 2D array baked at startup by `src/ibl-prefilter.ts` and sampled in
 `common/pbr-eval.wgsl`. Layers `0..IBL_SPEC_LEVELS-1` hold octahedral GGX
 radiance for roughness `i/(n-1)`; the last layer holds cosine irradiance.
 
@@ -135,7 +135,7 @@ never draws particles the compute pass skipped.
 | 3 | storage (rw) | CS | `CullOutput` — atomic visibleCount / drawnInstances + compacted index list |
 
 WGSL: `passes/overview-cull-compute.wgsl` + `common/overview-cull.wgsl`
-JS: `src/devices/overview-cull.js` (`OverviewCullPass`) — buffer packing lives there.
+TS: `src/devices/overview-cull.ts` (`OverviewCullPass`) — buffer packing lives there.
 
 One thread per device slot. Binding 2 is created with `STORAGE | INDIRECT | COPY_DST`
 and consumed by `renderPass.drawIndirect(buffer, slot × 16)` in `device-render.ts`:

@@ -1,5 +1,5 @@
 // Speed test harness and GPU particle readback for debugging.
-import { CULL_OUTPUT_HEADER_BYTES, DRAW_ARGS_STRIDE } from '../devices/overview-cull.js';
+import { CULL_OUTPUT_HEADER_BYTES, DRAW_ARGS_STRIDE } from '../devices/overview-cull';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { DeviceInstance } from '../device-instance.js';
 

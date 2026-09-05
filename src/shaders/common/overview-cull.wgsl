@@ -1,6 +1,6 @@
 // =============================================================
 // Overview frustum-cull structs (ADR-0005 WS4).
-// Matches the packing in src/devices/overview-cull.js — keep both in sync.
+// Matches the packing in src/devices/overview-cull.ts — keep both in sync.
 // =============================================================
 
 #include "common/overview-lod.wgsl"

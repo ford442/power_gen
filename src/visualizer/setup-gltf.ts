@@ -4,23 +4,23 @@
  * focus-only props (coil former+) dispose when leaving SEG.
  * WebGL2 fallback keeps procedural geometry only — see docs/GLTF_ASSETS.md.
  */
-import { loadGlb, parseGlb, extractGltfMeshes } from '../assets/gltf/gltf-loader.js';
-import { buildGltfScene } from '../assets/gltf/gltf-scene.js';
+import { loadGlb, parseGlb, extractGltfMeshes } from '../assets/gltf/gltf-loader';
+import { buildGltfScene } from '../assets/gltf/gltf-scene';
 import {
   uploadGltfMesh,
   createGltfInstanceBuffer,
   updateGltfInstanceEmissive,
   GLTF_INSTANCE_BYTES
-} from '../assets/gltf/gltf-gpu.js';
+} from '../assets/gltf/gltf-gpu';
 import {
   parseGltfHousingEnabled,
   SEG_GLTF_PROPS,
   resolvePropMaterial,
   type SegGltfPropDef
-} from '../assets/gltf/prop-registry.js';
-import { attachGltfHousingPickHandler } from '../assets/gltf/gltf-housing-pick.js';
+} from '../assets/gltf/prop-registry';
+import { attachGltfHousingPickHandler } from '../assets/gltf/gltf-housing-pick';
 import { computeFrameDimensions } from '../seg-frame-model.js';
-import type { SceneAnchor } from '../assets/scene/scene-node.js';
+import type { SceneAnchor, SceneMaterial } from '../assets/scene/scene-node.js';
 import type { MultiDeviceVisualizer, GltfPickable } from '../multi-device-visualizer.js';
 
 type Host = MultiDeviceVisualizer;
@@ -196,9 +196,9 @@ export const gltfSetupMethods: ThisType<Host> & {
     // Apply registry material overrides onto scene nodes before flatten.
     for (const root of scene.roots) {
       const applyMat = (node: {
-        propId?: string;
+        propId?: string | null;
         materialRingIndex?: number;
-        material?: Record<string, unknown>;
+        material?: Record<string, unknown> | SceneMaterial;
         children?: unknown[];
       }) => {
         if (node.propId === prop.id || !node.propId) {

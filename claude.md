@@ -71,7 +71,7 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 
 ## Hardware / firmware — experimental
 
-- Web Serial + mock: `hardware-bridge.js` / panel — demo with `?mockHardware=1`.
+- Web Serial + mock: `hardware-bridge.ts` / panel — demo with `?mockHardware=1`.
 - `firmware/seg-driver/` is **not** required for the web app; treat as experimental.
 - Spec: **docs/hardware_connection.md**.
 

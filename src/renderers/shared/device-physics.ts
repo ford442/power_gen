@@ -9,7 +9,7 @@ import {
   computeHeronHydraulics,
   getHeronLayout,
   HERON_LAYOUT_PRESETS
-} from '../../heron-layout.js';
+} from '../../heron-layout';
 
 /** Heron layout fields used by the hydraulic step. */
 export interface HeronLayout {

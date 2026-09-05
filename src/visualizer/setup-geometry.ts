@@ -4,8 +4,8 @@ import {
   MATERIAL_COIL_FORMER,
   MATERIAL_LAB_BASE,
   MATERIAL_STRUCTURAL
-} from '../devices/material-roles.js';
-import { DEVICE_MESH_LAYOUTS, TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT } from '../device-mesh-layouts.js';
+} from '../devices/material-roles';
+import { DEVICE_MESH_LAYOUTS, TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT } from '../device-mesh-layouts';
 import { generateTorus } from '../renderers/shared/primitive-geometry.js';
 import {
   generateBearingShaft,
@@ -16,7 +16,7 @@ import {
   generateSupportStand,
   generateWireHarness
 } from '../seg-enhanced-geometry.js';
-import { buildRollerCutouts } from '../seg-layout.js';
+import { buildRollerCutouts } from '../seg-layout';
 import { createDetailedRollerBuffers, ROLLER_DEFAULTS } from '../seg-roller-model.js';
 import {
   createSegFrameBuffers,
