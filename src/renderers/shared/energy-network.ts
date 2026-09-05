@@ -84,8 +84,8 @@ const COUPLING_STORAGE_KEY = 'seg-energy-coupling';
 
 export interface DeviceAnchorInput {
   id?: string;
-  position?: number[];
-  config?: { position?: number[] };
+  position?: ArrayLike<number>;
+  config?: Record<string, unknown>;
 }
 
 export function pipeColorKey(from: string, to: string): string {
@@ -98,7 +98,8 @@ export function getPipeColor(from: string, to: string): [number, number, number]
 
 export function deviceAnchor(dev: DeviceAnchorInput | null | undefined): [number, number, number] {
   if (!dev) return [0, 2, 0];
-  const pos = dev.config?.position || dev.position || [0, 0, 0];
+  const configPos = dev.config?.position as ArrayLike<number> | undefined;
+  const pos = configPos || dev.position || [0, 0, 0];
   const id = dev.id || '';
   const yBoost = id === 'solar' ? 1.5 : id === 'heron' ? 3.0 : 2.2;
   return [pos[0], pos[1] + yBoost, pos[2]];

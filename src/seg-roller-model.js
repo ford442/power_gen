@@ -7,7 +7,7 @@
 //
 // Shader constants duplicated in seg-enhanced-shaders.js must stay in sync.
 
-import { REF_ROLLER_RADIUS, REF_ROLLER_HEIGHT } from './seg-layout.js';
+import { REF_ROLLER_RADIUS, REF_ROLLER_HEIGHT } from './seg-layout';
 
 /** Default mesh dimensions (reference units; per-ring scale applied in shader). */
 export const ROLLER_DEFAULTS = {

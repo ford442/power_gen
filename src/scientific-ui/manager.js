@@ -28,7 +28,6 @@ export class ScientificUIManager {
 
     this.panel = null;
     this.gauges = {};
-    this.wolframPanel = null;
     this.isVisible = false;
     this.cache = new Map();
     this._unsubHub = null;
@@ -65,7 +64,6 @@ export class ScientificUIManager {
         </div>
       </div>
       <div class="sci-panel-content">
-        <div id="sci-wolfram-status"></div>
         <div id="sci-shadow-residual-gauge"></div>
         <div id="sci-magnetic-gauge"></div>
         <div id="sci-energy-gauge"></div>
@@ -138,8 +136,6 @@ export class ScientificUIManager {
     this.gauges.solar = new SolarPanelGauge('sci-solar-gauge');
     this.gauges.led = new LEDArrayGauge('sci-led-gauge');
     this.gauges.energyFlow = new EnergyBalanceDisplay('sci-energy-flow-gauge');
-
-    this.wolframPanel = null;
 
     if (this.options.subscribeToHub) {
       this._unsubHub = telemetryHub.subscribe((snap) => this.applyHubSnapshot(snap), {
@@ -257,20 +253,6 @@ export class ScientificUIManager {
     }
   }
 
-  updateWolframStatus(status) {
-    if (!this.wolframPanel) return;
-
-    if (status.state) {
-      this.wolframPanel.setStatus(status.state, status.message);
-    }
-    if (status.dataSource) {
-      this.wolframPanel.setDataSource(status.dataSource);
-    }
-    if (status.cacheHits !== undefined && status.cacheMisses !== undefined) {
-      this.wolframPanel.updateCacheStats(status.cacheHits, status.cacheMisses);
-    }
-  }
-
   cacheQueryResult(query, result) {
     this.cache.set(query, {
       result: result,
@@ -280,32 +262,23 @@ export class ScientificUIManager {
 
   getCachedResult(query, maxAge = 300000) {
     const entry = this.cache.get(query);
-    if (!entry) {
-      this.wolframPanel?.recordMiss();
-      return null;
-    }
+    if (!entry) return null;
 
     if (Date.now() - entry.timestamp > maxAge) {
       this.cache.delete(query);
-      this.wolframPanel?.recordMiss();
       return null;
     }
 
-    this.wolframPanel?.recordHit();
-    this.wolframPanel?.addLogEntry(query, 'hit');
     return entry.result;
   }
 
   clearCache() {
     this.cache.clear();
-    this.wolframPanel?.updateCacheStats(0, 0);
   }
 
   getCacheStats() {
     return {
-      size: this.cache.size,
-      hits: this.wolframPanel?.cacheHits || 0,
-      misses: this.wolframPanel?.cacheMisses || 0
+      size: this.cache.size
     };
   }
 

@@ -1,4 +1,26 @@
+export interface CameraState {
+  position: [number, number, number];
+  target: [number, number, number];
+  fov: number;
+  transitionActive: boolean;
+  transitionStart: number | null;
+  transitionDuration: number;
+  startPos: [number, number, number] | null;
+  startTarget: [number, number, number] | null;
+  endPos: number[] | null;
+  endTarget: number[] | null;
+}
+
+export type ViewMode = 'seg' | 'heron' | 'kelvin' | 'solar';
+
 export class CameraController {
+  camera: CameraState;
+  currentView: ViewMode | 'overview';
+  mouseDown: boolean;
+  lastMouseX: number;
+  lastMouseY: number;
+  mouseButtons: number;
+
   constructor() {
     this.camera = {
       position: [0, 8, 18],
@@ -20,7 +42,7 @@ export class CameraController {
     this.mouseButtons = 0;
   }
 
-  setupInteraction(canvas, onModeChange) {
+  setupInteraction(canvas: HTMLCanvasElement, onModeChange: (mode: ViewMode) => void): void {
     canvas.addEventListener('mousedown', (e) => {
       this.mouseDown = true;
       this.lastMouseX = e.clientX;
@@ -55,7 +77,7 @@ export class CameraController {
     // Mode switching with number keys
     document.addEventListener('keydown', (e) => {
       if (e.key >= '1' && e.key <= '4') {
-        const modes = ['seg', 'heron', 'kelvin', 'solar'];
+        const modes: ViewMode[] = ['seg', 'heron', 'kelvin', 'solar'];
         const mode = modes[parseInt(e.key) - 1];
         onModeChange(mode);
       }
@@ -63,7 +85,7 @@ export class CameraController {
 
     // Keyboard orbit / zoom (accessibility) — arrow keys, +/- when not typing
     document.addEventListener('keydown', (e) => {
-      const t = e.target;
+      const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       const step = e.shiftKey ? 0.04 : 0.02;
       if (e.key === 'ArrowLeft') { this.orbit(step, 0); e.preventDefault(); }
@@ -75,7 +97,7 @@ export class CameraController {
     });
   }
 
-  orbit(deltaPhi, deltaTheta) {
+  orbit(deltaPhi: number, deltaTheta: number): void {
     const radius = Math.sqrt(
       this.camera.position[0] * this.camera.position[0] +
       this.camera.position[2] * this.camera.position[2]
@@ -92,7 +114,7 @@ export class CameraController {
     this.camera.position[2] = radius * Math.sin(theta) * Math.sin(phi);
   }
 
-  zoom(delta) {
+  zoom(delta: number): void {
     const direction = [
       this.camera.target[0] - this.camera.position[0],
       this.camera.target[1] - this.camera.position[1],
@@ -110,7 +132,7 @@ export class CameraController {
     this.camera.position[2] += zoomDelta[2];
   }
 
-  getViewMatrix() {
+  getViewMatrix(): number[] {
     const eye = this.camera.position;
     const target = this.camera.target;
     const up = [0, 1, 0];
@@ -147,7 +169,7 @@ export class CameraController {
     ];
   }
 
-  getProjectionMatrix(aspect) {
+  getProjectionMatrix(aspect: number): number[] {
     const fov = this.camera.fov * Math.PI / 180;
     const near = 0.1;
     const far = 1000;

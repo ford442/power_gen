@@ -1,8 +1,8 @@
 // Floor grid, sky, bloom, SSR, IBL prefilter, depth, and canvas resize.
 import { WebGPUManager, DEPTH_FORMAT } from '../webgpu-manager';
-import { packPostUniforms } from '../seg-lighting-presets.js';
+import { packPostUniforms } from '../seg-lighting-presets';
 import { SSR_FORMAT, MATERIAL_GBUFFER_FORMAT, type BindGroupLayoutName } from '../pipeline-layout-cache';
-import { createIblResources, uploadIblForPreset } from '../ibl-prefilter.js';
+import { createIblResources, uploadIblForPreset } from '../ibl-prefilter';
 import { writeQueueBuffer } from '../gpu-buffer-write';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 

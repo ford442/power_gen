@@ -12,9 +12,9 @@
  *   bloom/post, RK4 flux lines, energy-arc meshes, full SEG enhanced PBR.
  */
 
-import { CameraController } from '../../camera-controller.js';
-import { MultiDeviceCamera } from '../../multi-device-camera.js';
-import { SimRateController } from '../../sim-rate-controller.js';
+import { CameraController } from '../../camera-controller';
+import { MultiDeviceCamera } from '../../multi-device-camera';
+import { SimRateController } from '../../sim-rate-controller';
 import { getMergedDeviceConfig, getAllSimDeviceIds } from '../../devices/device-registry';
 import { buildMagLevMesh } from '../../devices/quanta/magnetic-levitation';
 import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator';
@@ -56,7 +56,7 @@ import { WebGL2DebugControls } from './debug-controls.js';
 import { EnergyPipeRenderer } from './energy-pipe-renderer.js';
 import { HalbachFieldRenderer } from './halbach-field-renderer.js';
 import { parseSegFrameLevel } from '../../seg-frame-model.js';
-import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets.js';
+import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets';
 import { segOperator } from '../../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../../telemetry-hub';
 import { gpuChores, collectDeviceEnergies, meterLabEnergy, meterScalarFlux } from '../../gpu-chores';
@@ -67,11 +67,11 @@ import {
   getHeronLayout,
   HERON_LAYOUT_PRESETS,
   parseHeronLayoutPreset
-} from '../../heron-layout.js';
+} from '../../heron-layout';
 import {
   computeSEGLayout,
   SEG_LAYOUT_PRESETS
-} from '../../seg-layout.js';
+} from '../../seg-layout';
 import { HardwareBridge, TWIN_MODES } from '../../hardware-bridge.js';
 import { initHardwarePanel } from '../../hardware-panel.js';
 import { buildHardwareTwinTelemetry } from '../../visualizer/hardware-twin';

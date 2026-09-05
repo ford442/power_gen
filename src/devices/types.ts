@@ -6,7 +6,7 @@
  * the hand-maintained `device-registry-types.d.ts` stub.
  */
 
-import type { DevicePhysicsState } from '../renderers/shared/device-physics';
+import type { DevicePhysicsState, HeronLayout } from '../renderers/shared/device-physics';
 import type { PipelineLayoutCache, BindGroupLayoutName } from '../pipeline-layout-cache';
 import type { BindGroupCache } from '../renderers/shared/bind-group-cache';
 import type { DeviceMeshLayout } from '../device-mesh-layouts.js';
@@ -187,7 +187,7 @@ export interface VisualizerLike {
   overviewCull?: OverviewCullPass | null;
   isOverviewMode?: () => boolean;
 
-  heronLayout?: unknown;
+  heronLayout?: (HeronLayout & { name?: string; description?: string }) | null;
   heronLayoutPreset?: string;
 
   // SEG operator physics + layout
@@ -214,7 +214,7 @@ export interface VisualizerLike {
     computeCoilMask?: (phaseDeg: number, dir: number) => number;
     computePwmValues?: (phaseDeg: number, dir: number) => number[] | null;
   } | null;
-  // Orbit camera — see camera-controller.js
+  // Orbit camera — see camera-controller.ts
   camera?: { camera?: { position?: number[] } } | null;
 
   // Solar battery gauge (3D cylinder mesh resized from charge level)

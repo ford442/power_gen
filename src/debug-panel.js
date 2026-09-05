@@ -152,13 +152,13 @@ export class DebugPanel {
     `;
     container.appendChild(controlsDiv);
 
-    // Scientific Data Section (Wolfram Sources)
+    // Validated Physics Data Section (source: ValidatedConstants, see ADR-0006)
     const scientificDiv = document.createElement('div');
     scientificDiv.id = 'scientificData';
     scientificDiv.style.cssText = 'margin-top: 15px; padding-top: 15px; border-top: 1px solid #0ff; font-size: 11px;';
     scientificDiv.innerHTML = `
-      <div style="color: #0ff; margin-bottom: 8px; font-weight: bold;">📊 Wolfram Scientific Data</div>
-      <div id="wolframData" style="max-height: 200px; overflow-y: auto;"></div>
+      <div style="color: #0ff; margin-bottom: 8px; font-weight: bold;">📊 Validated Physics Data</div>
+      <div id="validatedPhysicsData" style="max-height: 200px; overflow-y: auto;"></div>
       <div style="color: #0ff; margin: 12px 0 6px; font-weight: bold;">⚙ Device Physics</div>
       <div id="devicePhysicsData" style="font-size: 10px; line-height: 1.5; color: #8cf;"></div>
     `;
@@ -692,8 +692,8 @@ export class DebugPanel {
   }
 
   updateScientificData() {
-    const wolframDiv = document.getElementById('wolframData');
-    if (!wolframDiv) return;
+    const dataDiv = document.getElementById('validatedPhysicsData');
+    if (!dataDiv) return;
 
     let html = '';
 
@@ -724,7 +724,7 @@ export class DebugPanel {
     html += `<div style="margin-left: 8px; color: #888;">Single e- on 1pF: <span style="color: #ff4">${(MICROVOLT_DATA.SINGLE_ELECTRON.at1pF * 1e6).toFixed(0)} nV</span></div>`;
     html += `<div style="margin-left: 8px; color: #888;">Min detectable: <span style="color: #ff4">${(MICROVOLT_DATA.SIMULATION.minVoltageStep * 1e6).toFixed(1)} μV</span></div>`;
 
-    wolframDiv.innerHTML = html;
+    dataDiv.innerHTML = html;
   }
 
   startBenchmark() {

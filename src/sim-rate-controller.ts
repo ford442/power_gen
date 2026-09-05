@@ -10,21 +10,32 @@
  * Optional load hints (qualityLevel, frameTimeMs, gpuTimeMs) reduce substeps
  * when the frame is already expensive so 5–20× speed doesn't thrash mid-tier GPUs.
  */
+export interface SimRateLoad {
+  qualityLevel?: number;
+  frameTimeMs?: number;
+  gpuTimeMs?: number;
+}
+
 export class SimRateController {
+  private _speedMult: number;
+  private _accumulator: number;
+  readonly FIXED_DT: number;
+  readonly MAX_SUBSTEPS: number;
+  /** Effective substep budget after quality/frame-time scaling (debug). */
+  lastMaxSubsteps: number;
+
   constructor() {
     this._speedMult = 1.0;
     this._accumulator = 0;
     this.FIXED_DT = 1 / 60;
     this.MAX_SUBSTEPS = 6;
-    /** Effective substep budget after quality/frame-time scaling (debug). */
     this.lastMaxSubsteps = 6;
   }
 
   /**
    * Cap fixed substeps from quality tier and recent frame cost.
-   * @param {{ qualityLevel?: number, frameTimeMs?: number, gpuTimeMs?: number }} [load]
    */
-  _effectiveMaxSubsteps(load = {}) {
+  private _effectiveMaxSubsteps(load: SimRateLoad = {}): number {
     let max = this.MAX_SUBSTEPS;
     const q = load.qualityLevel;
     if (typeof q === 'number') {
@@ -48,12 +59,11 @@ export class SimRateController {
 
   /**
    * Call once per render frame.
-   * @param {number} wallDt  Real elapsed time in seconds.
-   * @param {number} speedMult  Current simulation speed multiplier.
-   * @param {{ qualityLevel?: number, frameTimeMs?: number, gpuTimeMs?: number }} [load]
-   * @returns {number[]}  Array of dt values (seconds) to simulate this frame.
+   * @param wallDt  Real elapsed time in seconds.
+   * @param speedMult  Current simulation speed multiplier.
+   * @returns Array of dt values (seconds) to simulate this frame.
    */
-  tick(wallDt, speedMult, load = {}) {
+  tick(wallDt: number, speedMult: number, load: SimRateLoad = {}): number[] {
     this._speedMult = speedMult;
     const maxSub = this._effectiveMaxSubsteps(load);
 
@@ -68,7 +78,7 @@ export class SimRateController {
 
     // Fixed-substep regime: accumulate scaled time and drain in FIXED_DT chunks
     this._accumulator += wallDt * speedMult;
-    const steps = [];
+    const steps: number[] = [];
     let count = 0;
     while (this._accumulator >= this.FIXED_DT && count < maxSub) {
       steps.push(this.FIXED_DT);
@@ -82,49 +92,49 @@ export class SimRateController {
     return steps.length ? steps : [];
   }
 
-  get speedMult() { return this._speedMult; }
+  get speedMult(): number { return this._speedMult; }
 
   /** Particle density scale capped at 3× (pow curve feels natural) */
-  get particleScale() {
+  get particleScale(): number {
     return Math.min(3.0, Math.pow(this._speedMult, 0.6));
   }
 
   /** Corona / emissive intensity boost: pow(speedMult, 1.3) */
-  get coronaIntensity() {
+  get coronaIntensity(): number {
     return Math.pow(this._speedMult, 1.3);
   }
 
   /** Bloom extraction threshold — stays high so only bright plasma blooms */
-  get bloomThreshold() {
+  get bloomThreshold(): number {
     return Math.max(0.45, 0.72 - (this._speedMult - 1) * 0.022);
   }
 
   /** Bloom composite strength — restrained baseline, modest overdrive flare */
-  get bloomStrength() {
+  get bloomStrength(): number {
     return Math.min(1.6, 0.9 + (this._speedMult - 1) * 0.07);
   }
 
   /**
    * Number of energy arcs to trigger this frame.
-   * @param {number} base  Arc count at 1× speed.
+   * @param base  Arc count at 1× speed.
    */
-  arcCount(base = 4) {
+  arcCount(base = 4): number {
     if (this._speedMult <= 3) return base;
     return Math.round(base * Math.pow(this._speedMult / 3, 1.5));
   }
 
   /** True when speedMult > 7 (overdrive) */
-  get isOverdrive() { return this._speedMult > 7; }
+  get isOverdrive(): boolean { return this._speedMult > 7; }
 
   /** CSS hue for tachometer bar: green → amber → red */
-  get tachHue() {
+  get tachHue(): number {
     if (this._speedMult < 3) return 120;
     if (this._speedMult < 7) return 60;
     return 0;
   }
 
   /** Tachometer bar fill fraction 0–1 */
-  get tachFill() {
+  get tachFill(): number {
     return Math.min(1, this._speedMult / 20);
   }
 }

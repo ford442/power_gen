@@ -5,7 +5,7 @@ import { DeviceComputeManager } from './device-compute.js';
 import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts.js';
 import { createDevicePhysicsState } from './renderers/shared/device-physics';
 import type { DevicePhysicsState, HeronLayout } from './renderers/shared/device-physics';
-import { getHeronLayout } from './heron-layout.js';
+import { getHeronLayout } from './heron-layout';
 
 import {
   getDeviceModeIndex,

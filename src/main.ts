@@ -37,7 +37,7 @@ import type { TelemetryCsvRow } from './telemetry/telemetry-schema';
 import {
   HERON_LAYOUT_DESCRIPTIONS,
   getHeronLayout
-} from './heron-layout.js';
+} from './heron-layout';
 import { setTransformerLeakage } from './devices/quanta/transformer.js';
 import { setHallCarrierType } from './devices/quanta/hall-effect.js';
 import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';

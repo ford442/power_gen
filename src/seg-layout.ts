@@ -25,6 +25,8 @@
 // decimated, so proportions never break.
 // ============================================================================
 
+import type { SegLayout, SegLayoutRing } from './devices/types';
+
 export const MAX_RINGS = 3;
 export const MAX_ROLLERS = 72; // next multiple of 8 above 70 (10+25+35)
 export const MAX_FLUX_LINES = 168; // 3 rings × 56 lines (dense RK4 field viz)
@@ -38,14 +40,27 @@ export const SEG_LAYOUT_UNIFORM_FLOATS = 64;
 export const SEG_LAYOUT_UNIFORM_BYTES = SEG_LAYOUT_UNIFORM_FLOATS * 4;
 export const SEG_LAYOUT_RING_STRIDE = 12;
 
-export const SEG_LAYOUT_PRESETS = {
+export type SegLayoutPresetName = 'searl' | 'roschin' | 'legacy';
+
+export const SEG_LAYOUT_PRESETS: Record<SegLayoutPresetName, SegLayoutPresetName> = {
   searl: 'searl',
   roschin: 'roschin',
   legacy: 'legacy'
 };
 
-const PRESET_DEFS = {
-  [SEG_LAYOUT_PRESETS.searl]: {
+interface PresetDef {
+  counts: number[];
+  gapM: number;
+  shaftRadiusM: number;
+  targetOuterRadiusM: number;
+  worldScale: number;
+  rollerHeightRatio: number;
+  fluxLinesPerRing: number;
+  name: string;
+}
+
+const PRESET_DEFS: Record<SegLayoutPresetName, PresetDef> = {
+  searl: {
     // Documented Searl roller counts, inner → outer.
     counts: [10, 25, 35],
     gapM: 0.003,          // ~3 mm air gap
@@ -58,7 +73,7 @@ const PRESET_DEFS = {
     fluxLinesPerRing: 56,
     name: 'Searl 10/25/35'
   },
-  [SEG_LAYOUT_PRESETS.roschin]: {
+  roschin: {
     counts: [12],
     gapM: 0.001,          // 1 mm gap measured by Roschin–Godin
     shaftRadiusM: 0.10,
@@ -68,7 +83,7 @@ const PRESET_DEFS = {
     fluxLinesPerRing: 56,
     name: 'Roschin–Godin 12'
   },
-  [SEG_LAYOUT_PRESETS.legacy]: {
+  legacy: {
     // Previous hard-coded layout, retained for regression testing.
     counts: [8, 12, 16],
     gapM: 0.05,
@@ -81,7 +96,7 @@ const PRESET_DEFS = {
   }
 };
 
-function solveStatorHeight(def) {
+function solveStatorHeight(def: PresetDef): number {
   const { counts, gapM, shaftRadiusM, targetOuterRadiusM } = def;
   // Binary search for h_s that makes the outermost orbit radius match target.
   let lo = 0.001;
@@ -96,8 +111,17 @@ function solveStatorHeight(def) {
   return (lo + hi) * 0.5;
 }
 
-function deriveRingsFromShaft(shaftR, h_s, gap, counts) {
-  const rings = [];
+interface DerivedRing {
+  index: number;
+  count: number;
+  orbitRadiusM: number;
+  rollerRadiusM: number;
+  rollerDiameterM: number;
+  gapM: number;
+}
+
+function deriveRingsFromShaft(shaftR: number, h_s: number, gap: number, counts: number[]): DerivedRing[] {
+  const rings: DerivedRing[] = [];
   let prevR = shaftR;
   let prevRollerR = 0;
   for (let i = 0; i < counts.length; i++) {
@@ -120,7 +144,7 @@ function deriveRingsFromShaft(shaftR, h_s, gap, counts) {
   return rings;
 }
 
-function decimateCount(count, qualityScale) {
+function decimateCount(count: number, qualityScale: number): number {
   // Monotonic decimation: full counts → ~50% → ~60% of half → minimal.
   // Searl 10/25/35 lands at 70 → 36 → 21 → 9 rollers.
   if (qualityScale >= 0.75) return count;
@@ -132,17 +156,16 @@ function decimateCount(count, qualityScale) {
 /**
  * Compute the full SEG layout for a preset and quality level.
  *
- * @param {string} presetName - 'searl', 'roschin', or 'legacy'
- * @param {number} qualityScale - 0..1; lower values decimate roller counts
- * @returns {object} layout
+ * @param presetName - 'searl', 'roschin', or 'legacy'
+ * @param qualityScale - 0..1; lower values decimate roller counts
  */
-export function computeSEGLayout(presetName = SEG_LAYOUT_PRESETS.searl, qualityScale = 1.0) {
-  const def = PRESET_DEFS[presetName] || PRESET_DEFS[SEG_LAYOUT_PRESETS.searl];
+export function computeSEGLayout(presetName: string = SEG_LAYOUT_PRESETS.searl, qualityScale = 1.0): SegLayout {
+  const def = PRESET_DEFS[presetName as SegLayoutPresetName] || PRESET_DEFS[SEG_LAYOUT_PRESETS.searl];
   const h_s = solveStatorHeight(def);
   const fullRings = deriveRingsFromShaft(def.shaftRadiusM, h_s, def.gapM, def.counts);
 
   const quality = Math.max(0, Math.min(1, qualityScale));
-  const rings = fullRings.map((r, i) => {
+  const rings: SegLayoutRing[] = fullRings.map((r, i) => {
     const effectiveCount = decimateCount(r.count, quality);
     const rollerHeightM = r.rollerDiameterM * def.rollerHeightRatio;
     const statorOuterM = r.orbitRadiusM - r.rollerRadiusM - def.gapM;
@@ -216,7 +239,7 @@ export function computeSEGLayout(presetName = SEG_LAYOUT_PRESETS.searl, qualityS
 /**
  * Map a flat roller index to its ring and local index using the current layout.
  */
-export function rollerIndexToRing(layout, flatIndex) {
+export function rollerIndexToRing(layout: SegLayout, flatIndex: number): { ring: SegLayoutRing; localIndex: number } | null {
   let offset = 0;
   for (const ring of layout.rings) {
     if (flatIndex < offset + ring.count) {
@@ -228,13 +251,9 @@ export function rollerIndexToRing(layout, flatIndex) {
 }
 
 /**
- * Build a compact Float32Array of roller (x,z) positions for CPU-side energy
- * calculations. Size is maxRollers * 2; inactive entries are zero.
- */
-/**
  * World-space orbit radius for a ring.
  */
-export function worldOrbitRadius(ring, layout) {
+export function worldOrbitRadius(ring: SegLayoutRing, layout: SegLayout): number {
   return ring.orbitRadiusM * layout.worldScale;
 }
 
@@ -242,7 +261,7 @@ export function worldOrbitRadius(ring, layout) {
  * Pack layout parameters into the GPU uniform buffer consumed by SEG shaders.
  * Layout: header(8) + 3 × ringStride(12) floats — see multi-device-shaders.js.
  */
-export function packSEGLayoutUniforms(layout) {
+export function packSEGLayoutUniforms(layout: SegLayout): Float32Array {
   const data = new Float32Array(SEG_LAYOUT_UNIFORM_FLOATS);
   data[0] = layout.worldScale;
   data[1] = layout.ringCount;
@@ -276,11 +295,17 @@ export function packSEGLayoutUniforms(layout) {
   return data;
 }
 
+export interface RollerCutout {
+  angle: number;
+  radius: number;
+  size: number;
+}
+
 /**
  * Build roller cutout descriptors for core plates from full (undecimated) counts.
  */
-export function buildRollerCutouts(layout) {
-  const cutouts = [];
+export function buildRollerCutouts(layout: SegLayout): RollerCutout[] {
+  const cutouts: RollerCutout[] = [];
   const ws = layout.worldScale;
   for (const ring of layout.rings) {
     const n = ring.fullCount ?? ring.count;
@@ -297,8 +322,14 @@ export function buildRollerCutouts(layout) {
   return cutouts;
 }
 
-export function computeRollerPositionsXZ(time, layout, options = {}) {
-  const { useHardware = false, hardwarePhaseRad = 0, speedMult = 1.0 } = options;
+export interface ComputeRollerPositionsOptions {
+  useHardware?: boolean;
+  hardwarePhaseRad?: number;
+  speedMult?: number;
+}
+
+export function computeRollerPositionsXZ(time: number, layout: SegLayout, options: ComputeRollerPositionsOptions = {}): Float32Array {
+  const { useHardware = false, hardwarePhaseRad = 0 } = options;
   const positions = new Float32Array(MAX_ROLLERS * 2);
   let flat = 0;
   for (const ring of layout.rings) {

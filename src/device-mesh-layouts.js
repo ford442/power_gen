@@ -8,7 +8,7 @@ import {
   HERON_LAYOUT_PRESETS,
   TUBE_MESH_HEIGHT,
   TUBE_MESH_RADIUS
-} from './heron-layout.js';
+} from './heron-layout';
 import {
   MATERIAL_COPPER,
   MATERIAL_COIL_FORMER,
@@ -76,7 +76,7 @@ export function tubeSegments(from, to, color = [0.62, 0.66, 0.72], emissive = 0.
   return out;
 }
 
-/** @deprecated Use buildHeronMesh(presetId) from heron-layout.js */
+/** @deprecated Use buildHeronMesh(presetId) from heron-layout */
 export function buildHeronInstances(presetId = HERON_LAYOUT_PRESETS.classic) {
   return buildHeronMesh(presetId).layout.vessels;
 }

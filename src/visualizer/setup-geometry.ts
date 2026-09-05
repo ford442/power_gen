@@ -16,7 +16,7 @@ import {
   generateSupportStand,
   generateWireHarness
 } from '../seg-enhanced-geometry.js';
-import { buildRollerCutouts } from '../seg-layout.js';
+import { buildRollerCutouts } from '../seg-layout';
 import { createDetailedRollerBuffers, ROLLER_DEFAULTS } from '../seg-roller-model.js';
 import {
   createSegFrameBuffers,

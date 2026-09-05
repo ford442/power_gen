@@ -1,4 +1,4 @@
-import { MAX_ROLLERS } from './seg-layout.js';
+import { MAX_ROLLERS } from './seg-layout';
 import {
   DEVICE_MESH_LAYOUTS,
   instancesToBufferData,

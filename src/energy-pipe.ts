@@ -7,9 +7,12 @@ import {
   bezierControlPoints,
   deviceAnchor,
   getPipeColor,
-  isPipeEndpointEnabled
+  isPipeEndpointEnabled,
+  type DeviceAnchorInput
 } from './renderers/shared/energy-network';
 import { PARTICLE_LAYOUTS } from '../generated/physics-constants.js';
+import { writeQueueBuffer } from './gpu-buffer-write';
+import type { MultiDeviceVisualizer } from './multi-device-visualizer';
 
 const PARTICLE_BYTES = PARTICLE_LAYOUTS.pipeBytes;
 
@@ -19,8 +22,7 @@ const PIPE_PARTICLES_LOD = 36;
 const PIPE_PARTICLES_LOW = 18;
 const PIPE_PARTICLES_CRITICAL = 8;
 
-/** @param {string} [tier] @param {number} [lodScale] */
-export function resolvePipeParticleBudget(tier = 'high', lodScale = 1) {
+export function resolvePipeParticleBudget(tier = 'high', lodScale = 1): number {
   if (tier === 'critical' || lodScale < 0.25) return PIPE_PARTICLES_CRITICAL;
   if (tier === 'low' || lodScale < 0.45) return PIPE_PARTICLES_LOW;
   if (tier === 'medium' || lodScale < 0.75) return PIPE_PARTICLES_LOD;
@@ -32,7 +34,10 @@ export const PIPE_GPU_COMPUTE_THRESHOLD = 64;
 
 const CURVE_UNIFORM_BYTES = 96;
 
-function bezier3(p0, p1, p2, p3, t) {
+type Vec3Tuple = [number, number, number];
+type BezierCurve = { p0: Vec3Tuple; p1: Vec3Tuple; p2: Vec3Tuple; p3: Vec3Tuple };
+
+function bezier3(p0: Vec3Tuple, p1: Vec3Tuple, p2: Vec3Tuple, p3: Vec3Tuple, t: number): Vec3Tuple {
   const u = 1 - t;
   const uu = u * u;
   const tt = t * t;
@@ -45,7 +50,7 @@ function bezier3(p0, p1, p2, p3, t) {
   ];
 }
 
-function bezierTangent(p0, p1, p2, p3, t) {
+function bezierTangent(p0: Vec3Tuple, p1: Vec3Tuple, p2: Vec3Tuple, p3: Vec3Tuple, t: number): Vec3Tuple {
   const u = 1 - t;
   return [
     3 * u * u * (p1[0] - p0[0]) + 6 * u * t * (p2[0] - p1[0]) + 3 * t * t * (p3[0] - p2[0]),
@@ -54,13 +59,37 @@ function bezierTangent(p0, p1, p2, p3, t) {
   ];
 }
 
+export interface EnergyPipeConfig {
+  from: string;
+  to: string;
+  speed?: number;
+}
+
+export interface EnergyPipeUpdateOpts {
+  lodScale?: number;
+  qualityTier?: string;
+}
+
 class EnergyPipe {
-  /**
-   * @param {GPUDevice} device
-   * @param {{ from: string, to: string, speed?: number }} config
-   * @param {import('./multi-device-visualizer.js').MultiDeviceVisualizer} visualizer
-   */
-  constructor(device, config, visualizer) {
+  device: GPUDevice;
+  config: EnergyPipeConfig;
+  visualizer: MultiDeviceVisualizer;
+  particleCount: number;
+  activeParticleCount: number;
+  particles: GPUBuffer | null;
+  uniformBuffer: GPUBuffer | null;
+  flowLevel: number;
+  curveUniformBuffer: GPUBuffer | null;
+  computeBindGroup: GPUBindGroup | null;
+
+  private _particleData: Float32Array;
+  private _colorKey: string;
+  private _color: [number, number, number];
+  private _bindGroups: BindGroupCache;
+  private _lastWriteFrame: number;
+  private _curveData: Float32Array;
+
+  constructor(device: GPUDevice, config: EnergyPipeConfig, visualizer: MultiDeviceVisualizer) {
     this.device = device;
     this.config = config;
     this.visualizer = visualizer;
@@ -79,12 +108,12 @@ class EnergyPipe {
     this._curveData = new Float32Array(CURVE_UNIFORM_BYTES / 4);
   }
 
-  usesGpuCompute() {
+  usesGpuCompute(): boolean {
     return this.activeParticleCount >= PIPE_GPU_COMPUTE_THRESHOLD
       && !!this.visualizer?.energyPipeComputePipeline;
   }
 
-  _setupComputeResources() {
+  _setupComputeResources(): void {
     const cache = this.visualizer?.pipelineCache;
     const pipeline = this.visualizer?.energyPipeComputePipeline;
     if (!cache || !pipeline || !this.particles) return;
@@ -99,13 +128,13 @@ class EnergyPipe {
 
     this.computeBindGroup = this._bindGroups.get('compute', () =>
       cache.createBindGroup('energyPipeCompute', [
-        { binding: 0, resource: { buffer: this.particles } },
-        { binding: 1, resource: { buffer: this.curveUniformBuffer } }
+        { binding: 0, resource: { buffer: this.particles! } },
+        { binding: 1, resource: { buffer: this.curveUniformBuffer! } }
       ], `energy-pipe-compute-${this._colorKey}`)
     );
   }
 
-  async init() {
+  async init(): Promise<void> {
     this.particles = this.device.createBuffer({
       label: `energy-pipe-${this._colorKey}`,
       size: this.particleCount * PARTICLE_BYTES,
@@ -123,7 +152,7 @@ class EnergyPipe {
     this._setupComputeResources();
   }
 
-  _writeCurveUniforms({ p0, p1, p2, p3 }, flowLevel, time, speed, pulse) {
+  private _writeCurveUniforms({ p0, p1, p2, p3 }: BezierCurve, flowLevel: number, time: number, speed: number, pulse: number): void {
     if (!this.curveUniformBuffer) return;
     const d = this._curveData;
     d[0] = p0[0]; d[1] = p0[1]; d[2] = p0[2]; d[3] = 0;
@@ -134,10 +163,11 @@ class EnergyPipe {
     d[17] = speed;
     d[18] = this.activeParticleCount;
     d[19] = pulse;
-    this.device.queue.writeBuffer(this.curveUniformBuffer, 0, d);
+    writeQueueBuffer(this.device, this.curveUniformBuffer, d);
   }
 
-  _updateParticlesCpu({ p0, p1, p2, p3 }, flowLevel, time, speed) {
+  private _updateParticlesCpu({ p0, p1, p2, p3 }: BezierCurve, flowLevel: number, time: number, speed: number): void {
+    if (!this.particles) return;
     const n = this.activeParticleCount;
     for (let i = 0; i < n; i++) {
       const phase = i / n;
@@ -156,19 +186,11 @@ class EnergyPipe {
       this._particleData[idx + 6] = lifeWave;
       this._particleData[idx + 7] = flowLevel * (0.35 + 0.65 * (1 - Math.abs(t - 0.5) * 1.4));
     }
-    this.device.queue.writeBuffer(
-      this.particles, 0,
-      this._particleData.subarray(0, n * 8)
-    );
+    writeQueueBuffer(this.device, this.particles, this._particleData.subarray(0, n * 8));
   }
 
-  /**
-   * @param {number} deltaTime
-   * @param {Record<string, object>} devices
-   * @param {number} time
-   * @param {{ lodScale?: number, qualityTier?: string }} [opts]
-   */
-  update(deltaTime, devices, time, opts = {}) {
+  update(deltaTime: number, devices: Record<string, DeviceAnchorInput>, time: number, opts: EnergyPipeUpdateOpts = {}): void {
+    void deltaTime;
     const fromDev = devices[this.config.from];
     const toDev = devices[this.config.to];
     if (!fromDev || !toDev) return;
@@ -196,7 +218,7 @@ class EnergyPipe {
     this.activeParticleCount = resolvePipeParticleBudget(tier, lodScale);
 
     const speed = this.config.speed ?? 1.5;
-    const pulse = 0.5 + 0.5 * Math.sin(time * 2.4 + fromDev.position[0] * 0.1);
+    const pulse = 0.5 + 0.5 * Math.sin(time * 2.4 + (fromDev.position?.[0] ?? 0) * 0.1);
     const p0 = deviceAnchor(fromDev);
     const p3 = deviceAnchor(toDev);
     const curve = bezierControlPoints(p0, p3);
@@ -207,13 +229,14 @@ class EnergyPipe {
       this._updateParticlesCpu(curve, this.flowLevel, time, speed);
     }
 
+    if (!this.uniformBuffer) return;
     this.device.queue.writeBuffer(
       this.uniformBuffer, 0,
       new Float32Array([...this._color, this.flowLevel, pulse, 0, 0])
     );
   }
 
-  dispatchCompute(computePass) {
+  dispatchCompute(computePass: GPUComputePassEncoder): void {
     if (!this.usesGpuCompute() || !this.computeBindGroup || this.flowLevel < 0.02) return;
     const pipeline = this.visualizer?.energyPipeComputePipeline;
     if (!pipeline) return;
@@ -222,15 +245,15 @@ class EnergyPipe {
     computePass.dispatchWorkgroups(Math.ceil(this.activeParticleCount / 64));
   }
 
-  render(renderPass, globalUniformBuffer, pipeline) {
+  render(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer, pipeline: GPURenderPipeline | null | undefined): void {
     if (!pipeline || !this.particles || this.flowLevel < 0.02) return;
 
     const cache = this.visualizer?.pipelineCache;
     const bindGroup = this._bindGroups.get('main', () => {
       const entries = [
         { binding: 0, resource: { buffer: globalUniformBuffer } },
-        { binding: 1, resource: { buffer: this.uniformBuffer } },
-        { binding: 2, resource: { buffer: this.particles } }
+        { binding: 1, resource: { buffer: this.uniformBuffer! } },
+        { binding: 2, resource: { buffer: this.particles! } }
       ];
       return cache
         ? cache.createBindGroup('energyPipe', entries, `energy-pipe-bg-${this._colorKey}`)

@@ -4,8 +4,11 @@
  * Each preset defines vessel positions, plumbing paths, and pipe/nozzle
  * dimensions used by Swamee–Jain friction + Bernoulli exit velocity.
  */
+import type { HeronLayout } from './renderers/shared/device-physics';
 
-export const HERON_LAYOUT_PRESETS = {
+export type HeronLayoutPresetId = 'classic' | 'compact' | 'tower' | 'wide' | 'spiral';
+
+export const HERON_LAYOUT_PRESETS: Record<HeronLayoutPresetId, HeronLayoutPresetId> = {
   classic: 'classic',
   compact: 'compact',
   tower: 'tower',
@@ -13,7 +16,7 @@ export const HERON_LAYOUT_PRESETS = {
   spiral: 'spiral'
 };
 
-export const HERON_LAYOUT_DESCRIPTIONS = {
+export const HERON_LAYOUT_DESCRIPTIONS: Record<string, string> = {
   classic: 'Textbook vertical stack — balanced head, moderate pipe losses.',
   compact: 'Short bench model — low head, tight plumbing, brisk cycling.',
   tower: 'Tall narrow tower — high driving head, long pipes, more friction.',
@@ -21,13 +24,16 @@ export const HERON_LAYOUT_DESCRIPTIONS = {
   spiral: 'Spiral jet ascent — longest effective path, ornate glass helix.'
 };
 
-const STEEL = [0.62, 0.66, 0.72];
-const WATER = [0.35, 0.55, 0.72];
-const BRASS = [0.72, 0.58, 0.32];
-const GLASS = [0.55, 0.72, 0.85];
-const SLATE = [0.38, 0.42, 0.48];
+const STEEL: [number, number, number] = [0.62, 0.66, 0.72];
+const WATER: [number, number, number] = [0.35, 0.55, 0.72];
+const BRASS: [number, number, number] = [0.72, 0.58, 0.32];
+const GLASS: [number, number, number] = [0.55, 0.72, 0.85];
+const SLATE: [number, number, number] = [0.38, 0.42, 0.48];
 
-function pack(pos, ringIndex, rot, color, emissive) {
+type Vec3 = [number, number, number] | number[];
+type Quat = [number, number, number, number];
+
+function pack(pos: number[], ringIndex: number, rot: number[], color: number[], emissive: number): number[] {
   return [
     pos[0], pos[1], pos[2], ringIndex,
     rot[0], rot[1], rot[2], rot[3],
@@ -35,13 +41,13 @@ function pack(pos, ringIndex, rot, color, emissive) {
   ];
 }
 
-function quatFromAxisAngle(axis, angle) {
+function quatFromAxisAngle(axis: number[], angle: number): Quat {
   const half = angle * 0.5;
   const s = Math.sin(half);
   return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(half)];
 }
 
-function quatFromYTo(dir) {
+function quatFromYTo(dir: number[]): Quat {
   const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
   const d = [dir[0] / len, dir[1] / len, dir[2] / len];
   const dot = d[1];
@@ -62,13 +68,13 @@ function quatFromYTo(dir) {
 export const TUBE_MESH_HEIGHT = 1.6;
 export const TUBE_MESH_RADIUS = 0.09;
 
-function tubeSegments(from, to, color = BRASS, emissive = 0.06, ringIndex = 12) {
+function tubeSegments(from: Vec3, to: Vec3, color: number[] = BRASS, emissive = 0.06, ringIndex = 12): number[][] {
   const dir = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
   const len = Math.hypot(dir[0], dir[1], dir[2]);
   if (len < 1e-4) return [];
   const rot = quatFromYTo(dir);
   const n = Math.max(1, Math.ceil(len / (TUBE_MESH_HEIGHT * 0.95)));
-  const out = [];
+  const out: number[][] = [];
   for (let i = 0; i < n; i++) {
     const t = (i + 0.5) / n;
     out.push(pack(
@@ -80,8 +86,8 @@ function tubeSegments(from, to, color = BRASS, emissive = 0.06, ringIndex = 12) 
 }
 
 /** Approximate spiral jet path as short tube segments. */
-function spiralJet(base, topY, turns = 2.5, radius = 0.55) {
-  const segments = [];
+function spiralJet(base: Vec3, topY: number, turns = 2.5, radius = 0.55): number[][] {
+  const segments: number[][] = [];
   const steps = Math.max(12, Math.floor(turns * 14));
   for (let i = 0; i < steps; i++) {
     const t0 = i / steps;
@@ -99,8 +105,22 @@ function spiralJet(base, topY, turns = 2.5, radius = 0.55) {
   return segments;
 }
 
-const PRESET_DEFS = {
-  [HERON_LAYOUT_PRESETS.classic]: {
+export interface HeronMeshData {
+  vessels: number[][];
+  platform: number[][];
+  tubes: number[][];
+  flow: { apexY: number; supplyX: number; drainBasinY: number };
+}
+
+interface HeronPresetDef extends HeronLayout {
+  id: HeronLayoutPresetId;
+  name: string;
+  jetApexY: number;
+  build(): HeronMeshData;
+}
+
+const PRESET_DEFS: Record<HeronLayoutPresetId, HeronPresetDef> = {
+  classic: {
     id: HERON_LAYOUT_PRESETS.classic,
     name: 'Classic Stack',
     headMaxM: 4.5,
@@ -132,7 +152,7 @@ const PRESET_DEFS = {
       return { vessels, platform, tubes, flow: { apexY: 6.1, supplyX: 1.6, drainBasinY: -2.2 } };
     }
   },
-  [HERON_LAYOUT_PRESETS.compact]: {
+  compact: {
     id: HERON_LAYOUT_PRESETS.compact,
     name: 'Compact Bench',
     headMaxM: 2.8,
@@ -160,7 +180,7 @@ const PRESET_DEFS = {
       return { vessels, platform, tubes, flow: { apexY: 4.2, supplyX: 0.9, drainBasinY: -1.4 } };
     }
   },
-  [HERON_LAYOUT_PRESETS.tower]: {
+  tower: {
     id: HERON_LAYOUT_PRESETS.tower,
     name: 'Tall Tower',
     headMaxM: 6.5,
@@ -188,7 +208,7 @@ const PRESET_DEFS = {
       return { vessels, platform, tubes, flow: { apexY: 8.8, supplyX: 1.2, drainBasinY: -3.6 } };
     }
   },
-  [HERON_LAYOUT_PRESETS.wide]: {
+  wide: {
     id: HERON_LAYOUT_PRESETS.wide,
     name: 'Wide Museum',
     headMaxM: 3.6,
@@ -217,7 +237,7 @@ const PRESET_DEFS = {
       return { vessels, platform, tubes, flow: { apexY: 5.8, supplyX: 2.8, drainBasinY: -1.6 } };
     }
   },
-  [HERON_LAYOUT_PRESETS.spiral]: {
+  spiral: {
     id: HERON_LAYOUT_PRESETS.spiral,
     name: 'Spiral Jet',
     headMaxM: 4.2,
@@ -247,12 +267,9 @@ const PRESET_DEFS = {
   }
 };
 
-/**
- * @param {string} [presetId]
- * @returns {object}
- */
-export function getHeronLayout(presetId = HERON_LAYOUT_PRESETS.classic) {
-  const def = PRESET_DEFS[presetId] || PRESET_DEFS[HERON_LAYOUT_PRESETS.classic];
+/** getHeronLayout() also spreads the preset's display name/description onto the base HeronLayout shape. */
+export function getHeronLayout(presetId: string = HERON_LAYOUT_PRESETS.classic): HeronPresetDef & HeronMeshData & { description: string } {
+  const def = PRESET_DEFS[presetId as HeronLayoutPresetId] || PRESET_DEFS[HERON_LAYOUT_PRESETS.classic];
   const mesh = def.build();
   return {
     ...def,
@@ -264,18 +281,28 @@ export function getHeronLayout(presetId = HERON_LAYOUT_PRESETS.classic) {
 /**
  * Swamee–Jain friction factor (turbulent pipe flow).
  */
-export function swameeJainFriction(f, Re, D) {
+export function swameeJainFriction(f: number, Re: number, D: number): number {
   const ReClamped = Math.max(Re, 1);
   const term = f / 3.7 + 5.74 / Math.pow(ReClamped, 0.9);
   return 0.25 / Math.pow(Math.log10(Math.max(term, 1e-6)), 2);
 }
 
+export interface HeronHydraulics {
+  vExit: number;
+  headLoss: number;
+  Re: number;
+  flowM3s: number;
+  flowLmin: number;
+  pressureKPa: number;
+  vIdeal: number;
+}
+
 /**
  * Bernoulli exit velocity with Swamee–Jain head loss.
- * @param {number} headM  driving head (m)
- * @param {object} layout  from getHeronLayout()
+ * @param headM  driving head (m)
+ * @param layout  from getHeronLayout()
  */
-export function computeHeronHydraulics(headM, layout) {
+export function computeHeronHydraulics(headM: number, layout: HeronLayout): HeronHydraulics {
   const g = 9.81;
   const rho = 1000;
   const L = layout.pipeLengthM;
@@ -308,11 +335,17 @@ export function computeHeronHydraulics(headM, layout) {
   };
 }
 
+export interface HeronMeshBundle {
+  cylinders: number[][];
+  tubes: number[][];
+  flow: HeronMeshData['flow'];
+  layout: ReturnType<typeof getHeronLayout>;
+}
+
 /**
  * Build instanced mesh data for a Heron layout preset.
- * @param {string} presetId
  */
-export function buildHeronMesh(presetId) {
+export function buildHeronMesh(presetId: string): HeronMeshBundle {
   const layout = getHeronLayout(presetId);
   return {
     cylinders: [...layout.vessels, ...layout.platform],
@@ -322,11 +355,12 @@ export function buildHeronMesh(presetId) {
   };
 }
 
-export function parseHeronLayoutPreset(params = new URLSearchParams()) {
+export function parseHeronLayoutPreset(params: URLSearchParams = new URLSearchParams()): HeronLayoutPresetId {
   const p = params.get('heronLayout');
-  if (p && PRESET_DEFS[p]) return p;
-  if (typeof window !== 'undefined' && window.HERON_LAYOUT_PRESET && PRESET_DEFS[window.HERON_LAYOUT_PRESET]) {
-    return window.HERON_LAYOUT_PRESET;
+  if (p && p in PRESET_DEFS) return p as HeronLayoutPresetId;
+  const win = typeof window !== 'undefined' ? (window as unknown as { HERON_LAYOUT_PRESET?: string }) : undefined;
+  if (win?.HERON_LAYOUT_PRESET && win.HERON_LAYOUT_PRESET in PRESET_DEFS) {
+    return win.HERON_LAYOUT_PRESET as HeronLayoutPresetId;
   }
   return HERON_LAYOUT_PRESETS.classic;
 }

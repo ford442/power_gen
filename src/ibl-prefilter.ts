@@ -19,6 +19,8 @@
 // Keep IBL_TEX_SIZE / IBL_SPEC_LEVELS in sync with the constants of the same
 // name in src/shaders/common/pbr-eval.wgsl (asserted by assertIblShaderContract).
 
+import type { LightingPreset } from './seg-lighting-presets';
+
 /** Octahedral face size, per array layer. */
 export const IBL_TEX_SIZE = 64;
 
@@ -29,7 +31,7 @@ export const IBL_SPEC_LEVELS = 6;
 export const IBL_LAYERS = IBL_SPEC_LEVELS + 1;
 
 /** rgba16float is filterable and storage-free in core WebGPU. */
-export const IBL_FORMAT = 'rgba16float';
+export const IBL_FORMAT: GPUTextureFormat = 'rgba16float';
 
 /**
  * Importance-sample counts per roughness level (level 0 is a single mirror tap).
@@ -44,31 +46,33 @@ const IRRADIANCE_SAMPLES = 32;
 
 const TWO_PI = Math.PI * 2;
 
+type Vec3 = [number, number, number];
+
 // ── small math helpers ──────────────────────────────────────────────────────
 
-function normalize3(v) {
+function normalize3(v: readonly number[]): Vec3 {
   const l = Math.hypot(v[0], v[1], v[2]);
   if (l <= 1e-8) return [0, 1, 0];
   return [v[0] / l, v[1] / l, v[2] / l];
 }
 
-function smoothstep(e0, e1, x) {
+function smoothstep(e0: number, e1: number, x: number): number {
   const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0 || 1e-6)));
   return t * t * (3 - 2 * t);
 }
 
-function signNotZero(x) {
+function signNotZero(x: number): number {
   return x >= 0 ? 1 : -1;
 }
 
 /**
  * Octahedral decode — inverse of `octEncodeDir` in pbr-eval.wgsl.
  * Folds about the Y axis so the +Y hemisphere occupies the centre of the map.
- * @param {number} u [0,1]
- * @param {number} v [0,1]
- * @returns {[number, number, number]} unit direction
+ * @param u [0,1]
+ * @param v [0,1]
+ * @returns unit direction
  */
-export function octDecode(u, v) {
+export function octDecode(u: number, v: number): Vec3 {
   const px = u * 2 - 1;
   const py = v * 2 - 1;
   let x = px;
@@ -83,7 +87,7 @@ export function octDecode(u, v) {
 }
 
 /** Van der Corput radical inverse (base 2) for the Hammersley sequence. */
-function radicalInverseVdC(bitsIn) {
+function radicalInverseVdC(bitsIn: number): number {
   let bits = bitsIn;
   bits = ((bits << 16) | (bits >>> 16)) >>> 0;
   bits = (((bits & 0x55555555) << 1) | ((bits & 0xaaaaaaaa) >>> 1)) >>> 0;
@@ -94,7 +98,7 @@ function radicalInverseVdC(bitsIn) {
 }
 
 /** Orthonormal basis around `n` (Duff et al., branchless). */
-function basisFrom(n) {
+function basisFrom(n: Vec3): [Vec3, Vec3] {
   const s = n[2] >= 0 ? 1 : -1;
   const a = -1 / (s + n[2]);
   const b = n[0] * n[1] * a;
@@ -106,6 +110,12 @@ function basisFrom(n) {
 
 // ── source environment ──────────────────────────────────────────────────────
 
+interface EnvDirs {
+  keyDir: Vec3;
+  fillDir: Vec3;
+  rimDir: Vec3;
+}
+
 /**
  * Analytic studio environment sampled by the prefilter.
  *
@@ -113,12 +123,12 @@ function basisFrom(n) {
  * the polynomial this replaces, so exposure is unchanged; the added key / fill
  * / rim lobes are what produce readable mirror highlights on the SEG rollers.
  *
- * @param {[number,number,number]} dir unit direction
- * @param {ReturnType<import('./seg-lighting-presets.js').getLightingPreset>} preset
- * @param {{ keyDir: number[], fillDir: number[], rimDir: number[] }} dirs precomputed light directions
- * @param {Float64Array} out rgb scratch (written in place)
+ * @param dir unit direction
+ * @param preset lighting preset
+ * @param dirs precomputed light directions
+ * @param out rgb scratch (written in place)
  */
-function envRadiance(dir, preset, dirs, out) {
+function envRadiance(dir: Vec3, preset: LightingPreset, dirs: EnvDirs, out: Float64Array): void {
   const L = preset.lighting;
   const sky = preset.sky;
   const up = Math.max(0, Math.min(1, dir[1] * 0.5 + 0.5));
@@ -140,7 +150,7 @@ function envRadiance(dir, preset, dirs, out) {
 
   // Directional softboxes. Widths are chosen so the key reads as a broad
   // rectangle-ish blob on chrome and the rim stays a tight edge streak.
-  const addLobe = (lightDir, color, intensity, cosOuter, cosInner, gain) => {
+  const addLobe = (lightDir: Vec3, color: number[], intensity: number, cosOuter: number, cosInner: number, gain: number) => {
     const d = dir[0] * lightDir[0] + dir[1] * lightDir[1] + dir[2] * lightDir[2];
     const w = smoothstep(cosOuter, cosInner, d) * intensity * gain;
     if (w <= 0) return;
@@ -169,21 +179,20 @@ const u32Scratch = new Uint32Array(f32Scratch.buffer);
  * IEEE-754 binary32 → binary16 (round-toward-zero on the mantissa).
  * Values are radiance ≥ 0 and well inside half range, so denormals/NaN paths
  * only need to be correct, not fast.
- * @param {number} value
- * @returns {number} 16-bit pattern
+ * @returns 16-bit pattern
  */
-export function floatToHalf(value) {
+export function floatToHalf(value: number): number {
   f32Scratch[0] = value;
   const x = u32Scratch[0];
   const sign = (x >>> 16) & 0x8000;
-  let exp = (x >>> 23) & 0xff;
+  const exp = (x >>> 23) & 0xff;
   let mant = x & 0x7fffff;
 
   if (exp === 0xff) {
     // Inf / NaN
     return sign | 0x7c00 | (mant ? 0x200 : 0);
   }
-  let e = exp - 127 + 15;
+  const e = exp - 127 + 15;
   if (e >= 0x1f) return sign | 0x7c00; // overflow → Inf
   if (e <= 0) {
     if (e < -10) return sign; // underflow → ±0
@@ -196,21 +205,30 @@ export function floatToHalf(value) {
 
 // ── prefilter ───────────────────────────────────────────────────────────────
 
+export interface PrefilterEnvironmentOpts {
+  size?: number;
+  levels?: number;
+}
+
+export interface PrefilterEnvironmentResult {
+  data: Uint16Array;
+  size: number;
+  levels: number;
+  layers: number;
+  bytesPerRow: number;
+}
+
 /**
  * Prefilter a lighting preset into octahedral GGX layers + an irradiance layer.
- *
- * @param {ReturnType<import('./seg-lighting-presets.js').getLightingPreset>} preset
- * @param {{ size?: number, levels?: number }} [opts]
- * @returns {{ data: Uint16Array, size: number, levels: number, layers: number, bytesPerRow: number }}
  */
-export function prefilterEnvironment(preset, opts = {}) {
+export function prefilterEnvironment(preset: LightingPreset, opts: PrefilterEnvironmentOpts = {}): PrefilterEnvironmentResult {
   const size = opts.size ?? IBL_TEX_SIZE;
   const levels = opts.levels ?? IBL_SPEC_LEVELS;
   const layers = levels + 1;
   const texels = size * size;
   const data = new Uint16Array(texels * layers * 4);
 
-  const dirs = {
+  const dirs: EnvDirs = {
     keyDir: normalize3(preset.lighting.key.position),
     fillDir: normalize3(preset.lighting.fill.position),
     rimDir: normalize3(preset.lighting.rim.position)
@@ -220,14 +238,14 @@ export function prefilterEnvironment(preset, opts = {}) {
   const acc = new Float64Array(3);
 
   /** Cache one env evaluation per direction into `acc`. */
-  const addEnv = (dir, weight) => {
+  const addEnv = (dir: Vec3, weight: number) => {
     envRadiance(dir, preset, dirs, rgb);
     acc[0] += rgb[0] * weight;
     acc[1] += rgb[1] * weight;
     acc[2] += rgb[2] * weight;
   };
 
-  const writeTexel = (layer, texel, r, g, b) => {
+  const writeTexel = (layer: number, texel: number, r: number, g: number, b: number) => {
     const o = (layer * texels + texel) * 4;
     data[o] = floatToHalf(r);
     data[o + 1] = floatToHalf(g);
@@ -265,7 +283,7 @@ export function prefilterEnvironment(preset, opts = {}) {
 
           const hx = sinTheta * Math.cos(phi);
           const hy = sinTheta * Math.sin(phi);
-          const H = [
+          const H: Vec3 = [
             T[0] * hx + B[0] * hy + N[0] * cosTheta,
             T[1] * hx + B[1] * hy + N[1] * cosTheta,
             T[2] * hx + B[2] * hy + N[2] * cosTheta
@@ -329,12 +347,24 @@ export function prefilterEnvironment(preset, opts = {}) {
 
 // ── GPU plumbing ────────────────────────────────────────────────────────────
 
+export interface IblResources {
+  texture: GPUTexture;
+  sampler: GPUSampler;
+  view: GPUTextureView;
+  size: number;
+  layers: number;
+  byteLength: number;
+}
+
+export interface CreateIblResourcesOpts {
+  size?: number;
+  layers?: number;
+}
+
 /**
  * Create the (always-on) IBL array texture + sampler.
- * @param {GPUDevice} device
- * @param {{ size?: number, layers?: number }} [opts]
  */
-export function createIblResources(device, opts = {}) {
+export function createIblResources(device: GPUDevice, opts: CreateIblResourcesOpts = {}): IblResources {
   const size = opts.size ?? IBL_TEX_SIZE;
   const layers = opts.layers ?? IBL_LAYERS;
   const texture = device.createTexture({
@@ -362,18 +392,20 @@ export function createIblResources(device, opts = {}) {
 }
 
 /** Prefilter results are cached per look — switching presets is then free. */
-const prefilterCache = new Map();
+const prefilterCache = new Map<string, PrefilterEnvironmentResult>();
+
+export interface UploadIblResult {
+  levels: number;
+  cached: boolean;
+  ms: number;
+}
 
 /**
  * Prefilter `preset` (memoised by `look`) and upload it into `resources.texture`.
  *
- * @param {GPUDevice} device
- * @param {ReturnType<typeof createIblResources>} resources
- * @param {ReturnType<import('./seg-lighting-presets.js').getLightingPreset>} preset
- * @param {string} look preset id used as the cache key
- * @returns {{ levels: number, cached: boolean, ms: number }}
+ * @param look preset id used as the cache key
  */
-export function uploadIblForPreset(device, resources, preset, look) {
+export function uploadIblForPreset(device: GPUDevice, resources: IblResources, preset: LightingPreset, look: string): UploadIblResult {
   const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
   let baked = prefilterCache.get(look);
   const cached = !!baked;
@@ -384,7 +416,7 @@ export function uploadIblForPreset(device, resources, preset, look) {
 
   device.queue.writeTexture(
     { texture: resources.texture },
-    baked.data,
+    baked.data.buffer as ArrayBuffer,
     { bytesPerRow: baked.bytesPerRow, rowsPerImage: baked.size },
     [baked.size, baked.size, baked.layers]
   );
@@ -394,15 +426,14 @@ export function uploadIblForPreset(device, resources, preset, look) {
 }
 
 /** Test hook — drop memoised bakes (used when presets are edited live). */
-export function clearIblCache() {
+export function clearIblCache(): void {
   prefilterCache.clear();
 }
 
 /**
  * Guard against the JS constants drifting from the WGSL ones in pbr-eval.wgsl.
- * @param {string} wgslSource
  */
-export function assertIblShaderContract(wgslSource) {
+export function assertIblShaderContract(wgslSource: string): void {
   const sizeMatch = /const\s+IBL_TEX_SIZE\s*:\s*f32\s*=\s*([0-9.]+)/.exec(wgslSource);
   const levelMatch = /const\s+IBL_SPEC_LEVELS\s*:\s*f32\s*=\s*([0-9.]+)/.exec(wgslSource);
   if (!sizeMatch || !levelMatch) {

@@ -18,28 +18,24 @@ export {
   getLightingPreset,
   packPostUniforms,
   LIGHTING_LOOKS
-} from './seg-lighting-presets.js';
+} from './seg-lighting-presets';
 
-/** @typedef {'ultra'|'high'|'medium'|'low'|'critical'} QualityTier */
+export type QualityTier = 'ultra' | 'high' | 'medium' | 'low' | 'critical';
 
-/**
- * @typedef {{
- *   bloom: 0|1,
- *   ssao: number,
- *   contactShadow: number,
- *   motionBlur: number,
- *   ssr: number
- * }} PostQualityGates
- */
+export interface PostQualityGates {
+  bloom: 0 | 1;
+  ssao: number;
+  contactShadow: number;
+  motionBlur: number;
+  ssr: number;
+}
 
 /**
  * Tier → post cost multipliers.
  * `bloom: 0` skips extract + blur passes in the render loop.
  * Strengths are multiplied onto preset SSAO / contact / motionBlur uniforms.
- *
- * @type {Record<QualityTier, PostQualityGates>}
  */
-export const POST_QUALITY_GATES = {
+export const POST_QUALITY_GATES: Record<QualityTier, PostQualityGates> = {
   ultra: {
     bloom: 1,
     ssao: 1,
@@ -80,27 +76,17 @@ export const POST_QUALITY_GATES = {
 /** Tiers that run the SSR compute pass at all. */
 export const SSR_QUALITY_TIERS = Object.freeze(['ultra', 'high']);
 
-/**
- * Whether screen-space reflections run for a tier, before the `?ssr=0` override.
- * @param {QualityTier|string} [tier]
- */
-export function ssrEnabledForTier(tier = 'high') {
+/** Whether screen-space reflections run for a tier, before the `?ssr=0` override. */
+export function ssrEnabledForTier(tier: QualityTier | string = 'high'): boolean {
   return (getPostQualityGates(tier).ssr ?? 0) > 0;
 }
 
-/**
- * @param {QualityTier|string} [tier]
- * @returns {PostQualityGates}
- */
-export function getPostQualityGates(tier = 'high') {
-  return POST_QUALITY_GATES[tier] ?? POST_QUALITY_GATES.high;
+export function getPostQualityGates(tier: QualityTier | string = 'high'): PostQualityGates {
+  return POST_QUALITY_GATES[tier as QualityTier] ?? POST_QUALITY_GATES.high;
 }
 
-/**
- * Human-readable summary for the debug panel.
- * @param {PostQualityGates} gates
- */
-export function formatPostQualitySummary(gates) {
+/** Human-readable summary for the debug panel. */
+export function formatPostQualitySummary(gates: PostQualityGates): string {
   const g = gates || POST_QUALITY_GATES.high;
   const bloom = g.bloom ? 'on' : 'off';
   const ssao = g.ssao <= 0.01 ? 'off' : `${Math.round(g.ssao * 100)}%`;

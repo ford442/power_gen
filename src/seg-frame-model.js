@@ -33,7 +33,7 @@ export function parseSegFrameLevel(params = new URLSearchParams(typeof location 
 
 /**
  * Layout-derived anchor points for frame placement (device-local space).
- * @param {import('./seg-layout.js').SEGLayout} layout
+ * @param {import('./seg-layout').SEGLayout} layout
  */
 export function computeFrameDimensions(layout) {
   const ws = layout.worldScale;
@@ -440,7 +440,7 @@ export function buildSafetyCageMesh(dims) {
 /**
  * Create all GPU buffers for the SEG frame assembly.
  * @param {GPUDevice} device
- * @param {import('./seg-layout.js').SEGLayout} layout
+ * @param {import('./seg-layout').SEGLayout} layout
  * @param {SegFrameLevel} level
  */
 export function createSegFrameBuffers(device, layout, level = 'full') {

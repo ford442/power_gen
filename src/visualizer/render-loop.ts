@@ -1,9 +1,9 @@
 // Per-frame simulation update + GPU encode (scene + bloom).
 import { WebGPUManager } from '../webgpu-manager';
-import { MAX_ROLLERS } from '../seg-layout.js';
-import { packPostUniforms } from '../seg-lighting-presets.js';
+import { MAX_ROLLERS } from '../seg-layout';
+import { packPostUniforms } from '../seg-lighting-presets';
 import { writeQueueBuffer } from '../gpu-buffer-write';
-import { getPostQualityGates } from '../post-processing-config.js';
+import { getPostQualityGates } from '../post-processing-config';
 import { SSR_PARAMS_BYTES } from './scene-setup.js';
 import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
@@ -712,7 +712,7 @@ export const renderLoopMethods: ThisType<Host> & {
 
     // 4x MSAA (ADR-0005 WS2 showroom pass): `high` tier + focus mode only.
     // `'ultra'` is defined in config/docs but the auto-quality system never
-    // assigns it (performance-profiler.js only ever picks
+    // assigns it (performance-profiler.ts only ever picks
     // critical/low/medium/high), so gating on `'high'` is the practical
     // ceiling today. Requires the MSAA/resolved-depth textures and both
     // pipeline variants to exist — set up unconditionally at init, so this

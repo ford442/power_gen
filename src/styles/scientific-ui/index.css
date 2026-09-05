@@ -12,9 +12,7 @@
 /* Components */
 @import './components/panel.css';
 @import './components/toggle-button.css';
-@import './components/status-indicator.css';
 @import './components/gauge-base.css';
-@import './components/cache-status.css';
 
 /* Gauges */
 @import './gauges/circular-gauge.css';

@@ -2,7 +2,7 @@ import {
   createDevicePhysicsState,
   stepDevicePhysics
 } from '../renderers/shared/device-physics';
-import { getHeronLayout } from '../heron-layout.js';
+import { getHeronLayout } from '../heron-layout';
 import { overviewLodParticleCount } from '../renderers/shared/view-lod.js';
 import { segWasm } from '../wasm/seg-physics-bridge.js';
 import { telemetryHub } from '../telemetry-hub';
@@ -63,7 +63,7 @@ export const DeviceUpdateMixin = {
     if (!this.physicsState && deviceNeedsPhysicsState(this.id)) {
       const heronLayout = this.id === 'heron'
         ? (this.visualizer.heronLayout || getHeronLayout(this.visualizer.heronLayoutPreset))
-        : null;
+        : undefined;
       this.physicsState = createDevicePhysicsState(this.id, { heronLayout });
     }
 
@@ -78,7 +78,7 @@ export const DeviceUpdateMixin = {
     if (this.physicsState) {
       const heronLayout = this.id === 'heron'
         ? (this.visualizer.heronLayout || getHeronLayout(this.physicsState.heronLayoutId))
-        : null;
+        : undefined;
       const wasmOwnsPlant = segWasm.enabled
         && this.physicsState._wasmPlantActive
         && pluginWasmSkipsJsPhysics(this);

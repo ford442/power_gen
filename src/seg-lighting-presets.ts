@@ -4,15 +4,60 @@
 // Central look definitions: studio (default), lab, drama.
 // Toggle via ?look=studio|lab|drama or debug panel / setLightingLook().
 
-/** @typedef {'studio'|'lab'|'drama'} LightingLook */
+export type LightingLook = 'studio' | 'lab' | 'drama';
 
-export const LIGHTING_LOOKS = {
+export const LIGHTING_LOOKS: Record<LightingLook, LightingLook> = {
   studio: 'studio',
   lab: 'lab',
   drama: 'drama'
 };
 
-const PRESETS = {
+export interface LightArm {
+  position: number[];
+  color: number[];
+  intensity: number;
+}
+
+export interface LightingRig {
+  key: LightArm;
+  fill: LightArm;
+  rim: LightArm;
+  ground: LightArm;
+  ambient: number;
+  envMapStrength: number;
+  shadowStrength: number;
+}
+
+export interface PostPreset {
+  exposure: number;
+  bloomThreshold: number;
+  bloomKnee: number;
+  bloomStrength: number;
+  bloomRadius: number;
+  coronaBoost: number;
+  grain: number;
+  aberration: number;
+  vignette: number;
+  ssaoStrength: number;
+  contactShadow: number;
+  ssrStrength: number;
+}
+
+export interface SkyPreset {
+  mode: number;
+  top: number[];
+  horizon: number[];
+  energy: number;
+}
+
+export interface LightingPreset {
+  name: string;
+  lighting: LightingRig;
+  post: PostPreset;
+  sky: SkyPreset;
+}
+
+const PRESETS: Record<LightingLook, LightingPreset> = {
   studio: {
     name: 'Studio',
     lighting: {
@@ -96,33 +141,45 @@ const PRESETS = {
   }
 };
 
-/**
- * @param {URLSearchParams} [params]
- * @returns {LightingLook}
- */
-export function parseLightingLook(params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')) {
+export function parseLightingLook(params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')): LightingLook {
   const raw = params.get('look') || params.get('lighting');
-  if (raw && raw in PRESETS) return raw;
-  if (typeof window !== 'undefined' && window.SEG_LIGHTING_LOOK && window.SEG_LIGHTING_LOOK in PRESETS) {
-    return window.SEG_LIGHTING_LOOK;
+  if (raw && raw in PRESETS) return raw as LightingLook;
+  const win = typeof window !== 'undefined' ? (window as unknown as { SEG_LIGHTING_LOOK?: string }) : undefined;
+  if (win?.SEG_LIGHTING_LOOK && win.SEG_LIGHTING_LOOK in PRESETS) {
+    return win.SEG_LIGHTING_LOOK as LightingLook;
   }
   return LIGHTING_LOOKS.studio;
 }
 
-/** @param {LightingLook} look */
-export function getLightingPreset(look = LIGHTING_LOOKS.studio) {
+export function getLightingPreset(look: LightingLook = LIGHTING_LOOKS.studio): LightingPreset {
   return PRESETS[look] ?? PRESETS.studio;
+}
+
+export interface PostQualityGates {
+  bloom?: number;
+  ssao?: number;
+  contactShadow?: number;
+  motionBlur?: number;
+  ssr?: number;
+}
+
+export interface PackPostUniformsOpts {
+  width?: number;
+  height?: number;
+  preset?: LightingPreset | { post?: Partial<PostPreset>; sky?: Partial<SkyPreset> };
+  energy?: number;
+  speedMult?: number;
+  motionBlur?: number;
+  qualityGates?: PostQualityGates | null;
+  ssrEnabled?: boolean;
 }
 
 /**
  * Pack bloom/post uniform (20 floats / 80 bytes) for bloom-shaders.js BloomParams.
  * Optional `qualityGates` scales bloom / SSAO / contact / motionBlur / SSR for
  * auto-quality. `ssrEnabled: false` (from `?ssr=0`) zeroes SSR at any tier.
- * @param {object} opts
- * @param {{ bloom?: number, ssao?: number, contactShadow?: number, motionBlur?: number, ssr?: number }} [opts.qualityGates]
- * @param {boolean} [opts.ssrEnabled]
  */
-export function packPostUniforms(opts) {
+export function packPostUniforms(opts: PackPostUniformsOpts): Float32Array {
   const {
     width = 1,
     height = 1,
@@ -147,24 +204,24 @@ export function packPostUniforms(opts) {
   const bloomStrength =
     bloomMul <= 0
       ? 0
-      : p.bloomStrength * (1.0 + energyPow * 0.42 + speedNorm * 0.12) * bloomMul;
+      : (p.bloomStrength ?? 0) * (1.0 + energyPow * 0.42 + speedNorm * 0.12) * bloomMul;
 
   return new Float32Array([
     1.0 / width,
     1.0 / height,
-    Math.max(0.35, p.bloomThreshold - energyPow * 0.12 - speedNorm * 0.06),
-    Math.max(0.06, p.bloomKnee * (1.0 + energyPow * 0.25)),
+    Math.max(0.35, (p.bloomThreshold ?? 0) - energyPow * 0.12 - speedNorm * 0.06),
+    Math.max(0.06, (p.bloomKnee ?? 0) * (1.0 + energyPow * 0.25)),
     bloomStrength,
-    p.bloomRadius + energyPow * 2.8 + speedNorm * 0.6,
+    (p.bloomRadius ?? 0) + energyPow * 2.8 + speedNorm * 0.6,
     energyPow,
-    p.grain,
-    p.aberration * (1.0 + energyPow * 0.5),
-    p.vignette,
+    p.grain ?? 0,
+    (p.aberration ?? 0) * (1.0 + energyPow * 0.5),
+    p.vignette ?? 0,
     motionBlur * motionMul,
-    p.exposure,
-    p.coronaBoost,
-    p.ssaoStrength * ssaoMul,
-    p.contactShadow * contactMul,
+    p.exposure ?? 1,
+    p.coronaBoost ?? 0,
+    (p.ssaoStrength ?? 0) * ssaoMul,
+    (p.contactShadow ?? 0) * contactMul,
     preset?.sky?.mode ?? 1,
     (p.ssrStrength ?? 0) * ssrMul,
     0,

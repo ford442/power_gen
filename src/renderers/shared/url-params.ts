@@ -2,7 +2,7 @@
 // Used by WebGPU (MultiDeviceVisualizer) and WebGL2 fallback so agent/CI
 // query strings behave the same on both backends.
 
-import { SEG_LAYOUT_PRESETS } from '../../seg-layout.js';
+import { SEG_LAYOUT_PRESETS } from '../../seg-layout';
 
 export type PrototypePreset = 'showroom' | 'lab';
 
@@ -49,7 +49,7 @@ export function parsePrototypePreset(params: URLSearchParams = defaultParams()):
 /**
  * Screen-space reflections kill switch: `?ssr=0` (aliases: off / false / no).
  *
- * Independent of the quality tier — the tier gate in post-processing-config.js
+ * Independent of the quality tier — the tier gate in post-processing-config.ts
  * already turns SSR off below high/ultra; this lets a capture or a bug report
  * disable it without also dropping SSAO, bloom and motion blur.
  *
