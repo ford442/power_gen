@@ -3,16 +3,18 @@
  */
 
 import { explainerState } from './explainer-state.js';
-import { initSEGTour, initVdgTour } from './seg-tour-player.js';
+import { initSEGTour, initVdgTour, initLorentzTour } from './seg-tour-player.js';
 import { shareLabLink, decodeLabHash, applyLabState } from './lab-url.js';
 import { SEG_GLOSSARY } from './seg-glossary.js';
 
 export function initExplainerUI() {
   const tour = initSEGTour();
   const vdgTour = initVdgTour();
+  const lorentzTour = initLorentzTour();
 
   const tourBtn = document.getElementById('explainerTourBtn');
   const vdgTourBtn = document.getElementById('explainerVdgTourBtn');
+  const lorentzTourBtn = document.getElementById('explainerLorentzTourBtn');
   const shareBtn = document.getElementById('explainerShareBtn');
   const classroomCb = document.getElementById('explainerClassroom');
   const motionCb = document.getElementById('explainerReducedMotion');
@@ -27,6 +29,7 @@ export function initExplainerUI() {
 
   tourBtn?.addEventListener('click', () => {
     if (vdgTour.playing) vdgTour.stop();
+    if (lorentzTour.playing) lorentzTour.stop();
     if (tour.playing) tour.stop();
     else tour.start(0);
     setStatus(tour.playing ? 'Tour playing — Space to pause sim' : 'Tour ended');
@@ -34,9 +37,18 @@ export function initExplainerUI() {
 
   vdgTourBtn?.addEventListener('click', () => {
     if (tour.playing) tour.stop();
+    if (lorentzTour.playing) lorentzTour.stop();
     if (vdgTour.playing) vdgTour.stop();
     else vdgTour.start(0);
     setStatus(vdgTour.playing ? 'Van de Graaff tour playing' : 'Tour ended');
+  });
+
+  lorentzTourBtn?.addEventListener('click', () => {
+    if (tour.playing) tour.stop();
+    if (vdgTour.playing) vdgTour.stop();
+    if (lorentzTour.playing) lorentzTour.stop();
+    else lorentzTour.start(0);
+    setStatus(lorentzTour.playing ? 'Lorentz sled tour playing' : 'Tour ended');
   });
 
   shareBtn?.addEventListener('click', () => {
@@ -103,7 +115,7 @@ export function initExplainerUI() {
     }
   });
 
-  return { tour, vdgTour, applyLabFromHash: async () => {
+  return { tour, vdgTour, lorentzTour, applyLabFromHash: async () => {
     const lab = decodeLabHash();
     if (lab) {
       await applyLabState(lab);

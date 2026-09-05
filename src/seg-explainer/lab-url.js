@@ -2,6 +2,9 @@
  * Shareable lab links — encode mode, layout, and experiment params in the URL hash.
  *
  * Format: #lab=v1;mode=seg;layout=searl;drive=0.5;field=0.5;bmult=1;class=0;tour=0
+ *
+ * `tour=1` plays the tour that belongs to `mode` (see TOUR_BY_MODE) — the SEG
+ * tour unless the device has one of its own.
  */
 
 export const LAB_URL_VERSION = 1;
@@ -26,6 +29,7 @@ export function encodeLabHash(opts = {}) {
   if (opts.halbachSegments != null) parts.push(`hseg=${opts.halbachSegments}`);
   if (opts.halbachLinear) parts.push('hlin=1');
   if (opts.pulseCoilCharge != null) parts.push(`pcap=${Number(opts.pulseCoilCharge).toFixed(2)}`);
+  if (opts.lorentzFieldT != null) parts.push(`lfield=${Number(opts.lorentzFieldT).toFixed(2)}`);
   return `#lab=${parts.join(';')}`;
 }
 
@@ -60,8 +64,23 @@ export function decodeLabHash(hash = typeof location !== 'undefined' ? location.
     else if (k === 'hseg') out.halbachSegments = parseInt(v, 10);
     else if (k === 'hlin') out.halbachLinear = v === '1';
     else if (k === 'pcap') out.pulseCoilCharge = parseFloat(v);
+    else if (k === 'lfield') out.lorentzFieldT = parseFloat(v);
   }
   return out;
+}
+
+/**
+ * Devices with their own guided tour. Anything not listed shares the SEG tour,
+ * which is also the fallback when the device's own player has not initialised.
+ */
+const TOUR_BY_MODE = {
+  vdg: 'vdgTour',
+  'lorentz-sled': 'lorentzTour'
+};
+
+function tourForMode(mode) {
+  const key = TOUR_BY_MODE[mode];
+  return (key && window[key]) || window.segTour || null;
 }
 
 /**
@@ -104,6 +123,10 @@ export async function applyLabState(lab) {
       phys.pulseCoilVCap = Math.max(0, Math.min(1, lab.pulseCoilCharge)) * vmax;
     }
   }
+  if (lab.mode === 'lorentz-sled' && lab.lorentzFieldT != null
+      && typeof window.setLorentzFieldT === 'function') {
+    window.setLorentzFieldT(lab.lorentzFieldT);
+  }
   if (lab.halbachLinear && typeof window !== 'undefined') {
     const url = new URL(window.location.href);
     url.searchParams.set('halbachLinear', '1');
@@ -143,18 +166,19 @@ export async function applyLabState(lab) {
     window.segAnnotations?.setEnabled(true);
   }
 
-  if (lab.tour && window.segTour) {
+  const tour = tourForMode(lab.mode);
+  if (lab.tour && tour) {
     const step = Number.isFinite(lab.step) ? lab.step : 0;
     if (lab.hi) {
-      const idx = window.segTour._findStepForHighlight(lab.hi);
-      window.segTour.goToStep(idx >= 0 ? idx : step);
+      const idx = tour._findStepForHighlight(lab.hi);
+      tour.goToStep(idx >= 0 ? idx : step);
     } else {
-      window.segTour.goToStep(step);
+      tour.goToStep(step);
     }
-  } else if (lab.hi && window.segTour) {
-    window.segTour.goToStepForHighlight(lab.hi);
-  } else if (Number.isFinite(lab.step) && window.segTour) {
-    window.segTour.goToStep(lab.step);
+  } else if (lab.hi && tour) {
+    tour.goToStepForHighlight(lab.hi);
+  } else if (Number.isFinite(lab.step) && tour) {
+    tour.goToStep(lab.step);
   }
 }
 
@@ -163,6 +187,11 @@ export function captureLabState() {
   const op = window.segOperator;
   const es = window.explainerState;
   const pulse = v?.devices?.['pulse-coil']?.physicsState || v?.devices?.['pulse-coil']?.physics;
+  const sled = v?.devices?.['lorentz-sled']?.physicsState || v?.devices?.['lorentz-sled']?.physics;
+  // Capture whichever tour is actually running, so a shared link reopens on the
+  // same step of the same device tour rather than always the SEG one.
+  const activeTour = [window.segTour, window.vdgTour, window.lorentzTour]
+    .find((t) => t?.playing) ?? window.segTour;
   return {
     mode: v?.currentView === 'overview' ? 'overview' : (v?.currentView || 'seg'),
     layout: v?.getSEGLayoutPreset?.() ?? v?.segLayoutPreset ?? 'searl',
@@ -172,12 +201,13 @@ export function captureLabState() {
     bmult: es?.fieldMultiplier ?? 1,
     classroom: es?.classroomMode ?? false,
     hi: es?.highlightId || undefined,
-    step: window.segTour?.playing ? window.segTour.stepIndex : undefined,
-    tour: window.segTour?.playing ?? false,
+    step: activeTour?.playing ? activeTour.stepIndex : undefined,
+    tour: activeTour?.playing ?? false,
     renderer: window.currentRenderer,
     pulseCoilCharge: pulse?.pulseCoilVCap != null
       ? Math.max(0, Math.min(1, pulse.pulseCoilVCap / 48))
-      : undefined
+      : undefined,
+    lorentzFieldT: sled?.lorentzFieldT
   };
 }
 

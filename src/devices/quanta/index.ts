@@ -10,6 +10,7 @@ import { pulseCoilPlugin } from './pulse-coil.js';
 import { transformerPlugin } from './transformer.js';
 import { vdgPlugin } from './van-de-graaff.js';
 import { hallPlugin } from './hall-effect.js';
+import { lorentzSledPlugin } from './lorentz-sled.js';
 
 registerDevice(magneticLevitationPlugin);
 registerDevice(homopolarGeneratorPlugin);
@@ -18,3 +19,4 @@ registerDevice(pulseCoilPlugin);
 registerDevice(transformerPlugin);
 registerDevice(vdgPlugin);
 registerDevice(hallPlugin);
+registerDevice(lorentzSledPlugin);

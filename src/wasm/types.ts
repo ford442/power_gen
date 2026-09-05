@@ -96,6 +96,12 @@ export interface SEGSimulatorInstance {
   getHallCoeff?(): number;
   getHallCarrierMetal?(): boolean;
   setHallCarrierMetal?(metal: boolean): void;
+  getLorentzSledVms?(): number;
+  getLorentzCurrentA?(): number;
+  getLorentzFieldT?(): number;
+  getLorentzForceN?(): number;
+  getLorentzPositionM?(): number;
+  setLorentzFieldT?(fieldT: number): void;
   getEnergyLevel?(): number;
   setNetworkEdges?(flatEdges: number[] | Float32Array): void;
   getNetworkEdgeCount?(): number;

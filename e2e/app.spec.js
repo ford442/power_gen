@@ -312,6 +312,70 @@ test.describe('WASM physics (optional)', () => {
     expect(snap.current).toBeGreaterThan(0);
     expect(Math.abs(snap.jsVoltage)).toBeGreaterThan(0);
   });
+
+  test('lorentz-sled ?wasmPhysics=1 uses C++ plant (SimMode 11)', async ({ page }) => {
+    test.setTimeout(300_000);
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'wasmPhysics=1');
+
+    await waitForEval(page,
+      () => document.getElementById('wasmStatus')?.textContent === 'WASM ✓'
+        || window.segWasm?.available === true,
+      { timeout: 90_000 }
+    );
+    await waitForEval(page,
+      () => window.segWasm?.enabled === true && window.multiVisualizer != null,
+      { timeout: 60_000 }
+    );
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('lorentz-sled');
+      window.segWasm?.setMode?.('lorentz-sled');
+    });
+
+    await waitForEval(page,
+      () => {
+        const plant = window.segWasm?.getModePlant?.();
+        return window.segWasm?.getMode?.() === 11
+          && plant?.mode === 'lorentz-sled'
+          && Number.isFinite(plant.currentA) && Number.isFinite(plant.sledVms)
+          && plant.sledVms > 0;
+      },
+      { timeout: 90_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const plant = window.segWasm.getModePlant();
+      const phys = window.multiVisualizer?.devices?.['lorentz-sled']?.physicsState
+        ?? window.multiVisualizer?.devices?.['lorentz-sled']?.physics;
+      return {
+        mode: window.segWasm.getMode(),
+        plantMode: plant?.mode,
+        sledVms: plant?.sledVms ?? 0,
+        currentA: plant?.currentA ?? 0,
+        fieldT: plant?.fieldT ?? 0,
+        forceN: plant?.forceN ?? 0,
+        positionM: plant?.positionM ?? 0,
+        jsSpeed: phys?.lorentzSledVms ?? 0
+      };
+    });
+
+    expect(snap.mode).toBe(11);
+    expect(snap.plantMode).toBe('lorentz-sled');
+    expect(Number.isFinite(snap.sledVms)).toBe(true);
+    expect(Number.isFinite(snap.currentA)).toBe(true);
+    expect(Number.isFinite(snap.fieldT)).toBe(true);
+    expect(Number.isFinite(snap.forceN)).toBe(true);
+    expect(Number.isFinite(snap.positionM)).toBe(true);
+    expect(snap.sledVms).toBeGreaterThan(0);
+    expect(snap.currentA).toBeGreaterThan(0);
+    expect(snap.forceN).toBeGreaterThan(0);
+    // Reported position wraps at the 2 m rail length.
+    expect(snap.positionM).toBeGreaterThanOrEqual(0);
+    expect(snap.positionM).toBeLessThanOrEqual(2);
+    expect(snap.jsSpeed).toBeGreaterThan(0);
+  });
 });
 
 test.describe('Quanta plugin devices (JS fallback)', () => {
@@ -384,6 +448,77 @@ test.describe('Quanta plugin devices (JS fallback)', () => {
     expect(Number.isFinite(snap.coeff)).toBe(true);
     expect(Math.abs(snap.voltage)).toBeGreaterThan(0);
     expect(snap.current).toBeGreaterThan(0);
+  });
+
+  test('lorentz-sled JS fallback produces finite telemetry', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('lorentz-sled');
+    });
+
+    await waitForEval(page,
+      () => {
+        const phys = window.multiVisualizer?.devices?.['lorentz-sled']?.physics;
+        return !!phys && Number.isFinite(phys.lorentzSledVms) && phys.lorentzSledVms > 0;
+      },
+      { timeout: 30_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const phys = window.multiVisualizer.devices['lorentz-sled'].physics;
+      return {
+        sledVms: phys.lorentzSledVms,
+        currentA: phys.lorentzCurrentA,
+        fieldT: phys.lorentzFieldT,
+        forceN: phys.lorentzForceN,
+        positionM: phys.lorentzPositionM
+      };
+    });
+
+    expect(Number.isFinite(snap.sledVms)).toBe(true);
+    expect(Number.isFinite(snap.currentA)).toBe(true);
+    expect(Number.isFinite(snap.fieldT)).toBe(true);
+    expect(Number.isFinite(snap.forceN)).toBe(true);
+    expect(Number.isFinite(snap.positionM)).toBe(true);
+    expect(snap.sledVms).toBeGreaterThan(0);
+    expect(snap.currentA).toBeGreaterThan(0);
+    expect(snap.forceN).toBeGreaterThan(0);
+    expect(snap.positionM).toBeGreaterThanOrEqual(0);
+    expect(snap.positionM).toBeLessThanOrEqual(2);
+  });
+
+  test('lorentz-sled B slider changes the field and the force', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('lorentz-sled');
+    });
+
+    await waitForEval(page,
+      () => (window.multiVisualizer?.devices?.['lorentz-sled']?.physics?.lorentzForceN ?? 0) > 0,
+      { timeout: 30_000 }
+    );
+
+    const strong = await page.evaluate(() =>
+      window.multiVisualizer.devices['lorentz-sled'].physics.lorentzFieldT);
+
+    await page.evaluate(() => window.setLorentzFieldT(0.2));
+    const weak = await page.evaluate(() =>
+      window.multiVisualizer.devices['lorentz-sled'].physics.lorentzFieldT);
+
+    expect(strong).toBeGreaterThan(weak);
+    expect(weak).toBeCloseTo(0.2, 5);
+
+    // Clamped to the bench maximum, never negative.
+    await page.evaluate(() => window.setLorentzFieldT(99));
+    const clamped = await page.evaluate(() =>
+      window.multiVisualizer.devices['lorentz-sled'].physics.lorentzFieldT);
+    expect(clamped).toBeLessThanOrEqual(1.2);
   });
 });
 

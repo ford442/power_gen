@@ -237,6 +237,10 @@ export class SEGSim {
     this._sim?.setHallCarrierMetal?.(!!metal);
   }
 
+  setLorentzFieldT(fieldT: number): void {
+    this._sim?.setLorentzFieldT?.(Number(fieldT) || 0);
+  }
+
   getDrive(): number {
     return this._sim?.getDrive?.() ?? 0;
   }
@@ -348,6 +352,17 @@ export class SEGSim {
         fieldT: this._sim.getHallFieldT?.() ?? 0,
         coeff: this._sim.getHallCoeff?.() ?? 0,
         carrierMetal: !!this._sim.getHallCarrierMetal?.(),
+        energyLevel: this._sim.getEnergyLevel?.() ?? 0
+      };
+    }
+    if (m === 11) {
+      return {
+        mode: 'lorentz-sled',
+        sledVms: this._sim.getLorentzSledVms?.() ?? 0,
+        currentA: this._sim.getLorentzCurrentA?.() ?? 0,
+        fieldT: this._sim.getLorentzFieldT?.() ?? 0,
+        forceN: this._sim.getLorentzForceN?.() ?? 0,
+        positionM: this._sim.getLorentzPositionM?.() ?? 0,
         energyLevel: this._sim.getEnergyLevel?.() ?? 0
       };
     }

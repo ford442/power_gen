@@ -296,6 +296,109 @@ static int run_hall_smoke() {
     return 0;
 }
 
+static int run_lorentz_smoke() {
+    SEGSimulator sim;
+    sim.setMode(SIM_MODE_LORENTZ_SLED);
+    sim.setDrive(0.8f);
+    const float dt = 1.f / 60.f;
+    for (int i = 0; i < 600; ++i) sim.step(dt, 0.f); // 10 s — reach terminal speed
+
+    const float v = sim.getLorentzSledVms();
+    const float iA = sim.getLorentzCurrentA();
+    const float bT = sim.getLorentzFieldT();
+    const float fN = sim.getLorentzForceN();
+    const float xM = sim.getLorentzPositionM();
+    printf("Lorentz sled v=%.3f m/s  I=%.2f A  B=%.2f T  F=%.3f N  x=%.3f m\n",
+           v, iA, bT, fN, xM);
+    if (!std::isfinite(v) || !std::isfinite(iA) || !std::isfinite(fN) || !std::isfinite(xM)) {
+        printf("FAIL: lorentz sled NaN\n");
+        return 1;
+    }
+    if (v <= 0.f || iA <= 0.f || fN <= 0.f) {
+        printf("FAIL: sled did not accelerate under drive\n");
+        return 1;
+    }
+    if (xM < 0.f || xM > 2.0f) {
+        printf("FAIL: reported position %.3f outside the rail length\n", xM);
+        return 1;
+    }
+    // Back-EMF must actually bite: the loop current has to sit below the
+    // stall value V/R once the sled is moving.
+    const float stallA = 0.8f * 12.f / 0.6f;
+    if (iA >= stallA) {
+        printf("FAIL: back-EMF absent (I=%.2f A >= stall %.2f A)\n", iA, stallA);
+        return 1;
+    }
+
+    // Cross-check the integrator against the closed-form steady state:
+    // (V - B*l*v)/R * B*l = mu*m*g + b*v  (tanh ~ 1 at speed).
+    {
+        const float bl = 0.8f * 0.25f;
+        const float vSupply = 0.8f * 12.f;
+        const float num = (vSupply * bl) / 0.6f - 0.25f * 0.15f * PhysicsConstants::G;
+        const float den = (bl * bl) / 0.6f + 0.3f;
+        const float vClosed = num / den;
+        printf("Lorentz sled closed-form terminal v=%.3f m/s (sim %.3f)\n", vClosed, v);
+        if (std::fabs(v - vClosed) > 0.05f * vClosed) {
+            printf("FAIL: terminal speed %.3f differs from closed form %.3f by >5%%\n", v, vClosed);
+            return 1;
+        }
+    }
+
+    // Weaker field -> smaller force -> slower sled at the same drive.
+    sim.setLorentzFieldT(0.2f);
+    for (int i = 0; i < 600; ++i) sim.step(dt, 0.f);
+    const float vWeak = sim.getLorentzSledVms();
+    printf("Lorentz sled (B=0.2 T) v=%.3f m/s  F=%.3f N\n", vWeak, sim.getLorentzForceN());
+    if (!std::isfinite(vWeak) || vWeak <= 0.f) {
+        printf("FAIL: weak-field sled speed invalid\n");
+        return 1;
+    }
+    if (vWeak >= v) {
+        printf("FAIL: weaker field should give a slower sled (%.3f vs %.3f)\n", vWeak, v);
+        return 1;
+    }
+
+    // Field clamp: never above fieldTMax, never negative.
+    sim.setLorentzFieldT(99.f);
+    if (sim.getLorentzFieldT() > 1.2f) {
+        printf("FAIL: field not clamped to fieldTMax\n");
+        return 1;
+    }
+    sim.setLorentzFieldT(-1.f);
+    if (sim.getLorentzFieldT() < 0.f) {
+        printf("FAIL: field not clamped at zero\n");
+        return 1;
+    }
+
+    if (!std::isfinite(sim.getEnergyLevel()) || sim.getEnergyLevel() < 0.f || sim.getEnergyLevel() > 1.f) {
+        printf("FAIL: Lorentz energy level out of range\n");
+        return 1;
+    }
+
+    // Long-frame stability: a dropped frame must not blow the sled up. Both
+    // stiff terms (R-L branch, back-EMF damping) are solved implicitly, so a
+    // 1 s step has to stay finite and bounded.
+    SEGSimulator big;
+    big.setMode(SIM_MODE_LORENTZ_SLED);
+    big.setDrive(1.0f);
+    for (int i = 0; i < 20; ++i) big.step(1.0f, 0.f);
+    const float vBig = big.getLorentzSledVms();
+    const float iBig = big.getLorentzCurrentA();
+    printf("Lorentz sled (dt=1 s x20) v=%.3f m/s  I=%.2f A\n", vBig, iBig);
+    if (!std::isfinite(vBig) || !std::isfinite(iBig)) {
+        printf("FAIL: long-frame integration produced NaN/Inf\n");
+        return 1;
+    }
+    if (vBig < 0.f || vBig > 40.f || iBig < 0.f) {
+        printf("FAIL: long-frame integration unstable (v=%.3f, I=%.2f)\n", vBig, iBig);
+        return 1;
+    }
+
+    printf("Lorentz sled smoke OK (energyLevel=%.3f)\n", sim.getEnergyLevel());
+    return 0;
+}
+
 static int run_chores_smoke() {
     const float data[] = { 1.f, -2.f, 3.f, 0.f, 4.f };
     float out[5] = {};
@@ -463,11 +566,12 @@ int main(int argc, char** argv) {
             if (std::strcmp(argv[i + 1], "transformer") == 0) return run_transformer_smoke();
             if (std::strcmp(argv[i + 1], "vdg") == 0) return run_vdg_smoke();
             if (std::strcmp(argv[i + 1], "hall") == 0) return run_hall_smoke();
+            if (std::strcmp(argv[i + 1], "lorentz-sled") == 0) return run_lorentz_smoke();
             if (std::strcmp(argv[i + 1], "chores") == 0) return run_chores_smoke();
             if (std::strcmp(argv[i + 1], "energy-network") == 0) return run_energy_network_smoke();
             if (std::strcmp(argv[i + 1], "catalog") == 0) return run_catalog_smoke();
             if (std::strcmp(argv[i + 1], "bench") == 0) return run_bench_smoke();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|chores|energy-network|catalog|bench)\n", argv[i + 1]);
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|lorentz-sled|chores|energy-network|catalog|bench)\n", argv[i + 1]);
             return 2;
         }
     }
@@ -548,6 +652,7 @@ int main(int argc, char** argv) {
     if (run_transformer_smoke() != 0) return 1;
     if (run_vdg_smoke() != 0) return 1;
     if (run_hall_smoke() != 0) return 1;
+    if (run_lorentz_smoke() != 0) return 1;
     if (run_chores_smoke() != 0) return 1;
     if (run_energy_network_smoke() != 0) return 1;
 

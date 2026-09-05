@@ -58,6 +58,7 @@ export interface SegWasmBridge {
   setDrive(drive: number): void;
   setTransformerLeakage(enabled: boolean): void;
   setHallCarrierMetal(metal: boolean): void;
+  setLorentzFieldT(fieldT: number): void;
   getModePlant(): unknown;
 
   getParticles(maxCount?: number): unknown[];
@@ -223,6 +224,10 @@ export const segWasm: SegWasmBridge = {
 
   setTransformerLeakage(enabled: boolean) {
     _instance?.setTransformerLeakage?.(!!enabled);
+  },
+
+  setLorentzFieldT(fieldT: number) {
+    _instance?.setLorentzFieldT?.(Number(fieldT) || 0);
   },
 
   setHallCarrierMetal(metal: boolean) {

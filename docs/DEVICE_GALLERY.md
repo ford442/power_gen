@@ -330,6 +330,92 @@ Capture: `?renderer=webgl2` → START → `setMode('hall')` →
 
 ---
 
+## lorentz-sled
+
+**Lorentz Rail Sled** — a sliding armature bridges two rails inside a
+transverse bench field, so the drive current pushes it along the track with
+`F = I ℓ × B` against friction and its own back-EMF. **Educational
+Lorentz-force model — a low-voltage bench rail motor, not a railgun design
+tool.** There is no projectile, no muzzle energy, and no ballistics anywhere
+in the plant; the pedagogical result is the *terminal* balance where back-EMF
+and friction cancel the drive.
+
+Lumped model, per substep:
+
+```
+L dI/dt = V_drive(drive) − I·R − B·ℓ·v        back-EMF B·ℓ·v
+m dv/dt = I·ℓ·B − μ·m·g·tanh(v/v_eps) − b·v   Lorentz force vs friction
+dx/dt   = v                                    reported modulo rail length
+```
+
+Neither branch uses explicit Euler. `τ = L/R ≈ 100 µs` is far shorter than a
+render substep, so the current is advanced with its analytic exponential
+solution, and the velocity update takes both linear-in-`v` terms — viscous drag
+and the back-EMF reaction `(Bℓ)²/R` — implicitly. Both are then stable at any
+substep length, including a long dropped frame (asserted by the native smoke's
+`dt = 1 s` case).
+
+| View | Screenshot |
+|------|------------|
+| Overview | See [`images/multi-device.png`](images/multi-device.png) |
+| Focus | ![Lorentz rail sled focus](images/lorentz-sled-focus.png) |
+
+Capture: `?renderer=webgl2` → START → `setMode('lorentz-sled')` →
+`setLorentzFieldT(0.8)` → `captureCanvasFrame({ flipY: true })` →
+`docs/images/lorentz-sled-focus.png`.
+
+### Telemetry
+
+| Field | Unit | Source |
+|-------|------|--------|
+| Sled speed | m/s | Plant velocity state (`lorentzSledVms`) |
+| Armature current | A | R–L loop current, reduced by back-EMF (`lorentzCurrentA`) |
+| Field B | T | Local bench slider parameter (`lorentzFieldT`) |
+| Lorentz force | N | `F = I·ℓ·B` on the armature (`lorentzForceN`) |
+| Position along rails | m | Wraps at `LORENTZ.railLengthM` (`lorentzPositionM`) |
+
+### References
+
+1. D. J. Griffiths — *Introduction to Electrodynamics*, ch. 5 (`F = I ∫ dl × B`)
+2. D. Halliday, R. Resnick, J. Walker — *Fundamentals of Physics*, the
+   conducting-rod-on-rails motional-EMF problem this plant lumps
+
+Undergraduate Lorentz-force / rail-motor treatments only — no military
+railgun literature is used or intended as a source here.
+
+### Implementation
+
+- Plugin: `src/devices/quanta/lorentz-sled.ts` (registered via `quanta/index.ts`)
+- WGSL mode index: `14` (`posLorentzSled` in `shaders/passes/particle-compute.wgsl`)
+- WASM `SimMode`: `11` (`SIM_MODE_LORENTZ_SLED` from `physics/devices.json`);
+  plugin uses `catalogIdentity('lorentz-sled')`
+- Plant: `cpp/src/plant/lorentz_plant.cpp`; native smoke `--mode lorentz-sled`
+- UI: Lorentz Rail Sled mode button; bench-field **B** slider;
+  `window.setLorentzFieldT(tesla)` (clamped to `LORENTZ.fieldTMax`)
+- Explainer: 6-step `#lab=` tour (`src/seg-explainer/lorentz-sled-tour.json`) —
+  current → field → force → motion, closing on what the model is not
+- B is a local bench parameter, **not** live-coupled to `halbach-viz`'s or
+  `mhd`'s field estimate — the same self-contained choice `hall` makes,
+  documented rather than treated as a cut corner
+- Energy pipe: `mhd → lorentz-sled` (the channel generates, the sled consumes
+  the same I×B physics as a motor). Under `?energyCoupling=1` the allocation
+  and its residual watts remain **simulated accounting** (ADR-0004), not
+  metrology, and stay labelled as such in the overview disclaimer
+- Scene layout (`LORENTZ_SCENE`) is deliberately separate from the SI constants
+  in `LORENTZ`: the shared instance cylinder carries no per-instance scale, so
+  a rail is drawn as a chain of segments and the bench is sized to read next to
+  the other devices rather than at 1 unit = 1 m. The WGSL and JS particle paths
+  use the same scene numbers.
+
+### What this model is not
+
+FEM or Maxwell field solving, rail erosion or contact physics, projectile
+ballistics, and any form of launcher design are all out of scope. The reported
+position wraps at the end of the 2 m track so the bench reads as a loop; the
+ODE state (`I`, `v`) stays continuous across the wrap.
+
+---
+
 ## Core secondary fidelity notes
 
 | Device | Notes |
@@ -349,6 +435,6 @@ Capture: `?renderer=webgl2` → START → `setMode('hall')` →
 | Pulse magnet / coilgun (sandboxed) | **Live** (`pulse-coil`) | Educational R–L only; JS-only forever unless new SimMode reserved |
 | Mutual induction / transformer | **Live** (`transformer`) | WASM L–M ODE (`SimMode=8`) + JS phasor fallback |
 | Van de Graaff educational twin | **Live** (`vdg`) | WASM belt-charge/spark-gap ODE (`SimMode=9`) + JS fallback; pairs with Kelvin |
-| Simple railgun / Lorentz sled | Candidate | Pairs with MHD |
+| Simple railgun / Lorentz sled | **Live** (`lorentz-sled`) | WASM R–L + back-EMF + Lorentz-force ODE (`SimMode=11`) + JS fallback; pairs with MHD. Educational rail motor, not a railgun design tool |
 | Hall-effect sensor bench | **Live** (`hall`) | WASM I·B→Hall-voltage model (`SimMode=10`) + JS fallback; pairs with homopolar/Halbach |
 | Quanta product mockups | Blocked | Awaiting product specs |

@@ -31,7 +31,7 @@ Default boot **requires WebGPU**. GPU-less / agent path (explicit opt-in): [open
 
 ## Future Plans
 - **Quanta Magnetics catalog (shipped):** [Magnetic Levitation](docs/DEVICE_GALLERY.md#maglev), [Homopolar Generator](docs/DEVICE_GALLERY.md#homopolar), [Halbach field visualizer](docs/DEVICE_GALLERY.md#halbach-viz), [pulse-coil](docs/DEVICE_GALLERY.md#pulse-coil), [Mutual Induction / transformer](docs/DEVICE_GALLERY.md#transformer) — see gallery for literature and screenshots
-- Further classroom apparatus candidates (Van de Graaff, railgun/Lorentz sled, Hall bench) only when a fidelity pass is scoped
+- Further classroom apparatus candidates (Quanta product twins) only when a fidelity pass is scoped; Van de Graaff, the Hall bench, and the [Lorentz rail sled](docs/DEVICE_GALLERY.md#lorentz-sled) have shipped
 - Hardware bridge hooks for Quanta product twins when specs are available
 
 **SEG Explainer** (shipped): [guided tour](docs/SEG_EXPLAINER.md), B-field experiments, shareable `#lab=` URLs, classroom mode — sidebar **SEG Learning**.

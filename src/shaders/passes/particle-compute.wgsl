@@ -228,6 +228,36 @@ fn posHall(phase: f32, t: f32, idx: u32) -> vec3f {
   return vec3f(x, y, z);
 }
 
+/// Mode 14 — Lorentz rail sled: the drive current loop drawn as packets
+/// running out one rail, across the sliding armature, and back along the
+/// other. Illustrative, not a per-particle Lorentz-force integrator.
+fn posLorentzSled(phase: f32, t: f32, idx: u32) -> vec3f {
+  let iN = uniforms.physics0;
+  let posN = uniforms.physics1;
+  let bN = uniforms.physics2;
+  // 12 / 2.6 mirror LORENTZ_SCENE.railLenU / railHalfGapU in
+  // devices/quanta/lorentz-sled.ts (device-local render units, not metres).
+  let railLen = 12.0;
+  let railHalf = 2.6;
+  let xSled = mix(-railLen * 0.5, railLen * 0.5, posN);
+  let flow = fract(t * (0.25 + iN * 1.2) + phase);
+  var x = 0.0;
+  var z = 0.0;
+  if ((idx % 4u) == 0u) {
+    // Armature crossing: current traversing the gap between the rails.
+    x = xSled + sin(t * 8.0 + phase * 30.0) * 0.12 * bN;
+    z = mix(-railHalf, railHalf, flow);
+  } else if ((idx & 1u) == 0u) {
+    x = mix(-railLen * 0.5, xSled, flow);
+    z = -railHalf;
+  } else {
+    x = mix(xSled, -railLen * 0.5, flow);
+    z = railHalf;
+  }
+  let y = sin(t * 3.0 + phase * 12.0 + f32(idx) * 0.05) * 0.12;
+  return vec3f(x, y, z);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let idx = id.x;
@@ -269,6 +299,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     newPos = posVdg(phase, t, idx);
   } else if (m == MODE_HALL) {
     newPos = posHall(phase, t, idx);
+  } else if (m == MODE_LORENTZ_SLED) {
+    newPos = posLorentzSled(phase, t, idx);
   } else {
     newPos = posMagLev(phase, t, idx);
   }

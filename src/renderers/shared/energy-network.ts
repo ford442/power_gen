@@ -52,7 +52,11 @@ export const ENERGY_PIPE_EDGES: EnergyPipeEdge[] = [
   { from: 'solar', to: 'transformer', maxWatts: 350, speed: 1.5 },
   { from: 'transformer', to: 'halbach-viz', maxWatts: 300, speed: 1.6 },
   { from: 'halbach-viz', to: 'homopolar', maxWatts: 320, speed: 1.7 },
-  { from: 'homopolar', to: 'seg', maxWatts: 400, speed: 1.8 }
+  { from: 'homopolar', to: 'seg', maxWatts: 400, speed: 1.8 },
+  // Classroom pair: the MHD channel generates, the rail sled consumes the same
+  // I×B physics as a motor. Allocation is simulated accounting (ADR-0004), not
+  // metrology — the residual watts shown in overview stay labelled simulated.
+  { from: 'mhd', to: 'lorentz-sled', maxWatts: 300, speed: 1.7 }
 ];
 
 export const PIPE_COLORS: Record<string, [number, number, number]> = {
@@ -68,7 +72,8 @@ export const PIPE_COLORS: Record<string, [number, number, number]> = {
   'solar-transformer': [0.95, 0.7, 0.25],
   'transformer-halbach-viz': [0.35, 0.85, 0.95],
   'halbach-viz-homopolar': [0.55, 0.75, 1.0],
-  'homopolar-seg': [0.9, 0.55, 0.2]
+  'homopolar-seg': [0.9, 0.55, 0.2],
+  'mhd-lorentz-sled': [0.95, 0.6, 0.3]
 };
 
 /** Simulated nameplate draw per device when telemetry watts are unavailable. */

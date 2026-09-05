@@ -27,6 +27,20 @@ Tour drives:
 - `explainerState.highlightId` → 3D labels + 2D plan rings stay in sync
 - Optional schematic overlay + annotations
 
+## Device tours
+
+Two devices ship their own script alongside the SEG tour, played by the same
+`SEGTourPlayer` from the **SEG Learning** sidebar:
+
+| Tour | Script | Steps | API |
+|------|--------|-------|-----|
+| Van de Graaff | `src/seg-explainer/vdg-tour.json` | 5 | `window.startVdgTour()`, `window.goToVdgStep(id)` |
+| Lorentz rail sled | `src/seg-explainer/lorentz-sled-tour.json` | 6 (current → field → force → motion, then what the model is not) | `window.startLorentzTour()`, `window.goToLorentzStep(id)` |
+
+`#lab=…;tour=1` plays the tour that belongs to `mode` (`TOUR_BY_MODE` in
+`lab-url.js`), falling back to the SEG tour; `shareLabLink()` captures whichever
+tour is actually running, so a link reopens on the same step of the same tour.
+
 ## Shareable lab URL
 
 Hash format:
@@ -46,6 +60,7 @@ Hash format:
 | `tour` | `1` = auto-start tour |
 | `hi` | Annotation / highlight id (`coil`, `shaft`, `inner-ring`, …) |
 | `step` | Tour step index (0-based) when `tour=1` |
+| `lfield` | Lorentz rail sled bench field B, tesla (`mode=lorentz-sled`) |
 
 **UI:** **Lab Link** copies URL to clipboard and updates `location.hash`.
 

@@ -56,6 +56,11 @@ export interface ParticleUniforms {
   /** Hall-effect bench (mode 13) */
   hallCurrent?: number;
   hallFieldT?: number;
+  /** Lorentz rail sled (mode 14) */
+  lorentzSledVms?: number;
+  lorentzCurrentA?: number;
+  lorentzFieldT?: number;
+  lorentzPositionM?: number;
 }
 
 interface SpawnParticle {
@@ -316,6 +321,39 @@ function integrateHall(
   return [x, y, z];
 }
 
+/** Mirrors posLorentzSled in particle-compute.wgsl. */
+function integrateLorentzSled(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  iN = 0,
+  posN = 0,
+  bN = 0
+): [number, number, number] {
+  const phase = p.phase;
+  // 12 / 2.6 mirror LORENTZ_SCENE.railLenU / railHalfGapU in
+  // devices/quanta/lorentz-sled.ts (device-local render units, not metres).
+  const railLen = 12.0;
+  const railHalf = 2.6;
+  const xSled = -railLen * 0.5 + posN * railLen;
+  const flow = (((t * (0.25 + iN * 1.2) + phase) % 1) + 1) % 1;
+  const armature = idx % 4 === 0;
+  let x: number;
+  let z: number;
+  if (armature) {
+    x = xSled + Math.sin(t * 8.0 + phase * 30.0) * 0.12 * bN;
+    z = -railHalf + flow * (railHalf * 2.0);
+  } else if ((idx & 1) === 0) {
+    x = -railLen * 0.5 + flow * (xSled + railLen * 0.5);
+    z = -railHalf;
+  } else {
+    x = xSled - flow * (xSled + railLen * 0.5);
+    z = railHalf;
+  }
+  const y = Math.sin(t * 3.0 + phase * 12.0 + idx * 0.05) * 0.12;
+  return [x, y, z];
+}
+
 /**
  * Advance particle buffer in-place (8 floats per particle).
  */
@@ -446,6 +484,14 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
       const flowN = Math.min(1, (u.mhdFlowU ?? 1) / 3.5);
       const bN = Math.min(1, (u.mhdBFieldT ?? 0.4) / 1.0);
       const pos = integrateMHD({ phase }, idx, u.time, flowN, bN);
+      px = pos[0]; py = pos[1]; pz = pos[2];
+    } else if (mode >= 14.0) {
+      // 22 / 2 / 1.2 mirror LORENTZ.iMaxA / railLengthM / fieldTMax in
+      // devices/quanta/lorentz-sled.ts.
+      const iN = Math.min(1, Math.abs(u.lorentzCurrentA ?? 0) / 22);
+      const posN = (((u.lorentzPositionM ?? 0) % 2) + 2) % 2 / 2;
+      const bN = Math.min(1, (u.lorentzFieldT ?? 0) / 1.2);
+      const pos = integrateLorentzSled({ phase }, idx, u.time, iN, posN, bN);
       px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode >= 13.0) {
       const iN = Math.min(1, (u.hallCurrent ?? 0) / 1.2);

@@ -121,6 +121,12 @@ class DeviceComputeManager {
       } else if (physicsState.deviceId === 'hall') {
         p0 = Math.min(1, (physicsState.hallCurrent ?? 0) / 1.2);
         p1 = Math.min(1, (physicsState.hallFieldT ?? 0) / 0.65);
+      } else if (physicsState.deviceId === 'lorentz-sled') {
+        // 22 / 2 / 1.2 mirror LORENTZ.iMaxA / railLengthM / fieldTMax in
+        // devices/quanta/lorentz-sled.ts.
+        p0 = Math.min(1, Math.abs(physicsState.lorentzCurrentA ?? 0) / 22);
+        p1 = ((((physicsState.lorentzPositionM ?? 0) % 2) + 2) % 2) / 2;
+        p2 = Math.min(1, (physicsState.lorentzFieldT ?? 0) / 1.2);
       }
     }
 

@@ -119,6 +119,15 @@
       "wasmMode": 10,
       "telemetryKeys": ["hallVoltage", "hallCurrent", "hallFieldT", "hallCoeff"],
       "fidelity": "WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback"
+    },
+    {
+      "id": "lorentz-sled",
+      "label": "Lorentz Rail Sled",
+      "category": "quanta",
+      "shaderMode": 14,
+      "wasmMode": 11,
+      "telemetryKeys": ["lorentzSledVms", "lorentzCurrentA", "lorentzFieldT", "lorentzForceN", "lorentzPositionM"],
+      "fidelity": "WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it"
     }
   ]
 }
