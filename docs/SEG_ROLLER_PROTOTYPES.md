@@ -127,7 +127,7 @@ window.SEG_PROTOTYPE_PRESET = 'lab';
 ### CPU plumbing
 
 - `src/multi-device-visualizer.ts` reads the preset and stores it in `this.prototypePreset`.
-- `src/device-uniforms.js` encodes the preset into the SEG `materialUniformBuffer` `pad1` slot:
+- `src/device-uniforms.ts` encodes the preset into the SEG `materialUniformBuffer` `pad1` slot:
   - `0.0` = showroom
   - `1.0` = lab
 - `src/multi-device-shaders.js` reads `material.pad1` as `prototypePreset` and branches roller colors/materials accordingly.
@@ -138,7 +138,7 @@ window.SEG_PROTOTYPE_PRESET = 'lab';
 - `src/multi-device-visualizer.ts` — updated roller creation call; added `prototypePreset` parsing.
 - `src/seg-enhanced-geometry.js` — updated default roller call to 8 bands / 64 segments.
 - `src/multi-device-shaders.js` — `segEnhancedVertShader` and `segEnhancedFragShader` roller logic.
-- `src/device-uniforms.js` — encode `prototypePreset` into SEG material uniform `pad1`.
+- `src/device-uniforms.ts` — encode `prototypePreset` into SEG material uniform `pad1`.
 
 ## Synchronization note
 

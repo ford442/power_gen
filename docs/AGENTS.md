@@ -100,7 +100,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 
 | Language | Own | Do not put |
 |----------|-----|------------|
-| **JavaScript** | WebGL2 path, procedural geometry builders, scientific-ui gauges, debug-panel UI, some device managers (`device-geometry.js`, …) | New authoritative physics formulas; new device plugin hooks (typed via `devices/types.ts`); dashboard layout (`DEVICE_CONFIG`) |
+| **JavaScript** | WebGL2 path (`renderers/webgl2/**`), procedural geometry builders (`seg-geometry/**`), scientific-ui gauges, `multi-device-shaders.js`, `seg-annotations.js`, `electromagnet-controller.js`, `scientific-data.js` | New authoritative physics formulas; new device plugin hooks (typed via `devices/types.ts`); dashboard layout (`DEVICE_CONFIG`) |
 | **TypeScript** | `main.ts`, `multi-device-visualizer.ts`, device registry/config, `device-instance.ts`, visualizer mixins, WASM bridge, shared url-params/view-lod/device-view, constants (`ValidatedConstants.ts`), `integration.ts`, telemetry, `pipeline-layout-cache.ts`, `devices/types.ts`, core/Quanta strategies | WebGL2 GLSL path; Three.js / gl-matrix (ADR-0003) |
 | **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar/Peltier/MHD/Quanta state) | Browser DOM or GPU API calls |
 | **WGSL** | WebGPU compute + render (`src/shaders/`) | WebGL2 fallback |
@@ -117,6 +117,18 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 - Physics constants SoT: `physics/constants.json` → codegen → `ValidatedConstants.ts` (ADR-0002/0006). Wolfram MCP manager was removed; do not reintroduce it on the default boot path.
 - **Import style:** JS entry paths import TypeScript modules **extensionless** (e.g. `./telemetry-hub` → `telemetry-hub.ts`). TypeScript sources may use a `.js` emit suffix for cross-file references (`moduleResolution: bundler`). Do not use `from '…ts'` in app code.
 
+### TypeScript migration (Wave 6 — complete)
+
+| Item | Status |
+|------|--------|
+| Session-adjacent: `camera-controller`, `multi-device-camera`, `sim-rate-controller`, `energy-pipe`, `performance-profiler`, `post-processing-config`, `seg-lighting-presets`, `seg-layout`, `heron-layout`, `ibl-prefilter` → `.ts` | Done |
+| GPU upload / device plumbing: `device-geometry`, `device-uniforms`, `device-compute`, `device-pipeline-manager`, `device-mesh-layouts`, `devices/device-setup`, `devices/overview-cull`, `devices/particle-budgets`, `devices/layout-packer`, `devices/material-roles` → `.ts` | Done |
+| Twin / UI chrome: `hardware-bridge`, `hardware-panel`, `hardware-twin-badge`, `debug-panel`, `seg-operator-panel` → `.ts` | Done |
+| glTF: `assets/gltf/*` → `.ts`; deleted stub `.d.ts` for `gltf-gpu`, `prop-registry`, `overview-cull`, `layout-packer`, `device-mesh-layouts` | Done |
+| Retire Wolfram status panel UI (ADR-0006 follow-up) | Done |
+
+**Still JavaScript (intentional):** `renderers/webgl2/**` (GLSL path, ADR-0001), `seg-geometry/**` (procedural builders), `scientific-ui/gauges/**` (the Wolfram status gauge was removed, not migrated), `shaders/generators/*` (thin `?raw` re-exports), `shaders/wgsl-include.js` / Vite plugin, `multi-device-shaders.js`, `seg-annotations.js`, `electromagnet-controller.js`, `devices/register-plugins.js`, `scientific-data.js`.
+
 ### TypeScript migration (Wave 5 — complete)
 
 | Item | Status |
@@ -129,7 +141,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 | `assets/scene/scene-node.js` + shared `url-params` / `view-lod` / `device-view` → `.ts` | Done |
 | Delete `WolframMCPManager` from default boot; ADR-0006 updated | Done |
 
-**Still JavaScript (intentional for now):** WebGL2 path, procedural geometry builders, scientific-ui gauges, debug-panel UI, some device managers (`device-geometry.js`, uniforms/compute/pipeline managers).
+**Still JavaScript (as of Wave 5):** WebGL2 path, procedural geometry builders, scientific-ui gauges, debug-panel UI, some device managers (`device-geometry.js`, uniforms/compute/pipeline managers) — see Wave 6 above for the follow-up that migrated debug-panel and the device managers.
 
 ### TypeScript migration (Wave 4 — complete)
 
@@ -171,7 +183,7 @@ power_gen/
 │   ├── pipeline-layout-cache.ts  # Explicit layouts + BindGroupLayoutName
 │   ├── device-instance.ts / devices/  # Registry, config, plugins, mixins
 │   ├── visualizer/               # Frame loop / scene / geometry mixins (.ts)
-│   ├── energy-pipe.js            # Overview energy transfer viz (+ network)
+│   ├── energy-pipe.ts            # Overview energy transfer viz (+ network)
 │   ├── telemetry-hub.ts
 │   ├── telemetry/                # Export, replay, sampler, schema (all .ts)
 │   ├── seg-operator-state.ts
@@ -256,17 +268,17 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 | `src/pipeline-layout-cache.ts` | Shared bind-group layouts + pipelines |
 | `src/device-instance.ts` + `devices/*` | Per-device update/render mixins, registry plugins, `device-config.ts` |
 | `src/visualizer/*.ts` | Object.assign mixins: render-loop, scene-setup, geometry, glTF, … |
-| `src/energy-pipe.js` | Overview Bézier energy transfer (visual; `EnergyNetwork` in `renderers/shared/`) |
-| `src/performance-profiler.js` | FPS, auto-quality, optional GPU timestamps, per-device CPU times |
-| `src/sim-rate-controller.js` | Speed mult / substeps; couples to quality under load |
+| `src/energy-pipe.ts` | Overview Bézier energy transfer (visual; `EnergyNetwork` in `renderers/shared/`) |
+| `src/performance-profiler.ts` | FPS, auto-quality, optional GPU timestamps, per-device CPU times |
+| `src/sim-rate-controller.ts` | Speed mult / substeps; couples to quality under load |
 | `src/telemetry-hub.ts` | Single telemetry write path for gauges / operator |
 | `src/seg-operator-state.ts` | Authoritative SEG plant (drive, RPM, V/I/P) |
-| `src/seg-layout.js` | Layout presets (Searl / Roschin / legacy) — data-driven roller counts |
+| `src/seg-layout.ts` | Layout presets (Searl / Roschin / legacy) — data-driven roller counts |
 | `src/assets/scene/scene-node.ts` | Formal scene graph node (ADR-0005) |
 | `src/assets/gltf/*` | Hand-rolled glTF loader + lazy prop registry — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
 | `src/integration.ts` | Typed physics uniforms + scientific overlay hooks |
-| `src/wasm/seg-physics-bridge.js` | Optional WASM step + zero-copy views |
-| `src/hardware-bridge.js` / `hardware-panel.js` | Web Serial + mock twin (**experimental**) |
+| `src/wasm/seg-physics-bridge.ts` | Optional WASM step + zero-copy views |
+| `src/hardware-bridge.ts` / `hardware-panel.ts` | Web Serial + mock twin (**experimental**) |
 | `src/renderers/shared/*` | CPU particle + plant steps for both backends |
 
 ---
@@ -275,7 +287,7 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 
 | Piece | Status |
 |-------|--------|
-| `src/hardware-bridge.js` + panel | **Experimental** — mock works (`?mockHardware=1`); real Web Serial depends on browser + device |
+| `src/hardware-bridge.ts` + panel | **Experimental** — mock works (`?mockHardware=1`); real Web Serial depends on browser + device |
 | `firmware/seg-driver/` | **Experimental** Arduino-style coil/sensor sketch; not required for the web app |
 | Safety | Disconnect coasts coils; see [`hardware_connection.md`](./hardware_connection.md) |
 
@@ -307,8 +319,8 @@ npm run wasm:build    # scripts/build-wasm.sh
 
 ## Performance (overview)
 
-- Auto-quality scales particles; overview applies **view LOD** (`renderers/shared/view-lod.js`).
-- **Per-device particle budgets** by quality tier live in `devices/particle-budgets.js`
+- Auto-quality scales particles; overview applies **view LOD** (`renderers/shared/view-lod.ts`).
+- **Per-device particle budgets** by quality tier live in `devices/particle-budgets.ts`
   (plugins default lower than SEG/core; `resolveScaledParticleCount` caps draws).
 - Overview **mesh LOD ladder**: `full → simplified → proxy → skip` via `getMeshDrawDetail`
   (non-SEG cylinder instance prefix; SEG still uses layout `decimateCount` + roller cull).
@@ -386,6 +398,6 @@ as the graphics/content epic once the plant stays maintainable.
 
 ## Code style (short)
 
-- ES modules with `.js` import suffixes; async WebGPU init.
+- ES modules; async WebGPU init. Import extension convention: see "Import style" above.
 - Prefer explicit WGSL types and documented bindings over `layout: 'auto'`.
-- Physics numbers: [`physics/constants.json`](../physics/constants.json) → codegen ([`docs/PHYSICS_CONSTANTS.md`](PHYSICS_CONSTANTS.md)). Device identity: [`physics/devices.json`](../physics/devices.json) → `npm run codegen:catalog` ([`MODE_MATRIX.md`](MODE_MATRIX.md)). Layout presets stay in `seg-layout.js`.
+- Physics numbers: [`physics/constants.json`](../physics/constants.json) → codegen ([`docs/PHYSICS_CONSTANTS.md`](PHYSICS_CONSTANTS.md)). Device identity: [`physics/devices.json`](../physics/devices.json) → `npm run codegen:catalog` ([`MODE_MATRIX.md`](MODE_MATRIX.md)). Layout presets stay in `seg-layout.ts`.

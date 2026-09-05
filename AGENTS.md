@@ -37,13 +37,13 @@ No backend, database, or server-side service.
 
 ### C++ WASM physics path
 
-Core: `cpp/src/sim_core.cpp`. Bridge: `src/wasm/seg-physics-bridge.js`.  
+Core: `cpp/src/sim_core.cpp`. Bridge: `src/wasm/seg-physics-bridge.ts`.  
 Enable: `?wasmPhysics=1` (or `?wasm=1`). Zero-copy views via `HEAPF32`.  
 Docs: `cpp/README.md`, ADR-0002.
 
 ### Hardware digital twin (experimental)
 
-- Bridge/UI: `hardware-bridge.js`, `hardware-panel.js` — **experimental**
+- Bridge/UI: `hardware-bridge.ts`, `hardware-panel.ts` — **experimental**
 - Demo without serial: `?mockHardware=1`
 - Firmware under `firmware/seg-driver/` is **experimental**, not required for the app
 - Spec: `docs/hardware_connection.md`

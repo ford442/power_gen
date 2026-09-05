@@ -3,7 +3,7 @@
 The visualizer mixes **layout-driven procedural geometry** (rollers, rings, flux lines)
 with **loaded glTF 2.0 meshes** (housing, coil former, future Quanta product CAD).
 
-Formal scene graph: `src/assets/scene/scene-node.js` (`SceneNode`) — ADR-0005.
+Formal scene graph: `src/assets/scene/scene-node.ts` (`SceneNode`) — ADR-0005.
 glTF trees are built via `buildGltfScene()` → `GltfSceneNode extends SceneNode`.
 
 ## When glTF is used
@@ -19,7 +19,7 @@ Force housing on: `?gltfHousing=1`
 
 ## Prop registry (lazy multi-prop)
 
-Canonical registry: `src/assets/gltf/prop-registry.js` (re-exported from `parse-gltf-housing.js`).
+Canonical registry: `src/assets/gltf/prop-registry.ts` (re-exported from `parse-gltf-housing.ts`).
 
 | Id | Load policy | Material override | Notes |
 |----|-------------|-------------------|-------|
@@ -29,7 +29,7 @@ Canonical registry: `src/assets/gltf/prop-registry.js` (re-exported from `parse-
 | `basePlate` | `focus` | ring 13 | Placeholder — `enabled: false` until GLB exists |
 
 `resolvePropMaterial(prop, drawable)` applies registry overrides (ring index, color,
-emissive scale) over glTF extras. Runtime load/dispose: `setup-gltf.js`
+emissive scale) over glTF extras. Runtime load/dispose: `setup-gltf.ts`
 `ensureGltfPropsForView()` from `onModeChange`.
 
 ## Instancing policy (procedural vs static CAD)
@@ -108,7 +108,7 @@ npm run generate:seg-gltf
 
 Use a small invisible **pick-proxy** mesh (see `annotation_pick_proxy` in `housing-shell.glb`) on annotation nodes. Proxies are ray-pick targets only — not drawn at runtime.
 
-4. Drop the file under `src/public/assets/seg/` and register it in `SEG_GLTF_PROPS` (`prop-registry.js`).
+4. Drop the file under `src/public/assets/seg/` and register it in `SEG_GLTF_PROPS` (`prop-registry.ts`).
 5. `materialRingIndex` maps to the seg-enhanced PBR table (`ringIndex` in the instance buffer):
    - `11.0` — structural aluminum (default housing)
    - `12.0` — coil former / phenolic-ish
@@ -118,26 +118,26 @@ Use a small invisible **pick-proxy** mesh (see `annotation_pick_proxy` in `housi
 ## Runtime pipeline
 
 ```
-physics/constants.json     seg-layout.js PRESET_DEFS
+physics/constants.json     seg-layout.ts PRESET_DEFS
         │                          │
         ▼                          ▼
  procedural rollers/rings    layout worldScale + frameDims
         │                          │
         └──────────┬─────────────────┘
                    ▼
-         assets/gltf/gltf-loader.js  →  SceneNode graph  →  WebGPU buffers
+         assets/gltf/gltf-loader.ts  →  SceneNode graph  →  WebGPU buffers
                    │
                    ▼
     seg-enhanced PBR pipeline (same as enhanced SEG meshes)
 ```
 
-- **Loader:** `src/assets/gltf/gltf-loader.js` — hand-rolled GLB v2 (no `@loaders.gl` dependency;
+- **Loader:** `src/assets/gltf/gltf-loader.ts` — hand-rolled GLB v2 (no `@loaders.gl` dependency;
   keeps Pages bundle small and matches ADR-0003 no-Three.js stance).
-- **Scene graph:** `scene-node.js` + `gltf-scene.js` — hierarchy, visibility, anchor baking from `extras.power_gen`, `extras.annotationId` collection.
-- **Prop registry:** `prop-registry.js` — housing + coil former (+ stand / base placeholders).
-- **Picking:** `gltf-pick.js` + `gltf-housing-pick.js` — CPU ray/triangle pick on annotated housing proxies (WebGPU).
-- **GPU upload:** `gltf-gpu.js` — 8-float vertices (pos+normal+uv), 48-byte instances.
-- **Setup:** `visualizer/setup-gltf.js` — deferred until SEG focus; dispose focus-only props on leave.
+- **Scene graph:** `scene-node.ts` + `gltf-scene.ts` — hierarchy, visibility, anchor baking from `extras.power_gen`, `extras.annotationId` collection.
+- **Prop registry:** `prop-registry.ts` — housing + coil former (+ stand / base placeholders).
+- **Picking:** `gltf-pick.ts` + `gltf-housing-pick.ts` — CPU ray/triangle pick on annotated housing proxies (WebGPU).
+- **GPU upload:** `gltf-gpu.ts` — 8-float vertices (pos+normal+uv), 48-byte instances.
+- **Setup:** `visualizer/setup-gltf.ts` — deferred until SEG focus; dispose focus-only props on leave.
 - **Draw:** `DeviceRenderMixin.renderGltfHousing` — SEG focus only; procedural rollers unchanged.
 
 ## Sim-driven material overrides
@@ -172,7 +172,7 @@ ADR-0005 allows evaluating a **parser-only** package (not a scene engine). Curre
 
 | Option | Approx. gzip (parser) | Fits ADR-0003? | Notes |
 |--------|----------------------|----------------|-------|
-| Hand-rolled `gltf-loader.js` | ~few KB in main chunk | Yes | Ships today; covers TRIANGLES + POSITION/NORMAL/UV + extras |
+| Hand-rolled `gltf-loader.ts` | ~few KB in main chunk | Yes | Ships today; covers TRIANGLES + POSITION/NORMAL/UV + extras |
 | `@loaders.gl/gltf` (parser subset) | typically tens of KB+ | Parser-only OK | Adds deps / tree-shaking risk; no clear win for current placeholder GLBs |
 | Three.js GLTFLoader | large | **No** | Banned |
 

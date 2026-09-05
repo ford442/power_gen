@@ -18,8 +18,8 @@ WebGPU; it does **not** implement every WebGPU visual feature.
 | `segOperator` START/STOP + drive | Yes → non-zero RPM/V/I/P |
 | TelemetryHub publish each frame | Yes (same as WebGPU) |
 | Mode buttons (`window.setMode`) | Yes — camera focus + device reset + hub view |
-| SEG layout presets | Yes — roller orbit counts/radii from `seg-layout.js` |
-| `prototype` URL param | Yes — pole tint + Roschin layout when `lab` (shared `url-params.js`) |
+| SEG layout presets | Yes — roller orbit counts/radii from `seg-layout.ts` |
+| `prototype` URL param | Yes — pole tint + Roschin layout when `lab` (shared `url-params.ts`) |
 | `anomalousEffectsEnabled` | Yes — parsed from `prototype=lab`; toggle in debug panel (walls WebGPU-only) |
 | Heron layout presets | Yes |
 | Particle count slider | Yes (`setParticleCount`) |
@@ -43,7 +43,7 @@ Do **not** expect these under WebGL2:
 | Full energy-pipe **particle** billboards | `EnergyPipe` + WGSL (WebGL2 uses lines) |
 | GPU timestamp queries | `?gpuTiming=1` |
 | Hardware bridge / electromagnet coils | WebGPU-only hooks |
-| **glTF CAD props** (housing, coil former, …) | `setup-gltf.js` / `prop-registry.js` — **skipped** (see below) |
+| **glTF CAD props** (housing, coil former, …) | `setup-gltf.ts` / `prop-registry.ts` — **skipped** (see below) |
 
 ## glTF / CAD props (skipped or reduced LOD)
 

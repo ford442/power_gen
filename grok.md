@@ -16,9 +16,14 @@
 ## C++ WASM Physics Path
 A high-precision C++ (Emscripten) physics path runs alongside the JS/WebGPU implementation:
 - Enable with `?wasmPhysics=1` or the debug panel toggle (persisted via localStorage).
-- Recommended consumer: `src/wasm/seg-physics-bridge.js` (also `src/wasm/sim.ts`).
+- Recommended consumer: `src/wasm/seg-physics-bridge.ts` (also `src/wasm/sim.ts`).
 - Focus: SEG-mode rollers with RK4 integration (exact dipole B-field calcs).
-- SEG uses full RK4 roller dynamics; Heron, Kelvin, Solar, Peltier, and MHD each have their own dedicated WASM plant too (`?wasmPhysics=1`) — none of the core devices are stubs. Particle buffer export and per-ring torques are supported for sync/export scenarios.
+- SEG uses full RK4 roller dynamics; Heron, Kelvin, Solar, Peltier, MHD, Magnetic Levitation,
+  Homopolar Generator, Mutual Induction (transformer), Van de Graaff, and Hall-Effect Bench each
+  have their own dedicated WASM plant too (`?wasmPhysics=1`, `SimMode` 0–10 per
+  `physics/devices.json`'s `wasmMode`) — none of the core or Quanta devices are stubs. Pulse Coil
+  and the Halbach field visualizer are JS-only (no WASM plant; `wasmMode: null`). Particle buffer
+  export and per-ring torques are supported for sync/export scenarios.
 
 ## WebGL2-First Workflow (Recommended for Graphics Work)
 
@@ -31,7 +36,7 @@ When iterating on geometry, materials, or particles:
 ### WebGPU ↔ WebGL2 mapping
 | WebGPU | WebGL2 fallback |
 |--------|-----------------|
-| `passes/particle-compute.wgsl` (GPU) | `shared/particle-physics.js` (CPU) |
+| `passes/particle-compute.wgsl` (GPU) | `shared/particle-physics.ts` (CPU) |
 | Storage buffers | `Float32Array` + `bufferSubData` |
 | Bind groups | Uniform blocks + attrib divisors |
 | `firstInstance` offsets | Per-draw instance ranges |

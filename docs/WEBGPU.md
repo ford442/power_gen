@@ -135,7 +135,7 @@ See **`docs/BINDINGS.md`**. Layouts live in `src/pipeline-layout-cache.ts`; devi
 
 - `src/webgpu-manager.ts` — adapter/device/canvas/depth hooks  
 - `src/pipeline-layout-cache.ts` — explicit layouts + shared pipelines  
-- `src/performance-profiler.js` — timing + tier (consumes adapter info)  
-- `src/debug-panel.js` — GPU timing toggle  
+- `src/performance-profiler.ts` — timing + tier (consumes adapter info)  
+- `src/debug-panel.ts` — GPU timing toggle  
 - `src/multi-device-visualizer.ts` — depth textures, render pass attachment  
-- `src/device-pipeline-manager.js` — attaches shared pipelines per device  
+- `src/device-pipeline-manager.ts` — attaches shared pipelines per device  

@@ -144,8 +144,8 @@ More sensors can use pin-change interrupts on other digital pins.
 
 | Piece | Path |
 |-------|------|
-| Bridge | `src/hardware-bridge.js` |
-| Panel | `src/hardware-panel.js` (left sidebar) |
+| Bridge | `src/hardware-bridge.ts` |
+| Panel | `src/hardware-panel.ts` (left sidebar) |
 | Commutation preview | `src/electromagnet-controller.js` |
 | Hub field | `TelemetryHub` → `hardwareTwin.shadowResidual` |
 
