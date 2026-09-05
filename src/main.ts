@@ -40,6 +40,7 @@ import {
 } from './heron-layout';
 import { setTransformerLeakage } from './devices/quanta/transformer.js';
 import { setHallCarrierType } from './devices/quanta/hall-effect.js';
+import { setLorentzFieldT, LORENTZ } from './devices/quanta/lorentz-sled.js';
 import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
 import { ScientificUIManager } from './scientific-ui/index.js';
 
@@ -72,7 +73,8 @@ const MODE_DESCRIPTIONS: Record<string, string> = {
   'pulse-coil': 'Quanta Magnetics — Pulse Coil (classroom R–L): capacitor-bank discharge through a series inductor. Watch coil current, cap voltage, peak B from amp-turns, and armature travel proxy. JS plant only (no WASM SimMode). Educational model — not a projectile or weapons simulation.',
   transformer: 'Quanta Magnetics — Mutual Induction: two-winding classroom transformer with coupling k, primary drive, and secondary load. Toggle leakage vs ideal coupling; watch Vp/Vs/Ip/Is and flux. JS phasor fallback; `?wasmPhysics=1` uses the C++ coupled-inductor ODE.',
   vdg: 'Quanta Magnetics — Van de Graaff Generator: belt-charged isolated sphere with leakage and a spark gap. Watch sphere voltage, belt speed, charge, and spark rate. Educational model — classroom electrostatics, not a high-voltage engineering design. JS charge/voltage fallback; `?wasmPhysics=1` uses the C++ belt-charge ODE.',
-  hall: 'Quanta Magnetics — Hall-Effect Bench: current-carrying strip in a transverse B field. Toggle semiconductor vs. metal carrier density; watch Hall voltage, current, field, and Hall coefficient. Educational model — not a calibrated metrology instrument. JS algebraic fallback; `?wasmPhysics=1` uses the C++ plant.'
+  hall: 'Quanta Magnetics — Hall-Effect Bench: current-carrying strip in a transverse B field. Toggle semiconductor vs. metal carrier density; watch Hall voltage, current, field, and Hall coefficient. Educational model — not a calibrated metrology instrument. JS algebraic fallback; `?wasmPhysics=1` uses the C++ plant.',
+  'lorentz-sled': 'Quanta Magnetics — Lorentz Rail Sled: a sliding armature bridges two rails in a transverse B field, so the drive current pushes it with F = I ℓ × B against friction and its own back-EMF. Set the bench field with the B slider; watch sled speed, armature current, force, and position. Educational Lorentz-force model — a low-voltage bench rail motor, not a railgun design tool. JS fallback mirrors the C++ plant; `?wasmPhysics=1` uses the C++ ODE.'
 };
 
 window.setMode = (mode: string): void => {
@@ -99,6 +101,8 @@ window.setMode = (mode: string): void => {
   if (scope) scope.style.display = mode === 'pulse-coil' ? 'block' : 'none';
   const hallPanel = document.getElementById('hall-controls');
   if (hallPanel) hallPanel.style.display = mode === 'hall' ? 'block' : 'none';
+  const sledPanel = document.getElementById('lorentz-sled-controls');
+  if (sledPanel) sledPanel.style.display = mode === 'lorentz-sled' ? 'block' : 'none';
 };
 
 /** Classroom toggle: ideal high-k vs leakage coupling on the transformer demo. */
@@ -117,6 +121,22 @@ window.setHallCarrierType = (carrier: 'semiconductor' | 'metal'): void => {
   document.querySelectorAll<HTMLElement>('[data-hall-carrier]').forEach((btn) => {
     btn.classList.toggle('active', carrier === btn.dataset.hallCarrier);
   });
+};
+
+/**
+ * Bench-field slider (T) for the Lorentz rail sled. B is a local bench
+ * parameter here, not a live coupling to halbach-viz / mhd field estimates.
+ */
+window.setLorentzFieldT = (fieldT: number): void => {
+  const t = Math.max(0, Math.min(LORENTZ.fieldTMax, Number(fieldT) || 0));
+  const phys = window.multiVisualizer?.devices?.['lorentz-sled']?.physicsState;
+  if (phys) setLorentzFieldT(phys, t);
+  // The render loop pushes physicsState.lorentzFieldT into the C++ plant each
+  // frame when ?wasmPhysics=1, so there is no separate bridge call here.
+  const readout = document.getElementById('lorentzFieldValue');
+  if (readout) readout.textContent = `${t.toFixed(2)} T`;
+  const slider = document.getElementById('lorentzFieldSlider') as HTMLInputElement | null;
+  if (slider && slider.value !== String(t)) slider.value = String(t);
 };
 
 function syncSEGLayoutUI(): void {

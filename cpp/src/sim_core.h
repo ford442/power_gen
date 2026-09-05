@@ -276,6 +276,30 @@ struct HallState {
     float drive{0.f};
 };
 
+/// Lorentz rail sled: series R-L drive loop closed through a sliding
+/// armature. L dI/dt = V - I R - B l v ; m dv/dt = I l B - friction.
+/// Mirrors LORENTZ in devices/quanta/lorentz-sled.ts. Educational
+/// Lorentz-force model — no projectile or ballistics state exists here.
+struct LorentzState {
+    float currentA{0.f};    // armature / loop current, A
+    float velocityMps{0.f}; // sled speed along the rails, m/s
+    float positionM{0.f};   // position along the rails, m (wraps at railLengthM)
+    float forceN{0.f};      // derived Lorentz force I*l*B, N
+    float fieldT{0.8f};     // local bench field B, T (slider parameter)
+    float fieldTMax{1.2f};
+    float railLengthM{2.0f};
+    float railGapM{0.25f};   // l — rail separation the armature bridges
+    float massKg{0.15f};
+    float supplyVMax{12.f};
+    float rOhm{0.6f};
+    float lHenry{6.0e-5f};   // tau = L/R ~ 100 us -> analytic RL update
+    float frictionMu{0.25f};
+    float viscousNsm{0.3f};
+    float vEpsMps{0.05f};    // tanh regularisation width for Coulomb friction
+    float vMaxMps{12.f};     // display normaliser (energyLevel)
+    float drive{0.f};
+};
+
 // ─────────────────────────────────────────────────────────────
 // Lab energy bus (ADR-0004 Phase B) — declarative edges + budget
 // ─────────────────────────────────────────────────────────────
@@ -396,6 +420,13 @@ public:
     bool  getHallCarrierMetal() const { return _hall.carrierMetal; }
     void  setHallCarrierMetal(bool metal);
 
+    float getLorentzSledVms() const { return _lorentz.velocityMps; }
+    float getLorentzCurrentA() const { return _lorentz.currentA; }
+    float getLorentzFieldT() const { return _lorentz.fieldT; }
+    float getLorentzForceN() const { return _lorentz.forceN; }
+    float getLorentzPositionM() const { return _lorentz.positionM; }
+    void  setLorentzFieldT(float fieldT);
+
     // ── Accessors ─────────────────────────────────────────────
     float getOmega()        const { return _rollers[0].omega; }
     float getRPM()          const { return _rollers[0].omega * 60.f / PhysicsConstants::TAU; }
@@ -472,6 +503,7 @@ private:
     TransformerState _transformer;
     VdgState         _vdg;
     HallState        _hall;
+    LorentzState     _lorentz;
 
     // Lab energy bus state
     std::vector<EnergyNetworkEdgeSpec> _networkEdges;
@@ -490,6 +522,7 @@ private:
     void _stepTransformer(float dt);
     void _stepVdg(float dt);
     void _stepHall(float dt);
+    void _stepLorentz(float dt);
     void _stepSegRollers(float dt);
 };
 

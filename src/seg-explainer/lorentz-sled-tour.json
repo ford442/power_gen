@@ -1,0 +1,80 @@
+{
+  "tourVersion": 1,
+  "id": "lorentz-sled-intro",
+  "title": "Lorentz Rail Sled Tour",
+  "description": "Guided walkthrough of the drive current, the bench field, the Lorentz force, and the motion it produces.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 6,
+      "view": "lorentz-sled",
+      "camera": { "position": [0, 2.6, 9], "target": [0, 0.2, 0] },
+      "title": "A rail motor, not a railgun",
+      "body": "Two rails, a sliding armature, and a low-voltage bench supply. Everything you see here is the classroom Lorentz force F = I ℓ × B — there is no projectile, no muzzle energy, and no ballistics anywhere in this model.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "current",
+      "durationSec": 8,
+      "view": "lorentz-sled",
+      "camera": { "position": [-1.6, 1.2, 3.4], "target": [-0.4, 0, 0] },
+      "title": "Step 1 — the drive current",
+      "body": "The supply pushes current out along one rail, across the armature, and back along the other. The loop is a series R–L circuit: raise the drive slider and watch armature current climb toward V/R.",
+      "highlights": ["lorentz-rails"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "armature-current"
+    },
+    {
+      "id": "field",
+      "durationSec": 8,
+      "view": "lorentz-sled",
+      "camera": { "position": [0, 2.0, 2.6], "target": [0, 0.1, 0] },
+      "title": "Step 2 — the transverse field",
+      "body": "The pole pieces above and below the track set a transverse field B across the rails. Move the B slider: this is a local bench parameter, not a live reading from the Halbach or MHD devices.",
+      "highlights": ["lorentz-poles"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "bench-field"
+    },
+    {
+      "id": "force",
+      "durationSec": 8,
+      "view": "lorentz-sled",
+      "camera": { "position": [0.9, 0.9, 2.2], "target": [0, 0, 0] },
+      "title": "Step 3 — F = I ℓ × B",
+      "body": "Current I crossing a rail gap ℓ in field B feels a force F = I ℓ B along the track. Halve the field and the force halves with it — the force telemetry follows the product, not either factor alone.",
+      "highlights": ["lorentz-armature"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "lorentz-force"
+    },
+    {
+      "id": "motion",
+      "durationSec": 8,
+      "view": "lorentz-sled",
+      "camera": { "position": [-0.6, 1.4, 4.0], "target": [0, 0, 0] },
+      "title": "Step 4 — motion, friction, and back-EMF",
+      "body": "The sled accelerates until friction and its own back-EMF (B ℓ v, which subtracts from the supply and cuts the current) balance the drive. Speed levels off well below anything a real launcher would reach — that terminal balance is the point of the demo.",
+      "highlights": ["lorentz-armature"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "back-emf"
+    },
+    {
+      "id": "honesty",
+      "durationSec": 7,
+      "view": "lorentz-sled",
+      "camera": { "position": [0, 3.0, 7.0], "target": [0, 0, 0] },
+      "title": "What this model is not",
+      "body": "Lumped circuit plus rigid body: no field solver, no rail erosion, no contact physics, no projectile. Reported position wraps at the end of the 2 m track so the bench reads as a loop. Educational Lorentz force only — not a railgun design tool.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

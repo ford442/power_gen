@@ -95,6 +95,30 @@ export const SEG_GLOSSARY = {
     body: 'Semiconductors have carrier densities ~1e21 m⁻³ (large Hall voltage); metals ~1e28 m⁻³ (Hall voltage nearly vanishes at the same current and field).',
     unit: 'm⁻³',
     source: 'devices/quanta/hall-effect.ts HALL_CARRIER_PROFILES'
+  },
+  'lorentz-force': {
+    title: 'Lorentz force on a current (F = I ℓ × B)',
+    body: 'A straight conductor of length ℓ carrying current I across a uniform transverse field B feels a force F = I·ℓ·B along the rails. Classroom rail-motor force only — not a launcher or weapons model.',
+    unit: 'N',
+    source: 'Griffiths ch. 5 / devices/quanta/lorentz-sled.ts'
+  },
+  'armature-current': {
+    title: 'Armature current (I)',
+    body: 'Current in the series R–L drive loop closed through the sliding armature. It rises toward (V − B·ℓ·v)/R, so it falls as the sled speeds up.',
+    unit: 'A',
+    source: 'devices/quanta/lorentz-sled.ts'
+  },
+  'back-emf': {
+    title: 'Back-EMF (B·ℓ·v)',
+    body: 'The moving armature is itself a rod sweeping through B, so it generates a voltage that opposes the supply. Terminal speed is where back-EMF plus friction balance the drive.',
+    unit: 'V',
+    source: 'devices/quanta/lorentz-sled.ts'
+  },
+  'bench-field': {
+    title: 'Bench field (B)',
+    body: 'The transverse field across the rail gap, set by the local B slider on this device. It is a bench parameter, not a live reading from halbach-viz or mhd.',
+    unit: 'T',
+    source: 'devices/quanta/lorentz-sled.ts LORENTZ.fieldTDefault'
   }
 };
 
@@ -113,7 +137,10 @@ export const HIGHLIGHT_GLOSSARY = {
   'vdg-spark': 'corona',
   'hall-strip': 'hall-voltage',
   'hall-probe': 'hall-coefficient',
-  'hall-carrier': 'carrier-density'
+  'hall-carrier': 'carrier-density',
+  'lorentz-rails': 'armature-current',
+  'lorentz-armature': 'lorentz-force',
+  'lorentz-poles': 'bench-field'
 };
 
 export function glossaryForHighlight(highlightId) {

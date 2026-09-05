@@ -33,6 +33,7 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 | `transformer` | 10 | 8 (`SIM_MODE_TRANSFORMER`) | `transformerVp`, `transformerVs`, `transformerIpA`, `transformerIsA`, `transformerK`, `transformerFluxN` | WASM coupled-inductor ODE (?wasmPhysics=1); JS phasor fallback |
 | `vdg` | 12 | 9 (`SIM_MODE_VDG`) | `vdgVoltage`, `vdgBeltMps`, `vdgChargeC`, `vdgSparkHz` | WASM belt-charge/sphere-capacitance/spark-gap ODE (?wasmPhysics=1); JS fallback |
 | `hall` | 13 | 10 (`SIM_MODE_HALL`) | `hallVoltage`, `hallCurrent`, `hallFieldT`, `hallCoeff` | WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback |
+| `lorentz-sled` | 14 | 11 (`SIM_MODE_LORENTZ_SLED`) | `lorentzSledVms`, `lorentzCurrentA`, `lorentzFieldT`, `lorentzForceN`, `lorentzPositionM` | WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it |
 
 ## How to add a device
 

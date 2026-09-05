@@ -42,6 +42,7 @@ void SEGSimulator::setDrive(float drive) {
     _transformer.drive = _drive;
     _vdg.drive = _drive;
     _hall.drive = _drive;
+    _lorentz.drive = _drive;
 }
 
 void SEGSimulator::stepWithPerRingTorques(float dt) {
@@ -78,6 +79,9 @@ void SEGSimulator::stepWithPerRingTorques(float dt) {
             break;
         case SIM_MODE_HALL:
             _stepHall(dt);
+            break;
+        case SIM_MODE_LORENTZ_SLED:
+            _stepLorentz(dt);
             break;
         default:
             break;
@@ -131,6 +135,11 @@ float SEGSimulator::estimatePower(float loadTorque) const {
         // bench's own power draw is not the pedagogical point, V_H is).
         return _hall.current * _hall.current * 0.5f;
     }
+    if (_mode == SIM_MODE_LORENTZ_SLED) {
+        // Mechanical output of the rail motor: F·v (the useful work done on
+        // the sled), not the total supply draw.
+        return std::abs(_lorentz.forceN * _lorentz.velocityMps);
+    }
     if (_numRollers == 0) return 0.f;
     return loadTorque * _rollers[0].omega * static_cast<float>(_numRollers) / 3.f;
 }
@@ -161,6 +170,9 @@ float SEGSimulator::getEnergyLevel() const {
             return clampf(_vdg.voltage / std::max(_vdg.vBreak, 1.f), 0.f, 1.f);
         case SIM_MODE_HALL:
             return clampf(_hall.current / std::max(_hall.iMaxA, 0.01f), 0.f, 1.f);
+        case SIM_MODE_LORENTZ_SLED:
+            return clampf(std::abs(_lorentz.velocityMps)
+                          / std::max(_lorentz.vMaxMps, 0.01f), 0.f, 1.f);
         default:
             return clampf(_rollers[0].omega / 50.f, 0.f, 1.f);
     }

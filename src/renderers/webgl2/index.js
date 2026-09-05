@@ -23,6 +23,7 @@ import { buildPulseCoilMesh } from '../../devices/quanta/pulse-coil';
 import { buildTransformerMesh } from '../../devices/quanta/transformer';
 import { buildVdgMesh } from '../../devices/quanta/van-de-graaff';
 import { buildHallMesh } from '../../devices/quanta/hall-effect';
+import { buildLorentzSledMesh, LORENTZ } from '../../devices/quanta/lorentz-sled';
 import { buildPeltierMesh } from '../../devices/core/peltier-mesh';
 import { buildMhdMesh } from '../../devices/core/mhd-mesh';
 import { exposeRenderer, RENDERER_WEBGL2 } from '../renderer-selector.js';
@@ -530,7 +531,7 @@ export class WebGL2MultiDeviceVisualizer {
 
     if (useWasm) {
       const loadT = 0.01 * (1 - drive * 0.5);
-      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall'].includes(focus)) {
+      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall', 'lorentz-sled'].includes(focus)) {
         segWasm.setMode(focus);
       }
       if (focus === 'transformer') {
@@ -542,6 +543,11 @@ export class WebGL2MultiDeviceVisualizer {
         const metal = (this.devices.hall?.physics?.hallCarrierType
           ?? this.devices.hall?.physicsState?.hallCarrierType) === 'metal';
         segWasm.setHallCarrierMetal?.(metal);
+      }
+      if (focus === 'lorentz-sled') {
+        const fieldT = this.devices['lorentz-sled']?.physics?.lorentzFieldT
+          ?? this.devices['lorentz-sled']?.physicsState?.lorentzFieldT;
+        if (fieldT != null) segWasm.setLorentzFieldT?.(fieldT);
       }
       for (const subDt of simSteps) {
         if (subDt <= 0) continue;
@@ -667,6 +673,18 @@ export class WebGL2MultiDeviceVisualizer {
             hall.energyLevel = plant.energyLevel ?? 0;
             hall._wasmPlantActive = true;
           }
+        } else if (focus === 'lorentz-sled') {
+          const plant = segWasm.getModePlant();
+          const sled = this.devices['lorentz-sled']?.physics;
+          if (sled && plant?.mode === 'lorentz-sled') {
+            sled.lorentzSledVms = plant.sledVms ?? 0;
+            sled.lorentzCurrentA = plant.currentA ?? 0;
+            sled.lorentzFieldT = plant.fieldT ?? 0;
+            sled.lorentzForceN = plant.forceN ?? 0;
+            sled.lorentzPositionM = plant.positionM ?? 0;
+            sled.energyLevel = plant.energyLevel ?? 0;
+            sled._wasmPlantActive = true;
+          }
         }
       }
     } else if (!replayLocked) {
@@ -706,7 +724,8 @@ export class WebGL2MultiDeviceVisualizer {
         const wasmOwnsFocus = useWasm && device.id === focus && (
           coreWasmModes.includes(device.id)
           || ((device.id === 'maglev' || device.id === 'homopolar' || device.id === 'transformer'
-              || device.id === 'vdg' || device.id === 'hall')
+              || device.id === 'vdg' || device.id === 'hall'
+              || device.id === 'lorentz-sled')
             && device.physics._wasmPlantActive)
         );
         if (!wasmOwnsFocus && !replayLocked) {
@@ -772,6 +791,10 @@ export class WebGL2MultiDeviceVisualizer {
           vdgSparkHz: device.physics.vdgSparkHz,
           hallCurrent: device.physics.hallCurrent,
           hallFieldT: device.physics.hallFieldT,
+          lorentzSledVms: device.physics.lorentzSledVms,
+          lorentzCurrentA: device.physics.lorentzCurrentA,
+          lorentzFieldT: device.physics.lorentzFieldT,
+          lorentzPositionM: device.physics.lorentzPositionM,
           simClock: this.simClock,
           speedMult: speed
         });
@@ -980,6 +1003,13 @@ if (device.id === 'seg') {
     const fieldNorm = Math.min(1, (device.physics.hallFieldT ?? 0) / 0.65);
     this.meshRenderer.drawPluginDevice(
       viewProj, pos, buildHallMesh(currentNorm, fieldNorm).cylinders(), renderOpts
+    );
+  } else if (drawMeshes && device.id === 'lorentz-sled') {
+    const posNorm = ((device.physics.lorentzPositionM ?? 0) % LORENTZ.railLengthM) / LORENTZ.railLengthM;
+    const currentNorm = Math.min(1, Math.abs(device.physics.lorentzCurrentA ?? 0) / LORENTZ.iMaxA);
+    const fieldNorm = Math.min(1, (device.physics.lorentzFieldT ?? 0) / LORENTZ.fieldTMax);
+    this.meshRenderer.drawPluginDevice(
+      viewProj, pos, buildLorentzSledMesh(posNorm, currentNorm, fieldNorm).cylinders(), renderOpts
     );
   }
 

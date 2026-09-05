@@ -57,8 +57,9 @@ cd cpp && make native
 ```
 
 Native smoke exercises **SEG**, **Heron**, **Kelvin**, **Solar**, **Peltier**,
-**MHD**, **Maglev**, **Homopolar**, **Transformer**, **Van de Graaff**, and
-**Hall-Effect Bench** plant modes plus zero-copy buffer packing
+**MHD**, **Maglev**, **Homopolar**, **Transformer**, **Van de Graaff**,
+**Hall-Effect Bench**, and **Lorentz Rail Sled** plant modes plus zero-copy
+buffer packing
 (`getRollerStateFloatCount == 66*4`). Single-mode smoke runs:
 
 ```bash
@@ -69,6 +70,7 @@ Native smoke exercises **SEG**, **Heron**, **Kelvin**, **Solar**, **Peltier**,
 ./build/sim_core_test --mode transformer # coupled-inductor L–M smoke
 ./build/sim_core_test --mode vdg         # belt-charge/leakage/spark-gap ODE smoke
 ./build/sim_core_test --mode hall        # I·B → Hall-voltage smoke
+./build/sim_core_test --mode lorentz-sled # rail-motor R–L + back-EMF + friction smoke
 ./build/sim_core_test --mode chores      # gpu-chores reduce/map goldens
 ./build/sim_core_test --mode catalog     # print id → wasmMode; fail on holes/dupes
 ./build/sim_core_test --mode bench       # print bench_seg_steps_per_sec / bench_particle_steps_per_sec
@@ -82,7 +84,10 @@ voltage, `6=Maglev` spring–damper gap ODE (mirrors Quanta JS),
 `7=Homopolar` Faraday disc L–R + back-EMF (mirrors Quanta JS),
 `8=Transformer` coupled-inductor ODE (JS phasor is the no-WASM fallback),
 `9=VDG` Van de Graaff belt-charge/leakage/spark-gap ODE (mirrors Quanta JS),
-`10=Hall` algebraic I·B → Hall-voltage model (mirrors Quanta JS).
+`10=Hall` algebraic I·B → Hall-voltage model (mirrors Quanta JS),
+`11=LorentzSled` rail-motor R–L drive loop + back-EMF + `F = I ℓ × B` on a
+sliding armature against friction (mirrors Quanta JS) — an educational
+Lorentz-force bench, not a railgun design tool.
 Free helper `estimateHalbachFieldT(gap, Br)` mirrors the JS Halbach gap estimate
 for offline field sampling (halbach-viz remains CPU-JS for field lines; Pulse
 Coil also stays CPU-JS — neither has a `wasmMode`).
@@ -271,6 +276,7 @@ cpp/
       transformer_plant.cpp ← Mutual-induction coupled-inductor L–M model
       vdg_plant.cpp         ← Van de Graaff belt-charge/leakage/spark-gap ODE
       hall_plant.cpp        ← Hall-effect bench (I·B → Hall voltage)
+      lorentz_plant.cpp     ← Lorentz rail sled (R–L + back-EMF + F = I ℓ × B)
       energy_network.cpp    ← Lab energy bus (ADR-0004 Phase B)
       chores_reduce.cpp     ← GPU-chores CPU reduce fallback
       particles.cpp         ← mode-aware particle seed/step + accessors
@@ -334,14 +340,15 @@ Recent non-breaking expansions (SEGSimulator API and all prior bindings preserve
   `getParticle(i)`. JavaScript side (via `seg-physics-bridge.ts` and `sim.ts`)
   can now pull the high-precision CPU particle state for seeding or diffing
   against the WebGPU side.
-- **Multi-mode plants**: `setMode(0..10)` / `getMode()` (see `wasmMode` in
+- **Multi-mode plants**: `setMode(0..11)` / `getMode()` (see `wasmMode` in
   `physics/devices.json`). 0 = SEG (full RK4 roller path), 1 = Heron (Bernoulli /
   Swamee–Jain), 2 = Kelvin (capacitive + spark), 3 = Solar (battery SOC),
   4 = Peltier (two-node Seebeck stack), 5 = MHD (Hartmann channel),
   6 = Magnetic Levitation (Quanta gap ODE), 7 = Homopolar Generator (Faraday
   disc L–R), 8 = Mutual Induction / transformer (coupled-inductor L–M),
   9 = Van de Graaff (belt-charge/leakage/spark-gap ODE), 10 = Hall-Effect Bench
-  (algebraic I·B → Hall voltage). Every mode has real dynamics, mode-aware
+  (algebraic I·B → Hall voltage), 11 = Lorentz Rail Sled (rail-motor R–L +
+  back-EMF + Lorentz force vs friction). Every mode has real dynamics, mode-aware
   particle seeding/stepping, and dedicated telemetry getters. Pulse Coil and
   the Halbach field visualizer stay JS-only (`wasmMode: null`) — no C++ plant.
 - **Per-ring load torque**: `setRingLoadTorque(ring, t)`, `setRingLoadTorques(t0, t1, t2)`,
@@ -351,7 +358,8 @@ Recent non-breaking expansions (SEGSimulator API and all prior bindings preserve
 Thin JS wrappers live in `src/wasm/seg-physics-bridge.ts` and `src/wasm/sim.ts`
 so the debug panel and future consumers can call the new functionality directly.
 
-Since implemented: real dynamics for all eleven WASM-backed modes (Heron,
+Since implemented: real dynamics for all twelve WASM-backed modes (Heron,
 Kelvin, Solar, Peltier, MHD, Magnetic Levitation, Homopolar Generator,
-Mutual Induction, Van de Graaff, and Hall-Effect Bench alongside SEG),
+Mutual Induction, Van de Graaff, Hall-Effect Bench, and Lorentz Rail Sled
+alongside SEG),
 zero-copy particle + roller buffers, and mode-aware particle seeding / stepping.

@@ -15,3 +15,4 @@ const MODE_HALBACH_VIZ: u32 = 9u;
 const MODE_TRANSFORMER: u32 = 10u;
 const MODE_VDG: u32 = 12u;
 const MODE_HALL: u32 = 13u;
+const MODE_LORENTZ_SLED: u32 = 14u;

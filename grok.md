@@ -19,8 +19,9 @@ A high-precision C++ (Emscripten) physics path runs alongside the JS/WebGPU impl
 - Recommended consumer: `src/wasm/seg-physics-bridge.ts` (also `src/wasm/sim.ts`).
 - Focus: SEG-mode rollers with RK4 integration (exact dipole B-field calcs).
 - SEG uses full RK4 roller dynamics; Heron, Kelvin, Solar, Peltier, MHD, Magnetic Levitation,
-  Homopolar Generator, Mutual Induction (transformer), Van de Graaff, and Hall-Effect Bench each
-  have their own dedicated WASM plant too (`?wasmPhysics=1`, `SimMode` 0–10 per
+  Homopolar Generator, Mutual Induction (transformer), Van de Graaff, Hall-Effect Bench, and the
+  Lorentz Rail Sled each
+  have their own dedicated WASM plant too (`?wasmPhysics=1`, `SimMode` 0–11 per
   `physics/devices.json`'s `wasmMode`) — none of the core or Quanta devices are stubs. Pulse Coil
   and the Halbach field visualizer are JS-only (no WASM plant; `wasmMode: null`). Particle buffer
   export and per-ring torques are supported for sync/export scenarios.

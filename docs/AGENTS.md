@@ -75,6 +75,9 @@ Client-side **multi-device physics lab**: real-time visualization of research ap
 | `halbach-viz` | Quanta Halbach viz (plugin) | CPU RK4 field lines + heatmap (JS); see gallery |
 | `pulse-coil` | Quanta pulse coil (plugin) | Classroom series R–L + cap discharge + I/V oscilloscope sparkline; **JS plant only (by design)** — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
 | `transformer` | Quanta mutual induction (plugin) | Two-winding phasor fallback + WASM coupled-inductor ODE (`?wasmPhysics=1`, `SimMode=8`); flux billboards in focus — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md#transformer) |
+| `vdg` | Quanta Van de Graaff (plugin) | Belt-charge / isolated-sphere / spark-gap ODE (`?wasmPhysics=1`, `SimMode=9`) + JS fallback; classroom electrostatics, not an HV engineering design — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md#vdg) |
+| `hall` | Quanta Hall bench (plugin) | Algebraic `V_H = IB/(net)` (`?wasmPhysics=1`, `SimMode=10`) + JS fallback; **not** a calibrated metrology instrument — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md#hall) |
+| `lorentz-sled` | Quanta Lorentz rail sled (plugin) | Lumped R–L + back-EMF + `F = I ℓ × B` vs friction (`?wasmPhysics=1`, `SimMode=11`) + JS fallback mirroring it; no FEM, no contact physics, no projectile — an educational rail motor, **not a railgun design tool** — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md#lorentz-sled) |
 
 Dashboard overview can enable **all** registered sim devices (typically 6 core + plugins). Particle budgets and mesh detail are **not** equal across devices — auto-quality and view LOD scale further. Do not document “full physical fidelity on every device.”
 
@@ -347,7 +350,8 @@ npm run test:e2e          # starts Vite dev server automatically
 npm run dev               # or run dev manually, then: npx playwright test
 ```
 
-Covers page boot, START → telemetry, mode focus, `captureCanvasFrame`, and optional `?wasmPhysics=1`.
+Covers page boot, START → telemetry, mode focus, `captureCanvasFrame`, and optional `?wasmPhysics=1`
+(each WASM-backed plugin device has a `setMode(id)` + plant smoke and a JS-fallback pair).
 CI: `validate.yml` job **Playwright (WebGL2)** on PRs.
 
 Manual / agent checks (WebGPU needs a real GPU):

@@ -739,6 +739,7 @@
         <button class="mode-btn"        id="btn-transformer" onclick="setMode('transformer')">🔌 Mutual Induction</button>
         <button class="mode-btn"        id="btn-vdg" onclick="setMode('vdg')">⚡️ Van de Graaff</button>
         <button class="mode-btn"        id="btn-hall" onclick="setMode('hall')">🧲 Hall-Effect Bench</button>
+        <button class="mode-btn"        id="btn-lorentz-sled" onclick="setMode('lorentz-sled')">🛤️ Lorentz Rail Sled</button>
       </div>
 
       <!-- Transformer classroom controls -->
@@ -755,6 +756,18 @@
         <button type="button" class="layout-btn active" data-hall-carrier="semiconductor" onclick="setHallCarrierType('semiconductor')">Semiconductor</button>
         <button type="button" class="layout-btn" data-hall-carrier="metal" onclick="setHallCarrierType('metal')">Metal</button>
         <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Lumped V_H = IB/(net) model — not a calibrated metrology instrument. Metal's high carrier density gives a much smaller Hall voltage.</div>
+      </div>
+
+      <!-- Lorentz rail-sled classroom controls -->
+      <div class="panel-section" id="lorentz-sled-controls" style="display:none;">
+        <h3>Bench field B</h3>
+        <div class="slider-row">
+          <label>Transverse field <span id="lorentzFieldValue">0.80 T</span></label>
+          <input type="range" id="lorentzFieldSlider" min="0" max="1.2" step="0.05" value="0.8"
+                 aria-label="Lorentz sled transverse bench field"
+                 oninput="setLorentzFieldT(this.valueAsNumber)">
+        </div>
+        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Educational Lorentz-force model (F = I&nbsp;&#8467;&nbsp;&times;&nbsp;B on a sliding armature, with friction and back-EMF) — a low-voltage bench rail motor, <strong>not a railgun design tool</strong>. B is a local bench parameter, not coupled to the Halbach or MHD field estimates.</div>
       </div>
 
       <!-- SEG roller/stator layout preset -->
@@ -819,6 +832,7 @@
         <div class="ctrl-row" style="flex-wrap:wrap;gap:4px;">
           <button class="ctrl-btn" id="explainerTourBtn" type="button" style="font-size:0.68rem;">▶ Guided Tour</button>
           <button class="ctrl-btn" id="explainerVdgTourBtn" type="button" style="font-size:0.68rem;">▶ Van de Graaff Tour</button>
+          <button class="ctrl-btn" id="explainerLorentzTourBtn" type="button" style="font-size:0.68rem;">▶ Lorentz Sled Tour</button>
           <button class="ctrl-btn" id="explainerShareBtn" type="button" style="font-size:0.68rem;">⎘ Lab Link</button>
         </div>
         <div class="slider-row">

@@ -131,6 +131,15 @@ export const DEVICE_CATALOG = [
     telemetryKeys: ['hallVoltage', 'hallCurrent', 'hallFieldT', 'hallCoeff'] as const,
     fidelity: "WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback",
   },
+  {
+    id: 'lorentz-sled',
+    label: "Lorentz Rail Sled",
+    category: 'quanta',
+    shaderMode: 14,
+    wasmMode: 11 as number | null,
+    telemetryKeys: ['lorentzSledVms', 'lorentzCurrentA', 'lorentzFieldT', 'lorentzForceN', 'lorentzPositionM'] as const,
+    fidelity: "WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it",
+  },
 ] as const;
 
 export const DEVICE_BY_ID: Record<string, DeviceCatalogEntry> = Object.fromEntries(
@@ -150,15 +159,16 @@ export const WASM_MODE_BY_ID: Record<string, number> = {
   'transformer': 8,
   'vdg': 9,
   'hall': 10,
+  'lorentz-sled': 11,
 };
 
-export const WASM_DEVICE_IDS = ['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall'] as const;
+export const WASM_DEVICE_IDS = ['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall', 'lorentz-sled'] as const;
 
-export const SIM_MODE_COUNT = 11;
+export const SIM_MODE_COUNT = 12;
 
 export const RESERVED_WASM_MODES = [] as const;
 
-export const NEXT_SHADER_MODE = 14;
+export const NEXT_SHADER_MODE = 15;
 
 /** Identity fields for DevicePlugin registration (modeIndex = shaderMode). */
 export function catalogIdentity(id: string): {

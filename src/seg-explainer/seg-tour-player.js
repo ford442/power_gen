@@ -1,5 +1,6 @@
 import tourScript from './seg-tour.json';
 import vdgTourScript from './vdg-tour.json';
+import lorentzTourScript from './lorentz-sled-tour.json';
 import { explainerState } from './explainer-state.js';
 import { glossaryForHighlight, SEG_GLOSSARY } from './seg-glossary.js';
 
@@ -241,6 +242,17 @@ export function initVdgTour(getVisualizer = () => window.multiVisualizer) {
     window.vdgTour = player;
     window.startVdgTour = () => player.start(0);
     window.goToVdgStep = (id) => player.goToStepForHighlight(id);
+  }
+  return player;
+}
+
+/** Lorentz rail-sled explainer tour — same player shape, its own script + overlay. */
+export function initLorentzTour(getVisualizer = () => window.multiVisualizer) {
+  const player = new SEGTourPlayer(getVisualizer, lorentzTourScript);
+  if (typeof window !== 'undefined') {
+    window.lorentzTour = player;
+    window.startLorentzTour = () => player.start(0);
+    window.goToLorentzStep = (id) => player.goToStepForHighlight(id);
   }
   return player;
 }

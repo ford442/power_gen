@@ -96,6 +96,9 @@ export const ENERGY_NETWORK_NAMEPLATES = {
     homopolar: 250,
     transformer: 110,
     'halbach-viz': 80,
+    vdg: 60,
+    hall: 30,
+    'lorentz-sled': 180,
   },
 } as const;
 

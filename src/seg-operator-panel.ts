@@ -10,9 +10,13 @@ import type { TelemetrySnapshot, DeviceTelemetrySnap } from './telemetry/types';
 
 const RPM_GAUGE_MAX = 3200;
 
-/** VDG/Hall telemetry isn't wired onto the hub yet (see docs/adr/0008-device-catalog.md follow-ups). */
+/** VDG/Hall/Lorentz-sled telemetry isn't wired onto the hub yet (see docs/adr/0008-device-catalog.md follow-ups). */
 type VdgSnap = DeviceTelemetrySnap & Partial<{ vdgVoltage: number; vdgBeltMps: number; vdgChargeC: number; vdgSparkHz: number }>;
 type HallSnap = DeviceTelemetrySnap & Partial<{ hallVoltage: number; hallCurrent: number; hallFieldT: number; hallCoeff: number }>;
+type LorentzSnap = DeviceTelemetrySnap & Partial<{
+  lorentzSledVms: number; lorentzCurrentA: number; lorentzFieldT: number;
+  lorentzForceN: number; lorentzPositionM: number;
+}>;
 
 export interface SEGOperatorPanelOptions {
   state?: SEGOperatorState;
@@ -440,7 +444,8 @@ export class SEGOperatorPanel {
       'pulse-coil': 'Pulse Coil (R–L)',
       transformer: 'Mutual Induction',
       vdg: 'Van de Graaff',
-      hall: 'Hall-Effect Bench'
+      hall: 'Hall-Effect Bench',
+      'lorentz-sled': 'Lorentz Rail Sled'
     };
     if (modeFooter) modeFooter.textContent = modeLabels[view] || view.toUpperCase();
 
@@ -535,6 +540,15 @@ export class SEGOperatorPanel {
           `I ${(h.hallCurrent || 0).toFixed(2)} A`,
           `B ${(h.hallFieldT || 0).toFixed(2)} T`,
           `R_H ${(h.hallCoeff || 0).toExponential(2)}`
+        ].join(' · ');
+      } else if (view === 'lorentz-sled' && snap.devices?.['lorentz-sled']) {
+        const l = snap.devices['lorentz-sled'] as LorentzSnap;
+        batteryFooter.textContent = [
+          `v ${(l.lorentzSledVms || 0).toFixed(2)} m/s`,
+          `I ${(l.lorentzCurrentA || 0).toFixed(1)} A`,
+          `B ${(l.lorentzFieldT || 0).toFixed(2)} T`,
+          `F ${(l.lorentzForceN || 0).toFixed(2)} N`,
+          `x ${(l.lorentzPositionM || 0).toFixed(2)} m`
         ].join(' · ');
       } else {
         batteryFooter.textContent = '—';

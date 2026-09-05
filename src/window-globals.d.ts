@@ -139,6 +139,7 @@ declare global {
 
     setTransformerLeakage?: (enabled: boolean) => void;
     setHallCarrierType?: (carrier: 'semiconductor' | 'metal') => void;
+    setLorentzFieldT?: (fieldT: number) => void;
     setSegFrameLevel?: (level: string) => void;
     setLightingLook?: (look: string) => void;
     setRenderer?: (name: string) => void;
@@ -150,6 +151,9 @@ declare global {
     segTour?: SEGTourPlayer;
     vdgTour?: SEGTourPlayer;
     goToVdgStep?: (id: string) => void;
+    lorentzTour?: SEGTourPlayer;
+    startLorentzTour?: () => void;
+    goToLorentzStep?: (id: string) => void;
     captureParticleSubset?: (opts?: { deviceId?: string; maxCount?: number }) => Promise<unknown>;
     captureOverviewCull?: () => Promise<unknown>;
     runSEGSpeedTest?: (speeds?: number[], durationMs?: number) => Promise<unknown>;

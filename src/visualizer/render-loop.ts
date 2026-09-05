@@ -69,6 +69,9 @@ type WasmModePlant = {
   sparkHz?: number;
   coeff?: number;
   carrierMetal?: boolean;
+  sledVms?: number;
+  forceN?: number;
+  positionM?: number;
 };
 
 function smoothstep(edge0: number, edge1: number, x: number) {
@@ -205,7 +208,7 @@ export const renderLoopMethods: ThisType<Host> & {
       const drive = segOperator.getDrive();
       const loadT = 0.01 * (1 - drive * 0.5);
       const focus = this.currentView === 'overview' ? 'seg' : this.currentView;
-      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall'].includes(focus)) {
+      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall', 'lorentz-sled'].includes(focus)) {
         segWasm.setMode(focus);
       }
       if (focus === 'transformer') {
@@ -215,6 +218,11 @@ export const renderLoopMethods: ThisType<Host> & {
       if (focus === 'hall') {
         const metal = (this.devices.hall as RenderDevice | undefined)?.physicsState?.hallCarrierType === 'metal';
         segWasm.setHallCarrierMetal?.(metal);
+      }
+      if (focus === 'lorentz-sled') {
+        const sled = this.devices['lorentz-sled'] as RenderDevice | undefined;
+        const fieldT = sled?.physicsState?.lorentzFieldT;
+        if (fieldT != null) segWasm.setLorentzFieldT?.(fieldT);
       }
       for (const subDt of simSteps) {
         if (subDt <= 0) continue;
@@ -339,6 +347,18 @@ export const renderLoopMethods: ThisType<Host> & {
             hall.physicsState.hallCoeff = plant.coeff ?? 0;
             hall.physicsState.energyLevel = plant.energyLevel ?? 0;
             hall.physicsState._wasmPlantActive = true;
+          }
+        } else if (focus === 'lorentz-sled') {
+          const plant = segWasm.getModePlant() as WasmModePlant | null;
+          const sled = this.devices['lorentz-sled'] as RenderDevice | undefined;
+          if (sled?.physicsState && plant?.mode === 'lorentz-sled') {
+            sled.physicsState.lorentzSledVms = plant.sledVms ?? 0;
+            sled.physicsState.lorentzCurrentA = plant.currentA ?? 0;
+            sled.physicsState.lorentzFieldT = plant.fieldT ?? 0;
+            sled.physicsState.lorentzForceN = plant.forceN ?? 0;
+            sled.physicsState.lorentzPositionM = plant.positionM ?? 0;
+            sled.physicsState.energyLevel = plant.energyLevel ?? 0;
+            sled.physicsState._wasmPlantActive = true;
           }
         }
       }

@@ -164,6 +164,25 @@ export interface HallPhysicsExtension {
   _wasmPlantActive?: boolean;
 }
 
+/**
+ * Quanta Lorentz rail-sled classroom demo (R–L drive loop + back-EMF +
+ * `F = I ℓ × B` on a sliding armature). Educational model, not a railgun
+ * design tool — no projectile or ballistics state exists here.
+ */
+export interface LorentzSledPhysicsExtension {
+  /** Sled speed along the rails, m/s. */
+  lorentzSledVms?: number;
+  /** Armature / loop current, A. */
+  lorentzCurrentA?: number;
+  /** Local bench field B, T (slider parameter, not coupled to halbach-viz). */
+  lorentzFieldT?: number;
+  /** Lorentz force on the armature, N. */
+  lorentzForceN?: number;
+  /** Position along the rails, m (wraps at LORENTZ.railLengthM). */
+  lorentzPositionM?: number;
+  _wasmPlantActive?: boolean;
+}
+
 /** Full per-device physics plant state (built-in + plugin extensions). */
 export type DevicePhysicsState = BaseDevicePhysicsState &
   Partial<MaglevPhysicsExtension> &
@@ -174,7 +193,8 @@ export type DevicePhysicsState = BaseDevicePhysicsState &
   Partial<MhdPhysicsExtension> &
   Partial<TransformerPhysicsExtension> &
   Partial<VdgPhysicsExtension> &
-  Partial<HallPhysicsExtension>;
+  Partial<HallPhysicsExtension> &
+  Partial<LorentzSledPhysicsExtension>;
 
 export interface CreateDevicePhysicsOpts {
   heronLayout?: HeronLayout;

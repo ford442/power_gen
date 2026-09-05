@@ -140,6 +140,7 @@ function pluginSourceForId(id) {
     transformer: 'transformer.ts',
     vdg: 'van-de-graaff.ts',
     hall: 'hall-effect.ts',
+    'lorentz-sled': 'lorentz-sled.ts',
   };
   if (quantaMap[id]) {
     return join(ROOT, 'src', 'devices', 'quanta', quantaMap[id]);
