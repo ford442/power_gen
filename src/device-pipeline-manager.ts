@@ -1,4 +1,6 @@
-import { PARTICLE_BYTES_PER_INSTANCE } from './device-geometry.js';
+import { PARTICLE_BYTES_PER_INSTANCE } from './device-geometry';
+import type { VisualizerLike } from './devices/types';
+import type { BindGroupLayoutName } from './pipeline-layout-cache';
 
 /**
  * Per-device pipeline handles. All GPURenderPipeline / GPUComputePipeline objects
@@ -12,33 +14,37 @@ import { PARTICLE_BYTES_PER_INSTANCE } from './device-geometry.js';
  * which one is active — they just read `this.rollerPipeline` etc as before.
  */
 export class DevicePipelineManager {
-  constructor(device, id, visualizer) {
+  device: GPUDevice;
+  id: string;
+  visualizer: VisualizerLike;
+
+  rollerPipeline: GPURenderPipeline | null = null;
+  particlePipeline: GPURenderPipeline | null = null;
+  computePipeline: GPUComputePipeline | GPURenderPipeline | null = null;
+  fluxSegmentPipeline: GPURenderPipeline | null = null;
+  energyArcPipeline: GPURenderPipeline | null = null;
+  segEnhancedPipeline: GPURenderPipeline | null = null;
+  fieldLinePipeline: GPURenderPipeline | null = null;
+  coilPipeline: GPURenderPipeline | null = null;
+  ringPipeline: GPURenderPipeline | null = null;
+  corePipeline: GPURenderPipeline | null = null;
+
+  // Base (sampleCount 1) / MSAA (sampleCount 4) pairs — populated by
+  // setupPipelines(); applyMsaaState() picks between them.
+  private _base: Record<string, GPURenderPipeline | GPUComputePipeline | null> = {};
+  private _msaa4: Record<string, GPURenderPipeline | GPUComputePipeline | null> = {};
+  private _msaaActive = false;
+
+  constructor(device: GPUDevice, id: string, visualizer: VisualizerLike) {
     this.device = device;
     this.id = id;
     this.visualizer = visualizer;
-
-    this.rollerPipeline = null;
-    this.particlePipeline = null;
-    this.computePipeline = null;
-    this.fluxSegmentPipeline = null;
-    this.energyArcPipeline = null;
-    this.segEnhancedPipeline = null;
-    this.fieldLinePipeline = null;
-    this.coilPipeline = null;
-    this.ringPipeline = null;
-    this.corePipeline = null;
-
-    // Base (sampleCount 1) / MSAA (sampleCount 4) pairs — populated by
-    // setupPipelines(); applyMsaaState() picks between them.
-    this._base = {};
-    this._msaa4 = {};
-    this._msaaActive = false;
   }
 
   /**
    * Attach shared pipelines from PipelineLayoutCache (no per-device compile).
    */
-  async setupPipelines() {
+  async setupPipelines(): Promise<void> {
     const cache = this.visualizer.pipelineCache;
     if (!cache) {
       throw new Error(
@@ -94,27 +100,27 @@ export class DevicePipelineManager {
    * and MSAA (sampleCount 4) variant. Cheap — reference assignment only, no
    * GPU work — call once per frame per device from render-loop.ts.
    */
-  applyMsaaState(active) {
+  applyMsaaState(active: boolean): void {
     this._msaaActive = active;
     const table = active ? this._msaa4 : this._base;
-    this.rollerPipeline = table.roller ?? null;
-    this.particlePipeline = table.particle ?? null;
-    this.coilPipeline = table.coil ?? null;
+    this.rollerPipeline = (table.roller as GPURenderPipeline | null) ?? null;
+    this.particlePipeline = (table.particle as GPURenderPipeline | null) ?? null;
+    this.coilPipeline = (table.coil as GPURenderPipeline | null) ?? null;
     if (this.id === 'seg') {
-      this.fluxSegmentPipeline = table.fluxSegment ?? null;
-      this.energyArcPipeline = table.energyArc ?? null;
-      this.segEnhancedPipeline = table.segEnhanced ?? null;
+      this.fluxSegmentPipeline = (table.fluxSegment as GPURenderPipeline | null) ?? null;
+      this.energyArcPipeline = (table.energyArc as GPURenderPipeline | null) ?? null;
+      this.segEnhancedPipeline = (table.segEnhanced as GPURenderPipeline | null) ?? null;
       this.corePipeline = this.segEnhancedPipeline || this.rollerPipeline;
     }
     if (['seg', 'heron', 'kelvin', 'solar'].includes(this.id)) {
-      this.fieldLinePipeline = table.fieldLine ?? null;
+      this.fieldLinePipeline = (table.fieldLine as GPURenderPipeline | null) ?? null;
     }
   }
 
   /** @deprecated Prefer visualizer.pipelineCache.createBindGroup */
-  getBindGroupLayout(pipelineKey) {
+  getBindGroupLayout(pipelineKey: string): GPUBindGroupLayout | undefined {
     const cache = this.visualizer.pipelineCache;
-    const map = {
+    const map: Record<string, BindGroupLayoutName> = {
       roller: 'roller',
       particle: 'particle',
       segEnhanced: 'segEnhanced',
@@ -124,6 +130,6 @@ export class DevicePipelineManager {
       particleCompute: 'particleCompute',
       coil: 'coil'
     };
-    return cache.getLayout(map[pipelineKey] || pipelineKey);
+    return cache?.getLayout((map[pipelineKey] || pipelineKey) as BindGroupLayoutName);
   }
 }

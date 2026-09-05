@@ -7,19 +7,22 @@
  * Tier labels match `PerformanceProfiler.qualityTier`.
  */
 
-/** @typedef {'high'|'medium'|'low'|'critical'} QualityTier */
-/** @typedef {{ high: number, medium: number, low: number, critical: number }} TierBudget */
+export type QualityTier = 'high' | 'medium' | 'low' | 'critical';
+export interface TierBudget {
+  high: number;
+  medium: number;
+  low: number;
+  critical: number;
+}
 
-/** @type {TierBudget} */
-export const DEFAULT_CORE_PARTICLE_BUDGET = {
+export const DEFAULT_CORE_PARTICLE_BUDGET: TierBudget = {
   high: 9000,
   medium: 6000,
   low: 3500,
   critical: 1600
 };
 
-/** @type {TierBudget} */
-export const DEFAULT_PLUGIN_PARTICLE_BUDGET = {
+export const DEFAULT_PLUGIN_PARTICLE_BUDGET: TierBudget = {
   high: 4500,
   medium: 2800,
   low: 1600,
@@ -28,9 +31,8 @@ export const DEFAULT_PLUGIN_PARTICLE_BUDGET = {
 
 /**
  * Explicit budgets. Missing ids fall back to core vs plugin defaults.
- * @type {Record<string, TierBudget>}
  */
-export const DEVICE_PARTICLE_BUDGETS = {
+export const DEVICE_PARTICLE_BUDGETS: Record<string, TierBudget> = {
   seg: { high: 10000, medium: 7000, low: 4000, critical: 2000 },
   heron: { high: 8000, medium: 5200, low: 3000, critical: 1400 },
   kelvin: { high: 8000, medium: 5200, low: 3000, critical: 1400 },
@@ -48,39 +50,37 @@ export const DEVICE_PARTICLE_BUDGETS = {
 /** Core / legacy ids that use DEFAULT_CORE when not listed above. */
 const CORE_IDS = new Set(['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd']);
 
-/**
- * @param {string} deviceId
- * @param {boolean} [isPlugin]
- * @returns {TierBudget}
- */
-export function getParticleBudgetTable(deviceId, isPlugin = !CORE_IDS.has(deviceId)) {
+export function getParticleBudgetTable(deviceId: string, isPlugin: boolean = !CORE_IDS.has(deviceId)): TierBudget {
   return (
     DEVICE_PARTICLE_BUDGETS[deviceId] ||
     (isPlugin ? DEFAULT_PLUGIN_PARTICLE_BUDGET : DEFAULT_CORE_PARTICLE_BUDGET)
   );
 }
 
-/**
- * @param {string} deviceId
- * @param {QualityTier|string} [tier]
- * @param {{ isPlugin?: boolean }} [opts]
- * @returns {number}
- */
-export function getDeviceParticleBudget(deviceId, tier = 'high', opts = {}) {
+export interface GetDeviceParticleBudgetOpts {
+  isPlugin?: boolean;
+}
+
+export function getDeviceParticleBudget(deviceId: string, tier: QualityTier | string = 'high', opts: GetDeviceParticleBudgetOpts = {}): number {
   const table = getParticleBudgetTable(deviceId, opts.isPlugin);
-  return table[tier] ?? table.medium ?? table.high;
+  return table[tier as QualityTier] ?? table.medium ?? table.high;
+}
+
+export interface ResolveScaledParticleCountOpts {
+  deviceId: string;
+  /** configured particleCount */
+  baseCount: number;
+  /** 0..1 */
+  qualityLevel: number;
+  qualityTier?: QualityTier | string;
+  /** 0..1 from getViewParticleLod */
+  viewLod?: number;
+  explainerScale?: number;
+  isPlugin?: boolean;
 }
 
 /**
  * Final particle count after view LOD, quality level, and tier budget.
- * @param {object} opts
- * @param {string} opts.deviceId
- * @param {number} opts.baseCount  configured particleCount
- * @param {number} opts.qualityLevel 0..1
- * @param {QualityTier|string} [opts.qualityTier]
- * @param {number} [opts.viewLod] 0..1 from getViewParticleLod
- * @param {number} [opts.explainerScale=1]
- * @param {boolean} [opts.isPlugin]
  */
 export function resolveScaledParticleCount({
   deviceId,
@@ -90,7 +90,7 @@ export function resolveScaledParticleCount({
   viewLod = 1,
   explainerScale = 1,
   isPlugin
-}) {
+}: ResolveScaledParticleCountOpts): number {
   if (viewLod <= 0 || !(baseCount > 0)) return 0;
   const q = Math.max(0, Math.min(1, qualityLevel));
   const raw = Math.floor(baseCount * q * viewLod * explainerScale);

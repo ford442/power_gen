@@ -17,13 +17,13 @@
  * "A 1,500,000 Volt Electrostatic Generator").
  */
 
-import { packInstance, type InstanceArray } from '../../device-mesh-layouts.js';
+import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
 import {
   MATERIAL_STEEL_BASE,
   MATERIAL_STRUCTURAL,
   MATERIAL_QUANTA_FLOATER,
   MATERIAL_QUANTA_BRUSH
-} from '../material-roles.js';
+} from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
 import { ValidatedConstants } from '../../ValidatedConstants';
 import type { DevicePlugin } from '../types';

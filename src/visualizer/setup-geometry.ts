@@ -4,8 +4,8 @@ import {
   MATERIAL_COIL_FORMER,
   MATERIAL_LAB_BASE,
   MATERIAL_STRUCTURAL
-} from '../devices/material-roles.js';
-import { DEVICE_MESH_LAYOUTS, TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT } from '../device-mesh-layouts.js';
+} from '../devices/material-roles';
+import { DEVICE_MESH_LAYOUTS, TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT } from '../device-mesh-layouts';
 import { generateTorus } from '../renderers/shared/primitive-geometry.js';
 import {
   generateBearingShaft,

@@ -2,7 +2,8 @@
  * Shared helpers for device update strategies (effects budget, gates, mesh writes).
  */
 
-import { instancesToBufferData, countInstances } from '../device-mesh-layouts.js';
+import { instancesToBufferData, countInstances } from '../device-mesh-layouts';
+import { writeQueueBuffer } from '../gpu-buffer-write';
 import type { DeviceInstanceLike, DeviceMeshSource } from './types';
 
 export function effectGate(value: number, low: number, high: number): number {
@@ -60,7 +61,7 @@ export function smoothEnergyLevel(
 export function writeMeshCylinders(instance: DeviceInstanceLike, mesh?: DeviceMeshSource): void {
   if (!instance.rollerInstances || !mesh?.cylinders) return;
   const data = instancesToBufferData([mesh.cylinders()]);
-  instance.device.queue.writeBuffer(instance.rollerInstances, 0, data);
+  writeQueueBuffer(instance.device, instance.rollerInstances, data);
   const count = countInstances(mesh.cylinders().flat());
   instance.meshCylinderCount = count;
   if (instance.geometry) instance.geometry.meshCylinderCount = count;

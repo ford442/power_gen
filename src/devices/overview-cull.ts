@@ -15,7 +15,10 @@
  */
 
 import { overviewLodLevel, overviewLodParticleCount } from '../renderers/shared/view-lod';
-import { getDeviceParticleBudget } from './particle-budgets.js';
+import { getDeviceParticleBudget } from './particle-budgets';
+import { writeQueueBuffer } from '../gpu-buffer-write';
+import type { PipelineLayoutCache } from '../pipeline-layout-cache';
+import type { PerformanceProfiler } from '../performance-profiler';
 
 /** Bytes per `DeviceBounds` entry (common/overview-cull.wgsl). */
 export const BOUNDS_STRIDE = 32;
@@ -33,26 +36,25 @@ export const CULL_FLAG_ENABLED = 1;
 /** Slots allocated up front; the ring targets 8–12 devices. */
 const DEFAULT_CAPACITY = 32;
 
-/**
- * Per-device slot input for {@link packDeviceBounds}.
- * @typedef {object} CullSlotInput
- * @property {string} id
- * @property {number[]} position
- * @property {number} radius
- * @property {number} baseCount particle count before LOD (tier budget applied)
- * @property {number} lodLevel 0..3
- * @property {boolean} enabled
- */
+/** Per-device slot input for {@link packDeviceBounds}. */
+export interface CullSlotInput {
+  id: string;
+  position: number[];
+  radius: number;
+  /** particle count before LOD (tier budget applied) */
+  baseCount: number;
+  /** 0..3 */
+  lodLevel: number;
+  enabled: boolean;
+}
 
 /**
  * Pack slots into the flat `array<DeviceBounds>` upload.
  * Pure — exported for tests and for the WebGL2 parity path.
  *
- * @param {CullSlotInput[]} slots
- * @param {Float32Array} [out] reused scratch of at least slots.length*8 floats
- * @returns {Float32Array}
+ * @param out reused scratch of at least slots.length*8 floats
  */
-export function packDeviceBounds(slots, out) {
+export function packDeviceBounds(slots: CullSlotInput[], out?: Float32Array): Float32Array {
   const floats = slots.length * (BOUNDS_STRIDE / 4);
   const data = out && out.length >= floats ? out : new Float32Array(floats);
   const u32 = new Uint32Array(data.buffer, data.byteOffset, data.length);
@@ -76,26 +78,32 @@ export function packDeviceBounds(slots, out) {
 /**
  * Instance count the cull pass will write for a slot when it passes the
  * frustum test. Mirrors the shader so CPU fallbacks and diagnostics agree.
- * @param {CullSlotInput} slot
- * @returns {number}
  */
-export function expectedInstanceCount(slot) {
+export function expectedInstanceCount(slot: CullSlotInput | null | undefined): number {
   if (!slot || !slot.enabled) return 0;
   return overviewLodParticleCount(slot.baseCount, slot.lodLevel);
 }
 
+export interface CullSlotDeviceInput {
+  id: string;
+  position: number[];
+  particleCount?: number;
+  config?: { plugin?: unknown; cullRadius?: number };
+}
+
+export interface CullSlotOptions {
+  /** device instances (ordered, stable) */
+  devices: CullSlotDeviceInput[];
+  cameraPos: number[];
+  currentView: string;
+  qualityLevel: number;
+  qualityTier?: string;
+  defaultRadius?: number;
+  isEnabled?: (device: CullSlotDeviceInput) => boolean;
+}
+
 /**
  * Build the per-frame slot list for the visible device set.
- *
- * @param {object} opts
- * @param {Array<object>} opts.devices device instances (ordered, stable)
- * @param {number[]} opts.cameraPos
- * @param {string} opts.currentView
- * @param {number} opts.qualityLevel
- * @param {string} [opts.qualityTier='high']
- * @param {number} [opts.defaultRadius=16]
- * @param {(device: object) => boolean} [opts.isEnabled]
- * @returns {CullSlotInput[]}
  */
 export function buildCullSlots({
   devices,
@@ -105,8 +113,8 @@ export function buildCullSlots({
   qualityTier = 'high',
   defaultRadius = 16,
   isEnabled
-}) {
-  const slots = [];
+}: CullSlotOptions): CullSlotInput[] {
+  const slots: CullSlotInput[] = [];
   for (const device of devices) {
     const focused = !!currentView && currentView === device.id;
     const lodLevel = overviewLodLevel({
@@ -130,16 +138,51 @@ export function buildCullSlots({
   return slots;
 }
 
+export interface OverviewCullVisualizerHost {
+  pipelineCache?: PipelineLayoutCache | null;
+  profiler?: PerformanceProfiler | null;
+}
+
+export interface OverviewCullPassOpts {
+  capacity?: number;
+}
+
+export interface OverviewCullUpdateOpts extends CullSlotOptions {
+  /** column-major 4×4 */
+  viewProj: Float32Array;
+  margin?: number;
+}
+
 /**
  * Owns the cull pass GPU resources for one visualizer.
  */
 export class OverviewCullPass {
-  /**
-   * @param {GPUDevice} device
-   * @param {object} visualizer MultiDeviceVisualizer (pipelineCache, profiler)
-   * @param {{ capacity?: number }} [opts]
-   */
-  constructor(device, visualizer, opts = {}) {
+  device: GPUDevice;
+  visualizer: OverviewCullVisualizerHost;
+  capacity: number;
+
+  pipeline: GPUComputePipeline | null;
+  bindGroup: GPUBindGroup | null;
+  boundsBuffer: GPUBuffer | null;
+  uniformBuffer: GPUBuffer | null;
+  drawArgsBuffer: GPUBuffer | null;
+  outputBuffer: GPUBuffer | null;
+
+  /** Device id → stable slot index (byte offset = index × DRAW_ARGS_STRIDE). */
+  slotIndex: Map<string, number>;
+  /** Last packed slot list — diagnostics + CPU fallback draw counts. */
+  slots: CullSlotInput[];
+  deviceCount: number;
+  ready: boolean;
+  /** True only while the pass drove this frame's draw args (overview). */
+  active: boolean;
+
+  private _boundsScratch: Float32Array;
+  private _uniformScratch: Float32Array;
+  private _uniformU32: Uint32Array;
+  private _resetOutput: Uint32Array;
+
+  constructor(device: GPUDevice, visualizer: OverviewCullVisualizerHost, opts: OverviewCullPassOpts = {}) {
     this.device = device;
     this.visualizer = visualizer;
     this.capacity = Math.max(1, opts.capacity ?? DEFAULT_CAPACITY);
@@ -151,13 +194,10 @@ export class OverviewCullPass {
     this.drawArgsBuffer = null;
     this.outputBuffer = null;
 
-    /** Device id → stable slot index (byte offset = index × DRAW_ARGS_STRIDE). */
     this.slotIndex = new Map();
-    /** Last packed slot list — diagnostics + CPU fallback draw counts. */
     this.slots = [];
     this.deviceCount = 0;
     this.ready = false;
-    /** True only while the pass drove this frame's draw args (overview). */
     this.active = false;
 
     this._boundsScratch = new Float32Array(this.capacity * (BOUNDS_STRIDE / 4));
@@ -172,9 +212,8 @@ export class OverviewCullPass {
 
   /**
    * Allocate buffers and the bind group. Safe to call once pipelines exist.
-   * @param {GPUComputePipeline} pipeline
    */
-  init(pipeline) {
+  init(pipeline: GPUComputePipeline | null | undefined): boolean {
     if (!pipeline) return false;
     this.pipeline = pipeline;
 
@@ -222,7 +261,7 @@ export class OverviewCullPass {
    * The buffer contents outlive the frame, so the flag — not `ready` — is
    * what gates `drawIndirect`.
    */
-  setInactive() {
+  setInactive(): void {
     this.active = false;
     this.slotIndex.clear();
     this.slots = [];
@@ -230,26 +269,23 @@ export class OverviewCullPass {
   }
 
   /** Byte offset of a device's draw-indirect args, or -1 when unslotted. */
-  drawArgsOffset(deviceId) {
+  drawArgsOffset(deviceId: string): number {
     if (!this.active) return -1;
     const slot = this.slotIndex.get(deviceId);
     return slot === undefined ? -1 : slot * DRAW_ARGS_STRIDE;
   }
 
   /** LOD level assigned to a device this frame (0 when unslotted). */
-  lodLevelFor(deviceId) {
+  lodLevelFor(deviceId: string): number {
     const slot = this.slotIndex.get(deviceId);
     return slot === undefined ? 0 : this.slots[slot].lodLevel;
   }
 
   /**
    * Upload bounds + camera for this frame.
-   * @param {object} opts see {@link buildCullSlots}, plus `viewProj`.
-   * @param {Float32Array} opts.viewProj column-major 4×4
-   * @param {number} [opts.margin=1.35]
    */
-  update(opts) {
-    if (!this.ready) return 0;
+  update(opts: OverviewCullUpdateOpts): number {
+    if (!this.ready || !this.boundsBuffer || !this.uniformBuffer || !this.outputBuffer) return 0;
 
     const slots = buildCullSlots(opts).slice(0, this.capacity);
     this.slots = slots;
@@ -261,7 +297,7 @@ export class OverviewCullPass {
     const bounds = packDeviceBounds(slots, this._boundsScratch);
     this.device.queue.writeBuffer(
       this.boundsBuffer, 0,
-      bounds.buffer, bounds.byteOffset, slots.length * BOUNDS_STRIDE
+      bounds.buffer as ArrayBuffer, bounds.byteOffset, slots.length * BOUNDS_STRIDE
     );
 
     const u = this._uniformScratch;
@@ -275,10 +311,10 @@ export class OverviewCullPass {
     this._uniformU32[21] = PARTICLE_VERTEX_COUNT;
     this._uniformU32[22] = 0;
     this._uniformU32[23] = 0;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
+    writeQueueBuffer(this.device, this.uniformBuffer, u);
 
     // Counters are accumulated with atomicAdd — clear the header each frame.
-    this.device.queue.writeBuffer(this.outputBuffer, 0, this._resetOutput);
+    writeQueueBuffer(this.device, this.outputBuffer, this._resetOutput);
 
     this.active = slots.length > 0;
     return slots.length;
@@ -287,9 +323,8 @@ export class OverviewCullPass {
   /**
    * Encode the cull dispatch. Must run before the render pass that consumes
    * `drawArgsBuffer`.
-   * @param {GPUComputePassEncoder} computePass
    */
-  dispatch(computePass) {
+  dispatch(computePass: GPUComputePassEncoder): boolean {
     if (!this.ready || !this.pipeline || !this.bindGroup || this.deviceCount === 0) return false;
     computePass.setPipeline(this.pipeline);
     computePass.setBindGroup(0, this.bindGroup);
@@ -297,7 +332,7 @@ export class OverviewCullPass {
     return true;
   }
 
-  destroy() {
+  destroy(): void {
     for (const buf of [this.boundsBuffer, this.uniformBuffer, this.drawArgsBuffer, this.outputBuffer]) {
       buf?.destroy?.();
     }

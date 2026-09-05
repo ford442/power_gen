@@ -26,13 +26,13 @@
  * Electric Currents".
  */
 
-import { packInstance, type InstanceArray } from '../../device-mesh-layouts.js';
+import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
 import {
   MATERIAL_STEEL_BASE,
   MATERIAL_STRUCTURAL,
   MATERIAL_QUANTA_COIL,
   MATERIAL_QUANTA_BRUSH
-} from '../material-roles.js';
+} from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';

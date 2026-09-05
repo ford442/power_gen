@@ -9,8 +9,8 @@
 import type { DevicePhysicsState, HeronLayout } from '../renderers/shared/device-physics';
 import type { PipelineLayoutCache, BindGroupLayoutName } from '../pipeline-layout-cache';
 import type { BindGroupCache } from '../renderers/shared/bind-group-cache';
-import type { DeviceMeshLayout } from '../device-mesh-layouts.js';
-import type { OverviewCullPass } from './overview-cull.js';
+import type { DeviceMeshLayout } from '../device-mesh-layouts';
+import type { OverviewCullPass } from './overview-cull';
 import type { DeviceDashboardDefaults } from './device-config';
 
 export type { BindGroupLayoutName };
@@ -113,6 +113,8 @@ export interface DeviceGeometryLike {
   statorRingBuffer?: GPUBuffer | null;
   wiringBuffer?: GPUBuffer | null;
   baseBuffer?: GPUBuffer | null;
+  rollerInstances?: GPUBuffer | null;
+  fluxSegmentBuffer?: GPUBuffer | null;
   fluxTotalSegments?: number;
   /** Heron's Fountain jet/basin geometry, set from the active build preset. */
   heronFlow?: HeronFlowGeometry | null;
@@ -165,8 +167,8 @@ export interface SegFrameBuffers {
   structural?: MeshBuffers | null;
   controlBox?: MeshBuffers | null;
   safetyCage?: MeshBuffers | null;
-  /** computeFrameDimensions() output (seg-frame-model.js) — only statorH is consumed by the mixins. */
-  dims?: { statorH: number };
+  /** computeFrameDimensions() output (seg-frame-model.js). */
+  dims?: { statorH: number; plateY?: number };
 }
 
 /**
@@ -181,11 +183,20 @@ export interface VisualizerLike {
     qualityTier?: string;
     recordDraw?: (n?: number) => void;
     beginFrameDraws?: () => void;
+    trackBuffer?: (name: string, size: number, usage: GPUBufferUsageFlags) => unknown;
   } | null;
   pipelineCache?: PipelineLayoutCache | null;
   /** GPU overview cull pass — drives indirect particle draws (ADR-0005 WS4). */
   overviewCull?: OverviewCullPass | null;
   isOverviewMode?: () => boolean;
+  /** Compute/vertex/fragment shader source getters (multi-device-shaders.js). */
+  shaders?: {
+    segRollerComputeShader?: string;
+    segFieldAdvectShader?: string;
+    fluxLineTracerShader?: string;
+    transformerFluxShader?: string;
+  };
+  globalUniformBuffer?: GPUBuffer | null;
 
   heronLayout?: (HeronLayout & { name?: string; description?: string }) | null;
   heronLayoutPreset?: string;
@@ -257,6 +268,7 @@ export interface VisualizerLike {
 
   // Instance buffers
   baseInstanceBuffer?: GPUBuffer | null;
+  statorRingInstanceBuffer?: GPUBuffer | null;
   coreBoltInstanceBuffer?: GPUBuffer | null;
   coreBoltPositions?: ArrayLike<number>;
   frameStructuralInstanceBuffer?: GPUBuffer | null;
@@ -323,7 +335,7 @@ export interface DeviceInstanceLike {
     batteryCharge?: number;
     updateGaugeBuffer?: (position: ArrayLike<number>, ringIndex: number) => void;
   };
-  /** DevicePipelineManager instance (device-pipeline-manager.js). */
+  /** DevicePipelineManager instance (device-pipeline-manager.ts). */
   pipelineManager?: {
     fluxSegmentPipeline?: GPURenderPipeline | null;
     /** Swap every render pipeline between its base/MSAA-4x variant (ADR-0005 WS2) — called once per frame from render-loop.ts. */
@@ -370,8 +382,15 @@ export interface DeviceInstanceLike {
 
   // SEG roller / coil / flux / arc state
   rollerComputeUniformBuffer?: GPUBuffer | null;
+  rollerComputePipeline?: GPUComputePipeline | null;
+  rollerComputeBindGroup?: GPUBindGroup | null;
   fieldAdvectUniformBuffer?: GPUBuffer | null;
+  fieldAdvectPipeline?: GPUComputePipeline | null;
+  fieldAdvectBindGroup?: GPUBindGroup | null;
   fluxTracerUniformBuffer?: GPUBuffer | null;
+  fluxCoilBoostBuffer?: GPUBuffer | null;
+  fluxTracerPipeline?: GPUComputePipeline | null;
+  fluxTracerBindGroup?: GPUBindGroup | null;
   fluxSegmentRenderBindGroup?: GPUBindGroup | null;
   transformerFluxUniformBuffer?: GPUBuffer | null;
   transformerFluxPipeline?: GPUComputePipeline | null;

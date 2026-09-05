@@ -6,7 +6,7 @@
 import { catalogIdentity } from '../../../generated/device-catalog';
 import { registerDevice } from '../device-registry.js';
 import { DEVICE_CONFIG } from '../device-config';
-import { DEVICE_MESH_LAYOUTS } from '../../device-mesh-layouts.js';
+import { DEVICE_MESH_LAYOUTS } from '../../device-mesh-layouts';
 import type { DevicePlugin } from '../types';
 import {
   segGetComputeSpeed,

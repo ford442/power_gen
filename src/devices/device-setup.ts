@@ -1,5 +1,7 @@
+import type { DeviceInstanceLike } from './types';
+
 export const DeviceSetupMixin = {
-  setupRollerCompute: async function () {
+  setupRollerCompute: async function (this: DeviceInstanceLike): Promise<void> {
     this.rollerComputeUniformBuffer = this.device.createBuffer({
       label: 'seg-roller-compute-uniforms',
       size: 16,  // [time f32, speedMult f32, pad f32, pad f32]
@@ -7,9 +9,11 @@ export const DeviceSetupMixin = {
     });
 
     const cache = this.visualizer.pipelineCache;
-    const code = this.visualizer.shaders.segRollerComputeShader;
+    if (!cache) return;
+    const code = this.visualizer.shaders?.segRollerComputeShader ?? '';
     this.rollerComputePipeline = await cache.ensureRollerComputePipeline(code);
 
+    if (!this.geometry.rollerInstances || !this.visualizer.segLayoutUniformBuffer) return;
     this.rollerComputeBindGroup = cache.createBindGroup(
       'rollerCompute',
       [
@@ -21,7 +25,7 @@ export const DeviceSetupMixin = {
     );
   },
 
-  setupFieldAdvect: async function () {
+  setupFieldAdvect: async function (this: DeviceInstanceLike): Promise<void> {
     this.fieldAdvectUniformBuffer = this.device.createBuffer({
       label: 'seg-field-advect-uniforms',
       size: 16,  // [time f32, speedMult f32, particleCount u32, pad f32]
@@ -29,9 +33,11 @@ export const DeviceSetupMixin = {
     });
 
     const cache = this.visualizer.pipelineCache;
-    const code = this.visualizer.shaders.segFieldAdvectShader;
+    if (!cache) return;
+    const code = this.visualizer.shaders?.segFieldAdvectShader ?? '';
     this.fieldAdvectPipeline = await cache.ensureFieldAdvectPipeline(code);
 
+    if (!this.geometry.fieldLineParticles) return;
     this.fieldAdvectBindGroup = cache.createBindGroup(
       'fieldAdvect',
       [
@@ -42,7 +48,7 @@ export const DeviceSetupMixin = {
     );
   },
 
-  setupFluxLineTracer: async function () {
+  setupFluxLineTracer: async function (this: DeviceInstanceLike): Promise<void> {
     // FluxUniforms: time, deltaTime, integrationStep, lineOpacity, seedRadius, followStrength, _pad
     // = 7 × f32 = 28 bytes, aligned to 32 bytes
     this.fluxTracerUniformBuffer = this.device.createBuffer({
@@ -59,9 +65,11 @@ export const DeviceSetupMixin = {
     });
 
     const cache = this.visualizer.pipelineCache;
-    const code = this.visualizer.shaders.fluxLineTracerShader;
+    if (!cache) return;
+    const code = this.visualizer.shaders?.fluxLineTracerShader ?? '';
     this.fluxTracerPipeline = await cache.ensureFluxTracerPipeline(code);
 
+    if (!this.geometry.fluxSegmentBuffer || !this.visualizer.segLayoutUniformBuffer) return;
     this.fluxTracerBindGroup = cache.createBindGroup(
       'fluxTracer',
       [
@@ -73,6 +81,7 @@ export const DeviceSetupMixin = {
       'flux-tracer-bg'
     );
 
+    if (!this.visualizer.globalUniformBuffer) return;
     // Pre-create the render bind group so render() can reuse it every frame.
     this.fluxSegmentRenderBindGroup = cache.createBindGroup(
       'fluxSegment',
@@ -85,7 +94,7 @@ export const DeviceSetupMixin = {
     );
   },
 
-  setupTransformerFlux: async function () {
+  setupTransformerFlux: async function (this: DeviceInstanceLike): Promise<void> {
     const LINE_COUNT = 24;
     const SEGS_PER_LINE = 48;
     const total = LINE_COUNT * SEGS_PER_LINE;
@@ -95,7 +104,7 @@ export const DeviceSetupMixin = {
       size: total * 32,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(
+    this.visualizer.profiler?.trackBuffer?.(
       `device-${this.id}-transformer-flux`,
       total * 32,
       GPUBufferUsage.STORAGE
@@ -108,7 +117,8 @@ export const DeviceSetupMixin = {
     });
 
     const cache = this.visualizer.pipelineCache;
-    const code = this.visualizer.shaders.transformerFluxShader;
+    if (!cache) return;
+    const code = this.visualizer.shaders?.transformerFluxShader ?? '';
     this.transformerFluxPipeline = await cache.ensureTransformerFluxPipeline(code);
     this.transformerFluxBindGroup = cache.createBindGroup(
       'transformerFlux',
@@ -118,25 +128,27 @@ export const DeviceSetupMixin = {
       ],
       'transformer-flux-bg'
     );
-    this.fluxSegmentRenderBindGroup = cache.createBindGroup(
-      'fluxSegment',
-      [
-        { binding: 0, resource: { buffer: this.visualizer.globalUniformBuffer } },
-        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-        { binding: 2, resource: { buffer: this.geometry.fluxSegmentBuffer } }
-      ],
-      'transformer-flux-segment-render-bg'
-    );
+    if (this.visualizer.globalUniformBuffer) {
+      this.fluxSegmentRenderBindGroup = cache.createBindGroup(
+        'fluxSegment',
+        [
+          { binding: 0, resource: { buffer: this.visualizer.globalUniformBuffer } },
+          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+          { binding: 2, resource: { buffer: this.geometry.fluxSegmentBuffer } }
+        ],
+        'transformer-flux-segment-render-bg'
+      );
+    }
     this.fieldLineEnabled = true;
     this.transformerFluxLineCount = LINE_COUNT;
   },
 
-  setupEffectsParticles: function () {
+  setupEffectsParticles: function (this: DeviceInstanceLike): void {
     this.effectsParticles = this.device.createBuffer({
       size: this.maxEffectParticles * 16,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(
+    this.visualizer.profiler?.trackBuffer?.(
       `device-${this.id}-effects-particles`,
       this.maxEffectParticles * 16,
       GPUBufferUsage.STORAGE

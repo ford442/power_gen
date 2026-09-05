@@ -3,39 +3,47 @@
  * Handles: device uniforms, material uniforms, core material buffers, coil material buffers
  */
 import { getDeviceModeIndex } from './devices/device-registry';
+import { writeQueueBuffer } from './gpu-buffer-write';
+import type { DeviceInstanceConfig } from './device-instance';
+import type { VisualizerLike } from './devices/types';
 
 class DeviceUniformManager {
-  constructor(device, id, config, visualizer) {
+  device: GPUDevice;
+  id: string;
+  config: DeviceInstanceConfig;
+  visualizer: VisualizerLike;
+
+  deviceUniformBuffer!: GPUBuffer;
+  materialUniformBuffer!: GPUBuffer;
+  coreMaterialBuffer: GPUBuffer | null = null;
+  gaugeInstanceBuffer: GPUBuffer | null = null;
+  coilMaterialBuffer: GPUBuffer | null = null;
+  ringMaterialBuffer: GPUBuffer | null = null;
+  coilInstances: GPUBuffer | null = null;
+
+  renderMode = 0;
+  /** State for battery charge (solar device) */
+  batteryCharge = 0.5;
+
+  constructor(device: GPUDevice, id: string, config: DeviceInstanceConfig, visualizer: VisualizerLike) {
     this.device = device;
     this.id = id;
     this.config = config;
     this.visualizer = visualizer;
-
-    // Uniform buffers
-    this.deviceUniformBuffer = null;
-    this.materialUniformBuffer = null;
-    this.coreMaterialBuffer = null;
-    this.gaugeInstanceBuffer = null;
-    this.coilMaterialBuffer = null;
-    this.ringMaterialBuffer = null;
-    this.coilInstances = null;
-
-    // State for battery charge (solar device)
-    this.batteryCharge = 0.5;
   }
 
-  getRingIndex() {
+  getRingIndex(): number {
     return getDeviceModeIndex(this.id);
   }
 
-  async setupUniforms() {
+  async setupUniforms(): Promise<void> {
     // DeviceUniforms: 48 bytes (12 x f32) - canonical unified struct
     // [0] renderMode, [1-3] position, [4-7] rotation, [8] timeScale, [9] ringIndex, [10] batteryCharge, [11] isSolar
     this.deviceUniformBuffer = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.materialUniformBuffer = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.renderMode = 0;  // 0=rollers, 1=base, 2=stator, 3=wiring
 
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-uniforms`, 80, GPUBufferUsage.UNIFORM);
+    this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-uniforms`, 80, GPUBufferUsage.UNIFORM);
 
     // Battery gauge instance buffer used by solar device
     if (this.id === 'solar') {
@@ -44,13 +52,13 @@ class DeviceUniformManager {
         size: 48,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-gauge-instance`, 48, GPUBufferUsage.STORAGE);
+      this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-gauge-instance`, 48, GPUBufferUsage.STORAGE);
     }
 
     // MaterialUniforms: albedo(3) + metallic(1) + roughness(1) + ao(1) + emission(1) + ringIndex(1) + pad(2)
     // Total: 12 floats = 48 bytes
     // Material uniform setup (may be updated per-frame for dynamic effects)
-    let baseColor = this.config.color;
+    let baseColor: number[] = this.config.color ?? [0.7, 0.7, 0.75];
     let glowColor = [0.0, 0.9, 1.0];
     let emission = 2.0;
     let pad = 0.0;
@@ -63,7 +71,7 @@ class DeviceUniformManager {
       pad = this.visualizer.prototypePreset === 'lab' ? 1.0 : 0.0;
     } else if (this.id === 'solar') {
       // Solar device uses a warm glow color and will modulate emission based on battery charge.
-      baseColor = this.config.color;
+      baseColor = this.config.color ?? baseColor;
       glowColor = [1.0, 0.9, 0.4];
       emission = 1.2;
       this.batteryCharge = 0.5;
@@ -76,7 +84,7 @@ class DeviceUniformManager {
       ...glowColor,        // glowColor
       emission             // emission
     ]);
-    this.device.queue.writeBuffer(this.materialUniformBuffer, 0, materialData);
+    writeQueueBuffer(this.device, this.materialUniformBuffer, materialData);
 
     // Setup core material buffer for SEG
     if (this.id === 'seg' && this.config.core) {
@@ -84,7 +92,7 @@ class DeviceUniformManager {
         size: 32,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-core-material`, 32, GPUBufferUsage.UNIFORM);
+      this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-core-material`, 32, GPUBufferUsage.UNIFORM);
 
       const core = this.config.core;
       // baseColor (3) + emission (1) + coreColor (3) + glowIntensity (1)
@@ -92,7 +100,7 @@ class DeviceUniformManager {
         ...core.baseColor, 0.0,  // baseColor + padding
         ...core.coreColor, 1.5   // coreColor + glowIntensity
       ]);
-      this.device.queue.writeBuffer(this.coreMaterialBuffer, 0, coreMaterialData);
+      writeQueueBuffer(this.device, this.coreMaterialBuffer, coreMaterialData);
     }
 
     // Setup coil and ring material buffers for SEG pickup coils
@@ -102,30 +110,27 @@ class DeviceUniformManager {
         size: 24 * 3 * 12 * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-coil-instances`, 24 * 3 * 48, GPUBufferUsage.STORAGE);
+      this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-coil-instances`, 24 * 3 * 48, GPUBufferUsage.STORAGE);
 
       this.coilMaterialBuffer = this.device.createBuffer({
         size: 32,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-coil-material`, 32, GPUBufferUsage.UNIFORM);
+      this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-coil-material`, 32, GPUBufferUsage.UNIFORM);
       const coilMatData = new Float32Array([0.75, 0.45, 0.25, 0, 1.0, 0.55, 0.0, 2.5]);
-      this.device.queue.writeBuffer(this.coilMaterialBuffer, 0, coilMatData);
+      writeQueueBuffer(this.device, this.coilMaterialBuffer, coilMatData);
 
       this.ringMaterialBuffer = this.device.createBuffer({
         size: 32,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler.trackBuffer(`device-${this.id}-ring-material`, 32, GPUBufferUsage.UNIFORM);
+      this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-ring-material`, 32, GPUBufferUsage.UNIFORM);
       const ringMatData = new Float32Array([0.85, 0.48, 0.25, 0, 0.0, 1.2, 0.6, 1.8]);
-      this.device.queue.writeBuffer(this.ringMaterialBuffer, 0, ringMatData);
+      writeQueueBuffer(this.device, this.ringMaterialBuffer, ringMatData);
     }
   }
 
-  updateUniforms(position, rotation, renderMode = 0, energyLevel = 0.0) {
-    // Scale particle count by quality
-    const scaledParticleCount = this.config.particleCount;
-
+  updateUniforms(position: ArrayLike<number>, rotation: ArrayLike<number>, renderMode = 0, energyLevel = 0.0): void {
     // Determine ring index for shaders: 0=SEG, 1=Heron, 2=Kelvin, 3=Solar, 4=Peltier, 5=MHD
     const ringIndex = this.getRingIndex();
 
@@ -136,7 +141,7 @@ class DeviceUniformManager {
 
     const deviceData = new Float32Array([
       renderMode,                           // [0] renderMode
-      position[0],                          // [1] posX  
+      position[0],                          // [1] posX
       position[1],                          // [2] posY
       position[2],                          // [3] posZ
       Math.sin(rotation[1] / 2),            // [4] rotation.x (quaternion)
@@ -148,11 +153,11 @@ class DeviceUniformManager {
       this.id === 'solar' ? this.batteryCharge : 0,  // [10] batteryCharge
       this.id === 'solar' ? 1 : 0           // [11] isSolar
     ]);
-    this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
+    writeQueueBuffer(this.device, this.deviceUniformBuffer, deviceData);
 
     if (this.id === 'solar') {
       // Update material buffer to reflect battery charge
-      const baseColor = this.config.color;
+      const baseColor = this.config.color ?? [0.7, 0.7, 0.75];
       const glowColor = [1.0, 0.9, 0.4];
       const emission = 1.2 + energyLevel * 1.8;
       const materialData = new Float32Array([
@@ -161,11 +166,11 @@ class DeviceUniformManager {
         ...glowColor,
         emission
       ]);
-      this.device.queue.writeBuffer(this.materialUniformBuffer, 0, materialData);
+      writeQueueBuffer(this.device, this.materialUniformBuffer, materialData);
     }
   }
 
-  updateBatteryCharge(deltaTime) {
+  updateBatteryCharge(deltaTime: number): number | null {
     if (this.id === 'solar') {
       const drain = 0.18;
       const gain = 0.3 + 0.2 * Math.sin(this.visualizer.time * 2.0);
@@ -175,7 +180,7 @@ class DeviceUniformManager {
     return null;
   }
 
-  updateGaugeBuffer(position, ringIndex) {
+  updateGaugeBuffer(position: ArrayLike<number>, ringIndex: number): void {
     if (this.id === 'solar' && this.gaugeInstanceBuffer) {
       const offset = 1.5;
       const gaugePos = [position[0] + offset, position[1] + 0.5, position[2]];
@@ -186,7 +191,7 @@ class DeviceUniformManager {
         1.0, 0.9, 0.2,   // copperColor (solar gold)
         this.batteryCharge // greenEmissive slot → reuse for charge visualization
       ]);
-      this.device.queue.writeBuffer(this.gaugeInstanceBuffer, 0, instanceData);
+      writeQueueBuffer(this.device, this.gaugeInstanceBuffer, instanceData);
     }
   }
 }

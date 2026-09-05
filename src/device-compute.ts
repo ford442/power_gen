@@ -2,23 +2,37 @@
  * DeviceComputeManager - Manages compute pipeline setup and execution for device instances
  * Handles: compute pipeline, compute bind groups, compute uniforms
  */
+import { writeQueueBuffer } from './gpu-buffer-write';
+import type { DeviceInstanceConfig } from './device-instance';
+import type { DevicePipelineManager } from './device-pipeline-manager';
+import type { DevicePhysicsState } from './renderers/shared/device-physics';
+
+interface ComputeGeometryHost {
+  particles: GPUBuffer;
+}
+
 class DeviceComputeManager {
-  constructor(device, id, config, pipelineManager, geometry) {
+  device: GPUDevice;
+  id: string;
+  config: DeviceInstanceConfig;
+  pipelineManager: DevicePipelineManager;
+  geometry: ComputeGeometryHost;
+
+  computePipeline: GPUComputePipeline | GPURenderPipeline | null = null;
+  computeBindGroup: GPUBindGroup | null = null;
+  computeUniformBuffer: GPUBuffer | null = null;
+  scaledParticleCount = 0;
+  speedMult = 1.0;
+
+  constructor(device: GPUDevice, id: string, config: DeviceInstanceConfig, pipelineManager: DevicePipelineManager, geometry: ComputeGeometryHost) {
     this.device = device;
     this.id = id;
     this.config = config;
     this.pipelineManager = pipelineManager;
     this.geometry = geometry;
-
-    // Compute pipeline resources
-    this.computePipeline = null;
-    this.computeBindGroup = null;
-    this.computeUniformBuffer = null;
-    this.scaledParticleCount = 0;
-    this.speedMult = 1.0;
   }
 
-  async setupComputeResources() {
+  async setupComputeResources(): Promise<void> {
     this.computePipeline = this.pipelineManager.computePipeline;
     if (!this.computePipeline) return;
 
@@ -31,7 +45,7 @@ class DeviceComputeManager {
 
     // Track buffer for profiling if visualizer is available (optional)
     if (this.pipelineManager.visualizer && this.pipelineManager.visualizer.profiler) {
-      this.pipelineManager.visualizer.profiler.trackBuffer(`device-${this.id}-compute-uniforms`, 48, GPUBufferUsage.UNIFORM);
+      this.pipelineManager.visualizer.profiler.trackBuffer?.(`device-${this.id}-compute-uniforms`, 48, GPUBufferUsage.UNIFORM);
     }
 
     // Compute bind group: binding 0 = particles storage, binding 1 = uniforms
@@ -43,7 +57,7 @@ class DeviceComputeManager {
           { binding: 1, resource: { buffer: this.computeUniformBuffer } }
         ], `device-${this.id}-compute-bg`)
       : this.device.createBindGroup({
-          layout: this.computePipeline.getBindGroupLayout(0),
+          layout: (this.computePipeline as GPUComputePipeline).getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: { buffer: this.geometry.particles } },
             { binding: 1, resource: { buffer: this.computeUniformBuffer } }
@@ -52,11 +66,11 @@ class DeviceComputeManager {
   }
 
   /**
-   * @param {number} particleCount count *before* GPU LOD — the shader applies
+   * @param particleCount count *before* GPU LOD — the shader applies
    *   `lodLevel` itself (common/overview-lod.wgsl).
-   * @param {number} [lodLevel] overview particle LOD 0..3
+   * @param lodLevel overview particle LOD 0..3
    */
-  updateComputeUniforms(time, mode, particleCount, speedMult = 1.0, physicsState = null, lodLevel = 0) {
+  updateComputeUniforms(time: number, mode: number, particleCount: number, speedMult = 1.0, physicsState: DevicePhysicsState | null = null, lodLevel = 0): void {
     if (!this.computeUniformBuffer) return;
 
     this.scaledParticleCount = particleCount >>> Math.max(0, Math.min(3, lodLevel | 0));
@@ -110,8 +124,9 @@ class DeviceComputeManager {
       }
     }
 
-    this.device.queue.writeBuffer(
-      this.computeUniformBuffer, 0,
+    writeQueueBuffer(
+      this.device,
+      this.computeUniformBuffer,
       new Float32Array([
         time, mode, particleCount, speedMult,
         p0, p1, p2, p3,
@@ -122,15 +137,15 @@ class DeviceComputeManager {
 
   /**
    * Dispatch compute shader with given dispatch dimensions
-   * @param {GPUComputePassEncoder} computePass - The compute pass encoder
-   * @param {number} workgroupCountX - Number of workgroups in X dimension
-   * @param {number} workgroupCountY - Number of workgroups in Y dimension (default: 1)
-   * @param {number} workgroupCountZ - Number of workgroups in Z dimension (default: 1)
+   * @param computePass - The compute pass encoder
+   * @param workgroupCountX - Number of workgroups in X dimension
+   * @param workgroupCountY - Number of workgroups in Y dimension (default: 1)
+   * @param workgroupCountZ - Number of workgroups in Z dimension (default: 1)
    */
-  dispatchCompute(computePass, workgroupCountX, workgroupCountY = 1, workgroupCountZ = 1) {
+  dispatchCompute(computePass: GPUComputePassEncoder, workgroupCountX: number, workgroupCountY = 1, workgroupCountZ = 1): void {
     if (!this.computePipeline || !this.computeBindGroup) return;
 
-    computePass.setPipeline(this.computePipeline);
+    computePass.setPipeline(this.computePipeline as GPUComputePipeline);
     computePass.setBindGroup(0, this.computeBindGroup);
     computePass.dispatchWorkgroups(workgroupCountX, workgroupCountY, workgroupCountZ);
   }

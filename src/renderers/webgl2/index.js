@@ -40,7 +40,7 @@ import {
   getMeshDrawDetail,
   getDeviceParticleScale
 } from '../shared/view-lod';
-import { resolveScaledParticleCount } from '../../devices/particle-budgets.js';
+import { resolveScaledParticleCount } from '../../devices/particle-budgets';
 import { EnergyNetwork, initEnergyCouplingDisclaimer, syncEnergyCouplingDisclaimer } from '../shared/energy-network';
 import {
   parsePrototypePreset,

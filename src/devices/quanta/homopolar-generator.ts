@@ -9,7 +9,7 @@
  *   - J. A. Wheeler, R. P. Feynman — homopolar generator literature
  */
 
-import { packInstance, type InstanceArray } from '../../device-mesh-layouts.js';
+import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
 import { writeMeshCylinders } from '../update-helpers';
 import { ValidatedConstants } from '../../ValidatedConstants';
 import type { DevicePlugin } from '../types';

@@ -2,12 +2,17 @@ import { MAX_ROLLERS } from './seg-layout';
 import {
   DEVICE_MESH_LAYOUTS,
   instancesToBufferData,
-  countInstances
-} from './device-mesh-layouts.js';
+  countInstances,
+  type DeviceMeshLayout,
+  type InstanceArray
+} from './device-mesh-layouts';
 import { getPluginMeshLayouts } from './devices/device-registry';
-import { MATERIAL_COPPER, MATERIAL_SHAFT, MATERIAL_STRUCTURAL } from './devices/material-roles.js';
+import { MATERIAL_COPPER, MATERIAL_SHAFT, MATERIAL_STRUCTURAL } from './devices/material-roles';
 import { simRandom } from './telemetry/deterministic-rng';
+import { writeQueueBuffer } from './gpu-buffer-write';
 import { PARTICLE_LAYOUTS } from '../generated/physics-constants.js';
+import type { DeviceInstanceConfig } from './device-instance';
+import type { VisualizerLike, HeronFlowGeometry } from './devices/types';
 
 // Matches TOTAL_FLUX_LINES × SEGMENTS_PER_LINE constants in passes/flux-line-tracer.wgsl
 // (168 lines × 120 segments). Update both if the WGSL constants change.
@@ -17,13 +22,47 @@ const FLUX_TOTAL_SEGMENTS = 20160;
 // DeviceInstance. Each FieldParticle is 8 × f32 (pos3 + vel3 + life + strength)
 // = 32 bytes; see getSegFieldAdvectShader() and updateFieldLines().
 const FIELD_LINE_PARTICLE_COUNT = 1200;
-const FIELD_LINE_PARTICLE_BYTES = PARTICLE_LAYOUTS.fieldLineBytes;
+const FIELD_LINE_PARTICLE_BYTES: number = PARTICLE_LAYOUTS.fieldLineBytes;
 
 /** WebGPU particle storage layout: vec4f (xyz + phase) = 16 bytes per particle. */
-export const PARTICLE_BYTES_PER_INSTANCE = PARTICLE_LAYOUTS.gpuBytes;
+export const PARTICLE_BYTES_PER_INSTANCE: number = PARTICLE_LAYOUTS.gpuBytes;
 
 export class DeviceGeometry {
-  constructor(device, id, config, visualizer) {
+  device: GPUDevice;
+  id: string;
+  config: DeviceInstanceConfig;
+  visualizer: VisualizerLike;
+  particleCount: number;
+
+  particles!: GPUBuffer;
+  rollerInstances: GPUBuffer | null = null;
+  fieldLineParticles: GPUBuffer | null = null;
+  energyArcParticles: GPUBuffer | null = null;
+  coreInstances: GPUBuffer | null = null;
+  shaftInstanceBuffer: GPUBuffer | null = null;
+  magnetInstanceBuffer: GPUBuffer | null = null;
+  topPlateInstanceBuffer: GPUBuffer | null = null;
+  bottomPlateInstanceBuffer: GPUBuffer | null = null;
+  electromagnetInstances: GPUBuffer | null = null;
+  fluxSegmentBuffer: GPUBuffer | null = null;
+  statorRingBuffer: GPUBuffer | null = null;
+  wiringBuffer: GPUBuffer | null = null;
+  baseBuffer: GPUBuffer | null = null;
+  ringInstances: GPUBuffer | null = null;
+  tubeInstances: GPUBuffer | null = null;
+  panelInstances: GPUBuffer | null = null;
+  flowPathParticles: GPUBuffer | null = null;
+  flowPathCount = 0;
+
+  meshCylinderCount?: number;
+  meshRingCount?: number;
+  meshTubeCount?: number;
+  meshPanelCount?: number;
+  fluxTotalSegments?: number;
+  heronFlow?: HeronFlowGeometry | null;
+  heronLayoutId?: string;
+
+  constructor(device: GPUDevice, id: string, config: DeviceInstanceConfig, visualizer: VisualizerLike) {
     this.device = device;
     this.id = id;
     this.config = config;
@@ -31,7 +70,7 @@ export class DeviceGeometry {
     this.particleCount = config.particleCount || 50000;
   }
 
-  async initializeSEG() {
+  async initializeSEG(): Promise<void> {
     await this.setupBase();
     await this.setupStatorRings();
     await this.setupRollers();
@@ -47,16 +86,16 @@ export class DeviceGeometry {
   /**
    * Initialize instanced cylinder / disc geometry for Heron, Kelvin, or Solar.
    */
-  async initializeDeviceMesh() {
-    const layoutDef = DEVICE_MESH_LAYOUTS[this.id] || getPluginMeshLayouts()[this.id];
+  async initializeDeviceMesh(): Promise<void> {
+    const layoutDef: DeviceMeshLayout | undefined = DEVICE_MESH_LAYOUTS[this.id] || getPluginMeshLayouts()[this.id];
     if (!layoutDef) return;
 
     if (this.id === 'heron' && layoutDef.build) {
-      await this.applyHeronLayout(this.visualizer.heronLayoutPreset);
+      await this.applyHeronLayout(this.visualizer.heronLayoutPreset ?? '');
       return;
     }
 
-    const instanceParts = [];
+    const instanceParts: InstanceArray[] = [];
     if (layoutDef.cylinders) {
       const cylInstances = layoutDef.cylinders();
       instanceParts.push(cylInstances);
@@ -97,7 +136,7 @@ export class DeviceGeometry {
   /**
    * Hot-swap Heron vessel + plumbing geometry when the build-shape preset changes.
    */
-  async applyHeronLayout(presetId) {
+  async applyHeronLayout(presetId: string): Promise<void> {
     const layoutDef = DEVICE_MESH_LAYOUTS.heron;
     if (!layoutDef?.build) return;
 
@@ -116,20 +155,20 @@ export class DeviceGeometry {
           size: tubeData.byteLength,
           usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
         });
-        this.visualizer.profiler.trackBuffer(
+        this.visualizer.profiler?.trackBuffer?.(
           `device-${this.id}-tubes`,
           tubeData.byteLength,
           GPUBufferUsage.STORAGE
         );
       }
-      this.device.queue.writeBuffer(this.tubeInstances, 0, tubeData);
+      writeQueueBuffer(this.device, this.tubeInstances, tubeData);
       this.meshTubeCount = countInstances(mesh.tubes.flat());
     }
 
     await this.setupDeviceFlowPaths();
   }
 
-  _writeRollerInstances(instanceParts) {
+  private _writeRollerInstances(instanceParts: InstanceArray[]): void {
     const data = instancesToBufferData(instanceParts);
     if (!this.rollerInstances || this.rollerInstances.size < data.byteLength) {
       this.rollerInstances?.destroy?.();
@@ -137,17 +176,17 @@ export class DeviceGeometry {
         size: data.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler.trackBuffer(
+      this.visualizer.profiler?.trackBuffer?.(
         `device-${this.id}-mesh-instances`,
         data.byteLength,
         GPUBufferUsage.STORAGE
       );
     }
-    this.device.queue.writeBuffer(this.rollerInstances, 0, data);
+    writeQueueBuffer(this.device, this.rollerInstances, data);
   }
 
   /** Local-space flow visualization paths (siphon, electrostatic, photon beams). */
-  async setupDeviceFlowPaths() {
+  async setupDeviceFlowPaths(): Promise<void> {
     if (!['heron', 'kelvin', 'solar'].includes(this.id)) return;
 
     this.flowPathCount = this.id === 'kelvin' ? 72 : this.id === 'solar' ? 42 : 56;
@@ -157,22 +196,22 @@ export class DeviceGeometry {
       size: bytes,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(
+    this.visualizer.profiler?.trackBuffer?.(
       `device-${this.id}-flow-paths`,
       bytes,
       GPUBufferUsage.STORAGE
     );
   }
 
-  _createInstanceBuffer(buildFn) {
+  private _createInstanceBuffer(buildFn: () => InstanceArray): GPUBuffer {
     const built = buildFn();
     const data = instancesToBufferData([built]);
     const buf = this.device.createBuffer({
       size: data.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.device.queue.writeBuffer(buf, 0, data);
-    this.visualizer.profiler.trackBuffer(
+    writeQueueBuffer(this.device, buf, data);
+    this.visualizer.profiler?.trackBuffer?.(
       `device-${this.id}-extra-instances`,
       data.byteLength,
       GPUBufferUsage.STORAGE
@@ -180,7 +219,7 @@ export class DeviceGeometry {
     return buf;
   }
 
-  async setupFieldLineBuffer() {
+  async setupFieldLineBuffer(): Promise<void> {
     // Storage buffer for the legacy circular field-line particles. Written by
     // the GPU advect compute pass (setupFieldAdvect, read_write) and the CPU
     // fallback (updateFieldLines, writeBuffer), read by the field-line render
@@ -191,14 +230,14 @@ export class DeviceGeometry {
       size,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(
+    this.visualizer.profiler?.trackBuffer?.(
       `device-${this.id}-field-lines`,
       size,
       GPUBufferUsage.STORAGE
     );
   }
 
-  async setupFluxLineBuffer() {
+  async setupFluxLineBuffer(): Promise<void> {
     // 168 lines × 120 segments × 32 bytes per FluxSegment
     // (FluxSegment: 6 x f32 position scalars + strength f32 + age f32 = 32 B)
     this.fluxTotalSegments = FLUX_TOTAL_SEGMENTS;
@@ -207,20 +246,20 @@ export class DeviceGeometry {
       size: FLUX_TOTAL_SEGMENTS * 32,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(
+    this.visualizer.profiler?.trackBuffer?.(
       `device-${this.id}-flux-segments`,
       FLUX_TOTAL_SEGMENTS * 32,
       GPUBufferUsage.STORAGE
     );
   }
 
-  async setupBase() {
+  async setupBase(): Promise<void> {
     if (this.visualizer?.baseInstanceBuffer) {
       this.baseBuffer = this.visualizer.baseInstanceBuffer;
     }
   }
 
-  async setupStatorRings() {
+  async setupStatorRings(): Promise<void> {
     // The enhanced SEG vertex shader expects the canonical InstanceData layout:
     //   position(3) + ringIndex(1) + rotation(4) + copperColor(3) + greenEmissive(1).
     // The actual ring meshes (three concentric annular discs) now live in the
@@ -237,7 +276,7 @@ export class DeviceGeometry {
       size: 48,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.device.queue.writeBuffer(this.statorRingBuffer, 0, new Float32Array([
+    writeQueueBuffer(this.device, this.statorRingBuffer, new Float32Array([
       0, 0, 0,       // position
       0.0,           // ringIndex
       0, 0, 0, 1,    // rotation
@@ -246,20 +285,20 @@ export class DeviceGeometry {
     ]));
   }
 
-  async setupRollers() {
+  async setupRollers(): Promise<void> {
     // Up to 72 roller instances (Searl 10+25+35); active count comes from layout.
     const totalRollers = MAX_ROLLERS;
     this.rollerInstances = this.device.createBuffer({
       size: totalRollers * 48,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-rollers`, totalRollers * 48, GPUBufferUsage.STORAGE);
+    this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-rollers`, totalRollers * 48, GPUBufferUsage.STORAGE);
 
     const rollerData = new Float32Array(totalRollers * 12);
-    this.device.queue.writeBuffer(this.rollerInstances, 0, rollerData);
+    writeQueueBuffer(this.device, this.rollerInstances, rollerData);
   }
 
-  async setupWiring() {
+  async setupWiring(): Promise<void> {
     // Visible wiring on the base - thin copper cables
     const wireCount = 8;
     this.wiringBuffer = this.device.createBuffer({
@@ -291,15 +330,15 @@ export class DeviceGeometry {
       wireData[idx + 10] = 0.25;
       wireData[idx + 11] = 0.0; // not emissive
     }
-    this.device.queue.writeBuffer(this.wiringBuffer, 0, wireData);
+    writeQueueBuffer(this.device, this.wiringBuffer, wireData);
   }
 
-  async setupParticles() {
+  async setupParticles(): Promise<void> {
     this.particles = this.device.createBuffer({
       size: this.particleCount * PARTICLE_BYTES_PER_INSTANCE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(
+    this.visualizer.profiler?.trackBuffer?.(
       `device-${this.id}-particles`,
       this.particleCount * PARTICLE_BYTES_PER_INSTANCE,
       GPUBufferUsage.STORAGE
@@ -309,7 +348,7 @@ export class DeviceGeometry {
   }
 
   /** Re-seed particle buffer (phase + initial xyz) — called on init and mode entry. */
-  reseedParticles() {
+  reseedParticles(): void {
     if (!this.particles) return;
 
     const particleData = new Float32Array(this.particleCount * 4);
@@ -357,15 +396,15 @@ export class DeviceGeometry {
         particleData[idx + 1] = (simRandom() - 0.5) * 6;
       }
     }
-    this.device.queue.writeBuffer(this.particles, 0, particleData);
+    writeQueueBuffer(this.device, this.particles, particleData);
   }
 
-  async setupEnergyArcs() {
+  async setupEnergyArcs(): Promise<void> {
     this.energyArcParticles = this.device.createBuffer({
       size: 200 * 32,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-energyarcs`, 200 * 32, GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
+    this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-energyarcs`, 200 * 32, GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE);
 
     const arcData = new Float32Array(200 * 8);
     for (let i = 0; i < 200; i++) {
@@ -381,19 +420,19 @@ export class DeviceGeometry {
       arcData[idx + 6] = Math.random();
       arcData[idx + 7] = 0.3 + Math.random() * 0.7;
     }
-    this.device.queue.writeBuffer(this.energyArcParticles, 0, arcData);
+    writeQueueBuffer(this.device, this.energyArcParticles, arcData);
   }
 
-  async setupCore() {
+  async setupCore(): Promise<void> {
     this.coreInstances = this.device.createBuffer({
       size: 100 * 32,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-core`, 100 * 32, GPUBufferUsage.STORAGE);
+    this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-core`, 100 * 32, GPUBufferUsage.STORAGE);
 
-    const core = this.config.core || {};
+    const core = this.config.core;
     const frameDims = this.visualizer?.segFrameBuffers?.dims;
-    const plateY = frameDims?.plateY ?? core.plateY ?? 2.5;
+    const plateY = frameDims?.plateY ?? core?.plateY ?? 2.5;
 
     // Instance buffer for bearing shaft (ringIndex = -1 signals steel to shader)
     this.shaftInstanceBuffer = this.device.createBuffer({
@@ -407,8 +446,8 @@ export class DeviceGeometry {
       0.65, 0.67, 0.70, // steel color
       0.0            // emissive
     ]);
-    this.device.queue.writeBuffer(this.shaftInstanceBuffer, 0, shaftInstanceData);
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-shaft-instance`, 48, GPUBufferUsage.STORAGE);
+    writeQueueBuffer(this.device, this.shaftInstanceBuffer, shaftInstanceData);
+    this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-shaft-instance`, 48, GPUBufferUsage.STORAGE);
 
     // Instance buffer for magnet core (default copper look)
     this.magnetInstanceBuffer = this.device.createBuffer({
@@ -422,8 +461,8 @@ export class DeviceGeometry {
       0.85, 0.48, 0.25, // copper color
       0.0            // emissive
     ]);
-    this.device.queue.writeBuffer(this.magnetInstanceBuffer, 0, magnetInstanceData);
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-magnet-instance`, 48, GPUBufferUsage.STORAGE);
+    writeQueueBuffer(this.device, this.magnetInstanceBuffer, magnetInstanceData);
+    this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-magnet-instance`, 48, GPUBufferUsage.STORAGE);
 
     // Instance buffer for top plate (structural brass / aluminum)
     this.topPlateInstanceBuffer = this.device.createBuffer({
@@ -437,8 +476,8 @@ export class DeviceGeometry {
       0.78, 0.58, 0.22, // brass color
       0.0            // emissive
     ]);
-    this.device.queue.writeBuffer(this.topPlateInstanceBuffer, 0, topPlateData);
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-top-plate-instance`, 48, GPUBufferUsage.STORAGE);
+    writeQueueBuffer(this.device, this.topPlateInstanceBuffer, topPlateData);
+    this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-top-plate-instance`, 48, GPUBufferUsage.STORAGE);
 
     // Instance buffer for bottom plate
     this.bottomPlateInstanceBuffer = this.device.createBuffer({
@@ -452,11 +491,11 @@ export class DeviceGeometry {
       0.78, 0.58, 0.22, // brass color
       0.0            // emissive
     ]);
-    this.device.queue.writeBuffer(this.bottomPlateInstanceBuffer, 0, bottomPlateData);
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-bottom-plate-instance`, 48, GPUBufferUsage.STORAGE);
+    writeQueueBuffer(this.device, this.bottomPlateInstanceBuffer, bottomPlateData);
+    this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-bottom-plate-instance`, 48, GPUBufferUsage.STORAGE);
   }
 
-  async setupElectromagnets() {
+  async setupElectromagnets(): Promise<void> {
     // Electromagnet coils arranged in a circle around the SEG rollers
     // Instance format: position(3) + angle(1) + activeIntensity(1) + coilIndex(1) + pad(2) = 8 floats = 32 bytes
     const maxCoils = 24;
@@ -464,13 +503,13 @@ export class DeviceGeometry {
       size: maxCoils * 48,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    this.visualizer.profiler.trackBuffer(`device-${this.id}-electromagnets`, maxCoils * 48, GPUBufferUsage.STORAGE);
+    this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-electromagnets`, maxCoils * 48, GPUBufferUsage.STORAGE);
 
     // Initialize with default 8-coil layout at radius 7.0
     this.updateElectromagnetLayout(8, 0);
   }
 
-  updateElectromagnetLayout(numCoils, offsetAngleDeg) {
+  updateElectromagnetLayout(numCoils: number, offsetAngleDeg: number): void {
     if (!this.electromagnetInstances) return;
     const maxCoils = 24;
     const instanceData = new Float32Array(maxCoils * 8);
@@ -496,6 +535,6 @@ export class DeviceGeometry {
         instanceData[idx + 6] = 0; instanceData[idx + 7] = 0;
       }
     }
-    this.device.queue.writeBuffer(this.electromagnetInstances, 0, instanceData);
+    writeQueueBuffer(this.device, this.electromagnetInstances, instanceData);
   }
 }

@@ -7,7 +7,8 @@ import {
   buildHeronMesh,
   HERON_LAYOUT_PRESETS,
   TUBE_MESH_HEIGHT,
-  TUBE_MESH_RADIUS
+  TUBE_MESH_RADIUS,
+  type HeronMeshBundle
 } from './heron-layout';
 import {
   MATERIAL_COPPER,
@@ -16,13 +17,17 @@ import {
   MATERIAL_SOLAR_BATTERY,
   MATERIAL_SOLAR_PANEL,
   MATERIAL_STRUCTURAL
-} from './devices/material-roles.js';
+} from './devices/material-roles';
 
 export { TUBE_MESH_HEIGHT, TUBE_MESH_RADIUS };
 
+/** One packed instance, or a nested array of them from a builder. */
+export type InstanceFloats = number[];
+export type InstanceArray = InstanceFloats[];
+
 const INSTANCE_FLOATS = 12;
 
-export function packInstance(pos, ringIndex, rot = [0, 0, 0, 1], color = [0.7, 0.7, 0.75], emissive = 0) {
+export function packInstance(pos: number[], ringIndex: number, rot: number[] = [0, 0, 0, 1], color: number[] = [0.7, 0.7, 0.75], emissive = 0): InstanceFloats {
   return [
     pos[0], pos[1], pos[2], ringIndex,
     rot[0], rot[1], rot[2], rot[3],
@@ -30,14 +35,7 @@ export function packInstance(pos, ringIndex, rot = [0, 0, 0, 1], color = [0.7, 0
   ];
 }
 
-function quatFromAxisAngle(axis, angle) {
-  const half = angle * 0.5;
-  const s = Math.sin(half);
-  return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(half)];
-}
-
-/** Quaternion rotating the +Y axis onto direction `dir` (not necessarily unit). */
-function quatFromYTo(dir) {
+function quatFromYTo(dir: number[]): [number, number, number, number] {
   const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
   const d = [dir[0] / len, dir[1] / len, dir[2] / len];
   const dot = d[1];
@@ -59,13 +57,13 @@ function quatFromYTo(dir) {
  * Straight run of tube-mesh instances from `from` to `to`, rotated to lie
  * along the segment. Consecutive instances overlap slightly so no gaps show.
  */
-export function tubeSegments(from, to, color = [0.62, 0.66, 0.72], emissive = 0.06, ringIndex = MATERIAL_COIL_FORMER) {
+export function tubeSegments(from: number[], to: number[], color: number[] = [0.62, 0.66, 0.72], emissive = 0.06, ringIndex: number = MATERIAL_COIL_FORMER): InstanceArray {
   const dir = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
   const len = Math.hypot(dir[0], dir[1], dir[2]);
   if (len < 1e-4) return [];
   const rot = quatFromYTo(dir);
   const n = Math.max(1, Math.ceil(len / (TUBE_MESH_HEIGHT * 0.95)));
-  const out = [];
+  const out: InstanceArray = [];
   for (let i = 0; i < n; i++) {
     const t = (i + 0.5) / n;
     out.push(packInstance(
@@ -77,20 +75,20 @@ export function tubeSegments(from, to, color = [0.62, 0.66, 0.72], emissive = 0.
 }
 
 /** @deprecated Use buildHeronMesh(presetId) from heron-layout */
-export function buildHeronInstances(presetId = HERON_LAYOUT_PRESETS.classic) {
+export function buildHeronInstances(presetId: string = HERON_LAYOUT_PRESETS.classic): InstanceArray {
   return buildHeronMesh(presetId).layout.vessels;
 }
 
-export function buildHeronPlatformInstances(presetId = HERON_LAYOUT_PRESETS.classic) {
+export function buildHeronPlatformInstances(presetId: string = HERON_LAYOUT_PRESETS.classic): InstanceArray {
   return buildHeronMesh(presetId).layout.platform;
 }
 
-export function buildHeronTubeInstances(presetId = HERON_LAYOUT_PRESETS.classic) {
+export function buildHeronTubeInstances(presetId: string = HERON_LAYOUT_PRESETS.classic): InstanceArray {
   return buildHeronMesh(presetId).tubes;
 }
 
 /** Kelvin's Thunderstorm: 6 drip-can cylinders (3 per side). */
-export function buildKelvinInstances() {
+export function buildKelvinInstances(): InstanceArray {
   const copper = [0.82, 0.50, 0.28];
   const can = [0.70, 0.74, 0.80];
   const leftX = -2.5;
@@ -106,7 +104,7 @@ export function buildKelvinInstances() {
 }
 
 /** Kelvin induction rings (torus instances). ringIndex 100 signals ring geometry in fragment shader. */
-export function buildKelvinRingInstances() {
+export function buildKelvinRingInstances(): InstanceArray {
   const ringColor = [0.90, 0.55, 0.20];
   return [
     packInstance([-2.5, 5.6, 0], MATERIAL_KELVIN_RING, [0, 0, 0, 1], ringColor, 0.25),
@@ -115,7 +113,7 @@ export function buildKelvinRingInstances() {
 }
 
 /** Collection buckets at base of Kelvin columns. */
-export function buildKelvinBucketInstances() {
+export function buildKelvinBucketInstances(): InstanceArray {
   const bucket = [0.55, 0.58, 0.64];
   return [
     packInstance([-2.5, -3.4, 0], MATERIAL_COPPER, [0, 0, 0, 1], bucket, 0.1),
@@ -128,7 +126,7 @@ export function buildKelvinBucketInstances() {
  * to the OPPOSITE collection bucket (positive feedback loop), plus drip
  * nozzles under the header tank and a top support beam.
  */
-export function buildKelvinTubeInstances() {
+export function buildKelvinTubeInstances(): InstanceArray {
   const copperWire = [0.85, 0.52, 0.24];
   const steel = [0.60, 0.63, 0.68];
   return [
@@ -144,7 +142,7 @@ export function buildKelvinTubeInstances() {
 }
 
 /** Solar: 6 LEDs in hex + central battery cylinder. */
-export function buildSolarLedInstances() {
+export function buildSolarLedInstances(): InstanceArray {
   const ledColors = [
     [0.95, 0.15, 0.12], // red
     [0.95, 0.15, 0.12],
@@ -153,7 +151,7 @@ export function buildSolarLedInstances() {
     [0.20, 0.35, 0.95], // blue
     [0.95, 0.92, 0.85]  // white
   ];
-  const instances = [];
+  const instances: InstanceArray = [];
   for (let i = 0; i < 6; i++) {
     const angle = (i / 6) * Math.PI * 2;
     const r = 3.0;
@@ -168,25 +166,25 @@ export function buildSolarLedInstances() {
   return instances;
 }
 
-export function buildSolarBatteryInstance() {
+export function buildSolarBatteryInstance(): InstanceArray {
   return [packInstance([0, 3.5, 0], MATERIAL_SOLAR_BATTERY, [0, 0, 0, 1], [0.55, 0.58, 0.62], 0.1)];
 }
 
 /** Solar panel disc. */
-export function buildSolarPanelInstance() {
+export function buildSolarPanelInstance(): InstanceArray {
   return [packInstance([0, 0.05, 0], MATERIAL_SOLAR_PANEL, [0, 0, 0, 1], [0.08, 0.12, 0.22], 0.05)];
 }
 
 /** Mount pedestal under LED hex array. */
-export function buildSolarMountInstances() {
+export function buildSolarMountInstances(): InstanceArray {
   const mount = [0.45, 0.48, 0.52];
   return [packInstance([0, 1.8, 0], MATERIAL_STRUCTURAL, [0, 0, 0, 1], mount, 0.06)];
 }
 
 /** Support posts under each LED plus the central battery riser. */
-export function buildSolarTubeInstances() {
+export function buildSolarTubeInstances(): InstanceArray {
   const post = [0.42, 0.45, 0.50];
-  const out = [];
+  const out: InstanceArray = [];
   for (let i = 0; i < 6; i++) {
     const angle = (i / 6) * Math.PI * 2;
     const x = Math.cos(angle) * 3.0;
@@ -197,16 +195,28 @@ export function buildSolarTubeInstances() {
   return out;
 }
 
-export function instancesToBufferData(instanceArrays) {
-  const flat = instanceArrays.flat(Infinity);
+/** Flatten nested instance arrays into a GPU-ready Float32Array. */
+export function instancesToBufferData(instanceArrays: unknown[]): Float32Array {
+  const flat = instanceArrays.flat(Infinity) as number[];
   return new Float32Array(flat);
 }
 
-export function countInstances(data) {
+/** Instance count for a flat float array. */
+export function countInstances(data: ArrayLike<number>): number {
   return data.length / INSTANCE_FLOATS;
 }
 
-export const DEVICE_MESH_LAYOUTS = {
+/** Per-device mesh builders keyed by device id. */
+export interface DeviceMeshLayout {
+  build?: (presetId?: string) => HeronMeshBundle;
+  cylinders?: () => InstanceArray;
+  rings?: () => InstanceArray;
+  tubes?: () => InstanceArray;
+  panel?: () => InstanceArray;
+  platform?: () => InstanceArray;
+}
+
+export const DEVICE_MESH_LAYOUTS: Record<string, DeviceMeshLayout> = {
   heron: {
     build: (presetId) => buildHeronMesh(presetId ?? HERON_LAYOUT_PRESETS.classic),
     cylinders: () => buildHeronMesh(HERON_LAYOUT_PRESETS.classic).cylinders,

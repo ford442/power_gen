@@ -3,8 +3,8 @@
  * WASM channel plant remains authoritative with `?wasmPhysics=1`.
  */
 
-import { packInstance, type InstanceArray } from '../../device-mesh-layouts.js';
-import { MATERIAL_STEEL_BASE, MATERIAL_STRUCTURAL, MATERIAL_QUANTA_COIL } from '../material-roles.js';
+import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
+import { MATERIAL_STEEL_BASE, MATERIAL_STRUCTURAL, MATERIAL_QUANTA_COIL } from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
 import type { DeviceInstanceLike, DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';

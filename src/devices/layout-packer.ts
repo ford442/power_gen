@@ -5,13 +5,23 @@
  * via device-registry — see OVERVIEW_LAYOUT_RADIUS in view-lod.js).
  */
 
-/** @typedef {{ position: [number,number,number], rotation: [number,number,number,number] }} LayoutSlot */
+export interface LayoutSlot {
+  position: [number, number, number];
+  rotation: [number, number, number, number];
+}
+
+export interface PackOverviewOpts {
+  radius?: number;
+  y?: number;
+  startAngle?: number;
+  slotSpan?: number;
+}
 
 /**
  * Quaternion for rotation about Y so the device faces the origin.
- * @param {number} angleRad  Position angle on the layout ring (atan2(x,z)).
+ * @param angleRad  Position angle on the layout ring (atan2(x,z)).
  */
-export function yawTowardCenter(angleRad) {
+export function yawTowardCenter(angleRad: number): [number, number, number, number] {
   const yaw = angleRad + Math.PI;
   return [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)];
 }
@@ -19,17 +29,15 @@ export function yawTowardCenter(angleRad) {
 /**
  * Pack devices that lack `position` into slots on a ring.
  *
- * @param {string[]} deviceIds  Ordered list of ids needing placement
- * @param {{ radius?: number, y?: number, startAngle?: number, slotSpan?: number }} [opts]
- * @returns {Record<string, LayoutSlot>}
+ * @param deviceIds  Ordered list of ids needing placement
  */
-export function packOverviewLayout(deviceIds, opts = {}) {
+export function packOverviewLayout(deviceIds: string[], opts: PackOverviewOpts = {}): Record<string, LayoutSlot> {
   const radius = opts.radius ?? 18;
   const y = opts.y ?? 0;
   const startAngle = opts.startAngle ?? -Math.PI / 2;
   const slotSpan = opts.slotSpan ?? Math.PI * 2;
   const n = deviceIds.length;
-  const out = {};
+  const out: Record<string, LayoutSlot> = {};
 
   for (let i = 0; i < n; i++) {
     const angle = startAngle + (n <= 1 ? 0 : (i / n) * slotSpan);
@@ -45,18 +53,18 @@ export function packOverviewLayout(deviceIds, opts = {}) {
 
 /**
  * Merge base device config with auto-packed positions for entries missing `position`.
- *
- * @param {Record<string, object>} baseConfig
- * @param {{ radius?: number }} [packOpts]
  */
-export function applyAutoLayout(baseConfig, packOpts = {}) {
+export function applyAutoLayout<T extends Record<string, { position?: unknown }>>(
+  baseConfig: T,
+  packOpts: PackOverviewOpts = {}
+): T {
   const needsLayout = Object.keys(baseConfig).filter((id) => !baseConfig[id].position);
   if (needsLayout.length === 0) return { ...baseConfig };
 
   const slots = packOverviewLayout(needsLayout, packOpts);
-  const merged = { ...baseConfig };
+  const merged: Record<string, unknown> = { ...baseConfig };
   for (const id of needsLayout) {
-    merged[id] = { ...merged[id], ...slots[id] };
+    merged[id] = { ...(merged[id] as object), ...slots[id] };
   }
-  return merged;
+  return merged as T;
 }

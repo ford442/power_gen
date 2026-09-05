@@ -11,7 +11,7 @@ import { DEVICE_CONFIG } from './devices/device-config';
 import { getMergedDeviceConfig, getAllSimDeviceIds } from './devices/device-registry.js';
 import { DeviceInstance } from './device-instance.js';
 import { EnergyPipe } from './energy-pipe';
-import { OverviewCullPass } from './devices/overview-cull.js';
+import { OverviewCullPass } from './devices/overview-cull';
 import {
   computeSEGLayout,
   SEG_LAYOUT_PRESETS,

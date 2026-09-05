@@ -1,8 +1,8 @@
-import { DeviceGeometry } from './device-geometry.js';
-import { DevicePipelineManager } from './device-pipeline-manager.js';
-import { DeviceUniformManager } from './device-uniforms.js';
-import { DeviceComputeManager } from './device-compute.js';
-import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts.js';
+import { DeviceGeometry } from './device-geometry';
+import { DevicePipelineManager } from './device-pipeline-manager';
+import { DeviceUniformManager } from './device-uniforms';
+import { DeviceComputeManager } from './device-compute';
+import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts';
 import { createDevicePhysicsState } from './renderers/shared/device-physics';
 import type { DevicePhysicsState, HeronLayout } from './renderers/shared/device-physics';
 import { getHeronLayout } from './heron-layout';
@@ -12,7 +12,7 @@ import {
   getPluginMeshLayouts
 } from './devices/device-registry.js';
 import type { MergedDeviceConfigEntry } from './devices/device-registry.js';
-import { DeviceSetupMixin } from './devices/device-setup.js';
+import { DeviceSetupMixin } from './devices/device-setup';
 import { DeviceRenderMixin } from './devices/device-render';
 import { DeviceUpdateMixin } from './devices/device-update';
 import type { BindGroupCache } from './renderers/shared/bind-group-cache';
@@ -69,21 +69,6 @@ type DeviceComputeManagerHost = DeviceInstanceLike['computeManager'] & {
   setupComputeResources: () => Promise<void>;
 };
 
-type DevicePipelineManagerHost = NonNullable<DeviceInstanceLike['pipelineManager']> & {
-  rollerPipeline: GPURenderPipeline | null;
-  particlePipeline: GPURenderPipeline | null;
-  corePipeline: GPURenderPipeline | null;
-  fieldLinePipeline: GPURenderPipeline | null;
-  energyArcPipeline: GPURenderPipeline | null;
-  coilPipeline: GPURenderPipeline | null;
-  segEnhancedPipeline: GPURenderPipeline | null;
-  ringPipeline: GPURenderPipeline | null;
-  fluxSegmentPipeline: GPURenderPipeline | null;
-  setupPipelines: () => Promise<void>;
-  /** Swap every render pipeline between its base/MSAA-4x variant (ADR-0005 WS2) — see device-pipeline-manager.js. */
-  applyMsaaState: (active: boolean) => void;
-};
-
 /**
  * Mixin methods bound onto each instance in the constructor.
  * Declared via interface merging so callers see real signatures (same pattern as
@@ -136,7 +121,7 @@ export interface DeviceInstance {
   updateEnergyArcs(): void;
   updateFieldLines(): void;
 
-  // Assigned by device-setup.js compute helpers
+  // Assigned by device-setup.ts compute helpers
   rollerComputePipeline?: GPUComputePipeline | null;
   rollerComputeBindGroup?: GPUBindGroup | null;
   fluxTracerPipeline?: GPUComputePipeline | null;
@@ -168,7 +153,7 @@ export class DeviceInstance {
 
   particleCount: number;
   geometry: DeviceGeometryHost;
-  pipelineManager: DevicePipelineManagerHost;
+  pipelineManager: DevicePipelineManager;
   uniformManager: DeviceUniformManagerHost;
   computeManager: DeviceComputeManagerHost;
 
@@ -260,7 +245,7 @@ export class DeviceInstance {
       device,
       id,
       visualizer
-    ) as unknown as DevicePipelineManagerHost;
+    );
     this.uniformManager = new DeviceUniformManager(
       device,
       id,

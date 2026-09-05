@@ -19,7 +19,7 @@ import {
   buildSolarTubeInstances,
   TUBE_MESH_RADIUS,
   TUBE_MESH_HEIGHT,
-} from '../../device-mesh-layouts.js';
+} from '../../device-mesh-layouts';
 
 /** Instance record: vec3 position + vec4 rgba + vec4 rotation quat — 44 bytes. */
 const INSTANCE_STRIDE_FLOATS = 11;
