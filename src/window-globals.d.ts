@@ -3,6 +3,9 @@ import type { TelemetryHub } from './telemetry-hub';
 import type { HeronLayout, DevicePhysicsState } from './renderers/shared/device-physics';
 import type { SEGTourPlayer } from './seg-explainer/seg-tour-player.js';
 import type { SegLayout } from './devices/types';
+import type { HardwarePanel } from './hardware-panel';
+import type { HardwareBridge } from './hardware-bridge';
+import type { SEGOperatorPanel } from './seg-operator-panel';
 
 /**
  * Minimal window-facing view of SegLayout. Kept separate (rather than reusing
@@ -21,7 +24,27 @@ export interface MultiVisualizerWindowRef {
   anomalousEffectsEnabled?: boolean;
   segLayout?: SegLayoutSummary | null;
   heronLayout?: (HeronLayout & { name?: string; description?: string }) | null;
-  devices?: Record<string, { physicsState?: DevicePhysicsState | null }>;
+  devices?: Record<string, {
+    physicsState?: DevicePhysicsState | null;
+    /** WebGL2 fallback alias for physicsState. */
+    physics?: DevicePhysicsState | null;
+    flowEnergyLevel?: number;
+    particleCount?: number;
+  }>;
+  segOmega?: number;
+  postExposure?: number;
+  postBloomStrength?: number;
+  energyPipes?: { flowLevel?: number }[];
+  energyNetwork?: {
+    couplingEnabled?: boolean;
+    getSnapshot?: () => {
+      couplingEnabled?: boolean;
+      labBudgetW: number;
+      totalAllocatedW: number;
+      residualW: number;
+    } | null;
+    setCouplingEnabled?: (enabled: boolean) => void;
+  } | null;
   getSEGLayoutPreset?: () => string;
   setSEGLayoutPreset?: (preset: string) => void;
   getHeronLayoutPreset?: () => string;
@@ -88,6 +111,9 @@ export interface CaptureCanvasFrameOptions {
 declare global {
   interface Window {
     segOperator: SEGOperatorState;
+    segOperatorPanel?: SEGOperatorPanel;
+    /** 2D schematic overlay singleton (seg-diagram-2d.js). */
+    segDiagram2D?: { setVisible?: (on: boolean) => void };
     telemetryHub: TelemetryHub;
     multiVisualizer?: MultiVisualizerWindowRef;
     currentRenderer?: string | null;
@@ -157,6 +183,14 @@ declare global {
 
     /** WASM physics bridge singleton (seg-physics-bridge). */
     segWasm?: unknown;
+
+    /** SEG component-label overlay singleton (seg-annotations.js). */
+    segAnnotations?: { setEnabled: (on: boolean) => void };
+
+    /** Hardware digital twin connect panel singleton (hardware-panel.ts). */
+    hardwarePanel?: HardwarePanel;
+    /** Exposed for console/e2e access after initHardwarePanel(). */
+    HardwareBridge?: typeof HardwareBridge;
   }
 }
 

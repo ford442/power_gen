@@ -1,7 +1,7 @@
 // Tachometer overlay + hardware digital twin sync.
 import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
-import { HardwareBridge, TWIN_MODES } from '../hardware-bridge.js';
+import { HardwareBridge, TWIN_MODES } from '../hardware-bridge';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { HardwareTwinTelemetry } from '../telemetry/types';
 

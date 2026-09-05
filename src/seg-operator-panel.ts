@@ -4,13 +4,73 @@
  * Control setpoints still write to segOperator plant state.
  */
 
-import { segOperator, SEG_SPEC, OPERATOR_STATUS } from './seg-operator-state';
+import { segOperator, SEG_SPEC, OPERATOR_STATUS, type SEGOperatorState } from './seg-operator-state';
 import { telemetryHub } from './telemetry-hub';
+import type { TelemetrySnapshot, DeviceTelemetrySnap } from './telemetry/types';
 
 const RPM_GAUGE_MAX = 3200;
 
+/** VDG/Hall telemetry isn't wired onto the hub yet (see docs/adr/0008-device-catalog.md follow-ups). */
+type VdgSnap = DeviceTelemetrySnap & Partial<{ vdgVoltage: number; vdgBeltMps: number; vdgChargeC: number; vdgSparkHz: number }>;
+type HallSnap = DeviceTelemetrySnap & Partial<{ hallVoltage: number; hallCurrent: number; hallFieldT: number; hallCoeff: number }>;
+
+export interface SEGOperatorPanelOptions {
+  state?: SEGOperatorState;
+  onParticleCountChange?: ((count: number) => void) | null;
+}
+
+interface PanelElements {
+  leftPanel: HTMLElement | null;
+  rightPanel: HTMLElement | null;
+  status: HTMLElement | null;
+  statusDot: HTMLElement | null;
+  startBtn: HTMLButtonElement | null;
+  stopBtn: HTMLButtonElement | null;
+  resetBtn: HTMLButtonElement | null;
+  driveControl: HTMLInputElement | null;
+  driveVal: HTMLElement | null;
+  fieldControl: HTMLInputElement | null;
+  fieldVal: HTMLElement | null;
+  loadControl: HTMLInputElement | null;
+  loadVal: HTMLElement | null;
+  speedControl: HTMLInputElement | null;
+  speedVal: HTMLElement | null;
+  particleSlider: HTMLInputElement | null;
+  particleVal: HTMLElement | null;
+  schematicToggle: HTMLInputElement | null;
+  schematicOverlay: HTMLElement | null;
+  aboutToggle: HTMLElement | null;
+  aboutSection: HTMLElement | null;
+  rpmGauge: HTMLElement | null;
+  rpmNeedle: SVGLineElement | null;
+  rpmArc: SVGPathElement | null;
+  rpmInner: HTMLElement | null;
+  voltage: HTMLElement | null;
+  current: HTMLElement | null;
+  power: HTMLElement | null;
+  magneticField: HTMLElement | null;
+  temperature: HTMLElement | null;
+  efficiency: HTMLElement | null;
+  efficiencyBar: HTMLElement | null;
+  energy: HTMLElement | null;
+  thermalFill: HTMLElement | null;
+  thermalVal: HTMLElement | null;
+  coronaVal: HTMLElement | null;
+  collapseLeft: HTMLElement | null;
+  collapseRight: HTMLElement | null;
+  main: HTMLElement | null;
+}
+
 export class SEGOperatorPanel {
-  constructor(options = {}) {
+  state: SEGOperatorState;
+  onParticleCountChange: ((count: number) => void) | null;
+  els!: PanelElements;
+  private _rafPending: boolean;
+  private _lastTelemetry: TelemetrySnapshot['seg'];
+  private _schematicVisible: boolean;
+  private _unsubHub: (() => void) | null;
+
+  constructor(options: SEGOperatorPanelOptions = {}) {
     this.state = options.state || segOperator;
     this.onParticleCountChange = options.onParticleCountChange || null;
     this._rafPending = false;
@@ -31,32 +91,32 @@ export class SEGOperatorPanel {
     });
   }
 
-  _bindDom() {
+  private _bindDom(): void {
     this.els = {
       leftPanel: document.getElementById('left-panel'),
       rightPanel: document.getElementById('right-panel'),
       status: document.getElementById('status'),
       statusDot: document.getElementById('statusDot'),
-      startBtn: document.getElementById('startBtn'),
-      stopBtn: document.getElementById('stopBtn'),
-      resetBtn: document.getElementById('resetBtn'),
-      driveControl: document.getElementById('driveControl'),
+      startBtn: document.getElementById('startBtn') as HTMLButtonElement | null,
+      stopBtn: document.getElementById('stopBtn') as HTMLButtonElement | null,
+      resetBtn: document.getElementById('resetBtn') as HTMLButtonElement | null,
+      driveControl: document.getElementById('driveControl') as HTMLInputElement | null,
       driveVal: document.getElementById('driveVal'),
-      fieldControl: document.getElementById('fieldControl'),
+      fieldControl: document.getElementById('fieldControl') as HTMLInputElement | null,
       fieldVal: document.getElementById('fieldVal'),
-      loadControl: document.getElementById('loadControl'),
+      loadControl: document.getElementById('loadControl') as HTMLInputElement | null,
       loadVal: document.getElementById('loadVal'),
-      speedControl: document.getElementById('speedControl'),
+      speedControl: document.getElementById('speedControl') as HTMLInputElement | null,
       speedVal: document.getElementById('speedVal'),
-      particleSlider: document.getElementById('particleSlider'),
+      particleSlider: document.getElementById('particleSlider') as HTMLInputElement | null,
       particleVal: document.getElementById('particleVal'),
-      schematicToggle: document.getElementById('schematicToggle'),
+      schematicToggle: document.getElementById('schematicToggle') as HTMLInputElement | null,
       schematicOverlay: document.getElementById('seg-schematic-overlay'),
       aboutToggle: document.getElementById('segAboutToggle'),
       aboutSection: document.getElementById('seg-op-about'),
       rpmGauge: document.getElementById('seg-rpm-gauge'),
-      rpmNeedle: document.getElementById('seg-rpm-needle'),
-      rpmArc: document.getElementById('seg-rpm-arc'),
+      rpmNeedle: document.getElementById('seg-rpm-needle') as unknown as SVGLineElement | null,
+      rpmArc: document.getElementById('seg-rpm-arc') as unknown as SVGPathElement | null,
       rpmInner: document.getElementById('rpm-inner'),
       voltage: document.getElementById('voltage'),
       current: document.getElementById('current'),
@@ -78,13 +138,13 @@ export class SEGOperatorPanel {
     this.els.rightPanel?.classList.add('seg-op-instrument', 'seg-op-panel');
   }
 
-  _wireControls() {
+  private _wireControls(): void {
     const s = this.state;
 
     if (this.els.driveControl) {
       s.targetDrive = parseInt(this.els.driveControl.value, 10) / 100;
       this.els.driveControl.addEventListener('input', (e) => {
-        const v = parseInt(e.target.value, 10);
+        const v = parseInt((e.target as HTMLInputElement).value, 10);
         s.targetDrive = v / 100;
         if (this.els.driveVal) this.els.driveVal.textContent = `${v}%`;
       });
@@ -93,7 +153,7 @@ export class SEGOperatorPanel {
     if (this.els.fieldControl) {
       s.magneticFieldStrength = parseInt(this.els.fieldControl.value, 10) / 100;
       this.els.fieldControl.addEventListener('input', (e) => {
-        const v = parseInt(e.target.value, 10);
+        const v = parseInt((e.target as HTMLInputElement).value, 10);
         s.magneticFieldStrength = v / 100;
         if (this.els.fieldVal) this.els.fieldVal.textContent = `${v}%`;
       });
@@ -102,7 +162,7 @@ export class SEGOperatorPanel {
     if (this.els.loadControl) {
       s.loadResistance = parseInt(this.els.loadControl.value, 10);
       this.els.loadControl.addEventListener('input', (e) => {
-        const v = parseInt(e.target.value, 10);
+        const v = parseInt((e.target as HTMLInputElement).value, 10);
         s.loadResistance = v;
         if (this.els.loadVal) this.els.loadVal.textContent = String(v);
       });
@@ -130,7 +190,7 @@ export class SEGOperatorPanel {
     });
 
     this.els.schematicToggle?.addEventListener('change', (e) => {
-      this._schematicVisible = e.target.checked;
+      this._schematicVisible = (e.target as HTMLInputElement).checked;
       this.els.schematicOverlay?.classList.toggle('visible', this._schematicVisible);
       window.segDiagram2D?.setVisible?.(this._schematicVisible);
     });
@@ -141,24 +201,28 @@ export class SEGOperatorPanel {
 
     this.els.collapseLeft?.addEventListener('click', () => {
       this.els.main?.classList.toggle('left-collapsed');
-      this.els.collapseLeft.textContent = this.els.main?.classList.contains('left-collapsed') ? '›' : '‹';
+      if (this.els.collapseLeft) {
+        this.els.collapseLeft.textContent = this.els.main?.classList.contains('left-collapsed') ? '›' : '‹';
+      }
     });
 
     this.els.collapseRight?.addEventListener('click', () => {
       this.els.main?.classList.toggle('right-collapsed');
-      this.els.collapseRight.textContent = this.els.main?.classList.contains('right-collapsed') ? '‹' : '›';
+      if (this.els.collapseRight) {
+        this.els.collapseRight.textContent = this.els.main?.classList.contains('right-collapsed') ? '‹' : '›';
+      }
     });
 
     this.els.particleSlider?.addEventListener('input', (e) => {
-      const count = parseInt(e.target.value, 10);
+      const count = parseInt((e.target as HTMLInputElement).value, 10);
       if (this.els.particleVal) this.els.particleVal.textContent = count.toLocaleString();
       this.onParticleCountChange?.(count);
     });
   }
 
-  _wireKeyboard() {
+  private _wireKeyboard(): void {
     window.addEventListener('keydown', (e) => {
-      if (e.target.matches('input, textarea, select')) return;
+      if ((e.target as HTMLElement).matches('input, textarea, select')) return;
       const key = e.key.toLowerCase();
 
       if (key === 's' && !e.ctrlKey && !e.metaKey) {
@@ -179,7 +243,7 @@ export class SEGOperatorPanel {
     });
   }
 
-  _renderRpmGaugeSvg() {
+  private _renderRpmGaugeSvg(): void {
     if (!this.els.rpmGauge) return;
     const cx = 100, cy = 95, r = 72;
     const startA = 135, endA = 405;
@@ -208,16 +272,16 @@ export class SEGOperatorPanel {
         }).join('')}
       </svg>
     `;
-    this.els.rpmArc = document.getElementById('seg-rpm-arc');
-    this.els.rpmNeedle = document.getElementById('seg-rpm-needle');
+    this.els.rpmArc = document.getElementById('seg-rpm-arc') as unknown as SVGPathElement | null;
+    this.els.rpmNeedle = document.getElementById('seg-rpm-needle') as unknown as SVGLineElement | null;
 
     const track = document.getElementById('seg-rpm-track');
     if (track) track.setAttribute('d', this._arcPath(cx, cy, r, startA, endA));
     if (this.els.rpmArc) this.els.rpmArc.setAttribute('d', this._arcPath(cx, cy, r, startA, startA));
   }
 
-  _arcPath(cx, cy, r, startDeg, endDeg) {
-    const toRad = (d) => d * Math.PI / 180;
+  private _arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number): string {
+    const toRad = (d: number) => d * Math.PI / 180;
     const x1 = cx + r * Math.cos(toRad(startDeg));
     const y1 = cy + r * Math.sin(toRad(startDeg));
     const x2 = cx + r * Math.cos(toRad(endDeg));
@@ -226,7 +290,7 @@ export class SEGOperatorPanel {
     return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
   }
 
-  _renderSchematicSvg() {
+  private _renderSchematicSvg(): void {
     const host = this.els.schematicOverlay?.querySelector('.seg-schematic-svg');
     if (!host) return;
     host.innerHTML = `
@@ -247,9 +311,9 @@ export class SEGOperatorPanel {
     `;
   }
 
-  updateStatusUi() {
+  updateStatusUi(): void {
     const s = this.state;
-    const labels = {
+    const labels: Record<string, { text: string; dot: string; cls: string }> = {
       [OPERATOR_STATUS.STANDBY]: { text: 'STANDBY', dot: 'status-standby', cls: '' },
       [OPERATOR_STATUS.SPINUP]: { text: 'SPIN-UP', dot: 'status-active', cls: 'status-spinup' },
       [OPERATOR_STATUS.OPERATIONAL]: { text: 'OPERATIONAL', dot: 'status-active', cls: 'status-operational' },
@@ -278,7 +342,7 @@ export class SEGOperatorPanel {
    * Legacy per-frame hook. Prefer visualizers calling telemetryHub.publishFrame().
    * If the hub was not updated this frame, publishes SEG-only telemetry so gauges move.
    */
-  tick(deltaTime) {
+  tick(deltaTime: number): void {
     if (this._rafPending) return;
     this._rafPending = true;
     requestAnimationFrame(() => {
@@ -293,7 +357,7 @@ export class SEGOperatorPanel {
   }
 
   /** Apply a TelemetryHub snapshot to the dashboard DOM (SEG primary gauges). */
-  applySnapshot(snap) {
+  applySnapshot(snap: TelemetrySnapshot): void {
     const t = snap?.seg;
     if (!t) return;
     this._lastTelemetry = t;
@@ -358,11 +422,11 @@ export class SEGOperatorPanel {
   }
 
   /** Footer / battery strip from multi-device physics on the hub */
-  _updateFooterFromSnapshot(snap) {
+  private _updateFooterFromSnapshot(snap: TelemetrySnapshot): void {
     const modeFooter = document.getElementById('modeFooter');
     const batteryFooter = document.getElementById('batteryFooter');
     const view = snap.view || 'overview';
-    const modeLabels = {
+    const modeLabels: Record<string, string> = {
       seg: 'SEG',
       heron: "Heron's Fountain",
       kelvin: "Kelvin's Thunderstorm",
@@ -456,7 +520,7 @@ export class SEGOperatorPanel {
           `k ${(t.transformerK || 0).toFixed(2)}`
         ].join(' · ');
       } else if (view === 'vdg' && snap.devices?.vdg) {
-        const v = snap.devices.vdg;
+        const v = snap.devices.vdg as VdgSnap;
         const spark = (v.vdgSparkHz || 0) > 0 ? ' ⚡' : '';
         batteryFooter.textContent = [
           `V ${(v.vdgVoltage || 0).toFixed(0)} V${spark}`,
@@ -465,7 +529,7 @@ export class SEGOperatorPanel {
           `${(v.vdgSparkHz || 0).toFixed(2)} Hz`
         ].join(' · ');
       } else if (view === 'hall' && snap.devices?.hall) {
-        const h = snap.devices.hall;
+        const h = snap.devices.hall as HallSnap;
         batteryFooter.textContent = [
           `V_H ${((h.hallVoltage || 0) * 1000).toFixed(2)} mV`,
           `I ${(h.hallCurrent || 0).toFixed(2)} A`,
@@ -478,7 +542,7 @@ export class SEGOperatorPanel {
     }
 
     const batteryEl = document.getElementById('batteryCharge');
-    const batteryStat = document.getElementById('batteryStat');
+    const batteryStat = document.getElementById('batteryStat') as HTMLElement | null;
     if (batteryEl && batteryStat && solar) {
       batteryEl.textContent = `${Math.round((solar.batteryCharge || 0) * 100)}%`;
       batteryStat.style.display = view === 'solar' ? 'flex' : 'none';
@@ -486,18 +550,18 @@ export class SEGOperatorPanel {
   }
 
   /** Force a SEG-only refresh (e.g. after reset) */
-  refreshTelemetry(deltaTime = 0.016) {
+  refreshTelemetry(deltaTime = 0.016): void {
     telemetryHub.publishFrame({ dt: deltaTime });
   }
 
-  destroy() {
+  destroy(): void {
     if (this._unsubHub) {
       this._unsubHub();
       this._unsubHub = null;
     }
   }
 
-  _updateRpmGauge(rpm) {
+  private _updateRpmGauge(rpm: number): void {
     const cx = 100, cy = 95, r = 72;
     const startA = 135, endA = 405;
     const pct = Math.min(1, rpm / RPM_GAUGE_MAX);
@@ -510,18 +574,17 @@ export class SEGOperatorPanel {
     if (this.els.rpmNeedle) {
       const nx = cx + Math.cos(angleRad) * (r - 12);
       const ny = cy + Math.sin(angleRad) * (r - 12);
-      this.els.rpmNeedle.setAttribute('x2', nx);
-      this.els.rpmNeedle.setAttribute('y2', ny);
+      this.els.rpmNeedle.setAttribute('x2', String(nx));
+      this.els.rpmNeedle.setAttribute('y2', String(ny));
     }
   }
 
-  getTelemetry() {
+  getTelemetry(): TelemetrySnapshot['seg'] {
     return this._lastTelemetry;
   }
 }
 
-/** @returns {SEGOperatorPanel} */
-export function initSEGOperatorPanel(options = {}) {
+export function initSEGOperatorPanel(options: SEGOperatorPanelOptions = {}): SEGOperatorPanel {
   if (window.segOperatorPanel) return window.segOperatorPanel;
   window.segOperator = window.segOperator || segOperator;
   window.segOperatorPanel = new SEGOperatorPanel(options);

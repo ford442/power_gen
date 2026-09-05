@@ -3,7 +3,9 @@
  * States: disconnected | mock | serial
  */
 
-const LABELS = {
+export type HardwareTwinBadgeState = 'disconnected' | 'mock' | 'serial' | 'connecting' | 'error' | 'connected';
+
+const LABELS: Record<string, string> = {
   disconnected: 'Twin off',
   mock: 'Twin mock',
   serial: 'Twin serial',
@@ -11,10 +13,7 @@ const LABELS = {
   error: 'Twin error'
 };
 
-/**
- * @param {'disconnected'|'mock'|'serial'|'connecting'|'error'} state
- */
-export function syncHardwareTwinBadge(state) {
+export function syncHardwareTwinBadge(state: HardwareTwinBadgeState): void {
   if (typeof document === 'undefined') return;
   const el = document.getElementById('hw-twin-badge');
   const text = document.getElementById('hwTwinBadgeText');
@@ -25,10 +24,10 @@ export function syncHardwareTwinBadge(state) {
 }
 
 /** Map bridge.status → badge state. */
-export function syncHardwareTwinBadgeFromBridge(bridge) {
+export function syncHardwareTwinBadgeFromBridge(bridge: { connectionKind?: string; status?: string } | null | undefined): void {
   if (!bridge) {
     syncHardwareTwinBadge('disconnected');
     return;
   }
-  syncHardwareTwinBadge(bridge.connectionKind || bridge.status || 'disconnected');
+  syncHardwareTwinBadge((bridge.connectionKind || bridge.status || 'disconnected') as HardwareTwinBadgeState);
 }

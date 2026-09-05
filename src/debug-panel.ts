@@ -1,14 +1,28 @@
+import { SEG_DATA, KELVIN_DATA, HERON_DATA, MICROVOLT_DATA } from './scientific-data.js';
+import type { PerformanceProfiler } from './performance-profiler';
+
 export class DebugPanel {
-  constructor(profiler) {
+  profiler: PerformanceProfiler;
+  visible: boolean;
+  canvas!: HTMLCanvasElement;
+  ctx!: CanvasRenderingContext2D;
+  correlationCanvas!: HTMLCanvasElement;
+  correlationCtx!: CanvasRenderingContext2D;
+  animationId: number | null;
+  panel!: HTMLDivElement;
+  wasmDiffEnabled?: boolean;
+
+  private _refreshEnergyNetworkStatus?: () => void;
+  private _wasmRefreshStatus?: () => void;
+
+  constructor(profiler: PerformanceProfiler) {
     this.profiler = profiler;
     this.visible = false;
-    this.canvas = null;
-    this.ctx = null;
     this.animationId = null;
     this.createPanel();
   }
 
-  createPanel() {
+  createPanel(): void {
     // Container
     const container = document.createElement('div');
     container.id = 'debugPanel';
@@ -173,54 +187,55 @@ export class DebugPanel {
     document.body.appendChild(container);
 
     // Get canvas contexts
-    this.canvas = document.getElementById('fpsGraph');
-    this.ctx = this.canvas.getContext('2d');
-    this.correlationCanvas = document.getElementById('correlationGraph');
-    this.correlationCtx = this.correlationCanvas.getContext('2d');
+    this.canvas = document.getElementById('fpsGraph') as HTMLCanvasElement;
+    this.ctx = this.canvas.getContext('2d')!;
+    this.correlationCanvas = document.getElementById('correlationGraph') as HTMLCanvasElement;
+    this.correlationCtx = this.correlationCanvas.getContext('2d')!;
 
     // Event listeners
-    document.getElementById('closeDebug').addEventListener('click', () => this.hide());
-    document.getElementById('autoQualityToggle').addEventListener('change', (e) => {
-      this.profiler.autoQualityEnabled = e.target.checked;
+    document.getElementById('closeDebug')?.addEventListener('click', () => this.hide());
+    document.getElementById('autoQualityToggle')?.addEventListener('change', (e) => {
+      this.profiler.autoQualityEnabled = (e.target as HTMLInputElement).checked;
     });
-    document.getElementById('gpuTimingToggle').addEventListener('change', (e) => {
-      if (e.target.checked && !this.profiler.device.features.has('timestamp-query')) {
-        e.target.checked = false;
+    document.getElementById('gpuTimingToggle')?.addEventListener('change', (e) => {
+      const target = e.target as HTMLInputElement;
+      if (target.checked && !this.profiler.device.features.has('timestamp-query')) {
+        target.checked = false;
         console.warn('[debug] GPU timing needs ?gpuTiming=1 and a page reload (may blank canvas on some GPUs)');
         return;
       }
-      this.profiler.timingEnabled = e.target.checked;
+      this.profiler.timingEnabled = target.checked;
     });
-    document.getElementById('startBenchmark').addEventListener('click', () => this.startBenchmark());
-    document.getElementById('applyOptimal').addEventListener('click', () => this.applyOptimalSettings());
+    document.getElementById('startBenchmark')?.addEventListener('click', () => this.startBenchmark());
+    document.getElementById('applyOptimal')?.addEventListener('click', () => this.applyOptimalSettings());
     this._wireWasmControls();
     this._wireEnergyNetworkControls();
-    const frameSelect = document.getElementById('segFrameLevelSelect');
+    const frameSelect = document.getElementById('segFrameLevelSelect') as HTMLSelectElement | null;
     if (frameSelect) {
       const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
       const initial = params.get('frame') || 'full';
       if (['off', 'minimal', 'full'].includes(initial)) frameSelect.value = initial;
       frameSelect.addEventListener('change', (e) => {
         if (typeof window.setSegFrameLevel === 'function') {
-          window.setSegFrameLevel(e.target.value);
+          window.setSegFrameLevel((e.target as HTMLSelectElement).value);
         }
       });
     }
 
-    const lookSelect = document.getElementById('lightingLookSelect');
+    const lookSelect = document.getElementById('lightingLookSelect') as HTMLSelectElement | null;
     if (lookSelect) {
       const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
       const initialLook = params.get('look') || params.get('lighting') || 'studio';
       if (['studio', 'lab', 'drama'].includes(initialLook)) lookSelect.value = initialLook;
       lookSelect.addEventListener('change', (e) => {
         if (typeof window.setLightingLook === 'function') {
-          window.setLightingLook(e.target.value);
+          window.setLightingLook((e.target as HTMLSelectElement).value);
         }
       });
     }
 
-    const exposureSlider = document.getElementById('exposureSlider');
-    const bloomSlider = document.getElementById('bloomSlider');
+    const exposureSlider = document.getElementById('exposureSlider') as HTMLInputElement | null;
+    const bloomSlider = document.getElementById('bloomSlider') as HTMLInputElement | null;
     const applyPost = () => {
       const v = window.multiVisualizer;
       if (!v) return;
@@ -230,16 +245,16 @@ export class DebugPanel {
     exposureSlider?.addEventListener('input', applyPost);
     bloomSlider?.addEventListener('input', applyPost);
 
-    const annToggle = document.getElementById('segAnnotationsToggle');
+    const annToggle = document.getElementById('segAnnotationsToggle') as HTMLInputElement | null;
     annToggle?.addEventListener('change', (e) => {
-      window.segAnnotations?.setEnabled(e.target.checked);
+      window.segAnnotations?.setEnabled((e.target as HTMLInputElement).checked);
     });
 
     this.panel = container;
   }
 
-  _wireEnergyNetworkControls() {
-    const toggle = document.getElementById('energyCouplingToggle');
+  private _wireEnergyNetworkControls(): void {
+    const toggle = document.getElementById('energyCouplingToggle') as HTMLInputElement | null;
     const statusEl = document.getElementById('energyNetworkStatus');
 
     const getNetwork = () => window.multiVisualizer?.energyNetwork ?? null;
@@ -266,14 +281,14 @@ export class DebugPanel {
     toggle?.addEventListener('change', (e) => {
       const net = getNetwork();
       if (!net) return;
-      net.setCouplingEnabled(e.target.checked);
+      net.setCouplingEnabled?.((e.target as HTMLInputElement).checked);
       refresh();
     });
 
     this._refreshEnergyNetworkStatus = refresh;
   }
 
-  _wireWasmControls() {
+  private _wireWasmControls(): void {
     const choresEl = document.getElementById('gpuChoresStatus');
     const refreshChores = () => {
       const c = window.gpuChores?.breadcrumb?.();
@@ -292,10 +307,10 @@ export class DebugPanel {
     });
 
     const statusEl = document.getElementById('wasmPhysicsStatus');
-    const toggle = document.getElementById('wasmPhysicsToggle');
-    const diffToggle = document.getElementById('wasmDiffToggle');
+    const toggle = document.getElementById('wasmPhysicsToggle') as HTMLInputElement | null;
+    const diffToggle = document.getElementById('wasmDiffToggle') as HTMLInputElement | null;
     const benchBtn = document.getElementById('wasmJsBenchBtn');
-    const benchOut = document.getElementById('wasmBenchResults');
+    const benchOut = document.getElementById('wasmBenchResults') as HTMLElement | null;
 
     const refreshStatus = async () => {
       try {
@@ -316,9 +331,9 @@ export class DebugPanel {
     toggle?.addEventListener('change', async (e) => {
       const { segWasm } = await import('./wasm/seg-physics-bridge');
       await segWasm.init();
-      segWasm.setEnabled(e.target.checked);
+      segWasm.setEnabled((e.target as HTMLInputElement).checked);
       // Reload so MultiDeviceVisualizer picks enabled flag at init paths cleanly
-      if (e.target.checked) {
+      if ((e.target as HTMLInputElement).checked) {
         const u = new URL(location.href);
         u.searchParams.set('wasmPhysics', '1');
         location.href = u.toString();
@@ -331,7 +346,7 @@ export class DebugPanel {
     });
 
     diffToggle?.addEventListener('change', (e) => {
-      this.wasmDiffEnabled = e.target.checked;
+      this.wasmDiffEnabled = (e.target as HTMLInputElement).checked;
     });
 
     benchBtn?.addEventListener('click', async () => {
@@ -348,32 +363,32 @@ export class DebugPanel {
             `Ratio WASM/JS: <b>${r.ratio.toFixed(2)}×</b>`
           : 'WASM unavailable — build with npm run wasm:build';
       } catch (err) {
-        benchOut.textContent = 'Benchmark failed: ' + (err?.message || err);
+        benchOut.textContent = 'Benchmark failed: ' + ((err as Error)?.message || err);
       }
     });
 
     this._wasmRefreshStatus = refreshStatus;
   }
 
-  show() {
+  show(): void {
     this.visible = true;
     this.panel.style.display = 'block';
     this.startUpdateLoop();
     this._wasmRefreshStatus?.();
   }
 
-  hide() {
+  hide(): void {
     this.visible = false;
     this.panel.style.display = 'none';
     this.stopUpdateLoop();
   }
 
-  toggle() {
+  toggle(): void {
     if (this.visible) this.hide();
     else this.show();
   }
 
-  startUpdateLoop() {
+  startUpdateLoop(): void {
     const update = () => {
       if (!this.visible) return;
       this.update();
@@ -382,14 +397,14 @@ export class DebugPanel {
     update();
   }
 
-  stopUpdateLoop() {
+  stopUpdateLoop(): void {
     if (this.animationId) {
       cancelAnimationFrame(this.animationId);
       this.animationId = null;
     }
   }
 
-  async _updateWasmDiff() {
+  private async _updateWasmDiff(): Promise<void> {
     const el = document.getElementById('wasmDiffReadout');
     if (!el) return;
     const { segWasm } = await import('./wasm/seg-physics-bridge');
@@ -414,7 +429,7 @@ export class DebugPanel {
       `Δ=${(wasmR - gpuProxy).toFixed(3)} · zero-copy ω̄=${segWasm.lastRollerMeanOmega.toFixed(4)}`;
   }
 
-  update() {
+  update(): void {
     const stats = this.profiler.getStats();
     this._refreshEnergyNetworkStatus?.();
 
@@ -427,9 +442,9 @@ export class DebugPanel {
     const qualityEl = document.getElementById('qualityLevel');
     if (qualityEl) {
       qualityEl.textContent = (stats.qualityLevel * 100).toFixed(0) + '%';
-      const modeDiv = document.getElementById('performanceMode');
+      const modeDiv = document.getElementById('performanceMode') as HTMLElement | null;
       if (modeDiv) {
-        const indicator = modeDiv.querySelector('span');
+        const indicator = modeDiv.querySelector('span') as HTMLElement | null;
         if (stats.qualityLevel < 0.5) {
           modeDiv.style.background = 'rgba(50,0,0,0.5)';
           if (indicator) indicator.style.color = '#f44';
@@ -444,7 +459,7 @@ export class DebugPanel {
     }
 
     // Update GPU tier display
-    const gpuTierEl = document.getElementById('gpuTierDisplay');
+    const gpuTierEl = document.getElementById('gpuTierDisplay') as HTMLElement | null;
     if (gpuTierEl) {
       gpuTierEl.textContent = stats.gpuTier.toUpperCase();
       gpuTierEl.style.color = stats.gpuTier === 'high' ? '#4f4' : (stats.gpuTier === 'medium' ? '#ff4' : '#f44');
@@ -453,12 +468,12 @@ export class DebugPanel {
     // Update particle count
     const particleEl = document.getElementById('particleCount');
     if (particleEl) {
-      const count = Math.floor(parseInt(particleEl.textContent) * stats.qualityLevel);
+      const count = Math.floor(parseInt(particleEl.textContent || '0') * stats.qualityLevel);
       particleEl.textContent = (count / 1000).toFixed(1) + 'K';
     }
 
     // Update stats grid
-    const statsDiv = document.getElementById('debugStats');
+    const statsDiv = document.getElementById('debugStats')!;
     statsDiv.innerHTML = `
       <div style="color: #888;">Current FPS:</div>
       <div style="color: ${stats.currentFPS < 45 ? '#f44' : (stats.currentFPS < 55 ? '#ff4' : '#4f4')}; font-weight: bold;">${stats.currentFPS.toFixed(1)}</div>
@@ -503,7 +518,7 @@ export class DebugPanel {
     `;
 
     // Per-device CPU time breakdown (acceptance: profiler shows per-device times)
-    let deviceTimingEl = document.getElementById('deviceTimingBreakdown');
+    let deviceTimingEl = document.getElementById('deviceTimingBreakdown') as HTMLElement | null;
     if (!deviceTimingEl) {
       deviceTimingEl = document.createElement('div');
       deviceTimingEl.id = 'deviceTimingBreakdown';
@@ -538,15 +553,15 @@ export class DebugPanel {
     this.updateDevicePhysicsData();
   }
 
-  updateDevicePhysicsData() {
+  updateDevicePhysicsData(): void {
     const el = document.getElementById('devicePhysicsData');
     const viz = window.multiVisualizer;
     if (!el || !viz?.devices) return;
 
-    const row = (label, value) =>
+    const row = (label: string, value: string | number) =>
       `<div><span style="color:#666">${label}:</span> ${value}</div>`;
 
-    const parts = [];
+    const parts: string[] = [];
     for (const id of ['heron', 'kelvin', 'solar']) {
       const d = viz.devices[id];
       // WebGPU: physicsState; WebGL2: physics (aliased as physicsState too)
@@ -559,7 +574,7 @@ export class DebugPanel {
         parts.push(row('Flow', `${ps.heronFlowRateLmin.toFixed(1)} L/min`));
         parts.push(row('Pressure', `${ps.heronPressureKPa.toFixed(1)} kPa`));
         parts.push(row('Re', `${ps.heronReynolds.toFixed(0)}`));
-        parts.push(row('Flow E', `${(d.flowEnergyLevel * 100).toFixed(0)}%`));
+        parts.push(row('Flow E', `${((d.flowEnergyLevel ?? 0) * 100).toFixed(0)}%`));
       } else if (id === 'kelvin') {
         parts.push(row('Voltage', `${(ps.kelvinVoltageN * ps.kelvinVbreak).toFixed(0)} V`));
         parts.push(row('Spark', ps.kelvinSparkTimer > 0 ? 'ACTIVE' : 'idle'));
@@ -582,7 +597,7 @@ export class DebugPanel {
     el.innerHTML = parts.join('') || '<div style="color:#666">No alternate devices active</div>';
   }
 
-  drawFPSGraph() {
+  drawFPSGraph(): void {
     const ctx = this.ctx;
     const width = this.canvas.width;
     const height = this.canvas.height;
@@ -632,7 +647,7 @@ export class DebugPanel {
     ctx.fillText('0 FPS', 4, height - 4);
   }
 
-  drawCorrelationGraph() {
+  drawCorrelationGraph(): void {
     const ctx = this.correlationCtx;
     const width = this.correlationCanvas.width;
     const height = this.correlationCanvas.height;
@@ -669,8 +684,8 @@ export class DebugPanel {
     ctx.fillText('Part', width / 2 - 15, height - 4);
   }
 
-  updateMemoryDetails() {
-    const memoryDiv = document.getElementById('memoryDetails');
+  updateMemoryDetails(): void {
+    const memoryDiv = document.getElementById('memoryDetails')!;
     const recentBuffers = this.profiler.bufferAllocations.slice(-5);
     const recentTextures = this.profiler.textureAllocations.slice(-5);
 
@@ -691,7 +706,7 @@ export class DebugPanel {
     memoryDiv.innerHTML = html;
   }
 
-  updateScientificData() {
+  updateScientificData(): void {
     const dataDiv = document.getElementById('validatedPhysicsData');
     if (!dataDiv) return;
 
@@ -727,9 +742,9 @@ export class DebugPanel {
     dataDiv.innerHTML = html;
   }
 
-  startBenchmark() {
+  startBenchmark(): void {
     const duration = this.profiler.startBenchmark();
-    const resultsDiv = document.getElementById('benchmarkResults');
+    const resultsDiv = document.getElementById('benchmarkResults') as HTMLElement;
     resultsDiv.style.display = 'block';
     resultsDiv.innerHTML = `Benchmark running... ${duration}s remaining`;
 
@@ -750,9 +765,9 @@ export class DebugPanel {
     }, (duration + 1) * 1000);
   }
 
-  showBenchmarkResults() {
+  showBenchmarkResults(): void {
     const results = this.profiler.endBenchmark();
-    const resultsDiv = document.getElementById('benchmarkResults');
+    const resultsDiv = document.getElementById('benchmarkResults')!;
 
     resultsDiv.innerHTML = `
       <div style="color: #0ff; font-weight: bold; margin-bottom: 8px;">Benchmark Complete!</div>
@@ -767,14 +782,15 @@ export class DebugPanel {
     `;
   }
 
-  applyOptimalSettings() {
+  applyOptimalSettings(): void {
     const settings = this.profiler.getOptimalSettings();
 
     // Update sliders
-    const particleSlider = document.getElementById('particleSlider');
+    const particleSlider = document.getElementById('particleSlider') as HTMLInputElement | null;
     if (particleSlider) {
-      particleSlider.value = settings.particleCount;
-      document.getElementById('particleVal').textContent = settings.particleCount.toLocaleString();
+      particleSlider.value = String(settings.particleCount);
+      const particleVal = document.getElementById('particleVal');
+      if (particleVal) particleVal.textContent = settings.particleCount.toLocaleString();
     }
 
     // Show confirmation

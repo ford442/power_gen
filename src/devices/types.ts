@@ -209,7 +209,7 @@ export interface VisualizerLike {
   rollerInstanceCullEnabled?: boolean;
   enhancedRollerBuffer?: MeshBuffers | null;
 
-  // Hardware digital twin (Web Serial / mock) — see hardware-bridge.js
+  // Hardware digital twin (Web Serial / mock) — see hardware-bridge.ts
   hardwareBridge?: {
     isConnected?: boolean;
     mirrorEnabled?: boolean;

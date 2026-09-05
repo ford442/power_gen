@@ -3,23 +3,34 @@
  * Injects into #left-panel; streams S telemetry; coil override pad.
  */
 
-import { HardwareBridge, TWIN_MODES } from './hardware-bridge.js';
-import { syncHardwareTwinBadgeFromBridge } from './hardware-twin-badge.js';
+import { HardwareBridge, TWIN_MODES, type SensorSnapshot } from './hardware-bridge';
+import { syncHardwareTwinBadgeFromBridge } from './hardware-twin-badge';
 import { ElectromagnetController } from './electromagnet-controller.js';
 
-function bits(mask, n) {
-  const out = [];
+function bits(mask: number, n: number): number[] {
+  const out: number[] = [];
   for (let i = 0; i < n; i++) out.push((mask >> i) & 1);
   return out;
 }
 
+export interface HardwarePanelVisualizer {
+  hardwareBridge?: HardwareBridge | null;
+  emController?: ElectromagnetController | null;
+}
+
+export interface HardwarePanelOptions {
+  visualizer?: HardwarePanelVisualizer | null;
+  bridge?: HardwareBridge | null;
+}
+
 export class HardwarePanel {
-  /**
-   * @param {object} options
-   * @param {import('./multi-device-visualizer.js').MultiDeviceVisualizer} [options.visualizer]
-   * @param {HardwareBridge} [options.bridge]
-   */
-  constructor(options = {}) {
+  visualizer: HardwarePanelVisualizer | null;
+  bridge: HardwareBridge | null;
+  private _root: HTMLElement | null;
+  private _unsub: (() => void) | null;
+  private _raf: number;
+
+  constructor(options: HardwarePanelOptions = {}) {
     this.visualizer = options.visualizer || null;
     this.bridge = options.bridge || null;
     this._root = null;
@@ -29,9 +40,8 @@ export class HardwarePanel {
 
   /**
    * Attach bridge + inject UI. Creates bridge if missing.
-   * @param {import('./multi-device-visualizer.js').MultiDeviceVisualizer} visualizer
    */
-  attach(visualizer) {
+  attach(visualizer: HardwarePanelVisualizer): void {
     this.visualizer = visualizer;
     if (!visualizer.hardwareBridge) {
       visualizer.emController = visualizer.emController || new ElectromagnetController();
@@ -52,7 +62,7 @@ export class HardwarePanel {
     this._loop();
   }
 
-  _inject() {
+  private _inject(): void {
     const left = document.getElementById('left-panel');
     if (!left || document.getElementById('hardware-panel')) return;
 
@@ -115,13 +125,13 @@ export class HardwarePanel {
       b.dataset.coil = String(i);
       b.textContent = String(i);
       b.title = `Toggle coil ${i}`;
-      pad.appendChild(b);
+      pad?.appendChild(b);
     }
 
     this._injectStyles();
   }
 
-  _injectStyles() {
+  private _injectStyles(): void {
     if (document.getElementById('hw-panel-styles')) return;
     const s = document.createElement('style');
     s.id = 'hw-panel-styles';
@@ -149,8 +159,9 @@ export class HardwarePanel {
     document.head.appendChild(s);
   }
 
-  _wire() {
+  private _wire(): void {
     const b = this.bridge;
+    if (!b) return;
     document.getElementById('hwConnectBtn')?.addEventListener('click', async () => {
       this._setError('');
       if (!HardwareBridge.isSerialSupported()) {
@@ -168,7 +179,7 @@ export class HardwarePanel {
       this._renderSensors(null);
     });
     document.getElementById('hwTwinMode')?.addEventListener('change', (e) => {
-      b.setTwinMode(e.target.value);
+      b.setTwinMode((e.target as HTMLSelectElement).value);
     });
     document.getElementById('hwClearManualBtn')?.addEventListener('click', () => {
       b.clearManual();
@@ -177,9 +188,9 @@ export class HardwarePanel {
     document.getElementById('hwBrakeBtn')?.addEventListener('click', () => b.brake());
 
     document.getElementById('hwCoilPad')?.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-coil]');
+      const btn = (e.target as HTMLElement).closest('[data-coil]') as HTMLElement | null;
       if (!btn) return;
-      const i = parseInt(btn.dataset.coil, 10);
+      const i = parseInt(btn.dataset.coil || '0', 10);
       let mask = b.manualCoilMask;
       if (mask & (1 << i)) mask &= ~(1 << i);
       else mask |= (1 << i);
@@ -195,12 +206,12 @@ export class HardwarePanel {
     }
   }
 
-  _renderStatus(status) {
+  private _renderStatus(status: string): void {
     const dot = document.getElementById('hwDot');
     const text = document.getElementById('hwStatusText');
-    const conn = document.getElementById('hwConnectBtn');
-    const mock = document.getElementById('hwMockBtn');
-    const disc = document.getElementById('hwDisconnectBtn');
+    const conn = document.getElementById('hwConnectBtn') as HTMLButtonElement | null;
+    const mock = document.getElementById('hwMockBtn') as HTMLButtonElement | null;
+    const disc = document.getElementById('hwDisconnectBtn') as HTMLButtonElement | null;
     if (dot) {
       dot.className = 'hw-dot'
         + (status === 'connected' ? ' on' : '')
@@ -208,7 +219,7 @@ export class HardwarePanel {
         + (status === 'error' ? ' err' : '');
     }
     if (text) {
-      const labels = {
+      const labels: Record<string, string> = {
         disconnected: 'Disconnected',
         connecting: 'Connecting…',
         connected: 'Connected',
@@ -224,8 +235,8 @@ export class HardwarePanel {
     syncHardwareTwinBadgeFromBridge(this.bridge);
   }
 
-  _renderSensors(snap) {
-    const set = (id, v) => {
+  private _renderSensors(snap: SensorSnapshot | null): void {
+    const set = (id: string, v: string) => {
       const el = document.getElementById(id);
       if (el) el.textContent = v;
     };
@@ -240,14 +251,14 @@ export class HardwarePanel {
     set('hwPhase', snap.phase.toFixed(1));
     set('hwRpm', snap.rpm.toFixed(1));
     set('hwMag', (snap.magMagnitudeUt ?? 0).toFixed(1));
-    const n = this.bridge.config.numCoils || 8;
+    const n = this.bridge?.config.numCoils || 8;
     set('hwHall', bits(snap.hallMask, n).join(''));
     set('hwCoils', bits(snap.coilMask, n).join(''));
-    if (!this.bridge.manualMode) this._paintCoilPad(snap.coilMask);
+    if (!this.bridge?.manualMode) this._paintCoilPad(snap.coilMask);
 
     const shadowRow = document.getElementById('hwShadowRow');
     if (shadowRow) {
-      const show = this.bridge.twinMode === TWIN_MODES.SHADOW;
+      const show = this.bridge?.twinMode === TWIN_MODES.SHADOW;
       shadowRow.style.display = show ? 'block' : 'none';
       if (show && snap.shadow) {
         set('hwPhaseErr', snap.shadow.phaseErrorDeg.toFixed(1));
@@ -260,26 +271,26 @@ export class HardwarePanel {
     }
   }
 
-  _paintCoilPad(mask) {
-    document.querySelectorAll('#hwCoilPad .hw-coil-btn').forEach((btn) => {
-      const i = parseInt(btn.dataset.coil, 10);
+  private _paintCoilPad(mask: number): void {
+    document.querySelectorAll<HTMLElement>('#hwCoilPad .hw-coil-btn').forEach((btn) => {
+      const i = parseInt(btn.dataset.coil || '0', 10);
       btn.classList.toggle('on', !!(mask & (1 << i)));
     });
   }
 
-  _syncTwinUI(mode) {
-    const sel = document.getElementById('hwTwinMode');
+  private _syncTwinUI(mode: string): void {
+    const sel = document.getElementById('hwTwinMode') as HTMLSelectElement | null;
     if (sel && sel.value !== mode) sel.value = mode;
-    const shadowRow = document.getElementById('hwShadowRow');
+    const shadowRow = document.getElementById('hwShadowRow') as HTMLElement | null;
     if (shadowRow) shadowRow.style.display = mode === TWIN_MODES.SHADOW ? 'block' : 'none';
   }
 
-  _setError(msg) {
+  private _setError(msg: string): void {
     const el = document.getElementById('hwError');
     if (el) el.textContent = msg || '';
   }
 
-  _loop() {
+  private _loop(): void {
     // Keep UI fresh even if sensor callback is quiet
     const tick = () => {
       if (this.bridge?.isConnected && this.bridge.lastSensorUpdate) {
@@ -290,16 +301,13 @@ export class HardwarePanel {
     this._raf = requestAnimationFrame(tick);
   }
 
-  destroy() {
+  destroy(): void {
     cancelAnimationFrame(this._raf);
     this._root?.remove();
   }
 }
 
-/**
- * @param {import('./multi-device-visualizer.js').MultiDeviceVisualizer} visualizer
- */
-export function initHardwarePanel(visualizer) {
+export function initHardwarePanel(visualizer: HardwarePanelVisualizer): HardwarePanel {
   if (window.hardwarePanel) {
     window.hardwarePanel.attach(visualizer);
     return window.hardwarePanel;

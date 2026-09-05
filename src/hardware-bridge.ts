@@ -11,12 +11,34 @@
  *   shadow — sim → hardware; compare HW telemetry vs sim
  */
 
+/** Minimal Web Serial API surface — no `@types/w3c-web-serial` dependency. */
+interface SerialPortFilter {
+  usbVendorId?: number;
+  usbProductId?: number;
+}
+interface SerialPort {
+  readable: ReadableStream<Uint8Array>;
+  writable: WritableStream<Uint8Array>;
+  open(options: { baudRate: number }): Promise<void>;
+  close(): Promise<void>;
+}
+interface Serial {
+  requestPort(options?: { filters?: SerialPortFilter[] }): Promise<SerialPort>;
+}
+declare global {
+  interface Navigator {
+    serial?: Serial;
+  }
+}
+
 /** Twin / digital-twin operating modes */
 export const TWIN_MODES = {
   OPEN: 'open',
   CLOSED: 'closed',
   SHADOW: 'shadow'
-};
+} as const;
+
+export type TwinMode = (typeof TWIN_MODES)[keyof typeof TWIN_MODES];
 
 const MODE_RUN = 0;
 const MODE_BRAKE = 1;
@@ -26,20 +48,20 @@ const MODE_COAST = 2;
 const RPM_MIN = -999.9;
 const RPM_MAX = 999.9;
 
-function finiteNum(n, fallback = 0) {
+function finiteNum(n: unknown, fallback = 0): number {
   const x = Number(n);
   return Number.isFinite(x) ? x : fallback;
 }
 
-function clampRpm(rpm) {
+function clampRpm(rpm: unknown): number {
   return Math.max(RPM_MIN, Math.min(RPM_MAX, finiteNum(rpm, 0)));
 }
 
-function clampPwmDuty(duty) {
+function clampPwmDuty(duty: unknown): number {
   return Math.max(0, Math.min(1, finiteNum(duty, 0)));
 }
 
-function pwmDutyToWire(duty) {
+function pwmDutyToWire(duty: number): number {
   return Math.round(clampPwmDuty(duty) * 255);
 }
 
@@ -48,6 +70,20 @@ function pwmDutyToWire(duty) {
  * Accepts P/C/CONF lines; streams S at ~120 Hz.
  */
 export class MockSerialTransport {
+  private _listeners: Set<(line: string) => void>;
+  private _phase: number;
+  private _rpm: number;
+  private _targetRpm: number;
+  private _targetVoltage: number;
+  private _targetCurrent: number;
+  private _voltage: number;
+  private _current: number;
+  private _controlMode: number;
+  private _coilMask: number;
+  private _manual: boolean;
+  private _timer: ReturnType<typeof setInterval> | null;
+  private _t0: number;
+
   constructor() {
     this._listeners = new Set();
     this._phase = 0;
@@ -64,24 +100,24 @@ export class MockSerialTransport {
     this._t0 = performance.now();
   }
 
-  start() {
+  start(): void {
     if (this._timer) return;
     this._timer = setInterval(() => this._tick(), 8); // ~125 Hz
   }
 
-  stop() {
+  stop(): void {
     if (this._timer) {
       clearInterval(this._timer);
       this._timer = null;
     }
   }
 
-  onLine(fn) {
+  onLine(fn: (line: string) => void): () => void {
     this._listeners.add(fn);
     return () => this._listeners.delete(fn);
   }
 
-  writeLine(text) {
+  writeLine(text: string): void {
     const line = String(text).trim();
     if (line.startsWith('P')) {
       const parts = line.slice(1).split(',');
@@ -99,7 +135,7 @@ export class MockSerialTransport {
     }
   }
 
-  _tick() {
+  private _tick(): void {
     const dt = 0.008;
     if (this._controlMode === MODE_COAST) {
       this._rpm *= 0.98;
@@ -136,20 +172,129 @@ export class MockSerialTransport {
     );
   }
 
-  setElectricalTargets(voltage, current) {
+  setElectricalTargets(voltage: number, current: number): void {
     this._targetVoltage = finiteNum(voltage, 0);
     this._targetCurrent = finiteNum(current, 0);
   }
 
-  _emit(line) {
+  private _emit(line: string): void {
     for (const fn of this._listeners) {
       try { fn(line); } catch (e) { console.warn('[MockSerial]', e); }
     }
   }
 }
 
+export interface HardwareBridgeOptions {
+  baudRate?: number;
+  commandThrottleMs?: number;
+  commandTimeoutMs?: number;
+  watchdogMs?: number;
+  onStatusChange?: ((status: string) => void) | null;
+  onSensorData?: ((snapshot: SensorSnapshot) => void) | null;
+  onError?: ((err: Error) => void) | null;
+  onTwinModeChange?: ((mode: TwinMode) => void) | null;
+}
+
+export interface HardwareBridgeConfig {
+  numCoils: number;
+  offsetAngle: number;
+  dwellAngle: number;
+  advanceAngle: number;
+  firingPattern: string;
+}
+
+export interface ShadowComparison {
+  simPhase: number;
+  simRpm: number;
+  simVoltage: number;
+  simCurrent: number;
+  phaseErrorDeg: number;
+  rpmError: number;
+  voltageError: number;
+  currentError: number;
+}
+
+export interface SensorSnapshot {
+  phase: number;
+  rpm: number;
+  magnetometer: { x: number; y: number; z: number };
+  hallMask: number;
+  coilMask: number;
+  timestamp: number;
+  twinMode: TwinMode;
+  shadow: ShadowComparison;
+  magMagnitudeUt: number;
+}
+
+export interface UpdateSimInput {
+  simPhase?: number;
+  simRpm?: number;
+  simVoltage?: number;
+  simCurrent?: number;
+}
+
 export class HardwareBridge {
-  constructor(options = {}) {
+  baudRate: number;
+  commandThrottleMs: number;
+  commandTimeoutMs: number;
+  watchdogMs: number;
+
+  port: SerialPort | null;
+  reader: ReadableStreamDefaultReader<string> | null;
+  writer: WritableStreamDefaultWriter<Uint8Array> | null;
+  readLoopPromise: Promise<void> | null;
+  /** disconnected | connecting | connected | error | mock */
+  status: string;
+  lastError: string | null;
+  useMock: boolean;
+  private _mock: MockSerialTransport | null;
+  private _unsubMock: (() => void) | null;
+
+  // Incoming parsed state from Arduino
+  actualPhase: number;
+  actualRpm: number;
+  actualVoltage: number;
+  actualCurrent: number;
+  magnetometer: { x: number; y: number; z: number };
+  hallMask: number;
+  coilMask: number;
+  lastTimestampMs: number;
+  lastSensorUpdate: number;
+
+  // Outgoing state
+  targetPhase: number;
+  targetSpeed: number;
+  controlMode: number;
+  /** true → visualizer follows HW (closed-loop) */
+  mirrorEnabled: boolean;
+
+  twinMode: TwinMode;
+
+  shadow: ShadowComparison;
+
+  // Manual override — duty 0..1 internally; wire protocol uses 0..255
+  manualCoilMask: number;
+  manualPwmDuty: number;
+  manualMode: boolean;
+
+  config: HardwareBridgeConfig;
+
+  private _lastCommandTime: number;
+  private _lastUpdateCall: number;
+  private _commandQueue: string[];
+  private _textDecoder: TextDecoderStream | null;
+  private _buffer: string;
+  private _watchdogTimer: ReturnType<typeof setInterval> | null;
+
+  onStatusChange: ((status: string) => void) | null;
+  onSensorData: ((snapshot: SensorSnapshot) => void) | null;
+  onError: ((err: Error) => void) | null;
+  onTwinModeChange: ((mode: TwinMode) => void) | null;
+
+  static sanitizeRpm = clampRpm;
+  static clampPwmDuty = clampPwmDuty;
+
+  constructor(options: HardwareBridgeOptions = {}) {
     this.baudRate = options.baudRate || 115200;
     this.commandThrottleMs = options.commandThrottleMs || 16; // ~60Hz
     this.commandTimeoutMs = options.commandTimeoutMs || 200; // browser-side safety
@@ -159,13 +304,12 @@ export class HardwareBridge {
     this.reader = null;
     this.writer = null;
     this.readLoopPromise = null;
-    this.status = 'disconnected'; // disconnected | connecting | connected | error | mock
+    this.status = 'disconnected';
     this.lastError = null;
     this.useMock = false;
     this._mock = null;
     this._unsubMock = null;
 
-    // Incoming parsed state from Arduino
     this.actualPhase = 0;
     this.actualRpm = 0;
     this.actualVoltage = 0;
@@ -176,16 +320,13 @@ export class HardwareBridge {
     this.lastTimestampMs = 0;
     this.lastSensorUpdate = 0;
 
-    // Outgoing state
     this.targetPhase = 0;
     this.targetSpeed = 0;
     this.controlMode = MODE_RUN;
-    this.mirrorEnabled = false; // true → visualizer follows HW (closed-loop)
+    this.mirrorEnabled = false;
 
-    /** @type {'open'|'closed'|'shadow'} */
     this.twinMode = TWIN_MODES.OPEN;
 
-    // Shadow comparison
     this.shadow = {
       simPhase: 0,
       simRpm: 0,
@@ -197,7 +338,6 @@ export class HardwareBridge {
       currentError: 0
     };
 
-    // Manual override — duty 0..1 internally; wire protocol uses 0..255
     this.manualCoilMask = 0;
     this.manualPwmDuty = 1;
     this.manualMode = false;
@@ -223,17 +363,14 @@ export class HardwareBridge {
     this.onTwinModeChange = options.onTwinModeChange || null;
   }
 
-  static sanitizeRpm = clampRpm;
-  static clampPwmDuty = clampPwmDuty;
-
   /** Explicit connection kind for UI: disconnected | mock | serial */
-  get connectionKind() {
+  get connectionKind(): 'mock' | 'serial' | 'disconnected' {
     if (this.status === 'mock') return 'mock';
     if (this.status === 'connected') return 'serial';
     return 'disconnected';
   }
 
-  static isSerialSupported() {
+  static isSerialSupported(): boolean {
     return typeof navigator !== 'undefined' && !!navigator.serial;
   }
 
@@ -241,10 +378,7 @@ export class HardwareBridge {
   // Connection Lifecycle
   // ============================================
 
-  /**
-   * @param {{ mock?: boolean }} [opts]
-   */
-  async connect(opts = {}) {
+  async connect(opts: { mock?: boolean } = {}): Promise<void> {
     if (this.status === 'connecting') return;
     if (this.status === 'mock') {
       // Switching serial ← mock: coast mock coils before opening a real port.
@@ -256,12 +390,13 @@ export class HardwareBridge {
       || (typeof location !== 'undefined' && new URLSearchParams(location.search).get('mockHardware') === '1');
 
     if (wantMock || !HardwareBridge.isSerialSupported()) {
-      await this._connectMock(wantMock ? null : 'Web Serial unavailable — using mock');
+      await this._connectMock(wantMock ? undefined : 'Web Serial unavailable — using mock');
       return;
     }
 
     this._setStatus('connecting');
     try {
+      if (!navigator.serial) throw new Error('Web Serial unavailable');
       this.port = await navigator.serial.requestPort({
         filters: [
           { usbVendorId: 0x2341 },
@@ -276,7 +411,7 @@ export class HardwareBridge {
       await this.port.open({ baudRate: this.baudRate });
       this.writer = this.port.writable.getWriter();
       this._textDecoder = new TextDecoderStream();
-      this.port.readable.pipeTo(this._textDecoder.writable).catch(() => {});
+      this.port.readable.pipeTo(this._textDecoder.writable as WritableStream<Uint8Array>).catch(() => {});
       this.reader = this._textDecoder.readable.getReader();
       this._buffer = '';
       this.useMock = false;
@@ -286,14 +421,14 @@ export class HardwareBridge {
       this._setStatus('connected');
       console.log('[HardwareBridge] Connected at', this.baudRate);
     } catch (err) {
-      this.lastError = err.message;
+      this.lastError = (err as Error).message;
       this._setStatus('error');
       console.error('[HardwareBridge] Connection failed:', err);
-      if (this.onError) this.onError(err);
+      if (this.onError) this.onError(err as Error);
     }
   }
 
-  async connectMock() {
+  async connectMock(): Promise<void> {
     if (this.status === 'mock') return;
     if (this.isConnected) {
       // Switching mock ← serial: coast real coils before starting mock transport.
@@ -302,7 +437,7 @@ export class HardwareBridge {
     return this._connectMock();
   }
 
-  async _connectMock(infoMsg = null) {
+  private async _connectMock(infoMsg?: string): Promise<void> {
     this._setStatus('connecting');
     this.useMock = true;
     this._mock = new MockSerialTransport();
@@ -318,7 +453,7 @@ export class HardwareBridge {
   /**
    * Safe disconnect: coast + coils off, then close port.
    */
-  async disconnect() {
+  async disconnect(): Promise<void> {
     await this._safeShutdown();
     this._stopWatchdog();
 
@@ -356,7 +491,7 @@ export class HardwareBridge {
     console.log('[HardwareBridge] Disconnected (coils coasted)');
   }
 
-  async _safeShutdown() {
+  private async _safeShutdown(): Promise<void> {
     // Best-effort coast + clear coils before tearing down streams
     try {
       if (this.useMock && this._mock) {
@@ -370,7 +505,7 @@ export class HardwareBridge {
     } catch (_) { /* ignore — port may already be dead */ }
   }
 
-  _startWatchdog() {
+  private _startWatchdog(): void {
     this._stopWatchdog();
     this._lastUpdateCall = performance.now();
     this._watchdogTimer = setInterval(() => {
@@ -387,7 +522,7 @@ export class HardwareBridge {
     }, 50);
   }
 
-  _stopWatchdog() {
+  private _stopWatchdog(): void {
     if (this._watchdogTimer) {
       clearInterval(this._watchdogTimer);
       this._watchdogTimer = null;
@@ -398,7 +533,7 @@ export class HardwareBridge {
   // Read Loop
   // ============================================
 
-  async _readLoop() {
+  private async _readLoop(): Promise<void> {
     while ((this.status === 'connected') && this.reader) {
       try {
         const { value, done } = await this.reader.read();
@@ -409,9 +544,9 @@ export class HardwareBridge {
         }
       } catch (err) {
         if (this.status === 'connected') {
-          this.lastError = err.message;
+          this.lastError = (err as Error).message;
           this._setStatus('error');
-          if (this.onError) this.onError(err);
+          if (this.onError) this.onError(err as Error);
           await this._safeShutdown();
         }
         break;
@@ -419,8 +554,8 @@ export class HardwareBridge {
     }
   }
 
-  _processBuffer() {
-    let newlineIndex;
+  private _processBuffer(): void {
+    let newlineIndex: number;
     while ((newlineIndex = this._buffer.indexOf('\n')) !== -1) {
       const line = this._buffer.slice(0, newlineIndex).trim();
       this._buffer = this._buffer.slice(newlineIndex + 1);
@@ -428,7 +563,7 @@ export class HardwareBridge {
     }
   }
 
-  _parseLine(line) {
+  private _parseLine(line: string): void {
     // S{phase},{rpm},{magX},{magY},{magZ},{hallMask},{coilMask},{timestampMs}
     if (line.startsWith('S')) {
       const parts = line.slice(1).split(',');
@@ -467,7 +602,7 @@ export class HardwareBridge {
     }
   }
 
-  getSensorSnapshot() {
+  getSensorSnapshot(): SensorSnapshot {
     return {
       phase: this.actualPhase,
       rpm: this.actualRpm,
@@ -489,7 +624,7 @@ export class HardwareBridge {
   // Command Writing
   // ============================================
 
-  async _writeLine(text) {
+  private async _writeLine(text: string): Promise<void> {
     if (this.useMock && this._mock) {
       this._mock.writeLine(text);
       return;
@@ -503,16 +638,15 @@ export class HardwareBridge {
     }
   }
 
-  _writeLineImmediate(text) {
+  private _writeLineImmediate(text: string): void {
     // Fire-and-forget for safety paths
     this._writeLine(text);
   }
 
   /**
    * Called from render loop ~60 Hz.
-   * @param {{ simPhase?: number, simRpm?: number, simVoltage?: number, simCurrent?: number }} [sim]
    */
-  update(sim = {}) {
+  update(sim: UpdateSimInput = {}): void {
     if (!this.isConnected) return;
     this._lastUpdateCall = performance.now();
 
@@ -560,30 +694,31 @@ export class HardwareBridge {
     }
 
     while (this._commandQueue.length > 0) {
-      this._writeLine(this._commandQueue.shift());
+      const cmd = this._commandQueue.shift();
+      if (cmd) this._writeLine(cmd);
     }
   }
 
-  async _sendConfig() {
+  private async _sendConfig(): Promise<void> {
     const { numCoils, offsetAngle, dwellAngle, advanceAngle } = this.config;
     this._commandQueue.push(
       `CONF${numCoils},${offsetAngle.toFixed(1)},${dwellAngle.toFixed(1)},${advanceAngle.toFixed(1)}`
     );
   }
 
-  setConfig(newConfig) {
+  setConfig(newConfig: Partial<HardwareBridgeConfig>): void {
     Object.assign(this.config, newConfig);
     if (this.isConnected) this._sendConfig();
   }
 
-  setTwinMode(mode) {
-    if (!Object.values(TWIN_MODES).includes(mode)) return;
-    this.twinMode = mode;
+  setTwinMode(mode: string): void {
+    if (!Object.values(TWIN_MODES).includes(mode as TwinMode)) return;
+    this.twinMode = mode as TwinMode;
     this.mirrorEnabled = mode === TWIN_MODES.CLOSED;
-    if (this.onTwinModeChange) this.onTwinModeChange(mode);
+    if (this.onTwinModeChange) this.onTwinModeChange(this.twinMode);
   }
 
-  setTarget(phase, speed, mode = MODE_RUN) {
+  setTarget(phase: number, speed: number, mode: number = MODE_RUN): void {
     this.targetPhase = finiteNum(phase, 0);
     this.targetSpeed = clampRpm(speed);
     this.controlMode = mode;
@@ -593,14 +728,14 @@ export class HardwareBridge {
   /**
    * Manual coil override. pwmOrDuty: 0..1 duty, or legacy 0..255 wire value.
    */
-  setManualCoils(coilMask, pwmOrDuty = 1) {
+  setManualCoils(coilMask: number, pwmOrDuty: number = 1): void {
     this.manualCoilMask = coilMask >>> 0;
     const duty = pwmOrDuty > 1 ? pwmOrDuty / 255 : pwmOrDuty;
     this.manualPwmDuty = clampPwmDuty(duty);
     this.manualMode = this.manualCoilMask !== 0 && this.manualPwmDuty > 0;
   }
 
-  clearManual() {
+  clearManual(): void {
     this.manualMode = false;
     this.manualCoilMask = 0;
     this.manualPwmDuty = 0;
@@ -608,38 +743,38 @@ export class HardwareBridge {
     this._writeLineImmediate('C0,0,0');
   }
 
-  brake() {
+  brake(): void {
     this.controlMode = MODE_BRAKE;
     this.targetSpeed = 0;
     this.manualMode = false;
     this.manualPwmDuty = 0;
   }
 
-  coast() {
+  coast(): void {
     this.controlMode = MODE_COAST;
     this.targetSpeed = 0;
     this.manualMode = false;
     this.manualPwmDuty = 0;
   }
 
-  get isConnected() {
+  get isConnected(): boolean {
     return this.status === 'connected' || this.status === 'mock';
   }
 
-  get isMock() {
+  get isMock(): boolean {
     return this.status === 'mock';
   }
 
-  get sensorAgeMs() {
+  get sensorAgeMs(): number {
     if (!this.lastSensorUpdate) return Infinity;
     return performance.now() - this.lastSensorUpdate;
   }
 
-  get isSensorStale() {
+  get isSensorStale(): boolean {
     return this.sensorAgeMs > 500;
   }
 
-  _setStatus(newStatus) {
+  private _setStatus(newStatus: string): void {
     if (this.status === newStatus) return;
     this.status = newStatus;
     if (this.onStatusChange) this.onStatusChange(newStatus);

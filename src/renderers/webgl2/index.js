@@ -72,8 +72,8 @@ import {
   computeSEGLayout,
   SEG_LAYOUT_PRESETS
 } from '../../seg-layout';
-import { HardwareBridge, TWIN_MODES } from '../../hardware-bridge.js';
-import { initHardwarePanel } from '../../hardware-panel.js';
+import { HardwareBridge, TWIN_MODES } from '../../hardware-bridge';
+import { initHardwarePanel } from '../../hardware-panel';
 import { buildHardwareTwinTelemetry } from '../../visualizer/hardware-twin';
 
 class WebGL2DeviceState {
