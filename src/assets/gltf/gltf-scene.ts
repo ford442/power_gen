@@ -2,22 +2,28 @@
  * Scene graph for loaded glTF assets — transform hierarchy, visibility, anchor baking.
  * Builds formal {@link SceneNode} trees (ADR-0005).
  */
-import { SceneNode } from '../scene/scene-node';
+import { SceneNode, type SceneAnchor, type SceneAnnotation } from '../scene/scene-node';
+import type { ExtractedGltf, ExtractedMesh, ExtractedNode } from './gltf-loader';
 
-/** @typedef {import('../scene/scene-node').SceneAnchor} GltfAnchor */
-/** @typedef {import('../scene/scene-node').SceneAnnotation} GltfAnnotation */
+export interface BuildGltfSceneOpts {
+  propId?: string | null;
+}
 
-/**
- * @param {ReturnType<import('./gltf-loader.js').extractGltfMeshes>} extracted
- * @param {{ propId?: string|null }} [opts]
- */
-export function buildGltfScene(extracted, opts = {}) {
+export interface GltfSceneResult {
+  roots: GltfSceneNode[];
+  nodeByIndex: GltfSceneNode[];
+  anchors: SceneAnchor[];
+  annotations: SceneAnnotation[];
+  propId: string | null;
+}
+
+export function buildGltfScene(extracted: ExtractedGltf, opts: BuildGltfSceneOpts = {}): GltfSceneResult {
   const { meshes, nodes, scenes, scene } = extracted;
   const propId = opts.propId ?? null;
   const nodeByIndex = nodes.map((n) => new GltfSceneNode(n, meshes, { propId }));
 
   for (const n of nodeByIndex) {
-    for (const childIdx of n.source.children) {
+    for (const childIdx of (n.source as ExtractedNode).children) {
       const child = nodeByIndex[childIdx];
       if (child) {
         n.children.push(child);
@@ -29,10 +35,8 @@ export function buildGltfScene(extracted, opts = {}) {
   const rootIndices = scenes[scene]?.nodes ?? [0];
   const roots = rootIndices.map((i) => nodeByIndex[i]).filter(Boolean);
 
-  /** @type {GltfAnchor[]} */
-  const anchors = [];
-  /** @type {GltfAnnotation[]} */
-  const annotations = [];
+  const anchors: SceneAnchor[] = [];
+  const annotations: SceneAnnotation[] = [];
   for (const root of roots) {
     root.updateWorldTransform();
     anchors.push(...root.collectAnchors());
@@ -46,23 +50,19 @@ export function buildGltfScene(extracted, opts = {}) {
  * glTF-backed scene node — extends formal SceneNode with source mesh wiring.
  */
 export class GltfSceneNode extends SceneNode {
-  /**
-   * @param {object} source
-   * @param {object[]} meshes
-   * @param {{ propId?: string|null }} [opts]
-   */
-  constructor(source, meshes, opts = {}) {
-    const ringIndex = source.extras?.power_gen?.materialRingIndex ?? 11.0;
+  constructor(source: ExtractedNode, meshes: ExtractedMesh[], opts: BuildGltfSceneOpts = {}) {
+    const extras = (source.extras || {}) as { annotationId?: string; power_gen?: { materialRingIndex?: number; role?: string } };
+    const ringIndex = extras.power_gen?.materialRingIndex ?? 11.0;
     super({
       name: source.name,
-      translation: source.translation,
-      rotation: source.rotation,
-      scale: source.scale,
+      translation: source.translation as [number, number, number],
+      rotation: source.rotation as [number, number, number, number],
+      scale: source.scale as [number, number, number],
       meshPrimitives: null,
       material: { ringIndex },
       extras: source.extras || {},
-      annotationId: source.extras?.annotationId || null,
-      role: source.extras?.power_gen?.role ?? null,
+      annotationId: extras.annotationId || null,
+      role: extras.power_gen?.role ?? null,
       propId: opts.propId ?? null,
       source
     });

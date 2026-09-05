@@ -2,14 +2,12 @@
  * Canvas click handler — ray-pick annotated glTF housing meshes → SEG tour step.
  */
 
-import { pickGltfAnnotations } from './gltf-pick.js';
+import { pickGltfAnnotations, type GltfPickable } from './gltf-pick';
+import type { MultiDeviceVisualizer } from '../../multi-device-visualizer';
 
 const DRAG_PX = 6;
 
-/**
- * @param {object} visualizer MultiDeviceVisualizer instance
- */
-export function attachGltfHousingPickHandler(visualizer) {
+export function attachGltfHousingPickHandler(visualizer: MultiDeviceVisualizer): void {
   if (visualizer._gltfPickBound) return;
   visualizer._gltfPickBound = true;
 
@@ -35,12 +33,12 @@ export function attachGltfHousingPickHandler(visualizer) {
     if (!viewProj || !cam) return;
 
     const hit = pickGltfAnnotations(
-      visualizer.gltfHousingPickables,
+      visualizer.gltfHousingPickables as unknown as GltfPickable[],
       canvas,
       e.clientX,
       e.clientY,
       viewProj,
-      cam
+      cam as number[]
     );
     if (!hit) return;
 

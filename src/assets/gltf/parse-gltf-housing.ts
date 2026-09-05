@@ -1,6 +1,6 @@
 /**
  * SEG glTF prop registry re-exports (compat).
- * Canonical registry: `./prop-registry.js` (ADR-0005).
+ * Canonical registry: `./prop-registry.ts` (ADR-0005).
  */
 export {
   parseGltfHousingEnabled,
@@ -10,4 +10,4 @@ export {
   SEG_GLTF_PROPS,
   getPropDef,
   resolvePropMaterial
-} from './prop-registry.js';
+} from './prop-registry';

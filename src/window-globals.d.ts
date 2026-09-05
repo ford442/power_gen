@@ -184,6 +184,9 @@ declare global {
     /** WASM physics bridge singleton (seg-physics-bridge). */
     segWasm?: unknown;
 
+    /** Force-disable the SEG housing glTF prop (assets/gltf/prop-registry.ts). */
+    GLTF_HOUSING?: boolean;
+
     /** SEG component-label overlay singleton (seg-annotations.js). */
     segAnnotations?: { setEnabled: (on: boolean) => void };
 

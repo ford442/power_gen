@@ -2,14 +2,19 @@
  * CPU ray picking for annotated glTF housing meshes (WebGPU path).
  */
 
-/** @typedef {{ annotationId: string, vertices: Float32Array, indices: Uint16Array, worldMatrix: Float32Array }} GltfPickable */
+export interface GltfPickable {
+  annotationId: string;
+  vertices: Float32Array;
+  indices: Uint16Array | Uint32Array;
+  worldMatrix: Float32Array;
+}
+
+type Vec3 = [number, number, number];
 
 /**
  * Invert a 4×4 column-major matrix (affine; sufficient for glTF node transforms).
- * @param {Float32Array|number[]} m
- * @returns {Float32Array|null}
  */
-export function invertMat4(m) {
+export function invertMat4(m: Float32Array | number[]): Float32Array | null {
   const out = new Float32Array(16);
   const a00 = m[0]; const a01 = m[1]; const a02 = m[2]; const a03 = m[3];
   const a10 = m[4]; const a11 = m[5]; const a12 = m[6]; const a13 = m[7];
@@ -52,7 +57,7 @@ export function invertMat4(m) {
   return out;
 }
 
-function transformPoint(m, p) {
+function transformPoint(m: Float32Array, p: Vec3): Vec3 {
   const x = p[0]; const y = p[1]; const z = p[2];
   return [
     m[0] * x + m[4] * y + m[8] * z + m[12],
@@ -61,7 +66,7 @@ function transformPoint(m, p) {
   ];
 }
 
-function transformDirection(m, d) {
+function transformDirection(m: Float32Array, d: Vec3): Vec3 {
   const x = d[0]; const y = d[1]; const z = d[2];
   return [
     m[0] * x + m[4] * y + m[8] * z,
@@ -70,21 +75,22 @@ function transformDirection(m, d) {
   ];
 }
 
+export interface ScreenRay {
+  origin: number[];
+  direction: Vec3;
+}
+
 /**
- * @param {HTMLCanvasElement} canvas
- * @param {number} clientX
- * @param {number} clientY
- * @param {Float32Array} invViewProj column-major
- * @param {number[]} cameraPos
+ * @param invViewProj column-major
  */
-export function rayFromScreen(canvas, clientX, clientY, invViewProj, cameraPos) {
+export function rayFromScreen(canvas: HTMLCanvasElement, clientX: number, clientY: number, invViewProj: Float32Array, cameraPos: number[]): ScreenRay {
   const rect = canvas.getBoundingClientRect();
   const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
   const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
 
   const near = transformPoint(invViewProj, [ndcX, ndcY, -1]);
   const far = transformPoint(invViewProj, [ndcX, ndcY, 1]);
-  const dir = [
+  const dir: Vec3 = [
     far[0] - near[0],
     far[1] - near[1],
     far[2] - near[2]
@@ -98,13 +104,10 @@ export function rayFromScreen(canvas, clientX, clientY, invViewProj, cameraPos) 
 
 /**
  * Möller–Trumbore ray/triangle in local space.
- * @param {number[]} origin
- * @param {number[]} dir
- * @param {Float32Array} vertices 8-float interleaved
- * @param {number} i0 i1 i2 vertex indices
+ * @param vertices 8-float interleaved
  */
-function intersectTriangleLocal(origin, dir, vertices, i0, i1, i2) {
-  const o = (i) => i * 8;
+function intersectTriangleLocal(origin: number[], dir: Vec3, vertices: Float32Array, i0: number, i1: number, i2: number): number | null {
+  const o = (i: number) => i * 8;
   const v0 = [vertices[o(i0)], vertices[o(i0) + 1], vertices[o(i0) + 2]];
   const v1 = [vertices[o(i1)], vertices[o(i1) + 1], vertices[o(i1) + 2]];
   const v2 = [vertices[o(i2)], vertices[o(i2) + 1], vertices[o(i2) + 2]];
@@ -134,20 +137,17 @@ function intersectTriangleLocal(origin, dir, vertices, i0, i1, i2) {
 }
 
 /**
- * @param {number[]} worldOrigin
- * @param {number[]} worldDir
- * @param {GltfPickable} pickable
- * @returns {number|null} distance along ray
+ * @returns distance along ray
  */
-export function intersectPickable(worldOrigin, worldDir, pickable) {
+export function intersectPickable(worldOrigin: Vec3, worldDir: Vec3, pickable: GltfPickable): number | null {
   const inv = invertMat4(pickable.worldMatrix);
   if (!inv) return null;
   const origin = transformPoint(inv, worldOrigin);
   const dir = transformDirection(inv, worldDir);
   const dLen = Math.hypot(dir[0], dir[1], dir[2]) || 1;
-  const lDir = [dir[0] / dLen, dir[1] / dLen, dir[2] / dLen];
+  const lDir: Vec3 = [dir[0] / dLen, dir[1] / dLen, dir[2] / dLen];
 
-  let best = null;
+  let best: number | null = null;
   const { vertices, indices } = pickable;
   for (let i = 0; i < indices.length; i += 3) {
     const t = intersectTriangleLocal(origin, lDir, vertices, indices[i], indices[i + 1], indices[i + 2]);
@@ -156,24 +156,20 @@ export function intersectPickable(worldOrigin, worldDir, pickable) {
   return best;
 }
 
-/**
- * @param {GltfPickable[]} pickables
- * @param {HTMLCanvasElement} canvas
- * @param {number} clientX
- * @param {number} clientY
- * @param {Float32Array} viewProj
- * @param {number[]} cameraPos
- * @returns {{ annotationId: string, distance: number }|null}
- */
-export function pickGltfAnnotations(pickables, canvas, clientX, clientY, viewProj, cameraPos) {
+export interface PickHit {
+  annotationId: string;
+  distance: number;
+}
+
+export function pickGltfAnnotations(pickables: GltfPickable[] | null | undefined, canvas: HTMLCanvasElement, clientX: number, clientY: number, viewProj: Float32Array, cameraPos: number[]): PickHit | null {
   if (!pickables?.length) return null;
   const inv = invertMat4(viewProj);
   if (!inv) return null;
   const { origin, direction } = rayFromScreen(canvas, clientX, clientY, inv, cameraPos);
 
-  let hit = null;
+  let hit: PickHit | null = null;
   for (const p of pickables) {
-    const t = intersectPickable(origin, direction, p);
+    const t = intersectPickable(origin as Vec3, direction, p);
     if (t == null) continue;
     const dist = t;
     if (!hit || dist < hit.distance) hit = { annotationId: p.annotationId, distance: dist };

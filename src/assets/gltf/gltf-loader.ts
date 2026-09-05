@@ -14,37 +14,77 @@ const COMPONENT_ARRAY = {
   5123: Uint16Array,
   5125: Uint32Array,
   5126: Float32Array
-};
+} as const;
 
 const TYPE_COMPONENTS = {
   SCALAR: 1,
   VEC2: 2,
   VEC3: 3,
   VEC4: 4
-};
+} as const;
 
-/**
- * @param {string} url
- * @returns {Promise<{ json: object, bin: ArrayBuffer }>}
- */
-export async function loadGlb(url) {
+interface GltfAccessor {
+  bufferView: number;
+  byteOffset?: number;
+  componentType: keyof typeof COMPONENT_ARRAY;
+  type: keyof typeof TYPE_COMPONENTS;
+  count: number;
+}
+
+interface GltfBufferView {
+  byteOffset?: number;
+  byteStride?: number;
+}
+
+interface GltfPrimitiveSource {
+  attributes: { POSITION: number; NORMAL?: number; TEXCOORD_0?: number };
+  indices: number;
+}
+
+interface GltfMeshSource {
+  name?: string;
+  primitives: GltfPrimitiveSource[];
+}
+
+interface GltfNodeSource {
+  name?: string;
+  mesh?: number;
+  translation?: number[];
+  rotation?: number[];
+  scale?: number[];
+  children?: number[];
+  extras?: Record<string, unknown>;
+}
+
+interface GltfJson {
+  accessors: GltfAccessor[];
+  bufferViews: GltfBufferView[];
+  meshes?: GltfMeshSource[];
+  nodes?: GltfNodeSource[];
+  scene?: number;
+  scenes?: { nodes: number[] }[];
+}
+
+export interface GltfDoc {
+  json: GltfJson;
+  bin: ArrayBuffer;
+}
+
+export async function loadGlb(url: string): Promise<GltfDoc> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`[gltf] fetch failed ${url}: ${res.status}`);
   return parseGlb(await res.arrayBuffer());
 }
 
-/**
- * @param {ArrayBuffer} arrayBuffer
- */
-export function parseGlb(arrayBuffer) {
+export function parseGlb(arrayBuffer: ArrayBuffer): GltfDoc {
   const view = new DataView(arrayBuffer);
   if (view.getUint32(0, true) !== GLB_MAGIC) throw new Error('[gltf] invalid GLB magic');
   if (view.getUint32(4, true) !== 2) throw new Error('[gltf] GLB v2 only');
   const total = view.getUint32(8, true);
 
   let offset = 12;
-  let json = null;
-  let bin = null;
+  let json: GltfJson | null = null;
+  let bin: ArrayBuffer | null = null;
 
   while (offset < total) {
     const chunkLen = view.getUint32(offset, true);
@@ -63,7 +103,13 @@ export function parseGlb(arrayBuffer) {
   return { json, bin };
 }
 
-function readAccessor(json, bin, accessorIndex) {
+interface ReadAccessorResult {
+  data: Float32Array;
+  components: number;
+  count: number;
+}
+
+function readAccessor(json: GltfJson, bin: ArrayBuffer, accessorIndex: number): ReadAccessorResult {
   const acc = json.accessors[accessorIndex];
   const bv = json.bufferViews[acc.bufferView];
   const byteOffset = (bv.byteOffset || 0) + (acc.byteOffset || 0);
@@ -89,7 +135,7 @@ function readAccessor(json, bin, accessorIndex) {
   return { data: out, components: comp, count: acc.count };
 }
 
-function readIndices(json, bin, accessorIndex) {
+function readIndices(json: GltfJson, bin: ArrayBuffer, accessorIndex: number): Uint16Array {
   const acc = json.accessors[accessorIndex];
   const bv = json.bufferViews[acc.bufferView];
   const byteOffset = (bv.byteOffset || 0) + (acc.byteOffset || 0);
@@ -104,16 +150,46 @@ function readIndices(json, bin, accessorIndex) {
   throw new Error(`[gltf] unsupported index componentType ${acc.componentType}`);
 }
 
+export interface ExtractedPrimitive {
+  name: string;
+  vertices: Float32Array;
+  indices: Uint16Array;
+  vertexCount: number;
+  indexCount: number;
+  [key: string]: unknown;
+}
+
+export interface ExtractedMesh {
+  name: string;
+  primitives: ExtractedPrimitive[];
+}
+
+export interface ExtractedNode {
+  index: number;
+  name: string;
+  mesh: number | null;
+  translation: number[];
+  rotation: number[];
+  scale: number[];
+  children: number[];
+  extras: Record<string, unknown>;
+}
+
+export interface ExtractedGltf {
+  meshes: ExtractedMesh[];
+  nodes: ExtractedNode[];
+  scene: number;
+  scenes: { nodes: number[] }[];
+}
+
 /**
  * Interleaved mesh: 8 floats/vertex (pos3, normal3, uv2) for seg-enhanced pipeline.
  * Node `extras.annotationId` is preserved for SEG Explainer tour wiring.
- * @param {{ json: object, bin: ArrayBuffer }} doc
- * @returns {{ meshes: object[], nodes: object[] }}
  */
-export function extractGltfMeshes(doc) {
+export function extractGltfMeshes(doc: GltfDoc): ExtractedGltf {
   const { json, bin } = doc;
-  const meshes = (json.meshes || []).map((mesh, meshIndex) => {
-    const primitives = mesh.primitives.map((prim) => {
+  const meshes: ExtractedMesh[] = (json.meshes || []).map((mesh, meshIndex) => {
+    const primitives: ExtractedPrimitive[] = mesh.primitives.map((prim) => {
       const pos = readAccessor(json, bin, prim.attributes.POSITION);
       const nrm = prim.attributes.NORMAL != null
         ? readAccessor(json, bin, prim.attributes.NORMAL)
@@ -154,7 +230,7 @@ export function extractGltfMeshes(doc) {
     return { name: mesh.name || `mesh_${meshIndex}`, primitives };
   });
 
-  const nodes = (json.nodes || []).map((node, nodeIndex) => ({
+  const nodes: ExtractedNode[] = (json.nodes || []).map((node, nodeIndex) => ({
     index: nodeIndex,
     name: node.name || `node_${nodeIndex}`,
     mesh: node.mesh ?? null,

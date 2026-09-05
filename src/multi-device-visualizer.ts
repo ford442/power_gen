@@ -312,6 +312,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   _gltfEmbeddedHousing?: ArrayBuffer | null;
   _gltfLoadInFlight?: Promise<void> | null;
   _gltfPickHandlerAttached?: boolean;
+  /** Internal re-entrancy guard inside attachGltfHousingPickHandler (gltf-housing-pick.ts). */
+  _gltfPickBound?: boolean;
 
   // Shared geometry extras (setup-geometry.js)
   deviceGeometryBuffers?: Record<string, MeshBuffers & { color?: unknown }>;

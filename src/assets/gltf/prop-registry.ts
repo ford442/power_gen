@@ -9,11 +9,30 @@
  * WebGPU only. WebGL2 skips heavy glTF (docs/WEBGL2.md, docs/GLTF_ASSETS.md).
  */
 
-/**
- * @param {URLSearchParams} [params]
- * @returns {boolean}
- */
-export function parseGltfHousingEnabled(params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')) {
+export type PropLoadPolicy = 'resident' | 'focus';
+
+export interface PropMaterialOverride {
+  ringIndex?: number;
+  color?: [number, number, number];
+  metallic?: number;
+  roughness?: number;
+  emissiveScale?: number;
+}
+
+export interface SegGltfPropDef {
+  id: string;
+  url: string;
+  role: string;
+  loadPolicy: PropLoadPolicy;
+  enabled: (params?: URLSearchParams) => boolean;
+  materialOverride?: PropMaterialOverride;
+  /** Soft byte budget for placeholder GLBs (PR template). */
+  softBudgetBytes?: number;
+  /** Future / not yet authored — registry placeholder. */
+  placeholder?: boolean;
+}
+
+export function parseGltfHousingEnabled(params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')): boolean {
   const raw = params.get('gltfHousing');
   if (raw === '0' || raw === 'false' || raw === 'off') return false;
   if (raw === '1' || raw === 'true' || raw === 'on') return true;
@@ -23,10 +42,8 @@ export function parseGltfHousingEnabled(params = new URLSearchParams(typeof loca
 
 /**
  * Coil former prop — default on with housing; disable via ?gltfCoilFormer=0.
- * @param {URLSearchParams} [params]
- * @returns {boolean}
  */
-export function parseGltfCoilFormerEnabled(params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')) {
+export function parseGltfCoilFormerEnabled(params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')): boolean {
   const raw = params.get('gltfCoilFormer');
   if (raw === '0' || raw === 'false' || raw === 'off') return false;
   if (raw === '1' || raw === 'true' || raw === 'on') return true;
@@ -36,32 +53,7 @@ export function parseGltfCoilFormerEnabled(params = new URLSearchParams(typeof l
 export const SEG_HOUSING_GLB_URL = './assets/seg/housing-shell.glb';
 export const SEG_COIL_FORMER_GLB_URL = './assets/seg/coil-former.glb';
 
-/** @typedef {'resident'|'focus'} PropLoadPolicy */
-
-/**
- * @typedef {{
- *   ringIndex?: number,
- *   color?: [number, number, number],
- *   metallic?: number,
- *   roughness?: number,
- *   emissiveScale?: number
- * }} PropMaterialOverride
- */
-
-/**
- * @typedef {object} SegGltfPropDef
- * @property {string} id
- * @property {string} url
- * @property {string} role
- * @property {PropLoadPolicy} loadPolicy
- * @property {(p?: URLSearchParams) => boolean} enabled
- * @property {PropMaterialOverride} materialOverride
- * @property {number} [softBudgetBytes] Soft byte budget for placeholder GLBs (PR template).
- * @property {boolean} [placeholder] Future / not yet authored — registry placeholder.
- */
-
-/** @type {SegGltfPropDef[]} */
-export const SEG_GLTF_PROPS = [
+export const SEG_GLTF_PROPS: SegGltfPropDef[] = [
   {
     id: 'housing',
     url: SEG_HOUSING_GLB_URL,
@@ -127,31 +119,37 @@ export const SEG_GLTF_PROPS = [
   }
 ];
 
-/** @param {string} id */
-export function getPropDef(id) {
+export function getPropDef(id: string): SegGltfPropDef | null {
   return SEG_GLTF_PROPS.find((p) => p.id === id) ?? null;
 }
 
 /** Props that should be resident after first SEG focus. */
-export function listResidentPropIds(params) {
+export function listResidentPropIds(params?: URLSearchParams): string[] {
   return SEG_GLTF_PROPS
     .filter((p) => !p.placeholder && p.loadPolicy === 'resident' && p.enabled(params))
     .map((p) => p.id);
 }
 
 /** Props loaded only while SEG is focused (disposed on leave). */
-export function listFocusPropIds(params) {
+export function listFocusPropIds(params?: URLSearchParams): string[] {
   return SEG_GLTF_PROPS
     .filter((p) => !p.placeholder && p.loadPolicy === 'focus' && p.enabled(params))
     .map((p) => p.id);
 }
 
+export interface PropMaterialDrawable {
+  materialRingIndex?: number;
+  material?: { ringIndex?: number; color?: [number, number, number] };
+  [key: string]: unknown;
+}
+
 /**
  * Resolve material for a drawable: registry override wins over glTF extras.
- * @param {SegGltfPropDef} prop
- * @param {{ materialRingIndex?: number, material?: object }} drawable
  */
-export function resolvePropMaterial(prop, drawable = {}) {
+export function resolvePropMaterial(
+  prop: SegGltfPropDef,
+  drawable: PropMaterialDrawable = {}
+): Required<Pick<PropMaterialOverride, 'ringIndex' | 'color'>> & PropMaterialOverride {
   const ov = prop.materialOverride || {};
   const ring =
     ov.ringIndex ??
