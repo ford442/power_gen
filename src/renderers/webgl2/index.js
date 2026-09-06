@@ -12,10 +12,7 @@
  *   bloom/post, RK4 flux lines, energy-arc meshes, full SEG enhanced PBR.
  */
 
-import { CameraController } from '../../camera-controller';
 import { MultiDeviceCamera } from '../../multi-device-camera';
-import { SimRateController } from '../../sim-rate-controller';
-import { getMergedDeviceConfig, getAllSimDeviceIds } from '../../devices/device-registry';
 import { buildMagLevMesh } from '../../devices/quanta/magnetic-levitation';
 import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator';
 import { buildHalbachVizMesh, halbachConfigFromState } from '../../devices/quanta/halbach-viz';
@@ -33,7 +30,7 @@ import {
   stepDevicePhysics,
   deviceModeIndex
 } from '../shared/device-physics';
-import { isDeviceActive as isDeviceVisible, shouldSimulateDevice } from '../shared/device-view';
+import { shouldSimulateDevice } from '../shared/device-view';
 import {
   getOverviewCullOpts,
   getViewParticleLod,
@@ -42,13 +39,9 @@ import {
   getDeviceParticleScale
 } from '../shared/view-lod';
 import { resolveScaledParticleCount } from '../../devices/particle-budgets';
-import { EnergyNetwork, initEnergyCouplingDisclaimer, syncEnergyCouplingDisclaimer } from '../shared/energy-network';
-import {
-  parsePrototypePreset,
-  parseSegLayoutPreset,
-  parseAnomalousEffects,
-  segLayoutRingsForDraw
-} from '../shared/url-params';
+import { getMergedDeviceConfig } from '../../devices/device-registry';
+import { initEnergyCouplingDisclaimer } from '../shared/energy-network';
+import { segLayoutRingsForDraw } from '../shared/url-params';
 import { WebGL2Context } from './webgl2-context.js';
 import { SkyGridRenderer } from './sky-grid-renderer.js';
 import { MeshRenderer } from './mesh-renderer.js';
@@ -59,23 +52,20 @@ import { HalbachFieldRenderer } from './halbach-field-renderer.js';
 import { parseSegFrameLevel } from '../../seg-frame-model.js';
 import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets';
 import { segOperator } from '../../seg-operator-state';
-import { telemetryHub, TelemetryHub } from '../../telemetry-hub';
-import { gpuChores, collectDeviceEnergies, meterLabEnergy, meterScalarFlux } from '../../gpu-chores';
-import { explainerState } from '../../seg-explainer/explainer-state.js';
+import { telemetryHub } from '../../telemetry-hub';
+import { gpuChores } from '../../gpu-chores';
 import { initSEGAnnotations } from '../../seg-annotations.js';
 import { segWasm } from '../../wasm/seg-physics-bridge';
 import {
   getHeronLayout,
-  HERON_LAYOUT_PRESETS,
-  parseHeronLayoutPreset
+  HERON_LAYOUT_PRESETS
 } from '../../heron-layout';
 import {
   computeSEGLayout,
   SEG_LAYOUT_PRESETS
 } from '../../seg-layout';
-import { HardwareBridge, TWIN_MODES } from '../../hardware-bridge';
 import { initHardwarePanel } from '../../hardware-panel';
-import { buildHardwareTwinTelemetry } from '../../visualizer/hardware-twin';
+import { wasmOwnsJsDevicePhysics } from '../../session/apply-wasm-plant';
 
 class WebGL2DeviceState {
   constructor(id, config, visualizer) {
@@ -138,64 +128,72 @@ function layoutRollerPositions(layout, time, speedMult, segOmega) {
 }
 
 export class WebGL2MultiDeviceVisualizer {
-  constructor() {
+  constructor(session) {
     console.log('WebGL2MultiDeviceVisualizer starting (agent / CI fallback path)');
+    this.session = session;
+    this.session.rendererId = 'webgl2';
     this.canvas = document.getElementById('gpuCanvas');
     this.ctx = new WebGL2Context(this.canvas);
-    this.camera = new CameraController();
-    this.simRateController = new SimRateController();
     this.debug = new WebGL2DebugControls();
 
     this.devices = {};
-    this.devicesEnabled = Object.fromEntries(getAllSimDeviceIds().map((id) => [id, true]));
-    this.currentView = 'overview';
+    this.session.attachDevices(this.devices);
     this.time = 0;
     this.simClock = 0;
     this.lastFrameTime = 0;
     this.fps = 60;
-    this.speedMult = 1.0;
-    this.segOmega = 0;
-    this.corona = 0;
 
     const params = new URLSearchParams(window.location.search);
 
-    this.prototypePreset = parsePrototypePreset(params);
-    this.anomalousEffectsEnabled = parseAnomalousEffects(this.prototypePreset);
     this.segFrameLevel = parseSegFrameLevel(params);
     this.lightingLook = parseLightingLook(params);
     this.lightingPreset = getLightingPreset(this.lightingLook);
 
-    this.heronLayoutPreset = parseHeronLayoutPreset(params);
-    try {
-      const storedHeron = localStorage.getItem('heron-layout');
-      if (storedHeron && Object.values(HERON_LAYOUT_PRESETS).includes(storedHeron)) {
-        this.heronLayoutPreset = storedHeron;
-      }
-    } catch (_) { /* ignore */ }
-    this.heronLayout = getHeronLayout(this.heronLayoutPreset);
-
-    // SEG layout (same presets as WebGPU; visual proportions only for rollers)
-    this.segLayoutPreset = parseSegLayoutPreset(params, this.prototypePreset);
-    this.segLayout = computeSEGLayout(this.segLayoutPreset, 1.0);
+    this.segLayout = computeSEGLayout(this.session.segLayoutPreset, 1.0);
 
     this.energyPipes = []; // filled after devices for debug panel total flow
     this.energyPipeRenderer = null;
-    this.energyNetwork = new EnergyNetwork();
-
-    // Thin hardware twin (CPU-only) so ?mockHardware=1 works on WebGL2 CI path
-    this.hardwareBridge = new HardwareBridge({
-      onError: (e) => console.error('[HardwareBridge]', e)
-    });
-    this.hardwareTargetPhase = 0;
-    this.hardwareTargetSpeed = 0;
-    this.hardwareShadow = { phaseError: 0, rpmError: 0 };
-    this.hardwareTwinTelemetry = null;
 
     exposeRenderer(this.canvas, RENDERER_WEBGL2);
     this._exposeScreenshotHooks();
 
     this.init();
   }
+
+  get camera() { return this.session.camera; }
+  get cameraController() { return this.session.cameraController; }
+  set cameraController(v) { this.session.cameraController = v; }
+  get currentView() { return this.session.currentView; }
+  set currentView(v) { this.session.currentView = v; }
+  get devicesEnabled() { return this.session.devicesEnabled; }
+  get energyNetwork() { return this.session.energyNetwork; }
+  get hardwareBridge() { return this.session.hardwareBridge; }
+  set hardwareBridge(v) { this.session.hardwareBridge = v; }
+  get hardwareTargetPhase() { return this.session.hardwareTargetPhase; }
+  set hardwareTargetPhase(v) { this.session.hardwareTargetPhase = v; }
+  get hardwareTargetSpeed() { return this.session.hardwareTargetSpeed; }
+  set hardwareTargetSpeed(v) { this.session.hardwareTargetSpeed = v; }
+  get hardwareShadow() { return this.session.hardwareShadow; }
+  set hardwareShadow(v) { this.session.hardwareShadow = v; }
+  get hardwareTwinTelemetry() { return this.session.hardwareTwinTelemetry; }
+  set hardwareTwinTelemetry(v) { this.session.hardwareTwinTelemetry = v; }
+  get speedMult() { return this.session.speedMult; }
+  set speedMult(v) { this.session.speedMult = v; }
+  get segOmega() { return this.session.segOmega; }
+  set segOmega(v) { this.session.segOmega = v; }
+  get corona() { return this.session.corona; }
+  set corona(v) { this.session.corona = v; }
+  get simRateController() { return this.session.simRateController; }
+  get prototypePreset() { return this.session.prototypePreset; }
+  set prototypePreset(v) { this.session.prototypePreset = v; }
+  get anomalousEffectsEnabled() { return this.session.anomalousEffectsEnabled; }
+  set anomalousEffectsEnabled(v) { this.session.anomalousEffectsEnabled = v; }
+  get segLayoutPreset() { return this.session.segLayoutPreset; }
+  set segLayoutPreset(v) { this.session.segLayoutPreset = v; }
+  get heronLayoutPreset() { return this.session.heronLayoutPreset; }
+  set heronLayoutPreset(v) { this.session.heronLayoutPreset = v; }
+  get heronLayout() { return this.session.heronLayout; }
+  set heronLayout(v) { this.session.heronLayout = v; }
 
   _exposeScreenshotHooks() {
     window.captureCanvasFrame = (opts = {}) => {
@@ -326,11 +324,7 @@ export class WebGL2MultiDeviceVisualizer {
         console.warn('[webgl2] Hardware panel init failed:', e);
       }
       try {
-        if (new URLSearchParams(location.search).get('mockHardware') === '1') {
-          await this.hardwareBridge.connectMock();
-          // Default shadow mode so residual fields are meaningful for CI/e2e
-          this.hardwareBridge.setTwinMode(TWIN_MODES.SHADOW);
-        }
+        await this.session.maybeConnectMockHardware();
       } catch (_) { /* ignore */ }
 
       this.render(0);
@@ -357,87 +351,24 @@ export class WebGL2MultiDeviceVisualizer {
    * Called from window.setMode and keyboard shortcuts.
    */
   onModeChange(mode) {
-    const prev = this.currentView;
-    this.currentView = mode || 'overview';
+    const { view } = this.session.setMode(mode);
 
     const el = document.getElementById('currentView');
-    if (el) el.textContent = this.currentView.toUpperCase();
-
-    if (this.currentView === 'overview') {
-      this.cameraController?.showOverview?.();
-    } else {
-      this.cameraController?.focusOnDevice?.(this.currentView);
-    }
-
-    if (this.currentView && this.currentView !== 'overview' && this.currentView !== prev) {
-      this.devices[this.currentView]?.resetForModeEntry?.();
-    }
+    if (el) el.textContent = view.toUpperCase();
 
     if (typeof window.syncLayoutPanelsVisibility === 'function') {
       window.syncLayoutPanelsVisibility();
     }
-    if (this.currentView === 'heron' && typeof window.syncHeronLayoutUI === 'function') {
+    if (view === 'heron' && typeof window.syncHeronLayoutUI === 'function') {
       window.syncHeronLayoutUI();
     }
-    if (this.currentView === 'seg' && typeof window.syncSEGLayoutUI === 'function') {
+    if (view === 'seg' && typeof window.syncSEGLayoutUI === 'function') {
       window.syncSEGLayoutUI();
     }
-
-    telemetryHub.publishFrame({
-      dt: 0,
-      view: this.currentView,
-      renderer: 'webgl2',
-      devicePhysics: TelemetryHub.collectDevicePhysics(this.devices),
-      hardwareTwin: this.hardwareTwinTelemetry ?? null
-    });
   }
 
-  /**
-   * Thin twin sync (shared semantics with WebGPU hardware-twin.js).
-   * @param {number} deltaTime
-   */
   _updateHardwareTwin(deltaTime) {
-    const hw = this.hardwareBridge;
-    if (!hw?.isConnected) {
-      this.hardwareTwinTelemetry = null;
-      this.hardwareShadow = { phaseError: 0, rpmError: 0 };
-      return;
-    }
-
-    const tel = segOperator.computeTelemetry(0);
-    const simRpm = HardwareBridge.sanitizeRpm(tel.rpmDisplay || 0);
-    const simVoltage = Number.isFinite(tel.voltage) ? tel.voltage : 0;
-    const simCurrent = Number.isFinite(tel.current) ? tel.current : 0;
-    if (!hw.manualMode && hw.controlMode === 0) {
-      this.hardwareTargetPhase += simRpm * 6.0 * Math.max(0, deltaTime);
-      this.hardwareTargetSpeed = simRpm;
-    }
-    const simPhase = ((this.hardwareTargetPhase % 360) + 360) % 360;
-
-    if (hw.twinMode === TWIN_MODES.OPEN || hw.twinMode === TWIN_MODES.SHADOW
-        || hw.twinMode === TWIN_MODES.CLOSED) {
-      const runMode = segOperator.isRunning ? 0 : 2;
-      if (!hw.manualMode) {
-        hw.setTarget(simPhase, segOperator.isRunning ? simRpm : 0, runMode);
-      }
-    }
-
-    hw.update({ simPhase, simRpm, simVoltage, simCurrent });
-
-    if (hw.twinMode === TWIN_MODES.CLOSED && !hw.isSensorStale) {
-      const hwRpm = HardwareBridge.sanitizeRpm(hw.actualRpm);
-      const wNorm = Math.min(1, Math.abs(hwRpm) / 3000);
-      this.segOmega = wNorm;
-      this.corona = Math.max(0, Math.min(1, (wNorm - 0.6) / 0.4));
-      segOperator.physics.segOmega = wNorm;
-      segOperator.physics.corona = this.corona;
-    }
-
-    this.hardwareShadow = {
-      phaseError: hw.shadow.phaseErrorDeg,
-      rpmError: hw.shadow.rpmError
-    };
-    this.hardwareTwinTelemetry = buildHardwareTwinTelemetry(hw);
+    this.session.syncHardwareTwin(deltaTime);
   }
 
   getSEGLayoutPreset() {
@@ -446,13 +377,8 @@ export class WebGL2MultiDeviceVisualizer {
 
   async setSEGLayoutPreset(presetName) {
     if (!Object.values(SEG_LAYOUT_PRESETS).includes(presetName)) return null;
-    this.segLayoutPreset = presetName;
+    this.session.persistSegLayoutPreset(presetName);
     this.segLayout = computeSEGLayout(presetName, 1.0);
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('layout', presetName);
-      window.history.replaceState(null, '', url);
-    } catch (_) { /* ignore */ }
     return this.segLayout;
   }
 
@@ -463,20 +389,7 @@ export class WebGL2MultiDeviceVisualizer {
   async setHeronLayoutPreset(presetName) {
     if (!Object.values(HERON_LAYOUT_PRESETS).includes(presetName)) return null;
     if (this.heronLayoutPreset === presetName) return this.heronLayout;
-    this.heronLayoutPreset = presetName;
-    this.heronLayout = getHeronLayout(presetName);
-    const heron = this.devices.heron;
-    if (heron?.physics) {
-      heron.physics.heronLayoutId = presetName;
-      heron.physics.heronHeadMax = this.heronLayout.headMaxM;
-      heron.physics.heronHead = Math.min(heron.physics.heronHead, this.heronLayout.headMaxM);
-    }
-    try { localStorage.setItem('heron-layout', presetName); } catch (_) { /* ignore */ }
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('heronLayout', presetName);
-      window.history.replaceState(null, '', url);
-    } catch (_) { /* ignore */ }
+    this.session.persistHeronLayoutPreset(presetName);
     return this.heronLayout;
   }
 
@@ -491,11 +404,11 @@ export class WebGL2MultiDeviceVisualizer {
   }
 
   isDeviceActive(deviceId) {
-    return isDeviceVisible(this.currentView, this.devicesEnabled, deviceId);
+    return this.session.isDeviceActive(deviceId);
   }
 
   isOverviewMode() {
-    return !this.currentView || this.currentView === 'overview';
+    return this.session.isOverviewMode();
   }
 
   setSegFrameLevel(level) {
@@ -515,186 +428,15 @@ export class WebGL2MultiDeviceVisualizer {
   updateBatteryGaugeMesh(_charge) {}
 
   /**
-   * Physics step shared with WebGPU: SimRateController substeps + device-physics
-   * (+ optional WASM plant when ?wasmPhysics=1).
+   * Physics step: LabSession plant + CPU device/particle visuals.
    */
   _stepSimulation(deltaTime, speed) {
-    const simSteps = this.simRateController.tick(deltaTime, speed, {
+    const { simSteps, replayLocked, useWasm, drive } = this.session.stepPlant(deltaTime, speed, {
       qualityLevel: this.profiler?.qualityLevel,
       frameTimeMs: this.profiler?.lastFrameTimeMs,
       gpuTimeMs: this.profiler?.lastGpuTimeMs
     });
-    const drive = segOperator.getDrive();
-    const replayLocked = !!(segOperator.replayMode || telemetryHub.isReplayMode?.());
-    const useWasm = segWasm.enabled && !replayLocked;
-    const focus = this.currentView === 'overview' ? 'seg' : this.currentView;
-
-    if (useWasm) {
-      const loadT = 0.01 * (1 - drive * 0.5);
-      if (['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall', 'lorentz-sled'].includes(focus)) {
-        segWasm.setMode(focus);
-      }
-      if (focus === 'transformer') {
-        const leak = !!(this.devices.transformer?.physics?.transformerLeakage
-          ?? this.devices.transformer?.physicsState?.transformerLeakage);
-        segWasm.setTransformerLeakage?.(leak);
-      }
-      if (focus === 'hall') {
-        const metal = (this.devices.hall?.physics?.hallCarrierType
-          ?? this.devices.hall?.physicsState?.hallCarrierType) === 'metal';
-        segWasm.setHallCarrierMetal?.(metal);
-      }
-      if (focus === 'lorentz-sled') {
-        const fieldT = this.devices['lorentz-sled']?.physics?.lorentzFieldT
-          ?? this.devices['lorentz-sled']?.physicsState?.lorentzFieldT;
-        if (fieldT != null) segWasm.setLorentzFieldT?.(fieldT);
-      }
-      for (const subDt of simSteps) {
-        if (subDt <= 0) continue;
-        segOperator.step(subDt);
-        const wr = segWasm.step(subDt, loadT, drive);
-        if (focus === 'seg' || focus === 'overview') {
-          const wNorm = Math.min(1, Math.abs(wr.meanOmega ?? wr.omega) / 50);
-          segOperator.physics.segOmega = Math.max(segOperator.physics.segOmega * 0.2, wNorm);
-          segOperator.physics.corona = Math.max(0, Math.min(1, (wNorm - 0.6) / 0.4));
-        } else if (focus === 'heron') {
-          const plant = segWasm.getModePlant();
-          const heron = this.devices.heron?.physics;
-          if (heron && plant) {
-            heron.heronHead = plant.head ?? heron.heronHead;
-            heron.heronVExit = plant.vExit ?? heron.heronVExit;
-            heron.heronFlowRateLmin = plant.flowLmin ?? 0;
-            heron.heronPressureKPa = plant.pressureKPa ?? 0;
-            heron.energyLevel = Math.min(1, heron.heronVExit / 4);
-          }
-        } else if (focus === 'kelvin') {
-          const plant = segWasm.getModePlant();
-          const kelvin = this.devices.kelvin?.physics;
-          if (kelvin && plant) {
-            kelvin.kelvinV = plant.voltage ?? 0;
-            kelvin.kelvinVoltageN = plant.voltageN ?? 0;
-            kelvin.kelvinE = plant.E ?? 0;
-            kelvin.kelvinSparkTimer = plant.sparkTimer ?? 0;
-            kelvin.energyLevel = kelvin.kelvinVoltageN;
-          }
-        } else if (focus === 'solar') {
-          const plant = segWasm.getModePlant();
-          const solar = this.devices.solar?.physics;
-          if (solar && typeof plant?.battery === 'number') {
-            solar.batteryCharge = plant.battery;
-            solar.energyLevel = plant.battery;
-          }
-        } else if (focus === 'peltier') {
-          const plant = segWasm.getModePlant();
-          const peltier = this.devices.peltier?.physics;
-          if (peltier && plant) {
-            peltier.peltierHotK = plant.hotK ?? peltier.peltierHotK;
-            peltier.peltierColdK = plant.coldK ?? peltier.peltierColdK;
-            peltier.peltierDeltaT = plant.deltaT ?? 0;
-            peltier.peltierVoltage = plant.voltage ?? 0;
-            peltier.peltierCurrent = plant.current ?? 0;
-            peltier.peltierPowerW = plant.powerW ?? 0;
-            peltier.peltierCOP = plant.cop ?? 0;
-            peltier.energyLevel = plant.energyLevel ?? 0;
-            peltier._wasmPlantActive = true;
-          }
-        } else if (focus === 'mhd') {
-          const plant = segWasm.getModePlant();
-          const mhd = this.devices.mhd?.physics;
-          if (mhd && plant) {
-            mhd.mhdFlowU = plant.flowU ?? 0;
-            mhd.mhdBFieldT = plant.bFieldT ?? 0;
-            mhd.mhdHartmann = plant.hartmann ?? 0;
-            mhd.mhdVoltage = plant.voltage ?? 0;
-            mhd.mhdCurrent = plant.current ?? 0;
-            mhd.mhdPowerW = plant.powerW ?? 0;
-            mhd.energyLevel = plant.energyLevel ?? 0;
-            mhd._wasmPlantActive = true;
-          }
-        } else if (focus === 'maglev') {
-          const plant = segWasm.getModePlant();
-          const maglev = this.devices.maglev?.physics;
-          if (maglev && plant?.mode === 'maglev') {
-            maglev.maglevGap = plant.gap ?? maglev.maglevGap;
-            maglev.maglevGapVel = plant.gapVel ?? maglev.maglevGapVel;
-            maglev.maglevGapMm = plant.gapMm ?? 0;
-            maglev.maglevFieldT = plant.fieldT ?? 0;
-            maglev.maglevLiftN = plant.liftN ?? 0;
-            maglev.maglevRpm = plant.rpm ?? 0;
-            maglev.energyLevel = plant.energyLevel ?? 0;
-            maglev._wasmPlantActive = true;
-          }
-        } else if (focus === 'homopolar') {
-          const plant = segWasm.getModePlant();
-          const homo = this.devices.homopolar?.physics;
-          if (homo && plant?.mode === 'homopolar') {
-            homo.homopolarOmega = plant.omega ?? 0;
-            homo.homopolarAngle = plant.angle ?? 0;
-            homo.homopolarRpm = plant.rpm ?? 0;
-            homo.homopolarEmfV = plant.emfV ?? 0;
-            homo.homopolarCurrentA = plant.currentA ?? 0;
-            homo.homopolarCurrent = plant.currentA ?? 0;
-            homo.homopolarFieldT = plant.fieldT ?? 0;
-            homo.energyLevel = plant.energyLevel ?? 0;
-            homo._wasmPlantActive = true;
-          }
-        } else if (focus === 'transformer') {
-          const plant = segWasm.getModePlant();
-          const xfmr = this.devices.transformer?.physics;
-          if (xfmr && plant?.mode === 'transformer') {
-            xfmr.transformerIpA = plant.i1 ?? 0;
-            xfmr.transformerIsA = plant.i2 ?? 0;
-            xfmr.transformerVp = plant.v1 ?? 0;
-            xfmr.transformerVs = plant.v2 ?? 0;
-            xfmr.transformerK = plant.k ?? xfmr.transformerK;
-            xfmr.transformerFluxN = plant.fluxN ?? 0;
-            xfmr.energyLevel = plant.energyLevel ?? 0;
-            xfmr._wasmPlantActive = true;
-          }
-        } else if (focus === 'vdg') {
-          const plant = segWasm.getModePlant();
-          const vdg = this.devices.vdg?.physics;
-          if (vdg && plant?.mode === 'vdg') {
-            vdg.vdgVoltage = plant.voltage ?? 0;
-            vdg.vdgBeltMps = plant.beltMps ?? 0;
-            vdg.vdgChargeC = plant.chargeC ?? 0;
-            vdg.vdgSparkHz = plant.sparkHz ?? 0;
-            vdg.energyLevel = plant.energyLevel ?? 0;
-            vdg._wasmPlantActive = true;
-          }
-        } else if (focus === 'hall') {
-          const plant = segWasm.getModePlant();
-          const hall = this.devices.hall?.physics;
-          if (hall && plant?.mode === 'hall') {
-            hall.hallVoltage = plant.voltage ?? 0;
-            hall.hallCurrent = plant.current ?? 0;
-            hall.hallFieldT = plant.fieldT ?? 0;
-            hall.hallCoeff = plant.coeff ?? 0;
-            hall.energyLevel = plant.energyLevel ?? 0;
-            hall._wasmPlantActive = true;
-          }
-        } else if (focus === 'lorentz-sled') {
-          const plant = segWasm.getModePlant();
-          const sled = this.devices['lorentz-sled']?.physics;
-          if (sled && plant?.mode === 'lorentz-sled') {
-            sled.lorentzSledVms = plant.sledVms ?? 0;
-            sled.lorentzCurrentA = plant.currentA ?? 0;
-            sled.lorentzFieldT = plant.fieldT ?? 0;
-            sled.lorentzForceN = plant.forceN ?? 0;
-            sled.lorentzPositionM = plant.positionM ?? 0;
-            sled.energyLevel = plant.energyLevel ?? 0;
-            sled._wasmPlantActive = true;
-          }
-        }
-      }
-    } else if (!replayLocked) {
-      for (const subDt of simSteps) {
-        if (subDt > 0) segOperator.step(subDt);
-      }
-    }
-
-    this.segOmega = segOperator.physics.segOmega;
-    this.corona = segOperator.physics.corona;
+    const focus = this.session.plantFocus();
 
     const substeps = simSteps.length || 1;
     const subDt = deltaTime / Math.max(substeps, 1);
@@ -720,13 +462,8 @@ export class WebGL2MultiDeviceVisualizer {
         device.physics.magneticFieldStrength = segOperator.magneticFieldStrength;
         device.physics.energyLevel = segOperator.physics.segOmega;
       } else {
-        const coreWasmModes = ['heron', 'kelvin', 'solar', 'peltier', 'mhd'];
-        const wasmOwnsFocus = useWasm && device.id === focus && (
-          coreWasmModes.includes(device.id)
-          || ((device.id === 'maglev' || device.id === 'homopolar' || device.id === 'transformer'
-              || device.id === 'vdg' || device.id === 'hall'
-              || device.id === 'lorentz-sled')
-            && device.physics._wasmPlantActive)
+        const wasmOwnsFocus = wasmOwnsJsDevicePhysics(
+          device.id, focus, useWasm, device.physics
         );
         if (!wasmOwnsFocus && !replayLocked) {
           for (let s = 0; s < substeps; s++) {
@@ -833,45 +570,7 @@ export class WebGL2MultiDeviceVisualizer {
     const viewProj = this.cameraController.getViewProjMatrix();
     const cameraPos = this.camera.camera.position;
 
-    // Telemetry hub — same path as WebGPU (START → non-zero RPM/V/I/P)
-    const omega = this.segOmega || 0;
-    const lab = meterLabEnergy(collectDeviceEnergies(this.devices));
-    const flux = meterScalarFlux(
-      Object.values(this.devices).map((d) => d.scaledParticleCount || d.particleCount || 0),
-      speed
-    );
-    const segTelemetry = segOperator.computeTelemetry(deltaTime);
-    const netSnap = this.energyNetwork.update({
-      devices: this.devices,
-      devicesEnabled: this.devicesEnabled,
-      segPowerW: segTelemetry.power,
-      segEfficiencyPct: segTelemetry.efficiency,
-      deltaTime
-    });
-    syncEnergyCouplingDisclaimer(netSnap.couplingEnabled, netSnap);
-    if (!telemetryHub.isReplayMode()) telemetryHub.publishFrame({
-      dt: deltaTime,
-      view: this.currentView || 'overview',
-      renderer: 'webgl2',
-      devicePhysics: TelemetryHub.collectDevicePhysics(this.devices),
-      scientific: {
-        particleFlux: flux.particleFlux || (totalParticles * Math.max(0.05, speed)),
-        maxFieldMagnitude: 0.7048 * (0.35 + 0.65 * Math.min(1, Math.abs(omega))),
-        avgEnergyDensity: lab.avgEnergyDensity,
-        labEnergySum: lab.labEnergySum,
-        labEnergyRms: lab.labEnergyRms,
-        choresBackend: gpuChores.breadcrumb().backend
-      },
-      segTelemetry,
-      energyNetwork: {
-        couplingEnabled: netSnap.couplingEnabled,
-        labBudgetW: netSnap.labBudgetW,
-        totalAllocatedW: netSnap.totalAllocatedW,
-        residualW: netSnap.residualW,
-        devices: netSnap.devices
-      },
-      hardwareTwin: this.hardwareTwinTelemetry ?? null
-    });
+    this.session.publishFrame(deltaTime, totalParticles);
 
     const gl = this.ctx.gl;
     this.ctx.resize();

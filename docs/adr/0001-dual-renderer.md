@@ -11,7 +11,7 @@ Automatic “WebGPU fail → WebGL2” rescue looked helpful but created dual-ho
 
 ## Decision
 
-Ship **two** multi-device backends behind one bootstrap (`src/main.ts` + `renderer-selector.js`):
+Ship **two GPU backends** behind one bootstrap (`src/main.ts` + `renderer-selector.js`) and **one LabSession** (ADR-0009):
 
 1. **WebGPU** — `MultiDeviceVisualizer` (full fidelity) — **default required path**.
 2. **WebGL2** — `WebGL2MultiDeviceVisualizer` — **explicit opt-in only** (`?renderer=webgl2`).
@@ -30,4 +30,4 @@ Shared simulation and mesh primitives live in `src/renderers/shared/` so plant/t
 
 ## Related
 
-- `docs/WEBGL2.md`, `docs/WEBGPU.md`, `docs/AGENTS.md`, ADR-0007
+- ADR-0004, `docs/WEBGL2.md`, `docs/WEBGPU.md`, `docs/AGENTS.md`, ADR-0007, ADR-0009

@@ -42,7 +42,7 @@ Do **not** expect these under WebGL2:
 | Roschin–Godin magnetic wall shells | `renderAnomalyWalls` |
 | Full energy-pipe **particle** billboards | `EnergyPipe` + WGSL (WebGL2 uses lines) |
 | GPU timestamp queries | `?gpuTiming=1` |
-| Hardware bridge / electromagnet coils | WebGPU-only hooks |
+| Hardware bridge / electromagnet coils | CPU twin + panel work on WebGL2 (`?mockHardware=1`); **coil GPU viz** is WebGPU-only |
 | **glTF CAD props** (housing, coil former, …) | `setup-gltf.ts` / `prop-registry.ts` — **skipped** (see below) |
 
 ## glTF / CAD props (skipped or reduced LOD)

@@ -1,6 +1,7 @@
 // PBR material table buffer for enhanced SEG mesh pipeline.
 import { SEGMaterialPresets } from '../seg-materials.js';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
+import { bindHostMethods } from './bind-host-methods.js';
 
 type Host = MultiDeviceVisualizer;
 
@@ -63,3 +64,12 @@ export const materialMethods: ThisType<Host> & {
     this.profiler?.trackBuffer('materialTable', packed.byteLength, GPUBufferUsage.STORAGE);
   }
 };
+
+export class MaterialTable {
+  setupMaterialTableBuffer: typeof materialMethods.setupMaterialTableBuffer;
+
+  constructor(host: MultiDeviceVisualizer) {
+    this.setupMaterialTableBuffer = bindHostMethods(materialMethods, host).setupMaterialTableBuffer;
+  }
+}
+

@@ -14,8 +14,9 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 |------|--------|
 | **HTML shell / UI** | `src/index.html` (Vite root = `src/`) |
 | **App bootstrap** | `src/main.ts` — renderer select, `window.*` APIs, operator wiring |
-| **WebGPU scene** | `src/multi-device-visualizer.ts` → `MultiDeviceVisualizer` |
+| **WebGPU scene** | `src/multi-device-visualizer.ts` → `MultiDeviceVisualizer` (GPU backend; plant is `LabSession`) |
 | **WebGL2 fallback** | `src/renderers/webgl2/` → `WebGL2MultiDeviceVisualizer` |
+| **Lab session** | `src/session/lab-session.ts` — operator, WASM plant, telemetry, energy, twin |
 | **Renderer choice** | `src/renderers/renderer-selector.js` |
 | **Device list** | `src/devices/device-registry.ts` + `src/devices/device-config.ts` (`DEVICE_CONFIG`) |
 | **Shaders** | `src/shaders/` — see [`SHADERS.md`](./SHADERS.md) |
@@ -27,11 +28,16 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 Browser loads src/index.html
         │
         ▼
-   src/main.ts  ── resolveRenderer() ──► WebGPU MultiDeviceVisualizer
-                              │            or WebGL2MultiDeviceVisualizer
-                              ▼
-                    shared CPU physics (renderers/shared/)
-                    TelemetryHub.publishFrame each frame
+   src/main.ts  ── resolveRenderer()
+        │
+        ▼
+   LabSession  (plant, mode, telemetry, energy, twin, wasm)
+        ├── MultiDeviceVisualizer (WebGPU pipelines / post / glTF)
+        └── WebGL2MultiDeviceVisualizer (GLSL mesh/particles/lines)
+                    │
+                    ▼
+        shared CPU physics (renderers/shared/)
+        TelemetryHub.publishFrame each frame
 ```
 
 **There is no** root-level `main.js` / `multi-device-visualizer.js` tree, and **no** `SEGVisualizer` class. Everything application-related is under `src/`.
@@ -104,7 +110,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 | Language | Own | Do not put |
 |----------|-----|------------|
 | **JavaScript** | WebGL2 path (`renderers/webgl2/**`), procedural geometry builders (`seg-geometry/**`), scientific-ui gauges, `multi-device-shaders.js`, `seg-annotations.js`, `electromagnet-controller.js`, `scientific-data.js` | New authoritative physics formulas; new device plugin hooks (typed via `devices/types.ts`); dashboard layout (`DEVICE_CONFIG`) |
-| **TypeScript** | `main.ts`, `multi-device-visualizer.ts`, device registry/config, `device-instance.ts`, visualizer mixins, WASM bridge, shared url-params/view-lod/device-view, constants (`ValidatedConstants.ts`), `integration.ts`, telemetry, `pipeline-layout-cache.ts`, `devices/types.ts`, core/Quanta strategies | WebGL2 GLSL path; Three.js / gl-matrix (ADR-0003) |
+| **TypeScript** | `main.ts`, `session/`, `multi-device-visualizer.ts`, device registry/config, `device-instance.ts`, visualizer GPU collaborators, WASM bridge, shared url-params/view-lod/device-view, constants (`ValidatedConstants.ts`), `integration.ts`, telemetry, `pipeline-layout-cache.ts`, `devices/types.ts`, core/Quanta strategies | WebGL2 GLSL path; Three.js / gl-matrix (ADR-0003) |
 | **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar/Peltier/MHD/Quanta state) | Browser DOM or GPU API calls |
 | **WGSL** | WebGPU compute + render (`src/shaders/`) | WebGL2 fallback |
 | **GLSL** | WebGL2 only (`renderers/webgl2/shaders.js`) | WebGPU path |
@@ -114,7 +120,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 
 - New physics math and public numeric APIs → **TypeScript** (or C++ if part of the WASM plant).
 - New draw/compute passes → **WGSL** in `passes/` + layout in `src/pipeline-layout/layouts/*.ts` + [`BINDINGS.md`](./BINDINGS.md); `check:wgsl` + `check:post` when CPU structs couple; document in [`SHADERS.md`](./SHADERS.md). No new `/* wgsl */` in JS.
-- New device plugins implement the `DevicePlugin` interface from `src/devices/types.ts` — the single source of truth for plugin hooks and the `DeviceInstanceLike` / `VisualizerLike` shapes the mixins bind to. Layout defaults go on `plugin.defaults` (core devices share `DEVICE_CONFIG` from `devices/device-config.ts`).
+- New device plugins implement the `DevicePlugin` interface from `src/devices/types.ts` — the single source of truth for plugin hooks and the `DeviceInstanceLike` / `VisualizerLike` shapes. Layout defaults go on `plugin.defaults` (core devices share `DEVICE_CONFIG` from `devices/device-config.ts`).
 - `npm run typecheck` covers **`src/**/*.ts` only**. `tsconfig` uses **`allowJs: true` / `checkJs: false`** so JS modules can be imported; remaining JS is not typechecked in CI. JS modules that TS imports may carry a hand-written `.d.ts`.
 - Runtime entry is **`src/main.ts`**. `index.ts` is a typed **barrel**, not the app entry.
 - Physics constants SoT: `physics/constants.json` → codegen → `ValidatedConstants.ts` (ADR-0002/0006). Wolfram MCP manager was removed; do not reintroduce it on the default boot path.
@@ -181,11 +187,12 @@ power_gen/
 ├── src/                          # ← Vite root (not repo root)
 │   ├── index.html                # Dashboard chrome + canvas
 │   ├── main.ts                   # Bootstrap only
+│   ├── session/                  # LabSession host (plant, mode, telemetry)
 │   ├── multi-device-visualizer.ts
+│   ├── visualizer/               # WebGPU GPU collaborators (geometry, post, glTF, frame loop)
 │   ├── webgpu-manager.ts
 │   ├── pipeline-layout-cache.ts  # Explicit layouts + BindGroupLayoutName
 │   ├── device-instance.ts / devices/  # Registry, config, plugins, mixins
-│   ├── visualizer/               # Frame loop / scene / geometry mixins (.ts)
 │   ├── energy-pipe.ts            # Overview energy transfer viz (+ network)
 │   ├── telemetry-hub.ts
 │   ├── telemetry/                # Export, replay, sampler, schema (all .ts)
@@ -209,8 +216,9 @@ power_gen/
 |------|-------------|---------|
 | Primary | `MultiDeviceVisualizer` | WebGPU |
 | Fallback | `WebGL2MultiDeviceVisualizer` | WebGL2 |
+| Host | `LabSession` | Shared plant / mode / telemetry |
 
-**Frame loop (both backends):** SimRateController substeps → optional WASM plant → per-device update → `TelemetryHub.publishFrame` → encode draw.
+**Frame loop (both backends):** `LabSession.stepPlant` → backend device visuals → `LabSession.publishFrame` → encode draw.
 
 **WebGPU context (high level):** one adapter/device in `WebGPUManager` (`featureLevel: core` with compatibility retry); depth `depth24plus` or `depth32float` when SSR is on; canvas preferred format, `alphaMode: 'opaque'`, explicit `colorSpace` + `toneMapping`. Full matrix: [`WEBGPU.md`](./WEBGPU.md). WebGL2 gaps: [`WEBGL2.md`](./WEBGL2.md).
 
@@ -266,11 +274,12 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 | Module | Role |
 |--------|------|
 | `src/main.ts` | Renderer bootstrap, window control API, WASM badge, operator/diagram init |
-| `src/multi-device-visualizer.ts` | WebGPU orchestrator: devices, pipes, bloom, frame loop, hardware twin hook |
+| `src/session/lab-session.ts` | Shared lab host: operator, WASM plant, mode, energy network, twin, telemetry |
+| `src/multi-device-visualizer.ts` | WebGPU backend: devices, pipes, bloom, frame encode, glTF |
+| `src/visualizer/*.ts` | Named WebGPU collaborators (not prototype mixins) |
 | `src/webgpu-manager.ts` | Single adapter/device/canvas/depth path |
 | `src/pipeline-layout-cache.ts` | Shared bind-group layouts + pipelines |
 | `src/device-instance.ts` + `devices/*` | Per-device update/render mixins, registry plugins, `device-config.ts` |
-| `src/visualizer/*.ts` | Object.assign mixins: render-loop, scene-setup, geometry, glTF, … |
 | `src/energy-pipe.ts` | Overview Bézier energy transfer (visual; `EnergyNetwork` in `renderers/shared/`) |
 | `src/performance-profiler.ts` | FPS, auto-quality, optional GPU timestamps, per-device CPU times |
 | `src/sim-rate-controller.ts` | Speed mult / substeps; couples to quality under load |

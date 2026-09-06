@@ -1,11 +1,6 @@
-// Tachometer overlay + hardware digital twin sync.
-import { segOperator } from '../seg-operator-state';
-import { telemetryHub, TelemetryHub } from '../telemetry-hub';
-import { HardwareBridge, TWIN_MODES } from '../hardware-bridge';
-import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
+// Hardware digital twin snapshot helper (CPU sync lives on LabSession).
+import { HardwareBridge } from '../hardware-bridge';
 import type { HardwareTwinTelemetry } from '../telemetry/types';
-
-type Host = MultiDeviceVisualizer;
 
 /**
  * Build hub-facing hardware twin snapshot (includes shadowResidual).
@@ -33,90 +28,3 @@ export function buildHardwareTwinTelemetry(
     }
   };
 }
-
-export const hardwareTwinMethods: ThisType<Host> & {
-  _updateTachometer(): void;
-  _updateHardwareTwin(deltaTime: number): void;
-  _updateDeviceTelemetry(): void;
-} = {
-  _updateTachometer() {
-    const el = document.getElementById('tachometer');
-    if (!el) return;
-    const src = this.simRateController;
-    const fill = el.querySelector('.tach-fill') as HTMLElement | null;
-    const label = el.querySelector('.tach-label') as HTMLElement | null;
-    if (fill) {
-      fill.style.width = `${(src.tachFill * 100).toFixed(1)}%`;
-      fill.style.background = `hsl(${src.tachHue}, 100%, 50%)`;
-      if (src.isOverdrive) fill.classList.add('overdrive');
-      else fill.classList.remove('overdrive');
-    }
-    if (label) {
-      label.textContent = `${src.speedMult.toFixed(2)}×`;
-      label.style.color = `hsl(${src.tachHue}, 100%, 65%)`;
-    }
-  },
-
-  _updateHardwareTwin(deltaTime: number) {
-    const hw = this.hardwareBridge;
-    if (!hw?.isConnected) {
-      this.hardwareTwinTelemetry = null;
-      this.hardwareShadow = { phaseError: 0, rpmError: 0 };
-      return;
-    }
-
-    // Simulated electrical phase / RPM from operator plant
-    const tel = segOperator.computeTelemetry(0);
-    const simRpm = HardwareBridge.sanitizeRpm(tel.rpmDisplay || 0);
-    const simVoltage = Number.isFinite(tel.voltage) ? tel.voltage : 0;
-    const simCurrent = Number.isFinite(tel.current) ? tel.current : 0;
-    // Integrate phase: deg/s = RPM * 6
-    if (!hw.manualMode && hw.controlMode === 0) {
-      this.hardwareTargetPhase += simRpm * 6.0 * Math.max(0, deltaTime);
-      this.hardwareTargetSpeed = simRpm;
-    }
-    const simPhase = ((this.hardwareTargetPhase % 360) + 360) % 360;
-
-    // Open / shadow: sim commands hardware. Closed: still send setpoints as soft reference.
-    if (hw.twinMode === TWIN_MODES.OPEN || hw.twinMode === TWIN_MODES.SHADOW
-        || hw.twinMode === TWIN_MODES.CLOSED) {
-      const runMode = segOperator.isRunning ? 0 : 2; // run vs coast when plant stopped
-      if (!hw.manualMode) {
-        hw.setTarget(simPhase, segOperator.isRunning ? simRpm : 0, runMode);
-      }
-    }
-
-    hw.update({ simPhase, simRpm, simVoltage, simCurrent });
-
-    // Closed-loop: hardware is authority for visual roller spin (never NaN-spin)
-    if (hw.twinMode === TWIN_MODES.CLOSED && !hw.isSensorStale) {
-      const hwRpm = HardwareBridge.sanitizeRpm(hw.actualRpm);
-      const wNorm = Math.min(1, Math.abs(hwRpm) / 3000);
-      this.segOmega = wNorm;
-      this.corona = Math.max(0, Math.min(1, (wNorm - 0.6) / 0.4));
-      segOperator.physics.segOmega = wNorm;
-      segOperator.physics.corona = this.corona;
-    }
-
-    this.hardwareShadow = {
-      phaseError: hw.shadow.phaseErrorDeg,
-      rpmError: hw.shadow.rpmError
-    };
-    this.hardwareTwinTelemetry = buildHardwareTwinTelemetry(hw);
-  },
-
-  _updateDeviceTelemetry() {
-    telemetryHub.publishFrame({
-      dt: 0,
-      view: this.currentView || 'overview',
-      renderer: 'webgpu',
-      devicePhysics: TelemetryHub.collectDevicePhysics(
-        this.devices as Record<string, { physicsState?: object; batteryCharge?: number }>
-      ),
-      hardwareTwin: this.hardwareTwinTelemetry ?? null
-    });
-    if (this.currentView === 'heron' && typeof window.syncHeronLayoutUI === 'function') {
-      window.syncHeronLayoutUI();
-    }
-  }
-};

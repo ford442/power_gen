@@ -1,6 +1,7 @@
 // Speed test harness and GPU particle readback for debugging.
 import { CULL_OUTPUT_HEADER_BYTES, DRAW_ARGS_STRIDE } from '../devices/overview-cull';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
+import { bindHostMethods } from './bind-host-methods.js';
 import type { DeviceInstance } from '../device-instance.js';
 
 type Host = MultiDeviceVisualizer;
@@ -149,3 +150,17 @@ export const diagnosticsMethods: ThisType<Host> & {
     };
   }
 };
+
+export class VisualizerDiagnostics {
+  runSpeedTest: typeof diagnosticsMethods.runSpeedTest;
+  captureParticleSubset: typeof diagnosticsMethods.captureParticleSubset;
+  captureOverviewCull: typeof diagnosticsMethods.captureOverviewCull;
+
+  constructor(host: MultiDeviceVisualizer) {
+    const bound = bindHostMethods(diagnosticsMethods, host);
+    this.runSpeedTest = bound.runSpeedTest;
+    this.captureParticleSubset = bound.captureParticleSubset;
+    this.captureOverviewCull = bound.captureOverviewCull;
+  }
+}
+

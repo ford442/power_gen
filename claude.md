@@ -43,7 +43,7 @@ Full query matrix: **docs/AGENTS.md → Query-parameter matrix**.
 | Primary | `MultiDeviceVisualizer` | WebGPU + WGSL |
 | Fallback | `WebGL2MultiDeviceVisualizer` | WebGL2 + GLSL |
 
-Shared CPU physics: `src/renderers/shared/`. Gaps: **docs/WEBGL2.md**.  
+Shared CPU physics: `src/renderers/shared/`. Plant host: `src/session/`. Gaps: **docs/WEBGL2.md**.  
 Hooks: `window.currentRenderer`, `window.getRendererInfo()`, `window.captureCanvasFrame()`.
 
 ## Language roles (short)

@@ -5,6 +5,7 @@ import { SSR_FORMAT, MATERIAL_GBUFFER_FORMAT, type BindGroupLayoutName } from '.
 import { createIblResources, uploadIblForPreset } from '../ibl-prefilter';
 import { writeQueueBuffer } from '../gpu-buffer-write';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
+import { bindHostMethods } from './bind-host-methods.js';
 
 type Host = MultiDeviceVisualizer;
 
@@ -542,3 +543,46 @@ export const sceneSetupMethods: ThisType<Host> & {
     this._rebuildBloomBindGroups();
   }
 };
+
+/** Bloom / IBL / SSR / depth / canvas resize collaborator. */
+export class PostStack {
+  setupIblPrefilter: typeof sceneSetupMethods.setupIblPrefilter;
+  refreshIblPrefilter: typeof sceneSetupMethods.refreshIblPrefilter;
+  setupFloorGrid: typeof sceneSetupMethods.setupFloorGrid;
+  setupSkyGradient: typeof sceneSetupMethods.setupSkyGradient;
+  setupAnomalyWallPipeline: typeof sceneSetupMethods.setupAnomalyWallPipeline;
+  _waitForCanvasLayout: typeof sceneSetupMethods._waitForCanvasLayout;
+  _observeCanvasLayout: typeof sceneSetupMethods._observeCanvasLayout;
+  _syncCanvasSize: typeof sceneSetupMethods._syncCanvasSize;
+  setupDepthBuffer: typeof sceneSetupMethods.setupDepthBuffer;
+  _rebuildDepthResolveBindGroup: typeof sceneSetupMethods._rebuildDepthResolveBindGroup;
+  setupDepthResolvePipeline: typeof sceneSetupMethods.setupDepthResolvePipeline;
+  setupSsrTexture: typeof sceneSetupMethods.setupSsrTexture;
+  _rebuildSsrBindGroup: typeof sceneSetupMethods._rebuildSsrBindGroup;
+  setupSsrPipeline: typeof sceneSetupMethods.setupSsrPipeline;
+  setupBloomTextures: typeof sceneSetupMethods.setupBloomTextures;
+  _rebuildBloomBindGroups: typeof sceneSetupMethods._rebuildBloomBindGroups;
+  setupBloomPipeline: typeof sceneSetupMethods.setupBloomPipeline;
+
+  constructor(host: MultiDeviceVisualizer) {
+    const bound = bindHostMethods(sceneSetupMethods, host);
+    this.setupIblPrefilter = bound.setupIblPrefilter;
+    this.refreshIblPrefilter = bound.refreshIblPrefilter;
+    this.setupFloorGrid = bound.setupFloorGrid;
+    this.setupSkyGradient = bound.setupSkyGradient;
+    this.setupAnomalyWallPipeline = bound.setupAnomalyWallPipeline;
+    this._waitForCanvasLayout = bound._waitForCanvasLayout;
+    this._observeCanvasLayout = bound._observeCanvasLayout;
+    this._syncCanvasSize = bound._syncCanvasSize;
+    this.setupDepthBuffer = bound.setupDepthBuffer;
+    this._rebuildDepthResolveBindGroup = bound._rebuildDepthResolveBindGroup;
+    this.setupDepthResolvePipeline = bound.setupDepthResolvePipeline;
+    this.setupSsrTexture = bound.setupSsrTexture;
+    this._rebuildSsrBindGroup = bound._rebuildSsrBindGroup;
+    this.setupSsrPipeline = bound.setupSsrPipeline;
+    this.setupBloomTextures = bound.setupBloomTextures;
+    this._rebuildBloomBindGroups = bound._rebuildBloomBindGroups;
+    this.setupBloomPipeline = bound.setupBloomPipeline;
+  }
+}
+

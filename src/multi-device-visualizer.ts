@@ -8,7 +8,7 @@ import { CameraController } from './camera-controller';
 import { PerformanceProfiler } from './performance-profiler';
 import { DebugPanel } from './debug-panel';
 import { DEVICE_CONFIG } from './devices/device-config';
-import { getMergedDeviceConfig, getAllSimDeviceIds } from './devices/device-registry.js';
+import { getMergedDeviceConfig } from './devices/device-registry.js';
 import { DeviceInstance } from './device-instance.js';
 import { EnergyPipe } from './energy-pipe';
 import { OverviewCullPass } from './devices/overview-cull';
@@ -19,9 +19,7 @@ import {
   packSEGLayoutUniforms
 } from './seg-layout';
 import {
-  getHeronLayout,
-  HERON_LAYOUT_PRESETS,
-  parseHeronLayoutPreset
+  HERON_LAYOUT_PRESETS
 } from './heron-layout';
 import { parseSegFrameLevel } from './seg-frame-model.js';
 import {
@@ -29,22 +27,16 @@ import {
   getLightingPreset,
 } from './seg-lighting-presets';
 import { writeQueueBuffer } from './gpu-buffer-write';
-import { segOperator } from './seg-operator-state';
-import { telemetryHub, TelemetryHub } from './telemetry-hub';
-import { segWasm } from './wasm/seg-physics-bridge.js';
-import { HardwareBridge, TWIN_MODES } from './hardware-bridge';
+import { telemetryHub } from './telemetry-hub';
+import { HardwareBridge } from './hardware-bridge';
 import { ElectromagnetController } from './electromagnet-controller.js';
 import { initHardwarePanel } from './hardware-panel';
 import { initSEGAnnotations } from './seg-annotations.js';
-import { explainerState } from './seg-explainer/explainer-state.js';
-import { isDeviceActive as isDeviceVisible } from './renderers/shared/device-view.js';
-import { EnergyNetwork, ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network';
+import { ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network';
+import type { EnergyNetwork } from './renderers/shared/energy-network';
 import { gpuChores } from './gpu-chores';
 import { showWebGPUHardFail, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import {
-  parsePrototypePreset,
-  parseSegLayoutPreset,
-  parseAnomalousEffects,
   parseSsrEnabled
 } from './renderers/shared/url-params.js';
 import { createIblResources } from './ibl-prefilter';
@@ -52,14 +44,21 @@ import {
   SEGIntegrationManager,
   PHYSICS_UNIFORM_BYTES
 } from './integration';
-import { primitiveMethods } from './visualizer/primitives.js';
-import { geometrySetupMethods } from './visualizer/setup-geometry.js';
-import { sceneSetupMethods } from './visualizer/scene-setup.js';
-import { renderLoopMethods } from './visualizer/render-loop.js';
-import { hardwareTwinMethods } from './visualizer/hardware-twin.js';
-import { materialMethods } from './visualizer/materials.js';
-import { diagnosticsMethods } from './visualizer/diagnostics.js';
-import { gltfSetupMethods } from './visualizer/setup-gltf.js';
+import {
+  generateCylinder,
+  generateCylinderWithUVs,
+  generateDisc,
+  generateDiscWithUVs,
+  generateBoxWithUVs,
+  type PrimitiveMesh
+} from './visualizer/primitives.js';
+import { SharedGeometryFactory } from './visualizer/setup-geometry.js';
+import { PostStack } from './visualizer/scene-setup.js';
+import { WebGpuFrameLoop } from './visualizer/render-loop.js';
+import { MaterialTable } from './visualizer/materials.js';
+import { VisualizerDiagnostics } from './visualizer/diagnostics.js';
+import { GltfPropRegistry } from './visualizer/setup-gltf.js';
+import { LabSession } from './session/lab-session';
 import type {
   VisualizerLike,
   MeshBuffers,
@@ -76,102 +75,6 @@ import { getPostQualityGates } from './post-processing-config';
 
 type HeronLayoutWithMeta = HeronLayout & { name: string; description: string };
 
-/**
- * Mixin methods merged onto the prototype at the bottom of this file
- * (Object.assign) — declared here via interface merging so the class body
- * above can call them with real signatures instead of falling back to `any`.
- */
-type PrimitiveMesh = { vertices: Float32Array; indices: Uint16Array };
-
-export interface MultiDeviceVisualizer {
-  // primitiveMethods
-  generateCylinder(radius: number, height: number, segments: number): PrimitiveMesh;
-  generateCylinderWithUVs(radius: number, height: number, segments: number): PrimitiveMesh;
-  generateDisc(
-    innerRadius: number,
-    outerRadius: number,
-    thickness: number,
-    segments: number
-  ): PrimitiveMesh;
-  generateDiscWithUVs(
-    innerRadius: number,
-    outerRadius: number,
-    thickness: number,
-    segments: number
-  ): PrimitiveMesh;
-  generateBoxWithUVs(width: number, height: number, depth: number): PrimitiveMesh;
-
-  // geometrySetupMethods
-  setupSharedGeometry(): Promise<void>;
-  setupDefaultPrimitiveGeometry(deviceId: string, config: { color?: unknown }): Promise<void>;
-  setupGltfAssets(
-    embeddedGlb?: ArrayBuffer,
-    opts?: { propBuffers?: Record<string, ArrayBuffer> }
-  ): Promise<void>;
-  _setupCoreSEGSharedMeshes(): Promise<void>;
-  _setupAlternateDeviceSharedMeshes(): Promise<void>;
-
-  // sceneSetupMethods
-  setupFloorGrid(): Promise<void>;
-  setupSkyGradient(): Promise<void>;
-  setupAnomalyWallPipeline(): Promise<void>;
-  setupDepthBuffer(): Promise<void>;
-  setupBloomTextures(): void;
-  setupBloomPipeline(): Promise<void>;
-  setupIblPrefilter(): { levels: number; cached: boolean; ms: number };
-  refreshIblPrefilter(): void;
-  setupSsrTexture(): void;
-  setupSsrPipeline(): Promise<void>;
-  setupDepthResolvePipeline(): Promise<void>;
-  _waitForCanvasLayout(): Promise<void>;
-  _observeCanvasLayout(): void;
-  _syncCanvasSize(): Promise<void>;
-  _rebuildBloomBindGroups(): void;
-  _rebuildSsrBindGroup(): void;
-  _rebuildDepthResolveBindGroup(): void;
-  _uploadSkyUniforms(energy?: number): void;
-  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean): void;
-
-  // renderLoopMethods
-  render(timestamp: number): void;
-  renderAnomalyWalls(
-    renderPass: GPURenderPassEncoder,
-    globalUniformBuffer: GPUBuffer | null,
-    segDevice: DeviceInstance | null | undefined
-  ): void;
-
-  // hardwareTwinMethods
-  _updateHardwareTwin(deltaTime: number): void;
-  _updateDeviceTelemetry(): void;
-  _updateTachometer(): void;
-
-  // materialMethods
-  setupMaterialTableBuffer(): void;
-
-  // diagnosticsMethods
-  runSpeedTest(speeds?: number[], durationMs?: number): Promise<void>;
-  captureParticleSubset(deviceId?: string, maxCount?: number): Promise<unknown>;
-  captureOverviewCull(): Promise<unknown>;
-
-  // gltfSetupMethods
-  ensureGltfPropsForView(view: string): Promise<void>;
-  updateGltfHousingState(): void;
-  _loadGltfPropsForSegFocus(): Promise<void>;
-  _loadGltfPropsForSegFocusInner(): Promise<void>;
-  _disposeFocusOnlyGltfProps(): void;
-  _uploadGltfProp(
-    prop: {
-      id: string;
-      url: string;
-      role: string;
-      loadPolicy: string;
-      enabled: () => boolean;
-      placeholder?: boolean;
-    },
-    ctx: { scale: number; yOffset: number; pickables: GltfPickable[] }
-  ): Promise<void>;
-}
-
 /** Minimal glTF pickable / annotation shapes used by CAD prop loaders. */
 export interface GltfPickable {
   annotationId?: string | null;
@@ -185,29 +88,27 @@ export interface GltfPickable {
 }
 
 export class MultiDeviceVisualizer implements VisualizerLike {
+  session: LabSession;
+  geometryFactory: SharedGeometryFactory;
+  postStack: PostStack;
+  gltfProps: GltfPropRegistry;
+  materialTable: MaterialTable;
+  diagnostics: VisualizerDiagnostics;
+  frameLoop: WebGpuFrameLoop;
+
   canvas: HTMLCanvasElement;
   webgpu: WebGPUManager;
-  camera: CameraController;
   profiler: PerformanceProfiler | null;
   debugPanel: DebugPanel | null;
   /** Matches WebGPUManager.depthFormat (depth24plus, no stencil). */
   depthFormat: GPUTextureFormat;
   shaders: MultiDeviceShaders;
-  cameraController: MultiDeviceCamera | null;
 
-  currentView: string;
-  devicesEnabled: Record<string, boolean>;
   devices: Record<string, DeviceInstance>;
   energyPipes: EnergyPipe[];
-  energyNetwork: EnergyNetwork;
 
-  // Hardware digital twin (Web Serial / mock)
+  // Hardware digital twin (Web Serial / mock) — coil GPU viz stays on this backend
   emController: ElectromagnetController;
-  hardwareBridge: HardwareBridge;
-  hardwareTargetPhase: number;
-  hardwareTargetSpeed: number;
-  hardwareShadow: { phaseError: number; rpmError: number };
-  hardwareTwinTelemetry: HardwareTwinTelemetry | null;
 
   integration: SEGIntegrationManager | null;
   /** Manager-owned physics uniform buffer (alias). */
@@ -216,15 +117,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   time: number;
   lastFrameTime: number;
   fps: number;
-  speedMult: number;
   globalEnergyLevel: number;
-  /** Integrated SEG spin state (from segOperator physics) */
-  segOmega: number;
-  corona: number;
-
-  prototypePreset: PrototypePreset;
-  anomalousEffectsEnabled: boolean;
-  simRateController: SimRateController;
 
   lightingLook: LightingLook;
   lightingConfig: ReturnType<typeof getLightingPreset>['lighting'];
@@ -232,11 +125,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   postExposure: number;
   postBloomStrength: number;
 
-  segLayoutPreset: string;
   segLayout: SegLayout | null;
-
-  heronLayoutPreset: string;
-  heronLayout: HeronLayoutWithMeta | null;
 
   segFrameLevel: string;
   segFrameBuffers: SegFrameBuffers | null;
@@ -393,8 +282,10 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   _postQualityGates?: ReturnType<typeof getPostQualityGates>;
   _ssrActive?: boolean;
 
-  constructor() {
+  constructor(session: LabSession) {
     console.log('MultiDeviceVisualizer v5 starting - depthStencil fix applied');
+    this.session = session;
+    this.session.rendererId = 'webgpu';
     this.canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
 
     // Initialize managers (single adapter path lives in WebGPUManager)
@@ -404,30 +295,18 @@ export class MultiDeviceVisualizer implements VisualizerLike {
         WebGPUManager.showDeviceLostUI(info);
       }
     });
-    this.camera = new CameraController();
     this.profiler = null;
     this.debugPanel = null;
     this.depthFormat = DEPTH_FORMAT;
 
-    // Initialize shader provider and camera controller
     this.shaders = new MultiDeviceShaders();
-    this.cameraController = null; // Will be initialized after debugPanel is ready
+    this.session.cameraController = null;
 
-    this.currentView = 'overview';
-    this.devicesEnabled = Object.fromEntries(getAllSimDeviceIds().map((id) => [id, true]));
     this.devices = {};
+    this.session.attachDevices(this.devices);
     this.energyPipes = [];
-    this.energyNetwork = new EnergyNetwork();
 
-    // Hardware digital twin (Web Serial / mock)
     this.emController = new ElectromagnetController();
-    this.hardwareBridge = new HardwareBridge({
-      onError: (e: unknown) => console.error('[HardwareBridge]', e)
-    });
-    this.hardwareTargetPhase = 0;
-    this.hardwareTargetSpeed = 0;
-    this.hardwareShadow = { phaseError: 0, rpmError: 0 };
-    this.hardwareTwinTelemetry = null;
 
     this.integration = null;
     this.physicsUniformBuffer = null;
@@ -435,50 +314,19 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.time = 0;
     this.lastFrameTime = 0;
     this.fps = 60;
-    this.speedMult = 1.0;
     this.globalEnergyLevel = 0.0;
-    /** Integrated SEG spin state (from segOperator physics) */
-    this.segOmega = 0;
-    this.corona = 0;
 
     const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-
-    // Prototype-accuracy preset for SEG rollers (parse before lighting / layout).
-    this.prototypePreset = parsePrototypePreset(params);
-    this.anomalousEffectsEnabled = parseAnomalousEffects(this.prototypePreset);
-
-    // SimRateController for speed-scaled physics and visuals
-    this.simRateController = new SimRateController();
-
-    // Screen-space reflections: `?ssr=0` disables without touching the tier.
     this.ssrEnabled = parseSsrEnabled(params);
 
-    // Lighting / post look preset (studio | lab | drama)
     this.lightingLook = parseLightingLook(params);
     const lookPreset = getLightingPreset(this.lightingLook);
-
-    // Lighting configuration for PBR shaders (from active look preset)
     this.lightingConfig = { ...lookPreset.lighting };
     this.postPreset = lookPreset;
     this.postExposure = lookPreset.post.exposure;
     this.postBloomStrength = lookPreset.post.bloomStrength;
 
-    // Literature-grounded SEG layout preset (roller counts, gap rule, scale).
-    //   searl    = documented 10/25/35 three-ring device
-    //   roschin  = Roschin–Godin 1 m single-ring 12-roller converter
-    //   legacy   = previous 8/12/16 toy proportions (regression)
-    this.segLayoutPreset = parseSegLayoutPreset(params, this.prototypePreset);
     this.segLayout = null;
-
-    this.heronLayoutPreset = parseHeronLayoutPreset(params);
-    try {
-      const storedHeron = localStorage.getItem('heron-layout');
-      const heronPresets: string[] = Object.values(HERON_LAYOUT_PRESETS);
-      if (storedHeron && heronPresets.includes(storedHeron)) {
-        this.heronLayoutPreset = storedHeron;
-      }
-    } catch (_) { /* ignore */ }
-    this.heronLayout = getHeronLayout(this.heronLayoutPreset);
 
     this.segFrameLevel = parseSegFrameLevel(params);
     this.segFrameBuffers = null;
@@ -487,8 +335,51 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.frameCageInstanceBuffer = null;
     this.frameLabBenchInstanceBuffer = null;
 
+    this.geometryFactory = new SharedGeometryFactory(this);
+    this.postStack = new PostStack(this);
+    this.gltfProps = new GltfPropRegistry(this);
+    this.materialTable = new MaterialTable(this);
+    this.diagnostics = new VisualizerDiagnostics(this);
+    this.frameLoop = new WebGpuFrameLoop(this);
+
     this.ready = this.init();
   }
+
+  get camera(): CameraController { return this.session.camera; }
+  get cameraController(): MultiDeviceCamera | null { return this.session.cameraController; }
+  set cameraController(v: MultiDeviceCamera | null) { this.session.cameraController = v; }
+  get currentView(): string { return this.session.currentView; }
+  set currentView(v: string) { this.session.currentView = v; }
+  get devicesEnabled(): Record<string, boolean> { return this.session.devicesEnabled; }
+  set devicesEnabled(v: Record<string, boolean>) { this.session.devicesEnabled = v; }
+  get energyNetwork(): EnergyNetwork { return this.session.energyNetwork; }
+  get hardwareBridge(): HardwareBridge { return this.session.hardwareBridge; }
+  set hardwareBridge(v: HardwareBridge) { this.session.hardwareBridge = v; }
+  get hardwareTargetPhase(): number { return this.session.hardwareTargetPhase; }
+  set hardwareTargetPhase(v: number) { this.session.hardwareTargetPhase = v; }
+  get hardwareTargetSpeed(): number { return this.session.hardwareTargetSpeed; }
+  set hardwareTargetSpeed(v: number) { this.session.hardwareTargetSpeed = v; }
+  get hardwareShadow(): { phaseError: number; rpmError: number } { return this.session.hardwareShadow; }
+  set hardwareShadow(v: { phaseError: number; rpmError: number }) { this.session.hardwareShadow = v; }
+  get hardwareTwinTelemetry(): HardwareTwinTelemetry | null { return this.session.hardwareTwinTelemetry; }
+  set hardwareTwinTelemetry(v: HardwareTwinTelemetry | null) { this.session.hardwareTwinTelemetry = v; }
+  get speedMult(): number { return this.session.speedMult; }
+  set speedMult(v: number) { this.session.speedMult = v; }
+  get segOmega(): number { return this.session.segOmega; }
+  set segOmega(v: number) { this.session.segOmega = v; }
+  get corona(): number { return this.session.corona; }
+  set corona(v: number) { this.session.corona = v; }
+  get prototypePreset(): PrototypePreset { return this.session.prototypePreset; }
+  set prototypePreset(v: PrototypePreset) { this.session.prototypePreset = v; }
+  get anomalousEffectsEnabled(): boolean { return this.session.anomalousEffectsEnabled; }
+  set anomalousEffectsEnabled(v: boolean) { this.session.anomalousEffectsEnabled = v; }
+  get simRateController(): SimRateController { return this.session.simRateController; }
+  get segLayoutPreset(): string { return this.session.segLayoutPreset; }
+  set segLayoutPreset(v: string) { this.session.segLayoutPreset = v; }
+  get heronLayoutPreset(): string { return this.session.heronLayoutPreset; }
+  set heronLayoutPreset(v: string) { this.session.heronLayoutPreset = v; }
+  get heronLayout(): HeronLayoutWithMeta | null { return this.session.heronLayout; }
+  set heronLayout(v: HeronLayoutWithMeta | null) { this.session.heronLayout = v; }
 
   /** Settles when WebGPU session init finishes (or rejects on hard-fail). */
   ready: Promise<void>;
@@ -666,11 +557,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       }
       // Also default WebGPU mock path to shadow when auto-connecting
       try {
-        if (new URLSearchParams(location.search).get('mockHardware') === '1') {
-          this.hardwareBridge.connectMock().then(() => {
-            this.hardwareBridge.setTwinMode(TWIN_MODES.SHADOW);
-          });
-        }
+        await this.session.maybeConnectMockHardware();
       } catch (_) { /* ignore */ }
 
       if (typeof window.syncSEGLayoutUI === 'function') {
@@ -768,7 +655,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       return this.segLayout;
     }
 
-    this.segLayoutPreset = presetName;
+    this.session.persistSegLayoutPreset(presetName);
     await this._setupCoreSEGSharedMeshes();
 
     const quality = this.profiler?.qualityLevel ?? 1.0;
@@ -777,12 +664,6 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     if (DEVICE_CONFIG.seg && layout.cameraOffset) {
       DEVICE_CONFIG.seg.cameraOffset = layout.cameraOffset;
     }
-
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('layout', presetName);
-      window.history.replaceState(null, '', url);
-    } catch (_) { /* ignore */ }
 
     if (this.currentView === 'seg' && this.cameraController) {
       this.cameraController.focusOnDevice('seg');
@@ -809,27 +690,12 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       return this.heronLayout;
     }
 
-    this.heronLayoutPreset = presetName;
-    this.heronLayout = getHeronLayout(presetName);
+    this.session.persistHeronLayoutPreset(presetName);
 
     const heron = this.devices.heron;
     if (heron?.geometry?.applyHeronLayout) {
       await heron.geometry.applyHeronLayout(presetName);
     }
-    if (heron?.physicsState) {
-      heron.physicsState.heronLayoutId = presetName;
-      heron.physicsState.heronHeadMax = this.heronLayout!.headMaxM;
-      heron.physicsState.heronHead = Math.min(heron.physicsState.heronHead, this.heronLayout!.headMaxM);
-    }
-
-    try {
-      localStorage.setItem('heron-layout', presetName);
-    } catch (_) { /* ignore */ }
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('heronLayout', presetName);
-      window.history.replaceState(null, '', url);
-    } catch (_) { /* ignore */ }
 
     if (this.currentView === 'heron' && this.cameraController) {
       this.cameraController.focusOnDevice('heron');
@@ -856,7 +722,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     const minH = 0.04;
     const maxH = 0.35;
     const height = minH + (maxH - minH) * clamped;
-    const gaugeData = this.generateCylinder(0.3, height, 16);
+    const gaugeData = generateCylinder(0.3, height, 16);
     writeQueueBuffer(this.device, this.batteryGaugeVertexBuffer, gaugeData.vertices);
     writeQueueBuffer(this.device, this.batteryGaugeIndexBuffer, gaugeData.indices);
     this.batteryGaugeIndexCount = gaugeData.indices.length;
@@ -871,12 +737,11 @@ export class MultiDeviceVisualizer implements VisualizerLike {
    * Overview shows all enabled devices; focused mode shows only the active device.
    */
   isDeviceActive(deviceId: string): boolean {
-    return isDeviceVisible(this.currentView, this.devicesEnabled, deviceId);
+    return this.session.isDeviceActive(deviceId);
   }
 
-  /** True when the multi-device overview (all devices) is active. */
   isOverviewMode(): boolean {
-    return !this.currentView || this.currentView === 'overview';
+    return this.session.isOverviewMode();
   }
 
   async setupDevices(): Promise<void> {
@@ -940,37 +805,21 @@ export class MultiDeviceVisualizer implements VisualizerLike {
    * Focuses the camera on the named device, matching the single-device API.
    */
   onModeChange(mode: string): void {
-    const prev = this.currentView;
-    this.currentView = mode;
-    if (mode === 'overview') {
-      this.cameraController?.showOverview();
-    } else if (this.cameraController) {
-      this.cameraController.focusOnDevice(mode);
-    }
+    const { view } = this.session.setMode(mode);
     document.querySelectorAll('.mode-btn').forEach((btn) => btn.classList.remove('active'));
-    const activeBtn = document.getElementById(`btn-${mode}`);
+    const activeBtn = document.getElementById(`btn-${view}`);
     if (activeBtn) activeBtn.classList.add('active');
 
-    // Re-initialize focused device simulation when entering from another view.
-    if (mode && mode !== 'overview' && mode !== prev) {
-      const device = this.devices[mode];
-      device?.resetForModeEntry?.();
-    }
+    this.ensureGltfPropsForView(view).catch((err: unknown) => {
+      console.warn('[gltf] ensureGltfPropsForView failed', err);
+    });
 
-    // Lazy CAD props: load on SEG focus; dispose focus-only props on leave.
-    if (typeof this.ensureGltfPropsForView === 'function') {
-      this.ensureGltfPropsForView(mode).catch((err: unknown) => {
-        console.warn('[gltf] ensureGltfPropsForView failed', err);
-      });
-    }
-
-    this._updateDeviceTelemetry();
     if (typeof window.syncLayoutPanelsVisibility === 'function') {
       window.syncLayoutPanelsVisibility();
     }
-    if (mode === 'heron' && typeof window.syncHeronLayoutUI === 'function') {
+    if (view === 'heron' && typeof window.syncHeronLayoutUI === 'function') {
       window.syncHeronLayoutUI();
-    } else if (mode === 'seg' && typeof window.syncSEGLayoutUI === 'function') {
+    } else if (view === 'seg' && typeof window.syncSEGLayoutUI === 'function') {
       window.syncSEGLayoutUI();
     }
   }
@@ -981,16 +830,88 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     if (!seg || count === seg.particleCount) return;
     seg.particleCount = count;
   }
-}
 
-Object.assign(
-  MultiDeviceVisualizer.prototype,
-  primitiveMethods,
-  geometrySetupMethods,
-  sceneSetupMethods,
-  renderLoopMethods,
-  hardwareTwinMethods,
-  materialMethods,
-  diagnosticsMethods,
-  gltfSetupMethods
-);
+  generateCylinder(radius: number, height: number, segments: number): PrimitiveMesh {
+    return generateCylinder(radius, height, segments);
+  }
+  generateCylinderWithUVs(radius: number, height: number, segments: number): PrimitiveMesh {
+    return generateCylinderWithUVs(radius, height, segments);
+  }
+  generateDisc(innerRadius: number, outerRadius: number, thickness: number, segments: number): PrimitiveMesh {
+    return generateDisc(innerRadius, outerRadius, thickness, segments);
+  }
+  generateDiscWithUVs(innerRadius: number, outerRadius: number, thickness: number, segments: number): PrimitiveMesh {
+    return generateDiscWithUVs(innerRadius, outerRadius, thickness, segments);
+  }
+  generateBoxWithUVs(width: number, height: number, depth: number): PrimitiveMesh {
+    return generateBoxWithUVs(width, height, depth);
+  }
+
+  setupSharedGeometry(): Promise<void> { return this.geometryFactory.setupSharedGeometry(); }
+  setupDefaultPrimitiveGeometry(deviceId: string, config: { color?: unknown }): Promise<void> {
+    return this.geometryFactory.setupDefaultPrimitiveGeometry(deviceId, config);
+  }
+  _setupCoreSEGSharedMeshes(): Promise<void> { return this.geometryFactory._setupCoreSEGSharedMeshes(); }
+  _setupAlternateDeviceSharedMeshes(): Promise<void> { return this.geometryFactory._setupAlternateDeviceSharedMeshes(); }
+
+  setupFloorGrid(): Promise<void> { return this.postStack.setupFloorGrid(); }
+  setupSkyGradient(): Promise<void> { return this.postStack.setupSkyGradient(); }
+  setupAnomalyWallPipeline(): Promise<void> { return this.postStack.setupAnomalyWallPipeline(); }
+  setupDepthBuffer(): Promise<void> { return this.postStack.setupDepthBuffer(); }
+  setupBloomTextures(): void { this.postStack.setupBloomTextures(); }
+  setupBloomPipeline(): Promise<void> { return this.postStack.setupBloomPipeline(); }
+  setupIblPrefilter(): { levels: number; cached: boolean; ms: number } { return this.postStack.setupIblPrefilter(); }
+  refreshIblPrefilter(): void { this.postStack.refreshIblPrefilter(); }
+  setupSsrTexture(): void { this.postStack.setupSsrTexture(); }
+  setupSsrPipeline(): Promise<void> { return this.postStack.setupSsrPipeline(); }
+  setupDepthResolvePipeline(): Promise<void> { return this.postStack.setupDepthResolvePipeline(); }
+  _waitForCanvasLayout(): Promise<void> { return this.postStack._waitForCanvasLayout(); }
+  _observeCanvasLayout(): void { this.postStack._observeCanvasLayout(); }
+  _syncCanvasSize(): Promise<void> { return this.postStack._syncCanvasSize(); }
+  _rebuildBloomBindGroups(): void { this.postStack._rebuildBloomBindGroups(); }
+  _rebuildSsrBindGroup(): void { this.postStack._rebuildSsrBindGroup(); }
+  _rebuildDepthResolveBindGroup(): void { this.postStack._rebuildDepthResolveBindGroup(); }
+
+  render(timestamp: number): void { this.frameLoop.render(timestamp); }
+  renderAnomalyWalls(
+    renderPass: GPURenderPassEncoder,
+    globalUniformBuffer: GPUBuffer | null,
+    segDevice: DeviceInstance | null | undefined
+  ): void {
+    this.frameLoop.renderAnomalyWalls(renderPass, globalUniformBuffer, segDevice);
+  }
+  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean): void {
+    this.frameLoop._dispatchSsr(encoder, msaaActive);
+  }
+
+  setupMaterialTableBuffer(): void { this.materialTable.setupMaterialTableBuffer(); }
+
+  runSpeedTest(speeds?: number[], durationMs?: number): Promise<void> {
+    return this.diagnostics.runSpeedTest(speeds, durationMs);
+  }
+  captureParticleSubset(deviceId?: string, maxCount?: number): Promise<unknown> {
+    return this.diagnostics.captureParticleSubset(deviceId, maxCount);
+  }
+  captureOverviewCull(): Promise<unknown> {
+    return this.diagnostics.captureOverviewCull();
+  }
+
+  setupGltfAssets(embeddedGlb?: ArrayBuffer, opts?: { propBuffers?: Record<string, ArrayBuffer> }): Promise<void> {
+    return this.gltfProps.setupGltfAssets(embeddedGlb, opts);
+  }
+  ensureGltfPropsForView(view: string): Promise<void> { return this.gltfProps.ensureGltfPropsForView(view); }
+  updateGltfHousingState(): void { this.gltfProps.updateGltfHousingState(); }
+  _loadGltfPropsForSegFocus(): Promise<void> { return this.gltfProps._loadGltfPropsForSegFocus(); }
+  _loadGltfPropsForSegFocusInner(): Promise<void> { return this.gltfProps._loadGltfPropsForSegFocusInner(); }
+  _disposeFocusOnlyGltfProps(): void { this.gltfProps._disposeFocusOnlyGltfProps(); }
+  _uploadGltfProp(
+    prop: Parameters<GltfPropRegistry['_uploadGltfProp']>[0],
+    ctx: Parameters<GltfPropRegistry['_uploadGltfProp']>[1]
+  ): Promise<void> {
+    return this.gltfProps._uploadGltfProp(prop, ctx);
+  }
+
+  _updateHardwareTwin(deltaTime: number): void { this.session.syncHardwareTwin(deltaTime); }
+  _updateTachometer(): void { this.session.updateTachometer(); }
+  _updateDeviceTelemetry(): void { this.session.publishModeTelemetry(); }
+}

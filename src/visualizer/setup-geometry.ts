@@ -16,6 +16,13 @@ import {
   generateSupportStand,
   generateWireHarness
 } from '../seg-enhanced-geometry.js';
+import {
+  generateBoxWithUVs,
+  generateCylinder,
+  generateCylinderWithUVs,
+  generateDisc,
+  generateDiscWithUVs
+} from './primitives.js';
 import { buildRollerCutouts } from '../seg-layout';
 import { createDetailedRollerBuffers, ROLLER_DEFAULTS } from '../seg-roller-model.js';
 import {
@@ -24,6 +31,7 @@ import {
   computeFrameDimensions
 } from '../seg-frame-model.js';
 import { writeQueueBuffer } from '../gpu-buffer-write';
+import { bindHostMethods } from './bind-host-methods.js';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 
 type Host = MultiDeviceVisualizer;
@@ -59,7 +67,7 @@ export const geometrySetupMethods: ThisType<Host> & {
 
   async _setupAlternateDeviceSharedMeshes() {
     if (!this.profiler) return;
-    const cylData = this.generateCylinder(0.8, 2.5, 64);
+    const cylData = generateCylinder(0.8, 2.5, 64);
     const cylVB = this.device.createBuffer({
       size: cylData.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
@@ -74,7 +82,7 @@ export const geometrySetupMethods: ThisType<Host> & {
     this.profiler.trackBuffer('shared-cylinder-vertices', cylData.vertices.byteLength, GPUBufferUsage.VERTEX);
     this.profiler.trackBuffer('shared-cylinder-indices', cylData.indices.byteLength, GPUBufferUsage.INDEX);
 
-    const tubeData = this.generateCylinder(TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT, 12);
+    const tubeData = generateCylinder(TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT, 12);
     const tubeVB = this.device.createBuffer({
       size: tubeData.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
@@ -102,7 +110,7 @@ export const geometrySetupMethods: ThisType<Host> & {
     this.kelvinRingBuffer = { vertexBuffer: torusVB, indexBuffer: torusIB, indexCount: torusData.indices.length };
     this.profiler.trackBuffer('kelvin-ring-vertices', torusData.vertices.byteLength, GPUBufferUsage.VERTEX);
 
-    const panelData = this.generateDisc(0.05, 5.5, 0.06, 64);
+    const panelData = generateDisc(0.05, 5.5, 0.06, 64);
     const panelVB = this.device.createBuffer({
       size: panelData.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
@@ -121,7 +129,7 @@ export const geometrySetupMethods: ThisType<Host> & {
     if (!this.deviceGeometryBuffers || !this.profiler) return;
     if (this.deviceGeometryBuffers[deviceId]) return;
 
-    const data = this.generateCylinder(0.05, 0.05, 8);
+    const data = generateCylinder(0.05, 0.05, 8);
     const vertexBuffer = this.device.createBuffer({
       size: data.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
@@ -166,7 +174,7 @@ export const geometrySetupMethods: ThisType<Host> & {
     }
 
     // UV cylinder shared by pickup/electromagnet coils
-    const coilCylData = this.generateCylinderWithUVs(0.8, 2.5, 64);
+    const coilCylData = generateCylinderWithUVs(0.8, 2.5, 64);
     const coilCylVB = this.device.createBuffer({ size: coilCylData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     writeQueueBuffer(this.device, coilCylVB, coilCylData.vertices);
     const coilCylIB = this.device.createBuffer({ size: coilCylData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -176,7 +184,7 @@ export const geometrySetupMethods: ThisType<Host> & {
     this.profiler.trackBuffer('seg-coil-uv-indices', coilCylData.indices.byteLength, GPUBufferUsage.INDEX);
 
     // Industrial base box (UV mesh for enhanced PBR pipeline)
-    const baseBoxData = this.generateBoxWithUVs(basePlateSize, statorH * 0.45, basePlateSize);
+    const baseBoxData = generateBoxWithUVs(basePlateSize, statorH * 0.45, basePlateSize);
     const baseBoxVB = this.device.createBuffer({ size: baseBoxData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     writeQueueBuffer(this.device, baseBoxVB, baseBoxData.vertices);
     const baseBoxIB = this.device.createBuffer({ size: baseBoxData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -220,7 +228,7 @@ export const geometrySetupMethods: ThisType<Host> & {
     this.profiler.trackBuffer('core-shaft-vertices', this.coreShaftBuffer.vertexBuffer.size, GPUBufferUsage.VERTEX);
 
     // Magnetic core (simple cylinder with UVs for enhanced pipeline)
-    const magnetData = this.generateCylinderWithUVs(0.8, 2.5, 64);
+    const magnetData = generateCylinderWithUVs(0.8, 2.5, 64);
     const magnetVB = this.device.createBuffer({ size: magnetData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     writeQueueBuffer(this.device, magnetVB, magnetData.vertices);
     const magnetIB = this.device.createBuffer({ size: magnetData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -244,7 +252,7 @@ export const geometrySetupMethods: ThisType<Host> & {
     this.profiler.trackBuffer('seg-core-plate-indices', plateData.indexBuffer.size, GPUBufferUsage.INDEX);
 
     // Bolt geometry (small cylinder with UVs)
-    const boltData = this.generateCylinderWithUVs(0.08, 0.15, 8);
+    const boltData = generateCylinderWithUVs(0.08, 0.15, 8);
     const boltVB = this.device.createBuffer({ size: boltData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     writeQueueBuffer(this.device, boltVB, boltData.vertices);
     const boltIB = this.device.createBuffer({ size: boltData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -277,7 +285,7 @@ export const geometrySetupMethods: ThisType<Host> & {
     this.profiler.trackBuffer('core-bolt-instances', boltInstanceData.length * 4, GPUBufferUsage.STORAGE);
 
     // Connection rings (thin UV cylinders, instanced at y = +/-2.0)
-    const ringData = this.generateCylinderWithUVs(0.15, 0.3, 48);
+    const ringData = generateCylinderWithUVs(0.15, 0.3, 48);
     const ringVB = this.device.createBuffer({ size: ringData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     writeQueueBuffer(this.device, ringVB, ringData.vertices);
     const ringIB = this.device.createBuffer({ size: ringData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -316,7 +324,7 @@ export const geometrySetupMethods: ThisType<Host> & {
     });
 
     // Battery gauge (simple cylinder)
-    const gaugeData = this.generateCylinder(0.3, 0.1, 16);
+    const gaugeData = generateCylinder(0.3, 0.1, 16);
     const gaugeVB = this.device.createBuffer({ size: gaugeData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     writeQueueBuffer(this.device, gaugeVB, gaugeData.vertices);
     const gaugeIB = this.device.createBuffer({ size: gaugeData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -390,7 +398,7 @@ export const geometrySetupMethods: ThisType<Host> & {
     const ringVCount = layout.rings.map((ring) => {
       const inner = ring.statorInnerM * ws;
       const outer = ring.statorOuterM * ws;
-      const d = this.generateDiscWithUVs(inner, outer, statorH, ringSegs);
+      const d = generateDiscWithUVs(inner, outer, statorH, ringSegs);
       return { data: d, vertexCount: d.vertices.length / 8 };
     });
 
@@ -448,7 +456,7 @@ export const geometrySetupMethods: ThisType<Host> & {
     this.profiler.trackBuffer('seg-stator-ring-instance', 48, GPUBufferUsage.STORAGE);
 
     // Wiring cylinder with UVs (for enhanced PBR pipeline)
-    const wireCylData = this.generateCylinderWithUVs(0.15, 2.0, 16);
+    const wireCylData = generateCylinderWithUVs(0.15, 2.0, 16);
     const wireCylVB = this.device.createBuffer({ size: wireCylData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     writeQueueBuffer(this.device, wireCylVB, wireCylData.vertices);
     const wireCylIB = this.device.createBuffer({ size: wireCylData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -456,3 +464,20 @@ export const geometrySetupMethods: ThisType<Host> & {
     this.wiringUVBuffer = { vertexBuffer: wireCylVB, indexBuffer: wireCylIB, indexCount: wireCylData.indices.length };
   }
 };
+
+/** Named GPU collaborator — shared mesh uploads (no prototype mixin). */
+export class SharedGeometryFactory {
+  setupSharedGeometry: typeof geometrySetupMethods.setupSharedGeometry;
+  setupDefaultPrimitiveGeometry: typeof geometrySetupMethods.setupDefaultPrimitiveGeometry;
+  _setupCoreSEGSharedMeshes: typeof geometrySetupMethods._setupCoreSEGSharedMeshes;
+  _setupAlternateDeviceSharedMeshes: typeof geometrySetupMethods._setupAlternateDeviceSharedMeshes;
+
+  constructor(host: MultiDeviceVisualizer) {
+    const bound = bindHostMethods(geometrySetupMethods, host);
+    this.setupSharedGeometry = bound.setupSharedGeometry;
+    this.setupDefaultPrimitiveGeometry = bound.setupDefaultPrimitiveGeometry;
+    this._setupCoreSEGSharedMeshes = bound._setupCoreSEGSharedMeshes;
+    this._setupAlternateDeviceSharedMeshes = bound._setupAlternateDeviceSharedMeshes;
+  }
+}
+

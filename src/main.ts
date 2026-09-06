@@ -10,6 +10,7 @@ import './devices/register-plugins.js';
 import { assertParticleLayouts } from '../generated/physics-constants.js';
 import { SEGSim } from './wasm/sim';
 import { MultiDeviceVisualizer } from './multi-device-visualizer.js';
+import { LabSession } from './session/lab-session';
 import {
   resolveRenderer,
   exposeRenderer,
@@ -338,6 +339,7 @@ async function bootstrapVisualizer(): Promise<void> {
   const renderer = resolveRenderer();
   const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement | null;
   console.log(`[main] Selected renderer: ${renderer}`);
+  const session = new LabSession();
 
   // Explicit opt-in only — not an automatic rescue when WebGPU fails.
   if (renderer === RENDERER_WEBGL2) {
@@ -346,7 +348,7 @@ async function bootstrapVisualizer(): Promise<void> {
       'this path is agent/CI opt-in only.'
     );
     try {
-      window.multiVisualizer = new WebGL2MultiDeviceVisualizer();
+      window.multiVisualizer = new WebGL2MultiDeviceVisualizer(session);
       exposeRenderer(canvas, RENDERER_WEBGL2);
       return;
     } catch (e) {
@@ -381,7 +383,7 @@ async function bootstrapVisualizer(): Promise<void> {
   }
 
   try {
-    const vis = new MultiDeviceVisualizer();
+    const vis = new MultiDeviceVisualizer(session);
     window.multiVisualizer = vis;
     await (vis as MultiDeviceVisualizer & { ready?: Promise<void> }).ready;
     if (window.webgpuProbe && !window.webgpuProbe.ok) {

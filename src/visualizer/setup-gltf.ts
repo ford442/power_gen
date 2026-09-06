@@ -22,6 +22,7 @@ import { attachGltfHousingPickHandler } from '../assets/gltf/gltf-housing-pick';
 import { computeFrameDimensions } from '../seg-frame-model.js';
 import type { SceneAnchor, SceneMaterial } from '../assets/scene/scene-node.js';
 import type { MultiDeviceVisualizer, GltfPickable } from '../multi-device-visualizer.js';
+import { bindHostMethods } from './bind-host-methods.js';
 
 type Host = MultiDeviceVisualizer;
 
@@ -347,3 +348,26 @@ export const gltfSetupMethods: ThisType<Host> & {
     }
   }
 };
+
+/** Lazy SEG CAD prop registry (WebGPU). */
+export class GltfPropRegistry {
+  setupGltfAssets: typeof gltfSetupMethods.setupGltfAssets;
+  ensureGltfPropsForView: typeof gltfSetupMethods.ensureGltfPropsForView;
+  _loadGltfPropsForSegFocus: typeof gltfSetupMethods._loadGltfPropsForSegFocus;
+  _loadGltfPropsForSegFocusInner: typeof gltfSetupMethods._loadGltfPropsForSegFocusInner;
+  _uploadGltfProp: typeof gltfSetupMethods._uploadGltfProp;
+  _disposeFocusOnlyGltfProps: typeof gltfSetupMethods._disposeFocusOnlyGltfProps;
+  updateGltfHousingState: typeof gltfSetupMethods.updateGltfHousingState;
+
+  constructor(host: MultiDeviceVisualizer) {
+    const bound = bindHostMethods(gltfSetupMethods, host);
+    this.setupGltfAssets = bound.setupGltfAssets;
+    this.ensureGltfPropsForView = bound.ensureGltfPropsForView;
+    this._loadGltfPropsForSegFocus = bound._loadGltfPropsForSegFocus;
+    this._loadGltfPropsForSegFocusInner = bound._loadGltfPropsForSegFocusInner;
+    this._uploadGltfProp = bound._uploadGltfProp;
+    this._disposeFocusOnlyGltfProps = bound._disposeFocusOnlyGltfProps;
+    this.updateGltfHousingState = bound.updateGltfHousingState;
+  }
+}
+

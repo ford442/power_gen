@@ -1,21 +1,11 @@
 // CPU primitive mesh builders (pos+normal or pos+normal+uv).
-import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 
-type Host = MultiDeviceVisualizer;
-
-type PrimitiveMesh = {
+export type PrimitiveMesh = {
   vertices: Float32Array;
   indices: Uint16Array;
 };
 
-export const primitiveMethods: ThisType<Host> & {
-  generateCylinder(radius: number, height: number, segments: number): PrimitiveMesh;
-  generateDisc(innerRadius: number, outerRadius: number, thickness: number, segments: number): PrimitiveMesh;
-  generateCylinderWithUVs(radius: number, height: number, segments: number): PrimitiveMesh;
-  generateDiscWithUVs(innerRadius: number, outerRadius: number, thickness: number, segments: number): PrimitiveMesh;
-  generateBoxWithUVs(width: number, height: number, depth: number): PrimitiveMesh;
-} = {
-  generateCylinder(radius: number, height: number, segments: number) {
+export function generateCylinder(radius: number, height: number, segments: number): PrimitiveMesh {
     const vertices: number[] = [], indices: number[] = [], normals: number[] = [];
 
     for (let i = 0; i <= segments; i++) {
@@ -56,9 +46,9 @@ export const primitiveMethods: ThisType<Host> & {
     }
 
     return { vertices: vertexData, indices: new Uint16Array(indices) };
-  },
+  }
 
-  generateDisc(innerRadius: number, outerRadius: number, thickness: number, segments: number) {
+export function generateDisc(innerRadius: number, outerRadius: number, thickness: number, segments: number): PrimitiveMesh {
     const vertices: number[] = [], indices: number[] = [], normals: number[] = [];
     const h2 = thickness / 2;
 
@@ -114,9 +104,9 @@ export const primitiveMethods: ThisType<Host> & {
       vertexData[i * 6 + 5] = normals[i * 3 + 2];
     }
     return { vertices: vertexData, indices: new Uint16Array(indices) };
-  },
+  }
 
-  generateCylinderWithUVs(radius: number, height: number, segments: number) {
+export function generateCylinderWithUVs(radius: number, height: number, segments: number): PrimitiveMesh {
     const vertices: number[] = [], indices: number[] = [], normals: number[] = [], uvs: number[] = [];
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2;
@@ -161,9 +151,9 @@ export const primitiveMethods: ThisType<Host> & {
       vertexData[i * 8 + 7] = uvs[i * 2 + 1];
     }
     return { vertices: vertexData, indices: new Uint16Array(indices) };
-  },
+  }
 
-  generateDiscWithUVs(innerRadius: number, outerRadius: number, thickness: number, segments: number) {
+export function generateDiscWithUVs(innerRadius: number, outerRadius: number, thickness: number, segments: number): PrimitiveMesh {
     const vertices: number[] = [], indices: number[] = [], normals: number[] = [], uvs: number[] = [];
     const h2 = thickness / 2;
 
@@ -226,9 +216,9 @@ export const primitiveMethods: ThisType<Host> & {
       vertexData[i * 8 + 7] = uvs[i * 2 + 1];
     }
     return { vertices: vertexData, indices: new Uint16Array(indices) };
-  },
+  }
 
-  generateBoxWithUVs(width: number, height: number, depth: number) {
+export function generateBoxWithUVs(width: number, height: number, depth: number): PrimitiveMesh {
     const w = width / 2;
     const h = height / 2;
     const d = depth / 2;
@@ -274,4 +264,4 @@ export const primitiveMethods: ThisType<Host> & {
     ]);
     return { vertices, indices };
   }
-};
+
