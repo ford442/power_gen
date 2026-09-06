@@ -62,6 +62,12 @@ function emitH(data) {
   const pl = data.particleLayouts;
   const w = data.wasmSegDefaults;
   const en = data.energyNetwork;
+  const k = data.kelvin;
+  const vdg = data.vdg;
+  const hall = data.hall;
+  const tf = data.transformer;
+  const hs = hall.carrierProfiles.semiconductor;
+  const hm = hall.carrierProfiles.metal;
   const tau = p.PI * 2;
   const magnetization = m.Br / p.MU_0;
 
@@ -98,6 +104,46 @@ struct WasmSegDefaults {
   static constexpr int MAX_PARTICLES = ${w.maxParticles};
 };
 
+struct KelvinConstants {
+  static constexpr float E_BREAKDOWN_VM = ${f32(k.eBreakdownVm)};
+};
+
+struct VdgConstants {
+  static constexpr float SPHERE_RADIUS_M     = ${f32(vdg.sphereRadiusM)};
+  static constexpr float COLUMN_HEIGHT_M     = ${f32(vdg.columnHeightM)};
+  static constexpr float GAP_M               = ${f32(vdg.gapM)};
+  static constexpr float BELT_MAX_MPS        = ${f32(vdg.beltMaxMps)};
+  static constexpr float BELT_MAX_CURRENT_A  = ${f32(vdg.beltMaxCurrentA)};
+  static constexpr float LEAKAGE_R_OHM       = ${f32(vdg.leakageROhm)};
+  static constexpr float SPARK_DISCHARGE_FRAC = ${f32(vdg.sparkDischargeFrac)};
+  static constexpr float SPARK_DUR_S         = ${f32(vdg.sparkDurS)};
+  static constexpr float SPARK_RATE_WINDOW_S = ${f32(vdg.sparkRateWindowS)};
+};
+
+struct HallConstants {
+  static constexpr float I_MAX_A        = ${f32(hall.iMaxA)};
+  static constexpr float B_MAX_T        = ${f32(hall.bMaxT)};
+  static constexpr float SMOOTHING_TAU  = ${f32(hall.smoothingTau)};
+  static constexpr float N_SEMICONDUCTOR = ${f32(hs.n)};
+  static constexpr float T_SEMICONDUCTOR_M = ${f32(hs.tM)};
+  static constexpr float N_METAL        = ${f32(hm.n)};
+  static constexpr float T_METAL_M      = ${f32(hm.tM)};
+};
+
+struct TransformerConstants {
+  static constexpr float F_HZ      = ${f32(tf.fHz)};
+  static constexpr float NP        = ${f32(tf.np)};
+  static constexpr float NS        = ${f32(tf.ns)};
+  static constexpr float L1_H      = ${f32(tf.lpH)};
+  static constexpr float L2_H      = ${f32(tf.lsH)};
+  static constexpr float K_IDEAL   = ${f32(tf.kIdeal)};
+  static constexpr float K_LEAKAGE = ${f32(tf.kLeakage)};
+  static constexpr float R1_OHM    = ${f32(tf.rpOhm)};
+  static constexpr float R2_OHM    = ${f32(tf.rsOhm)};
+  static constexpr float R_LOAD_OHM = ${f32(tf.rLoadOhm)};
+  static constexpr float V_PEAK    = ${f32(tf.vPrimaryPeak)};
+};
+
 /** Simulated nameplate watts per SimMode (order-of-magnitude — not metrology). */
 struct EnergyNetworkNameplates {
   static constexpr int MODE_COUNT = 12;
@@ -121,6 +167,7 @@ namespace PhysicsConstants {
   static constexpr float TAU        = power_gen::PhysicalConstants::TAU;
   static constexpr float Br_DEFAULT = power_gen::PhysicalConstants::Br_DEFAULT;
   static constexpr float MU_R       = power_gen::PhysicalConstants::MU_R;
+  static constexpr float E_CHARGE   = power_gen::PhysicalConstants::E_CHARGE;
 }
 `;
 }
@@ -184,6 +231,11 @@ function emitTs(data) {
   const scene = data.sceneScaling;
   const en = data.energyNetwork;
   const np = en.deviceNameplateWatts;
+  const vdg = data.vdg;
+  const hall = data.hall;
+  const tf = data.transformer;
+  const hs = hall.carrierProfiles.semiconductor;
+  const hm = hall.carrierProfiles.metal;
 
   return `${HEADER_TS}
 export const PHYSICAL_CONSTANTS = {
@@ -266,6 +318,45 @@ export const WASM_SEG_DEFAULTS = {
 } as const;
 
 /** Simulated nameplate watts — order-of-magnitude lab bus estimates, not metrology. */
+export const VDG = {
+  sphereRadiusM: ${vdg.sphereRadiusM},
+  columnHeightM: ${vdg.columnHeightM},
+  gapM: ${vdg.gapM},
+  beltMaxMps: ${vdg.beltMaxMps},
+  beltMaxCurrentA: ${vdg.beltMaxCurrentA},
+  leakageROhm: ${vdg.leakageROhm},
+  sparkDischargeFrac: ${vdg.sparkDischargeFrac},
+  sparkDurS: ${vdg.sparkDurS},
+  sparkRateWindowS: ${vdg.sparkRateWindowS},
+} as const;
+
+export const HALL = {
+  stripLengthM: ${hall.stripLengthM},
+  stripWidthM: ${hall.stripWidthM},
+  iMaxA: ${hall.iMaxA},
+  bMaxT: ${hall.bMaxT},
+  smoothingTau: ${hall.smoothingTau},
+} as const;
+
+export const HALL_CARRIER_PROFILES = {
+  semiconductor: { n: ${hs.n}, tM: ${hs.tM} },
+  metal: { n: ${hm.n}, tM: ${hm.tM} },
+} as const;
+
+export const TRANSFORMER = {
+  fHz: ${tf.fHz},
+  np: ${tf.np},
+  ns: ${tf.ns},
+  lpH: ${tf.lpH},
+  lsH: ${tf.lsH},
+  kIdeal: ${tf.kIdeal},
+  kLeakage: ${tf.kLeakage},
+  rpOhm: ${tf.rpOhm},
+  rsOhm: ${tf.rsOhm},
+  rLoadOhm: ${tf.rLoadOhm},
+  vPrimaryPeak: ${tf.vPrimaryPeak},
+} as const;
+
 export const ENERGY_NETWORK_NAMEPLATES = {
   simulatedOrderOfMagnitude: ${en.simulatedOrderOfMagnitude},
   deviceNameplateWatts: {

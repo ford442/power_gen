@@ -5,8 +5,12 @@
 export {
   parseGltfHousingEnabled,
   parseGltfCoilFormerEnabled,
+  parseGltfStandEnabled,
+  parseGltfBasePlateEnabled,
   SEG_HOUSING_GLB_URL,
   SEG_COIL_FORMER_GLB_URL,
+  SEG_STAND_GLB_URL,
+  SEG_BASE_PLATE_GLB_URL,
   SEG_GLTF_PROPS,
   getPropDef,
   resolvePropMaterial

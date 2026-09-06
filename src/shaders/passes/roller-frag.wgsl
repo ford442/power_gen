@@ -299,9 +299,6 @@ struct Uniforms {
           color += vec3f(0.15, 0.68, 1.0) * flowLine * pow(energy, 1.45) * 0.95;
         }
 
-        // ACES tonemapping
-        color = color * (2.51 * color + 0.03) / (color * (2.43 * color + 0.59) + 0.14);
-
         var out: FragOut;
         out.color = vec4f(color, 1.0);
         out.material = vec2f(metallic, roughness);

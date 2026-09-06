@@ -45,6 +45,44 @@
     "smoothingLengthM": 0.012,
     "atmosphericPressurePa": 101325
   },
+  "vdg": {
+    "comment": "Classroom Van de Graaff lumped ODE — not an HV engineering design. C = 4πε₀r; V_break = kelvin.eBreakdownVm × gapM.",
+    "sphereRadiusM": 0.14,
+    "columnHeightM": 1.05,
+    "gapM": 0.05,
+    "beltMaxMps": 6,
+    "beltMaxCurrentA": 2.2e-6,
+    "leakageROhm": 5.0e13,
+    "sparkDischargeFrac": 0.05,
+    "sparkDurS": 0.15,
+    "sparkRateWindowS": 1.0
+  },
+  "hall": {
+    "comment": "Classroom Hall bench: V_H = I·B/(n·e·t). Carrier profiles toggle semiconductor vs metal.",
+    "stripLengthM": 0.5,
+    "stripWidthM": 0.08,
+    "iMaxA": 1.2,
+    "bMaxT": 0.65,
+    "smoothingTau": 0.25,
+    "carrierProfiles": {
+      "semiconductor": { "n": 1.0e21, "tM": 5.0e-4 },
+      "metal": { "n": 8.5e28, "tM": 1.0e-4 }
+    }
+  },
+  "transformer": {
+    "comment": "Classroom coupled-inductor L–M ODE / JS phasor fallback. Not FEM.",
+    "fHz": 60,
+    "np": 120,
+    "ns": 40,
+    "lpH": 0.85,
+    "lsH": 0.095,
+    "kIdeal": 0.97,
+    "kLeakage": 0.72,
+    "rpOhm": 1.8,
+    "rsOhm": 0.45,
+    "rLoadOhm": 12,
+    "vPrimaryPeak": 28
+  },
   "ledSolar": {
     "wallPlugEfficiency": 0.30,
     "siEfficiency": 0.22,

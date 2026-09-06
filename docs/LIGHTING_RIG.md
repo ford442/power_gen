@@ -60,7 +60,7 @@ Scene renders to an HDR-ish offscreen target (`bloomSceneTexture`). Passes:
 0. **SSR** (compute, high/ultra tier only) — `passes/ssr-compute.wgsl`
 1. **Extract** — luminance threshold with **corona boost** (green/cyan plasma weighted higher than bare metal specular)
 2. **Blur H / V** — 5-tap Gaussian
-3. **Composite** — scene + SSR + wide bloom + **filmic tonemap** + vignette + film grain
+3. **Composite** — scene + SSR + wide bloom + **filmic tonemap** (SDR) or **linear HDR** (`?hdr=1` + HDR display) + vignette + film grain
 
 Composite also applies:
 
@@ -74,9 +74,10 @@ Mesh shaders output **linear HDR** (no per-object tonemap); tonemapping happens 
 
 ### Filmic tonemap + exposure
 
-- Curve: ACES fitted (Narkowicz) with a soft shoulder (`filmicTonemap` in `generators/bloom-shaders.js`) to reduce hard clip on SEG metals / corona.
+- Curve: ACES fitted (Narkowicz) with a soft shoulder (`filmicTonemap` in `bloom-composite.wgsl`) to reduce hard clip on SEG metals / corona.
 - **Exposure** comes from the active lighting preset (`studio` / `lab` / `drama` → `post.exposure`) via `packPostUniforms()`, overridable by the debug **Exposure** slider (`postExposure`).
 - Applied **before** the filmic curve: `combined *= exposure`.
+- **HDR canvas:** when `toneMapping.mode` is `extended` (`?hdr=1` and `(dynamic-range: high)`), `BloomParams.outputLinearHdr` is 1 and composite **skips** ACES / clamp-to-1 so the browser compositor is not double-tonemapped. Default SDR / CI screenshots stay on `standard` + ACES.
 
 ### Quality gates (auto-quality ↔ post cost)
 
@@ -129,7 +130,8 @@ See prior sections in this doc — 48 floats CPU / WGSL `LightData` × 4 + ambie
 | 14 | contactShadow |
 | 15 | skyMode |
 | 16 | ssrStrength |
-| 17–19 | padding (16-byte alignment) |
+| 17 | outputLinearHdr (1 = linear HDR for canvas `extended`) |
+| 18–19 | padding (16-byte alignment) |
 
 Packed by `packPostUniforms()` in `seg-lighting-presets.ts`. The struct is
 duplicated in three generator templates plus `bloom-composite.wgsl`;

@@ -37,24 +37,15 @@ import { writeMeshCylinders } from '../update-helpers';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
+import {
+  HALL,
+  HALL_CARRIER_PROFILES,
+  PHYSICAL_CONSTANTS
+} from '../../../generated/physics-constants';
 
-/** CODATA elementary charge (C) — no shared constant exported for this yet. */
-const ELEMENTARY_CHARGE = 1.602176634e-19;
+export { HALL, HALL_CARRIER_PROFILES };
 
-/** Carrier density (m⁻³) and strip thickness (m) per classroom sample type. */
-const HALL_CARRIER_PROFILES = Object.freeze({
-  semiconductor: { n: 1.0e21, tM: 5.0e-4 },
-  metal: { n: 8.5e28, tM: 1.0e-4 }
-});
-
-/** Classroom-scale Hall bench parameters. */
-export const HALL = Object.freeze({
-  stripLengthM: 0.5,
-  stripWidthM: 0.08,
-  iMaxA: 1.2,
-  bMaxT: 0.65,
-  smoothingTau: 0.25 // seconds, for I/B tracking the drive control
-});
+const ELEMENTARY_CHARGE = PHYSICAL_CONSTANTS.E_CHARGE;
 
 /** V_H = I·B / (n·e·t). */
 export function hallVoltage(currentA: number, fieldT: number, carrier: keyof typeof HALL_CARRIER_PROFILES): number {

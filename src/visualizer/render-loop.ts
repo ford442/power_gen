@@ -661,7 +661,8 @@ export const renderLoopMethods: ThisType<Host> & {
             speedMult: this.simRateController.speedMult,
             motionBlur,
             qualityGates: postGates,
-            ssrEnabled: this._ssrActive
+            ssrEnabled: this._ssrActive,
+            outputLinearHdr: this.webgpu?.toneMappingMode === 'extended'
           })
         );
       }

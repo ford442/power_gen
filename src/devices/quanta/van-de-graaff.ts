@@ -25,32 +25,21 @@ import {
   MATERIAL_QUANTA_BRUSH
 } from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
-import { ValidatedConstants } from '../../ValidatedConstants';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
+import {
+  VDG,
+  PHYSICAL_CONSTANTS,
+  KELVIN_CONSTANTS
+} from '../../../generated/physics-constants';
 
-const EPSILON_0 = ValidatedConstants.EPSILON_0?.value ?? 8.8541878128e-12;
-/** Dry-air dielectric breakdown field, classroom rule of thumb (matches kelvin_plant.cpp). */
-const E_AIR_BREAKDOWN = 3.0e6; // V/m
-
-/** Classroom-scale Van de Graaff parameters. */
-export const VDG = Object.freeze({
-  sphereRadiusM: 0.14,
-  columnHeightM: 1.05,
-  gapM: 0.05, // spark-gap distance to the discharge electrode
-  beltMaxMps: 6, // belt surface speed at drive = 1
-  beltMaxCurrentA: 2.2e-6, // charge transfer current at full belt speed
-  leakageROhm: 5.0e13, // air/corona leakage resistance (large — spark-limited, not leakage-limited)
-  sparkDischargeFrac: 0.05, // fraction of charge remaining right after a spark
-  sparkDurS: 0.15,
-  sparkRateWindowS: 1.0
-});
+export { VDG };
 
 /** Isolated-sphere capacitance C = 4πε₀r. */
-export const VDG_CAPACITANCE_F = 4 * Math.PI * EPSILON_0 * VDG.sphereRadiusM;
-/** Breakdown voltage for the configured spark-gap distance. */
-export const VDG_V_BREAK = E_AIR_BREAKDOWN * VDG.gapM;
+export const VDG_CAPACITANCE_F = 4 * Math.PI * PHYSICAL_CONSTANTS.EPSILON_0 * VDG.sphereRadiusM;
+/** Breakdown voltage for the configured spark-gap distance (same E as Kelvin). */
+export const VDG_V_BREAK = KELVIN_CONSTANTS.E_BREAKDOWN_VM * VDG.gapM;
 
 function yawQuat(angleRad: number): number[] {
   const half = angleRad * 0.5;

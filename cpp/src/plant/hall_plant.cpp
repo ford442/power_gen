@@ -10,17 +10,6 @@
 
 using namespace plant_common;
 
-namespace {
-// CODATA elementary charge (C).
-constexpr float ELEMENTARY_CHARGE = 1.602176634e-19f;
-// Carrier density (m^-3) / strip thickness (m) per classroom sample —
-// mirrors HALL_CARRIER_PROFILES in devices/quanta/hall-effect.ts.
-constexpr float N_SEMICONDUCTOR = 1.0e21f;
-constexpr float T_SEMICONDUCTOR_M = 5.0e-4f;
-constexpr float N_METAL = 8.5e28f;
-constexpr float T_METAL_M = 1.0e-4f;
-}
-
 void SEGSimulator::setHallCarrierMetal(bool metal) {
     _hall.carrierMetal = metal;
 }
@@ -37,8 +26,13 @@ void SEGSimulator::_stepHall(float dt) {
     h.current += (iTarget - h.current) * alpha;
     h.fieldT  += (bTarget - h.fieldT) * alpha;
 
-    const float n = h.carrierMetal ? N_METAL : N_SEMICONDUCTOR;
-    const float t = h.carrierMetal ? T_METAL_M : T_SEMICONDUCTOR_M;
-    h.voltage = (h.current * h.fieldT) / (n * ELEMENTARY_CHARGE * t);
-    h.coeff = 1.f / (n * ELEMENTARY_CHARGE);
+    const float n = h.carrierMetal
+        ? power_gen::HallConstants::N_METAL
+        : power_gen::HallConstants::N_SEMICONDUCTOR;
+    const float t = h.carrierMetal
+        ? power_gen::HallConstants::T_METAL_M
+        : power_gen::HallConstants::T_SEMICONDUCTOR_M;
+    const float e = PhysicsConstants::E_CHARGE;
+    h.voltage = (h.current * h.fieldT) / (n * e * t);
+    h.coeff = 1.f / (n * e);
 }

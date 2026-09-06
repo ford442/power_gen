@@ -1,7 +1,16 @@
 # cpp/build/
 
-This directory is created by the Emscripten build system and tracked so that
-`make wasm` can run without manual setup.
+Native CMake configure (`cmake -S cpp -B cpp/build`) and `make native` write
+here: `sim_core_test`, CMake cache, and `compile_commands.json` for clangd.
 
-The `.wasm` and `.js` artefacts are output to `../src/public/wasm/` (not here),
-where Vite / GitHub Pages can serve them directly.
+That JSON is **gitignored**. From the repo root:
+
+```bash
+cmake -S cpp -B cpp/build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+ln -sfn cpp/build/compile_commands.json compile_commands.json
+```
+
+`.clangd` at the repo root points `CompilationDatabase` at this directory.
+
+WASM `.js` / `.wasm` artefacts are written to `../src/public/wasm/`, not here.
+CI smoke remains `make native` / `npm run wasm:native` (not this CMake build).

@@ -237,14 +237,16 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `wasm` | `1` | off | Alias of `wasmPhysics=1` |
 | `gpuTiming` | `1` | off | Request `timestamp-query` feature; enable queries in debug panel after reload |
 | `p3` | `1` | off | WebGPU canvas `colorSpace: 'display-p3'` (default `srgb` for CI screenshots) |
-| `hdr` | `1` | off | Canvas `toneMapping.mode: 'extended'` **only if** the display reports `(dynamic-range: high)`; can double-tonemap vs bloom ACES |
+| `hdr` | `1` | off | Canvas `toneMapping.mode: 'extended'` **only if** the display reports `(dynamic-range: high)`; bloom composite then outputs linear HDR (`outputLinearHdr`) instead of ACES |
 | `capture` | `1` | off | WebGL2 `preserveDrawingBuffer: true` (also on when `navigator.webdriver`) |
 | `layout` | `searl` \| `roschin` \| `legacy` | preset default | SEG layout pack |
 | `heronLayout` | preset id | stored / default | Heron vessel layout |
 | `prototype` | `lab` \| `showroom` \| `searl` \| `roschin` \| `godin` | showroom-ish | SEG roller prototype look / lab effects |
 | `frame` | `full` \| `minimal` \| `off` | `full` | SEG structural frame complexity |
-| `gltfHousing` | `1` \| `0` | `1` (WebGPU) | Load glTF CAD props (housing + coil former) in SEG focus — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
-| `gltfCoilFormer` | `1` \| `0` | follows housing | Coil former GLB; `0` skips second CAD prop |
+| `gltfHousing` | `1` \| `0` | `1` (WebGPU) | Load glTF CAD props in SEG focus — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
+| `gltfCoilFormer` | `1` \| `0` | follows housing | Coil former GLB; `0` skips that prop |
+| `gltfStand` | `1` \| `0` | follows housing | Stand GLB; `0` skips that prop |
+| `gltfBasePlate` | `1` \| `0` | follows housing | Base plate GLB; `0` skips that prop |
 | `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | Lighting + post look |
 | `mockHardware` | `1` | off | Hardware twin mock transport (no serial port) |
 | `energyCoupling` | `1` \| `0` | off (visual-only pipes) | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`) |

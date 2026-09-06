@@ -18,7 +18,7 @@ import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator';
 import { buildHalbachVizMesh, halbachConfigFromState } from '../../devices/quanta/halbach-viz';
 import { buildPulseCoilMesh } from '../../devices/quanta/pulse-coil';
 import { buildTransformerMesh } from '../../devices/quanta/transformer';
-import { buildVdgMesh } from '../../devices/quanta/van-de-graaff';
+import { buildVdgMesh, VDG_V_BREAK } from '../../devices/quanta/van-de-graaff';
 import { buildHallMesh } from '../../devices/quanta/hall-effect';
 import { buildLorentzSledMesh, LORENTZ } from '../../devices/quanta/lorentz-sled';
 import { buildPeltierMesh } from '../../devices/core/peltier-mesh';
@@ -279,12 +279,13 @@ export class WebGL2MultiDeviceVisualizer {
           'RK4 flux line tracer',
           'energy arc meshes',
           'SEG enhanced PBR / UV materials',
-          'glTF CAD housing / coil former',
+          'glTF CAD housing / coil former / stand / base plate',
           'Roschin–Godin magnetic wall shells',
           'WebGPU timestamp queries'
         ],
         hardwareTwin: snap?.hardwareTwin ?? null,
-        chores: gpuChores.breadcrumb()
+        chores: gpuChores.breadcrumb(),
+        textureCompression: 'none'
       };
     };
   }
@@ -692,7 +693,7 @@ if (device.id === 'seg') {
       renderOpts
     );
   } else if (drawMeshes && device.id === 'vdg') {
-    const chargeNorm = Math.min(1, (device.physics.vdgVoltage ?? 0) / 150000);
+    const chargeNorm = Math.min(1, (device.physics.vdgVoltage ?? 0) / VDG_V_BREAK);
     const sparkGlow = (device.physics.vdgSparkHz ?? 0) > 0 ? 1 : 0;
     this.meshRenderer.drawPluginDevice(
       viewProj, pos, buildVdgMesh(chargeNorm, sparkGlow).cylinders(), renderOpts

@@ -34,6 +34,46 @@ struct WasmSegDefaults {
   static constexpr int MAX_PARTICLES = 50000;
 };
 
+struct KelvinConstants {
+  static constexpr float E_BREAKDOWN_VM = 3000000.0f;
+};
+
+struct VdgConstants {
+  static constexpr float SPHERE_RADIUS_M     = 0.14f;
+  static constexpr float COLUMN_HEIGHT_M     = 1.05f;
+  static constexpr float GAP_M               = 0.05f;
+  static constexpr float BELT_MAX_MPS        = 6.0f;
+  static constexpr float BELT_MAX_CURRENT_A  = 0.0000022f;
+  static constexpr float LEAKAGE_R_OHM       = 50000000000000.0f;
+  static constexpr float SPARK_DISCHARGE_FRAC = 0.05f;
+  static constexpr float SPARK_DUR_S         = 0.15f;
+  static constexpr float SPARK_RATE_WINDOW_S = 1.0f;
+};
+
+struct HallConstants {
+  static constexpr float I_MAX_A        = 1.2f;
+  static constexpr float B_MAX_T        = 0.65f;
+  static constexpr float SMOOTHING_TAU  = 0.25f;
+  static constexpr float N_SEMICONDUCTOR = 1e+21f;
+  static constexpr float T_SEMICONDUCTOR_M = 0.0005f;
+  static constexpr float N_METAL        = 8.5e+28f;
+  static constexpr float T_METAL_M      = 0.0001f;
+};
+
+struct TransformerConstants {
+  static constexpr float F_HZ      = 60.0f;
+  static constexpr float NP        = 120.0f;
+  static constexpr float NS        = 40.0f;
+  static constexpr float L1_H      = 0.85f;
+  static constexpr float L2_H      = 0.095f;
+  static constexpr float K_IDEAL   = 0.97f;
+  static constexpr float K_LEAKAGE = 0.72f;
+  static constexpr float R1_OHM    = 1.8f;
+  static constexpr float R2_OHM    = 0.45f;
+  static constexpr float R_LOAD_OHM = 12.0f;
+  static constexpr float V_PEAK    = 28.0f;
+};
+
 /** Simulated nameplate watts per SimMode (order-of-magnitude — not metrology). */
 struct EnergyNetworkNameplates {
   static constexpr int MODE_COUNT = 12;
@@ -57,4 +97,5 @@ namespace PhysicsConstants {
   static constexpr float TAU        = power_gen::PhysicalConstants::TAU;
   static constexpr float Br_DEFAULT = power_gen::PhysicalConstants::Br_DEFAULT;
   static constexpr float MU_R       = power_gen::PhysicalConstants::MU_R;
+  static constexpr float E_CHARGE   = power_gen::PhysicalConstants::E_CHARGE;
 }

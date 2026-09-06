@@ -20,20 +20,9 @@ import { writeMeshCylinders } from '../update-helpers';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
+import { TRANSFORMER } from '../../../generated/physics-constants';
 
-export const TRANSFORMER = Object.freeze({
-  fHz: 60,
-  np: 120,
-  ns: 40,
-  lpH: 0.85,
-  lsH: 0.095,
-  kIdeal: 0.97,
-  kLeakage: 0.72,
-  rpOhm: 1.8,
-  rsOhm: 0.45,
-  rLoadOhm: 12,
-  vPrimaryPeak: 28 // low-voltage classroom metaphor
-});
+export { TRANSFORMER };
 
 function yawQuat(angleRad: number): number[] {
   const half = angleRad * 0.5;

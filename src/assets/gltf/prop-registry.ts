@@ -1,8 +1,8 @@
 /**
  * SEG glTF prop registry — lazy multi-prop CAD (ADR-0005).
  *
- * Housing + coil former are the first entries; stand / base plate slots are
- * reserved for later artist CAD. Load policies:
+ * Housing is resident; coil former / stand / base plate are focus-only.
+ * Load policies:
  *   - `resident` — load on first SEG focus, keep GPU buffers when leaving
  *   - `focus`    — load only in SEG focus; dispose buffers on mode leave
  *
@@ -50,8 +50,30 @@ export function parseGltfCoilFormerEnabled(params: URLSearchParams = new URLSear
   return parseGltfHousingEnabled(params);
 }
 
+function parseFocusPropEnabled(
+  key: string,
+  params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
+): boolean {
+  const raw = params.get(key);
+  if (raw === '0' || raw === 'false' || raw === 'off') return false;
+  if (raw === '1' || raw === 'true' || raw === 'on') return true;
+  return parseGltfHousingEnabled(params);
+}
+
+/** Stand prop — default on with housing; disable via ?gltfStand=0. */
+export function parseGltfStandEnabled(params?: URLSearchParams): boolean {
+  return parseFocusPropEnabled('gltfStand', params);
+}
+
+/** Base plate prop — default on with housing; disable via ?gltfBasePlate=0. */
+export function parseGltfBasePlateEnabled(params?: URLSearchParams): boolean {
+  return parseFocusPropEnabled('gltfBasePlate', params);
+}
+
 export const SEG_HOUSING_GLB_URL = './assets/seg/housing-shell.glb';
 export const SEG_COIL_FORMER_GLB_URL = './assets/seg/coil-former.glb';
+export const SEG_STAND_GLB_URL = './assets/seg/stand.glb';
+export const SEG_BASE_PLATE_GLB_URL = './assets/seg/base-plate.glb';
 
 export const SEG_GLTF_PROPS: SegGltfPropDef[] = [
   {
@@ -84,13 +106,12 @@ export const SEG_GLTF_PROPS: SegGltfPropDef[] = [
     },
     softBudgetBytes: 50 * 1024
   },
-  // Reserved for later showroom CAD — not loaded until url + generator exist.
   {
     id: 'stand',
-    url: './assets/seg/stand.glb',
+    url: SEG_STAND_GLB_URL,
     role: 'stand',
     loadPolicy: 'focus',
-    enabled: () => false,
+    enabled: parseGltfStandEnabled,
     materialOverride: {
       ringIndex: 13.0,
       color: [0.35, 0.36, 0.38],
@@ -98,15 +119,14 @@ export const SEG_GLTF_PROPS: SegGltfPropDef[] = [
       roughness: 0.45,
       emissiveScale: 0.4
     },
-    softBudgetBytes: 50 * 1024,
-    placeholder: true
+    softBudgetBytes: 50 * 1024
   },
   {
     id: 'basePlate',
-    url: './assets/seg/base-plate.glb',
+    url: SEG_BASE_PLATE_GLB_URL,
     role: 'base_plate',
     loadPolicy: 'focus',
-    enabled: () => false,
+    enabled: parseGltfBasePlateEnabled,
     materialOverride: {
       ringIndex: 13.0,
       color: [0.28, 0.28, 0.30],
@@ -114,8 +134,7 @@ export const SEG_GLTF_PROPS: SegGltfPropDef[] = [
       roughness: 0.4,
       emissiveScale: 0.35
     },
-    softBudgetBytes: 50 * 1024,
-    placeholder: true
+    softBudgetBytes: 50 * 1024
   }
 ];
 

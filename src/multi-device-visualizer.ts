@@ -449,7 +449,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       // Profiler reuses the single adapter from WebGPUManager (no second requestAdapter)
       this.profiler = new PerformanceProfiler(this.device, this.canvas, {
         adapter: this.webgpu.adapter,
-        adapterInfo: this.webgpu.adapterInfo
+        adapterInfo: this.webgpu.adapterInfo,
+        textureCompression: this.webgpu.textureCompression
       });
       await this.profiler.init();
       if (this.integration) {
@@ -532,7 +533,10 @@ export class MultiDeviceVisualizer implements VisualizerLike {
         debug: {},
         intentionalGaps: [],
         hardwareTwin: telemetryHub.getSnapshot()?.hardwareTwin ?? null,
-        chores: gpuChores.breadcrumb()
+        chores: gpuChores.breadcrumb(),
+        textureCompression: this.webgpu.textureCompressionUsed !== 'none'
+          ? this.webgpu.textureCompressionUsed
+          : this.webgpu.textureCompression
       });
 
       window.runSEGSpeedTest = (speeds?: number[], durationMs?: number) => this.runSpeedTest(speeds, durationMs);

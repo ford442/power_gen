@@ -3,6 +3,7 @@ project(sim_core CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ── Source ──────────────────────────────────────────────────────
 file(GLOB SIM_CORE_PLANT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/plant/*.cpp")
@@ -46,6 +47,10 @@ if(EMSCRIPTEN)
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../src/public/wasm"
   )
 else()
-  # Native build: enable standalone smoke-test
+  # Native build: enable standalone smoke-test (clangd / compile_commands.json).
+  # CI smoke remains `make native` / `npm run wasm:native` — this path is for
+  # per-TU include flags, not a replacement smoke binary.
   target_compile_definitions(sim_core PRIVATE SIM_CORE_STANDALONE)
+  target_compile_options(sim_core PRIVATE -Wall -Wextra -Wpedantic)
+  set_target_properties(sim_core PROPERTIES OUTPUT_NAME sim_core_test)
 endif()

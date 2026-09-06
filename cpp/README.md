@@ -92,6 +92,25 @@ Free helper `estimateHalbachFieldT(gap, Br)` mirrors the JS Halbach gap estimate
 for offline field sampling (halbach-viz remains CPU-JS for field lines; Pulse
 Coil also stays CPU-JS — neither has a `wasmMode`).
 
+### Compilation database (clangd)
+
+CI smoke stays `make native` / `npm run wasm:native`. For per-TU include
+paths (`-DSIM_CORE_STANDALONE`, `-I src`) so clangd can jump from
+`plant/vdg_plant.cpp` into `VdgState` / `SEGSimulator`:
+
+```bash
+# from repository root
+cmake -S cpp -B cpp/build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+ln -sfn cpp/build/compile_commands.json compile_commands.json
+
+# or from cpp/
+make compile-db
+```
+
+`cpp/build/` (except `cpp/build/README.md`) and the repo-root
+`compile_commands.json` symlink are gitignored. `.clangd` sets
+`CompilationDatabase: cpp/build`. Do not commit the JSON.
+
 ### Zero-copy particle / roller buffers
 
 After `sim.step` / `packRollerState`:
@@ -264,25 +283,25 @@ cpp/
     sim_core_embind.cpp  ← Emscripten / Embind surface (WASM only)
     sim_core_standalone.cpp ← native smoke-test driver + CSV export
     plant/
-      plant_common.h       ← shared helpers (clampf, hash1/rnd, lcg, Swamee–Jain f)
+      plant_common.h        ← shared helpers (clampf, hash1/rnd, lcg, Swamee–Jain f)
+      heron_plant.h/.cpp    ← HeronState + Bernoulli / Swamee–Jain
+      kelvin_plant.h/.cpp   ← KelvinState + capacitive spark
+      solar_plant.h/.cpp    ← SolarState + LED/solar battery SOC
+      peltier_plant.h/.cpp  ← PeltierState + thermoelectric stack
+      mhd_plant.h/.cpp      ← MHDState + Hartmann channel
+      maglev_plant.h/.cpp   ← MaglevState + gap ODE
+      homopolar_plant.h/.cpp ← HomopolarState + Faraday disc
+      transformer_plant.h/.cpp ← TransformerState + coupled-inductor L–M
+      vdg_plant.h/.cpp      ← VdgState + belt-charge/spark-gap ODE
+      hall_plant.h/.cpp     ← HallState + I·B → Hall voltage
+      lorentz_plant.h/.cpp  ← LorentzState + rail sled
+      energy_network.h/.cpp ← lab energy bus structs (ADR-0004 Phase B)
       seg_plant.cpp         ← magnetic-field utilities + SEG roller RK4
-      heron_plant.cpp       ← Heron's Fountain (Bernoulli / Swamee–Jain)
-      kelvin_plant.cpp      ← Kelvin water dropper (capacitive + spark)
-      solar_plant.cpp       ← LED/solar battery SOC
-      peltier_plant.cpp     ← Peltier thermoelectric stack
-      mhd_plant.cpp         ← Hartmann-style MHD channel
-      maglev_plant.cpp      ← Quanta magnetic-levitation gap ODE
-      homopolar_plant.cpp   ← Faraday-disc homopolar generator
-      transformer_plant.cpp ← Mutual-induction coupled-inductor L–M model
-      vdg_plant.cpp         ← Van de Graaff belt-charge/leakage/spark-gap ODE
-      hall_plant.cpp        ← Hall-effect bench (I·B → Hall voltage)
-      lorentz_plant.cpp     ← Lorentz rail sled (R–L + back-EMF + F = I ℓ × B)
-      energy_network.cpp    ← Lab energy bus (ADR-0004 Phase B)
       chores_reduce.cpp     ← GPU-chores CPU reduce fallback
       particles.cpp         ← mode-aware particle seed/step + accessors
-  CMakeLists.txt     ← CMake / Emscripten build (globs src/plant/*.cpp)
-  Makefile           ← simple make wasm / native targets ($(wildcard src/plant/*.cpp))
-  build/             ← native test binaries (gitignored)
+  CMakeLists.txt     ← CMake / Emscripten + CMAKE_EXPORT_COMPILE_COMMANDS
+  Makefile           ← make wasm / native / compile-db ($(wildcard src/plant/*.cpp))
+  build/             ← native CMake + sim_core_test (gitignored except README.md)
 ```
 
 Each `plant/*.cpp` implements a subset of `SEGSimulator`'s private `_step*`

@@ -57,10 +57,10 @@ WebGL2 does **not** decode or draw glTF/GLB CAD props. Reasons:
 |-------|--------|--------|
 | Housing shell GLB | SEG focus (`loadPolicy: resident`) | Skip — procedural frame |
 | Coil former GLB | SEG focus only (`loadPolicy: focus`, dispose on leave) | Skip |
-| Future stand / base plate | Registry placeholders | Skip |
+| Stand / base plate GLB | SEG focus only (`loadPolicy: focus`, dispose on leave) | Skip |
 | Reduced LOD GLBs | Optional later (`*-lod.glb`) | Prefer skip; if ever enabled, load `*-lod` only |
 
-Disable WebGPU CAD: `?gltfHousing=0`. Coil former only: `?gltfCoilFormer=0`.
+Disable WebGPU CAD: `?gltfHousing=0`. Coil former only: `?gltfCoilFormer=0`. Stand: `?gltfStand=0`. Base plate: `?gltfBasePlate=0`.
 
 When artist CAD exceeds the soft ~50 KB placeholder budget, WebGL2 should continue to **skip** or load a dedicated reduced LOD — never the full showroom mesh. Document any new LOD file next to the master GLB in `docs/GLTF_ASSETS.md`.
 

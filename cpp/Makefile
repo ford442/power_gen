@@ -6,10 +6,11 @@
 #   source /path/to/emsdk/emsdk_env.sh
 #
 # Targets:
-#   make wasm     – release WASM build → src/public/wasm/
-#   make wasm-dbg – debug WASM build with source maps
-#   make native   – native binary (smoke-test, no Emscripten needed)
-#   make clean    – remove build artefacts
+#   make wasm        – release WASM build → src/public/wasm/
+#   make wasm-dbg    – debug WASM build with source maps
+#   make native      – native binary (smoke-test, no Emscripten needed)
+#   make compile-db  – native CMake configure → build/compile_commands.json
+#   make clean       – remove build artefacts
 #
 # The output (sim_core.js + sim_core.wasm) is written directly to
 # ../src/public/wasm/ so Vite / the GitHub Pages root can serve it.
@@ -25,7 +26,7 @@ EMCC_FLAGS := $(shell grep -vE '^\s*#' emscripten.flags | grep -vE '^\s*$$' | tr
 
 # ── Targets ─────────────────────────────────────────────────────
 
-.PHONY: wasm wasm-dbg native clean
+.PHONY: wasm wasm-dbg native compile-db clean
 
 wasm: $(OUT_DIR)
 	em++ -std=c++17 -O3 -g0 --closure 1 $(EMCC_FLAGS) $(SRC) -o $(OUT_JS)
@@ -45,6 +46,12 @@ native:
 	./build/sim_core_test --mode catalog
 	./build/sim_core_test --export-csv 10 build/seg_telemetry.csv 10
 	@echo "✓  CSV export smoke → build/seg_telemetry.csv"
+
+# Native CMake configure for clangd (does not replace `make native` in CI).
+compile-db:
+	cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+	@echo "✓  Compilation database → build/compile_commands.json"
+	@echo "    From repo root: ln -sfn cpp/build/compile_commands.json compile_commands.json"
 
 $(OUT_DIR):
 	mkdir -p $(OUT_DIR)

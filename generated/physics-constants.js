@@ -83,6 +83,45 @@ export const WASM_SEG_DEFAULTS = {
 };
 
 /** Simulated nameplate watts — order-of-magnitude lab bus estimates, not metrology. */
+export const VDG = {
+  sphereRadiusM: 0.14,
+  columnHeightM: 1.05,
+  gapM: 0.05,
+  beltMaxMps: 6,
+  beltMaxCurrentA: 0.0000022,
+  leakageROhm: 50000000000000,
+  sparkDischargeFrac: 0.05,
+  sparkDurS: 0.15,
+  sparkRateWindowS: 1,
+};
+
+export const HALL = {
+  stripLengthM: 0.5,
+  stripWidthM: 0.08,
+  iMaxA: 1.2,
+  bMaxT: 0.65,
+  smoothingTau: 0.25,
+};
+
+export const HALL_CARRIER_PROFILES = {
+  semiconductor: { n: 1e+21, tM: 0.0005 },
+  metal: { n: 8.5e+28, tM: 0.0001 },
+};
+
+export const TRANSFORMER = {
+  fHz: 60,
+  np: 120,
+  ns: 40,
+  lpH: 0.85,
+  lsH: 0.095,
+  kIdeal: 0.97,
+  kLeakage: 0.72,
+  rpOhm: 1.8,
+  rsOhm: 0.45,
+  rLoadOhm: 12,
+  vPrimaryPeak: 28,
+};
+
 export const ENERGY_NETWORK_NAMEPLATES = {
   simulatedOrderOfMagnitude: true,
   deviceNameplateWatts: {

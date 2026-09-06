@@ -7,6 +7,7 @@
  */
 
 import { parseSsrEnabled } from './renderers/shared/url-params';
+import { selectTextureCompression, type TextureCompressionKind } from './assets/gltf/ktx2-gpu';
 
 /** Depth-only format — stencil is unused; saves memory vs depth24plus-stencil8. */
 export const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
@@ -105,6 +106,10 @@ export class WebGPUManager {
   requestedLimits: Record<string, number> = {};
   gpuTimingRequested = false;
   deviceLost = false;
+  /** Gated BC/ETC2/ASTC pick (`none` on software/fallback or missing features). */
+  textureCompression: TextureCompressionKind = 'none';
+  /** Last CAD KTX2 upload family (`none` until a compressed/fallback albedo is created). */
+  textureCompressionUsed: TextureCompressionKind = 'none';
 
   private onDeviceLost: ((info: { reason?: string; message?: string }) => void) | null;
   private onUncapturedError: ((event: GPUUncapturedErrorEvent) => void) | null;
@@ -156,9 +161,9 @@ export class WebGPUManager {
   }
 
   /**
-   * Canvas toneMapping. Default `standard` because bloom composite already
-   * ACES-maps to [0,1]. `extended` only with `?hdr=1` and an HDR display —
-   * can double-tonemap until composite outputs linear HDR.
+   * Canvas toneMapping. Default `standard` because bloom composite ACES-maps to [0,1]
+   * for SDR. `extended` only with `?hdr=1` and an HDR display; composite then
+   * outputs linear HDR (`outputLinearHdr`) so the canvas compositor is not double-tonemapped.
    */
   static canvasToneMappingMode(
     search = typeof location !== 'undefined' ? location.search : ''
@@ -345,6 +350,8 @@ export class WebGPUManager {
     console.log('[WebGPU] Adapter features:', featureList);
     console.log('[WebGPU] Requesting device features:', features);
     console.log('[WebGPU] Requesting device limits:', limits);
+    const tex = selectTextureCompression(adapter, info);
+    console.log('[WebGPU] Texture compression:', tex);
     console.log('[WebGPU] Adapter limit snapshot:', {
       maxStorageBuffersPerShaderStage: adapter.limits.maxStorageBuffersPerShaderStage,
       maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
@@ -389,6 +396,9 @@ export class WebGPUManager {
 
       this.deviceLost = false;
       this._attachDeviceHooks(this.device);
+      this.textureCompression = selectTextureCompression(this.device, this.adapterInfo);
+      this.textureCompressionUsed = 'none';
+      console.log('[WebGPU] Texture compression (device):', this.textureCompression);
 
       const ssrOn = parseSsrEnabled();
       const fallbackSoft = !!(this.adapterInfo.fallback || this.adapterInfo.software);

@@ -195,13 +195,13 @@ Runtime source: `passes/bloom-*.wgsl` (via thin `generators/bloom-shaders.js` â†
 |------|-------|-------|
 | Extract | `getBloomExtractShader` | Corona-weighted threshold + knee |
 | Blur | `getBloomBlurShader` | Separable 5-tap; radius from preset |
-| Composite | `getBloomCompositeShader` | AO, contact shadow, bloom add, **exposure**, **filmic tonemap**, grain, vignette |
+| Composite | `getBloomCompositeShader` | AO, contact shadow, bloom add, **exposure**, **filmic tonemap** (SDR) or linear HDR, grain, vignette |
 
 **Quality gates**
 
 1. Prefer negotiated HDR intermediate formats when the adapter supports them
    (`WebGPUManager.bloomIntermediateFormat`).
-2. Uniform layout (`BloomParams`, 16 floats) must stay in lockstep with
+2. Uniform layout (`BloomParams`, 20 floats) must stay in lockstep with
    `packPostUniforms()` in `seg-lighting-presets.ts`.
 3. Auto-quality tiers scale post cost via `getPostQualityGates()` in
    `post-processing-config.ts` (critical skips bloom extract/blur; disables SSAO + motion blur).

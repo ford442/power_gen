@@ -42,6 +42,7 @@ export interface GltfDrawable {
   emissiveScale?: number;
   ringIndex?: number;
   annotationId?: string | null;
+  albedoTexture?: GPUTexture | null;
 }
 
 // ── Per-frame contexts ─────────────────────────────────────────────

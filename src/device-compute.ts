@@ -6,6 +6,8 @@ import { writeQueueBuffer } from './gpu-buffer-write';
 import type { DeviceInstanceConfig } from './device-instance';
 import type { DevicePipelineManager } from './device-pipeline-manager';
 import type { DevicePhysicsState } from './renderers/shared/device-physics';
+import { VDG_V_BREAK } from './devices/quanta/van-de-graaff';
+import { HALL } from './devices/quanta/hall-effect';
 
 interface ComputeGeometryHost {
   particles: GPUBuffer;
@@ -115,12 +117,11 @@ class DeviceComputeManager {
         p1 = Math.min(1, (physicsState.pulseCoilBPeakT ?? 0) / 1.5);
         p2 = Math.min(1, (physicsState.pulseCoilArmatureM ?? 0) / 0.12);
       } else if (physicsState.deviceId === 'vdg') {
-        // 150000 mirrors VDG_V_BREAK in devices/quanta/van-de-graaff.ts.
-        p0 = Math.min(1, (physicsState.vdgVoltage ?? 0) / 150000);
+        p0 = Math.min(1, (physicsState.vdgVoltage ?? 0) / VDG_V_BREAK);
         p1 = (physicsState.vdgSparkHz ?? 0) > 0 ? 1 : 0;
       } else if (physicsState.deviceId === 'hall') {
-        p0 = Math.min(1, (physicsState.hallCurrent ?? 0) / 1.2);
-        p1 = Math.min(1, (physicsState.hallFieldT ?? 0) / 0.65);
+        p0 = Math.min(1, (physicsState.hallCurrent ?? 0) / HALL.iMaxA);
+        p1 = Math.min(1, (physicsState.hallFieldT ?? 0) / HALL.bMaxT);
       } else if (physicsState.deviceId === 'lorentz-sled') {
         // 22 / 2 / 1.2 mirror LORENTZ.iMaxA / railLengthM / fieldTMax in
         // devices/quanta/lorentz-sled.ts.

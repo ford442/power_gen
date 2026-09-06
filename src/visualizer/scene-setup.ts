@@ -438,7 +438,8 @@ export const sceneSetupMethods: ThisType<Host> & {
           width: w,
           height: h,
           preset: this.postPreset,
-          ssrEnabled: this.ssrEnabled !== false
+          ssrEnabled: this.ssrEnabled !== false,
+          outputLinearHdr: this.webgpu?.toneMappingMode === 'extended'
         })
       );
     }

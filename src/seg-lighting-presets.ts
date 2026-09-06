@@ -172,6 +172,8 @@ export interface PackPostUniformsOpts {
   motionBlur?: number;
   qualityGates?: PostQualityGates | null;
   ssrEnabled?: boolean;
+  /** 1 when canvas toneMapping is `extended` (?hdr=1 + HDR display). */
+  outputLinearHdr?: boolean;
 }
 
 /**
@@ -188,7 +190,8 @@ export function packPostUniforms(opts: PackPostUniformsOpts): Float32Array {
     speedMult = 1,
     motionBlur = 0,
     qualityGates = null,
-    ssrEnabled = true
+    ssrEnabled = true,
+    outputLinearHdr = false
   } = opts;
 
   const p = preset?.post ?? PRESETS.studio.post;
@@ -224,7 +227,7 @@ export function packPostUniforms(opts: PackPostUniformsOpts): Float32Array {
     (p.contactShadow ?? 0) * contactMul,
     preset?.sky?.mode ?? 1,
     (p.ssrStrength ?? 0) * ssrMul,
-    0,
+    outputLinearHdr ? 1 : 0,
     0,
     0
   ]);

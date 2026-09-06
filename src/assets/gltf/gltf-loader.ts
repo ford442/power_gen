@@ -33,7 +33,15 @@ interface GltfAccessor {
 
 interface GltfBufferView {
   byteOffset?: number;
+  byteLength?: number;
   byteStride?: number;
+}
+
+interface GltfImageSource {
+  mimeType?: string;
+  bufferView?: number;
+  name?: string;
+  uri?: string;
 }
 
 interface GltfPrimitiveSource {
@@ -59,6 +67,7 @@ interface GltfNodeSource {
 interface GltfJson {
   accessors: GltfAccessor[];
   bufferViews: GltfBufferView[];
+  images?: GltfImageSource[];
   meshes?: GltfMeshSource[];
   nodes?: GltfNodeSource[];
   scene?: number;

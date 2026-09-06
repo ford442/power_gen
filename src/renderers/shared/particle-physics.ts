@@ -7,6 +7,8 @@
 
 import { ValidatedConstants } from '../../ValidatedConstants';
 import { simRandom } from '../../telemetry/deterministic-rng.js';
+import { VDG_V_BREAK } from '../../devices/quanta/van-de-graaff';
+import { HALL } from '../../devices/quanta/hall-effect';
 
 const GRAV = 9.81;
 const TAU = Math.PI * 2;
@@ -494,13 +496,12 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
       const pos = integrateLorentzSled({ phase }, idx, u.time, iN, posN, bN);
       px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode >= 13.0) {
-      const iN = Math.min(1, (u.hallCurrent ?? 0) / 1.2);
-      const bN = Math.min(1, (u.hallFieldT ?? 0) / 0.65);
+      const iN = Math.min(1, (u.hallCurrent ?? 0) / HALL.iMaxA);
+      const bN = Math.min(1, (u.hallFieldT ?? 0) / HALL.bMaxT);
       const pos = integrateHall({ phase }, idx, u.time, iN, bN);
       px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode >= 12.0) {
-      // 150000 mirrors VDG_V_BREAK in devices/quanta/van-de-graaff.ts.
-      const chargeN = Math.min(1, (u.vdgVoltage ?? 0) / 150000);
+      const chargeN = Math.min(1, (u.vdgVoltage ?? 0) / VDG_V_BREAK);
       const sparkGlow = (u.vdgSparkHz ?? 0) > 0 ? 1 : 0;
       const pos = integrateVdg({ phase }, idx, u.time, chargeN, sparkGlow);
       px = pos[0]; py = pos[1]; pz = pos[2];

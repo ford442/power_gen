@@ -114,13 +114,20 @@ fn main(input: FragInput) -> @location(0) vec4f {
   let exposure = max(params.exposure, 0.05);
   combined *= exposure;
 
-  let tm = filmicTonemap(combined);
-
   let grain = (hash21(input.uv * vec2f(1920.0, 1080.0) + vec2f(params.power * 13.7, params.power * 29.3)) - 0.5) * params.grain;
   let vCoord = input.uv * 2.0 - 1.0;
   let vigDist = dot(vCoord * vec2f(0.48, 0.58), vCoord * vec2f(0.48, 0.58));
   let vignette = 1.0 - smoothstep(0.52, 1.05, vigDist);
   let pulse = 1.0 + params.vignette * params.power * 0.35 * (1.0 - radial);
+
+  // Linear HDR for canvas `toneMapping.extended` (?hdr=1 + HDR display).
+  // Skip ACES so the compositor is not double-tonemapped.
+  if (params.outputLinearHdr > 0.5) {
+    let gradedHdr = (combined + vec3f(grain)) * mix(0.28, 1.0, vignette * pulse);
+    return vec4f(max(gradedHdr, vec3f(0.0)), 1.0);
+  }
+
+  let tm = filmicTonemap(combined);
   let graded = (tm + vec3f(grain)) * mix(0.28, 1.0, vignette * pulse);
   return vec4f(clamp(graded, vec3f(0.0), vec3f(1.0)), 1.0);
 }

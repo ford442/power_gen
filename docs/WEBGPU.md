@@ -36,7 +36,7 @@ Do not open a WebGL2 context to “rescue” multi-device after probe failure.
 | `format` | `navigator.gpu.getPreferredCanvasFormat()` | Platform preferred (`bgra8unorm` / `rgba8unorm`) |
 | `alphaMode` | **`opaque`** | Full-viewport canvas; HTML overlays do not need canvas alpha (slight compositing win) |
 | `colorSpace` | **`srgb`** default; **`display-p3`** if `?p3=1` | CI screenshots stay sRGB; P3 is opt-in for showroom metals |
-| `toneMapping` | `{ mode: 'standard' }` default; `'extended'` if `?hdr=1` **and** `(dynamic-range: high)` | Bloom composite already ACES-maps to `[0,1]` (`filmicTonemap`). `extended` can **double-tonemap** until composite outputs linear HDR — leave ACES as-is for now |
+| `toneMapping` | `{ mode: 'standard' }` default; `'extended'` if `?hdr=1` **and** `(dynamic-range: high)` | SDR composite ACES-maps to `[0,1]` (`filmicTonemap`). When `extended`, bloom composite sets `outputLinearHdr` and skips ACES so the canvas compositor is not double-tonemapped |
 | `viewFormats` | preferred UNORM + `-srgb` sibling when it exists | Post/readback stay UNORM; sampling may reinterpret as sRGB |
 | `usage` | `RENDER_ATTACHMENT \| COPY_SRC` | Present + optional readback/screenshots |
 
@@ -75,7 +75,7 @@ Negotiated in `WebGPUManager.negotiateFeatures()` when the adapter supports them
 |---------|--------|----------------|-------|
 | `timestamp-query` | **used** | URL has `?gpuTiming=1` | Default **off**. Writing timestamps into the main render encoder blanks the canvas on some D3D12/ANGLE stacks. Profiler keeps `timingEnabled = false` until the debug panel toggle. |
 | `rg11b10ufloat-renderable` | **used** | Always if present | Bloom extract/blur intermediates (`bloomTempTexture`, `bloomBlurTexture`) via `WebGPUManager.bloomIntermediateFormat()`. Scene + prev-scene stay on the canvas format. |
-| `texture-compression-bc` / `etc2` / `astc` | **reserved** | If the adapter supports them | Requested at `requestDevice` so a later CAD path can use compressed textures without a new device. Unused until GLB consumes them. |
+| `texture-compression-bc` / `etc2` / `astc` | **used** | If the adapter supports them (skipped on fallback/software) | Requested at `requestDevice`. Stand GLB KTX2 albedo uploads BC1 / ASTC / ETC2 via `ktx2-gpu.ts`. F3 / `getRendererInfo().textureCompression` reports `bc` \| `etc2` \| `astc` \| `none`. |
 | `float32-filterable` | **not requested** | — | No sampled `rgba32float` targets (bloom is `rg11b10`; SSR is `rgba16float`). |
 | `bgra8unorm-storage` | **not requested** | — | No compute pass writes the swapchain. |
 

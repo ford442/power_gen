@@ -90,6 +90,8 @@ export interface RendererInfoSnapshot {
     lastOp?: string | null;
     lastCount?: number;
   };
+  /** WebGPU: bc | etc2 | astc | none. WebGL2 is always none. */
+  textureCompression?: string;
 }
 
 /** Canvas readback returned by window.captureCanvasFrame() (WebGL2 fallback + agent/e2e hooks). */

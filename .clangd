@@ -1,0 +1,5 @@
+# Native compilation database from `cmake -S cpp -B cpp/build`.
+# Does not replace `make native` / `npm run wasm:native` in CI.
+CompileFlags:
+  Add: [-DSIM_CORE_STANDALONE]
+CompilationDatabase: cpp/build

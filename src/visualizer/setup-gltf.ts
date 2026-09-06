@@ -12,6 +12,7 @@ import {
   updateGltfInstanceEmissive,
   GLTF_INSTANCE_BYTES
 } from '../assets/gltf/gltf-gpu';
+import { uploadGltfCompressedAlbedo } from '../assets/gltf/ktx2-gpu';
 import {
   parseGltfHousingEnabled,
   SEG_GLTF_PROPS,
@@ -194,6 +195,29 @@ export const gltfSetupMethods: ThisType<Host> & {
     const extracted = extractGltfMeshes(doc);
     const scene = buildGltfScene(extracted, { propId: prop.id });
 
+    let albedoTexture: GPUTexture | null = null;
+    try {
+      const uploaded = uploadGltfCompressedAlbedo(
+        this.device,
+        doc,
+        this.webgpu?.adapterInfo
+      );
+      if (uploaded) {
+        albedoTexture = uploaded.texture;
+        if (this.webgpu) this.webgpu.textureCompressionUsed = uploaded.kind;
+        if (this.profiler) this.profiler.textureCompression = uploaded.kind;
+        this.profiler?.trackTexture?.(
+          `gltf-${prop.id}-albedo`,
+          4,
+          4,
+          uploaded.format
+        );
+        console.log(`[gltf] ${prop.id} albedo compression: ${uploaded.kind} (${uploaded.format})`);
+      }
+    } catch (err) {
+      console.warn(`[gltf] ${prop.id} albedo upload skipped`, err);
+    }
+
     // Apply registry material overrides onto scene nodes before flatten.
     for (const root of scene.roots) {
       const applyMat = (node: {
@@ -289,8 +313,10 @@ export const gltfSetupMethods: ThisType<Host> & {
         gpu,
         instanceBuffer,
         ringIndex: mat.ringIndex,
-        annotationId: null
+        annotationId: null,
+        albedoTexture
       });
+      albedoTexture = null;
       this.profiler?.trackBuffer?.(`gltf-${prop.id}-${drawable.name}-vb`, gpu.vertexBuffer.size, GPUBufferUsage.VERTEX);
       this.profiler?.trackBuffer?.(`gltf-${prop.id}-${drawable.name}-ib`, gpu.indexBuffer.size, GPUBufferUsage.INDEX);
       this.profiler?.trackBuffer?.(`gltf-${prop.id}-${drawable.name}-inst`, GLTF_INSTANCE_BYTES, GPUBufferUsage.STORAGE);
@@ -301,6 +327,9 @@ export const gltfSetupMethods: ThisType<Host> & {
       `[gltf] loaded ${prop.id} (${prop.loadPolicy}): ${drawableCount} drawable(s), ` +
       `${scene.anchors.length} anchor(s), ${scene.annotations.length} annotation(s)`
     );
+    if (albedoTexture) {
+      try { albedoTexture.destroy(); } catch { /* unused albedo */ }
+    }
   },
 
   /**
@@ -316,6 +345,7 @@ export const gltfSetupMethods: ThisType<Host> & {
         destroyGpuBuffer(d.gpu?.vertexBuffer);
         destroyGpuBuffer(d.gpu?.indexBuffer);
         destroyGpuBuffer(d.instanceBuffer);
+        try { d.albedoTexture?.destroy?.(); } catch { /* already destroyed */ }
         freed += 1;
       } else {
         kept.push(d);

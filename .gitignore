@@ -28,10 +28,10 @@ Thumbs.db
 *.pem
 *.key
 
-# C++ build artefacts (native test binaries only; WASM goes to src/public/wasm/)
-cpp/build/sim_core_test
-cpp/build/sim_core_dbg
-cpp/build/*.o
+# C++ build artefacts (native test binaries, CMake, clangd). WASM → src/public/wasm/
+/compile_commands.json
+cpp/build/**
+!cpp/build/README.md
 
 # Emscripten cache
 .emsdk-cache

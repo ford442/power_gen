@@ -5,6 +5,7 @@ export interface PerformanceProfilerOptions {
   /** Pass adapter/info from WebGPUManager — do not call requestAdapter again. */
   adapter?: GPUAdapter | null;
   adapterInfo?: Partial<AdapterInfoSnapshot> | null;
+  textureCompression?: string;
 }
 
 export interface BufferAllocation {
@@ -175,6 +176,7 @@ export class PerformanceProfiler {
   gpuTier: GpuTier;
   adapter: GPUAdapter | null;
   adapterInfo: Partial<AdapterInfoSnapshot> | null;
+  textureCompression: string;
   private _initPromise: Promise<void> | null;
 
   /**
@@ -254,6 +256,7 @@ export class PerformanceProfiler {
     this.gpuTier = 'unknown';
     this.adapter = options.adapter || null;
     this.adapterInfo = options.adapterInfo || (options.adapter?.info as Partial<AdapterInfoSnapshot> | undefined) || null;
+    this.textureCompression = options.textureCompression || 'none';
     this._initPromise = null;
   }
 
@@ -659,6 +662,7 @@ export class PerformanceProfiler {
     const flags: string[] = [];
     if (info.fallback) flags.push('fallback');
     if (info.software) flags.push('software');
+    flags.push(`tex:${this.textureCompression || 'none'}`);
     const parts = [info.vendor, info.architecture || info.device, this.gpuTier, ...flags]
       .filter(Boolean)
       .map(String);

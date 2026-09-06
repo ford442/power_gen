@@ -16,11 +16,15 @@ Outputs:
 |------|----------|
 | `generated/physics-constants.ts` | TS modules (`ValidatedConstants.ts`, `scientific-data.js`, …) |
 | `generated/physics-constants.js` | JS imports (Vite resolves from repo root) |
-| `generated/constants.h` | `cpp/src/sim_core.h` (`PhysicsConstants`, `ParticleLayouts`, `WasmSegDefaults`) |
+| `generated/constants.h` | `cpp/src/sim_core.h` and `cpp/src/plant/*.h` (`PhysicsConstants`, plant classroom numbers) |
 | `generated/constants.wgsl` | Reference copy |
 | `src/shaders/generated/constants.wgsl` | `#include "generated/constants.wgsl"` in WGSL |
 
 **Do not hand-edit generated files.** Change `physics/constants.json` and rerun codegen.
+
+Quanta classroom plant numbers (`vdg`, `hall`, `transformer`) emit into TS
+(`VDG` / `HALL` / `TRANSFORMER`) and C++ (`power_gen::VdgConstants`, …).
+Plugin files re-export those objects — do not re-literal the numbers.
 
 Device **identity** (shader vs WASM mode numbers) is a separate catalog:
 [`physics/devices.json`](../physics/devices.json) → `npm run codegen:catalog` /
@@ -33,6 +37,7 @@ Device **identity** (shader vs WASM mode numbers) is a separate catalog:
 | CODATA μ₀, ε₀, G, k_B, e, c, π | Layout ring counts / radii presets → `src/seg-layout.ts` `PRESET_DEFS` |
 | SEG NdFeB Br, μ_r, reference roller geometry | Per-preset world scale, flux-line counts → `seg-layout.ts` + `SEGLayoutUniforms` |
 | Kelvin / Heron / LED–solar core efficiencies | LED spectral wavelengths, IV curve UI metadata → `led-solar-constants.ts` |
+| VDG / Hall / transformer classroom plant numbers | Homopolar / maglev / Lorentz ODE defaults (not codegen yet) |
 | Particle byte strides (16 / 32 B) | WGSL struct definitions → `src/shaders/common/*.wgsl` |
 
 WASM `SEGSimulator` default ring topology (12/22/32 at scene radii 3.5/5.5/7.5) lives in
