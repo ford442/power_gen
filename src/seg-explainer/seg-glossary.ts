@@ -2,11 +2,18 @@
  * Glossary terms sourced from scientific-data.js / literature refs.
  */
 
-import { SEG_DATA, PHYSICAL_CONSTANTS } from '../scientific-data.js';
+import { SEG_DATA, PHYSICAL_CONSTANTS } from '../scientific-data';
 import { SEG_SPEC } from '../seg-operator-state';
 
-/** @type {Record<string, { title: string, body: string, unit?: string, value?: string, source?: string }>} */
-export const SEG_GLOSSARY = {
+export interface GlossaryEntry {
+  title: string;
+  body: string;
+  unit?: string;
+  value?: string;
+  source?: string;
+}
+
+export const SEG_GLOSSARY: Record<string, GlossaryEntry> = {
   NdFeB: {
     title: 'NdFeB N52',
     body: 'Neodymium iron boron permanent magnet. High remanence Br drives roller coupling and B-field in the SEG model.',
@@ -123,7 +130,7 @@ export const SEG_GLOSSARY = {
 };
 
 /** Map annotation / tour highlight ids → glossary keys */
-export const HIGHLIGHT_GLOSSARY = {
+export const HIGHLIGHT_GLOSSARY: Record<string, string> = {
   'inner-ring': 'NdFeB',
   'outer-ring': 'NdFeB',
   stator: 'stator',
@@ -143,7 +150,7 @@ export const HIGHLIGHT_GLOSSARY = {
   'lorentz-poles': 'bench-field'
 };
 
-export function glossaryForHighlight(highlightId) {
-  const key = HIGHLIGHT_GLOSSARY[highlightId];
+export function glossaryForHighlight(highlightId: string | null | undefined): GlossaryEntry | null {
+  const key = highlightId ? HIGHLIGHT_GLOSSARY[highlightId] : undefined;
   return key ? SEG_GLOSSARY[key] : null;
 }
