@@ -61,7 +61,8 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Wire post cost into auto-quality tiers (`post-processing-config.ts` + render loop)
 - [x] Document stack + quality gates (`docs/SHADERS.md`, `docs/LIGHTING_RIG.md`)
 - [x] CPU↔WGSL uniform contract check in CI (`npm run check:post`)
-- [ ] Negotiate optional features only when present (`rg11b10ufloat-renderable`, etc.)
+- [x] Negotiate optional features only when present (`rg11b10ufloat-renderable`, etc.)
+      plus soft limits and a labelled `defaultQueue` — see `docs/WEBGPU.md`
 - [x] **Metalness/roughness G-buffer** — second `rg8unorm` color target on the
       scene render pass (r=metallic, g=roughness), written by
       `seg-enhanced-frag.wgsl`/`roller-frag.wgsl`; `passes/ssr-compute.wgsl`

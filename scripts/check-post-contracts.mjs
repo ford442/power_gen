@@ -13,6 +13,8 @@
  *   2. Every BloomParams copy has the same field count as packPostUniforms
  *      emits, and the uniform buffer is allocated for exactly that many floats.
  *   3. The SsrParams block size in scene-setup.ts matches ssr-compute.wgsl.
+ *   4. Every attachable color format is priced, and the scene pass's
+ *      bytes-per-sample either fits the default limit or is negotiated.
  *
  * Usage: node scripts/check-post-contracts.mjs   (exit 1 on drift)
  */
@@ -101,6 +103,61 @@ function check(label, condition, detail) {
     );
     check('SsrParams is 16-byte aligned', bytes % 16 === 0, `${bytes} B is not a multiple of 16`);
   }
+}
+
+// ── 4. Scene color attachments ↔ maxColorAttachmentBytesPerSample ───────────
+{
+  const { colorAttachmentBytesPerSample, DEFAULT_COLOR_ATTACHMENT_BYTES_PER_SAMPLE: DEFAULT_BPS } =
+    await importTs('src/color-attachment-cost.ts');
+
+  const helpers = read('src/pipeline-layout/helpers.ts');
+  const gbuf = /MATERIAL_GBUFFER_FORMAT:\s*GPUTextureFormat\s*=\s*'([\w-]+)'/.exec(helpers);
+  check('helpers.ts: MATERIAL_GBUFFER_FORMAT found', !!gbuf, 'could not parse the G-buffer format');
+
+  // Every format that can land on a color target must be priced explicitly;
+  // an unlisted one silently falls back to the 16-byte worst case.
+  const manager = read('src/webgpu-manager.ts');
+  const bloomFmt = /BLOOM_HDR_FORMAT:\s*GPUTextureFormat\s*=\s*'([\w-]+)'/.exec(manager);
+  const attachable = [
+    'bgra8unorm', 'rgba8unorm',            // getPreferredCanvasFormat() candidates
+    gbuf ? gbuf[1] : null,                 // metalness/roughness G-buffer
+    bloomFmt ? bloomFmt[1] : null          // bloom extract/blur intermediates
+  ].filter(Boolean);
+  const table = read('src/color-attachment-cost.ts');
+  for (const fmt of attachable) {
+    check(
+      `byte cost priced for ${fmt}`,
+      new RegExp(`(^|[{\\s])'?${fmt}'?\\s*:\\s*\\{\\s*bytes:`, 'm').test(table),
+      'missing from COLOR_ATTACHMENT_BYTE_COST (would fall back to the 16 B worst case)'
+    );
+  }
+
+  // The scene pass declares [canvasFormat, MATERIAL_GBUFFER_FORMAT] (ADR-0005
+  // WS2). Its cost must either fit the guaranteed default or be requested.
+  if (gbuf) {
+    const need = Math.max(
+      colorAttachmentBytesPerSample(['bgra8unorm', gbuf[1]]),
+      colorAttachmentBytesPerSample(['rgba8unorm', gbuf[1]])
+    );
+    const requests = /sceneColorAttachmentLimit[\s\S]*?maxColorAttachmentBytesPerSample/.test(manager);
+    check(
+      `scene pass costs ${need} B/sample (default ${DEFAULT_BPS} B)`,
+      need <= DEFAULT_BPS || requests,
+      `exceeds the default and webgpu-manager.ts does not request the limit`
+    );
+  }
+
+  // Guard the alignment arithmetic itself against an accidental rewrite.
+  check(
+    'bytes-per-sample aligns before adding',
+    colorAttachmentBytesPerSample(['rgba8unorm', 'rgba16float']) === 16,
+    `expected 16 (4 → align 8 → +8), got ${colorAttachmentBytesPerSample(['rgba8unorm', 'rgba16float'])}`
+  );
+  check(
+    'null targets are free',
+    colorAttachmentBytesPerSample(['rg8unorm', null]) === 2,
+    `expected 2, got ${colorAttachmentBytesPerSample(['rg8unorm', null])}`
+  );
 }
 
 for (const line of ok) console.log(`  ok: ${line}`);

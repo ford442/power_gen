@@ -8,6 +8,11 @@
 
 import { parseSsrEnabled } from './renderers/shared/url-params';
 import { selectTextureCompression, type TextureCompressionKind } from './assets/gltf/ktx2-gpu';
+import { MATERIAL_GBUFFER_FORMAT } from './pipeline-layout';
+import {
+  DEFAULT_COLOR_ATTACHMENT_BYTES_PER_SAMPLE,
+  colorAttachmentBytesPerSample
+} from './color-attachment-cost';
 
 /** Depth-only format — stencil is unused; saves memory vs depth24plus-stencil8. */
 export const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
@@ -54,6 +59,36 @@ export const PREFERRED_LIMITS: Partial<Record<keyof GPUSupportedLimits, number>>
   maxStorageBufferBindingSize: 128 * 1024 * 1024,
   maxComputeInvocationsPerWorkgroup: 256
 };
+
+export { DEFAULT_COLOR_ATTACHMENT_BYTES_PER_SAMPLE, colorAttachmentBytesPerSample };
+
+/**
+ * Color targets of the scene render pass: canvas-format scene color plus the
+ * metalness/roughness G-buffer (ADR-0005 WS2). The MSAA showroom variant
+ * attaches the same two formats at sampleCount 4.
+ */
+export function sceneColorAttachmentFormats(canvasFormat: GPUTextureFormat): GPUTextureFormat[] {
+  return [canvasFormat, MATERIAL_GBUFFER_FORMAT];
+}
+
+/**
+ * Preferred-limit patch for the scene pass's color attachments.
+ *
+ * Returns `{}` whenever the pass fits in the guaranteed default, so the common
+ * case requests nothing at all (#171's "never ask for what no pass uses"
+ * rule). It only becomes a real request if the targets grow past 32 B/sample —
+ * e.g. swapping the `rg8unorm` G-buffer for an `rgba16float` one. Merged into
+ * {@link PREFERRED_LIMITS} before {@link WebGPUManager.negotiateLimits}, which
+ * drops any key the adapter cannot satisfy, so a low-end adapter still gets a
+ * device instead of a `requestDevice` rejection.
+ */
+export function sceneColorAttachmentLimit(
+  canvasFormat: GPUTextureFormat
+): Partial<Record<keyof GPUSupportedLimits, number>> {
+  const need = colorAttachmentBytesPerSample(sceneColorAttachmentFormats(canvasFormat));
+  if (need <= DEFAULT_COLOR_ATTACHMENT_BYTES_PER_SAMPLE) return {};
+  return { maxColorAttachmentBytesPerSample: need };
+}
 
 export interface WebGPUManagerOptions {
   alphaMode?: GPUCanvasAlphaMode;
@@ -343,6 +378,24 @@ export class WebGPUManager {
     return ssrEnabled ? 'depth32float' : DEPTH_FORMAT;
   }
 
+  /**
+   * Warn (once, at init) if the device cannot afford the scene pass's color
+   * targets. Reaching this means a target was widened without raising
+   * {@link sceneColorAttachmentLimit} — the pass would fail validation on the
+   * first frame, which is much harder to read than this line.
+   */
+  private _checkColorAttachmentBudget(device: GPUDevice, canvasFormat: GPUTextureFormat): void {
+    const need = colorAttachmentBytesPerSample(sceneColorAttachmentFormats(canvasFormat));
+    const granted = device.limits.maxColorAttachmentBytesPerSample
+      ?? DEFAULT_COLOR_ATTACHMENT_BYTES_PER_SAMPLE;
+    if (need > granted) {
+      console.error(
+        `[WebGPU] Scene color attachments need ${need} B/sample but the device granted ` +
+        `${granted} B/sample — the scene pass will fail validation.`
+      );
+    }
+  }
+
   logAdapterSummary(adapter: GPUAdapter, features: string[], limits: Record<string, number>): void {
     const info = this.adapterInfo || WebGPUManager.readAdapterInfo(adapter);
     const featureList = [...adapter.features].sort();
@@ -353,6 +406,7 @@ export class WebGPUManager {
     const tex = selectTextureCompression(adapter, info);
     console.log('[WebGPU] Texture compression:', tex);
     console.log('[WebGPU] Adapter limit snapshot:', {
+      maxColorAttachmentBytesPerSample: adapter.limits.maxColorAttachmentBytesPerSample,
       maxStorageBuffersPerShaderStage: adapter.limits.maxStorageBuffersPerShaderStage,
       maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
       maxBufferSize: adapter.limits.maxBufferSize,
@@ -380,7 +434,14 @@ export class WebGPUManager {
       const requiredFeatures = WebGPUManager.negotiateFeatures(adapter, {
         gpuTiming: this.gpuTimingRequested
       });
-      const requiredLimits = WebGPUManager.negotiateLimits(adapter);
+      // Resolved before requestDevice: the scene pass's color-attachment cost
+      // depends on the canvas format, and any limit it needs has to be part of
+      // the device request.
+      this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+      const requiredLimits = WebGPUManager.negotiateLimits(adapter, {
+        ...PREFERRED_LIMITS,
+        ...sceneColorAttachmentLimit(this.canvasFormat)
+      });
 
       this.logAdapterSummary(adapter, requiredFeatures, requiredLimits);
 
@@ -391,11 +452,15 @@ export class WebGPUManager {
       this.device = await adapter.requestDevice({
         requiredFeatures: requiredFeatures as GPUFeatureName[],
         requiredLimits,
-        label: 'seg-primary-device'
+        label: 'seg-primary-device',
+        // Labelled so `uncapturederror` reports and DevTools' capture view
+        // attribute submits to this queue by name rather than "Queue #1".
+        defaultQueue: { label: 'seg-queue' }
       });
 
       this.deviceLost = false;
       this._attachDeviceHooks(this.device);
+      this._checkColorAttachmentBudget(this.device, this.canvasFormat);
       this.textureCompression = selectTextureCompression(this.device, this.adapterInfo);
       this.textureCompressionUsed = 'none';
       console.log('[WebGPU] Texture compression (device):', this.textureCompression);
@@ -407,7 +472,6 @@ export class WebGPUManager {
       this.context = this.canvas.getContext('webgpu');
       if (!this.context) throw new Error('Failed to get webgpu canvas context');
 
-      this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
       this.colorSpace = WebGPUManager.wantsDisplayP3() ? 'display-p3' : 'srgb';
       this.toneMappingMode = WebGPUManager.canvasToneMappingMode();
       const viewFormats = WebGPUManager.canvasViewFormats(this.canvasFormat);
