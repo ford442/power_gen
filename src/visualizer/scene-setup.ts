@@ -65,7 +65,7 @@ export const sceneSetupMethods: ThisType<Host> & {
       return { levels: 0, cached: true, ms: 0, path: 'skipped' as const };
     }
     if (!this.iblResources) {
-      this.iblResources = createIblResources(this.device);
+      this.iblResources = await createIblResources(this.device);
       this.profiler?.trackTexture?.(
         'iblSpecularArray',
         this.iblResources.size,

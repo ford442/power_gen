@@ -372,8 +372,17 @@ export interface CreateIblResourcesOpts {
  * in place. `rgba16float` is a core write-only storage format, but a device
  * that rejects the combination just loses the compute path — the texture is
  * recreated sampled-only and the CPU bake fills it via `writeTexture`.
+ *
+ * Async because that rejection has to be *detected*: WebGPU reports an
+ * unsupported usage as a validation error on an error scope, not as a thrown
+ * exception, so `try`/`catch` around `createTexture` would sail straight past
+ * it and hand back an invalid texture with `storage: true` — selecting the
+ * compute path and skipping the very fallback this branch exists for.
  */
-export function createIblResources(device: GPUDevice, opts: CreateIblResourcesOpts = {}): IblResources {
+export async function createIblResources(
+  device: GPUDevice,
+  opts: CreateIblResourcesOpts = {}
+): Promise<IblResources> {
   const size = opts.size ?? IBL_TEX_SIZE;
   const layers = opts.layers ?? IBL_LAYERS;
   const wantStorage = opts.storage !== false;
@@ -388,14 +397,18 @@ export function createIblResources(device: GPUDevice, opts: CreateIblResourcesOp
     dimension: '2d',
     usage
   });
-  try {
-    texture = device.createTexture(
-      describe(wantStorage ? sampledUsage | GPUTextureUsage.STORAGE_BINDING : sampledUsage)
-    );
-  } catch (e) {
-    if (!wantStorage) throw e;
-    console.warn('[ibl-prefilter] STORAGE_BINDING rejected — compute bake unavailable:', e);
-    storage = false;
+
+  if (wantStorage) {
+    device.pushErrorScope('validation');
+    texture = device.createTexture(describe(sampledUsage | GPUTextureUsage.STORAGE_BINDING));
+    const error = await device.popErrorScope();
+    if (error) {
+      console.warn('[ibl-prefilter] STORAGE_BINDING rejected — compute bake unavailable:', error.message);
+      texture.destroy();
+      storage = false;
+      texture = device.createTexture(describe(sampledUsage));
+    }
+  } else {
     texture = device.createTexture(describe(sampledUsage));
   }
   const sampler = device.createSampler({

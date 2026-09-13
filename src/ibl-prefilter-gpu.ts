@@ -84,6 +84,13 @@ export class IblPrefilterCompute {
     try {
       const pipeline = await cache.ensureIblPrefilterPipeline(shaderCode);
 
+      // The storage view and the bind groups are the other two places WebGPU
+      // reports a problem as a validation error rather than an exception, so
+      // they go inside an error scope too: an invalid bind group would
+      // otherwise dispatch happily and leave the environment unwritten,
+      // instead of falling back to the CPU bake.
+      device.pushErrorScope('validation');
+
       const paramsBuffer = device.createBuffer({
         label: 'ibl-prefilter-params',
         size: PARAMS_STRIDE * jobs.length,
@@ -111,8 +118,20 @@ export class IblPrefilterCompute {
         { binding: 1, resource: storageView }
       ], `ibl-prefilter-bg-${job.layer}`));
 
+      const error = await device.popErrorScope();
+      if (error) {
+        console.warn(
+          '[ibl-prefilter] compute prefilter resources invalid — using the CPU bake:',
+          error.message
+        );
+        paramsBuffer.destroy();
+        return null;
+      }
+
       return new IblPrefilterCompute(device, pipeline, paramsBuffer, bindGroups, jobs.length - 1);
     } catch (e) {
+      // createComputePipelineAsync *does* reject on validation failure, and a
+      // malformed descriptor still throws, so the catch is not redundant.
       console.warn('[ibl-prefilter] compute prefilter unavailable — using the CPU bake:', e);
       return null;
     }

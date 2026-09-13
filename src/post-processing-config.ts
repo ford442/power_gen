@@ -6,7 +6,7 @@
  * skips the bloom extract/blur passes (composite still runs for filmic tonemap).
  *
  * Temporal AA is a high/ultra-tier feature and additionally requires focus mode
- * (it is off in overview) and `?taa=1`; WebGL2 does not implement it at all.
+ * (it is off in overview); `?taa=0` disables it. WebGL2 does not implement it.
  *
  * Screen-space reflections are a high/ultra-tier feature only: the compute pass
  * is skipped entirely below that, independent of the `?ssr=0` kill switch in

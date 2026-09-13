@@ -51,8 +51,13 @@ texture** at startup (segEnhanced bindings 7–8):
   main-thread time the first time each look is used. It takes over whenever the
   compute pipeline or the texture's `STORAGE_BINDING` usage is rejected.
   Software/fallback adapters skip IBL altogether before either path runs.
-  Both paths agree to within `rgba16float` quantisation — `envRadiance()` is
-  duplicated in TS and WGSL and the two are compared by `npm run check:post`.
+  `envRadiance()` is duplicated in TS and WGSL, so the two can drift silently
+  while both stay valid. `npm run check:post` compares the **shaping constants
+  and the softbox lobe tuples only** — it cannot run WGSL, so it will not catch
+  a structural change (a reordered term, a different sample loop). The two were
+  measured to agree to within `rgba16float` quantisation by re-simulating the
+  shader offline against the CPU bake; keeping them so is a matter of code
+  review and real-hardware checks, not of that script passing.
 - Either way `setLightingLook()` re-bakes into the same texture, so no bind
   group is rebuilt.
 - Constants are duplicated in `pbr-eval.wgsl`; `assertIblShaderContract()` (and
@@ -104,7 +109,8 @@ Mesh shaders output **linear HDR** (no per-object tonemap); tonemapping happens 
 | `low` | on | 30% | 55% | **off** | **off** | **off** |
 | `critical` | **skipped** | **off** | 35% | **off** | **off** | **off** |
 
-TAA additionally requires **focus mode** (off in overview) and `?taa=1`;
+TAA additionally requires **focus mode** (off in overview), unless `?taa=0`
+disables it;
 see below. The prefiltered IBL chain is **not** in this table — it is always on.
 
 ### Temporal AA (ADR-0005 WS2)
@@ -129,7 +135,8 @@ bloom, so everything downstream sees the stabilised image.
   look, and any resize that reallocates the targets. A reset frame returns the
   current frame untouched, so there is no ghosting across the transition.
 - **Gates**: `high`/`ultra` tier **and** focus mode (`!isOverviewMode()`) **and**
-  `?taa=1`. Overview draws the whole plugin ring, where the extra full-res pass
+  unless disabled with `?taa=0`. Overview draws the whole plugin ring, where
+  the extra full-res pass
   costs more than the shimmer it removes.
 - **Off ⇒ no cost**: the pass is not encoded and bloom reads the raw scene bind
   groups, exactly as before this existed.

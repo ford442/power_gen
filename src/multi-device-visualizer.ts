@@ -142,7 +142,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   lightingUniformBuffer?: GPUBuffer | null;
 
   /** Prefiltered GGX environment chain + sampler (ADR-0005 WS2, always-on). */
-  iblResources?: ReturnType<typeof createIblResources> | null;
+  iblResources?: Awaited<ReturnType<typeof createIblResources>> | null;
   /** Compute prefilter, or null when it could not be built. `undefined` = not tried yet. */
   iblCompute?: IblPrefilterCompute | null;
   /** Roughness level count uploaded to LightingConfig.iblLevels (0 = analytic fallback). */
