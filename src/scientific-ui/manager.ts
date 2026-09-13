@@ -11,6 +11,7 @@ import { SolarPanelGauge, type SolarOutput } from './gauges/solar-panel-gauge';
 import { LEDArrayGauge, type LEDStatusUpdate } from './gauges/ledarray-gauge';
 import { EnergyBalanceDisplay, type EnergyFlowsUpdate } from './gauges/energy-balance-display';
 import { ShadowResidualGauge } from './gauges/shadow-residual-gauge';
+import { CatalogGaugeStrip } from './gauges/catalog-gauge-strip';
 import { telemetryHub } from '../telemetry-hub';
 import type { TelemetrySnapshot } from '../telemetry/types';
 
@@ -43,6 +44,8 @@ interface Gauges {
   solar?: SolarPanelGauge;
   led?: LEDArrayGauge;
   energyFlow?: EnergyBalanceDisplay;
+  /** Generic strip for the focused plugin device's catalog keys. */
+  catalogStrip?: CatalogGaugeStrip;
 }
 
 /**
@@ -103,6 +106,7 @@ export class ScientificUIManager {
         </div>
       </div>
       <div class="sci-panel-content">
+        <div id="sci-catalog-strip"></div>
         <div id="sci-shadow-residual-gauge"></div>
         <div id="sci-magnetic-gauge"></div>
         <div id="sci-energy-gauge"></div>
@@ -165,6 +169,7 @@ export class ScientificUIManager {
   }
 
   initGauges(): void {
+    this.gauges.catalogStrip = new CatalogGaugeStrip('sci-catalog-strip');
     this.gauges.magnetic = new MagneticFieldGauge('sci-magnetic-gauge');
     this.gauges.shadowResidual = new ShadowResidualGauge('sci-shadow-residual-gauge');
     this.gauges.energy = new EnergyDensityGauge('sci-energy-gauge');
@@ -224,6 +229,13 @@ export class ScientificUIManager {
 
     if (this.gauges.shadowResidual) {
       this.gauges.shadowResidual.updateFromTwin(snap.hardwareTwin ?? null);
+    }
+
+    // Focused plugin device: one generic strip driven by catalog telemetryKeys
+    // rather than a bespoke gauge class per apparatus.
+    if (this.gauges.catalogStrip) {
+      const view = snap.view || 'overview';
+      this.gauges.catalogStrip.update(view, snap.devices?.[view] ?? null);
     }
   }
 

@@ -15,7 +15,7 @@ import {
   sampleIndexAt
 } from './replay-parse';
 import type { ReplayWorkerRequest, ReplayWorkerResponse } from './replay-protocol';
-import type { TelemetryCsvRow } from './telemetry-schema';
+import { devicePhysicsFromRow, type TelemetryCsvRow } from './telemetry-schema';
 import type { SegOperatorTelemetry } from './types';
 
 export type ReplayPlayerListener = (state: ReplayPlayerState) => void;
@@ -326,6 +326,8 @@ export class ReplayPlayer {
       ? segTelemetryFromRow(row)
       : segOperator.computeTelemetry(0);
     const residual = row ? Number(row.energy_residual_w) : NaN;
+    // Per-device catalog columns round-trip too — replay is not SEG-RPM-only.
+    const devicePhysics = row ? devicePhysicsFromRow(row) : undefined;
     telemetryHub.publishFrame({
       source: 'replay',
       dt: 0,
@@ -333,6 +335,7 @@ export class ReplayPlayer {
       view: row ? String(row.view || 'seg') : (v?.currentView || 'seg'),
       renderer: window.currentRenderer ?? undefined,
       segTelemetry,
+      devicePhysics,
       scientific: row
         ? {
             particleFlux: num(row.particle_flux),

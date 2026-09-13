@@ -16,6 +16,7 @@ export { SolarPanelGauge } from './gauges/solar-panel-gauge';
 export { LEDArrayGauge } from './gauges/ledarray-gauge';
 export { EnergyBalanceDisplay } from './gauges/energy-balance-display';
 export { ShadowResidualGauge } from './gauges/shadow-residual-gauge';
+export { CatalogGaugeStrip } from './gauges/catalog-gauge-strip';
 
 export { ScientificUIManager } from './manager';
 export { ScientificUIManager as default } from './manager';

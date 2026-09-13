@@ -28,6 +28,7 @@ const MODE_MATRIX = join(ROOT, 'docs', 'MODE_MATRIX.md');
 const TELEMETRY_TYPES = join(ROOT, 'src', 'telemetry', 'types.ts');
 const TELEMETRY_HUB = join(ROOT, 'src', 'telemetry-hub.ts');
 const APPLY_WASM_PLANT = join(ROOT, 'src', 'session', 'apply-wasm-plant.ts');
+const TELEMETRY_SCHEMA = join(ROOT, 'src', 'telemetry', 'telemetry-schema.ts');
 
 /**
  * 'seg' publishes its telemetryKeys across SegOperatorTelemetry (rpm/voltage/
@@ -69,6 +70,84 @@ function wgslConst(id) {
 
 function simEnum(id) {
   return `SIM_MODE_${identFromId(id)}`;
+}
+
+/**
+ * CSV column name for a telemetry key: camelCase → snake_case, keeping acronym
+ * runs together (`heronPressureKPa` → `heron_pressure_kpa`, not `..._k_pa`).
+ */
+function snakeCase(key) {
+  return key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
+const TELEMETRY_FORMATS = new Set(['', 'si', 'exp']);
+
+/**
+ * Every telemetryKey must carry label/unit/digits in `telemetry` so operator
+ * chrome, the generic gauge strip and CSV headers all read the same schema.
+ */
+function validateTelemetryMeta(devices) {
+  const errors = [];
+  const columns = new Map();
+  for (const d of devices) {
+    const keys = d.telemetryKeys || [];
+    const meta = d.telemetry || {};
+    for (const key of keys) {
+      const m = meta[key];
+      if (!m) {
+        errors.push(`${d.id}: telemetryKey "${key}" has no telemetry[] label/unit entry`);
+        continue;
+      }
+      if (typeof m.label !== 'string' || !m.label) {
+        errors.push(`${d.id}.${key}: telemetry.label required`);
+      }
+      if (typeof m.unit !== 'string') {
+        errors.push(`${d.id}.${key}: telemetry.unit required (use "" for dimensionless)`);
+      }
+      if (typeof m.digits !== 'number' || m.digits < 0 || m.digits > 8) {
+        errors.push(`${d.id}.${key}: telemetry.digits must be 0..8`);
+      }
+      if (m.scale != null && (typeof m.scale !== 'number' || !Number.isFinite(m.scale))) {
+        errors.push(`${d.id}.${key}: telemetry.scale must be a finite number`);
+      }
+      if (m.format != null && !TELEMETRY_FORMATS.has(m.format)) {
+        errors.push(`${d.id}.${key}: telemetry.format must be one of ${[...TELEMETRY_FORMATS].map((f) => `"${f}"`).join(', ')}`);
+      }
+    }
+    for (const key of Object.keys(meta)) {
+      if (!keys.includes(key)) {
+        errors.push(`${d.id}: telemetry["${key}"] is not in telemetryKeys`);
+      }
+    }
+    if (TELEMETRY_SNAP_EXEMPT_IDS.has(d.id)) continue;
+    for (const key of keys) {
+      const col = snakeCase(key);
+      if (columns.has(col)) {
+        errors.push(`CSV column collision "${col}": ${columns.get(col)} and ${d.id}.${key}`);
+      }
+      columns.set(col, `${d.id}.${key}`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * telemetry-schema.ts must build its per-device CSV columns from the generated
+ * catalog, not a hand-maintained list — otherwise a new device's keys silently
+ * drop out of export and replay.
+ */
+function checkTelemetrySchemaUsesCatalog() {
+  let text;
+  try {
+    text = readFileSync(TELEMETRY_SCHEMA, 'utf8');
+  } catch (e) {
+    return [`telemetry schema catalog usage check: ${e.message}`];
+  }
+  if (!/TELEMETRY_CSV_DEVICE_COLUMNS/.test(text)
+      || !/from ['"].*generated\/device-catalog['"]/.test(text)) {
+    return [`${TELEMETRY_SCHEMA} must import TELEMETRY_CSV_DEVICE_COLUMNS from generated/device-catalog (no hand-rolled device column list)`];
+  }
+  return [];
 }
 
 function validateCatalog(data) {
@@ -255,6 +334,17 @@ function emitTs(data, devices, reserved, wasmCount) {
   const entries = devices.map((d) => {
     const wasm = d.wasmMode == null ? 'null' : String(d.wasmMode);
     const keys = (d.telemetryKeys || []).map((k) => `'${k}'`).join(', ');
+    const meta = (d.telemetryKeys || []).map((k) => {
+      const m = d.telemetry[k];
+      const parts = [
+        `label: ${JSON.stringify(m.label)}`,
+        `unit: ${JSON.stringify(m.unit)}`,
+        `digits: ${m.digits}`,
+      ];
+      if (m.scale != null) parts.push(`scale: ${m.scale}`);
+      if (m.format) parts.push(`format: '${m.format}' as TelemetryValueFormat`);
+      return `      ${JSON.stringify(k)}: { ${parts.join(', ')} }`;
+    }).join(',\n');
     return `  {
     id: '${d.id}',
     label: ${JSON.stringify(d.label)},
@@ -262,9 +352,26 @@ function emitTs(data, devices, reserved, wasmCount) {
     shaderMode: ${d.shaderMode},
     wasmMode: ${wasm} as number | null,
     telemetryKeys: [${keys}] as const,
+    telemetry: {
+${meta},
+    } as Record<string, TelemetryFieldMeta>,
     fidelity: ${JSON.stringify(d.fidelity)},
   }`;
   }).join(',\n');
+
+  const snapDevices = devices.filter((d) => !TELEMETRY_SNAP_EXEMPT_IDS.has(d.id));
+  const fieldRows = snapDevices.flatMap((d) =>
+    (d.telemetryKeys || []).map((k) => {
+      const m = d.telemetry[k];
+      return `  { deviceId: '${d.id}', key: '${k}', column: '${snakeCase(k)}', label: ${JSON.stringify(m.label)}, unit: ${JSON.stringify(m.unit)}, digits: ${m.digits}`
+        + (m.scale != null ? `, scale: ${m.scale}` : '')
+        + (m.format ? `, format: '${m.format}'` : '')
+        + ' }';
+    })
+  ).join(',\n');
+  const segMetaId = TELEMETRY_SNAP_EXEMPT_IDS.size
+    ? [...TELEMETRY_SNAP_EXEMPT_IDS].map((id) => `'${id}'`).join(', ')
+    : '';
 
   const wasmPlants = devices
     .filter((d) => d.wasmMode != null)
@@ -273,6 +380,19 @@ function emitTs(data, devices, reserved, wasmCount) {
   const wasmIds = wasmPlants.map((d) => `'${d.id}'`);
 
   return `${HEADER_TS}
+/** '' = plain fixed-point, 'si' = SI-prefix the unit, 'exp' = exponential. */
+export type TelemetryValueFormat = '' | 'si' | 'exp';
+
+/** Display schema for one telemetry key (units live in the catalog, not the UI). */
+export interface TelemetryFieldMeta {
+  label: string;
+  unit: string;
+  digits: number;
+  /** Multiply the raw hub value before formatting (e.g. 0–1 → %). */
+  scale?: number;
+  format?: TelemetryValueFormat;
+}
+
 export interface DeviceCatalogEntry {
   id: string;
   label: string;
@@ -280,12 +400,48 @@ export interface DeviceCatalogEntry {
   shaderMode: number;
   wasmMode: number | null;
   telemetryKeys: readonly string[];
+  telemetry: Record<string, TelemetryFieldMeta>;
   fidelity: string;
 }
 
 export const DEVICE_CATALOG = [
 ${entries},
 ] as const;
+
+/** One catalog telemetry key bound to its device, CSV column and display schema. */
+export interface DeviceTelemetryField extends TelemetryFieldMeta {
+  deviceId: string;
+  /** DeviceTelemetrySnap field name. */
+  key: string;
+  /** CSV / JSON export column name (snake_case of \`key\`). */
+  column: string;
+}
+
+/**
+ * Every catalog telemetry key that is a \`DeviceTelemetrySnap\` field, in catalog
+ * order. \`${segMetaId}\` is excluded: its keys live on SegOperatorTelemetry
+ * (see MODE_MATRIX.md), and the SEG gauges read those directly.
+ */
+export const DEVICE_TELEMETRY_FIELDS: readonly DeviceTelemetryField[] = [
+${fieldRows},
+];
+
+const FIELDS_BY_DEVICE: Record<string, DeviceTelemetryField[]> = {};
+for (const f of DEVICE_TELEMETRY_FIELDS) {
+  (FIELDS_BY_DEVICE[f.deviceId] ||= []).push(f);
+}
+
+export const TELEMETRY_FIELD_BY_COLUMN: Record<string, DeviceTelemetryField> =
+  Object.fromEntries(DEVICE_TELEMETRY_FIELDS.map((f) => [f.column, f]));
+
+/** CSV/JSON export columns for per-device telemetry, in catalog order. */
+export const TELEMETRY_CSV_DEVICE_COLUMNS: readonly string[] =
+  DEVICE_TELEMETRY_FIELDS.map((f) => f.column);
+
+/** Snap-backed telemetry fields for one device id ([] for seg / unknown ids). */
+export function telemetryFieldsForDevice(id: string): readonly DeviceTelemetryField[] {
+  return FIELDS_BY_DEVICE[id] || [];
+}
 
 export const DEVICE_BY_ID: Record<string, DeviceCatalogEntry> = Object.fromEntries(
   DEVICE_CATALOG.map((d) => [d.id, d])
@@ -336,6 +492,9 @@ export function shaderModeForDevice(id: string): number | null {
 }
 
 function emitH(devices, reserved, wasmCount) {
+  const deviceColumns = devices
+    .filter((d) => !TELEMETRY_SNAP_EXEMPT_IDS.has(d.id))
+    .flatMap((d) => (d.telemetryKeys || []).map((k) => snakeCase(k)));
   const enumLines = devices
     .filter((d) => d.wasmMode != null)
     .sort((a, b) => a.wasmMode - b.wasmMode)
@@ -373,6 +532,13 @@ static constexpr int RESERVED_WASM_MODES[] = { ${reservedArr} };
 static constexpr int RESERVED_WASM_MODE_COUNT = ${reservedCount};
 
 static_assert(SIM_MODE_COUNT == ${wasmCount}, "SIM_MODE_COUNT must match physics/devices.json wasm plants");
+
+// Per-device telemetry CSV columns, catalog order. Native SEG-only export emits
+// the base columns and leaves these empty (see cpp/src/telemetry_export.h).
+static constexpr const char* TELEMETRY_CSV_DEVICE_COLUMNS =
+    "${deviceColumns.join(',')}";
+
+static constexpr int TELEMETRY_CSV_DEVICE_COLUMN_COUNT = ${deviceColumns.length};
 `;
 }
 
@@ -389,7 +555,10 @@ function emitModeMatrix(devices, reserved) {
       d.wasmMode == null
         ? 'none (`wasmMode: null`)'
         : `${d.wasmMode} (\`${simEnum(d.id)}\`)`;
-    const keys = (d.telemetryKeys || []).map((k) => `\`${k}\``).join(', ');
+    const keys = (d.telemetryKeys || []).map((k) => {
+      const unit = d.telemetry?.[k]?.unit;
+      return unit ? `\`${k}\` (${unit})` : `\`${k}\``;
+    }).join(', ');
     return `| \`${d.id}\` | ${d.shaderMode} | ${wasm} | ${keys} | ${d.fidelity} |`;
   });
 
@@ -413,13 +582,13 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 
 ## Matrix
 
-| Device \`id\` | \`shaderMode\` (JS/WGSL) | \`wasmMode\` / \`SimMode\` | Telemetry keys | Fidelity |
+| Device \`id\` | \`shaderMode\` (JS/WGSL) | \`wasmMode\` / \`SimMode\` | Telemetry keys (unit) | Fidelity |
 |---|---|---|---|---|
 ${rows.join('\n')}
 
 ## How to add a device
 
-1. Add a row to \`physics/devices.json\` (new unused \`shaderMode\`; \`wasmMode\` next reserved or \`null\`).
+1. Add a row to \`physics/devices.json\` (new unused \`shaderMode\`; \`wasmMode\` next reserved or \`null\`), including a \`telemetry\` entry (label / unit / digits) for every \`telemetryKeys\` entry.
 2. Register a plugin that spreads \`catalogIdentity('id')\`.
 3. Add a C++ plant + \`case\` **only if** \`wasmMode\` is set.
 4. \`npm run codegen:catalog\` (and nameplates in \`physics/constants.json\` if the energy bus needs a watt rating).
@@ -430,6 +599,7 @@ ${rows.join('\n')}
 - Generated: \`generated/device-catalog.ts\`, \`generated/device-catalog.h\`, \`src/shaders/generated/device-catalog.wgsl\`
 - Registry: \`src/devices/device-registry.ts\` (\`getDeviceModeIndex\` = shader; \`getDeviceWasmMode\` = wasm)
 - WASM bridge: \`src/wasm/seg-physics-bridge.ts\` \`setMode(deviceId: string)\` only
+- Telemetry display + export schema: \`DEVICE_TELEMETRY_FIELDS\` / \`TELEMETRY_CSV_DEVICE_COLUMNS\` in \`generated/device-catalog.ts\` (see [\`TELEMETRY.md\`](TELEMETRY.md))
 `;
 }
 
@@ -463,6 +633,8 @@ function main() {
   const pluginErrors = checkPlugins(devices);
   const telemetrySnapErrors = checkTelemetrySnapCoverage(devices);
   const wasmPlantUsageErrors = checkWasmPlantUsesCatalog();
+  const telemetryMetaErrors = validateTelemetryMeta(devices);
+  const telemetrySchemaErrors = checkTelemetrySchemaUsesCatalog();
 
   const ts = emitTs(data, devices, reserved, wasmCount);
   const h = emitH(devices, reserved, wasmCount);
@@ -474,8 +646,14 @@ function main() {
 
   // When generating the first time, particle-compute may not yet include MODE_*.
   // Fail WGSL refs only in --check, or after we know the pass was updated.
-  // Always fail plugin/catalog/telemetry-snap/wasm-plant integrity.
-  const hard = [...pluginErrors, ...telemetrySnapErrors, ...wasmPlantUsageErrors];
+  // Always fail plugin/catalog/telemetry-meta/telemetry-snap/wasm-plant integrity.
+  const hard = [
+    ...pluginErrors,
+    ...telemetryMetaErrors,
+    ...telemetrySnapErrors,
+    ...wasmPlantUsageErrors,
+    ...telemetrySchemaErrors,
+  ];
   if (CHECK) hard.push(...wgslErrors);
 
   if (hard.length) {

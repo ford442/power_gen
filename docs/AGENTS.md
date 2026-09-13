@@ -126,6 +126,21 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 - Physics constants SoT: `physics/constants.json` → codegen → `ValidatedConstants.ts` (ADR-0002/0006). Wolfram MCP manager was removed; do not reintroduce it on the default boot path.
 - **Import style:** JS entry paths import TypeScript modules **extensionless** (e.g. `./telemetry-hub` → `telemetry-hub.ts`). TypeScript sources may use a `.js` emit suffix for cross-file references (`moduleResolution: bundler`). Do not use `from '…ts'` in app code.
 
+### Catalog-driven telemetry chrome (Wave 8 — complete)
+
+| Item | Status |
+|------|--------|
+| `physics/devices.json` carries a `telemetry` block (label / unit / digits / scale / format) per `telemetryKeys` entry; codegen emits `DEVICE_TELEMETRY_FIELDS` + `TELEMETRY_CSV_DEVICE_COLUMNS` and `check:catalog` hard-fails on a missing unit or a CSV column collision | Done |
+| CSV/JSON export widened to v2: base SEG/lab-bus columns + one column per catalog device key; `cpp/src/telemetry_export.h` builds the same header from the generated list (`static_assert` on count drift) | Done |
+| Replay feeds device columns back through `publishFrame({ devicePhysics })`, so `hall` / `vdg` / `lorentz-sled` round-trip, not only SEG RPM | Done |
+| Operator focus chrome (footer + right-panel readout cells) generated from catalog fields with catalog units — the hand-rolled 14-branch per-device chain and mode-label map are gone | Done |
+| One generic `CatalogGaugeStrip` in `scientific-ui/` replaces "a bespoke gauge class per device"; SEG gauges keep SEG focus | Done |
+
+**Not in this wave:** the mode-button row in `src/index.html` still hard-lists its
+14 buttons (each carries an emoji the catalog does not model); device setpoint
+sliders (Lorentz B, Halbach segments, pulse-coil charge) stay on their existing
+APIs per the shared plant-clock rule.
+
 ### TypeScript migration (Wave 7 — complete)
 
 | Item | Status |

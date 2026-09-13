@@ -10,7 +10,50 @@
       "shaderMode": 0,
       "wasmMode": 0,
       "telemetryKeys": ["rpm", "omega", "corona", "voltage", "current", "power", "fieldSim", "energyDensity"],
-      "fidelity": "WASM RK4 (full plant)"
+      "fidelity": "WASM RK4 (full plant)",
+      "telemetry": {
+        "rpm": {
+          "label": "RPM",
+          "unit": "RPM",
+          "digits": 0
+        },
+        "omega": {
+          "label": "omega",
+          "unit": "rad/s",
+          "digits": 3
+        },
+        "corona": {
+          "label": "Corona",
+          "unit": "%",
+          "scale": 100,
+          "digits": 0
+        },
+        "voltage": {
+          "label": "V",
+          "unit": "V",
+          "digits": 2
+        },
+        "current": {
+          "label": "I",
+          "unit": "A",
+          "digits": 3
+        },
+        "power": {
+          "label": "P",
+          "unit": "W",
+          "digits": 1
+        },
+        "fieldSim": {
+          "label": "B_sim",
+          "unit": "T",
+          "digits": 3
+        },
+        "energyDensity": {
+          "label": "u_E",
+          "unit": "J/m³",
+          "digits": 1
+        }
+      }
     },
     {
       "id": "heron",
@@ -19,7 +62,34 @@
       "shaderMode": 1,
       "wasmMode": 1,
       "telemetryKeys": ["heronHead", "heronHeadMax", "heronVExit", "heronFlowRateLmin", "heronPressureKPa"],
-      "fidelity": "WASM (Bernoulli/Swamee–Jain)"
+      "fidelity": "WASM (Bernoulli/Swamee–Jain)",
+      "telemetry": {
+        "heronHead": {
+          "label": "Head",
+          "unit": "m",
+          "digits": 2
+        },
+        "heronHeadMax": {
+          "label": "Head_max",
+          "unit": "m",
+          "digits": 2
+        },
+        "heronVExit": {
+          "label": "v_exit",
+          "unit": "m/s",
+          "digits": 2
+        },
+        "heronFlowRateLmin": {
+          "label": "Q",
+          "unit": "L/min",
+          "digits": 1
+        },
+        "heronPressureKPa": {
+          "label": "p",
+          "unit": "kPa",
+          "digits": 1
+        }
+      }
     },
     {
       "id": "kelvin",
@@ -28,7 +98,36 @@
       "shaderMode": 2,
       "wasmMode": 2,
       "telemetryKeys": ["kelvinV", "kelvinVoltageN", "kelvinVbreak", "kelvinE", "kelvinSparkTimer"],
-      "fidelity": "WASM (capacitive + spark)"
+      "fidelity": "WASM (capacitive + spark)",
+      "telemetry": {
+        "kelvinV": {
+          "label": "V",
+          "unit": "V",
+          "digits": 0
+        },
+        "kelvinVoltageN": {
+          "label": "V/V_break",
+          "unit": "%",
+          "scale": 100,
+          "digits": 0
+        },
+        "kelvinVbreak": {
+          "label": "V_break",
+          "unit": "V",
+          "digits": 0
+        },
+        "kelvinE": {
+          "label": "E",
+          "unit": "V/m",
+          "digits": 3,
+          "format": "si"
+        },
+        "kelvinSparkTimer": {
+          "label": "spark",
+          "unit": "s",
+          "digits": 3
+        }
+      }
     },
     {
       "id": "solar",
@@ -37,7 +136,15 @@
       "shaderMode": 3,
       "wasmMode": 3,
       "telemetryKeys": ["batteryCharge"],
-      "fidelity": "WASM (battery SOC)"
+      "fidelity": "WASM (battery SOC)",
+      "telemetry": {
+        "batteryCharge": {
+          "label": "SOC",
+          "unit": "%",
+          "scale": 100,
+          "digits": 0
+        }
+      }
     },
     {
       "id": "peltier",
@@ -46,7 +153,44 @@
       "shaderMode": 4,
       "wasmMode": 4,
       "telemetryKeys": ["peltierHotK", "peltierColdK", "peltierDeltaT", "peltierVoltage", "peltierCurrent", "peltierPowerW", "peltierCOP"],
-      "fidelity": "WASM (two-node Seebeck/Peltier stack)"
+      "fidelity": "WASM (two-node Seebeck/Peltier stack)",
+      "telemetry": {
+        "peltierHotK": {
+          "label": "T_h",
+          "unit": "K",
+          "digits": 1
+        },
+        "peltierColdK": {
+          "label": "T_c",
+          "unit": "K",
+          "digits": 1
+        },
+        "peltierDeltaT": {
+          "label": "ΔT",
+          "unit": "K",
+          "digits": 1
+        },
+        "peltierVoltage": {
+          "label": "V",
+          "unit": "V",
+          "digits": 3
+        },
+        "peltierCurrent": {
+          "label": "I",
+          "unit": "A",
+          "digits": 3
+        },
+        "peltierPowerW": {
+          "label": "P",
+          "unit": "W",
+          "digits": 2
+        },
+        "peltierCOP": {
+          "label": "COP",
+          "unit": "",
+          "digits": 3
+        }
+      }
     },
     {
       "id": "mhd",
@@ -55,7 +199,39 @@
       "shaderMode": 5,
       "wasmMode": 5,
       "telemetryKeys": ["mhdFlowU", "mhdBFieldT", "mhdHartmann", "mhdVoltage", "mhdCurrent", "mhdPowerW"],
-      "fidelity": "WASM (Hartmann channel)"
+      "fidelity": "WASM (Hartmann channel)",
+      "telemetry": {
+        "mhdFlowU": {
+          "label": "U",
+          "unit": "m/s",
+          "digits": 2
+        },
+        "mhdBFieldT": {
+          "label": "B",
+          "unit": "T",
+          "digits": 2
+        },
+        "mhdHartmann": {
+          "label": "Ha",
+          "unit": "",
+          "digits": 1
+        },
+        "mhdVoltage": {
+          "label": "V",
+          "unit": "V",
+          "digits": 3
+        },
+        "mhdCurrent": {
+          "label": "I",
+          "unit": "A",
+          "digits": 3
+        },
+        "mhdPowerW": {
+          "label": "P",
+          "unit": "W",
+          "digits": 2
+        }
+      }
     },
     {
       "id": "maglev",
@@ -64,7 +240,29 @@
       "shaderMode": 6,
       "wasmMode": 6,
       "telemetryKeys": ["maglevGapMm", "maglevFieldT", "maglevLiftN", "maglevRpm"],
-      "fidelity": "WASM (spring–damper gap ODE), JS fallback mirrors it"
+      "fidelity": "WASM (spring–damper gap ODE), JS fallback mirrors it",
+      "telemetry": {
+        "maglevGapMm": {
+          "label": "gap",
+          "unit": "mm",
+          "digits": 2
+        },
+        "maglevFieldT": {
+          "label": "B",
+          "unit": "T",
+          "digits": 3
+        },
+        "maglevLiftN": {
+          "label": "F_z",
+          "unit": "N",
+          "digits": 2
+        },
+        "maglevRpm": {
+          "label": "RPM",
+          "unit": "RPM",
+          "digits": 0
+        }
+      }
     },
     {
       "id": "pulse-coil",
@@ -73,7 +271,29 @@
       "shaderMode": 7,
       "wasmMode": null,
       "telemetryKeys": ["pulseCoilCurrentA", "pulseCoilVCap", "pulseCoilBPeakT", "pulseCoilArmatureMm"],
-      "fidelity": "JS-only (fallback-physics for pulseCoilBPeakT)"
+      "fidelity": "JS-only (fallback-physics for pulseCoilBPeakT)",
+      "telemetry": {
+        "pulseCoilCurrentA": {
+          "label": "I",
+          "unit": "A",
+          "digits": 2
+        },
+        "pulseCoilVCap": {
+          "label": "V_cap",
+          "unit": "V",
+          "digits": 1
+        },
+        "pulseCoilBPeakT": {
+          "label": "B_pk",
+          "unit": "T",
+          "digits": 3
+        },
+        "pulseCoilArmatureMm": {
+          "label": "x",
+          "unit": "mm",
+          "digits": 2
+        }
+      }
     },
     {
       "id": "homopolar",
@@ -82,7 +302,30 @@
       "shaderMode": 8,
       "wasmMode": 7,
       "telemetryKeys": ["homopolarRpm", "homopolarEmfV", "homopolarCurrentA", "homopolarFieldT"],
-      "fidelity": "WASM (Faraday disc L–R + back-EMF)"
+      "fidelity": "WASM (Faraday disc L–R + back-EMF)",
+      "telemetry": {
+        "homopolarRpm": {
+          "label": "RPM",
+          "unit": "RPM",
+          "digits": 0
+        },
+        "homopolarEmfV": {
+          "label": "EMF",
+          "unit": "V",
+          "digits": 3,
+          "format": "si"
+        },
+        "homopolarCurrentA": {
+          "label": "I",
+          "unit": "A",
+          "digits": 3
+        },
+        "homopolarFieldT": {
+          "label": "B",
+          "unit": "T",
+          "digits": 3
+        }
+      }
     },
     {
       "id": "halbach-viz",
@@ -91,7 +334,36 @@
       "shaderMode": 9,
       "wasmMode": null,
       "telemetryKeys": ["halbachSegmentCount", "halbachMagAngleDeg", "halbachPeakBT", "halbachPeriodM", "halbachDipoleForceN"],
-      "fidelity": "JS-only (CPU field-line viz); estimateHalbachFieldT is a free WASM helper, not a plant"
+      "fidelity": "JS-only (CPU field-line viz); estimateHalbachFieldT is a free WASM helper, not a plant",
+      "telemetry": {
+        "halbachSegmentCount": {
+          "label": "N",
+          "unit": "",
+          "digits": 0
+        },
+        "halbachMagAngleDeg": {
+          "label": "θ",
+          "unit": "°",
+          "digits": 1
+        },
+        "halbachPeakBT": {
+          "label": "|B|",
+          "unit": "T",
+          "digits": 4
+        },
+        "halbachPeriodM": {
+          "label": "λ",
+          "unit": "m",
+          "digits": 3,
+          "format": "si"
+        },
+        "halbachDipoleForceN": {
+          "label": "F",
+          "unit": "N",
+          "digits": 3,
+          "format": "si"
+        }
+      }
     },
     {
       "id": "transformer",
@@ -100,7 +372,40 @@
       "shaderMode": 10,
       "wasmMode": 8,
       "telemetryKeys": ["transformerVp", "transformerVs", "transformerIpA", "transformerIsA", "transformerK", "transformerFluxN"],
-      "fidelity": "WASM coupled-inductor ODE (?wasmPhysics=1); JS phasor fallback"
+      "fidelity": "WASM coupled-inductor ODE (?wasmPhysics=1); JS phasor fallback",
+      "telemetry": {
+        "transformerVp": {
+          "label": "V_p",
+          "unit": "V",
+          "digits": 2
+        },
+        "transformerVs": {
+          "label": "V_s",
+          "unit": "V",
+          "digits": 2
+        },
+        "transformerIpA": {
+          "label": "I_p",
+          "unit": "A",
+          "digits": 3
+        },
+        "transformerIsA": {
+          "label": "I_s",
+          "unit": "A",
+          "digits": 3
+        },
+        "transformerK": {
+          "label": "k",
+          "unit": "",
+          "digits": 3
+        },
+        "transformerFluxN": {
+          "label": "Φ",
+          "unit": "Wb",
+          "digits": 3,
+          "format": "si"
+        }
+      }
     },
     {
       "id": "vdg",
@@ -109,7 +414,30 @@
       "shaderMode": 12,
       "wasmMode": 9,
       "telemetryKeys": ["vdgVoltage", "vdgBeltMps", "vdgChargeC", "vdgSparkHz"],
-      "fidelity": "WASM belt-charge/sphere-capacitance/spark-gap ODE (?wasmPhysics=1); JS fallback"
+      "fidelity": "WASM belt-charge/sphere-capacitance/spark-gap ODE (?wasmPhysics=1); JS fallback",
+      "telemetry": {
+        "vdgVoltage": {
+          "label": "V",
+          "unit": "V",
+          "digits": 0
+        },
+        "vdgBeltMps": {
+          "label": "belt",
+          "unit": "m/s",
+          "digits": 2
+        },
+        "vdgChargeC": {
+          "label": "Q",
+          "unit": "C",
+          "digits": 2,
+          "format": "si"
+        },
+        "vdgSparkHz": {
+          "label": "spark",
+          "unit": "Hz",
+          "digits": 2
+        }
+      }
     },
     {
       "id": "hall",
@@ -118,7 +446,31 @@
       "shaderMode": 13,
       "wasmMode": 10,
       "telemetryKeys": ["hallVoltage", "hallCurrent", "hallFieldT", "hallCoeff"],
-      "fidelity": "WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback"
+      "fidelity": "WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback",
+      "telemetry": {
+        "hallVoltage": {
+          "label": "V_H",
+          "unit": "V",
+          "digits": 2,
+          "format": "si"
+        },
+        "hallCurrent": {
+          "label": "I",
+          "unit": "A",
+          "digits": 3
+        },
+        "hallFieldT": {
+          "label": "B",
+          "unit": "T",
+          "digits": 3
+        },
+        "hallCoeff": {
+          "label": "R_H",
+          "unit": "m³/C",
+          "digits": 3,
+          "format": "exp"
+        }
+      }
     },
     {
       "id": "lorentz-sled",
@@ -127,7 +479,34 @@
       "shaderMode": 14,
       "wasmMode": 11,
       "telemetryKeys": ["lorentzSledVms", "lorentzCurrentA", "lorentzFieldT", "lorentzForceN", "lorentzPositionM"],
-      "fidelity": "WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it"
+      "fidelity": "WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it",
+      "telemetry": {
+        "lorentzSledVms": {
+          "label": "v",
+          "unit": "m/s",
+          "digits": 2
+        },
+        "lorentzCurrentA": {
+          "label": "I",
+          "unit": "A",
+          "digits": 2
+        },
+        "lorentzFieldT": {
+          "label": "B",
+          "unit": "T",
+          "digits": 3
+        },
+        "lorentzForceN": {
+          "label": "F",
+          "unit": "N",
+          "digits": 3
+        },
+        "lorentzPositionM": {
+          "label": "x",
+          "unit": "m",
+          "digits": 3
+        }
+      }
     }
   ]
 }
