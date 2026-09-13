@@ -3,6 +3,7 @@ import { WebGPUManager, DEPTH_FORMAT } from '../webgpu-manager';
 import { packPostUniforms } from '../seg-lighting-presets';
 import { SSR_FORMAT, MATERIAL_GBUFFER_FORMAT, type BindGroupLayoutName } from '../pipeline-layout-cache';
 import { createIblResources, uploadIblForPreset } from '../ibl-prefilter';
+import { IblPrefilterCompute } from '../ibl-prefilter-gpu';
 import { writeQueueBuffer } from '../gpu-buffer-write';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import { bindHostMethods } from './bind-host-methods.js';
@@ -15,9 +16,18 @@ export const SSR_RESOLUTION_SCALE = 0.5;
 /** Bytes of the SsrParams uniform block — see passes/ssr-compute.wgsl. */
 export const SSR_PARAMS_BYTES = 176;
 
+/** Result of one IBL bake — `path` says which of the two bake paths ran. */
+export interface IblBakeStats {
+  levels: number;
+  cached: boolean;
+  ms: number;
+  path: 'compute' | 'cpu' | 'skipped';
+}
+
 export const sceneSetupMethods: ThisType<Host> & {
-  setupIblPrefilter(): { levels: number; cached: boolean; ms: number };
+  setupIblPrefilter(): Promise<IblBakeStats>;
   refreshIblPrefilter(): void;
+  _bakeIbl(): IblBakeStats;
   setupFloorGrid(): Promise<void>;
   setupSkyGradient(): Promise<void>;
   setupAnomalyWallPipeline(): Promise<void>;
@@ -35,15 +45,19 @@ export const sceneSetupMethods: ThisType<Host> & {
   setupBloomPipeline(): Promise<void>;
 } = {
   /**
-   * Bake the prefiltered GGX environment for the active lighting look.
+   * Allocate the IBL array texture and bake it for the active lighting look.
    * Skipped on fallback/software adapters (analytic PBR path when iblLevels = 0).
+   *
+   * Async only because building the compute prefilter pipeline is async; the
+   * bake itself stays synchronous so `refreshIblPrefilter` can run it from the
+   * synchronous `setLightingLook` path.
    */
-  setupIblPrefilter() {
+  async setupIblPrefilter() {
     const fallbackSoft = !!(this.webgpu?.adapterInfo?.fallback || this.webgpu?.adapterInfo?.software);
     if (fallbackSoft) {
       this.iblLevels = 0;
       console.log('[MultiDeviceVisualizer] IBL prefilter skipped (fallback/software adapter)');
-      return { levels: 0, cached: true, ms: 0 };
+      return { levels: 0, cached: true, ms: 0, path: 'skipped' as const };
     }
     if (!this.iblResources) {
       this.iblResources = createIblResources(this.device);
@@ -54,28 +68,61 @@ export const sceneSetupMethods: ThisType<Host> & {
         'rgba16float'
       );
     }
+
+    // Compute path (ADR-0005 WS2): keeps the ~270 ms GGX importance-sampling
+    // off the main thread. `create` returns null on any failure — no storage
+    // binding, no pipeline — and the CPU bake below covers that case.
+    if (this.iblCompute === undefined && this.pipelineCache) {
+      this.iblCompute = await IblPrefilterCompute.create(
+        this.device,
+        this.pipelineCache,
+        this.iblResources,
+        this.shaders.iblPrefilterComputeShader
+      );
+    }
+
+    return this._bakeIbl();
+  },
+
+  /**
+   * Bake the active look into the (already allocated) IBL texture, preferring
+   * the compute prefilter and falling back to the memoised CPU bake.
+   */
+  _bakeIbl() {
+    if (this.iblCompute) {
+      const gpu = this.iblCompute.bake(this.postPreset, this.iblResources!.size);
+      this.iblLevels = gpu.levels;
+      console.log(
+        `[MultiDeviceVisualizer] IBL prefilter "${this.lightingLook}": ` +
+        `${gpu.levels} GGX levels + irradiance, ${(this.iblResources!.byteLength / 1024).toFixed(0)} KB ` +
+        `(compute, ${gpu.layers} dispatches, ${gpu.ms.toFixed(1)} ms encode)`
+      );
+      return { levels: gpu.levels, cached: false, ms: gpu.ms, path: 'compute' as const };
+    }
+
     const stats = uploadIblForPreset(
       this.device,
-      this.iblResources,
+      this.iblResources!,
       this.postPreset,
       this.lightingLook
     );
     this.iblLevels = stats.levels;
     console.log(
       `[MultiDeviceVisualizer] IBL prefilter "${this.lightingLook}": ` +
-      `${stats.levels} GGX levels + irradiance, ${(this.iblResources.byteLength / 1024).toFixed(0)} KB ` +
-      `(${stats.cached ? 'cached' : `${stats.ms.toFixed(0)} ms bake`})`
+      `${stats.levels} GGX levels + irradiance, ${(this.iblResources!.byteLength / 1024).toFixed(0)} KB ` +
+      `(cpu, ${stats.cached ? 'cached' : `${stats.ms.toFixed(0)} ms bake`})`
     );
-    return stats;
+    return { ...stats, path: 'cpu' as const };
   },
 
   /**
    * Re-bake the IBL chain after a lighting-look switch. Bind groups keep
-   * pointing at the same texture, so nothing needs to be rebuilt.
+   * pointing at the same texture, so nothing needs to be rebuilt — and the
+   * compute pipeline is already built by now, so this stays synchronous.
    */
   refreshIblPrefilter() {
     if (!this.iblResources || !this.device) return;
-    this.setupIblPrefilter();
+    this._bakeIbl();
   },
 
   async setupFloorGrid() {
@@ -549,6 +596,7 @@ export const sceneSetupMethods: ThisType<Host> & {
 export class PostStack {
   setupIblPrefilter: typeof sceneSetupMethods.setupIblPrefilter;
   refreshIblPrefilter: typeof sceneSetupMethods.refreshIblPrefilter;
+  _bakeIbl: typeof sceneSetupMethods._bakeIbl;
   setupFloorGrid: typeof sceneSetupMethods.setupFloorGrid;
   setupSkyGradient: typeof sceneSetupMethods.setupSkyGradient;
   setupAnomalyWallPipeline: typeof sceneSetupMethods.setupAnomalyWallPipeline;
@@ -569,6 +617,7 @@ export class PostStack {
     const bound = bindHostMethods(sceneSetupMethods, host);
     this.setupIblPrefilter = bound.setupIblPrefilter;
     this.refreshIblPrefilter = bound.refreshIblPrefilter;
+    this._bakeIbl = bound._bakeIbl;
     this.setupFloorGrid = bound.setupFloorGrid;
     this.setupSkyGradient = bound.setupSkyGradient;
     this.setupAnomalyWallPipeline = bound.setupAnomalyWallPipeline;

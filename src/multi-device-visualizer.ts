@@ -40,6 +40,7 @@ import {
   parseSsrEnabled
 } from './renderers/shared/url-params.js';
 import { createIblResources } from './ibl-prefilter';
+import type { IblPrefilterCompute } from './ibl-prefilter-gpu';
 import {
   SEGIntegrationManager,
   PHYSICS_UNIFORM_BYTES
@@ -141,6 +142,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
   /** Prefiltered GGX environment chain + sampler (ADR-0005 WS2, always-on). */
   iblResources?: ReturnType<typeof createIblResources> | null;
+  /** Compute prefilter, or null when it could not be built. `undefined` = not tried yet. */
+  iblCompute?: IblPrefilterCompute | null;
   /** Roughness level count uploaded to LightingConfig.iblLevels (0 = analytic fallback). */
   iblLevels?: number;
 
@@ -476,7 +479,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       this.refreshSEGLayout(1.0);
 
       // IBL must be resident before any SEG-enhanced bind group is built.
-      this.setupIblPrefilter();
+      await this.setupIblPrefilter();
 
       await this.setupSharedGeometry();
       await this.setupDevices();
@@ -864,8 +867,9 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   setupDepthBuffer(): Promise<void> { return this.postStack.setupDepthBuffer(); }
   setupBloomTextures(): void { this.postStack.setupBloomTextures(); }
   setupBloomPipeline(): Promise<void> { return this.postStack.setupBloomPipeline(); }
-  setupIblPrefilter(): { levels: number; cached: boolean; ms: number } { return this.postStack.setupIblPrefilter(); }
+  setupIblPrefilter(): ReturnType<PostStack['setupIblPrefilter']> { return this.postStack.setupIblPrefilter(); }
   refreshIblPrefilter(): void { this.postStack.refreshIblPrefilter(); }
+  _bakeIbl(): ReturnType<PostStack['_bakeIbl']> { return this.postStack._bakeIbl(); }
   setupSsrTexture(): void { this.postStack.setupSsrTexture(); }
   setupSsrPipeline(): Promise<void> { return this.postStack.setupSsrPipeline(); }
   setupDepthResolvePipeline(): Promise<void> { return this.postStack.setupDepthResolvePipeline(); }

@@ -56,6 +56,19 @@ export function storageTexture(
   return { binding, visibility, storageTexture: { access: 'write-only', format, viewDimension: '2d' } };
 }
 
+/** Write-only storage binding onto a 2d-array texture (`texture_storage_2d_array`). */
+export function storageTextureArray(
+  binding: number,
+  visibility: number,
+  format: GPUTextureFormat
+): GPUBindGroupLayoutEntry {
+  return {
+    binding,
+    visibility,
+    storageTexture: { access: 'write-only', format, viewDimension: '2d-array' }
+  };
+}
+
 export function sampler(binding: number, visibility: number): GPUBindGroupLayoutEntry {
   return { binding, visibility, sampler: { type: 'filtering' } };
 }

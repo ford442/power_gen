@@ -67,9 +67,11 @@ WGSL: `passes/particle-vert.wgsl`, `passes/particle-frag.wgsl` + `common/particl
 WGSL: `passes/seg-enhanced-vert.wgsl`, `passes/seg-enhanced-frag.wgsl`
 
 Bindings 7–8 are the always-on prefiltered IBL chain (ADR-0005 WS2): a
-`rgba16float` 2D array baked at startup by `src/ibl-prefilter.ts` and sampled in
-`common/pbr-eval.wgsl`. Layers `0..IBL_SPEC_LEVELS-1` hold octahedral GGX
-radiance for roughness `i/(n-1)`; the last layer holds cosine irradiance.
+`rgba16float` 2D array baked at startup and sampled in `common/pbr-eval.wgsl`.
+Layers `0..IBL_SPEC_LEVELS-1` hold octahedral GGX radiance for roughness
+`i/(n-1)`; the last layer holds cosine irradiance. The bake runs on the GPU
+(`passes/ibl-prefilter-compute.wgsl`, the `iblPrefilter` layout below), with
+the CPU bake in `src/ibl-prefilter.ts` as the fallback.
 
 ### `fluxSegment` — RK4 flux billboards
 
@@ -200,6 +202,7 @@ Same shape as `fieldAdvect`. Writes packed `FluxSegment` (32 B) for the
 | `bloomBlur` | 0 tex, 1 sampler, 2 params, 3 direction |
 | `bloomComposite` | 0 scene, 1 bloom, 2 sampler, 3 params, 4 depth, 5 prev scene, 6 SSR reflection |
 | `ssr` | 0 depth, 1 scene, 2 sampler, 3 SsrParams, 4 reflection out (storage), 5 material G-buffer |
+| `iblPrefilter` | 0 IblPrefilterParams, 1 IBL array out (storage, 2d-array) |
 | `depthResolve` | 0 multisampled depth |
 
 `ssr` is a compute layout (`passes/ssr-compute.wgsl`) — all six entries are
@@ -219,6 +222,18 @@ every other pipeline in that pass (`sky`, `grid`, `particle`, `fluxSegment`,
 `energyArc`, `fieldLine`, `coil`, `anomalyWall`, `energyPipe`) declares `null`
 at slot 1 instead, which is valid WebGPU (that pipeline simply doesn't write
 the attachment) and needs no shader change.
+
+`iblPrefilter` (`passes/ibl-prefilter-compute.wgsl`) is a `COMPUTE` layout that
+bakes the GGX environment chain. Binding 1 is a write-only
+`texture_storage_2d_array<rgba16float>` view over **all** layers of the same
+texture `segEnhanced` binding 7 samples, so the shader picks its destination
+layer from `IblPrefilterParams.job.x` rather than needing a per-layer view.
+Binding 0 is bound as a 160-byte slice of one params buffer at a 256-byte
+stride, one slice per layer, so all layers can be dispatched into a single
+compute pass without rewriting the uniform between dispatches. The host side is
+`src/ibl-prefilter-gpu.ts`; it falls back to the CPU bake if the pipeline or the
+`STORAGE_BINDING` usage is rejected. See "IBL prefilter" in
+`docs/LIGHTING_RIG.md`.
 
 `depthResolve` (`passes/depth-resolve.wgsl`) is a `FRAGMENT`-visible layout
 with one `texture_depth_multisampled_2d` binding — the manual MSAA depth

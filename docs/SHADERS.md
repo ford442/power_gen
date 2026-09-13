@@ -130,6 +130,10 @@ post stack:
   aligned
 - `IBL_TEX_SIZE` / `IBL_SPEC_LEVELS` agree between `ibl-prefilter.ts` and
   `pbr-eval.wgsl`
+- `IblPrefilterParams` in `passes/ibl-prefilter-compute.wgsl` matches
+  `packIblPrefilterParams()`, the dispatch schedule covers every array layer,
+  the workgroup size matches the host's dispatch arithmetic, and the two
+  `envRadiance()` implementations (TS + WGSL) share their shaping constants
 
 Add a case here whenever you introduce a new struct that is written on the CPU
 and declared in WGSL.

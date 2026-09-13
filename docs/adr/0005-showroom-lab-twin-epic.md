@@ -50,10 +50,14 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Filmic curve + exposure from lighting preset
 - [x] Cheap SSAO + contact shadow (composite)
 - [x] IBL irradiance polish for SEG metals (analytic env mips in `pbr-eval.wgsl`)
-- [x] **Prefiltered GGX split-sum IBL** — CPU bake per lighting preset into an
-      octahedral `rgba16float` 2D array (`src/ibl-prefilter.ts`), sampled in
-      `pbr-eval.wgsl`; replaces the analytic polynomial, which is retained as the
-      pre-upload fallback. Always-on (224 KB), memoised per look.
+- [x] **Prefiltered GGX split-sum IBL** — per lighting preset into an
+      octahedral `rgba16float` 2D array, sampled in `pbr-eval.wgsl`; replaces
+      the analytic polynomial, which is retained as the pre-upload fallback.
+      Always-on (224 KB).
+- [x] **IBL bake on the GPU** — `passes/ibl-prefilter-compute.wgsl` +
+      `src/ibl-prefilter-gpu.ts`, one dispatch per layer, so the first switch to
+      a look no longer blocks the main thread for ~270 ms. The CPU bake
+      (`src/ibl-prefilter.ts`, memoised per look) stays as the fallback.
 - [x] **Screen-space reflections** for SEG roller chrome/nickel
       (`passes/ssr-compute.wgsl`) — view-space march against the existing depth
       buffer, half-res reflection target composited after SSAO. Gated to the

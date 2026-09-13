@@ -243,6 +243,22 @@ export async function ensureBloomPipelines(
   );
 }
 
+export async function ensureIblPrefilterPipeline(
+  cache: PipelineLayoutCache,
+  code: string
+): Promise<GPUComputePipeline> {
+  return cache.getOrCreatePipeline(`iblPrefilter_${hashString(code)}`, async () => {
+    const module = cache.shaderModule('ibl-prefilter-compute-module', code);
+    const p = await cache.device.createComputePipelineAsync({
+      label: 'ibl-prefilter-compute-pipeline',
+      layout: cache.getPipelineLayout('iblPrefilter'),
+      compute: { module, entryPoint: 'main' }
+    });
+    cache.pipelines.set('iblPrefilter', p);
+    return p;
+  });
+}
+
 export async function ensureSsrPipeline(
   cache: PipelineLayoutCache,
   code: string

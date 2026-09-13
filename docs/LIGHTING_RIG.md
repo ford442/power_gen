@@ -29,8 +29,8 @@ Each preset defines key / fill / rim / ground lights uploaded to `lightingUnifor
 
 ### Prefiltered environment (ADR-0005 WS2)
 
-`src/ibl-prefilter.ts` bakes the active preset into an octahedral `rgba16float`
-**2D array texture** at startup (segEnhanced bindings 7–8):
+The active preset is baked into an octahedral `rgba16float` **2D array
+texture** at startup (segEnhanced bindings 7–8):
 
 | Layer | Contents |
 |-------|----------|
@@ -41,9 +41,20 @@ Each preset defines key / fill / rim / ground lights uploaded to `lightingUnifor
   Small enough to be **always-on**; it is not quality-gated.
 - The split-sum's DFG term is Lazarov's analytic fit (`envBRDFApprox`), so there
   is no BRDF LUT texture.
-- Bake cost is ~270 ms on the main thread, **memoised per look** — switching
-  studio → lab → drama pays it once each, and `setLightingLook()` re-uploads
-  into the same texture so no bind group is rebuilt.
+- **The bake runs as a compute pass** (`passes/ibl-prefilter-compute.wgsl`,
+  host in `src/ibl-prefilter-gpu.ts`): one dispatch per layer, writing the array
+  texture in place through a `texture_storage_2d_array` view. The main thread
+  pays only the encode (well under a millisecond); the GGX importance-sampling
+  itself is GPU work that overlaps the frame loop.
+- **CPU fallback**: `prefilterEnvironment()` in `src/ibl-prefilter.ts` is the
+  same algorithm in JS, still **memoised per look**, and costs ~270 ms of
+  main-thread time the first time each look is used. It takes over whenever the
+  compute pipeline or the texture's `STORAGE_BINDING` usage is rejected.
+  Software/fallback adapters skip IBL altogether before either path runs.
+  Both paths agree to within `rgba16float` quantisation — `envRadiance()` is
+  duplicated in TS and WGSL and the two are compared by `npm run check:post`.
+- Either way `setLightingLook()` re-bakes into the same texture, so no bind
+  group is rebuilt.
 - Constants are duplicated in `pbr-eval.wgsl`; `assertIblShaderContract()` (and
   `npm run check:post`) fail on drift.
 - `LightingConfig.iblLevels` is `0` until the bake is uploaded — `pbr-eval.wgsl`
@@ -248,6 +259,10 @@ untouched by ADR-0005 WS2. Instead:
 1. Edit presets in `src/seg-lighting-presets.ts`
 2. If changing struct layouts, update WGSL in `bloom-shaders.js` and CPU packers together
 3. Run `npm run check:post` (struct/packer contracts) and `npm run check:wgsl`
-4. Changing the lighting rig changes the IBL bake — clear the memo with
+4. Changing the lighting rig changes the IBL bake. The compute path re-bakes
+   every switch, so nothing to clear; on the CPU fallback clear the memo with
    `clearIblCache()` if you are editing presets live
-5. Run `npm run build:site`
+5. Editing `envRadiance()` means editing it **twice** — `src/ibl-prefilter.ts`
+   and `passes/ibl-prefilter-compute.wgsl` — or the look changes with the bake
+   path. `npm run check:post` compares the shaping constants
+6. Run `npm run build:site`
