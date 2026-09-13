@@ -12,7 +12,7 @@
 | Bootstrap | `src/main.ts` |
 | WebGPU | `src/multi-device-visualizer.ts` |
 | WebGL2 | `src/renderers/webgl2/` |
-| Select backend | `src/renderers/renderer-selector.js` |
+| Select backend | `src/renderers/renderer-selector.ts` |
 | Device layout | `src/devices/device-config.ts` |
 | ADRs | `docs/adr/` |
 
@@ -50,8 +50,8 @@ Hooks: `window.currentRenderer`, `window.getRendererInfo()`, `window.captureCanv
 
 | Use | For |
 |-----|-----|
-| **JS** | WebGL2, geometry builders, scientific-ui, debug-panel |
-| **TS** | Bootstrap, visualizer, registry/config, constants, WASM bridge |
+| **JS** | WebGL2, procedural geometry builders (`seg-geometry/**`) |
+| **TS** | Bootstrap, visualizer, registry/config, constants, WASM bridge, scientific-ui, debug-panel, SEG focus chrome |
 | **C++/WASM** | Optional plant (`?wasmPhysics=1`) |
 | **WGSL** | WebGPU shaders (`src/shaders/`) |
 | **GLSL** | WebGL2 only |

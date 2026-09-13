@@ -2,7 +2,7 @@ import {
   poleTintColor,
   computeRollerRotation,
   isNorthPole
-} from '../seg-roller-model.js';
+} from '../seg-roller-model';
 
 // ----------------------------------------------------------------------------
 // 7. ENHANCED ROLLER INSTANCE DATA (for use in update loop)

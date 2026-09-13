@@ -16,7 +16,7 @@
 //     generateBearingShaft, generatePoleBandedRoller, generatePlateWithCutouts,
 //     generateSupportStand, generateWireHarness, generateCoilWithWindings,
 //     SEGMaterialPresets, EnhancedSEGGeometry
-//   } from './seg-enhanced-geometry.js';
+//   } from './seg-enhanced-geometry';
 //
 //   // In your setupGeometry(), replace simple shapes with detailed ones:
 //   const shaft = generateBearingShaft(device, { shaftRadius: 0.6, ... });

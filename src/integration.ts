@@ -107,7 +107,7 @@ export class SEGIntegrationManager {
     this.ui = new NoOpScientificUI();
     if (options.enableScientificOverlay) {
       console.info(
-        '[SEGIntegration] enableScientificOverlay ignored — use scientific-ui/index.js + TelemetryHub'
+        '[SEGIntegration] enableScientificOverlay ignored — use scientific-ui/index + TelemetryHub'
       );
     }
     if (typeof options.updateIntervalMs === 'number' && options.updateIntervalMs > 0) {

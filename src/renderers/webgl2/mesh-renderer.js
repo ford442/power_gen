@@ -1,9 +1,9 @@
 import { linkProgram, getUniformLocations } from './shader-utils.js';
 import { MESH_VERT, MESH_FRAG, ROLLER_VERT, ROLLER_FRAG } from './shaders.js';
-import { generateCylinder, generateDisc, generateTorus, uploadMesh, uploadMeshWithUV } from '../shared/primitive-geometry.js';
-import { buildDetailedRollerMesh, poleTintColor, isNorthPole } from '../../seg-roller-model.js';
+import { generateCylinder, generateDisc, generateTorus, uploadMesh, uploadMeshWithUV } from '../shared/primitive-geometry';
+import { buildDetailedRollerMesh, poleTintColor, isNorthPole } from '../../seg-roller-model';
 import { computeSEGLayout, SEG_LAYOUT_PRESETS } from '../../seg-layout';
-import { computeFrameDimensions, parseSegFrameLevel } from '../../seg-frame-model.js';
+import { computeFrameDimensions, parseSegFrameLevel } from '../../seg-frame-model';
 import {
   buildHeronMesh,
   HERON_LAYOUT_PRESETS

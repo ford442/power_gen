@@ -1,4 +1,4 @@
-import { frameVibrationOffset } from '../../seg-frame-model.js';
+import { frameVibrationOffset } from '../../seg-frame-model';
 import { MATERIAL_COIL_FORMER, MATERIAL_LAB_BASE, MATERIAL_STRUCTURAL } from '../material-roles';
 import type { DeviceInstanceLike, DevicePlugin } from '../types';
 

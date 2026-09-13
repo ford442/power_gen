@@ -168,7 +168,7 @@ export interface SegFrameBuffers {
   structural?: MeshBuffers | null;
   controlBox?: MeshBuffers | null;
   safetyCage?: MeshBuffers | null;
-  /** computeFrameDimensions() output (seg-frame-model.js). */
+  /** computeFrameDimensions() output (seg-frame-model.ts). */
   dims?: { statorH: number; plateY?: number };
 }
 
@@ -219,7 +219,7 @@ export interface VisualizerLike {
     config?: { numCoils?: number };
     coilMask?: number;
   } | null;
-  // Electromagnet coil driver — see electromagnet-controller.js
+  // Electromagnet coil driver — see electromagnet-controller.ts
   emController?: {
     numCoils?: number;
     offsetAngle?: number;

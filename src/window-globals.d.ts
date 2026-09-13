@@ -1,7 +1,7 @@
 import type { SEGOperatorState } from './seg-operator-state';
 import type { TelemetryHub } from './telemetry-hub';
 import type { HeronLayout, DevicePhysicsState } from './renderers/shared/device-physics';
-import type { SEGTourPlayer } from './seg-explainer/seg-tour-player.js';
+import type { SEGTourPlayer } from './seg-explainer/seg-tour-player';
 import type { SegLayout } from './devices/types';
 import type { HardwarePanel } from './hardware-panel';
 import type { HardwareBridge } from './hardware-bridge';
@@ -117,7 +117,7 @@ declare global {
   interface Window {
     segOperator: SEGOperatorState;
     segOperatorPanel?: SEGOperatorPanel;
-    /** 2D schematic overlay singleton (seg-diagram-2d.js). */
+    /** 2D schematic overlay singleton (seg-diagram-2d.ts). */
     segDiagram2D?: { setVisible?: (on: boolean) => void };
     telemetryHub: TelemetryHub;
     multiVisualizer?: MultiVisualizerWindowRef;
@@ -200,7 +200,7 @@ declare global {
     /** Force-disable the SEG housing glTF prop (assets/gltf/prop-registry.ts). */
     GLTF_HOUSING?: boolean;
 
-    /** SEG component-label overlay singleton (seg-annotations.js). */
+    /** SEG component-label overlay singleton (seg-annotations.ts). */
     segAnnotations?: { setEnabled: (on: boolean) => void };
 
     /** Hardware digital twin connect panel singleton (hardware-panel.ts). */

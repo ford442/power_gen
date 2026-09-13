@@ -7,7 +7,7 @@
 import { createDevicePhysicsState, stepDevicePhysics } from './renderers/shared/device-physics';
 import type { DevicePhysicsState } from './renderers/shared/device-physics';
 import { ValidatedConstants } from './ValidatedConstants';
-import { SEG_DATA } from './scientific-data.js';
+import { SEG_DATA } from './scientific-data';
 import type { SegOperatorTelemetry } from './telemetry/types';
 
 /**

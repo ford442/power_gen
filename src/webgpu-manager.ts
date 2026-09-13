@@ -1,5 +1,5 @@
 /**
- * WebGPU device/context init. For renderer switching see renderers/renderer-selector.js.
+ * WebGPU device/context init. For renderer switching see renderers/renderer-selector.ts.
  * Automatic WebGL2 fallback on failure is disabled (boot hard-fails; see webgpu-probe.ts).
  * Explicit ?renderer=webgl2 remains an agent opt-in path only.
  *

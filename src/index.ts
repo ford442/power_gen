@@ -3,7 +3,7 @@
  *
  * Runtime entry is src/main.ts (not this file). This barrel exports types,
  * constants, and integration helpers. Renderer selection lives in
- * src/renderers/renderer-selector.js (webgpu | webgl2).
+ * src/renderers/renderer-selector.ts (webgpu | webgl2).
  */
 
 // ============================================

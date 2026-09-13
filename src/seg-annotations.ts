@@ -4,8 +4,8 @@
 // Projects labeled anchors from SEG-local space onto the canvas. Synced with
 // 2D diagram via explainerState.highlightId (tour + experiments).
 
-import { explainerState } from './seg-explainer/explainer-state.js';
-import { glossaryForHighlight } from './seg-explainer/seg-glossary.js';
+import { explainerState } from './seg-explainer/explainer-state';
+import { glossaryForHighlight } from './seg-explainer/seg-glossary';
 
 const INK = '#46f0ff';
 const INK_DIM = 'rgba(70,240,255,0.55)';

@@ -5,7 +5,7 @@
 
 import { HardwareBridge, TWIN_MODES, type SensorSnapshot } from './hardware-bridge';
 import { syncHardwareTwinBadgeFromBridge } from './hardware-twin-badge';
-import { ElectromagnetController } from './electromagnet-controller.js';
+import { ElectromagnetController } from './electromagnet-controller';
 
 function bits(mask: number, n: number): number[] {
   const out: number[] = [];

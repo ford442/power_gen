@@ -1,5 +1,5 @@
 /**
- * Glossary terms sourced from scientific-data.js / literature refs.
+ * Glossary terms sourced from scientific-data.ts / literature refs.
  */
 
 import { SEG_DATA, PHYSICAL_CONSTANTS } from '../scientific-data';

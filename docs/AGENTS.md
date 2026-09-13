@@ -109,8 +109,8 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 
 | Language | Own | Do not put |
 |----------|-----|------------|
-| **JavaScript** | WebGL2 path (`renderers/webgl2/**`), procedural geometry builders (`seg-geometry/**`), scientific-ui gauges, `multi-device-shaders.js`, `seg-annotations.js`, `electromagnet-controller.js`, `scientific-data.js` | New authoritative physics formulas; new device plugin hooks (typed via `devices/types.ts`); dashboard layout (`DEVICE_CONFIG`) |
-| **TypeScript** | `main.ts`, `session/`, `multi-device-visualizer.ts`, device registry/config, `device-instance.ts`, visualizer GPU collaborators, WASM bridge, shared url-params/view-lod/device-view, constants (`ValidatedConstants.ts`), `integration.ts`, telemetry, `pipeline-layout-cache.ts`, `devices/types.ts`, core/Quanta strategies | WebGL2 GLSL path; Three.js / gl-matrix (ADR-0003) |
+| **JavaScript** | WebGL2 path (`renderers/webgl2/**`), procedural geometry builders (`seg-geometry/**`, `seg-geometry-generators.js`), `multi-device-shaders.js`, `shaders/generators/*` (`?raw` re-exports), `shaders/wgsl-include.js` | New authoritative physics formulas; new device plugin hooks (typed via `devices/types.ts`); dashboard layout (`DEVICE_CONFIG`) |
+| **TypeScript** | `main.ts`, `session/`, `multi-device-visualizer.ts`, device registry/config, `device-instance.ts`, visualizer GPU collaborators, WASM bridge, shared url-params/view-lod/device-view, constants (`ValidatedConstants.ts`), `integration.ts`, telemetry, `pipeline-layout-cache.ts`, `devices/types.ts`, core/Quanta strategies, `scientific-ui/**`, `scientific-data.ts`, `seg-explainer/**`, `renderers/renderer-selector.ts`, `renderers/shared/primitive-geometry.ts`, `electromagnet-controller.ts`, `devices/register-plugins.ts`, SEG focus chrome (`seg-annotations`, `seg-diagram-2d`, `seg-materials`, `seg-enhanced-geometry`, `seg-roller-model`, `seg-frame-model`) | WebGL2 GLSL path; Three.js / gl-matrix (ADR-0003) |
 | **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar/Peltier/MHD/Quanta state) | Browser DOM or GPU API calls |
 | **WGSL** | WebGPU compute + render (`src/shaders/`) | WebGL2 fallback |
 | **GLSL** | WebGL2 only (`renderers/webgl2/shaders.js`) | WebGPU path |
@@ -125,6 +125,19 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 - Runtime entry is **`src/main.ts`**. `index.ts` is a typed **barrel**, not the app entry.
 - Physics constants SoT: `physics/constants.json` → codegen → `ValidatedConstants.ts` (ADR-0002/0006). Wolfram MCP manager was removed; do not reintroduce it on the default boot path.
 - **Import style:** JS entry paths import TypeScript modules **extensionless** (e.g. `./telemetry-hub` → `telemetry-hub.ts`). TypeScript sources may use a `.js` emit suffix for cross-file references (`moduleResolution: bundler`). Do not use `from '…ts'` in app code.
+
+### TypeScript migration (Wave 7 — complete)
+
+| Item | Status |
+|------|--------|
+| `apply-wasm-plant.ts` derives `WASM_PLANT_MODES` + core/quanta wasm-ownership split from `generated/device-catalog.ts` (ADR-0008) instead of two hand-rolled id arrays | Done |
+| `DeviceTelemetrySnap` + `telemetry-hub.ts` gain `vdg`/`hall`/`lorentz-sled` fields matching their catalog `telemetryKeys`; `Partial<>` casts removed from `seg-operator-panel.ts`; `check:catalog` now hard-fails on drift between the catalog and either file | Done |
+| Live dashboard: `scientific-ui/**` (gauges + `manager.ts`), `scientific-data.ts` (deleted stub `scientific-data.d.ts`) → `.ts` | Done |
+| `#lab=` tours/glossary: `seg-explainer/*` → `.ts` | Done |
+| Boot policy + shared geometry: `renderers/renderer-selector.ts`, `renderers/shared/primitive-geometry.ts`, `electromagnet-controller.ts`, `devices/register-plugins.ts` → `.ts` | Done |
+| SEG focus chrome: `seg-annotations`, `seg-diagram-2d`, `seg-materials`, `seg-enhanced-geometry`, `seg-roller-model`, `seg-frame-model` → `.ts`; deleted stub `seg-frame-model.d.ts` | Done |
+
+**Still JavaScript (intentional):** `renderers/webgl2/**` (GLSL path, ADR-0001), `seg-geometry/**` + `seg-geometry-generators.js` (procedural builders), `shaders/generators/*` (thin `?raw` re-exports), `shaders/wgsl-include.js` / Vite plugin, `multi-device-shaders.js`. `src/wasm/offline-runner.js` keeps its hand-written `offline-runner.d.ts` (not part of this wave). `src/scientific-ui.js` / `src/scientific-ui-utils.js` are deprecated re-export shims kept for backward compat — import `scientific-ui/index` / `scientific-ui/utils/index` directly instead.
 
 ### TypeScript migration (Wave 6 — complete)
 
@@ -198,7 +211,7 @@ power_gen/
 │   ├── telemetry/                # Export, replay, sampler, schema (all .ts)
 │   ├── seg-operator-state.ts
 │   ├── renderers/
-│   │   ├── renderer-selector.js
+│   │   ├── renderer-selector.ts
 │   │   ├── shared/               # CPU physics both backends (mostly .ts)
 │   │   └── webgl2/               # GLSL fallback (stays JS)
 │   ├── shaders/                  # WGSL common/ + passes/ + generators/
