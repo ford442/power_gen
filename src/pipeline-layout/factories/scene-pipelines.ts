@@ -243,6 +243,12 @@ export async function ensureBloomPipelines(
   );
 }
 
+/**
+ * Temporal AA resolve pipeline (ADR-0005 WS2). Draws the shared full-screen
+ * triangle from `bloom-vert.wgsl`; `format` is the canvas format the resolve
+ * target was allocated with, and is part of the cache key so a format change
+ * cannot reuse a stale pipeline.
+ */
 export async function ensureTaaResolvePipeline(
   cache: PipelineLayoutCache,
   shaders: { bloomVertShader: string; taaResolveShader: string },
@@ -271,6 +277,11 @@ export async function ensureTaaResolvePipeline(
   );
 }
 
+/**
+ * IBL GGX prefilter compute pipeline (ADR-0005 WS2). One pipeline drives every
+ * array layer; the destination layer comes from the uniform block, not a
+ * pipeline variant.
+ */
 export async function ensureIblPrefilterPipeline(
   cache: PipelineLayoutCache,
   code: string

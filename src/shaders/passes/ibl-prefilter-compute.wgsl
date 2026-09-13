@@ -92,6 +92,11 @@ fn basisFrom(n: vec3f) -> mat2x3f {
 // WGSL and so cannot catch a structural change — keep the two functions
 // line-for-line alike so a reviewer can diff them by eye.
 
+/**
+ * One directional softbox. `cosOuter`/`cosInner` are the cosines of the lobe's
+ * falloff edges, so a tighter pair (the rim's 0.90 -> 0.995) reads as an edge
+ * streak and a wider one (the key's 0.82 -> 0.965) as a broad blob on chrome.
+ */
 fn addLobe(dir: vec3f, lightDir: vec3f, color: vec3f, intensity: f32,
            cosOuter: f32, cosInner: f32, gain: f32) -> vec3f {
   let d = dot(dir, lightDir);
@@ -100,6 +105,7 @@ fn addLobe(dir: vec3f, lightDir: vec3f, color: vec3f, intensity: f32,
   return color * w;
 }
 
+/** Radiance arriving from `dir`, i.e. the environment the prefilter samples. */
 fn envRadiance(dir: vec3f) -> vec3f {
   let keyI = params.keyDir.w;
   let fillI = params.fillDir.w;
