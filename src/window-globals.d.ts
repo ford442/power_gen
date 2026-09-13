@@ -6,6 +6,7 @@ import type { SegLayout } from './devices/types';
 import type { HardwarePanel } from './hardware-panel';
 import type { HardwareBridge } from './hardware-bridge';
 import type { SEGOperatorPanel } from './seg-operator-panel';
+import type { MultiDeviceCamera } from './multi-device-camera';
 
 /**
  * Minimal window-facing view of SegLayout. Kept separate (rather than reusing
@@ -21,6 +22,8 @@ export interface MultiVisualizerWindowRef {
   heronLayoutPreset?: string;
   currentView?: string;
   segFrameLevel?: string;
+  cameraController?: MultiDeviceCamera | null;
+  devicesEnabled?: Record<string, boolean>;
   anomalousEffectsEnabled?: boolean;
   segLayout?: SegLayoutSummary | null;
   heronLayout?: (HeronLayout & { name?: string; description?: string }) | null;
@@ -131,6 +134,10 @@ declare global {
     };
     setSEGLayout?: (preset: string) => void;
     setHeronLayout?: (preset: string) => void;
+    /** Snap camera to a specific device in the multi-device overview (index.html inline handler). */
+    focusDevice?: (deviceId: string) => void;
+    /** Toggle a device's visibility in the multi-device overview (index.html inline handler). */
+    toggleDevice?: (deviceId: string) => void;
 
     /** Focus a simulation mode / device view (main.js, keyboard shortcuts, tours). */
     setMode?(mode: string): void;

@@ -44,6 +44,7 @@ import { setHallCarrierType } from './devices/quanta/hall-effect.js';
 import { setLorentzFieldT, LORENTZ } from './devices/quanta/lorentz-sled.js';
 import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
 import { ScientificUIManager } from './scientific-ui/index.js';
+import './multi-device-window-api';
 
 // Agent / e2e hooks
 window.telemetryHub = telemetryHub;
