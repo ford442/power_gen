@@ -66,6 +66,27 @@ export function parseSsrEnabled(params: URLSearchParams = defaultParams()): bool
   return true;
 }
 
+/**
+ * Temporal AA kill switch: `?taa=0` (aliases: off / false / no).
+ *
+ * Same shape as {@link parseSsrEnabled}: the quality tier already gates TAA to
+ * high/ultra in focus mode, and this lets a capture or a bug report turn it off
+ * at any tier without disturbing the rest of the post stack. WebGL2 has no TAA
+ * at all, so the flag is WebGPU-only (docs/WEBGL2.md).
+ *
+ * @returns true when TAA may run (subject to the tier and mode gates)
+ */
+export function parseTaaEnabled(params: URLSearchParams = defaultParams()): boolean {
+  const raw = params.get('taa');
+  if (raw !== null) {
+    return !(raw === '0' || raw === 'off' || raw === 'false' || raw === 'no');
+  }
+  if (typeof window !== 'undefined' && window.SEG_TAA_ENABLED !== undefined) {
+    return !!window.SEG_TAA_ENABLED;
+  }
+  return true;
+}
+
 /** Whether Roschin–Godin anomalous environmental effects (magnetic walls, etc.) are enabled. */
 export function parseAnomalousEffects(prototypePreset: PrototypePreset): boolean {
   return prototypePreset === 'lab';

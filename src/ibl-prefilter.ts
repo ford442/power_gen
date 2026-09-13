@@ -39,10 +39,10 @@ export const IBL_FORMAT: GPUTextureFormat = 'rgba16float';
  * one-time bake at 64². Doubling these roughly doubles the bake for ~1% less
  * error, which is well below a quantisation step after tonemapping.
  */
-const SAMPLES_PER_LEVEL = [1, 32, 48, 48, 32, 24];
+export const SAMPLES_PER_LEVEL = [1, 32, 48, 48, 32, 24];
 
 /** Cosine-hemisphere samples for the irradiance layer. */
-const IRRADIANCE_SAMPLES = 32;
+export const IRRADIANCE_SAMPLES = 32;
 
 const TWO_PI = Math.PI * 2;
 
@@ -354,26 +354,63 @@ export interface IblResources {
   size: number;
   layers: number;
   byteLength: number;
+  /** True when the texture carries STORAGE_BINDING, i.e. the compute bake can target it. */
+  storage: boolean;
 }
 
 export interface CreateIblResourcesOpts {
   size?: number;
   layers?: number;
+  /** Request STORAGE_BINDING for the compute prefilter (default true). */
+  storage?: boolean;
 }
 
 /**
  * Create the (always-on) IBL array texture + sampler.
+ *
+ * STORAGE_BINDING is requested so the compute prefilter can write the layers
+ * in place. `rgba16float` is a core write-only storage format, but a device
+ * that rejects the combination just loses the compute path — the texture is
+ * recreated sampled-only and the CPU bake fills it via `writeTexture`.
+ *
+ * Async because that rejection has to be *detected*: WebGPU reports an
+ * unsupported usage as a validation error on an error scope, not as a thrown
+ * exception, so `try`/`catch` around `createTexture` would sail straight past
+ * it and hand back an invalid texture with `storage: true` — selecting the
+ * compute path and skipping the very fallback this branch exists for.
  */
-export function createIblResources(device: GPUDevice, opts: CreateIblResourcesOpts = {}): IblResources {
+export async function createIblResources(
+  device: GPUDevice,
+  opts: CreateIblResourcesOpts = {}
+): Promise<IblResources> {
   const size = opts.size ?? IBL_TEX_SIZE;
   const layers = opts.layers ?? IBL_LAYERS;
-  const texture = device.createTexture({
+  const wantStorage = opts.storage !== false;
+  const sampledUsage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST;
+
+  let storage = wantStorage;
+  let texture: GPUTexture;
+  const describe = (usage: GPUTextureUsageFlags): GPUTextureDescriptor => ({
     label: 'ibl-specular-array',
     size: [size, size, layers],
     format: IBL_FORMAT,
     dimension: '2d',
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+    usage
   });
+
+  if (wantStorage) {
+    device.pushErrorScope('validation');
+    texture = device.createTexture(describe(sampledUsage | GPUTextureUsage.STORAGE_BINDING));
+    const error = await device.popErrorScope();
+    if (error) {
+      console.warn('[ibl-prefilter] STORAGE_BINDING rejected — compute bake unavailable:', error.message);
+      texture.destroy();
+      storage = false;
+      texture = device.createTexture(describe(sampledUsage));
+    }
+  } else {
+    texture = device.createTexture(describe(sampledUsage));
+  }
   const sampler = device.createSampler({
     label: 'ibl-sampler',
     magFilter: 'linear',
@@ -387,7 +424,8 @@ export function createIblResources(device: GPUDevice, opts: CreateIblResourcesOp
     view: texture.createView({ dimension: '2d-array' }),
     size,
     layers,
-    byteLength: size * size * layers * 8
+    byteLength: size * size * layers * 8,
+    storage
   };
 }
 
@@ -428,6 +466,81 @@ export function uploadIblForPreset(device: GPUDevice, resources: IblResources, p
 /** Test hook — drop memoised bakes (used when presets are edited live). */
 export function clearIblCache(): void {
   prefilterCache.clear();
+}
+
+/** Floats in one IblPrefilterParams block — see passes/ibl-prefilter-compute.wgsl. */
+export const IBL_PREFILTER_PARAMS_FLOATS = 40;
+
+/** Bytes of the IblPrefilterParams uniform block (10 × vec4f). */
+export const IBL_PREFILTER_PARAMS_BYTES = IBL_PREFILTER_PARAMS_FLOATS * 4;
+
+export interface IblPrefilterJob {
+  /** Destination array layer. */
+  layer: number;
+  /** GGX roughness for this layer (ignored by the irradiance layer). */
+  roughness: number;
+  /** Importance-sample count. */
+  samples: number;
+  /** True for the cosine-convolved irradiance layer. */
+  irradiance: boolean;
+}
+
+/**
+ * The per-layer dispatch schedule, shared by both bake paths so the compute
+ * and CPU results use identical sample counts.
+ */
+export function iblPrefilterJobs(levels = IBL_SPEC_LEVELS): IblPrefilterJob[] {
+  const jobs: IblPrefilterJob[] = [];
+  for (let level = 0; level < levels; level++) {
+    jobs.push({
+      layer: level,
+      roughness: levels > 1 ? level / (levels - 1) : 0,
+      samples: SAMPLES_PER_LEVEL[level] ?? 32,
+      irradiance: false
+    });
+  }
+  jobs.push({ layer: levels, roughness: 1, samples: IRRADIANCE_SAMPLES, irradiance: true });
+  return jobs;
+}
+
+/**
+ * Pack one dispatch's IblPrefilterParams block.
+ *
+ * Layout must match the struct in passes/ibl-prefilter-compute.wgsl; the float
+ * count is asserted by `npm run check:post`. Light directions are normalised
+ * here (the shader assumes unit vectors) exactly as the CPU bake does.
+ */
+export function packIblPrefilterParams(preset: LightingPreset, job: IblPrefilterJob): Float32Array {
+  const out = new Float32Array(IBL_PREFILTER_PARAMS_FLOATS);
+  const L = preset.lighting;
+  const sky = preset.sky;
+
+  const dir = (arm: { position: number[]; intensity: number }, at: number) => {
+    const n = normalize3(arm.position);
+    out[at] = n[0]; out[at + 1] = n[1]; out[at + 2] = n[2]; out[at + 3] = arm.intensity;
+  };
+  const rgb = (color: number[], at: number, w = 0) => {
+    out[at] = color[0]; out[at + 1] = color[1]; out[at + 2] = color[2]; out[at + 3] = w;
+  };
+
+  dir(L.key, 0);
+  dir(L.fill, 4);
+  dir(L.rim, 8);
+  rgb(L.key.color, 12);
+  rgb(L.fill.color, 16);
+  rgb(L.rim.color, 20);
+  // ground.w carries the ground intensity (its direction is never sampled).
+  rgb(L.ground.color, 24, L.ground.intensity);
+  // skyTop.w doubles as the "preset has a sky block" flag, so the shader can
+  // fold the dome term to zero without a branch.
+  rgb(sky ? sky.top : [0, 0, 0], 28, sky ? 1 : 0);
+  rgb(sky ? sky.horizon : [0, 0, 0], 32);
+
+  out[36] = job.layer;
+  out[37] = job.roughness;
+  out[38] = job.samples;
+  out[39] = job.irradiance ? 1 : 0;
+  return out;
 }
 
 /**

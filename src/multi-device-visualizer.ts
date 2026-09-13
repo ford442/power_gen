@@ -37,9 +37,11 @@ import type { EnergyNetwork } from './renderers/shared/energy-network';
 import { gpuChores } from './gpu-chores';
 import { showWebGPUHardFail, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import {
-  parseSsrEnabled
+  parseSsrEnabled,
+  parseTaaEnabled
 } from './renderers/shared/url-params.js';
 import { createIblResources } from './ibl-prefilter';
+import type { IblPrefilterCompute } from './ibl-prefilter-gpu';
 import {
   SEGIntegrationManager,
   PHYSICS_UNIFORM_BYTES
@@ -140,12 +142,16 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   lightingUniformBuffer?: GPUBuffer | null;
 
   /** Prefiltered GGX environment chain + sampler (ADR-0005 WS2, always-on). */
-  iblResources?: ReturnType<typeof createIblResources> | null;
+  iblResources?: Awaited<ReturnType<typeof createIblResources>> | null;
+  /** Compute prefilter, or null when it could not be built. `undefined` = not tried yet. */
+  iblCompute?: IblPrefilterCompute | null;
   /** Roughness level count uploaded to LightingConfig.iblLevels (0 = analytic fallback). */
   iblLevels?: number;
 
   /** Screen-space reflections (high/ultra tier, `?ssr=0` kill switch). */
   ssrEnabled: boolean;
+  /** `?taa=0` kill switch — independent of the tier / overview gates. */
+  taaEnabled: boolean;
   ssrPipeline?: GPUComputePipeline | null;
   ssrParamsBuffer?: GPUBuffer | null;
   ssrTexture?: GPUTexture | null;
@@ -272,6 +278,25 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   bloomBlurYBindGroup?: GPUBindGroup | null;
   bloomCompositeBindGroup?: GPUBindGroup | null;
   bloomCompositeBindGroupResolved?: GPUBindGroup | null;
+
+  // ── Temporal AA (ADR-0005 WS2) ──────────────────────────────────────────
+  taaResolveTexture?: GPUTexture | null;
+  taaResolveView?: GPUTextureView | null;
+  taaPipeline?: GPURenderPipeline | null;
+  taaParamsBuffer?: GPUBuffer | null;
+  taaBindGroup?: GPUBindGroup | null;
+  taaBindGroupResolved?: GPUBindGroup | null;
+  /** Bloom variants that read the TAA resolve target instead of the raw scene. */
+  bloomExtractBindGroupTaa?: GPUBindGroup | null;
+  bloomCompositeBindGroupTaa?: GPUBindGroup | null;
+  bloomCompositeBindGroupResolvedTaa?: GPUBindGroup | null;
+  /** False until a history frame exists — reset on mode / layout / look / resize. */
+  _taaHistoryValid?: boolean;
+  /** Previous frame's view-projection, for reprojection. */
+  _taaPrevViewProj?: Float32Array | null;
+  /** Whether the TAA pass actually ran this frame (picks the bloom bind groups). */
+  _taaActive?: boolean;
+
   _canvasResizeObserver?: ResizeObserver | null;
   _lastCanvasWidth?: number;
   _lastCanvasHeight?: number;
@@ -318,6 +343,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
     const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
     this.ssrEnabled = parseSsrEnabled(params);
+    this.taaEnabled = parseTaaEnabled(params);
 
     this.lightingLook = parseLightingLook(params);
     const lookPreset = getLightingPreset(this.lightingLook);
@@ -476,7 +502,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       this.refreshSEGLayout(1.0);
 
       // IBL must be resident before any SEG-enhanced bind group is built.
-      this.setupIblPrefilter();
+      await this.setupIblPrefilter();
 
       await this.setupSharedGeometry();
       await this.setupDevices();
@@ -489,6 +515,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       await this._waitForCanvasLayout();
       await this._syncCanvasSize();
       await this.setupBloomPipeline();
+      await this.setupTaaPipeline();
       await this.setupSsrPipeline();
       await this.setupDepthResolvePipeline();
       await this.setupAnomalyWallPipeline();
@@ -618,6 +645,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     // The prefiltered environment is baked per preset — rebake (memoised) so
     // reflections and irradiance follow the new rig.
     this.refreshIblPrefilter();
+    // Every pixel's colour just changed — history from the old rig would ghost.
+    this._resetTaaHistory();
     console.log(`[SEG] Lighting look → ${look}`);
   }
 
@@ -660,6 +689,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     }
 
     this.session.persistSegLayoutPreset(presetName);
+    // The rollers move to new positions; the old frame is a different scene.
+    this._resetTaaHistory();
     await this._setupCoreSEGSharedMeshes();
 
     const quality = this.profiler?.qualityLevel ?? 1.0;
@@ -810,6 +841,9 @@ export class MultiDeviceVisualizer implements VisualizerLike {
    */
   onModeChange(mode: string): void {
     const { view } = this.session.setMode(mode);
+    // New camera framing and often a different device — reprojecting last
+    // frame across the cut would smear it.
+    this._resetTaaHistory();
     document.querySelectorAll('.mode-btn').forEach((btn) => btn.classList.remove('active'));
     const activeBtn = document.getElementById(`btn-${view}`);
     if (activeBtn) activeBtn.classList.add('active');
@@ -864,8 +898,18 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   setupDepthBuffer(): Promise<void> { return this.postStack.setupDepthBuffer(); }
   setupBloomTextures(): void { this.postStack.setupBloomTextures(); }
   setupBloomPipeline(): Promise<void> { return this.postStack.setupBloomPipeline(); }
-  setupIblPrefilter(): { levels: number; cached: boolean; ms: number } { return this.postStack.setupIblPrefilter(); }
+  setupTaaPipeline(): Promise<void> { return this.postStack.setupTaaPipeline(); }
+  _rebuildTaaBindGroups(): void { this.postStack._rebuildTaaBindGroups(); }
+
+  /**
+   * Drop the temporal history. Anything that makes last frame's image a
+   * different scene must call this or TAA ghosts across the transition:
+   * mode switches, layout presets, and lighting-look changes.
+   */
+  _resetTaaHistory(): void { this._taaHistoryValid = false; }
+  setupIblPrefilter(): ReturnType<PostStack['setupIblPrefilter']> { return this.postStack.setupIblPrefilter(); }
   refreshIblPrefilter(): void { this.postStack.refreshIblPrefilter(); }
+  _bakeIbl(): ReturnType<PostStack['_bakeIbl']> { return this.postStack._bakeIbl(); }
   setupSsrTexture(): void { this.postStack.setupSsrTexture(); }
   setupSsrPipeline(): Promise<void> { return this.postStack.setupSsrPipeline(); }
   setupDepthResolvePipeline(): Promise<void> { return this.postStack.setupDepthResolvePipeline(); }
@@ -884,6 +928,10 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   ): void {
     this.frameLoop.renderAnomalyWalls(renderPass, globalUniformBuffer, segDevice);
   }
+  _encodeTaaResolve(encoder: GPUCommandEncoder, msaaActive: boolean): boolean {
+    return this.frameLoop._encodeTaaResolve(encoder, msaaActive);
+  }
+
   _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean): void {
     this.frameLoop._dispatchSsr(encoder, msaaActive);
   }

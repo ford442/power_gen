@@ -243,6 +243,61 @@ export async function ensureBloomPipelines(
   );
 }
 
+/**
+ * Temporal AA resolve pipeline (ADR-0005 WS2). Draws the shared full-screen
+ * triangle from `bloom-vert.wgsl`; `format` is the canvas format the resolve
+ * target was allocated with, and is part of the cache key so a format change
+ * cannot reuse a stale pipeline.
+ */
+export async function ensureTaaResolvePipeline(
+  cache: PipelineLayoutCache,
+  shaders: { bloomVertShader: string; taaResolveShader: string },
+  format: GPUTextureFormat
+): Promise<GPURenderPipeline> {
+  return cache.getOrCreatePipeline(
+    `taaResolve_${format}_${hashString(shaders.taaResolveShader)}`,
+    async () => {
+      const p = await cache.device.createRenderPipelineAsync({
+        label: 'taa-resolve-pipeline',
+        layout: cache.getPipelineLayout('taaResolve'),
+        vertex: {
+          module: cache.shaderModule('bloom-vert-module', shaders.bloomVertShader),
+          entryPoint: 'main'
+        },
+        fragment: {
+          module: cache.shaderModule('taa-resolve-module', shaders.taaResolveShader),
+          entryPoint: 'main',
+          targets: [{ format }]
+        },
+        primitive: { topology: 'triangle-list' }
+      });
+      cache.pipelines.set('taaResolve', p);
+      return p;
+    }
+  );
+}
+
+/**
+ * IBL GGX prefilter compute pipeline (ADR-0005 WS2). One pipeline drives every
+ * array layer; the destination layer comes from the uniform block, not a
+ * pipeline variant.
+ */
+export async function ensureIblPrefilterPipeline(
+  cache: PipelineLayoutCache,
+  code: string
+): Promise<GPUComputePipeline> {
+  return cache.getOrCreatePipeline(`iblPrefilter_${hashString(code)}`, async () => {
+    const module = cache.shaderModule('ibl-prefilter-compute-module', code);
+    const p = await cache.device.createComputePipelineAsync({
+      label: 'ibl-prefilter-compute-pipeline',
+      layout: cache.getPipelineLayout('iblPrefilter'),
+      compute: { module, entryPoint: 'main' }
+    });
+    cache.pipelines.set('iblPrefilter', p);
+    return p;
+  });
+}
+
 export async function ensureSsrPipeline(
   cache: PipelineLayoutCache,
   code: string

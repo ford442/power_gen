@@ -29,6 +29,17 @@ gpu-chores adopts that device; it never requests one after a failed probe.
 
 Do not open a WebGL2 context to “rescue” multi-device after probe failure.
 
+The device descriptor is labelled end to end, so validation errors name a real
+object instead of `Device #1` / `Queue #1`:
+
+```js
+adapter.requestDevice({
+  requiredFeatures, requiredLimits,
+  label: 'seg-primary-device',
+  defaultQueue: { label: 'seg-queue' }   // uncapturederror / DevTools attribution
+})
+```
+
 ## Canvas configuration
 
 | Setting | Value | Why |
@@ -93,8 +104,34 @@ Current soft targets (`PREFERRED_LIMITS` in `webgpu-manager.ts`):
 | `maxBufferSize` | 256 MiB | Large particle / field buffers |
 | `maxStorageBufferBindingSize` | 128 MiB | Storage bind headroom |
 | `maxComputeInvocationsPerWorkgroup` | 256 | Workgroup size flexibility |
+| `maxColorAttachmentBytesPerSample` | *computed* | Scene pass color targets — **only when they exceed the 32 B/sample default** |
 
 If the adapter cannot meet a preferred value, that key is **omitted** (device uses implementation defaults). Raise preferred values only when shaders require them.
+
+### `maxColorAttachmentBytesPerSample`
+
+The scene pass attaches canvas-format color **plus** the `rg8unorm`
+metalness/roughness G-buffer (ADR-0005 WS2). `sceneColorAttachmentLimit()`
+prices those targets with `colorAttachmentBytesPerSample()`
+(`src/color-attachment-cost.ts`, the spec's align-then-add rule) and returns a
+limit request **only if** the total exceeds the guaranteed 32 B/sample default:
+
+| Targets | Cost | Requested? |
+|---------|------|-----------|
+| `bgra8unorm` + `rg8unorm` (today) | 4 → align 2 → +2 = **6 B** | No — fits the default |
+| e.g. `bgra8unorm` + `rgba16float` | 4 → align 8 → +8 = **16 B** | No |
+| e.g. `rgba32float` + `rgba16float` | **24 B** | No |
+
+So the key is currently never requested — in line with #171's "never ask for
+what no pass uses". It exists so that widening a target raises the request
+automatically instead of failing pipeline validation on the first frame.
+`negotiateLimits()` still drops the key on an adapter that cannot meet it, so a
+low-end adapter gets a device rather than a `requestDevice` rejection;
+`_checkColorAttachmentBudget()` then logs an error at init if the granted
+budget is genuinely short. `npm run check:post` asserts every attachable format
+is priced and that the scene pass still fits.
+
+Note this is a **per-sample** figure: 4x MSAA does not multiply it.
 
 Current particle compute uses workgroup size **64** — well within defaults on shipping browsers.
 

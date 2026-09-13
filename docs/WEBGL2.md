@@ -42,8 +42,23 @@ Do **not** expect these under WebGL2:
 | Roschin–Godin magnetic wall shells | `renderAnomalyWalls` |
 | Full energy-pipe **particle** billboards | `EnergyPipe` + WGSL (WebGL2 uses lines) |
 | GPU timestamp queries | `?gpuTiming=1` |
+| **Temporal AA** | `passes/taa-resolve.wgsl` — **skipped**, see below |
 | Hardware bridge / electromagnet coils | CPU twin + panel work on WebGL2 (`?mockHardware=1`); **coil GPU viz** is WebGPU-only |
 | **glTF CAD props** (housing, coil former, …) | `setup-gltf.ts` / `prop-registry.ts` — **skipped** (see below) |
+
+### Temporal AA
+
+TAA is **WebGPU-only** and deliberately not ported. It needs a history target,
+a per-frame reprojection against the previous view-projection, and a resolve
+pass slotted between the scene and bloom — none of which the WebGL2 path has,
+since it has no bloom stack to slot into in the first place (see the row above).
+`?taa=0` is accepted and ignored on WebGL2.
+
+Neither does WebGL2 need `preserveDrawingBuffer` for it: TAA keeps its history
+in an offscreen texture, so the documented context attributes
+(`alpha: false`, `antialias: true`, `stencil: false`, `preserveDrawingBuffer`
+only for capture) are unchanged. WebGL2 keeps relying on the driver's MSAA
+(`antialias: true`) for edge quality.
 
 ## glTF / CAD props (skipped or reduced LOD)
 

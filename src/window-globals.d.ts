@@ -192,6 +192,7 @@ declare global {
     /** URL / window overrides shared by WebGPU + WebGL2 (url-params). */
     SEG_PROTOTYPE_PRESET?: 'lab' | 'showroom';
     SEG_SSR_ENABLED?: boolean;
+    SEG_TAA_ENABLED?: boolean;
     SEG_LAYOUT_PRESET?: string;
 
     /** WASM physics bridge singleton (seg-physics-bridge). */

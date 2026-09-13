@@ -29,8 +29,8 @@ Each preset defines key / fill / rim / ground lights uploaded to `lightingUnifor
 
 ### Prefiltered environment (ADR-0005 WS2)
 
-`src/ibl-prefilter.ts` bakes the active preset into an octahedral `rgba16float`
-**2D array texture** at startup (segEnhanced bindings 7–8):
+The active preset is baked into an octahedral `rgba16float` **2D array
+texture** at startup (segEnhanced bindings 7–8):
 
 | Layer | Contents |
 |-------|----------|
@@ -41,9 +41,25 @@ Each preset defines key / fill / rim / ground lights uploaded to `lightingUnifor
   Small enough to be **always-on**; it is not quality-gated.
 - The split-sum's DFG term is Lazarov's analytic fit (`envBRDFApprox`), so there
   is no BRDF LUT texture.
-- Bake cost is ~270 ms on the main thread, **memoised per look** — switching
-  studio → lab → drama pays it once each, and `setLightingLook()` re-uploads
-  into the same texture so no bind group is rebuilt.
+- **The bake runs as a compute pass** (`passes/ibl-prefilter-compute.wgsl`,
+  host in `src/ibl-prefilter-gpu.ts`): one dispatch per layer, writing the array
+  texture in place through a `texture_storage_2d_array` view. The main thread
+  pays only the encode (well under a millisecond); the GGX importance-sampling
+  itself is GPU work that overlaps the frame loop.
+- **CPU fallback**: `prefilterEnvironment()` in `src/ibl-prefilter.ts` is the
+  same algorithm in JS, still **memoised per look**, and costs ~270 ms of
+  main-thread time the first time each look is used. It takes over whenever the
+  compute pipeline or the texture's `STORAGE_BINDING` usage is rejected.
+  Software/fallback adapters skip IBL altogether before either path runs.
+  `envRadiance()` is duplicated in TS and WGSL, so the two can drift silently
+  while both stay valid. `npm run check:post` compares the **shaping constants
+  and the softbox lobe tuples only** — it cannot run WGSL, so it will not catch
+  a structural change (a reordered term, a different sample loop). The two were
+  measured to agree to within `rgba16float` quantisation by re-simulating the
+  shader offline against the CPU bake; keeping them so is a matter of code
+  review and real-hardware checks, not of that script passing.
+- Either way `setLightingLook()` re-bakes into the same texture, so no bind
+  group is rebuilt.
 - Constants are duplicated in `pbr-eval.wgsl`; `assertIblShaderContract()` (and
   `npm run check:post`) fail on drift.
 - `LightingConfig.iblLevels` is `0` until the bake is uploaded — `pbr-eval.wgsl`
@@ -57,6 +73,7 @@ Each preset defines key / fill / rim / ground lights uploaded to `lightingUnifor
 
 Scene renders to an HDR-ish offscreen target (`bloomSceneTexture`). Passes:
 
+0. **TAA resolve** (high/ultra tier, focus mode only) — `passes/taa-resolve.wgsl`
 0. **SSR** (compute, high/ultra tier only) — `passes/ssr-compute.wgsl`
 1. **Extract** — luminance threshold with **corona boost** (green/cyan plasma weighted higher than bare metal specular)
 2. **Blur H / V** — 5-tap Gaussian
@@ -84,15 +101,47 @@ Mesh shaders output **linear HDR** (no per-object tonemap); tonemapping happens 
 `qualityTier` from `PerformanceProfiler` maps to multipliers in
 `src/post-processing-config.ts` (`POST_QUALITY_GATES` → `getPostQualityGates`):
 
-| Tier | Bloom extract/blur | SSAO | Contact shadow | Motion blur | SSR |
-|------|--------------------|------|----------------|-------------|-----|
-| `ultra` | on | 100% | 100% | 100% | on |
-| `high` | on | 100% | 100% | 100% | on |
-| `medium` | on | 70% | 85% | 70% | **off** |
-| `low` | on | 30% | 55% | **off** | **off** |
-| `critical` | **skipped** | **off** | 35% | **off** | **off** |
+| Tier | Bloom extract/blur | SSAO | Contact shadow | Motion blur | SSR | TAA |
+|------|--------------------|------|----------------|-------------|-----|-----|
+| `ultra` | on | 100% | 100% | 100% | on | on |
+| `high` | on | 100% | 100% | 100% | on | on |
+| `medium` | on | 70% | 85% | 70% | **off** | **off** |
+| `low` | on | 30% | 55% | **off** | **off** | **off** |
+| `critical` | **skipped** | **off** | 35% | **off** | **off** | **off** |
 
-The prefiltered IBL chain is **not** in this table — it is always on.
+TAA additionally requires **focus mode** (off in overview), unless `?taa=0`
+disables it;
+see below. The prefiltered IBL chain is **not** in this table — it is always on.
+
+### Temporal AA (ADR-0005 WS2)
+
+Showroom metals and SSR still shimmer under camera orbit once the geometry is
+stable. `passes/taa-resolve.wgsl` runs a full-res resolve **before** SSR and
+bloom, so everything downstream sees the stabilised image.
+
+- **Reprojection** uses the camera's own view-projection and the matrix cached
+  from last frame (`_taaPrevViewProj` in `render-loop.ts`) — no separate TAA
+  camera, no velocity buffer. World position is reconstructed from depth with
+  the same NDC convention `ssr-compute.wgsl` uses.
+- **Neighbourhood clamp**: history outside the 3×3 colour box of the current
+  frame is clamped back into it, and how far it had to move drives a
+  per-pixel rejection that falls back to the current frame. That is what keeps
+  the moving rollers and pipes from smearing.
+- **History** is `prevSceneTexture`, the same target motion blur uses. When TAA
+  runs, the copy at the end of the frame takes the *resolved* image rather than
+  the raw scene, so the blend accumulates exponentially
+  (`TAA_HISTORY_WEIGHT = 0.9`) instead of reaching back only one frame.
+- **Reset** (`_resetTaaHistory()`) on mode switch, SEG layout preset, lighting
+  look, and any resize that reallocates the targets. A reset frame returns the
+  current frame untouched, so there is no ghosting across the transition.
+- **Gates**: `high`/`ultra` tier **and** focus mode (`!isOverviewMode()`) **and**
+  unless disabled with `?taa=0`. Overview draws the whole plugin ring, where
+  the extra full-res pass
+  costs more than the shimmer it removes.
+- **Off ⇒ no cost**: the pass is not encoded and bloom reads the raw scene bind
+  groups, exactly as before this existed.
+- F3 shows `TAA on/off`; `getRendererInfo()` / profiler stats expose `taaActive`.
+- **WebGL2 does not implement TAA** — see `docs/WEBGL2.md`.
 
 `packPostUniforms({ qualityGates })` scales strengths. When `bloom: 0`, the render
 loop skips extract + blur passes (composite still runs for exposure / filmic).
@@ -248,6 +297,10 @@ untouched by ADR-0005 WS2. Instead:
 1. Edit presets in `src/seg-lighting-presets.ts`
 2. If changing struct layouts, update WGSL in `bloom-shaders.js` and CPU packers together
 3. Run `npm run check:post` (struct/packer contracts) and `npm run check:wgsl`
-4. Changing the lighting rig changes the IBL bake — clear the memo with
+4. Changing the lighting rig changes the IBL bake. The compute path re-bakes
+   every switch, so nothing to clear; on the CPU fallback clear the memo with
    `clearIblCache()` if you are editing presets live
-5. Run `npm run build:site`
+5. Editing `envRadiance()` means editing it **twice** — `src/ibl-prefilter.ts`
+   and `passes/ibl-prefilter-compute.wgsl` — or the look changes with the bake
+   path. `npm run check:post` compares the shaping constants
+6. Run `npm run build:site`

@@ -50,10 +50,14 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Filmic curve + exposure from lighting preset
 - [x] Cheap SSAO + contact shadow (composite)
 - [x] IBL irradiance polish for SEG metals (analytic env mips in `pbr-eval.wgsl`)
-- [x] **Prefiltered GGX split-sum IBL** — CPU bake per lighting preset into an
-      octahedral `rgba16float` 2D array (`src/ibl-prefilter.ts`), sampled in
-      `pbr-eval.wgsl`; replaces the analytic polynomial, which is retained as the
-      pre-upload fallback. Always-on (224 KB), memoised per look.
+- [x] **Prefiltered GGX split-sum IBL** — per lighting preset into an
+      octahedral `rgba16float` 2D array, sampled in `pbr-eval.wgsl`; replaces
+      the analytic polynomial, which is retained as the pre-upload fallback.
+      Always-on (224 KB).
+- [x] **IBL bake on the GPU** — `passes/ibl-prefilter-compute.wgsl` +
+      `src/ibl-prefilter-gpu.ts`, one dispatch per layer, so the first switch to
+      a look no longer blocks the main thread for ~270 ms. The CPU bake
+      (`src/ibl-prefilter.ts`, memoised per look) stays as the fallback.
 - [x] **Screen-space reflections** for SEG roller chrome/nickel
       (`passes/ssr-compute.wgsl`) — view-space march against the existing depth
       buffer, half-res reflection target composited after SSAO. Gated to the
@@ -61,7 +65,12 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Wire post cost into auto-quality tiers (`post-processing-config.ts` + render loop)
 - [x] Document stack + quality gates (`docs/SHADERS.md`, `docs/LIGHTING_RIG.md`)
 - [x] CPU↔WGSL uniform contract check in CI (`npm run check:post`)
-- [ ] Negotiate optional features only when present (`rg11b10ufloat-renderable`, etc.)
+- [x] Negotiate optional features only when present (`rg11b10ufloat-renderable`, etc.)
+      plus soft limits and a labelled `defaultQueue` — see `docs/WEBGPU.md`
+- [x] **Temporal AA** — `passes/taa-resolve.wgsl`, reprojected with the camera's
+      own view-projection plus the previous frame's, neighbourhood-clamped, with
+      `prevSceneTexture` as the history. `high`/`ultra` + focus only; `?taa=0`
+      disables; WebGL2 skips it (`docs/WEBGL2.md`).
 - [x] **Metalness/roughness G-buffer** — second `rg8unorm` color target on the
       scene render pass (r=metallic, g=roughness), written by
       `seg-enhanced-frag.wgsl`/`roller-frag.wgsl`; `passes/ssr-compute.wgsl`

@@ -1,8 +1,9 @@
 import type { LayoutRegistrar } from '../types.js';
 import {
   uniform, texture, depthTexture, depthTextureMultisampled, sampler, storageTexture,
-  VF, FS, CS, SSR_FORMAT
+  storageTextureArray, VF, FS, CS, SSR_FORMAT
 } from '../helpers.js';
+import { IBL_FORMAT } from '../../ibl-prefilter.js';
 
 /** Sky, grid, anomaly walls, bloom stack, SSR, MSAA depth resolve. */
 export function registerPostLayouts(r: LayoutRegistrar): void {
@@ -58,6 +59,25 @@ export function registerPostLayouts(r: LayoutRegistrar): void {
     texture(5, CS)
   ]);
   r.pl('ssr', ['ssr']);
+
+  // IBL GGX prefilter (ADR-0005 WS2): writes the octahedral roughness chain +
+  // irradiance layer straight into the sampled array texture, one dispatch per
+  // layer. See passes/ibl-prefilter-compute.wgsl.
+  r.bgl('iblPrefilter', [
+    uniform(0, CS),
+    storageTextureArray(1, CS, IBL_FORMAT)
+  ]);
+  r.pl('iblPrefilter', ['iblPrefilter']);
+
+  // Temporal AA resolve (ADR-0005 WS2) — see passes/taa-resolve.wgsl.
+  r.bgl('taaResolve', [
+    texture(0, FS),
+    texture(1, FS),
+    sampler(2, FS),
+    depthTexture(3, FS),
+    uniform(4, FS)
+  ]);
+  r.pl('taaResolve', ['taaResolve']);
 
   r.bgl('depthResolve', [
     depthTextureMultisampled(0, FS)

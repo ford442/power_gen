@@ -6,6 +6,8 @@
  */
 import segAnomalyWallsWgsl from './shaders/passes/seg-anomaly-walls.wgsl?raw';
 import ssrComputeWgsl from './shaders/passes/ssr-compute.wgsl?raw';
+import iblPrefilterComputeWgsl from './shaders/passes/ibl-prefilter-compute.wgsl?raw';
+import taaResolveWgsl from './shaders/passes/taa-resolve.wgsl?raw';
 import depthResolveWgsl from './shaders/passes/depth-resolve.wgsl?raw';
 
 import { getRollerVertShader, getRollerFragShader } from './shaders/generators/roller-shaders.js';
@@ -183,6 +185,14 @@ export class MultiDeviceShaders {
   }
 
   /** Screen-space reflections compute pass (ADR-0005 WS2). */
+  get taaResolveShader() {
+    return taaResolveWgsl;
+  }
+
+  get iblPrefilterComputeShader() {
+    return iblPrefilterComputeWgsl;
+  }
+
   get ssrComputeShader() {
     return ssrComputeWgsl;
   }
