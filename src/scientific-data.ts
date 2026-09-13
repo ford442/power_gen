@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * Scientific Data Module for Multi-Device Physics Visualizer
  * Data sources: Wolfram Alpha / Wolfram Language computational results
