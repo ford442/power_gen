@@ -1,14 +1,28 @@
 /**
  * Shared telemetry export schema (CSV columns + row builders).
+ *
+ * Columns are the SEG/plant base set plus one column per catalog
+ * `telemetryKeys` entry (`TELEMETRY_CSV_DEVICE_COLUMNS`, generated from
+ * `physics/devices.json`). Adding a device to the catalog therefore widens
+ * export and replay with no edit here.
+ *
  * Keep in sync with cpp/src/telemetry_export.h for native `make native` CSV.
  */
 
-import type { TelemetrySnapshot } from './types';
+import {
+  DEVICE_TELEMETRY_FIELDS,
+  TELEMETRY_CSV_DEVICE_COLUMNS
+} from '../../generated/device-catalog';
+import type { DevicePhysicsState } from '../renderers/shared/device-physics';
+import type { DeviceTelemetrySnap, TelemetrySnapshot } from './types';
 
-export const TELEMETRY_CSV_VERSION = 1;
+export { TELEMETRY_CSV_DEVICE_COLUMNS };
 
-/** Column order for CSV and native export. */
-export const TELEMETRY_CSV_COLUMNS = [
+/** v2 added the per-device catalog telemetry columns. */
+export const TELEMETRY_CSV_VERSION = 2;
+
+/** SEG plant / lab-bus columns, always first. */
+export const TELEMETRY_CSV_BASE_COLUMNS = [
   'time_s',
   'frame_id',
   'view',
@@ -38,8 +52,70 @@ export const TELEMETRY_CSV_COLUMNS = [
   'energy_coupled'
 ] as const;
 
-export type TelemetryCsvColumn = (typeof TELEMETRY_CSV_COLUMNS)[number];
-export type TelemetryCsvRow = Record<TelemetryCsvColumn, number | string>;
+export type TelemetryCsvBaseColumn = (typeof TELEMETRY_CSV_BASE_COLUMNS)[number];
+
+/** Full column order for CSV and native export: base columns, then device keys. */
+export const TELEMETRY_CSV_COLUMNS: readonly string[] = [
+  ...TELEMETRY_CSV_BASE_COLUMNS,
+  ...TELEMETRY_CSV_DEVICE_COLUMNS
+];
+
+export type TelemetryCsvColumn = string;
+
+/**
+ * A row always carries the base columns; device columns are indexed by name
+ * (`row.hall_voltage`) so a catalog addition needs no type change.
+ */
+export type TelemetryCsvRow =
+  { [K in TelemetryCsvBaseColumn]: number | string }
+  & { [column: string]: number | string };
+
+const BASE_STRING_COLUMNS = new Set<string>(['view', 'mode', 'status', 'hw_connection_state']);
+const BASE_OPTIONAL_NUMBER_COLUMNS = new Set<string>([
+  'phase_error_deg',
+  'rpm_error',
+  'voltage_error_v',
+  'current_error_a',
+  'energy_residual_w'
+]);
+
+/** Per-device catalog columns for one snapshot (0 when the device is idle). */
+export function deviceColumnsFromSnapshot(
+  devices: Record<string, DeviceTelemetrySnap> | null | undefined
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const field of DEVICE_TELEMETRY_FIELDS) {
+    const snap = devices?.[field.deviceId] as unknown as Record<string, unknown> | undefined;
+    const v = snap?.[field.key];
+    out[field.column] = typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  }
+  return out;
+}
+
+/** All device columns zeroed — SEG-only row builders (WASM/native) use this. */
+export function emptyDeviceColumns(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const column of TELEMETRY_CSV_DEVICE_COLUMNS) out[column] = 0;
+  return out;
+}
+
+/**
+ * Device columns of a parsed row → `publishFrame({ devicePhysics })` input, so
+ * replay restores plugin telemetry and not only SEG RPM.
+ */
+export function devicePhysicsFromRow(
+  row: Record<string, number | string>
+): Record<string, Partial<DevicePhysicsState>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const field of DEVICE_TELEMETRY_FIELDS) {
+    const raw = row[field.column];
+    if (raw == null || raw === '') continue;
+    const n = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(n)) continue;
+    (out[field.deviceId] ||= {})[field.key] = n;
+  }
+  return out as Record<string, Partial<DevicePhysicsState>>;
+}
 
 export interface RowFromSnapshotOpts {
   loadOhm?: number;
@@ -86,7 +162,8 @@ export function rowFromSnapshot(
     voltage_error_v: hw?.shadowResidual?.voltageError ?? '',
     current_error_a: hw?.shadowResidual?.currentError ?? '',
     energy_residual_w: net?.residualW ?? '',
-    energy_coupled: net?.couplingEnabled ? 1 : 0
+    energy_coupled: net?.couplingEnabled ? 1 : 0,
+    ...deviceColumnsFromSnapshot(snap.devices)
   };
 }
 
@@ -163,7 +240,8 @@ export function rowFromWasmSeg({
     voltage_error_v: '',
     current_error_a: '',
     energy_residual_w: '',
-    energy_coupled: 0
+    energy_coupled: 0,
+    ...emptyDeviceColumns()
   };
 }
 
@@ -177,24 +255,16 @@ function parseCsvCell(raw: string): string {
 
 function coerceCsvValue(col: TelemetryCsvColumn, raw: string): number | string {
   if (raw === '') {
-    if (col === 'view' || col === 'mode' || col === 'status' || col === 'hw_connection_state') {
+    if (BASE_STRING_COLUMNS.has(col)) {
       return col === 'status' ? 'standby' : col === 'hw_connection_state' ? 'disconnected' : '';
     }
     return 0;
   }
-  if (
-    col === 'view' || col === 'mode' || col === 'status' || col === 'hw_connection_state'
-    || col === 'phase_error_deg' || col === 'rpm_error' || col === 'voltage_error_v'
-    || col === 'current_error_a' || col === 'energy_residual_w'
-  ) {
-    const n = Number(raw);
-    if (col !== 'view' && col !== 'mode' && col !== 'status' && col !== 'hw_connection_state' && Number.isFinite(n)) {
-      return n;
-    }
-    return raw;
-  }
+  if (BASE_STRING_COLUMNS.has(col)) return raw;
   const n = Number(raw);
-  return Number.isFinite(n) ? n : 0;
+  if (Number.isFinite(n)) return n;
+  // Optional twin/bus columns keep their raw text when not numeric.
+  return BASE_OPTIONAL_NUMBER_COLUMNS.has(col) ? raw : 0;
 }
 
 /**

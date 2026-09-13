@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 static float clamp01f(float v) {
@@ -29,7 +30,15 @@ int export_seg_csv(
     FILE* f = std::fopen(path, "w");
     if (!f) return 1;
 
-    std::fprintf(f, "%s\n", TELEMETRY_CSV_HEADER);
+    // Full v2 header: SEG base columns + every catalog device column.
+    std::fprintf(f, "%s,%s\n", TELEMETRY_CSV_BASE_HEADER, TELEMETRY_CSV_DEVICE_COLUMNS);
+
+    // This driver runs the SEG plant only; other devices export as zeros.
+    std::string deviceZeros;
+    deviceZeros.reserve(TELEMETRY_CSV_DEVICE_COLUMN_COUNT * 2);
+    for (int i = 0; i < TELEMETRY_CSV_DEVICE_COLUMN_COUNT; ++i) {
+        deviceZeros += ",0";
+    }
 
     const float physicsDt = 1.f / 60.f;
     const float sampleDt = 1.f / sampleHz;
@@ -67,11 +76,12 @@ int export_seg_csv(
             std::fprintf(f,
                 "%.6f,%d,seg,seg,operational,%.2f,%.6f,%.6f,"
                 "%.4f,%.6f,%.4f,%.6f,%.6e,"
-                "%.4f,%d,%.2f,%.2f,0,%.1f\n",
+                "%.4f,%d,%.2f,%.2f,0,%.1f,%s%s\n",
                 tSample, frameId,
                 rpmInner, segOmega, corona,
                 voltage, current, power, fieldSim, energyD,
-                drive, static_cast<int>(fieldStrength * 100.f), temp, eff, loadOhm);
+                drive, static_cast<int>(fieldStrength * 100.f), temp, eff, loadOhm,
+                TELEMETRY_CSV_SEG_ONLY_TAIL, deviceZeros.c_str());
         }
     }
 

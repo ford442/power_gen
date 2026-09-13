@@ -889,3 +889,127 @@ test.describe('Telemetry replay scrubber', () => {
     expect(after.snapReplay).toBeFalsy();
   });
 });
+
+test.describe('Catalog telemetry on the hub (plugin devices)', () => {
+
+  // vdg / hall / lorentz-sled publish DeviceTelemetrySnap fields named by
+  // physics/devices.json telemetryKeys — no Partial<> casts in the panel.
+  for (const device of [
+    { id: 'vdg', keys: ['vdgVoltage', 'vdgBeltMps', 'vdgChargeC', 'vdgSparkHz'], positive: 'vdgVoltage' },
+    { id: 'hall', keys: ['hallVoltage', 'hallCurrent', 'hallFieldT', 'hallCoeff'], positive: 'hallCurrent' },
+    {
+      id: 'lorentz-sled',
+      keys: ['lorentzSledVms', 'lorentzCurrentA', 'lorentzFieldT', 'lorentzForceN', 'lorentzPositionM'],
+      positive: 'lorentzCurrentA'
+    }
+  ]) {
+    test(`setMode('${device.id}') publishes finite catalog keys on the hub`, async ({ page }) => {
+      trackPageErrors(page);
+      await gotoWebGL2(page);
+
+      await page.evaluate((id) => {
+        window.segOperator.start();
+        window.setMode(id);
+      }, device.id);
+
+      // waitForEval serializes the predicate with no arguments, so bake the ids in.
+      await waitForEval(page, new Function(
+        `const snap = window.telemetryHub?.getSnapshot?.()?.devices?.[${JSON.stringify(device.id)}];`
+        + `return !!snap && Number.isFinite(snap[${JSON.stringify(device.positive)}])`
+        + ` && snap[${JSON.stringify(device.positive)}] > 0;`
+      ), { timeout: 30_000 });
+
+      const result = await page.evaluate(({ id, keys }) => {
+        const snap = window.telemetryHub.getSnapshot();
+        const dev = snap.devices?.[id] || {};
+        return {
+          view: snap.view,
+          id: dev.id,
+          values: Object.fromEntries(keys.map((k) => [k, dev[k]])),
+          footer: document.getElementById('batteryFooter')?.textContent ?? '',
+          readoutHidden: document.getElementById('device-readout')?.hidden,
+          readoutCells: document.querySelectorAll('#device-readout-grid .seg-led-cell').length
+        };
+      }, device);
+
+      expect(result.id).toBe(device.id);
+      for (const key of device.keys) {
+        expect(Number.isFinite(result.values[key]), `${key} = ${result.values[key]}`).toBe(true);
+      }
+      expect(result.values[device.positive]).toBeGreaterThan(0);
+
+      // Focus chrome shows this device's own keys, not SEG RPM.
+      expect(result.readoutHidden).toBe(false);
+      expect(result.readoutCells).toBe(device.keys.length);
+      expect(result.footer).not.toBe('—');
+    });
+  }
+
+  test('recorded CSV carries plugin columns and replay restores them', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    const exported = await page.evaluate(async () => {
+      const { rowFromSnapshot, rowsToCsv, csvToRows, TELEMETRY_CSV_COLUMNS, TELEMETRY_CSV_VERSION } =
+        await import('/telemetry/telemetry-schema.ts');
+
+      window.segOperator.start();
+      window.setMode('hall');
+      for (let i = 0; i < 60; i++) {
+        window.telemetryHub.publishFrame({ dt: 1 / 60, view: 'hall' });
+      }
+
+      const snap = window.telemetryHub.getSnapshot();
+      const rows = [rowFromSnapshot(snap, 0), rowFromSnapshot(snap, 0.1)];
+      const csv = rowsToCsv(rows);
+      const parsed = csvToRows(csv);
+      return {
+        version: TELEMETRY_CSV_VERSION,
+        hasColumn: TELEMETRY_CSV_COLUMNS.includes('hall_voltage'),
+        header: csv.split('\n')[0],
+        liveHallVoltage: snap.devices?.hall?.hallVoltage ?? null,
+        parsedHallVoltage: parsed[0]?.hall_voltage ?? null,
+        parsedSledSpeed: parsed[0]?.lorentz_sled_vms ?? null
+      };
+    });
+
+    expect(exported.version).toBeGreaterThanOrEqual(2);
+    expect(exported.hasColumn).toBe(true);
+    expect(exported.header).toContain('hall_voltage');
+    expect(exported.header).toContain('lorentz_sled_vms');
+    expect(Number.isFinite(exported.parsedHallVoltage)).toBe(true);
+    expect(exported.parsedHallVoltage).toBeCloseTo(exported.liveHallVoltage, 6);
+    expect(Number.isFinite(exported.parsedSledSpeed)).toBe(true);
+
+    // Replay a two-sample recording and check the plugin snap comes back.
+    const restored = await page.evaluate(async () => {
+      const { buildReplayFile } = await import('/telemetry/replay-format.ts');
+      const base = {
+        frame_id: 1, view: 'hall', mode: 'hall', status: 'operational',
+        rpm_inner: 0, seg_omega: 0, corona: 0, voltage_v: 0, current_a: 0, power_w: 0,
+        field_sim_t: 0, energy_density_j_m3: 0, drive: 0.5, excitation_pct: 50,
+        temperature_c: 25, efficiency_pct: 0, particle_flux: 0, load_ohm: 100,
+        hw_connected: 0, hw_connection_state: 'disconnected',
+        phase_error_deg: '', rpm_error: '', voltage_error_v: '', current_error_a: '',
+        energy_residual_w: '', energy_coupled: 0,
+        hall_voltage: 0.0042, hall_current: 3.5, hall_field_t: 0.8, hall_coeff: 1.2e-10
+      };
+      window.replayPlayer.attach(buildReplayFile({
+        samples: [{ ...base, time_s: 0 }, { ...base, time_s: 1 }]
+      }));
+      window.replayPlayer.seek(1);
+      const dev = window.telemetryHub.getSnapshot().devices?.hall;
+      const out = {
+        hallVoltage: dev?.hallVoltage ?? null,
+        hallCurrent: dev?.hallCurrent ?? null,
+        hallFieldT: dev?.hallFieldT ?? null
+      };
+      window.replayPlayer.exit();
+      return out;
+    });
+
+    expect(restored.hallVoltage).toBeCloseTo(0.0042, 6);
+    expect(restored.hallCurrent).toBeCloseTo(3.5, 6);
+    expect(restored.hallFieldT).toBeCloseTo(0.8, 6);
+  });
+});

@@ -48,3 +48,10 @@ static constexpr int RESERVED_WASM_MODES[] = { 0 };
 static constexpr int RESERVED_WASM_MODE_COUNT = 0;
 
 static_assert(SIM_MODE_COUNT == 12, "SIM_MODE_COUNT must match physics/devices.json wasm plants");
+
+// Per-device telemetry CSV columns, catalog order. Native SEG-only export emits
+// the base columns and leaves these empty (see cpp/src/telemetry_export.h).
+static constexpr const char* TELEMETRY_CSV_DEVICE_COLUMNS =
+    "heron_head,heron_head_max,heron_vexit,heron_flow_rate_lmin,heron_pressure_kpa,kelvin_v,kelvin_voltage_n,kelvin_vbreak,kelvin_e,kelvin_spark_timer,battery_charge,peltier_hot_k,peltier_cold_k,peltier_delta_t,peltier_voltage,peltier_current,peltier_power_w,peltier_cop,mhd_flow_u,mhd_bfield_t,mhd_hartmann,mhd_voltage,mhd_current,mhd_power_w,maglev_gap_mm,maglev_field_t,maglev_lift_n,maglev_rpm,pulse_coil_current_a,pulse_coil_vcap,pulse_coil_bpeak_t,pulse_coil_armature_mm,homopolar_rpm,homopolar_emf_v,homopolar_current_a,homopolar_field_t,halbach_segment_count,halbach_mag_angle_deg,halbach_peak_bt,halbach_period_m,halbach_dipole_force_n,transformer_vp,transformer_vs,transformer_ip_a,transformer_is_a,transformer_k,transformer_flux_n,vdg_voltage,vdg_belt_mps,vdg_charge_c,vdg_spark_hz,hall_voltage,hall_current,hall_field_t,hall_coeff,lorentz_sled_vms,lorentz_current_a,lorentz_field_t,lorentz_force_n,lorentz_position_m";
+
+static constexpr int TELEMETRY_CSV_DEVICE_COLUMN_COUNT = 60;

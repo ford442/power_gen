@@ -6,7 +6,13 @@
 
 import { segOperator, SEG_SPEC, OPERATOR_STATUS, type SEGOperatorState } from './seg-operator-state';
 import { telemetryHub } from './telemetry-hub';
-import type { TelemetrySnapshot } from './telemetry/types';
+import {
+  deviceLabel,
+  formatTelemetryValue,
+  readTelemetryKey,
+  telemetryFieldsForDevice
+} from './telemetry/telemetry-fields';
+import type { DeviceTelemetrySnap, TelemetrySnapshot } from './telemetry/types';
 
 const RPM_GAUGE_MAX = 3200;
 
@@ -52,6 +58,9 @@ interface PanelElements {
   thermalFill: HTMLElement | null;
   thermalVal: HTMLElement | null;
   coronaVal: HTMLElement | null;
+  deviceReadout: HTMLElement | null;
+  deviceReadoutTitle: HTMLElement | null;
+  deviceReadoutGrid: HTMLElement | null;
   collapseLeft: HTMLElement | null;
   collapseRight: HTMLElement | null;
   main: HTMLElement | null;
@@ -65,6 +74,8 @@ export class SEGOperatorPanel {
   private _lastTelemetry: TelemetrySnapshot['seg'];
   private _schematicVisible: boolean;
   private _unsubHub: (() => void) | null;
+  private _readoutKeys = '';
+  private _readoutCells: HTMLElement[] = [];
 
   constructor(options: SEGOperatorPanelOptions = {}) {
     this.state = options.state || segOperator;
@@ -125,6 +136,9 @@ export class SEGOperatorPanel {
       thermalFill: document.getElementById('seg-thermal-fill'),
       thermalVal: document.getElementById('seg-thermal-val'),
       coronaVal: document.getElementById('seg-corona-val'),
+      deviceReadout: document.getElementById('device-readout'),
+      deviceReadoutTitle: document.getElementById('device-readout-title'),
+      deviceReadoutGrid: document.getElementById('device-readout-grid'),
       collapseLeft: document.getElementById('collapse-left'),
       collapseRight: document.getElementById('collapse-right'),
       main: document.getElementById('main'),
@@ -417,142 +431,100 @@ export class SEGOperatorPanel {
     this._updateFooterFromSnapshot(snap);
   }
 
-  /** Footer / battery strip from multi-device physics on the hub */
+  /**
+   * Focus chrome for the current view, driven by the device catalog.
+   *
+   * Labels, units and precision come from `physics/devices.json` →
+   * `DEVICE_TELEMETRY_FIELDS`, so a plugin device's readouts are its own keys
+   * (no SEG RPM gauge standing in for Hall voltage) and a new catalog device
+   * needs no edit here. SEG keeps its dedicated gauges above.
+   *
+   * Every value is **simulated** plant state, not a calibrated instrument
+   * reading (ADR-0004, docs/DEVICE_GALLERY.md).
+   */
   private _updateFooterFromSnapshot(snap: TelemetrySnapshot): void {
-    const modeFooter = document.getElementById('modeFooter');
-    const batteryFooter = document.getElementById('batteryFooter');
     const view = snap.view || 'overview';
-    const modeLabels: Record<string, string> = {
-      seg: 'SEG',
-      heron: "Heron's Fountain",
-      kelvin: "Kelvin's Thunderstorm",
-      solar: 'LEDs + Solar',
-      overview: 'Multi-Device Overview',
-      peltier: 'Peltier',
-      mhd: 'MHD',
-      maglev: 'Mag Levitation',
-      homopolar: 'Homopolar Generator',
-      'halbach-viz': 'Halbach Field Viz',
-      'pulse-coil': 'Pulse Coil (R–L)',
-      transformer: 'Mutual Induction',
-      vdg: 'Van de Graaff',
-      hall: 'Hall-Effect Bench',
-      'lorentz-sled': 'Lorentz Rail Sled'
-    };
-    if (modeFooter) modeFooter.textContent = modeLabels[view] || view.toUpperCase();
-
-    const heron = snap.devices?.heron;
-    const kelvin = snap.devices?.kelvin;
-    const solar = snap.devices?.solar;
-
-    if (batteryFooter) {
-      if (view === 'heron' && heron) {
-        batteryFooter.textContent = [
-          `Head ${heron.heronHead.toFixed(2)}/${heron.heronHeadMax.toFixed(1)} m`,
-          `v ${heron.heronVExit.toFixed(2)} m/s`,
-          `Q ${heron.heronFlowRateLmin.toFixed(1)} L/min`,
-          `P ${heron.heronPressureKPa.toFixed(1)} kPa`
-        ].join(' · ');
-      } else if (view === 'kelvin' && kelvin) {
-        const spark = kelvin.kelvinSparkTimer > 0 ? ' ⚡' : '';
-        const v = kelvin.kelvinVoltageN * (kelvin.kelvinVbreak || 1);
-        batteryFooter.textContent = `V ${v.toFixed(0)} V (${(kelvin.kelvinVoltageN * 100).toFixed(0)}%)${spark}`;
-      } else if (view === 'solar' && solar) {
-        batteryFooter.textContent = `${Math.round((solar.batteryCharge || 0) * 100)}%`;
-      } else if (view === 'homopolar' && snap.devices?.homopolar) {
-        const h = snap.devices.homopolar;
-        batteryFooter.textContent = [
-          `RPM ${(h.homopolarRpm || 0).toFixed(0)}`,
-          `EMF ${(h.homopolarEmfV || 0).toFixed(3)} V`,
-          `I ${(h.homopolarCurrentA || 0).toFixed(2)} A`,
-          `B ${(h.homopolarFieldT || 0).toFixed(2)} T`
-        ].join(' · ');
-      } else if (view === 'maglev' && snap.devices?.maglev) {
-        const m = snap.devices.maglev;
-        batteryFooter.textContent = [
-          `gap ${(m.maglevGapMm || 0).toFixed(1)} mm`,
-          `B ${(m.maglevFieldT || 0).toFixed(2)} T`,
-          `${(m.maglevRpm || 0).toFixed(0)} RPM`
-        ].join(' · ');
-      } else if (view === 'halbach-viz' && snap.devices?.['halbach-viz']) {
-        const h = snap.devices['halbach-viz'];
-        batteryFooter.textContent = [
-          `N=${h.halbachSegmentCount || 0}`,
-          `θ ${(h.halbachMagAngleDeg || 0).toFixed(0)}°`,
-          `|B| ${(h.halbachPeakBT || 0).toFixed(3)} T`,
-          `F ${(h.halbachDipoleForceN || 0).toFixed(4)} N`
-        ].join(' · ');
-      } else if (view === 'pulse-coil' && snap.devices?.['pulse-coil']) {
-        const p = snap.devices['pulse-coil'];
-        batteryFooter.textContent = [
-          `I ${(p.pulseCoilCurrentA || 0).toFixed(1)} A`,
-          `Vcap ${(p.pulseCoilVCap || 0).toFixed(1)} V`,
-          `B ${(p.pulseCoilBPeakT || 0).toFixed(3)} T`,
-          `x ${(p.pulseCoilArmatureMm || 0).toFixed(1)} mm`
-        ].join(' · ');
-      } else if (view === 'peltier' && snap.devices?.peltier) {
-        const p = snap.devices.peltier;
-        batteryFooter.textContent = [
-          `ΔT ${(p.peltierDeltaT || 0).toFixed(1)} K`,
-          `Th ${(p.peltierHotK || 0).toFixed(0)} K`,
-          `Tc ${(p.peltierColdK || 0).toFixed(0)} K`,
-          `COP ${(p.peltierCOP || 0).toFixed(3)}`,
-          `${(p.peltierPowerW || 0).toFixed(1)} W`
-        ].join(' · ');
-      } else if (view === 'mhd' && snap.devices?.mhd) {
-        const m = snap.devices.mhd;
-        batteryFooter.textContent = [
-          `U ${(m.mhdFlowU || 0).toFixed(2)} m/s`,
-          `B ${(m.mhdBFieldT || 0).toFixed(2)} T`,
-          `Ha ${(m.mhdHartmann || 0).toFixed(1)}`,
-          `${(m.mhdPowerW || 0).toFixed(1)} W`
-        ].join(' · ');
-      } else if (view === 'transformer' && snap.devices?.transformer) {
-        const t = snap.devices.transformer;
-        batteryFooter.textContent = [
-          `Vp ${(t.transformerVp || 0).toFixed(1)} V`,
-          `Vs ${(t.transformerVs || 0).toFixed(1)} V`,
-          `Ip ${(t.transformerIpA || 0).toFixed(2)} A`,
-          `Is ${(t.transformerIsA || 0).toFixed(2)} A`,
-          `k ${(t.transformerK || 0).toFixed(2)}`
-        ].join(' · ');
-      } else if (view === 'vdg' && snap.devices?.vdg) {
-        const v = snap.devices.vdg;
-        const spark = (v.vdgSparkHz || 0) > 0 ? ' ⚡' : '';
-        batteryFooter.textContent = [
-          `V ${(v.vdgVoltage || 0).toFixed(0)} V${spark}`,
-          `belt ${(v.vdgBeltMps || 0).toFixed(2)} m/s`,
-          `Q ${((v.vdgChargeC || 0) * 1e9).toFixed(1)} nC`,
-          `${(v.vdgSparkHz || 0).toFixed(2)} Hz`
-        ].join(' · ');
-      } else if (view === 'hall' && snap.devices?.hall) {
-        const h = snap.devices.hall;
-        batteryFooter.textContent = [
-          `V_H ${((h.hallVoltage || 0) * 1000).toFixed(2)} mV`,
-          `I ${(h.hallCurrent || 0).toFixed(2)} A`,
-          `B ${(h.hallFieldT || 0).toFixed(2)} T`,
-          `R_H ${(h.hallCoeff || 0).toExponential(2)}`
-        ].join(' · ');
-      } else if (view === 'lorentz-sled' && snap.devices?.['lorentz-sled']) {
-        const l = snap.devices['lorentz-sled'];
-        batteryFooter.textContent = [
-          `v ${(l.lorentzSledVms || 0).toFixed(2)} m/s`,
-          `I ${(l.lorentzCurrentA || 0).toFixed(1)} A`,
-          `B ${(l.lorentzFieldT || 0).toFixed(2)} T`,
-          `F ${(l.lorentzForceN || 0).toFixed(2)} N`,
-          `x ${(l.lorentzPositionM || 0).toFixed(2)} m`
-        ].join(' · ');
-      } else {
-        batteryFooter.textContent = '—';
-      }
+    const modeFooter = document.getElementById('modeFooter');
+    if (modeFooter) {
+      modeFooter.textContent = view === 'overview'
+        ? 'Multi-Device Overview'
+        : deviceLabel(view);
     }
 
+    const fields = telemetryFieldsForDevice(view);
+    const device: DeviceTelemetrySnap | undefined = snap.devices?.[view];
+
+    const batteryFooter = document.getElementById('batteryFooter');
+    if (batteryFooter) {
+      batteryFooter.textContent = fields.length && device
+        ? fields
+          .map((f) => `${f.label} ${formatTelemetryValue(readTelemetryKey(device, f.key), f)}`)
+          .join(' · ')
+        : '—';
+    }
+
+    this._renderDeviceReadout(view, device, fields);
+
+    const solar = snap.devices?.solar;
     const batteryEl = document.getElementById('batteryCharge');
     const batteryStat = document.getElementById('batteryStat') as HTMLElement | null;
     if (batteryEl && batteryStat && solar) {
       batteryEl.textContent = `${Math.round((solar.batteryCharge || 0) * 100)}%`;
       batteryStat.style.display = view === 'solar' ? 'flex' : 'none';
     }
+  }
+
+  /** Instrument-panel cells for the focused catalog device (hidden for SEG / overview). */
+  private _renderDeviceReadout(
+    view: string,
+    device: DeviceTelemetrySnap | undefined,
+    fields: ReturnType<typeof telemetryFieldsForDevice>
+  ): void {
+    const host = this.els.deviceReadout;
+    const grid = this.els.deviceReadoutGrid;
+    if (!host || !grid) return;
+
+    if (!fields.length || !device) {
+      host.hidden = true;
+      grid.textContent = '';
+      this._readoutKeys = '';
+      return;
+    }
+
+    host.hidden = false;
+    if (this.els.deviceReadoutTitle) {
+      this.els.deviceReadoutTitle.textContent = deviceLabel(view);
+    }
+
+    // Rebuild cells only when the focused device changes; per-frame work is
+    // limited to writing the value text nodes.
+    const signature = `${view}:${fields.map((f) => f.key).join(',')}`;
+    if (this._readoutKeys !== signature) {
+      grid.textContent = '';
+      this._readoutCells = fields.map((f) => {
+        const cell = document.createElement('div');
+        cell.className = 'seg-led-cell';
+        const label = document.createElement('div');
+        label.className = 'seg-led-label';
+        label.textContent = f.label;
+        const badge = document.createElement('span');
+        badge.className = 'seg-src-badge sim';
+        badge.textContent = 'SIM';
+        label.append(' ', badge);
+        const value = document.createElement('div');
+        value.className = 'seg-led-value';
+        value.id = `device-readout-${f.column}`;
+        cell.append(label, value);
+        grid.appendChild(cell);
+        return value;
+      });
+      this._readoutKeys = signature;
+    }
+
+    fields.forEach((f, i) => {
+      const cell = this._readoutCells[i];
+      if (cell) cell.textContent = formatTelemetryValue(readTelemetryKey(device, f.key), f);
+    });
   }
 
   /** Force a SEG-only refresh (e.g. after reset) */

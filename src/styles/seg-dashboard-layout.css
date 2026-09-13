@@ -583,6 +583,33 @@
     }
     .sci-shadow-sparkline { height: 72px; }
 
+    /* Generic catalog gauge strip — keys of the focused plugin device */
+    .sci-catalog-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+      gap: 4px 10px;
+      padding: 8px 10px 4px;
+      font-family: var(--sci-font-mono, monospace);
+      font-size: 0.68rem;
+    }
+    .sci-catalog-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+    .sci-catalog-key { color: #8ad; }
+    .sci-catalog-val {
+      color: #fc6;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Focus readout in the right instrument panel (catalog-generated cells) */
+    #device-readout[hidden] { display: none; }
+
     /* SEG explainer / classroom */
     .seg-explainer-glossary {
       margin: 8px 0 0; font-size: 0.58rem; color: #5a8;

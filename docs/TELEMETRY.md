@@ -18,7 +18,7 @@ scientific derived fields   ─┘
 | Subscriber | Role |
 |------------|------|
 | `seg-operator-panel.ts` | Dashboard LED tiles, RPM gauge, footers |
-| `scientific-ui/` `ScientificUIManager` | Floating physics gauges (optional) |
+| `scientific-ui/` `ScientificUIManager` | Floating physics gauges (optional) + generic catalog gauge strip |
 
 **Do not** write RPM/voltage/current/power DOM from the visualizer. Publish to the hub instead.
 
@@ -71,6 +71,57 @@ const unsub = telemetryHub.subscribe((snap) => {
 
 `SEG_SPEC` in `seg-operator-state.ts` is aligned with `ValidatedConstants` / `SEG_DATA`.
 
+### Per-device catalog telemetry keys
+
+Every non-SEG device publishes its catalog `telemetryKeys` as
+`DeviceTelemetrySnap` fields on `snap.devices[id]`. Labels, units, precision and
+CSV column names live with the key in
+[`physics/devices.json`](../physics/devices.json) and are emitted into
+`generated/device-catalog.ts` as `DEVICE_TELEMETRY_FIELDS`:
+
+| Device | Keys (unit) | CSV columns |
+|---|---|---|
+| `heron` | `heronHead` (m), `heronHeadMax` (m), `heronVExit` (m/s), `heronFlowRateLmin` (L/min), `heronPressureKPa` (kPa) | `heron_head`, … |
+| `kelvin` | `kelvinV` (V), `kelvinVoltageN` (%), `kelvinVbreak` (V), `kelvinE` (V/m), `kelvinSparkTimer` (s) | `kelvin_v`, … |
+| `solar` | `batteryCharge` (%) | `battery_charge` |
+| `peltier` | `peltierHotK` / `peltierColdK` / `peltierDeltaT` (K), `peltierVoltage` (V), `peltierCurrent` (A), `peltierPowerW` (W), `peltierCOP` | `peltier_hot_k`, … |
+| `mhd` | `mhdFlowU` (m/s), `mhdBFieldT` (T), `mhdHartmann`, `mhdVoltage` (V), `mhdCurrent` (A), `mhdPowerW` (W) | `mhd_flow_u`, … |
+| `maglev` | `maglevGapMm` (mm), `maglevFieldT` (T), `maglevLiftN` (N), `maglevRpm` (RPM) | `maglev_gap_mm`, … |
+| `pulse-coil` | `pulseCoilCurrentA` (A), `pulseCoilVCap` (V), `pulseCoilBPeakT` (T), `pulseCoilArmatureMm` (mm) | `pulse_coil_current_a`, … |
+| `homopolar` | `homopolarRpm` (RPM), `homopolarEmfV` (V), `homopolarCurrentA` (A), `homopolarFieldT` (T) | `homopolar_rpm`, … |
+| `halbach-viz` | `halbachSegmentCount`, `halbachMagAngleDeg` (°), `halbachPeakBT` (T), `halbachPeriodM` (m), `halbachDipoleForceN` (N) | `halbach_segment_count`, … |
+| `transformer` | `transformerVp` / `transformerVs` (V), `transformerIpA` / `transformerIsA` (A), `transformerK`, `transformerFluxN` (Wb) | `transformer_vp`, … |
+| `vdg` | `vdgVoltage` (V), `vdgBeltMps` (m/s), `vdgChargeC` (C), `vdgSparkHz` (Hz) | `vdg_voltage`, … |
+| `hall` | `hallVoltage` (V), `hallCurrent` (A), `hallFieldT` (T), `hallCoeff` (m³/C) | `hall_voltage`, … |
+| `lorentz-sled` | `lorentzSledVms` (m/s), `lorentzCurrentA` (A), `lorentzFieldT` (T), `lorentzForceN` (N), `lorentzPositionM` (m) | `lorentz_sled_vms`, … |
+
+`seg` is the one exception: its `telemetryKeys` (`rpm`, `omega`, `voltage`, …)
+live on `SegOperatorTelemetry` (`snap.seg`), not on `snap.devices.seg` — the two
+namespaces documented in [`MODE_MATRIX.md`](MODE_MATRIX.md), which carries the
+full generated key/unit table.
+
+**Honesty:** these are simulated plant values, exactly like energy-pipe watts and
+nameplates (ADR-0004, [`DEVICE_GALLERY.md`](DEVICE_GALLERY.md)). Hall millivolts
+and sled m/s are model output, not calibrated instrument readings — the
+formatter attaches units, not a metrology claim.
+
+#### Consumers
+
+| Consumer | Module |
+|---|---|
+| Value formatting (units, SI prefixes, precision) | `src/telemetry/telemetry-fields.ts` — `formatTelemetryValue` |
+| Focus footer + right-panel readout cells | `seg-operator-panel.ts` — one catalog-driven path, no per-device branch |
+| Floating gauge strip | `scientific-ui/gauges/catalog-gauge-strip.ts` — one generic strip, not a gauge class per device |
+| CSV / JSON export + replay | `src/telemetry/telemetry-schema.ts` — `TELEMETRY_CSV_DEVICE_COLUMNS`, `devicePhysicsFromRow` |
+
+Adding a device to `physics/devices.json` (with its `telemetry` label/unit/digits
+block) and running `npm run codegen:catalog` widens all four — `check:catalog`
+fails if a key has no unit, if two keys collide on a CSV column, or if
+`telemetry-schema.ts` stops deriving its columns from the catalog.
+
+The existing SEG gauges (field, energy density, torque, particle flux) keep
+owning SEG focus; the generic strip hides itself in SEG and overview.
+
 ### Residual definition
 
 When coupling is enabled, the lab bus tracks:
@@ -119,15 +170,22 @@ Ring-buffer sampling lives on `telemetryHub.sampler` (1–60 Hz). UI: left sideb
 | Action | API |
 |--------|-----|
 | Record 10s sim time | `telemetryHub.startRecording(10, hz)` or **Record 10s** button |
-| Download CSV | `window.exportTelemetryCsv()` — columns in `src/telemetry/telemetry-schema.ts` (includes optional `phase_error_deg`, `rpm_error`, `voltage_error_v`, `current_error_a`, `energy_residual_w`, `hw_connection_state`) |
+| Download CSV | `window.exportTelemetryCsv()` — columns in `src/telemetry/telemetry-schema.ts`: the SEG/lab-bus base set (including optional `phase_error_deg`, `rpm_error`, `voltage_error_v`, `current_error_a`, `energy_residual_w`, `hw_connection_state`) followed by every catalog device column (`hall_voltage`, `lorentz_sled_vms`, …) |
 | Config JSON | `window.exportConfigJson()` — constants + layout + operator setpoints |
 | WASM offline 10s | **WASM 10s** — worker runs `SEGSimulator` headless, same CSV schema |
-| Replay file | v1 JSON: seed, layout presets, speed curve + samples (`src/telemetry/replay-format.ts`) |
+| Replay file | v1 JSON: seed, layout presets, speed curve + samples (`src/telemetry/replay-format.ts`). Samples are CSV v2 rows, so a replay round-trips plugin telemetry, not only SEG RPM |
 | Replay scrubber | `?replay=1` or debug **Show replay scrubber** — drag-drop / file picker, play-pause-step. Parses in `src/workers/replay-worker.ts`. CSV load reconstructs a minimal replay. Live `publishFrame` and `segOperator.step()` are bypassed; gauges read injected hub snapshots. |
 | Benchmark pack | `window.exportBenchmarkPack()` — profiler FPS/memory snapshot |
 | Particle readback | `window.captureParticleSubset({ deviceId, maxCount })` (WebGPU, debug) |
 
-Native C++ export (same CSV header):
+`TELEMETRY_CSV_VERSION` is **2** — v2 appended the per-device catalog columns
+after the base set. A v1 file still loads: `csvToRows` matches columns by name
+and defaults the missing device columns to 0, so those devices simply replay
+idle.
+
+Native C++ export (same CSV header — `cpp/src/telemetry_export.h` builds it from
+the base literal plus the generated `TELEMETRY_CSV_DEVICE_COLUMNS`, and the
+SEG-only driver writes zeros for the columns it has no plant for):
 
 ```bash
 cd cpp && make native   # smoke + writes build/seg_telemetry.csv
@@ -140,7 +198,7 @@ Deterministic particles: set **RNG seed** in export panel or `localStorage seg-s
 
 1. Record with **Record 10s**, then **Replay** to download `.seg-replay.json` (or **CSV**).
 2. Open `?replay=1` (or the debug-panel button) and load the file — parse runs in a Web Worker.
-3. Scrub / play / step. The header shows a **REPLAY** badge; `telemetryHub.getSnapshot().replay` is set; the sampler does not record replay frames.
+3. Scrub / play / step. The header shows a **REPLAY** badge; `telemetryHub.getSnapshot().replay` is set; the sampler does not record replay frames. Device columns in the samples are fed back through `publishFrame({ devicePhysics })`, so `snap.devices.hall` / `vdg` / `lorentz-sled` restore alongside SEG.
 4. **×** exits replay and live plant / telemetry resume.
 
 ```js
