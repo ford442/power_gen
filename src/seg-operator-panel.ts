@@ -6,17 +6,9 @@
 
 import { segOperator, SEG_SPEC, OPERATOR_STATUS, type SEGOperatorState } from './seg-operator-state';
 import { telemetryHub } from './telemetry-hub';
-import type { TelemetrySnapshot, DeviceTelemetrySnap } from './telemetry/types';
+import type { TelemetrySnapshot } from './telemetry/types';
 
 const RPM_GAUGE_MAX = 3200;
-
-/** VDG/Hall/Lorentz-sled telemetry isn't wired onto the hub yet (see docs/adr/0008-device-catalog.md follow-ups). */
-type VdgSnap = DeviceTelemetrySnap & Partial<{ vdgVoltage: number; vdgBeltMps: number; vdgChargeC: number; vdgSparkHz: number }>;
-type HallSnap = DeviceTelemetrySnap & Partial<{ hallVoltage: number; hallCurrent: number; hallFieldT: number; hallCoeff: number }>;
-type LorentzSnap = DeviceTelemetrySnap & Partial<{
-  lorentzSledVms: number; lorentzCurrentA: number; lorentzFieldT: number;
-  lorentzForceN: number; lorentzPositionM: number;
-}>;
 
 export interface SEGOperatorPanelOptions {
   state?: SEGOperatorState;
@@ -525,7 +517,7 @@ export class SEGOperatorPanel {
           `k ${(t.transformerK || 0).toFixed(2)}`
         ].join(' · ');
       } else if (view === 'vdg' && snap.devices?.vdg) {
-        const v = snap.devices.vdg as VdgSnap;
+        const v = snap.devices.vdg;
         const spark = (v.vdgSparkHz || 0) > 0 ? ' ⚡' : '';
         batteryFooter.textContent = [
           `V ${(v.vdgVoltage || 0).toFixed(0)} V${spark}`,
@@ -534,7 +526,7 @@ export class SEGOperatorPanel {
           `${(v.vdgSparkHz || 0).toFixed(2)} Hz`
         ].join(' · ');
       } else if (view === 'hall' && snap.devices?.hall) {
-        const h = snap.devices.hall as HallSnap;
+        const h = snap.devices.hall;
         batteryFooter.textContent = [
           `V_H ${((h.hallVoltage || 0) * 1000).toFixed(2)} mV`,
           `I ${(h.hallCurrent || 0).toFixed(2)} A`,
@@ -542,7 +534,7 @@ export class SEGOperatorPanel {
           `R_H ${(h.hallCoeff || 0).toExponential(2)}`
         ].join(' · ');
       } else if (view === 'lorentz-sled' && snap.devices?.['lorentz-sled']) {
-        const l = snap.devices['lorentz-sled'] as LorentzSnap;
+        const l = snap.devices['lorentz-sled'];
         batteryFooter.textContent = [
           `v ${(l.lorentzSledVms || 0).toFixed(2)} m/s`,
           `I ${(l.lorentzCurrentA || 0).toFixed(1)} A`,

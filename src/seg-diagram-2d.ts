@@ -14,7 +14,7 @@
 // loop (which only runs while visible), and reads visualizer state read-only.
 //
 // Wire-up (see main.js):
-//   import { initSEGDiagram2D } from './seg-diagram-2d.js';
+//   import { initSEGDiagram2D } from './seg-diagram-2d';
 //   const diagram = initSEGDiagram2D(() => window.multiVisualizer);
 // Toggle: the floating button, window.toggleSEGDiagram(), or the "D" key.
 // ============================================================================
@@ -24,7 +24,8 @@ import {
   computeRollerPositionsXZ,
   SEG_LAYOUT_PRESETS
 } from './seg-layout';
-import { explainerState } from './seg-explainer/explainer-state.js';
+import { explainerState } from './seg-explainer/explainer-state';
+import type { SegLayout, SegLayoutRing } from './devices/types';
 
 // Per-ring accent colours (inner → outer). Cyan-family to match the app skin,
 // shifted toward amber on the outer ring so the three rings stay legible.
@@ -39,14 +40,44 @@ const INK_DIM = 'rgba(0,255,255,0.35)';
 const INK_FAINT = 'rgba(0,255,255,0.12)';
 const BG = 'rgba(2,6,12,0.92)';
 
+type RingColor = { stroke: string; fill: string; glow: string };
+
+/** The live visualizer surface this overlay reads (WebGPU or WebGL2 fallback). */
+type SEGVisualizer = any;
+
+interface SEGDiagram2DOpts {
+  host?: HTMLElement;
+}
+
+interface DiagramState {
+  layout: SegLayout;
+  time: number;
+  energy: number;
+  speedMult: number;
+  mode: string;
+}
+
 export class SEGDiagram2D {
+  getViz: () => SEGVisualizer | null | undefined;
+  host: HTMLElement;
+  visible: boolean;
+  canvas!: HTMLCanvasElement;
+  ctx!: CanvasRenderingContext2D;
+  btn!: HTMLButtonElement;
+  private _raf: number | null;
+  private _dpr: number;
+  private _fallbackLayout: SegLayout;
+  private _highlightId: string | null;
+  private _unsub: (() => void) | undefined;
+  private _onResize!: () => void;
+  private _onKey!: (e: KeyboardEvent) => void;
+  private _ro?: ResizeObserver;
+
   /**
-   * @param {() => (object|null|undefined)} getVisualizer - returns the live
-   *        MultiDeviceVisualizer (window.multiVisualizer) or null.
-   * @param {object} [opts]
-   * @param {HTMLElement} [opts.host] - element to overlay (default #canvas-wrapper).
+   * @param getVisualizer - returns the live MultiDeviceVisualizer
+   *        (window.multiVisualizer) or null.
    */
-  constructor(getVisualizer, opts = {}) {
+  constructor(getVisualizer: () => SEGVisualizer | null | undefined, opts: SEGDiagram2DOpts = {}) {
     this.getViz = getVisualizer;
     this.host = opts.host || document.getElementById('canvas-wrapper') || document.body;
     this.visible = false;
@@ -56,7 +87,7 @@ export class SEGDiagram2D {
     // that doesn't expose segLayout).
     this._fallbackLayout = computeSEGLayout(SEG_LAYOUT_PRESETS.searl, 1.0);
     this._highlightId = null;
-    this._unsub = explainerState.subscribe((s) => { this._highlightId = s.highlightId; });
+    this._unsub = explainerState.subscribe((s: any) => { this._highlightId = s.highlightId; });
 
     this._buildDom();
     this._onResize = () => this._resize();
@@ -68,7 +99,7 @@ export class SEGDiagram2D {
     this._resize();
   }
 
-  _buildDom() {
+  private _buildDom(): void {
     const canvas = document.createElement('canvas');
     canvas.id = 'seg-diagram-2d';
     Object.assign(canvas.style, {
@@ -78,7 +109,7 @@ export class SEGDiagram2D {
     });
     this.host.appendChild(canvas);
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
+    this.ctx = canvas.getContext('2d')!;
 
     // Floating toggle button — lives in the same corner family as the existing
     // canvas labels so it reads as part of the instrument, not bolted on.
@@ -104,16 +135,16 @@ export class SEGDiagram2D {
     this.btn = btn;
 
     // Keyboard shortcut: "D" (ignored while typing in a field).
-    this._onKey = (e) => {
+    this._onKey = (e: KeyboardEvent) => {
       if (e.key !== 'd' && e.key !== 'D') return;
-      const t = e.target;
+      const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       this.toggle();
     };
     window.addEventListener('keydown', this._onKey);
   }
 
-  _syncBtn() {
+  private _syncBtn(): void {
     if (!this.btn) return;
     const on = this.visible;
     this.btn.style.background = on ? 'rgba(0,212,255,0.22)' : 'rgba(0,8,16,0.78)';
@@ -121,14 +152,14 @@ export class SEGDiagram2D {
     this.btn.style.borderColor = on ? INK : 'rgba(0,255,255,0.3)';
   }
 
-  _resize() {
+  private _resize(): void {
     const r = this.host.getBoundingClientRect();
     this._dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = Math.max(1, Math.round(r.width * this._dpr));
     this.canvas.height = Math.max(1, Math.round(r.height * this._dpr));
   }
 
-  show() {
+  show(): void {
     if (this.visible) return;
     this.visible = true;
     this.canvas.style.display = 'block';
@@ -142,7 +173,7 @@ export class SEGDiagram2D {
     this._raf = requestAnimationFrame(loop);
   }
 
-  hide() {
+  hide(): void {
     if (!this.visible) return;
     this.visible = false;
     if (this._raf) cancelAnimationFrame(this._raf);
@@ -151,18 +182,18 @@ export class SEGDiagram2D {
     this._syncBtn();
   }
 
-  toggle() { this.visible ? this.hide() : this.show(); }
+  toggle(): void { this.visible ? this.hide() : this.show(); }
 
   /** Sync visibility from UI checkbox (schematic overlay). */
-  setVisible(on) {
+  setVisible(on: boolean): void {
     if (on) this.show();
     else this.hide();
   }
 
   // --- Live state pulled read-only from the visualizer, with safe fallbacks ---
-  _readState() {
+  private _readState(): DiagramState {
     const v = this.getViz && this.getViz();
-    const layout = (v && v.segLayout) || this._fallbackLayout;
+    const layout: SegLayout = (v && v.segLayout) || this._fallbackLayout;
     const time = (v && typeof v.time === 'number') ? v.time : (performance.now() / 1000);
     const seg = v && v.devices && v.devices.seg;
     const energy = seg && typeof seg.energyLevel === 'number' ? seg.energyLevel : 0;
@@ -171,7 +202,7 @@ export class SEGDiagram2D {
     return { layout, time, energy, speedMult, mode };
   }
 
-  draw() {
+  draw(): void {
     const { ctx } = this;
     const { layout, time, energy, speedMult, mode } = this._readState();
     const W = this.canvas.width, H = this.canvas.height;
@@ -189,14 +220,14 @@ export class SEGDiagram2D {
     const cx = W / 2, cy = H / 2;
     const margin = 56 * dpr;
     const px = (Math.min(W, H) / 2 - margin) / fitRadiusScene; // scene-units → px
-    const toX = (x) => cx + x * px;
-    const toY = (z) => cy + z * px;
+    const toX = (x: number) => cx + x * px;
+    const toY = (z: number) => cy + z * px;
 
     this._drawPolarGrid(ctx, cx, cy, fitRadiusScene * px, dpr);
     this._drawBasePlate(ctx, cx, cy, layout, ws, px, dpr);
 
     // Ring guides + stator bands, inner → outer.
-    layout.rings.forEach((ring, i) => {
+    layout.rings.forEach((ring: SegLayoutRing, i: number) => {
       const annId = i === 0 ? 'inner-ring' : (i === layout.rings.length - 1 ? 'outer-ring' : 'separator');
       const isHi = this._highlightId === annId
         || (this._highlightId === 'stator' && i === 0)
@@ -212,7 +243,7 @@ export class SEGDiagram2D {
     this._drawHud(ctx, layout, energy, speedMult, mode, dpr);
   }
 
-  _drawPolarGrid(ctx, cx, cy, rOuterPx, dpr) {
+  private _drawPolarGrid(ctx: CanvasRenderingContext2D, cx: number, cy: number, rOuterPx: number, dpr: number): void {
     ctx.save();
     // Concentric rings.
     ctx.strokeStyle = INK_FAINT;
@@ -233,7 +264,7 @@ export class SEGDiagram2D {
     ctx.restore();
   }
 
-  _drawBasePlate(ctx, cx, cy, layout, ws, px, dpr) {
+  private _drawBasePlate(ctx: CanvasRenderingContext2D, cx: number, cy: number, layout: SegLayout, ws: number, px: number, dpr: number): void {
     const plateR = (layout.basePlateRadiusM || layout.outerRadiusM * 1.55) * ws * px;
     const shaftR = (layout.shaftRadiusM || 0.15) * ws * px;
     ctx.save();
@@ -270,7 +301,10 @@ export class SEGDiagram2D {
     ctx.restore();
   }
 
-  _drawRing(ctx, cx, cy, ring, color, ws, px, dpr, energy, highlighted = false) {
+  private _drawRing(
+    ctx: CanvasRenderingContext2D, cx: number, cy: number, ring: SegLayoutRing, color: RingColor,
+    ws: number, px: number, dpr: number, energy: number, highlighted = false
+  ): void {
     const orbitR = ring.orbitRadiusM * ws * px;
     const innerR = (ring.statorInnerM || 0) * ws * px;
     const outerR = (ring.statorOuterM || 0) * ws * px;
@@ -304,9 +338,12 @@ export class SEGDiagram2D {
     ctx.restore();
   }
 
-  _drawRollers(ctx, toX, toY, layout, positions, px, dpr, energy) {
+  private _drawRollers(
+    ctx: CanvasRenderingContext2D, toX: (x: number) => number, toY: (z: number) => number,
+    layout: SegLayout, positions: Float32Array, px: number, dpr: number, energy: number
+  ): void {
     let flat = 0;
-    layout.rings.forEach((ring, ri) => {
+    layout.rings.forEach((ring: SegLayoutRing, ri: number) => {
       const color = RING_COLORS[ri % RING_COLORS.length];
       const rollerPx = Math.max(ring.rollerRadiusM * layout.worldScale * px, 3 * dpr);
       for (let i = 0; i < ring.count; i++, flat++) {
@@ -342,7 +379,6 @@ export class SEGDiagram2D {
       }
 
       // Ring label: count + real orbit radius in metres, parked at top of orbit.
-      const labelR = ring.orbitRadiusM * layout.worldScale * px;
       ctx.save();
       ctx.fillStyle = color.stroke;
       ctx.font = `${10 * dpr}px monospace`;
@@ -355,7 +391,7 @@ export class SEGDiagram2D {
     });
   }
 
-  _drawScaleBar(ctx, W, H, ws, px, dpr) {
+  private _drawScaleBar(ctx: CanvasRenderingContext2D, W: number, H: number, ws: number, px: number, dpr: number): void {
     // One metre in scene units = ws; in pixels = ws * px.
     const oneMeterPx = ws * px;
     // Pick a "nice" length (1, 2, 5, 10 … m) that fits comfortably.
@@ -383,7 +419,7 @@ export class SEGDiagram2D {
     ctx.restore();
   }
 
-  _drawHud(ctx, layout, energy, speedMult, mode, dpr) {
+  private _drawHud(ctx: CanvasRenderingContext2D, layout: SegLayout, energy: number, speedMult: number, mode: string, dpr: number): void {
     ctx.save();
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
@@ -412,7 +448,7 @@ export class SEGDiagram2D {
     ctx.restore();
   }
 
-  destroy() {
+  destroy(): void {
     this.hide();
     this._unsub?.();
     window.removeEventListener('resize', this._onResize);
@@ -425,13 +461,12 @@ export class SEGDiagram2D {
 
 /**
  * Convenience initialiser: builds the diagram, wires global helpers, returns it.
- * @param {() => (object|null|undefined)} getVisualizer
  */
-export function initSEGDiagram2D(getVisualizer = () => window.multiVisualizer) {
+export function initSEGDiagram2D(getVisualizer: () => SEGVisualizer | null | undefined = () => window.multiVisualizer): SEGDiagram2D {
   const diagram = new SEGDiagram2D(getVisualizer);
   if (typeof window !== 'undefined') {
     window.segDiagram2D = diagram;
-    window.toggleSEGDiagram = () => diagram.toggle();
+    (window as any).toggleSEGDiagram = () => diagram.toggle();
   }
   return diagram;
 }

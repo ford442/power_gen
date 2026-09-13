@@ -16,14 +16,14 @@
 //     generateBearingShaft, generatePoleBandedRoller, generatePlateWithCutouts,
 //     generateSupportStand, generateWireHarness, generateCoilWithWindings,
 //     SEGMaterialPresets, EnhancedSEGGeometry
-//   } from './seg-enhanced-geometry.js';
+//   } from './seg-enhanced-geometry';
 //
 //   // In your setupGeometry(), replace simple shapes with detailed ones:
 //   const shaft = generateBearingShaft(device, { shaftRadius: 0.6, ... });
 //   const roller = generatePoleBandedRoller(device, { bands: 4, ... });
 // ============================================================================
 
-import { SEGMaterialPresets } from './seg-materials.js';
+import { SEGMaterialPresets } from './seg-materials';
 import {
   generateBearingShaft,
   generatePoleBandedRoller,
@@ -40,7 +40,7 @@ export {
   parseSegFrameLevel,
   createSegFrameBuffers,
   computeFrameDimensions
-} from './seg-frame-model.js';
+} from './seg-frame-model';
 
 export {
   generateBearingShaft,
@@ -54,14 +54,28 @@ export {
   generateBandedRollerInstances
 };
 
+export interface EnhancedSEGGeometryRing {
+  count: number;
+  radius: number;
+}
+
+export interface EnhancedSEGGeometryConfig {
+  rings?: EnhancedSEGGeometryRing[];
+  [key: string]: unknown;
+}
+
 export class EnhancedSEGGeometry {
-  constructor(device, config) {
+  device: GPUDevice;
+  config: EnhancedSEGGeometryConfig;
+  buffers: Record<string, any>;
+
+  constructor(device: GPUDevice, config: EnhancedSEGGeometryConfig) {
     this.device = device;
     this.config = config;
     this.buffers = {};
   }
 
-  async init() {
+  async init(): Promise<void> {
     // Central bearing shaft (replaces sphere)
     this.buffers.shaft = generateBearingShaft(this.device, {
       shaftRadius: 0.5,
@@ -85,7 +99,7 @@ export class EnhancedSEGGeometry {
       { count: 12, radius: 4.0 },
       { count: 16, radius: 5.5 }
     ];
-    const rollerCutouts = [];
+    const rollerCutouts: { angle: number; radius: number; size: number }[] = [];
     for (const ring of rings) {
       for (let i = 0; i < ring.count; i++) {
         rollerCutouts.push({
@@ -165,7 +179,7 @@ export class EnhancedSEGGeometry {
     }
   }
 
-  destroy() {
+  destroy(): void {
     for (const key of Object.keys(this.buffers)) {
       if (key === 'wires') {
         for (const w of this.buffers.wires) {

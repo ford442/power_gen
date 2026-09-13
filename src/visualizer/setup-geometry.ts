@@ -6,7 +6,7 @@ import {
   MATERIAL_STRUCTURAL
 } from '../devices/material-roles';
 import { DEVICE_MESH_LAYOUTS, TUBE_MESH_RADIUS, TUBE_MESH_HEIGHT } from '../device-mesh-layouts';
-import { generateTorus } from '../renderers/shared/primitive-geometry.js';
+import { generateTorus } from '../renderers/shared/primitive-geometry';
 import {
   generateBearingShaft,
   generateCoilWithWindings,
@@ -15,7 +15,7 @@ import {
   generatePlateWithCutouts,
   generateSupportStand,
   generateWireHarness
-} from '../seg-enhanced-geometry.js';
+} from '../seg-enhanced-geometry';
 import {
   generateBoxWithUVs,
   generateCylinder,
@@ -24,12 +24,12 @@ import {
   generateDiscWithUVs
 } from './primitives.js';
 import { buildRollerCutouts } from '../seg-layout';
-import { createDetailedRollerBuffers, ROLLER_DEFAULTS } from '../seg-roller-model.js';
+import { createDetailedRollerBuffers, ROLLER_DEFAULTS } from '../seg-roller-model';
 import {
   createSegFrameBuffers,
   makeFrameInstanceBuffer,
   computeFrameDimensions
-} from '../seg-frame-model.js';
+} from '../seg-frame-model';
 import { writeQueueBuffer } from '../gpu-buffer-write';
 import { bindHostMethods } from './bind-host-methods.js';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';

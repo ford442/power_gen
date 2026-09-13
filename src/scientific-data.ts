@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * Scientific Data Module for Multi-Device Physics Visualizer
  * Data sources: Wolfram Alpha / Wolfram Language computational results
@@ -11,8 +12,21 @@ import {
   KELVIN_CONSTANTS as GEN_KELVIN,
   HERON_CONSTANTS as GEN_HERON,
   LED_SOLAR_CORE,
-} from '../generated/physics-constants.js';
+} from '../generated/physics-constants';
 import generatedWgslConstants from './shaders/generated/constants.wgsl?raw';
+
+interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+interface RollerPosition {
+  x: number;
+  y: number;
+  z: number;
+  angle: number;
+}
 
 // ============================================
 // PHYSICAL CONSTANTS (CODATA 2018) — from physics/constants.json
@@ -48,19 +62,19 @@ export const SEG_DATA = {
     rollerDistance: 2.07055,    // m (straight-line between adjacent)
     angularSeparation: Math.PI / 6, // 30°
   },
-  
+
   // Calculated Magnetic Moment
   MAGNETIC_MOMENT: 5.635e6,     // A·m²
-  
+
   // B-Field at Various Distances (Axial, from Wolfram)
   B_FIELD: {
     surface: 0.7048,            // Tesla
     at1m: 0.1436,               // Tesla
-    at2m: 0.0415,               // Tesla  
+    at2m: 0.0415,               // Tesla
     at4m: 0.0088,               // Tesla
     at8m: 0.0015,               // Tesla
   },
-  
+
   // Energy Density u = B²/(2μ₀)
   ENERGY_DENSITY: {
     surface: 1.976e6,           // J/m³
@@ -68,14 +82,14 @@ export const SEG_DATA = {
     at2m: 6.85e3,               // J/m³
     at4m: 3.10e2,               // J/m³
   },
-  
+
   // Force Between Adjacent Rollers
   // F = (3μ₀m²)/(2πd⁴)
   ADJACENT_FORCE: 1.037e7,      // N (~10.4 MN)
-  
+
   // Roller Positions (pre-calculated for shader)
-  getRollerPositions: function() {
-    const positions = [];
+  getRollerPositions: function (): RollerPosition[] {
+    const positions: RollerPosition[] = [];
     for (let i = 0; i < 12; i++) {
       const angle = (i / 12) * Math.PI * 2;
       positions.push({
@@ -87,38 +101,38 @@ export const SEG_DATA = {
     }
     return positions;
   },
-  
+
   // Axial B-field function for cylindrical magnet (Wolfram verified)
   // B(z) = (Br/2)[(z+h)/√((z+h)²+R²) - z/√(z²+R²)]
-  calculateAxialBField: function(z) {
+  calculateAxialBField: function (z: number): number {
     const R = this.MAGNET.radius;
     const h = this.MAGNET.height;
     const Br = this.MAGNET.Br;
-    
+
     const term1 = (z + h) / Math.sqrt((z + h) ** 2 + R ** 2);
     const term2 = z / Math.sqrt(z ** 2 + R ** 2);
-    
+
     return (Br / 2) * (term1 - term2);
   },
-  
+
   // Dipole field approximation for far field
   // B = (μ₀/4π)[3(m·r̂)r̂ - m]/r³
-  calculateDipoleField: function(r, m) {
+  calculateDipoleField: function (r: Vec3, m: Vec3): Vec3 {
     const mu0 = PHYSICAL_CONSTANTS.MU_0;
     const rLen = Math.sqrt(r.x ** 2 + r.y ** 2 + r.z ** 2);
     const rNorm = { x: r.x / rLen, y: r.y / rLen, z: r.z / rLen };
     const r3 = rLen ** 3;
-    
+
     const mDotR = m.x * rNorm.x + m.y * rNorm.y + m.z * rNorm.z;
     const factor = (mu0 / (4 * Math.PI)) / r3;
-    
+
     return {
       x: factor * (3 * mDotR * rNorm.x - m.x),
       y: factor * (3 * mDotR * rNorm.y - m.y),
       z: factor * (3 * mDotR * rNorm.z - m.z)
     };
   },
-  
+
   // WGSL Shader Constants (numeric values from physics/constants.json)
   WGSL_CONSTANTS: `
     const MU_0: f32 = ${GEN_PHYSICAL.MU_0};
@@ -130,7 +144,7 @@ export const SEG_DATA = {
     const MAGNETIC_MOMENT: f32 = 5.635e6;
     const B_SURFACE: f32 = 0.7048;
     const ADJACENT_FORCE: f32 = 1.037e7;
-    
+
     // Axial B-field for cylindrical magnet
     fn B_axial(z: f32) -> f32 {
       let R = MAGNET_RADIUS;
@@ -140,7 +154,7 @@ export const SEG_DATA = {
       let t2 = z / sqrt(z * z + R * R);
       return (Br / 2.0) * (t1 - t2);
     }
-    
+
     // Energy density
     fn energy_density(B: f32) -> f32 {
       return (B * B) / (2.0 * MU_0);
@@ -158,13 +172,13 @@ export const KELVIN_DATA = {
     height: 1.0,                // m
     capacitance: GEN_KELVIN.BUCKET_CAPACITANCE_F,
   },
-  
+
   // Configuration
   CONFIG: {
     bucketDistance: GEN_KELVIN.BUCKET_DISTANCE_M,
     dropletRate: 1000,          // droplets/second
   },
-  
+
   // Water Droplet Properties
   DROPLET: {
     radius: 1e-3,               // m (1 mm)
@@ -173,16 +187,16 @@ export const KELVIN_DATA = {
     charge: GEN_KELVIN.DROPLET_CHARGE_C,
     charge_pC: GEN_KELVIN.DROPLET_CHARGE_C * 1e12,
   },
-  
+
   // Air Breakdown
   BREAKDOWN: {
     fieldStrength: GEN_KELVIN.E_BREAKDOWN_VM,
     // Spark gap: d = V / E_breakdown
-    sparkGap: function(voltage) {
+    sparkGap: function (voltage: number): number {
       return voltage / this.fieldStrength;
     },
   },
-  
+
   // Spark Gap Distances (from Wolfram)
   SPARK_GAPS: {
     at1kV: 0.33e-3,             // m (0.33 mm)
@@ -191,7 +205,7 @@ export const KELVIN_DATA = {
     at50kV: 16.7e-3,            // m (1.67 cm)
     at100kV: 33.3e-3,           // m (3.33 cm)
   },
-  
+
   // Voltage Buildup Over Time
   // V(t) = (I × t) / C, I = 1000 droplets/s × 1nC = 1μA
   VOLTAGE_BUILDUP: {
@@ -201,20 +215,20 @@ export const KELVIN_DATA = {
     at5s: 125e3,                // V (125 kV)
     at10s: 250e3,               // V (250 kV)
   },
-  
+
   // Electric Field Between Buckets
   // E = Q / (2πε₀(d/2)²)
-  calculateElectricField: function(charge) {
+  calculateElectricField: function (charge: number): number {
     const eps0 = PHYSICAL_CONSTANTS.EPSILON_0;
     const d = this.CONFIG.bucketDistance;
     return charge / (2 * Math.PI * eps0 * (d / 2) ** 2);
   },
-  
+
   // Force on Charged Droplet: F = qE
-  calculateDropletForce: function(electricField) {
+  calculateDropletForce: function (electricField: number): number {
     return this.DROPLET.charge * electricField;
   },
-  
+
   // Electric Field Values (from Wolfram)
   E_FIELD: {
     at1nC: 0.2,                 // V/m
@@ -223,7 +237,7 @@ export const KELVIN_DATA = {
     at1uC: 200.0,               // V/m
     at10uC: 2000.0,             // V/m (2 kV/m)
   },
-  
+
   // Force on Droplet (from Wolfram)
   DROPLET_FORCE: {
     at100Vm: 0.1e-6,            // N (0.1 μN)
@@ -231,12 +245,12 @@ export const KELVIN_DATA = {
     at1000Vm: 1.0e-6,           // N (1.0 μN)
     at5000Vm: 5.0e-6,           // N (5.0 μN)
   },
-  
+
   // Energy Stored: E = ½CV²
-  calculateEnergy: function(voltage) {
+  calculateEnergy: function (voltage: number): number {
     return 0.5 * this.BUCKET.capacitance * voltage ** 2;
   },
-  
+
   // Microvolt Sensitivity
   MICROVOLT: {
     // Single electron voltage: V = e/C
@@ -246,21 +260,21 @@ export const KELVIN_DATA = {
     // Minimum detectable (10 fC resolution)
     minDetectable: 0.25e-6,     // V (0.25 μV)
   },
-  
+
   // Thermal Noise (Johnson-Nyquist)
   // Vn = √(4kBTRΔf)
-  calculateThermalNoise: function(resistance, bandwidth) {
+  calculateThermalNoise: function (resistance: number, bandwidth: number): number {
     const kB = PHYSICAL_CONSTANTS.K_B;
     const T = PHYSICAL_CONSTANTS.T_ROOM;
     return Math.sqrt(4 * kB * T * resistance * bandwidth);
   },
-  
+
   THERMAL_NOISE: {
     at1Hz_1MOhm: 0.129e-6,      // V (0.129 μV RMS)
     at0_01Hz_1MOhm: 0.013e-6,   // V (0.013 μV RMS)
     at100Hz_1MOhm: 1.29e-6,     // V (1.29 μV RMS)
   },
-  
+
   // WGSL Shader Code
   WGSL_CONSTANTS: `
     const EPSILON_0: f32 = 8.854187817e-12;
@@ -269,27 +283,27 @@ export const KELVIN_DATA = {
     const E_BREAKDOWN: f32 = 3e6;
     const K_B: f32 = 1.380649e-23;
     const T_ROOM: f32 = 300.0;
-    
+
     // Electric field between buckets
     fn E_field(Q: f32, d: f32) -> f32 {
       return Q / (2.0 * 3.14159265359 * EPSILON_0 * (d / 2.0) * (d / 2.0));
     }
-    
+
     // Force on droplet
     fn F_droplet(q: f32, E: f32) -> f32 {
       return q * E;
     }
-    
+
     // Spark gap distance
     fn spark_gap(V: f32) -> f32 {
       return V / E_BREAKDOWN;
     }
-    
+
     // Voltage buildup: V = I*t/C
     fn V_buildup(I: f32, t: f32, C: f32) -> f32 {
       return (I * t) / C;
     }
-    
+
     // Energy stored
     fn energy_stored(C: f32, V: f32) -> f32 {
       return 0.5 * C * V * V;
@@ -316,7 +330,7 @@ export const HERON_DATA = {
     CFL: 0.2,                   // Courant number
     maxTimestep: 3.48e-5,       // s
   },
-  
+
   // Cubic Spline Kernel Values (2D)
   KERNEL: {
     at0: 0.4547,
@@ -325,7 +339,7 @@ export const HERON_DATA = {
     at1_5: 0.0142,
     at2: 0.0,
   },
-  
+
   // Chamber Configuration
   CHAMBER: {
     upperY: 4.0,                // m
@@ -334,7 +348,7 @@ export const HERON_DATA = {
     radius: 2.0,                // m
     heightDiff: 1.0,            // m (typical)
   },
-  
+
   // Pressure Calculations
   PRESSURE: {
     atmospheric: 101325,        // Pa
@@ -343,7 +357,7 @@ export const HERON_DATA = {
     at1m: 9810,                 // Pa
     at0_5m: 4905,               // Pa
   },
-  
+
   // Siphon Flow (Bernoulli's Principle)
   // v = √(2gh)
   SIPHON_VELOCITY: {
@@ -351,12 +365,12 @@ export const HERON_DATA = {
     at1m: 4.43,                 // m/s
     at2m: 6.26,                 // m/s
   },
-  
+
   // Calculate siphon velocity
-  calculateSiphonVelocity: function(height) {
+  calculateSiphonVelocity: function (height: number): number {
     return Math.sqrt(2 * PHYSICAL_CONSTANTS.G * height);
   },
-  
+
   // Flow Rate (tube diameter 0.01m)
   // Q = A × v = πr² × v
   FLOW_RATE: {
@@ -364,7 +378,7 @@ export const HERON_DATA = {
     at1m: 0.000348,             // m³/s (0.348 L/s)
     at2m: 0.000492,             // m³/s (0.492 L/s)
   },
-  
+
   // Required Air Pressure for Buoyancy
   // P = ρgh (to push water up)
   BUOYANCY_PRESSURE: {
@@ -372,16 +386,16 @@ export const HERON_DATA = {
     at1m: 9810,                 // Pa
     at2m: 19620,                // Pa
   },
-  
+
   // Equation of State (Tait)
   // P = B[(ρ/ρ₀)^γ - 1]
-  calculatePressure: function(density) {
+  calculatePressure: function (density: number): number {
     const B = this.SPH.gasConstant;
     const gamma = this.SPH.gamma;
     const rho0 = this.SPH.restDensity;
     return B * ((density / rho0) ** gamma - 1);
   },
-  
+
   // WGSL Shader Code
   WGSL_CONSTANTS: `
     const RHO_0: f32 = 1000.0;
@@ -390,22 +404,22 @@ export const HERON_DATA = {
     const GAMMA: f32 = 7.0;
     const SMOOTHING_LENGTH: f32 = 0.012;
     const ATMOSPHERIC_PRESSURE: f32 = 101325.0;
-    
+
     // Tait Equation of State
     fn pressure_EOS(rho: f32) -> f32 {
       return GAS_CONSTANT * (pow(rho / RHO_0, GAMMA) - 1.0);
     }
-    
+
     // Hydrostatic pressure
     fn P_hydrostatic(depth: f32) -> f32 {
       return RHO_0 * G * depth;
     }
-    
+
     // Siphon velocity (Bernoulli)
     fn v_siphon(height: f32) -> f32 {
       return sqrt(2.0 * G * height);
     }
-    
+
     // Cubic spline kernel (2D)
     fn W_cubic(q: f32) -> f32 {
       if (q < 0.5) {
@@ -433,10 +447,10 @@ export const MICROVOLT_DATA = {
     at100Hz_1MOhm: 1.29e-6,     // V (1.29 μV)
     at1000Hz_1MOhm: 4.07e-6,    // V (4.07 μV)
   },
-  
+
   // SNR for 1 μV signal at 1Hz: ~60.4 linear = 17.8 dB
   SNR_1uV_1Hz: 60.4,
-  
+
   // Single-Electron Effects
   SINGLE_ELECTRON: {
     // ΔV = e/C for various capacitances
@@ -445,35 +459,35 @@ export const MICROVOLT_DATA = {
     at10pF: 16e-9,              // V (16 nV)
     at100pF: 1.6e-9,            // V (1.6 nV)
   },
-  
+
   // Charge Sensitivity (per 1 μV)
   CHARGE_SENSITIVITY: {
     at1pF: 1e-15,               // C (1 fC)
     at10pF: 10e-15,             // C (10 fC)
     at100pF: 100e-15,           // C (100 fC)
   },
-  
+
   // Voltage Ramp Rate (dV/dt = I/C)
-  calculateVoltageRamp: function(current, capacitance) {
+  calculateVoltageRamp: function (current: number, capacitance: number): number {
     return current / capacitance;
   },
-  
+
   // Time to accumulate 1 μV
-  timeToMicrovolt: function(current, capacitance) {
+  timeToMicrovolt: function (current: number, capacitance: number): number {
     return (1e-6 * capacitance) / current;
   },
-  
+
   // Energy of 1 μV
-  calculateEnergy: function(capacitance) {
+  calculateEnergy: function (capacitance: number): number {
     return 0.5 * capacitance * (1e-6) ** 2;
   },
-  
+
   ENERGY_1uV: {
     at1pF: 5e-25,               // J (~3.1×10⁻⁶ eV)
     at10pF: 5e-24,              // J
     at100pF: 5e-23,             // J
   },
-  
+
   // Practical Simulation Parameters
   SIMULATION: {
     minVoltageStep: 0.1e-6,     // V (0.1 μV)
@@ -488,24 +502,24 @@ export const MICROVOLT_DATA = {
     RCTimeConstant: { min: 0.0001, max: 0.1 }, // s (0.1-100 ms)
     chargeInductionEfficiency: { min: 0.01, max: 0.10 }, // 1-10%
   },
-  
+
   // WGSL Shader Constants
   WGSL_CONSTANTS: `
     const K_B: f32 = 1.380649e-23;
     const E_CHARGE: f32 = 1.602176634e-19;
     const T_ROOM: f32 = 300.0;
     const ONE_MICROVOLT: f32 = 1e-6;
-    
+
     // Thermal noise: Vn = sqrt(4*kB*T*R*Δf)
     fn thermal_noise(R: f32, delta_f: f32) -> f32 {
       return sqrt(4.0 * K_B * T_ROOM * R * delta_f);
     }
-    
+
     // Single-electron voltage step
     fn single_electron_voltage(C: f32) -> f32 {
       return E_CHARGE / C;
     }
-    
+
     // Voltage ramp rate dV/dt = I/C
     fn voltage_ramp(I: f32, C: f32) -> f32 {
       return I / C;
@@ -523,7 +537,7 @@ export const PELTIER_DATA = {
     pType: 2.3e-4,             // V/K
     couple: 4.4e-4,            // V/K (combined couple)
   },
-  
+
   // Thermal Properties
   THERMAL: {
     hotSideTemp: 353,          // K (80°C)
@@ -531,52 +545,52 @@ export const PELTIER_DATA = {
     typicalDeltaT: 80,         // K
     thermalConductance: 0.5,   // W/K
   },
-  
+
   // Electrical Properties
   ELECTRICAL: {
     internalResistance: 2.5,   // Ω
     maxVoltage: 0.176,         // V (at ΔT=80K)
     maxCurrent: 0.07,          // A
   },
-  
+
   // Performance
   PERFORMANCE: {
     maxEfficiency: 0.08,       // ~8% of Carnot
     maxPowerDensity: 2.5e4,    // W/m³
     typicalCOP: 0.5,           // Coefficient of Performance
   },
-  
+
   // Power Formula: P = S²ΔT² / (4R)  (matched load)
-  calculatePower: function(deltaT) {
+  calculatePower: function (deltaT: number): number {
     const S = this.SEEBECK.couple;
     const R = this.ELECTRICAL.internalResistance;
     return (S * S * deltaT * deltaT) / (4 * R);
   },
-  
+
   // Voltage Formula: V = S × ΔT
-  calculateVoltage: function(deltaT) {
+  calculateVoltage: function (deltaT: number): number {
     return this.SEEBECK.couple * deltaT;
   },
-  
+
   // Efficiency: η = (ΔT/T_hot) × (√(1+ZT) - 1) / (√(1+ZT) + T_cold/T_hot)
-  calculateEfficiency: function(deltaT) {
+  calculateEfficiency: function (deltaT: number): number {
     const T_hot = this.THERMAL.hotSideTemp;
     const ZT = 1.0; // Typical figure of merit
     const ratio = Math.sqrt(1 + ZT);
     return (deltaT / T_hot) * (ratio - 1) / (ratio + (T_hot - deltaT) / T_hot);
   },
-  
+
   // WGSL Shader Constants
   WGSL_CONSTANTS: `
     const PELTIER_SEEBECK: f32 = 4.4e-4;
     const PELTIER_R_INT: f32 = 2.5;
     const PELTIER_HOT_T: f32 = 353.0;
     const PELTIER_COLD_T: f32 = 293.0;
-    
+
     fn peltier_power(deltaT: f32) -> f32 {
       return (PELTIER_SEEBECK * PELTIER_SEEBECK * deltaT * deltaT) / (4.0 * PELTIER_R_INT);
     }
-    
+
     fn peltier_voltage(deltaT: f32) -> f32 {
       return PELTIER_SEEBECK * deltaT;
     }
@@ -591,13 +605,13 @@ export const UNIFIED_PHYSICS_WGSL = `${generatedWgslConstants}
   const SEG_RING_RADIUS: f32 = ${GEN_SEG_CONFIG.middleRingRadius};
   const SEG_NUM_ROLLERS: i32 = ${GEN_SEG_CONFIG.numRollers};
   const SEG_MAGNETIC_MOMENT: f32 = 5.635e6;
-  
+
   fn seg_B_axial(z: f32, R: f32, h: f32) -> f32 {
     let t1 = (z + h) / sqrt((z + h) * (z + h) + R * R);
     let t2 = z / sqrt(z * z + R * R);
     return (SEG_BR / 2.0) * (t1 - t2);
   }
-  
+
   fn seg_B_dipole(r: vec3f, m: vec3f) -> vec3f {
     let r_len = length(r);
     let r_norm = r / r_len;
@@ -606,35 +620,35 @@ export const UNIFIED_PHYSICS_WGSL = `${generatedWgslConstants}
     let m_dot_r = dot(m, r_norm);
     return factor * (3.0 * m_dot_r * r_norm - m);
   }
-  
+
   fn kelvin_E_field(Q: f32, d: f32) -> f32 {
     return Q / (2.0 * PI * EPSILON_0 * (d / 2.0) * (d / 2.0));
   }
-  
+
   fn kelvin_F_droplet(q: f32, E: f32) -> f32 {
     return q * E;
   }
-  
+
   fn kelvin_spark_gap(V: f32) -> f32 {
     return V / KELVIN_E_BREAKDOWN;
   }
-  
+
   fn kelvin_V_buildup(I: f32, t: f32) -> f32 {
     return (I * t) / KELVIN_BUCKET_CAP;
   }
-  
+
   fn heron_pressure_EOS(rho: f32) -> f32 {
     return HERON_GAS_CONST * (pow(rho / HERON_RHO_0, HERON_GAMMA) - 1.0);
   }
-  
+
   fn heron_P_hydrostatic(depth: f32) -> f32 {
     return HERON_RHO_0 * G * depth;
   }
-  
+
   fn heron_v_siphon(height: f32) -> f32 {
     return sqrt(2.0 * G * height);
   }
-  
+
   fn heron_W_cubic(r: f32, h: f32) -> f32 {
     let q = r / h;
     let sigma = 8.0 / (PI * h * h * h);
@@ -646,15 +660,15 @@ export const UNIFIED_PHYSICS_WGSL = `${generatedWgslConstants}
     }
     return 0.0;
   }
-  
+
   fn microvolt_thermal_noise(R: f32, delta_f: f32) -> f32 {
     return sqrt(4.0 * K_B * 300.0 * R * delta_f);
   }
-  
+
   fn microvolt_single_electron_step(C: f32) -> f32 {
     return E_CHARGE / C;
   }
-  
+
   fn microvolt_voltage_ramp(I: f32, C: f32) -> f32 {
     return I / C;
   }

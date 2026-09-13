@@ -23,7 +23,7 @@ import { buildHallMesh } from '../../devices/quanta/hall-effect';
 import { buildLorentzSledMesh, LORENTZ } from '../../devices/quanta/lorentz-sled';
 import { buildPeltierMesh } from '../../devices/core/peltier-mesh';
 import { buildMhdMesh } from '../../devices/core/mhd-mesh';
-import { exposeRenderer, RENDERER_WEBGL2 } from '../renderer-selector.js';
+import { exposeRenderer, RENDERER_WEBGL2 } from '../renderer-selector';
 import { stepParticles, seedParticles } from '../shared/particle-physics';
 import {
   createDevicePhysicsState,
@@ -49,12 +49,12 @@ import { ParticleRenderer } from './particle-renderer.js';
 import { WebGL2DebugControls } from './debug-controls.js';
 import { EnergyPipeRenderer } from './energy-pipe-renderer.js';
 import { HalbachFieldRenderer } from './halbach-field-renderer.js';
-import { parseSegFrameLevel } from '../../seg-frame-model.js';
+import { parseSegFrameLevel } from '../../seg-frame-model';
 import { parseLightingLook, getLightingPreset } from '../../seg-lighting-presets';
 import { segOperator } from '../../seg-operator-state';
 import { telemetryHub } from '../../telemetry-hub';
 import { gpuChores } from '../../gpu-chores';
-import { initSEGAnnotations } from '../../seg-annotations.js';
+import { initSEGAnnotations } from '../../seg-annotations';
 import { segWasm } from '../../wasm/seg-physics-bridge';
 import {
   getHeronLayout,

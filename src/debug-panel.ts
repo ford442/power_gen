@@ -1,4 +1,4 @@
-import { SEG_DATA, KELVIN_DATA, HERON_DATA, MICROVOLT_DATA } from './scientific-data.js';
+import { SEG_DATA, KELVIN_DATA, HERON_DATA, MICROVOLT_DATA } from './scientific-data';
 import type { PerformanceProfiler } from './performance-profiler';
 
 export class DebugPanel {

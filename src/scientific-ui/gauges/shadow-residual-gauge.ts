@@ -3,25 +3,42 @@
  * Data from TelemetryHub.hardwareTwin.shadowResidual.
  */
 
-import { formatCompact } from '../utils/index.js';
+import type { HardwareTwinTelemetry } from '../../telemetry/types';
 
 const HISTORY = 90;
 
-function finite(n, fallback = 0) {
-  return Number.isFinite(n) ? n : fallback;
+function finite(n: number | undefined, fallback: number = 0): number {
+  return Number.isFinite(n) ? (n as number) : fallback;
 }
 
+type ConnectionState = 'disconnected' | 'mock' | 'serial';
+
 export class ShadowResidualGauge {
-  constructor(containerId) {
-    this.container = document.getElementById(containerId);
+  container: HTMLElement;
+  historyRpm: number[];
+  historyV: number[];
+  historyI: number[];
+  connected: boolean;
+  connectionState: ConnectionState;
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  rpmEl: HTMLElement | null;
+  vEl: HTMLElement | null;
+  iEl: HTMLElement | null;
+  stateEl: HTMLElement | null;
+  width: number = 0;
+  height: number = 0;
+
+  constructor(containerId: string) {
+    this.container = document.getElementById(containerId) as HTMLElement;
     this.historyRpm = new Array(HISTORY).fill(0);
     this.historyV = new Array(HISTORY).fill(0);
     this.historyI = new Array(HISTORY).fill(0);
     this.connected = false;
     this.connectionState = 'disconnected';
     this.render();
-    this.canvas = this.container.querySelector('canvas');
-    this.ctx = this.canvas.getContext('2d');
+    this.canvas = this.container.querySelector('canvas')!;
+    this.ctx = this.canvas.getContext('2d')!;
     this.rpmEl = this.container.querySelector('[data-res="rpm"]');
     this.vEl = this.container.querySelector('[data-res="v"]');
     this.iEl = this.container.querySelector('[data-res="i"]');
@@ -30,8 +47,8 @@ export class ShadowResidualGauge {
     window.addEventListener('resize', () => this.resize());
   }
 
-  resize() {
-    const rect = this.canvas.parentElement.getBoundingClientRect();
+  resize(): void {
+    const rect = this.canvas.parentElement!.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = Math.max(1, rect.width * dpr);
     this.canvas.height = Math.max(1, rect.height * dpr);
@@ -41,7 +58,7 @@ export class ShadowResidualGauge {
     this.draw();
   }
 
-  render() {
+  render(): void {
     this.container.innerHTML = `
       <div class="sci-gauge-header">
         <span class="sci-gauge-label">Shadow Twin Residual</span>
@@ -61,10 +78,7 @@ export class ShadowResidualGauge {
     `;
   }
 
-  /**
-   * @param {import('../../telemetry/types').HardwareTwinTelemetry|null} twin
-   */
-  updateFromTwin(twin) {
+  updateFromTwin(twin: HardwareTwinTelemetry | null): void {
     if (!twin?.connected) {
       this.connected = false;
       this.connectionState = 'disconnected';
@@ -77,7 +91,7 @@ export class ShadowResidualGauge {
 
     this.connected = true;
     this.connectionState = twin.connectionState || (twin.mock ? 'mock' : 'serial');
-    const r = twin.shadowResidual || {};
+    const r = twin.shadowResidual || ({} as HardwareTwinTelemetry['shadowResidual']);
     const rpmErr = finite(r.rpmError);
     const vErr = finite(r.voltageError);
     const iErr = finite(r.currentError);
@@ -94,7 +108,7 @@ export class ShadowResidualGauge {
     if (this.iEl) this.iEl.textContent = `${iErr >= 0 ? '+' : ''}${iErr.toFixed(2)} A`;
 
     if (this.stateEl) {
-      const labels = { mock: 'mock', serial: 'serial', disconnected: 'off' };
+      const labels: Record<ConnectionState, string> = { mock: 'mock', serial: 'serial', disconnected: 'off' };
       this.stateEl.textContent = labels[this.connectionState] || this.connectionState;
       this.stateEl.className = 'sci-gauge-value'
         + (this.connectionState === 'mock' ? ' warning' : '')
@@ -104,7 +118,7 @@ export class ShadowResidualGauge {
     this.draw();
   }
 
-  draw() {
+  draw(): void {
     if (!this.ctx || !this.width) return;
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.width, this.height);

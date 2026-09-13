@@ -6,9 +6,11 @@
 //
 // Toggle via URL ?frame=full|minimal|off or debug panel "SEG frame" select.
 
-/** @typedef {'off'|'minimal'|'full'} SegFrameLevel */
+import type { SegLayout, SegLayoutRing, MeshBuffers } from './devices/types';
 
-export const SEG_FRAME_LEVELS = {
+export type SegFrameLevel = 'off' | 'minimal' | 'full';
+
+export const SEG_FRAME_LEVELS: { off: 0; minimal: 1; full: 2 } = {
   off: 0,
   minimal: 1,
   full: 2
@@ -16,26 +18,51 @@ export const SEG_FRAME_LEVELS = {
 
 /**
  * Parse frame visibility from URL / window override.
- * @param {URLSearchParams} [params]
- * @returns {SegFrameLevel}
  */
-export function parseSegFrameLevel(params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')) {
+export function parseSegFrameLevel(
+  params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
+): SegFrameLevel {
   const raw = params.get('frame');
   if (raw === 'off' || raw === '0' || raw === 'false') return 'off';
   if (raw === 'minimal' || raw === 'min' || raw === '1') return 'minimal';
   if (raw === 'full' || raw === '2') return 'full';
-  if (typeof window !== 'undefined' && window.SEG_FRAME_LEVEL) {
-    const w = String(window.SEG_FRAME_LEVEL).toLowerCase();
-    if (w in SEG_FRAME_LEVELS) return w;
+  if (typeof window !== 'undefined' && (window as any).SEG_FRAME_LEVEL) {
+    const w = String((window as any).SEG_FRAME_LEVEL).toLowerCase();
+    if (w in SEG_FRAME_LEVELS) return w as SegFrameLevel;
   }
   return 'full';
 }
 
+/** Per-ring stator collar radii, scaled to world units. */
+export interface FrameRingOrbit {
+  orbit: number;
+  statorOuter: number;
+  statorInner: number;
+}
+
+/** Layout-derived anchor points for frame placement (device-local space). */
+export interface FrameDimensions {
+  ws: number;
+  statorH: number;
+  outerR: number;
+  innerR: number;
+  basePlateRadius: number;
+  baseHeight: number;
+  baseCenterY: number;
+  baseBottomY: number;
+  baseTopY: number;
+  statorY: number;
+  benchTopY: number;
+  benchThickness: number;
+  standHeight: number;
+  plateY: number;
+  ringOrbits: FrameRingOrbit[];
+}
+
 /**
  * Layout-derived anchor points for frame placement (device-local space).
- * @param {import('./seg-layout').SEGLayout} layout
  */
-export function computeFrameDimensions(layout) {
+export function computeFrameDimensions(layout: SegLayout): FrameDimensions {
   const ws = layout.worldScale;
   const statorH = layout.statorHeightM * ws;
   const outerR = layout.outerRadiusM * ws;
@@ -65,7 +92,7 @@ export function computeFrameDimensions(layout) {
     benchThickness,
     standHeight,
     plateY,
-    ringOrbits: layout.rings.map((r) => ({
+    ringOrbits: layout.rings.map((r: SegLayoutRing) => ({
       orbit: r.orbitRadiusM * ws,
       statorOuter: r.statorOuterM * ws,
       statorInner: r.statorInnerM * ws
@@ -77,20 +104,18 @@ export function computeFrameDimensions(layout) {
 // Mesh builder (position + normal + uv, 8 floats per vertex)
 // ---------------------------------------------------------------------------
 
-class MeshBuilder {
-  constructor() {
-    /** @type {number[]} */
-    this.positions = [];
-    /** @type {number[]} */
-    this.normals = [];
-    /** @type {number[]} */
-    this.uvs = [];
-    /** @type {number[]} */
-    this.indices = [];
-  }
+interface RawMesh {
+  vertices: Float32Array<ArrayBuffer>;
+  indices: Uint16Array<ArrayBuffer>;
+}
 
-  /** @param {Float32Array} verts @param {Uint16Array} idx */
-  appendMesh(verts, idx) {
+class MeshBuilder {
+  positions: number[] = [];
+  normals: number[] = [];
+  uvs: number[] = [];
+  indices: number[] = [];
+
+  appendMesh(verts: Float32Array, idx: Uint16Array): void {
     const base = this.positions.length / 3;
     for (let i = 0; i < verts.length; i += 8) {
       this.positions.push(verts[i], verts[i + 1], verts[i + 2]);
@@ -102,11 +127,11 @@ class MeshBuilder {
     }
   }
 
-  appendBox(cx, cy, cz, width, height, depth) {
+  appendBox(cx: number, cy: number, cz: number, width: number, height: number, depth: number): void {
     const w = width * 0.5;
     const h = height * 0.5;
     const d = depth * 0.5;
-    const faces = [
+    const faces: [number[], number[], number[], number[], number[]][] = [
       // +Z front
       [[-w, -h, d], [w, -h, d], [w, h, d], [-w, h, d], [0, 0, 1]],
       // -Z back
@@ -134,16 +159,16 @@ class MeshBuilder {
     }
   }
 
-  appendCylinder(cx, cy, cz, radius, height, segments = 12, axis = 'y') {
+  appendCylinder(cx: number, cy: number, cz: number, radius: number, height: number, segments = 12, axis: 'x' | 'y' = 'y'): void {
     const h2 = height * 0.5;
-    const rings = [];
+    const rings: number[][] = [];
     for (const t of [-1, 1]) {
-      const ring = [];
+      const ring: number[] = [];
       for (let i = 0; i <= segments; i++) {
         const theta = (i / segments) * Math.PI * 2;
         const c = Math.cos(theta);
         const s = Math.sin(theta);
-        let px, py, pz, nx, ny, nz;
+        let px: number, py: number, pz: number, nx: number, ny: number, nz: number;
         if (axis === 'y') {
           px = cx + c * radius;
           py = cy + t * h2;
@@ -172,7 +197,7 @@ class MeshBuilder {
     }
   }
 
-  appendAnnulus(y, innerR, outerR, thickness, segments = 48) {
+  appendAnnulus(y: number, innerR: number, outerR: number, thickness: number, segments = 48): void {
     const h2 = thickness * 0.5;
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2;
@@ -180,7 +205,7 @@ class MeshBuilder {
       const s = Math.sin(theta);
       const u = i / segments;
 
-      const push = (r, ny, v) => {
+      const push = (r: number, ny: number, v: number) => {
         this.positions.push(c * r, y + v, s * r);
         this.normals.push(c * (v === 0 ? 0 : 0), ny, s * (v === 0 ? 0 : 0));
         if (ny === 0) {
@@ -211,7 +236,7 @@ class MeshBuilder {
     }
   }
 
-  appendRadialColumn(x1, y1, z1, x2, y2, z2, radius, segments = 8) {
+  appendRadialColumn(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, radius: number, segments = 8): void {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const dz = z2 - z1;
@@ -219,7 +244,7 @@ class MeshBuilder {
     const tx = dx / len;
     const ty = dy / len;
     const tz = dz / len;
-    let px, py, pz;
+    let px: number, py: number, pz: number;
     if (Math.abs(ty) < 0.9) {
       px = tz; py = 0; pz = -tx;
     } else {
@@ -232,7 +257,7 @@ class MeshBuilder {
     const qz = tx * py - ty * px;
 
     const steps = 4;
-    const ringStarts = [];
+    const ringStarts: number[] = [];
     for (let step = 0; step <= steps; step++) {
       const t = step / steps;
       const lx = x1 + dx * t;
@@ -258,7 +283,7 @@ class MeshBuilder {
     }
   }
 
-  build() {
+  build(): RawMesh {
     const count = this.positions.length / 3;
     const vertices = new Float32Array(count * 8);
     for (let i = 0; i < count; i++) {
@@ -275,7 +300,7 @@ class MeshBuilder {
   }
 }
 
-function _upload(device, data) {
+function _upload(device: GPUDevice, data: RawMesh): MeshBuffers {
   const vb = device.createBuffer({
     size: data.vertices.byteLength,
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
@@ -291,9 +316,8 @@ function _upload(device, data) {
 
 /**
  * Build lab bench slab geometry.
- * @param {ReturnType<typeof computeFrameDimensions>} dims
  */
-export function buildLabBenchMesh(dims) {
+export function buildLabBenchMesh(dims: FrameDimensions): RawMesh {
   const mb = new MeshBuilder();
   const pad = dims.basePlateRadius * 1.15;
   mb.appendBox(0, dims.benchTopY - dims.benchThickness * 0.5, 0, pad * 2, dims.benchThickness, pad * 1.35);
@@ -304,10 +328,8 @@ export function buildLabBenchMesh(dims) {
 
 /**
  * Radial alignment columns + outer stator collars + tie ring.
- * @param {ReturnType<typeof computeFrameDimensions>} dims
- * @param {SegFrameLevel} level
  */
-export function buildStructuralFrameMesh(dims, level) {
+export function buildStructuralFrameMesh(dims: FrameDimensions, level: SegFrameLevel): RawMesh {
   const mb = new MeshBuilder();
   const colR = dims.statorH * 0.14;
   const colCount = 8;
@@ -363,9 +385,8 @@ export function buildStructuralFrameMesh(dims, level) {
 
 /**
  * Control box + terminal strip + cooling vent fins.
- * @param {ReturnType<typeof computeFrameDimensions>} dims
  */
-export function buildControlBoxMesh(dims) {
+export function buildControlBoxMesh(dims: FrameDimensions): RawMesh {
   const mb = new MeshBuilder();
   const bx = dims.outerR * 1.12;
   const by = dims.baseCenterY + dims.baseHeight * 0.35;
@@ -406,9 +427,8 @@ export function buildControlBoxMesh(dims) {
 
 /**
  * Wireframe-style safety cage (vertical bars + horizontal rings).
- * @param {ReturnType<typeof computeFrameDimensions>} dims
  */
-export function buildSafetyCageMesh(dims) {
+export function buildSafetyCageMesh(dims: FrameDimensions): RawMesh {
   const mb = new MeshBuilder();
   const bars = 12;
   const barR = dims.statorH * 0.045;
@@ -437,19 +457,26 @@ export function buildSafetyCageMesh(dims) {
   return mb.build();
 }
 
+/** All GPU buffers for the SEG frame assembly at a given visibility level. */
+export interface SegFrameBufferSet {
+  level: SegFrameLevel;
+  dims: FrameDimensions;
+  labBench?: MeshBuffers | null;
+  structural?: MeshBuffers | null;
+  controlBox?: MeshBuffers | null;
+  safetyCage?: MeshBuffers | null;
+}
+
 /**
  * Create all GPU buffers for the SEG frame assembly.
- * @param {GPUDevice} device
- * @param {import('./seg-layout').SEGLayout} layout
- * @param {SegFrameLevel} level
  */
-export function createSegFrameBuffers(device, layout, level = 'full') {
+export function createSegFrameBuffers(device: GPUDevice, layout: SegLayout, level: SegFrameLevel = 'full'): SegFrameBufferSet {
   if (level === 'off') {
     return { level, dims: computeFrameDimensions(layout) };
   }
 
   const dims = computeFrameDimensions(layout);
-  const result = { level, dims };
+  const result: SegFrameBufferSet = { level, dims };
 
   result.labBench = _upload(device, buildLabBenchMesh(dims));
   result.structural = _upload(device, buildStructuralFrameMesh(dims, level));
@@ -463,7 +490,7 @@ export function createSegFrameBuffers(device, layout, level = 'full') {
 }
 
 /** Canonical instance record for frame parts (matches enhanced pipeline). */
-export function makeFrameInstanceBuffer(device, ringIndex = 11.0, color = [0.72, 0.74, 0.78]) {
+export function makeFrameInstanceBuffer(device: GPUDevice, ringIndex = 11.0, color: number[] = [0.72, 0.74, 0.78]): GPUBuffer {
   const buf = device.createBuffer({
     size: 48,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
@@ -479,7 +506,7 @@ export function makeFrameInstanceBuffer(device, ringIndex = 11.0, color = [0.72,
 }
 
 /** Vibration offset from normalized SEG angular velocity. */
-export function frameVibrationOffset(segOmega, statorH) {
+export function frameVibrationOffset(segOmega: number, statorH: number): [number, number, number] {
   const amp = Math.min(1, Math.max(0, segOmega - 0.35)) * statorH * 0.012;
   const t = performance.now() * 0.001;
   return [

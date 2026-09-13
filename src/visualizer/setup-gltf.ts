@@ -20,7 +20,7 @@ import {
   type SegGltfPropDef
 } from '../assets/gltf/prop-registry';
 import { attachGltfHousingPickHandler } from '../assets/gltf/gltf-housing-pick';
-import { computeFrameDimensions } from '../seg-frame-model.js';
+import { computeFrameDimensions } from '../seg-frame-model';
 import type { SceneAnchor, SceneMaterial } from '../assets/scene/scene-node.js';
 import type { MultiDeviceVisualizer, GltfPickable } from '../multi-device-visualizer.js';
 import { bindHostMethods } from './bind-host-methods.js';

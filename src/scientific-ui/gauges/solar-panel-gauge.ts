@@ -1,28 +1,53 @@
-import { clamp, LED_SOLAR_CONSTANTS } from '../utils/index.js';
+import { clamp, LED_SOLAR_CONSTANTS } from '../utils/index';
+
+export interface SolarOutput {
+  irradiance?: number;
+  voltage?: number;
+  current?: number;
+  power?: number;
+  efficiency?: number;
+}
 
 export class SolarPanelGauge {
-  constructor(containerId) {
-    this.container = document.getElementById(containerId);
+  container: HTMLElement;
+  irradiance: number;
+  voltage: number;
+  current: number;
+  power: number;
+  efficiency: number;
+  maxPower: number;
+  constants: typeof LED_SOLAR_CONSTANTS.SOLAR;
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  ivCanvas: HTMLCanvasElement;
+  ivCtx: CanvasRenderingContext2D;
+  width: number = 0;
+  height: number = 0;
+  ivWidth: number = 0;
+  ivHeight: number = 0;
+
+  constructor(containerId: string) {
+    this.container = document.getElementById(containerId) as HTMLElement;
     this.irradiance = 0; // W/m²
     this.voltage = 0; // V
     this.current = 0; // A
     this.power = 0; // W
     this.efficiency = 0; // %
     this.maxPower = 300; // W rated max
-    
+
     this.constants = LED_SOLAR_CONSTANTS.SOLAR;
-    
+
     this.render();
-    this.canvas = this.container.querySelector('.solar-canvas');
-    this.ctx = this.canvas.getContext('2d');
-    this.ivCanvas = this.container.querySelector('.iv-canvas');
-    this.ivCtx = this.ivCanvas.getContext('2d');
-    
+    this.canvas = this.container.querySelector('.solar-canvas')!;
+    this.ctx = this.canvas.getContext('2d')!;
+    this.ivCanvas = this.container.querySelector('.iv-canvas')!;
+    this.ivCtx = this.ivCanvas.getContext('2d')!;
+
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
-  
-  resize() {
+
+  resize(): void {
     const rect = this.canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = rect.width * dpr;
@@ -30,18 +55,18 @@ export class SolarPanelGauge {
     this.ctx.scale(dpr, dpr);
     this.width = rect.width;
     this.height = rect.height;
-    
-    const ivRect = this.ivCanvas.parentElement.getBoundingClientRect();
+
+    const ivRect = this.ivCanvas.parentElement!.getBoundingClientRect();
     this.ivCanvas.width = ivRect.width * dpr;
     this.ivCanvas.height = ivRect.height * dpr;
     this.ivCtx.scale(dpr, dpr);
     this.ivWidth = ivRect.width;
     this.ivHeight = ivRect.height;
-    
+
     this.draw();
   }
-  
-  render() {
+
+  render(): void {
     this.container.innerHTML = `
       <div class="sci-gauge-header">
         <span class="sci-gauge-label">Solar Panel</span>
@@ -79,48 +104,43 @@ export class SolarPanelGauge {
       </div>
     `;
   }
-  
+
   /**
    * Get color for efficiency level
    */
-  getEfficiencyColor(eff) {
+  getEfficiencyColor(eff: number): string {
     if (eff < 15) return '#ff4444'; // Red for low
     if (eff < 20) return '#ffaa00'; // Yellow for medium
     return '#44ff44'; // Green for good
   }
-  
+
   /**
    * Get color for irradiance level
    */
-  getIrradianceColor(irr) {
+  getIrradianceColor(irr: number): string {
     if (irr < 400) return '#4444ff'; // Low - blue
     if (irr < this.constants.IRRADIANCE_STANDARD) return '#44ff44'; // Medium - green
     return '#ffff44'; // High - yellow
   }
-  
+
   /**
    * Update solar panel output
-   * @param {Object} output - Solar output data
-   * @param {number} output.irradiance - W/m²
-   * @param {number} output.voltage - Volts
-   * @param {number} output.current - Amps
-   * @param {number} output.power - Watts
-   * @param {number} output.efficiency - %
+   * @param output - Solar output data
    */
-  updateOutput(output) {
+  updateOutput(output: SolarOutput): void {
     this.irradiance = output.irradiance ?? 0;
     this.voltage = output.voltage ?? 0;
     this.current = output.current ?? 0;
     this.power = output.power ?? 0;
     this.efficiency = output.efficiency ?? 0;
-    
+
     // Update DOM
-    const irrEl = this.container.querySelector('.irradiance-value');
-    const effEl = this.container.querySelector('.efficiency-value');
-    const powerEl = this.container.querySelector('.solar-value');
-    const powerBar = this.container.querySelector('.power-bar-fill');
-    const powerLabel = this.container.querySelector('.power-label');
-    
+    const irrEl = this.container.querySelector<HTMLElement>('.irradiance-value');
+    const effEl = this.container.querySelector<HTMLElement>('.efficiency-value');
+    const powerEl = this.container.querySelector<HTMLElement>('.solar-value');
+    const powerBar = this.container.querySelector<HTMLElement>('.power-bar-fill');
+    const powerLabel = this.container.querySelector<HTMLElement>('.power-label');
+
     if (irrEl) {
       irrEl.textContent = `${this.irradiance.toFixed(0)} W/m²`;
       irrEl.style.color = this.getIrradianceColor(this.irradiance);
@@ -140,38 +160,38 @@ export class SolarPanelGauge {
     if (powerLabel) {
       powerLabel.textContent = `${this.power.toFixed(1)} / ${this.maxPower}W`;
     }
-    
+
     this.draw();
   }
-  
-  draw() {
+
+  draw(): void {
     this.drawSunIcon();
     this.drawIVCurve();
   }
-  
-  drawSunIcon() {
+
+  drawSunIcon(): void {
     const ctx = this.ctx;
     const centerX = this.width / 2;
     const centerY = this.height / 2;
     const baseRadius = 12;
-    
+
     ctx.clearRect(0, 0, this.width, this.height);
-    
+
     // Calculate ray animation based on irradiance
     const rayIntensity = this.irradiance / this.constants.IRRADIANCE_MAX;
     const numRays = 8;
     const time = Date.now() / 1000;
-    
+
     // Draw rays
     ctx.strokeStyle = this.getIrradianceColor(this.irradiance);
     ctx.lineWidth = 2;
-    
+
     for (let i = 0; i < numRays; i++) {
       const angle = (i / numRays) * Math.PI * 2 + time * 0.5;
       const rayLength = 8 + rayIntensity * 12 + Math.sin(time * 2 + i) * 2;
       const innerRadius = baseRadius + 4;
       const outerRadius = innerRadius + rayLength;
-      
+
       ctx.globalAlpha = 0.3 + rayIntensity * 0.7;
       ctx.beginPath();
       ctx.moveTo(
@@ -184,9 +204,9 @@ export class SolarPanelGauge {
       );
       ctx.stroke();
     }
-    
+
     ctx.globalAlpha = 1;
-    
+
     // Draw sun circle
     ctx.beginPath();
     ctx.arc(centerX, centerY, baseRadius, 0, Math.PI * 2);
@@ -196,43 +216,43 @@ export class SolarPanelGauge {
     ctx.fill();
     ctx.shadowBlur = 0;
   }
-  
-  drawIVCurve() {
+
+  drawIVCurve(): void {
     const ctx = this.ivCtx;
     const w = this.ivWidth;
     const h = this.ivHeight;
-    
+
     ctx.clearRect(0, 0, w, h);
-    
+
     // Draw I-V curve (typical solar cell curve)
     ctx.beginPath();
     ctx.strokeStyle = '#00ffff';
     ctx.lineWidth = 1.5;
-    
+
     const isc = this.current * 1.2; // Short circuit current
     const voc = this.voltage * 1.1; // Open circuit voltage
-    
+
     // Draw characteristic curve
     for (let x = 0; x <= w; x++) {
       const v = (x / w) * voc;
       // Simplified I-V equation: I = Isc * (1 - exp((V - Voc)/Vt))
       const i = isc * (1 - Math.exp((v - voc) / 0.026));
       const y = h - (i / isc) * h;
-      
+
       if (x === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
     ctx.stroke();
-    
+
     // Draw operating point
     const opX = (this.voltage / voc) * w;
     const opY = h - (this.current / isc) * h;
-    
+
     ctx.beginPath();
     ctx.arc(opX, opY, 3, 0, Math.PI * 2);
     ctx.fillStyle = '#ff00ff';
     ctx.fill();
-    
+
     // Draw AM1.5G reference line
     const refY = h * 0.3;
     ctx.beginPath();

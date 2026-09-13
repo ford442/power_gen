@@ -6,7 +6,7 @@
  * automatic WebGL2 rescue on probe failure is disabled.
  */
 
-import './devices/register-plugins.js';
+import './devices/register-plugins';
 import { assertParticleLayouts } from '../generated/physics-constants.js';
 import { SEGSim } from './wasm/sim';
 import { MultiDeviceVisualizer } from './multi-device-visualizer.js';
@@ -16,15 +16,15 @@ import {
   exposeRenderer,
   RENDERER_WEBGPU,
   RENDERER_WEBGL2
-} from './renderers/renderer-selector.js';
+} from './renderers/renderer-selector';
 import { probeWebGPU, showWebGPUHardFail, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 import { initSEGOperatorPanel } from './seg-operator-panel';
-import { initSEGDiagram2D } from './seg-diagram-2d.js';
+import { initSEGDiagram2D } from './seg-diagram-2d';
 import { initTelemetryExportPanel } from './telemetry/telemetry-export-panel';
 import { initReplayUI } from './telemetry/replay-ui';
 import { replayPlayer } from './telemetry/replay-player';
-import { initExplainerUI } from './seg-explainer/explainer-ui.js';
+import { initExplainerUI } from './seg-explainer/explainer-ui';
 import { restoreSimulationSeedFromStorage } from './telemetry/deterministic-rng';
 import { applyReplay, type ReplayFile } from './telemetry/replay-format';
 import { telemetryHub } from './telemetry-hub';
@@ -43,7 +43,7 @@ import { setTransformerLeakage } from './devices/quanta/transformer.js';
 import { setHallCarrierType } from './devices/quanta/hall-effect.js';
 import { setLorentzFieldT, LORENTZ } from './devices/quanta/lorentz-sled.js';
 import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
-import { ScientificUIManager } from './scientific-ui/index.js';
+import { ScientificUIManager } from './scientific-ui/index';
 import './multi-device-window-api';
 
 // Agent / e2e hooks
@@ -549,4 +549,4 @@ window.exportBenchmarkPack = () => {
   return bench;
 };
 window.startSEGTour = () => window.segTour?.start(0);
-window.shareLabLink = () => import('./seg-explainer/lab-url.js').then((m) => m.shareLabLink());
+window.shareLabLink = () => import('./seg-explainer/lab-url').then((m) => m.shareLabLink());

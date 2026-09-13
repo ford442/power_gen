@@ -4,14 +4,14 @@
 // Projects labeled anchors from SEG-local space onto the canvas. Synced with
 // 2D diagram via explainerState.highlightId (tour + experiments).
 
-import { explainerState } from './seg-explainer/explainer-state.js';
-import { glossaryForHighlight } from './seg-explainer/seg-glossary.js';
+import { explainerState } from './seg-explainer/explainer-state';
+import { glossaryForHighlight } from './seg-explainer/seg-glossary';
 
 const INK = '#46f0ff';
 const INK_DIM = 'rgba(70,240,255,0.55)';
 
 /** Shared label metadata for procedural + glTF annotation ids. */
-export const SEG_ANNOTATION_META = {
+export const SEG_ANNOTATION_META: Record<string, { label: string; hint: string; labelOffset: number[] }> = {
   shaft: { label: 'Central Shaft', hint: 'Bearing axis', labelOffset: [0, -42] },
   'inner-ring': { label: 'Inner Rollers', hint: 'NdFeB segments', labelOffset: [48, -28] },
   'outer-ring': { label: 'Outer Rollers', hint: 'Toroidal orbit', labelOffset: [44, 24] },
@@ -23,11 +23,36 @@ export const SEG_ANNOTATION_META = {
   ionization: { label: 'Ionization Torus', hint: 'Corona @ high RPM', labelOffset: [0, -52] }
 };
 
-/**
- * @param {() => object|null} getVisualizer
- */
+/** The live visualizer surface this overlay reads (WebGPU or WebGL2 fallback). */
+type SEGVisualizer = any;
+
+interface AnnotationAnchor {
+  id: string;
+  label: string;
+  hint: string;
+  pos: number[];
+  labelOffset: number[];
+  fromGltf: boolean;
+}
+
+interface ProjectedPoint {
+  x: number;
+  y: number;
+  depth: number;
+}
+
 export class SEGAnnotations {
-  constructor(getVisualizer) {
+  getViz: () => SEGVisualizer | null | undefined;
+  enabled: boolean;
+  private _els: Map<string, HTMLDivElement>;
+  private _host: HTMLElement;
+  private _layer: HTMLDivElement;
+  private _svg: SVGSVGElement;
+  private _leaderPaths: Map<string, SVGLineElement>;
+  private _unsub: (() => void) | undefined;
+  private _onKey: (e: KeyboardEvent) => void;
+
+  constructor(getVisualizer: () => SEGVisualizer | null | undefined) {
     this.getViz = getVisualizer;
     this.enabled = false;
     this._els = new Map();
@@ -49,35 +74,35 @@ export class SEGAnnotations {
     this._leaderPaths = new Map();
     this._unsub = explainerState.subscribe(() => this._syncClassroomStyles());
 
-    this._onKey = (e) => {
+    this._onKey = (e: KeyboardEvent) => {
       if (e.key !== 'l' && e.key !== 'L') return;
-      const t = e.target;
+      const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       this.toggle();
     };
     window.addEventListener('keydown', this._onKey);
   }
 
-  toggle() {
+  toggle(): void {
     this.enabled = !this.enabled;
     this._layer.style.display = this.enabled ? 'block' : 'none';
     if (!this.enabled) this._clearLabels();
     this._syncToggleUi();
   }
 
-  setEnabled(on) {
+  setEnabled(on: boolean): void {
     this.enabled = !!on;
     this._layer.style.display = this.enabled ? 'block' : 'none';
     if (!this.enabled) this._clearLabels();
     this._syncToggleUi();
   }
 
-  _syncToggleUi() {
-    const cb = document.getElementById('segAnnotationsToggle');
+  private _syncToggleUi(): void {
+    const cb = document.getElementById('segAnnotationsToggle') as HTMLInputElement | null;
     if (cb) cb.checked = this.enabled;
   }
 
-  _clearLabels() {
+  private _clearLabels(): void {
     for (const el of this._els.values()) el.remove();
     this._els.clear();
     for (const p of this._leaderPaths.values()) p.remove();
@@ -85,15 +110,15 @@ export class SEGAnnotations {
     while (this._svg.firstChild) this._svg.removeChild(this._svg.firstChild);
   }
 
-  _syncClassroomStyles() {
-    const large = explainerState.classroomMode;
+  private _syncClassroomStyles(): void {
+    const large = (explainerState as any).classroomMode;
     for (const el of this._els.values()) {
       el.style.fontSize = large ? '0.82rem' : '0.62rem';
       el.style.padding = large ? '6px 10px' : '3px 7px';
     }
   }
 
-  _ensureLabel(id, text, hint = '') {
+  private _ensureLabel(id: string, text: string, hint = ''): HTMLDivElement {
     if (!this._els.has(id)) {
       const el = document.createElement('div');
       Object.assign(el.style, {
@@ -109,22 +134,23 @@ export class SEGAnnotations {
       el.setAttribute('role', 'button');
       el.setAttribute('tabindex', '0');
       el.title = `Open tour: ${text}`;
-      const activate = (e) => {
+      const activate = (e: Event) => {
         e.stopPropagation();
         window.segTour?.goToStepForHighlight?.(id);
       };
       el.addEventListener('click', activate);
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(e); }
+      el.addEventListener('keydown', (e: Event) => {
+        const ke = e as KeyboardEvent;
+        if (ke.key === 'Enter' || ke.key === ' ') { ke.preventDefault(); activate(e); }
       });
       this._layer.style.pointerEvents = 'none';
       this._layer.appendChild(el);
       this._els.set(id, el);
     }
-    return this._els.get(id);
+    return this._els.get(id)!;
   }
 
-  _setLabelContent(el, text, hint, hotspotOnly) {
+  private _setLabelContent(el: HTMLDivElement, text: string, hint: string, hotspotOnly: boolean): void {
     if (hotspotOnly) {
       el.innerHTML = '';
       el.style.width = '12px';
@@ -145,7 +171,7 @@ export class SEGAnnotations {
     }
   }
 
-  _ensureLeader(id) {
+  private _ensureLeader(id: string): SVGLineElement {
     if (!this._leaderPaths.has(id)) {
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       path.setAttribute('stroke', INK_DIM);
@@ -154,11 +180,11 @@ export class SEGAnnotations {
       this._svg.appendChild(path);
       this._leaderPaths.set(id, path);
     }
-    return this._leaderPaths.get(id);
+    return this._leaderPaths.get(id)!;
   }
 
   /** Build annotation anchors from layout; merge glTF housing positions when loaded. */
-  _anchors(layout, visualizer) {
+  private _anchors(layout: any, visualizer: SEGVisualizer): AnnotationAnchor[] {
     if (!layout?.rings?.length) return [];
     const ws = layout.worldScale;
     const outerR = layout.outerRadiusM * ws;
@@ -167,12 +193,12 @@ export class SEGAnnotations {
     const plateY = layout.statorHeightM * ws * 0.5;
     const baseY = -plateY * 1.2;
 
-    const gltfById = new Map(
+    const gltfById = new Map<string, number[]>(
       (visualizer?.gltfHousingEnabled && visualizer?.gltfAnnotationPoints || [])
-        .map((p) => [p.id, p.pos])
+        .map((p: { id: string; pos: number[] }) => [p.id, p.pos])
     );
 
-    const mk = (id, label, hint, pos, labelOffset) => ({
+    const mk = (id: string, label: string, hint: string, pos: number[], labelOffset: number[]): AnnotationAnchor => ({
       id,
       label,
       hint,
@@ -181,7 +207,7 @@ export class SEGAnnotations {
       fromGltf: gltfById.has(id)
     });
 
-    const anchors = [
+    const anchors: AnnotationAnchor[] = [
       mk('shaft', 'Central Shaft', 'Bearing axis', [0, 0, 0], [0, -42]),
       mk('inner-ring', `Inner Rollers (${layout.rings[0].count}×)`, 'NdFeB segments', [innerR * 0.9, 0.35, 0], [48, -28]),
       mk('stator', 'Stator Rings', 'Copper windings', [outerR * 0.5, plateY * 0.25, 0], [-58, -22]),
@@ -215,7 +241,7 @@ export class SEGAnnotations {
     return anchors;
   }
 
-  _project(worldPos, viewProj, canvas, devicePos) {
+  private _project(worldPos: number[], viewProj: Float32Array | number[], canvas: HTMLCanvasElement, devicePos: number[]): ProjectedPoint | null {
     const x = worldPos[0] + devicePos[0];
     const y = worldPos[1] + devicePos[1];
     const z = worldPos[2] + devicePos[2];
@@ -238,7 +264,7 @@ export class SEGAnnotations {
   /**
    * Call once per frame from the visualizer render loop when enabled.
    */
-  update() {
+  update(): void {
     if (!this.enabled) return;
     const v = this.getViz?.();
     if (!v || !v.cameraController || !v.canvas) return;
@@ -256,9 +282,9 @@ export class SEGAnnotations {
     const viewProj = v.cameraController.getViewProjMatrix();
     const devicePos = seg.config?.position || [0, 0, 0];
     const anchors = this._anchors(layout, v);
-    const seen = new Set();
-    const highlightId = explainerState.highlightId;
-    const classroom = explainerState.classroomMode;
+    const seen = new Set<string>();
+    const highlightId = (explainerState as any).highlightId;
+    const classroom = (explainerState as any).classroomMode;
     const corona = v.corona ?? v.segOmega ?? 0;
     const ionBoost = highlightId === 'ionization' ? 1 : 0;
 
@@ -267,7 +293,7 @@ export class SEGAnnotations {
       const anchor = this._project(a.pos, viewProj, v.canvas, devicePos);
       const gloss = glossaryForHighlight(a.id);
       let hint = a.hint || '';
-      if (gloss && (highlightId === a.id || explainerState.classroomMode)) {
+      if (gloss && (highlightId === a.id || (explainerState as any).classroomMode)) {
         hint = gloss.body.slice(0, 72) + (gloss.body.length > 72 ? '…' : '');
       }
       const el = this._ensureLabel(a.id, a.label, hint);
@@ -331,7 +357,7 @@ export class SEGAnnotations {
     }
   }
 
-  destroy() {
+  destroy(): void {
     window.removeEventListener('keydown', this._onKey);
     this._unsub?.();
     this._clearLabels();
@@ -339,11 +365,11 @@ export class SEGAnnotations {
   }
 }
 
-export function initSEGAnnotations(getVisualizer = () => window.multiVisualizer) {
+export function initSEGAnnotations(getVisualizer: () => SEGVisualizer | null | undefined = () => window.multiVisualizer): SEGAnnotations {
   const ann = new SEGAnnotations(getVisualizer);
   if (typeof window !== 'undefined') {
     window.segAnnotations = ann;
-    window.toggleSEGAnnotations = () => ann.toggle();
+    (window as any).toggleSEGAnnotations = () => ann.toggle();
   }
   return ann;
 }

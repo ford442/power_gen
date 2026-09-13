@@ -5,23 +5,25 @@
 import { segOperator } from '../seg-operator-state';
 import { segWasm } from '../wasm/seg-physics-bridge';
 import type { DevicePhysicsState } from '../renderers/shared/device-physics';
+import { DEVICE_CATALOG, WASM_DEVICE_IDS } from '../../generated/device-catalog';
 
-export const WASM_PLANT_MODES = [
-  'seg',
-  'heron',
-  'kelvin',
-  'solar',
-  'peltier',
-  'mhd',
-  'maglev',
-  'homopolar',
-  'transformer',
-  'vdg',
-  'hall',
-  'lorentz-sled'
-] as const;
+/** Every device with a `wasmMode` in physics/devices.json (ADR-0008). */
+export const WASM_PLANT_MODES = WASM_DEVICE_IDS;
 
 export type WasmPlantMode = (typeof WASM_PLANT_MODES)[number];
+
+/**
+ * Core wasm plants (excluding `seg`, handled separately via segOperator)
+ * always own JS device physics once their focus is active. Quanta wasm
+ * plants only take over once the C++ plant reports it stepped this mode
+ * (`_wasmPlantActive`) — derived from `category`, not hand-listed.
+ */
+const CORE_WASM_OWNED_IDS = new Set<string>(
+  DEVICE_CATALOG.filter((d) => d.category === 'core' && d.wasmMode != null && d.id !== 'seg').map((d) => d.id)
+);
+const QUANTA_WASM_OWNED_IDS = new Set<string>(
+  DEVICE_CATALOG.filter((d) => d.category === 'quanta' && d.wasmMode != null).map((d) => d.id)
+);
 
 /** Plant-facing device shell (GPU DeviceInstance or WebGL2DeviceState). */
 export interface SessionDevice {
@@ -102,11 +104,8 @@ export function wasmOwnsJsDevicePhysics(
   physics: { _wasmPlantActive?: boolean } | null | undefined
 ): boolean {
   if (!useWasm || deviceId !== focus) return false;
-  if (['heron', 'kelvin', 'solar', 'peltier', 'mhd'].includes(deviceId)) return true;
-  return (
-    ['maglev', 'homopolar', 'transformer', 'vdg', 'hall', 'lorentz-sled'].includes(deviceId)
-    && !!physics?._wasmPlantActive
-  );
+  if (CORE_WASM_OWNED_IDS.has(deviceId)) return true;
+  return QUANTA_WASM_OWNED_IDS.has(deviceId) && !!physics?._wasmPlantActive;
 }
 
 function applyPlantToPhysics(

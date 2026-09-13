@@ -3,6 +3,6 @@
  * Utility functions for formatting, math, and constants
  */
 
-export * from './formatters.js';
-export * from './math.js';
-export * from './constants.js';
+export * from './formatters';
+export * from './math';
+export * from './constants';

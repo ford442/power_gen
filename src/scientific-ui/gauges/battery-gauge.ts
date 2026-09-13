@@ -1,14 +1,47 @@
-import { clamp, formatCurrent, LED_SOLAR_CONSTANTS } from '../utils/index.js';
+import { clamp, formatCurrent, LED_SOLAR_CONSTANTS } from '../utils/index';
+
+interface BatteryColors {
+  low: string;
+  med: string;
+  high: string;
+  background: string;
+  charging: string;
+  discharging: string;
+}
+
+export interface BatteryState {
+  chargePercent?: number;
+  voltage?: number;
+  current?: number;
+  temperature?: number;
+}
 
 export class BatteryGauge {
-  constructor(containerId) {
-    this.container = document.getElementById(containerId);
+  container: HTMLElement;
+  chargePercent: number;
+  voltage: number;
+  current: number;
+  temperature: number;
+  history: number[];
+  constants: typeof LED_SOLAR_CONSTANTS.BATTERY;
+  colors: BatteryColors;
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  sparklineCanvas: HTMLCanvasElement;
+  sparklineCtx: CanvasRenderingContext2D;
+  width: number = 0;
+  height: number = 0;
+  sparkWidth: number = 0;
+  sparkHeight: number = 0;
+
+  constructor(containerId: string) {
+    this.container = document.getElementById(containerId) as HTMLElement;
     this.chargePercent = 50;
     this.voltage = 3.7;
     this.current = 0; // positive = charging, negative = discharging
     this.temperature = 25;
     this.history = new Array(60).fill(50); // 60 seconds of history
-    
+
     this.constants = LED_SOLAR_CONSTANTS.BATTERY;
     this.colors = {
       low: '#ff4444',
@@ -18,18 +51,18 @@ export class BatteryGauge {
       charging: '#00ff00',
       discharging: '#ff6600'
     };
-    
+
     this.render();
-    this.canvas = this.container.querySelector('.battery-canvas');
-    this.ctx = this.canvas.getContext('2d');
-    this.sparklineCanvas = this.container.querySelector('.sparkline-canvas');
-    this.sparklineCtx = this.sparklineCanvas.getContext('2d');
-    
+    this.canvas = this.container.querySelector('.battery-canvas')!;
+    this.ctx = this.canvas.getContext('2d')!;
+    this.sparklineCanvas = this.container.querySelector('.sparkline-canvas')!;
+    this.sparklineCtx = this.sparklineCanvas.getContext('2d')!;
+
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
-  
-  resize() {
+
+  resize(): void {
     const rect = this.canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = rect.width * dpr;
@@ -37,18 +70,18 @@ export class BatteryGauge {
     this.ctx.scale(dpr, dpr);
     this.width = rect.width;
     this.height = rect.height;
-    
-    const sparkRect = this.sparklineCanvas.parentElement.getBoundingClientRect();
+
+    const sparkRect = this.sparklineCanvas.parentElement!.getBoundingClientRect();
     this.sparklineCanvas.width = sparkRect.width * dpr;
     this.sparklineCanvas.height = sparkRect.height * dpr;
     this.sparklineCtx.scale(dpr, dpr);
     this.sparkWidth = sparkRect.width;
     this.sparkHeight = sparkRect.height;
-    
+
     this.draw();
   }
-  
-  render() {
+
+  render(): void {
     this.container.innerHTML = `
       <div class="sci-gauge-header">
         <span class="sci-gauge-label">Li-ion Battery</span>
@@ -82,51 +115,47 @@ export class BatteryGauge {
       </div>
     `;
   }
-  
+
   /**
    * Get color based on charge percentage
    */
-  getColorForCharge(percent) {
+  getColorForCharge(percent: number): string {
     if (percent <= 20) return this.colors.low;
     if (percent <= 50) return this.colors.med;
     return this.colors.high;
   }
-  
+
   /**
    * Get color based on temperature
    */
-  getColorForTemp(temp) {
+  getColorForTemp(temp: number): string {
     if (temp < 0 || temp > 50) return '#ff4444';
     if (temp < 10 || temp > 40) return '#ffaa00';
     return '#44ff44';
   }
-  
+
   /**
    * Update battery state
-   * @param {Object} state - Battery state
-   * @param {number} state.chargePercent - 0-100%
-   * @param {number} state.voltage - Volts
-   * @param {number} state.current - mA (positive=charging, negative=discharging)
-   * @param {number} state.temperature - Celsius
+   * @param state - Battery state
    */
-  updateState(state) {
+  updateState(state: BatteryState): void {
     this.chargePercent = clamp(state.chargePercent ?? 50, 0, 100);
     this.voltage = clamp(state.voltage ?? 3.7, this.constants.VOLTAGE_MIN, this.constants.VOLTAGE_MAX);
     this.current = state.current ?? 0;
     this.temperature = state.temperature ?? 25;
-    
+
     // Update history
     this.history.push(this.chargePercent);
     this.history.shift();
-    
+
     // Update DOM elements
     const percentEl = this.container.querySelector('.battery-percentage');
     const voltageEl = this.container.querySelector('.battery-voltage');
     const currentEl = this.container.querySelector('.battery-current');
-    const tempEl = this.container.querySelector('.temp-value');
-    const fillEl = this.container.querySelector('.battery-fill');
-    const valueEl = this.container.querySelector('.battery-value');
-    
+    const tempEl = this.container.querySelector<HTMLElement>('.temp-value');
+    const fillEl = this.container.querySelector<HTMLElement>('.battery-fill');
+    const valueEl = this.container.querySelector<HTMLElement>('.battery-value');
+
     if (percentEl) percentEl.textContent = `${this.chargePercent.toFixed(0)}%`;
     if (voltageEl) voltageEl.textContent = `${this.voltage.toFixed(2)}V`;
     if (currentEl) {
@@ -145,16 +174,16 @@ export class BatteryGauge {
       valueEl.textContent = `${this.chargePercent.toFixed(0)}%`;
       valueEl.style.color = this.getColorForCharge(this.chargePercent);
     }
-    
+
     this.draw();
   }
-  
-  draw() {
+
+  draw(): void {
     this.drawCircularGauge();
     this.drawSparkline();
   }
-  
-  drawCircularGauge() {
+
+  drawCircularGauge(): void {
     if (this.width <= 0 || this.height <= 0) return;
 
     const ctx = this.ctx;
@@ -164,9 +193,9 @@ export class BatteryGauge {
     const startAngle = Math.PI * 0.8;
     const endAngle = Math.PI * 2.2;
     const totalAngle = endAngle - startAngle;
-    
+
     ctx.clearRect(0, 0, this.width, this.height);
-    
+
     // Background arc
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, startAngle, endAngle);
@@ -174,11 +203,11 @@ export class BatteryGauge {
     ctx.strokeStyle = this.colors.background;
     ctx.lineCap = 'round';
     ctx.stroke();
-    
+
     // Charge arc
     const chargeAngle = startAngle + (this.chargePercent / 100) * totalAngle;
     const chargeColor = this.getColorForCharge(this.chargePercent);
-    
+
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, startAngle, chargeAngle);
     ctx.lineWidth = 10;
@@ -187,7 +216,7 @@ export class BatteryGauge {
     ctx.shadowBlur = 10;
     ctx.stroke();
     ctx.shadowBlur = 0;
-    
+
     // Current indicator arc (small inner arc)
     const innerRadius = Math.max(0, radius - 15);
     ctx.beginPath();
@@ -196,15 +225,15 @@ export class BatteryGauge {
     ctx.strokeStyle = this.current >= 0 ? this.colors.charging : this.colors.discharging;
     ctx.stroke();
   }
-  
-  drawSparkline() {
+
+  drawSparkline(): void {
     if (this.sparkWidth <= 0 || this.sparkHeight <= 0) return;
 
     const ctx = this.sparklineCtx;
     ctx.clearRect(0, 0, this.sparkWidth, this.sparkHeight);
-    
+
     if (this.history.every(v => v === 0)) return;
-    
+
     // Draw sparkline
     ctx.beginPath();
     this.history.forEach((value, i) => {
@@ -213,11 +242,11 @@ export class BatteryGauge {
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
-    
+
     ctx.strokeStyle = this.getColorForCharge(this.chargePercent);
     ctx.lineWidth = 2;
     ctx.stroke();
-    
+
     // Current value dot
     const lastY = this.sparkHeight - (this.chargePercent / 100) * this.sparkHeight;
     ctx.beginPath();

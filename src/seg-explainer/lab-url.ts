@@ -7,13 +7,33 @@
  * tour unless the device has one of its own.
  */
 
+import type { SEGTourPlayer } from './seg-tour-player';
+
 export const LAB_URL_VERSION = 1;
 
-/**
- * @param {object} opts
- * @returns {string} hash fragment (includes leading #)
- */
-export function encodeLabHash(opts = {}) {
+/** Decoded/encodable `#lab=` state. All fields besides `version` are optional. */
+export interface LabHashState {
+  version: number;
+  mode?: string;
+  layout?: string;
+  heronLayout?: string;
+  drive?: number;
+  field?: number;
+  bmult?: number;
+  classroom?: boolean;
+  tour?: boolean;
+  hi?: string;
+  step?: number;
+  renderer?: string;
+  halbachSegments?: number;
+  halbachLinear?: boolean;
+  pulseCoilCharge?: number;
+  lorentzFieldT?: number;
+}
+
+export type LabHashOptions = Partial<Omit<LabHashState, 'version'>>;
+
+export function encodeLabHash(opts: LabHashOptions = {}): string {
   const parts = [`v${LAB_URL_VERSION}`];
   if (opts.mode) parts.push(`mode=${opts.mode}`);
   if (opts.layout) parts.push(`layout=${opts.layout}`);
@@ -33,14 +53,10 @@ export function encodeLabHash(opts = {}) {
   return `#lab=${parts.join(';')}`;
 }
 
-/**
- * @param {string} [hash]  location.hash
- * @returns {object|null}
- */
-export function decodeLabHash(hash = typeof location !== 'undefined' ? location.hash : '') {
+export function decodeLabHash(hash: string = typeof location !== 'undefined' ? location.hash : ''): LabHashState | null {
   const m = hash.match(/#lab=([^&]+)/);
   if (!m) return null;
-  const out = { version: LAB_URL_VERSION };
+  const out: LabHashState = { version: LAB_URL_VERSION };
   for (const seg of m[1].split(';')) {
     if (seg === 'v1' || seg.startsWith('v')) {
       out.version = parseInt(seg.slice(1), 10) || 1;
@@ -73,21 +89,20 @@ export function decodeLabHash(hash = typeof location !== 'undefined' ? location.
  * Devices with their own guided tour. Anything not listed shares the SEG tour,
  * which is also the fallback when the device's own player has not initialised.
  */
-const TOUR_BY_MODE = {
+const TOUR_BY_MODE: Record<string, 'vdgTour' | 'lorentzTour'> = {
   vdg: 'vdgTour',
   'lorentz-sled': 'lorentzTour'
 };
 
-function tourForMode(mode) {
-  const key = TOUR_BY_MODE[mode];
+function tourForMode(mode?: string): SEGTourPlayer | null {
+  const key = mode ? TOUR_BY_MODE[mode] : undefined;
   return (key && window[key]) || window.segTour || null;
 }
 
 /**
  * Apply decoded lab state to the live dashboard.
- * @param {object} lab
  */
-export async function applyLabState(lab) {
+export async function applyLabState(lab: LabHashState | null | undefined): Promise<void> {
   if (!lab) return;
 
   if (lab.renderer && typeof window.setRenderer === 'function') {
@@ -137,27 +152,27 @@ export async function applyLabState(lab) {
   if (op) {
     if (lab.drive != null) {
       op.targetDrive = lab.drive;
-      const dc = document.getElementById('driveControl');
+      const dc = document.getElementById('driveControl') as HTMLInputElement | null;
       const dv = document.getElementById('driveVal');
       if (dc) dc.value = String(Math.round(lab.drive * 100));
       if (dv) dv.textContent = `${Math.round(lab.drive * 100)}%`;
     }
     if (lab.field != null) {
       window.explainerState?.setBaseFieldStrength(lab.field);
-      const fc = document.getElementById('fieldControl');
+      const fc = document.getElementById('fieldControl') as HTMLInputElement | null;
       if (fc) fc.value = String(Math.round(lab.field * 100));
     }
   }
 
   if (lab.bmult != null && window.explainerState) {
     window.explainerState.setFieldMultiplier(lab.bmult);
-    const el = document.getElementById('explainerBMult');
+    const el = document.getElementById('explainerBMult') as HTMLInputElement | null;
     if (el) el.value = String(lab.bmult);
   }
 
   if (lab.classroom && window.explainerState) {
     window.explainerState.setClassroomMode(true);
-    const cb = document.getElementById('explainerClassroom');
+    const cb = document.getElementById('explainerClassroom') as HTMLInputElement | null;
     if (cb) cb.checked = true;
   }
 
@@ -168,7 +183,7 @@ export async function applyLabState(lab) {
 
   const tour = tourForMode(lab.mode);
   if (lab.tour && tour) {
-    const step = Number.isFinite(lab.step) ? lab.step : 0;
+    const step = Number.isFinite(lab.step) ? (lab.step as number) : 0;
     if (lab.hi) {
       const idx = tour._findStepForHighlight(lab.hi);
       tour.goToStep(idx >= 0 ? idx : step);
@@ -178,11 +193,11 @@ export async function applyLabState(lab) {
   } else if (lab.hi && tour) {
     tour.goToStepForHighlight(lab.hi);
   } else if (Number.isFinite(lab.step) && tour) {
-    tour.goToStep(lab.step);
+    tour.goToStep(lab.step as number);
   }
 }
 
-export function captureLabState() {
+export function captureLabState(): LabHashOptions {
   const v = window.multiVisualizer;
   const op = window.segOperator;
   const es = window.explainerState;
@@ -203,7 +218,7 @@ export function captureLabState() {
     hi: es?.highlightId || undefined,
     step: activeTour?.playing ? activeTour.stepIndex : undefined,
     tour: activeTour?.playing ?? false,
-    renderer: window.currentRenderer,
+    renderer: window.currentRenderer ?? undefined,
     pulseCoilCharge: pulse?.pulseCoilVCap != null
       ? Math.max(0, Math.min(1, pulse.pulseCoilVCap / 48))
       : undefined,
@@ -211,7 +226,7 @@ export function captureLabState() {
   };
 }
 
-export function shareLabLink() {
+export function shareLabLink(): string {
   const hash = encodeLabHash(captureLabState());
   const url = `${location.origin}${location.pathname}${location.search}${hash}`;
   if (navigator.clipboard?.writeText) {

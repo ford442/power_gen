@@ -1,30 +1,68 @@
 import tourScript from './seg-tour.json';
 import vdgTourScript from './vdg-tour.json';
 import lorentzTourScript from './lorentz-sled-tour.json';
-import { explainerState } from './explainer-state.js';
-import { glossaryForHighlight, SEG_GLOSSARY } from './seg-glossary.js';
+import { explainerState } from './explainer-state';
+import { glossaryForHighlight, SEG_GLOSSARY } from './seg-glossary';
+
+interface TourCamera {
+  position: number[];
+  target: number[];
+}
+
+interface TourStep {
+  id?: string;
+  durationSec?: number;
+  view?: string;
+  camera?: TourCamera;
+  title?: string;
+  body?: string;
+  highlights?: string[];
+  highlight?: string;
+  showDiagram?: boolean;
+  showAnnotations?: boolean;
+  glossaryTerm?: string | null;
+  startPlant?: boolean;
+  layoutHint?: string;
+}
+
+interface TourScript {
+  tourVersion?: number;
+  id?: string;
+  title?: string;
+  description?: string;
+  steps?: TourStep[];
+}
+
+type GetVisualizer = () => Window['multiVisualizer'];
 
 /**
  * Guided SEG tour — camera keyframes, synced highlights, diagram + annotations.
  */
 export class SEGTourPlayer {
-  /**
-   * @param {() => object|null} getVisualizer
-   * @param {object} [script]
-   */
-  constructor(getVisualizer, script = tourScript) {
+  getViz: GetVisualizer;
+  script: TourScript;
+  stepIndex = 0;
+  playing = false;
+  private _stepStart = 0;
+  private _raf: number | null = null;
+  private _onStepEnd: (() => void) | null = null;
+
+  private _el!: HTMLDivElement;
+  private _title!: HTMLDivElement;
+  private _body!: HTMLDivElement;
+  private _glossary!: HTMLDivElement;
+  private _progress!: HTMLDivElement;
+  private _btnPrev!: HTMLButtonElement;
+  private _btnNext!: HTMLButtonElement;
+  private _btnExit!: HTMLButtonElement;
+
+  constructor(getVisualizer: GetVisualizer, script: TourScript = tourScript) {
     this.getViz = getVisualizer;
     this.script = script;
-    this.stepIndex = 0;
-    this.playing = false;
-    this._stepStart = 0;
-    this._raf = null;
-    this._onStepEnd = null;
-
     this._buildOverlay();
   }
 
-  _buildOverlay() {
+  private _buildOverlay(): void {
     const host = document.getElementById('canvas-wrapper') || document.body;
     this._el = document.createElement('div');
     this._el.id = 'seg-tour-overlay';
@@ -47,7 +85,7 @@ export class SEGTourPlayer {
 
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;gap:6px;margin-top:10px;flex-wrap:wrap';
-    const mkBtn = (text, fn) => {
+    const mkBtn = (text: string, fn: () => void): HTMLButtonElement => {
       const b = document.createElement('button');
       b.type = 'button';
       b.textContent = text;
@@ -68,19 +106,18 @@ export class SEGTourPlayer {
     host.appendChild(this._el);
   }
 
-  get steps() {
+  get steps(): TourStep[] {
     return this.script.steps || [];
   }
 
-  start(fromStep = 0) {
+  start(fromStep = 0): void {
     this.goToStep(fromStep);
   }
 
   /**
    * Jump to a tour step by index (starts tour if not already playing).
-   * @param {number} stepIndex
    */
-  goToStep(stepIndex) {
+  goToStep(stepIndex: number): void {
     this.stepIndex = Math.max(0, Math.min(stepIndex, this.steps.length - 1));
     this.playing = true;
     explainerState.tourActive = true;
@@ -94,9 +131,8 @@ export class SEGTourPlayer {
   /**
    * Navigate to the tour step that highlights a component id (e.g. `coil`, `shaft`).
    * Falls back to highlight + annotations when no step matches.
-   * @param {string} highlightId
    */
-  goToStepForHighlight(highlightId) {
+  goToStepForHighlight(highlightId: string): void {
     const idx = this._findStepForHighlight(highlightId);
     if (idx >= 0) {
       this.goToStep(idx);
@@ -108,20 +144,19 @@ export class SEGTourPlayer {
     this._syncLabHash(highlightId);
   }
 
-  /** @param {string} highlightId */
-  _findStepForHighlight(highlightId) {
+  _findStepForHighlight(highlightId: string): number {
     return this.steps.findIndex((s) =>
       (s.highlights || []).includes(highlightId) || s.highlight === highlightId
     );
   }
 
-  _syncLabHash(highlightOverride) {
+  private _syncLabHash(highlightOverride?: string | null): void {
     if (typeof window === 'undefined' || !window.shareLabLink) return;
     const hi = highlightOverride
       || explainerState.highlightId
       || this.steps[this.stepIndex]?.highlights?.[0]
       || null;
-    import('./lab-url.js').then((m) => {
+    import('./lab-url').then((m) => {
       const state = m.captureLabState();
       if (hi) state.hi = hi;
       if (this.playing) state.step = this.stepIndex;
@@ -131,7 +166,7 @@ export class SEGTourPlayer {
     }).catch(() => {});
   }
 
-  stop() {
+  stop(): void {
     this.playing = false;
     explainerState.tourActive = false;
     explainerState.setHighlight(null);
@@ -141,7 +176,7 @@ export class SEGTourPlayer {
     this._syncLabHash(null);
   }
 
-  next() {
+  next(): void {
     if (this.stepIndex < this.steps.length - 1) {
       this.stepIndex++;
       this._enterStep(this.steps[this.stepIndex]);
@@ -150,14 +185,14 @@ export class SEGTourPlayer {
     }
   }
 
-  prev() {
+  prev(): void {
     if (this.stepIndex > 0) {
       this.stepIndex--;
       this._enterStep(this.steps[this.stepIndex]);
     }
   }
 
-  _enterStep(step) {
+  private _enterStep(step: TourStep | undefined): void {
     if (!step) return;
     this._stepStart = performance.now();
     const v = this.getViz?.();
@@ -179,8 +214,8 @@ export class SEGTourPlayer {
       window.segAnnotations?.setEnabled(false);
     }
     if (step.showDiagram) {
-      window.segDiagram2D?.show?.();
-      const cb = document.getElementById('schematicToggle');
+      (window.segDiagram2D as { show?: () => void } | undefined)?.show?.();
+      const cb = document.getElementById('schematicToggle') as HTMLInputElement | null;
       if (cb) {
         cb.checked = true;
         document.getElementById('seg-schematic-overlay')?.classList.add('visible');
@@ -210,7 +245,7 @@ export class SEGTourPlayer {
     this._syncLabHash();
   }
 
-  _loop() {
+  private _loop(): void {
     if (!this.playing) return;
     const step = this.steps[this.stepIndex];
     const elapsed = (performance.now() - this._stepStart) / 1000;
@@ -225,34 +260,40 @@ export class SEGTourPlayer {
   }
 }
 
-export function initSEGTour(getVisualizer = () => window.multiVisualizer) {
+export function initSEGTour(getVisualizer: GetVisualizer = () => window.multiVisualizer): SEGTourPlayer {
   const player = new SEGTourPlayer(getVisualizer);
   if (typeof window !== 'undefined') {
     window.segTour = player;
     window.startSEGTour = () => player.start(0);
-    window.goToSEGStep = (id) => player.goToStepForHighlight(id);
+    window.goToSEGStep = (id: string) => player.goToStepForHighlight(id);
   }
   return player;
 }
 
 /** Van de Graaff explainer tour — same player shape, its own script + overlay. */
-export function initVdgTour(getVisualizer = () => window.multiVisualizer) {
+export function initVdgTour(getVisualizer: GetVisualizer = () => window.multiVisualizer): SEGTourPlayer {
   const player = new SEGTourPlayer(getVisualizer, vdgTourScript);
   if (typeof window !== 'undefined') {
     window.vdgTour = player;
     window.startVdgTour = () => player.start(0);
-    window.goToVdgStep = (id) => player.goToStepForHighlight(id);
+    window.goToVdgStep = (id: string) => player.goToStepForHighlight(id);
   }
   return player;
 }
 
 /** Lorentz rail-sled explainer tour — same player shape, its own script + overlay. */
-export function initLorentzTour(getVisualizer = () => window.multiVisualizer) {
+export function initLorentzTour(getVisualizer: GetVisualizer = () => window.multiVisualizer): SEGTourPlayer {
   const player = new SEGTourPlayer(getVisualizer, lorentzTourScript);
   if (typeof window !== 'undefined') {
     window.lorentzTour = player;
     window.startLorentzTour = () => player.start(0);
-    window.goToLorentzStep = (id) => player.goToStepForHighlight(id);
+    window.goToLorentzStep = (id: string) => player.goToStepForHighlight(id);
   }
   return player;
+}
+
+declare global {
+  interface Window {
+    goToSEGStep?: (id: string) => void;
+  }
 }

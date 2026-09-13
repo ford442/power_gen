@@ -1,5 +1,5 @@
 // PBR material table buffer for enhanced SEG mesh pipeline.
-import { SEGMaterialPresets } from '../seg-materials.js';
+import { SEGMaterialPresets } from '../seg-materials';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import { bindHostMethods } from './bind-host-methods.js';
 

@@ -11,6 +11,8 @@
  *   shadow — sim → hardware; compare HW telemetry vs sim
  */
 
+import type { FiringPattern } from './electromagnet-controller';
+
 /** Minimal Web Serial API surface — no `@types/w3c-web-serial` dependency. */
 interface SerialPortFilter {
   usbVendorId?: number;
@@ -200,7 +202,7 @@ export interface HardwareBridgeConfig {
   offsetAngle: number;
   dwellAngle: number;
   advanceAngle: number;
-  firingPattern: string;
+  firingPattern: FiringPattern;
 }
 
 export interface ShadowComparison {

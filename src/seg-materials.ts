@@ -4,8 +4,15 @@
 // Material definitions based on real SEG 4-layer composition.
 // Export only: material preset objects for use in geometry generators.
 
+export interface SegMaterialPreset {
+  baseColor: number[];
+  metallic: number;
+  roughness: number;
+  emissive: number;
+}
+
 // Material Presets - based on real SEG 4-layer composition
-export const SEGMaterialPresets = {
+export const SEGMaterialPresets: Record<string, SegMaterialPreset> = {
   // Layer 1: Neodymium (rare earth magnetic core) - silver metallic
   neodymium: {
     baseColor: [0.72, 0.74, 0.76],

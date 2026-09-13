@@ -21,9 +21,9 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 | Device `id` | `shaderMode` (JS/WGSL) | `wasmMode` / `SimMode` | Telemetry keys | Fidelity |
 |---|---|---|---|---|
 | `seg` | 0 | 0 (`SIM_MODE_SEG`) | `rpm`, `omega`, `corona`, `voltage`, `current`, `power`, `fieldSim`, `energyDensity` | WASM RK4 (full plant) |
-| `heron` | 1 | 1 (`SIM_MODE_HERON`) | `heronHead`, `heronVExit`, `heronFlowLmin`, `heronPressureKPa` | WASM (Bernoulli/Swamee–Jain) |
-| `kelvin` | 2 | 2 (`SIM_MODE_KELVIN`) | `kelvinVoltage`, `kelvinVoltageN`, `kelvinE`, `kelvinSparkTimer` | WASM (capacitive + spark) |
-| `solar` | 3 | 3 (`SIM_MODE_SOLAR`) | `solarBattery` | WASM (battery SOC) |
+| `heron` | 1 | 1 (`SIM_MODE_HERON`) | `heronHead`, `heronHeadMax`, `heronVExit`, `heronFlowRateLmin`, `heronPressureKPa` | WASM (Bernoulli/Swamee–Jain) |
+| `kelvin` | 2 | 2 (`SIM_MODE_KELVIN`) | `kelvinV`, `kelvinVoltageN`, `kelvinVbreak`, `kelvinE`, `kelvinSparkTimer` | WASM (capacitive + spark) |
+| `solar` | 3 | 3 (`SIM_MODE_SOLAR`) | `batteryCharge` | WASM (battery SOC) |
 | `peltier` | 4 | 4 (`SIM_MODE_PELTIER`) | `peltierHotK`, `peltierColdK`, `peltierDeltaT`, `peltierVoltage`, `peltierCurrent`, `peltierPowerW`, `peltierCOP` | WASM (two-node Seebeck/Peltier stack) |
 | `mhd` | 5 | 5 (`SIM_MODE_MHD`) | `mhdFlowU`, `mhdBFieldT`, `mhdHartmann`, `mhdVoltage`, `mhdCurrent`, `mhdPowerW` | WASM (Hartmann channel) |
 | `maglev` | 6 | 6 (`SIM_MODE_MAGLEV`) | `maglevGapMm`, `maglevFieldT`, `maglevLiftN`, `maglevRpm` | WASM (spring–damper gap ODE), JS fallback mirrors it |

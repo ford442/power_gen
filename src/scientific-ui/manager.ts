@@ -2,23 +2,62 @@
  * Scientific UI Manager — panel orchestration + TelemetryHub subscription.
  */
 
-import { MagneticFieldGauge } from './gauges/magnetic-field-gauge.js';
-import { EnergyDensityGauge } from './gauges/energy-density-gauge.js';
-import { TorqueGauge } from './gauges/torque-gauge.js';
-import { ParticleFluxGauge } from './gauges/particle-flux-gauge.js';
-import { BatteryGauge } from './gauges/battery-gauge.js';
-import { SolarPanelGauge } from './gauges/solar-panel-gauge.js';
-import { LEDArrayGauge } from './gauges/ledarray-gauge.js';
-import { EnergyBalanceDisplay } from './gauges/energy-balance-display.js';
-import { ShadowResidualGauge } from './gauges/shadow-residual-gauge.js';
+import { MagneticFieldGauge } from './gauges/magnetic-field-gauge';
+import { EnergyDensityGauge } from './gauges/energy-density-gauge';
+import { TorqueGauge } from './gauges/torque-gauge';
+import { ParticleFluxGauge } from './gauges/particle-flux-gauge';
+import { BatteryGauge, type BatteryState } from './gauges/battery-gauge';
+import { SolarPanelGauge, type SolarOutput } from './gauges/solar-panel-gauge';
+import { LEDArrayGauge, type LEDStatusUpdate } from './gauges/ledarray-gauge';
+import { EnergyBalanceDisplay, type EnergyFlowsUpdate } from './gauges/energy-balance-display';
+import { ShadowResidualGauge } from './gauges/shadow-residual-gauge';
 import { telemetryHub } from '../telemetry-hub';
+import type { TelemetrySnapshot } from '../telemetry/types';
+
+export interface ScientificUIManagerOptions {
+  panelId?: string;
+  showToggle?: boolean;
+  subscribeToHub?: boolean;
+}
+
+interface FieldUpdateData {
+  magneticField?: number;
+  energyDensity?: number;
+  torqueInner?: number;
+  torqueOuter?: number;
+  particleFlux?: number;
+}
+
+interface CacheEntry {
+  result: unknown;
+  timestamp: number;
+}
+
+interface Gauges {
+  magnetic?: MagneticFieldGauge;
+  shadowResidual?: ShadowResidualGauge;
+  energy?: EnergyDensityGauge;
+  torque?: TorqueGauge;
+  flux?: ParticleFluxGauge;
+  battery?: BatteryGauge;
+  solar?: SolarPanelGauge;
+  led?: LEDArrayGauge;
+  energyFlow?: EnergyBalanceDisplay;
+}
 
 /**
  * Scientific UI Manager - Orchestrates all gauge components
  * Manages panel visibility, layout, and data updates via TelemetryHub.
  */
 export class ScientificUIManager {
-  constructor(options = {}) {
+  options: Required<ScientificUIManagerOptions>;
+  panel: HTMLElement | null;
+  gauges: Gauges;
+  isVisible: boolean;
+  cache: Map<string, unknown>;
+  private _unsubHub: (() => void) | null;
+
+  constructor(options: ScientificUIManagerOptions = {}) {
     this.options = {
       panelId: 'scientific-panel',
       showToggle: true,
@@ -35,7 +74,7 @@ export class ScientificUIManager {
     this.init();
   }
 
-  init() {
+  init(): void {
     this.createPanel();
     if (this.options.showToggle) {
       this.createToggleButton();
@@ -43,7 +82,7 @@ export class ScientificUIManager {
     this.initGauges();
   }
 
-  createPanel() {
+  createPanel(): void {
     let panel = document.getElementById(this.options.panelId);
     if (!panel) {
       panel = document.createElement('div');
@@ -76,14 +115,14 @@ export class ScientificUIManager {
       </div>
     `;
 
-    this.panel.querySelector('#sci-collapse-btn').addEventListener('click', () => {
+    this.panel.querySelector('#sci-collapse-btn')!.addEventListener('click', () => {
       this.hide();
     });
 
     this.setupDrag();
   }
 
-  createToggleButton() {
+  createToggleButton(): void {
     const toggle = document.createElement('button');
     toggle.id = 'sci-panel-toggle';
     toggle.className = 'sci-panel-toggle';
@@ -93,39 +132,39 @@ export class ScientificUIManager {
     document.body.appendChild(toggle);
   }
 
-  setupDrag() {
-    const header = this.panel.querySelector('.sci-panel-header');
+  setupDrag(): void {
+    const header = this.panel!.querySelector('.sci-panel-header') as HTMLElement;
     let isDragging = false;
-    let startX, startY, startLeft, startTop;
+    let startX: number, startY: number, startLeft: number, startTop: number;
 
-    header.addEventListener('mousedown', (e) => {
+    header.addEventListener('mousedown', (e: MouseEvent) => {
       isDragging = true;
       startX = e.clientX;
       startY = e.clientY;
-      const rect = this.panel.getBoundingClientRect();
+      const rect = this.panel!.getBoundingClientRect();
       startLeft = rect.left;
       startTop = rect.top;
-      this.panel.classList.add('dragging');
+      this.panel!.classList.add('dragging');
     });
 
-    window.addEventListener('mousemove', (e) => {
+    window.addEventListener('mousemove', (e: MouseEvent) => {
       if (!isDragging) return;
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
-      this.panel.style.left = (startLeft + dx) + 'px';
-      this.panel.style.top = (startTop + dy) + 'px';
-      this.panel.style.right = 'auto';
+      this.panel!.style.left = (startLeft + dx) + 'px';
+      this.panel!.style.top = (startTop + dy) + 'px';
+      this.panel!.style.right = 'auto';
     });
 
     window.addEventListener('mouseup', () => {
       if (isDragging) {
         isDragging = false;
-        this.panel.classList.remove('dragging');
+        this.panel!.classList.remove('dragging');
       }
     });
   }
 
-  initGauges() {
+  initGauges(): void {
     this.gauges.magnetic = new MagneticFieldGauge('sci-magnetic-gauge');
     this.gauges.shadowResidual = new ShadowResidualGauge('sci-shadow-residual-gauge');
     this.gauges.energy = new EnergyDensityGauge('sci-energy-gauge');
@@ -144,9 +183,9 @@ export class ScientificUIManager {
     }
   }
 
-  applyHubSnapshot(snap) {
+  applyHubSnapshot(snap: TelemetrySnapshot | null | undefined): void {
     if (!snap) return;
-    const sci = snap.scientific || {};
+    const sci = snap.scientific || ({} as TelemetrySnapshot['scientific']);
     const seg = snap.seg;
     const meta = snap.meta || {};
     const solar = snap.devices?.solar;
@@ -188,57 +227,57 @@ export class ScientificUIManager {
     }
   }
 
-  show() {
-    this.panel.classList.remove('collapsed');
+  show(): void {
+    this.panel!.classList.remove('collapsed');
     const toggle = document.getElementById('sci-panel-toggle');
     if (toggle) toggle.classList.add('hidden');
     this.isVisible = true;
 
     requestAnimationFrame(() => {
-      this.gauges.magnetic.resize();
-      this.gauges.flux.resize();
-      this.gauges.battery.resize();
-      this.gauges.solar.resize();
+      this.gauges.magnetic!.resize();
+      this.gauges.flux!.resize();
+      this.gauges.battery!.resize();
+      this.gauges.solar!.resize();
     });
   }
 
-  hide() {
-    this.panel.classList.add('collapsed');
+  hide(): void {
+    this.panel!.classList.add('collapsed');
     const toggle = document.getElementById('sci-panel-toggle');
     if (toggle) toggle.classList.remove('hidden');
     this.isVisible = false;
   }
 
-  toggle() {
+  toggle(): void {
     if (this.isVisible) this.hide();
     else this.show();
   }
 
-  updateMagneticField(value) {
+  updateMagneticField(value: number): void {
     if (this.gauges.magnetic) {
       this.gauges.magnetic.setValue(value);
     }
   }
 
-  updateEnergyDensity(value) {
+  updateEnergyDensity(value: number): void {
     if (this.gauges.energy) {
       this.gauges.energy.setValue(value);
     }
   }
 
-  updateTorque(inner, outer) {
+  updateTorque(inner: number, outer: number): void {
     if (this.gauges.torque) {
       this.gauges.torque.setValues(inner, outer);
     }
   }
 
-  updateParticleFlux(rate) {
+  updateParticleFlux(rate: number): void {
     if (this.gauges.flux) {
       this.gauges.flux.setRate(rate);
     }
   }
 
-  updateFieldData(data) {
+  updateFieldData(data: FieldUpdateData): void {
     if (data.magneticField !== undefined) {
       this.updateMagneticField(data.magneticField);
     }
@@ -253,15 +292,15 @@ export class ScientificUIManager {
     }
   }
 
-  cacheQueryResult(query, result) {
+  cacheQueryResult(query: string, result: unknown): void {
     this.cache.set(query, {
       result: result,
       timestamp: Date.now()
     });
   }
 
-  getCachedResult(query, maxAge = 300000) {
-    const entry = this.cache.get(query);
+  getCachedResult(query: string, maxAge: number = 300000): unknown {
+    const entry = this.cache.get(query) as CacheEntry | undefined;
     if (!entry) return null;
 
     if (Date.now() - entry.timestamp > maxAge) {
@@ -272,41 +311,41 @@ export class ScientificUIManager {
     return entry.result;
   }
 
-  clearCache() {
+  clearCache(): void {
     this.cache.clear();
   }
 
-  getCacheStats() {
+  getCacheStats(): { size: number } {
     return {
       size: this.cache.size
     };
   }
 
-  updateBatteryState(state) {
+  updateBatteryState(state: BatteryState): void {
     if (this.gauges.battery) {
       this.gauges.battery.updateState(state);
     }
   }
 
-  updateSolarOutput(output) {
+  updateSolarOutput(output: SolarOutput): void {
     if (this.gauges.solar) {
       this.gauges.solar.updateOutput(output);
     }
   }
 
-  updateLEDStatus(leds) {
+  updateLEDStatus(leds: LEDStatusUpdate[]): void {
     if (this.gauges.led) {
       this.gauges.led.updateStatus(leds);
     }
   }
 
-  updateEnergyBalance(flows) {
+  updateEnergyBalance(flows: EnergyFlowsUpdate): void {
     if (this.gauges.energyFlow) {
       this.gauges.energyFlow.updateFlows(flows);
     }
   }
 
-  destroy() {
+  destroy(): void {
     if (this._unsubHub) {
       this._unsubHub();
       this._unsubHub = null;

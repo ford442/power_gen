@@ -1,5 +1,5 @@
 import { MultiDeviceShaders } from './multi-device-shaders.js';
-import './devices/register-plugins.js';
+import './devices/register-plugins';
 import { MultiDeviceCamera } from './multi-device-camera';
 import { SimRateController } from './sim-rate-controller';
 import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager';
@@ -21,7 +21,7 @@ import {
 import {
   HERON_LAYOUT_PRESETS
 } from './heron-layout';
-import { parseSegFrameLevel } from './seg-frame-model.js';
+import { parseSegFrameLevel } from './seg-frame-model';
 import {
   parseLightingLook,
   getLightingPreset,
@@ -29,9 +29,9 @@ import {
 import { writeQueueBuffer } from './gpu-buffer-write';
 import { telemetryHub } from './telemetry-hub';
 import { HardwareBridge } from './hardware-bridge';
-import { ElectromagnetController } from './electromagnet-controller.js';
+import { ElectromagnetController } from './electromagnet-controller';
 import { initHardwarePanel } from './hardware-panel';
-import { initSEGAnnotations } from './seg-annotations.js';
+import { initSEGAnnotations } from './seg-annotations';
 import { ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network';
 import type { EnergyNetwork } from './renderers/shared/energy-network';
 import { gpuChores } from './gpu-chores';

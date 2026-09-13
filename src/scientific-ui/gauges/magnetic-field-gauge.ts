@@ -1,8 +1,27 @@
-import { formatNumber, clamp } from '../utils/index.js';
+import { formatNumber, clamp } from '../utils/index';
+
+interface GaugeColors {
+  safe: string;
+  caution: string;
+  warning: string;
+  background: string;
+}
 
 export class MagneticFieldGauge {
-  constructor(containerId) {
-    this.container = document.getElementById(containerId);
+  container: HTMLElement;
+  value: number;
+  maxValue: number;
+  decimals: number;
+  colors: GaugeColors;
+  history: number[];
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  valueEl: HTMLElement;
+  width: number = 0;
+  height: number = 0;
+
+  constructor(containerId: string) {
+    this.container = document.getElementById(containerId) as HTMLElement;
     this.value = 0;
     this.maxValue = 3.0;
     this.decimals = 3;
@@ -13,17 +32,17 @@ export class MagneticFieldGauge {
       background: '#1a1a2e'
     };
     this.history = new Array(60).fill(0);
-    
+
     this.render();
-    this.canvas = this.container.querySelector('canvas');
-    this.ctx = this.canvas.getContext('2d');
-    this.valueEl = this.container.querySelector('.sci-circular-number');
-    
+    this.canvas = this.container.querySelector('canvas')!;
+    this.ctx = this.canvas.getContext('2d')!;
+    this.valueEl = this.container.querySelector('.sci-circular-number')!;
+
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
-  
-  resize() {
+
+  resize(): void {
     const rect = this.canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = rect.width * dpr;
@@ -33,8 +52,8 @@ export class MagneticFieldGauge {
     this.height = rect.height;
     this.draw();
   }
-  
-  render() {
+
+  render(): void {
     this.container.innerHTML = `
       <div class="sci-gauge-header">
         <span class="sci-gauge-label">Magnetic Flux Density</span>
@@ -64,35 +83,35 @@ export class MagneticFieldGauge {
       </div>
     `;
   }
-  
+
   /**
    * Get color based on field strength
    */
-  getColorForValue(value) {
+  getColorForValue(value: number): string {
     if (value <= 0.5) return this.colors.safe;
     if (value <= 1.5) return this.colors.caution;
     return this.colors.warning;
   }
-  
+
   /**
    * Update the gauge value
    */
-  setValue(value) {
+  setValue(value: number): void {
     this.value = clamp(value, 0, this.maxValue);
     this.history.push(this.value);
     this.history.shift();
-    
+
     // Update digital readout
     this.valueEl.textContent = formatNumber(this.value, this.decimals);
     this.valueEl.style.color = this.getColorForValue(this.value);
-    
+
     this.draw();
   }
-  
+
   /**
    * Draw the circular gauge
    */
-  draw() {
+  draw(): void {
     if (this.width <= 0 || this.height <= 0) return;
 
     const ctx = this.ctx;
@@ -102,9 +121,9 @@ export class MagneticFieldGauge {
     const startAngle = Math.PI * 0.75;
     const endAngle = Math.PI * 2.25;
     const totalAngle = endAngle - startAngle;
-    
+
     ctx.clearRect(0, 0, this.width, this.height);
-    
+
     // Draw background arc
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, startAngle, endAngle);
@@ -112,11 +131,11 @@ export class MagneticFieldGauge {
     ctx.strokeStyle = this.colors.background;
     ctx.lineCap = 'round';
     ctx.stroke();
-    
+
     // Draw zone arcs
     const safeEnd = startAngle + (0.5 / this.maxValue) * totalAngle;
     const cautionEnd = startAngle + (1.5 / this.maxValue) * totalAngle;
-    
+
     // Safe zone
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, startAngle, safeEnd);
@@ -125,7 +144,7 @@ export class MagneticFieldGauge {
     ctx.globalAlpha = 0.3;
     ctx.stroke();
     ctx.globalAlpha = 1;
-    
+
     // Caution zone
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, safeEnd, cautionEnd);
@@ -134,7 +153,7 @@ export class MagneticFieldGauge {
     ctx.globalAlpha = 0.3;
     ctx.stroke();
     ctx.globalAlpha = 1;
-    
+
     // Warning zone
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, cautionEnd, endAngle);
@@ -143,7 +162,7 @@ export class MagneticFieldGauge {
     ctx.globalAlpha = 0.3;
     ctx.stroke();
     ctx.globalAlpha = 1;
-    
+
     // Draw value arc
     const valueAngle = startAngle + (this.value / this.maxValue) * totalAngle;
     ctx.beginPath();
@@ -154,7 +173,7 @@ export class MagneticFieldGauge {
     ctx.shadowBlur = 15;
     ctx.stroke();
     ctx.shadowBlur = 0;
-    
+
     // Draw tick marks
     for (let i = 0; i <= 6; i++) {
       const angle = startAngle + (i / 6) * totalAngle;
@@ -167,7 +186,7 @@ export class MagneticFieldGauge {
       ctx.strokeStyle = '#444';
       ctx.stroke();
     }
-    
+
     // Draw needle
     const needleLength = radius - 20;
     const needleX = centerX + Math.cos(valueAngle) * needleLength;
@@ -178,7 +197,7 @@ export class MagneticFieldGauge {
     ctx.lineWidth = 3;
     ctx.strokeStyle = '#fff';
     ctx.stroke();
-    
+
     // Draw center dot
     ctx.beginPath();
     ctx.arc(centerX, centerY, 6, 0, Math.PI * 2);

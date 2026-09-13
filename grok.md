@@ -9,7 +9,7 @@
 - **Focus**: Making complex physics or engineering ideas visually understandable and engaging.
 
 ## Technology Stack
-- JavaScript (Vite)
+- TypeScript (Vite) — boot path, visualizer, device registry, telemetry, WASM bridge, scientific-ui. The WebGL2 renderer (`src/renderers/webgl2/**`) and procedural geometry builders (`src/seg-geometry/**`) stay plain JavaScript on purpose (see `docs/AGENTS.md` → Language strategy).
 - **WebGPU** — primary renderer (`MultiDeviceVisualizer`)
 - **WebGL2** — debug/CI fallback (`src/renderers/webgl2/`)
 

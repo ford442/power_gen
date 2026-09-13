@@ -8,9 +8,24 @@
 // Shader constants duplicated in seg-enhanced-shaders.js must stay in sync.
 
 import { REF_ROLLER_RADIUS, REF_ROLLER_HEIGHT } from './seg-layout';
+import type { SegLayout } from './devices/types';
+
+export interface RollerBuildOptions {
+  radius: number;
+  height: number;
+  bands: number;
+  segments: number;
+  grooveDepth: number;
+  grooveWidth: number;
+  shaftRadius: number;
+  bearingOuterScale: number;
+  bearingThickness: number;
+  bearingInset: number;
+  magnetSegmentCount: number;
+}
 
 /** Default mesh dimensions (reference units; per-ring scale applied in shader). */
-export const ROLLER_DEFAULTS = {
+export const ROLLER_DEFAULTS: RollerBuildOptions = {
   radius: REF_ROLLER_RADIUS,
   height: REF_ROLLER_HEIGHT,
   bands: 8,
@@ -25,17 +40,29 @@ export const ROLLER_DEFAULTS = {
 };
 
 /** End-cap radial layer boundaries (fraction of outer radius). */
-export const ROLLER_LAYER_R = [0.0, 0.30, 0.52, 0.74, 1.0];
+export const ROLLER_LAYER_R: number[] = [0.0, 0.30, 0.52, 0.74, 1.0];
 
 /** N/S pole tints — warm copper (N) vs cool oxide (S), Lorentz-consistent alternation. */
-export const POLE_COLORS = {
+export const POLE_COLORS: Record<'north' | 'south' | 'northLab' | 'southLab', number[]> = {
   north: [0.92, 0.58, 0.35],
   south: [0.38, 0.45, 0.68],
   northLab: [0.78, 0.80, 0.82],
   southLab: [0.48, 0.50, 0.54]
 };
 
-function _packInterleaved(positions, normals, uvs) {
+interface MeshPart {
+  positions: number[];
+  normals: number[];
+  uvs: number[];
+  indices: number[];
+}
+
+interface MergedMesh {
+  vertices: Float32Array<ArrayBuffer>;
+  indices: Uint16Array<ArrayBuffer>;
+}
+
+function _packInterleaved(positions: number[], normals: number[], uvs: number[]): Float32Array<ArrayBuffer> {
   const n = positions.length / 3;
   const out = new Float32Array(n * 8);
   for (let i = 0; i < n; i++) {
@@ -51,11 +78,11 @@ function _packInterleaved(positions, normals, uvs) {
   return out;
 }
 
-function _mergeMeshes(parts) {
-  const positions = [];
-  const normals = [];
-  const uvs = [];
-  const indices = [];
+function _mergeMeshes(parts: MeshPart[]): MergedMesh {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
   let vOffset = 0;
 
   for (const part of parts) {
@@ -76,25 +103,25 @@ function _mergeMeshes(parts) {
 /**
  * Build pole-banded barrel + caps + grooves (CPU arrays, no GPU).
  */
-function _buildPoleBandedBarrel(opts) {
+function _buildPoleBandedBarrel(opts: RollerBuildOptions): MeshPart {
   const {
     radius, height, segments, bands, grooveDepth, grooveWidth
   } = opts;
 
-  const positions = [];
-  const normals = [];
-  const uvs = [];
-  const indices = [];
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
   let vOffset = 0;
 
-  function addVertex(px, py, pz, nx, ny, nz, u, v) {
+  function addVertex(px: number, py: number, pz: number, nx: number, ny: number, nz: number, u: number, v: number): number {
     positions.push(px, py, pz);
     normals.push(nx, ny, nz);
     uvs.push(u, v);
     return vOffset++;
   }
 
-  function addCap(y, ny) {
+  function addCap(y: number, ny: number): void {
     const centerIdx = addVertex(0, y, 0, 0, ny, 0, 0.5, 0.0);
     const rimStart = vOffset;
     for (let i = 0; i <= segments; i++) {
@@ -161,12 +188,12 @@ function _buildPoleBandedBarrel(opts) {
 }
 
 /** Central steel shaft through the roller axis. */
-function _buildShaft(opts) {
+function _buildShaft(opts: RollerBuildOptions): MeshPart {
   const { shaftRadius, height, segments } = opts;
-  const positions = [];
-  const normals = [];
-  const uvs = [];
-  const indices = [];
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
   const h2 = height * 0.5;
 
   for (let i = 0; i <= segments; i++) {
@@ -189,19 +216,19 @@ function _buildShaft(opts) {
 }
 
 /** End bearing housings — short annular flanges at top and bottom. */
-function _buildEndBearings(opts) {
+function _buildEndBearings(opts: RollerBuildOptions): MeshPart {
   const {
     radius, height, segments, bearingOuterScale, bearingThickness, bearingInset
   } = opts;
-  const positions = [];
-  const normals = [];
-  const uvs = [];
-  const indices = [];
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
   const outerR = radius * bearingOuterScale;
   const innerR = radius * 0.88;
   const h2 = bearingThickness * 0.5;
 
-  function addAnnulus(y, ny) {
+  function addAnnulus(y: number, ny: number): void {
     const base = positions.length / 3;
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2;
@@ -236,12 +263,12 @@ function _buildEndBearings(opts) {
 }
 
 /** Raised magnet segment strips on the barrel (circumferential poles). */
-function _buildMagnetSegments(opts) {
+function _buildMagnetSegments(opts: RollerBuildOptions): MeshPart {
   const { radius, height, segments, magnetSegmentCount } = opts;
-  const positions = [];
-  const normals = [];
-  const uvs = [];
-  const indices = [];
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
   const stripWidth = (Math.PI * 2) / (magnetSegmentCount * 2);
   const stripHeight = height * 0.72;
   const yBottom = -stripHeight * 0.5;
@@ -278,10 +305,9 @@ function _buildMagnetSegments(opts) {
 
 /**
  * Build full detailed roller mesh (CPU-side).
- * @returns {{ vertices: Float32Array, indices: Uint16Array, indexCount: number }}
  */
-export function buildDetailedRollerMesh(options = {}) {
-  const opts = { ...ROLLER_DEFAULTS, ...options };
+export function buildDetailedRollerMesh(options: Partial<RollerBuildOptions> = {}): MergedMesh & { indexCount: number } {
+  const opts: RollerBuildOptions = { ...ROLLER_DEFAULTS, ...options };
   const barrel = _buildPoleBandedBarrel(opts);
   const shaft = _buildShaft(opts);
   const bearings = _buildEndBearings(opts);
@@ -294,7 +320,7 @@ export function buildDetailedRollerMesh(options = {}) {
 }
 
 /** WebGPU buffer pair from detailed roller mesh. */
-export function createDetailedRollerBuffers(device, options = {}) {
+export function createDetailedRollerBuffers(device: GPUDevice, options: Partial<RollerBuildOptions> = {}): { vertexBuffer: GPUBuffer; indexBuffer: GPUBuffer; indexCount: number } {
   const data = buildDetailedRollerMesh(options);
   const vb = device.createBuffer({
     size: data.vertices.byteLength,
@@ -313,17 +339,25 @@ export function createDetailedRollerBuffers(device, options = {}) {
  * Whether this roller carries north-leading magnetic polarity (alternates around ring).
  * Matches Lorentz moment sign used in flux-line shaders.
  */
-export function isNorthPole(ringIndex, localIndex) {
+export function isNorthPole(ringIndex: number, localIndex: number): boolean {
   return ((localIndex + ringIndex) & 1) === 0;
 }
 
 /**
  * Pole tint for instance copperColor channel (fragment shader reads this).
  */
-export function poleTintColor(ringIndex, localIndex, prototypePreset = 'showroom') {
+export function poleTintColor(ringIndex: number, localIndex: number, prototypePreset = 'showroom'): number[] {
   const north = prototypePreset === 'lab' ? POLE_COLORS.northLab : POLE_COLORS.north;
   const south = prototypePreset === 'lab' ? POLE_COLORS.southLab : POLE_COLORS.south;
   return isNorthPole(ringIndex, localIndex) ? north : south;
+}
+
+export interface RollerInstanceParams {
+  position: number[];
+  ringIndex: number;
+  rotation: number[];
+  poleColor: number[];
+  emissive?: number;
 }
 
 /**
@@ -335,7 +369,7 @@ export function packRollerInstance({
   rotation,
   poleColor,
   emissive = 0.0
-}) {
+}: RollerInstanceParams): Float32Array {
   return new Float32Array([
     position[0], position[1], position[2],
     ringIndex,
@@ -348,7 +382,7 @@ export function packRollerInstance({
 /**
  * Compute self-rotation quaternion for orbital rolling motion.
  */
-export function computeRollerRotation(angle, orbitRadius, rollerRadius) {
+export function computeRollerRotation(angle: number, orbitRadius: number, rollerRadius: number): [number, number, number, number] {
   const gearRatio = orbitRadius / Math.max(rollerRadius, 0.01);
   const selfRotAngle = angle * gearRatio * 0.5;
   const tangentAngle = angle + Math.PI / 2;
@@ -363,10 +397,17 @@ export function computeRollerRotation(angle, orbitRadius, rollerRadius) {
   ];
 }
 
+export interface BuildAllRollerInstancesOptions {
+  useHardwarePhase?: boolean;
+  hardwarePhaseRad?: number;
+  prototypePreset?: string;
+  speedMult?: number;
+}
+
 /**
  * Build all roller instance records for a layout (CPU fallback / tests).
  */
-export function buildAllRollerInstances(time, layout, options = {}) {
+export function buildAllRollerInstances(time: number, layout: SegLayout, options: BuildAllRollerInstancesOptions = {}): Float32Array {
   const {
     useHardwarePhase = false,
     hardwarePhaseRad = 0,
@@ -386,7 +427,7 @@ export function buildAllRollerInstances(time, layout, options = {}) {
       const jitterNoise = Math.sin(flat * 127.3 + ring.index * 53.7);
       const speedJitter = 1.0 + 0.04 * Math.sin(time * 1.3 + jitterNoise * 12.7);
       const baseAngle = (i / ring.count) * Math.PI * 2 + ring.index * 0.22;
-      const angle = useHardware
+      const angle = useHardwarePhase
         ? baseAngle + hardwarePhaseRad * ring.speed
         : baseAngle + time * 0.5 * ring.speed * speedJitter * startupRamp * speedMult;
 

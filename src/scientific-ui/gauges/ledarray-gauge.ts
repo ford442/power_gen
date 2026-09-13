@@ -1,30 +1,55 @@
-import { LED_SOLAR_CONSTANTS } from '../utils/index.js';
+import { LED_SOLAR_CONSTANTS } from '../utils/index';
+
+type LEDColorName = 'red' | 'green' | 'blue' | 'white' | 'yellow';
+
+interface LEDState {
+  id: number;
+  on: boolean;
+  color: LEDColorName;
+  power: number;
+  vf: number;
+}
+
+export interface LEDStatusUpdate {
+  id: number;
+  on?: boolean;
+  color?: LEDColorName;
+  power?: number;
+  vf?: number;
+}
 
 export class LEDArrayGauge {
-  constructor(containerId) {
-    this.container = document.getElementById(containerId);
+  container: HTMLElement;
+  leds: LEDState[];
+  totalPower: number;
+  totalLumens: number;
+  constants: typeof LED_SOLAR_CONSTANTS.LED;
+
+  constructor(containerId: string) {
+    this.container = document.getElementById(containerId) as HTMLElement;
     this.leds = [];
     this.totalPower = 0;
     this.totalLumens = 0;
-    
+
     // Initialize 6 LEDs
+    const colors: LEDColorName[] = ['red', 'green', 'blue', 'white', 'yellow', 'red'];
     for (let i = 0; i < 6; i++) {
       this.leds.push({
         id: i,
         on: i < 3, // First 3 on by default
-        color: ['red', 'green', 'blue', 'white', 'yellow', 'red'][i],
+        color: colors[i],
         power: 0,
         vf: 0
       });
     }
-    
+
     this.constants = LED_SOLAR_CONSTANTS.LED;
     this.render();
     this.setupEventListeners();
     this.updateCalculations();
   }
-  
-  render() {
+
+  render(): void {
     this.container.innerHTML = `
       <div class="sci-gauge-header">
         <span class="sci-gauge-label">LED Array (6x)</span>
@@ -51,24 +76,24 @@ export class LEDArrayGauge {
       </div>
     `;
   }
-  
-  renderLED(led, index) {
-    const colors = {
+
+  renderLED(led: LEDState, index: number): string {
+    const colors: Record<Exclude<LEDColorName, 'red'> | 'red', string> = {
       red: '#ff3333',
       green: '#33ff33',
       blue: '#3333ff',
       white: '#ffffff',
       yellow: '#ffff33'
     };
-    
+
     const angle = (index / 6) * Math.PI * 2 - Math.PI / 2;
     const radius = 35;
     const x = 50 + Math.cos(angle) * radius;
     const y = 50 + Math.sin(angle) * radius;
-    
+
     return `
       <div class="led-wrapper" style="left: ${x}px; top: ${y}px;" data-index="${index}">
-        <div class="led-indicator ${led.on ? 'on' : 'off'} ${led.color}" 
+        <div class="led-indicator ${led.on ? 'on' : 'off'} ${led.color}"
              data-index="${index}"
              style="background: ${colors[led.color]}; color: ${colors[led.color]}">
         </div>
@@ -77,18 +102,18 @@ export class LEDArrayGauge {
       </div>
     `;
   }
-  
-  setupEventListeners() {
+
+  setupEventListeners(): void {
     this.container.addEventListener('click', (e) => {
-      const ledEl = e.target.closest('.led-indicator');
+      const ledEl = (e.target as HTMLElement).closest<HTMLElement>('.led-indicator');
       if (ledEl) {
-        const index = parseInt(ledEl.dataset.index);
+        const index = parseInt(ledEl.dataset.index!);
         this.toggleLED(index);
       }
     });
   }
-  
-  toggleLED(index) {
+
+  toggleLED(index: number): void {
     this.leds[index].on = !this.leds[index].on;
     const ledEl = this.container.querySelector(`.led-indicator[data-index="${index}"]`);
     if (ledEl) {
@@ -97,20 +122,20 @@ export class LEDArrayGauge {
     }
     this.updateCalculations();
   }
-  
-  updateCalculations() {
+
+  updateCalculations(): void {
     let totalPower = 0;
     let totalLumens = 0;
     let totalVf = 0;
     let activeCount = 0;
-    
+
     this.leds.forEach(led => {
       if (led.on) {
         const colorData = this.constants[led.color.toUpperCase()];
         const current = 0.35; // 350mA typical
         led.power = colorData.vf * current;
         led.vf = colorData.vf;
-        
+
         totalPower += led.power;
         totalLumens += led.power * colorData.lumensPerWatt;
         totalVf += colorData.vf;
@@ -120,28 +145,28 @@ export class LEDArrayGauge {
         led.vf = 0;
       }
     });
-    
+
     this.totalPower = totalPower;
     this.totalLumens = totalLumens;
     const avgVf = activeCount > 0 ? totalVf / activeCount : 0;
-    
+
     // Update DOM
     const powerEl = this.container.querySelector('.led-power-value');
     const powerTotalEl = this.container.querySelector('.led-power-total');
     const lumensEl = this.container.querySelector('.led-lumens');
     const vfEl = this.container.querySelector('.led-avg-vf');
-    
+
     if (powerEl) powerEl.textContent = `${this.totalPower.toFixed(1)}W`;
     if (powerTotalEl) powerTotalEl.textContent = `${this.totalPower.toFixed(1)}W`;
     if (lumensEl) lumensEl.textContent = `${Math.round(this.totalLumens)} lm`;
     if (vfEl) vfEl.textContent = `${avgVf.toFixed(1)}V`;
   }
-  
+
   /**
    * Update LED status
-   * @param {Array} leds - Array of { id, on, color, power, vf }
+   * @param leds - Array of { id, on, color, power, vf }
    */
-  updateStatus(leds) {
+  updateStatus(leds: LEDStatusUpdate[]): void {
     if (Array.isArray(leds)) {
       leds.forEach(update => {
         const led = this.leds[update.id];
@@ -152,21 +177,21 @@ export class LEDArrayGauge {
           led.vf = update.vf ?? led.vf;
         }
       });
-      
+
       // Re-render LED grid
       const grid = this.container.querySelector('#led-grid');
       if (grid) {
         grid.innerHTML = this.leds.map((led, i) => this.renderLED(led, i)).join('');
       }
-      
+
       this.updateCalculations();
     }
   }
-  
+
   /**
    * Get current LED states
    */
-  getLEDStates() {
-    return this.leds.map(led => ({...led}));
+  getLEDStates(): LEDState[] {
+    return this.leds.map(led => ({ ...led }));
   }
 }

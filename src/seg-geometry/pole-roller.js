@@ -1,4 +1,4 @@
-import { createDetailedRollerBuffers } from '../seg-roller-model.js';
+import { createDetailedRollerBuffers } from '../seg-roller-model';
 
 // ----------------------------------------------------------------------------
 // 2. POLE-BANDED ROLLER (replaces smooth cylinder)

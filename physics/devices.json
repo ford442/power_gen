@@ -18,7 +18,7 @@
       "category": "core",
       "shaderMode": 1,
       "wasmMode": 1,
-      "telemetryKeys": ["heronHead", "heronVExit", "heronFlowLmin", "heronPressureKPa"],
+      "telemetryKeys": ["heronHead", "heronHeadMax", "heronVExit", "heronFlowRateLmin", "heronPressureKPa"],
       "fidelity": "WASM (Bernoulli/Swamee–Jain)"
     },
     {
@@ -27,7 +27,7 @@
       "category": "core",
       "shaderMode": 2,
       "wasmMode": 2,
-      "telemetryKeys": ["kelvinVoltage", "kelvinVoltageN", "kelvinE", "kelvinSparkTimer"],
+      "telemetryKeys": ["kelvinV", "kelvinVoltageN", "kelvinVbreak", "kelvinE", "kelvinSparkTimer"],
       "fidelity": "WASM (capacitive + spark)"
     },
     {
@@ -36,7 +36,7 @@
       "category": "core",
       "shaderMode": 3,
       "wasmMode": 3,
-      "telemetryKeys": ["solarBattery"],
+      "telemetryKeys": ["batteryCharge"],
       "fidelity": "WASM (battery SOC)"
     },
     {

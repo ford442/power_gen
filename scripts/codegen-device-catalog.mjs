@@ -25,6 +25,17 @@ const OUT_DIR = join(ROOT, 'generated');
 const SHADER_OUT = join(ROOT, 'src', 'shaders', 'generated', 'device-catalog.wgsl');
 const PARTICLE_COMPUTE = join(ROOT, 'src', 'shaders', 'passes', 'particle-compute.wgsl');
 const MODE_MATRIX = join(ROOT, 'docs', 'MODE_MATRIX.md');
+const TELEMETRY_TYPES = join(ROOT, 'src', 'telemetry', 'types.ts');
+const TELEMETRY_HUB = join(ROOT, 'src', 'telemetry-hub.ts');
+const APPLY_WASM_PLANT = join(ROOT, 'src', 'session', 'apply-wasm-plant.ts');
+
+/**
+ * 'seg' publishes its telemetryKeys across SegOperatorTelemetry (rpm/voltage/
+ * current/power/fieldSim/energyDensity) rather than DeviceTelemetrySnap — the
+ * two namespaces documented in MODE_MATRIX.md. Every other device's keys are
+ * literal DeviceTelemetrySnap field names, enforced below.
+ */
+const TELEMETRY_SNAP_EXEMPT_IDS = new Set(['seg']);
 
 const CHECK = process.argv.includes('--check');
 
@@ -176,6 +187,53 @@ function checkPlugins(devices) {
     }
   }
   return errors;
+}
+
+/**
+ * DeviceTelemetrySnap (src/telemetry/types.ts) and the hub's empty/derived
+ * snapshots (src/telemetry-hub.ts) are hand-written, not codegen'd — but
+ * every catalog telemetryKey must appear as a field in both, or a device's
+ * operator-panel readout silently reads `undefined`.
+ */
+function checkTelemetrySnapCoverage(devices) {
+  const errors = [];
+  let typesText, hubText;
+  try {
+    typesText = readFileSync(TELEMETRY_TYPES, 'utf8');
+    hubText = readFileSync(TELEMETRY_HUB, 'utf8');
+  } catch (e) {
+    return [`telemetry snap coverage check: ${e.message}`];
+  }
+  for (const d of devices) {
+    if (TELEMETRY_SNAP_EXEMPT_IDS.has(d.id)) continue;
+    for (const key of d.telemetryKeys || []) {
+      if (!fileContainsKey(typesText, key)) {
+        errors.push(`${d.id}: telemetryKey "${key}" missing from DeviceTelemetrySnap (${TELEMETRY_TYPES})`);
+      }
+      if (!fileContainsKey(hubText, key)) {
+        errors.push(`${d.id}: telemetryKey "${key}" missing from telemetry-hub.ts snap builders`);
+      }
+    }
+  }
+  return errors;
+}
+
+/**
+ * apply-wasm-plant.ts must derive its wasm-plant device list from the
+ * generated catalog, not a hand-rolled array — otherwise a new wasmMode
+ * device silently misses the shared focus ladder.
+ */
+function checkWasmPlantUsesCatalog() {
+  let text;
+  try {
+    text = readFileSync(APPLY_WASM_PLANT, 'utf8');
+  } catch (e) {
+    return [`wasm plant catalog usage check: ${e.message}`];
+  }
+  if (!/from ['"].*generated\/device-catalog['"]/.test(text)) {
+    return [`${APPLY_WASM_PLANT} must import its wasm-plant device list from generated/device-catalog (no hand-rolled id array)`];
+  }
+  return [];
 }
 
 function checkWgslNamedConstants(devices, wgslBody) {
@@ -403,6 +461,8 @@ function main() {
   const { devices, reserved, wasmCount } = validateCatalog(data);
 
   const pluginErrors = checkPlugins(devices);
+  const telemetrySnapErrors = checkTelemetrySnapCoverage(devices);
+  const wasmPlantUsageErrors = checkWasmPlantUsesCatalog();
 
   const ts = emitTs(data, devices, reserved, wasmCount);
   const h = emitH(devices, reserved, wasmCount);
@@ -414,8 +474,8 @@ function main() {
 
   // When generating the first time, particle-compute may not yet include MODE_*.
   // Fail WGSL refs only in --check, or after we know the pass was updated.
-  // Always fail plugin/catalog integrity.
-  const hard = [...pluginErrors];
+  // Always fail plugin/catalog/telemetry-snap/wasm-plant integrity.
+  const hard = [...pluginErrors, ...telemetrySnapErrors, ...wasmPlantUsageErrors];
   if (CHECK) hard.push(...wgslErrors);
 
   if (hard.length) {

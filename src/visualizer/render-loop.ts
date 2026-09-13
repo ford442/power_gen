@@ -5,7 +5,7 @@ import { packPostUniforms } from '../seg-lighting-presets';
 import { writeQueueBuffer } from '../gpu-buffer-write';
 import { getPostQualityGates } from '../post-processing-config';
 import { SSR_PARAMS_BYTES } from './scene-setup.js';
-import { explainerState } from '../seg-explainer/explainer-state.js';
+import { explainerState } from '../seg-explainer/explainer-state';
 import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
 import { resolveScaledParticleCount } from '../devices/particle-budgets';
