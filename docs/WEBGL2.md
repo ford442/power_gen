@@ -43,6 +43,7 @@ Do **not** expect these under WebGL2:
 | Full energy-pipe **particle** billboards | `EnergyPipe` + WGSL (WebGL2 uses lines) |
 | GPU timestamp queries | `?gpuTiming=1` |
 | **Temporal AA** | `passes/taa-resolve.wgsl` — **skipped**, see below |
+| **FDTD wave slice** (pulse-coil focus) | `passes/fdtd-tmz-compute.wgsl` + `fdtd-slice.wgsl` — **skipped**; `?fdtd=0` is ignored, and the footer note reads "WebGPU only" (ADR-0010) |
 | Hardware bridge / electromagnet coils | CPU twin + panel work on WebGL2 (`?mockHardware=1`); **coil GPU viz** is WebGPU-only |
 | **glTF CAD props** (housing, coil former, …) | `setup-gltf.ts` / `prop-registry.ts` — **skipped** (see below) |
 

@@ -70,6 +70,7 @@ export interface ProfilerStats {
   overviewCullActive: boolean;
   msaaActive: boolean;
   taaActive: boolean;
+  fdtdActive: boolean;
   postQualityGates: ReturnType<typeof getPostQualityGates>;
   postQualitySummary: string;
   gpuTier: GpuTier;
@@ -167,6 +168,8 @@ export class PerformanceProfiler {
   msaaActive: boolean;
   /** Set by the render loop when the TAA resolve pass ran this frame (ADR-0005 WS2). */
   taaActive: boolean;
+  /** Set by the render loop when the FDTD wave slice stepped this frame (ADR-0010). */
+  fdtdActive: boolean;
 
   // Benchmark mode
   benchmarkMode: boolean;
@@ -248,6 +251,7 @@ export class PerformanceProfiler {
     this.overviewCullActive = false;
     this.msaaActive = false;
     this.taaActive = false;
+    this.fdtdActive = false;
 
     // Benchmark mode
     this.benchmarkMode = false;
@@ -641,6 +645,7 @@ export class PerformanceProfiler {
       overviewCullActive: this.overviewCullActive,
       msaaActive: this.msaaActive,
       taaActive: this.taaActive,
+      fdtdActive: this.fdtdActive,
       postQualityGates: postGates,
       postQualitySummary: formatPostQualitySummary(postGates),
       gpuTier: this.gpuTier,

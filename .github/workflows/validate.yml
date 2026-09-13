@@ -49,6 +49,9 @@ jobs:
       - name: Post uniform contracts
         run: npm run check:post
 
+      - name: FDTD slice contracts + CPU kernel
+        run: npm run test:fdtd
+
       - name: Build site (no WASM rebuild)
         run: npm run build:site
 

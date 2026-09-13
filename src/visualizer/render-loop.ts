@@ -482,6 +482,11 @@ export const renderLoopMethods: ThisType<Host> & {
       profiler.measureDevice('annotations', () => annotations.update?.());
     }
 
+    // FDTD wave slice (ADR-0010): pulse-coil focus at `high` only; uploads its
+    // uniforms here so the dispatch and draw below see this frame's drive.
+    const fdtdSlice = this.updateFdtdSlice(qualityTier);
+    profiler.fdtdActive = !!fdtdSlice;
+
     // Begin command encoding
     const encoder = this.device.createCommandEncoder();
     
@@ -519,6 +524,8 @@ export const renderLoopMethods: ThisType<Host> & {
       computePass.setBindGroup(0, xfmrDevice.transformerFluxBindGroup);
       computePass.dispatchWorkgroups(Math.ceil((xfmrDevice.transformerFluxLineCount || 24) / 64));
     }
+
+    fdtdSlice?.dispatch(computePass);
 
     for (const device of Object.values(this.devices) as RenderDevice[]) {
       if (!isDeviceVisible(device)) continue;
@@ -649,6 +656,9 @@ export const renderLoopMethods: ThisType<Host> & {
         device.render(renderPass, globalUniforms, skipEffects);
       });
     }
+
+    // Transparent panel: after the opaque device meshes it is depth-tested against.
+    fdtdSlice?.draw(renderPass, globalUniforms, msaaActive);
 
     // Roschin–Godin magnetic wall shells (drawn after SEG so they overlay the scene).
     if (segDevice && isDeviceVisible(segDevice)) {

@@ -38,8 +38,12 @@ import { gpuChores } from './gpu-chores';
 import { showWebGPUHardFail, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import {
   parseSsrEnabled,
-  parseTaaEnabled
+  parseTaaEnabled,
+  parseFdtdEnabled
 } from './renderers/shared/url-params.js';
+import { FdtdSlicePass } from './devices/quanta/fdtd-slice-pass';
+import { pulseCoilFdtdDrive } from './devices/quanta/pulse-coil';
+import { FDTD_SLICE_OWNER, fdtdSliceGateOpen } from './physics/fdtd-tmz';
 import { createIblResources } from './ibl-prefilter';
 import type { IblPrefilterCompute } from './ibl-prefilter-gpu';
 import {
@@ -152,6 +156,11 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   ssrEnabled: boolean;
   /** `?taa=0` kill switch — independent of the tier / overview gates. */
   taaEnabled: boolean;
+  /** `?fdtd=0` kill switch for the pulse-coil wave slice (ADR-0010). */
+  fdtdEnabled: boolean;
+  /** Lazily built on the first frame its gate could open; null if the build failed. */
+  fdtdSlice?: FdtdSlicePass | null;
+  private _fdtdSliceInit?: Promise<void> | null;
   ssrPipeline?: GPUComputePipeline | null;
   ssrParamsBuffer?: GPUBuffer | null;
   ssrTexture?: GPUTexture | null;
@@ -344,6 +353,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
     this.ssrEnabled = parseSsrEnabled(params);
     this.taaEnabled = parseTaaEnabled(params);
+    this.fdtdEnabled = parseFdtdEnabled(params);
 
     this.lightingLook = parseLightingLook(params);
     const lookPreset = getLightingPreset(this.lightingLook);
@@ -823,6 +833,45 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       console.warn('[overview-cull] disabled — falling back to CPU instance prefix', err);
       this.overviewCull = null;
     }
+  }
+
+  /**
+   * Per-frame FDTD wave slice gate + uniform upload (ADR-0010). The pass is
+   * not built at boot: the first frame on which the gate would open starts
+   * an async build, and the slice joins a few frames later. A failed build
+   * disables the slice for the session.
+   *
+   * @returns the pass when it should dispatch and draw this frame, else null
+   */
+  updateFdtdSlice(qualityTier: string): FdtdSlicePass | null {
+    const owner = this.devices[FDTD_SLICE_OWNER];
+    const frame = {
+      enabled: this.fdtdEnabled && !!owner,
+      currentView: this.currentView,
+      qualityTier
+    };
+    if (this.fdtdSlice === undefined) {
+      const wouldOpen = fdtdSliceGateOpen({ ...frame, ready: true });
+      if (wouldOpen && !this._fdtdSliceInit && this.pipelineCache) {
+        const pass = new FdtdSlicePass(this.device, this);
+        this._fdtdSliceInit = pass.init().then(
+          (ok) => { this.fdtdSlice = ok ? pass : null; },
+          (err) => {
+            console.warn('[fdtd-slice] disabled — pipeline build failed', err);
+            pass.destroy();
+            this.fdtdSlice = null;
+          }
+        );
+      }
+      return null;
+    }
+    const pass = this.fdtdSlice;
+    if (!pass || !owner) return null;
+    return pass.update({
+      ...frame,
+      devicePos: owner.position,
+      drive: pulseCoilFdtdDrive(owner.physicsState)
+    }) ? pass : null;
   }
 
   async setupEnergyPipePipeline(): Promise<void> {

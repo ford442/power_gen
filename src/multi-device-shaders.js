@@ -9,6 +9,8 @@ import ssrComputeWgsl from './shaders/passes/ssr-compute.wgsl?raw';
 import iblPrefilterComputeWgsl from './shaders/passes/ibl-prefilter-compute.wgsl?raw';
 import taaResolveWgsl from './shaders/passes/taa-resolve.wgsl?raw';
 import depthResolveWgsl from './shaders/passes/depth-resolve.wgsl?raw';
+import fdtdTmzComputeWgsl from './shaders/passes/fdtd-tmz-compute.wgsl?raw';
+import fdtdSliceWgsl from './shaders/passes/fdtd-slice.wgsl?raw';
 
 import { getRollerVertShader, getRollerFragShader } from './shaders/generators/roller-shaders.js';
 import { getParticleVertShader, getParticleFragShader } from './shaders/generators/particle-shaders.js';
@@ -204,6 +206,16 @@ export class MultiDeviceShaders {
   /** Manual MSAA depth resolve, vsMain/fsMain (ADR-0005 WS2 — see passes/depth-resolve.wgsl). */
   get depthResolveShader() {
     return depthResolveWgsl;
+  }
+
+  /** 2D TM_z Yee update, updateH/updateE (ADR-0010 — see passes/fdtd-tmz-compute.wgsl). */
+  get fdtdTmzComputeShader() {
+    return fdtdTmzComputeWgsl;
+  }
+
+  /** FDTD slice panel, vsMain/fsMain (ADR-0010 — see passes/fdtd-slice.wgsl). */
+  get fdtdSliceShader() {
+    return fdtdSliceWgsl;
   }
 
   // Legacy / compatibility alias sometimes referenced in older code

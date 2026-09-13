@@ -140,6 +140,16 @@ post stack:
 Add a case here whenever you introduce a new struct that is written on the CPU
 and declared in WGSL.
 
+```bash
+npm run test:fdtd           # scripts/test-fdtd-slice.mjs (ADR-0010)
+```
+
+The FDTD wave slice has its own check: `FdtdParams` / `FdtdSliceParams` byte
+sizes and source capacity match `src/physics/fdtd-tmz.ts`, the workgroup size and
+cubic sponge profile match the CPU kernel, the gate stays shut outside
+pulse-coil focus at `high`, and the CPU reference stays finite and reflects
+< 1 % amplitude off the sponge.
+
 ## Particle mode indices
 
 `passes/particle-compute.wgsl` compares `u32(uniforms.mode + 0.5)` to named
@@ -150,14 +160,16 @@ per-mode scalars.
 
 ## naga vs Chrome (Tint) differences
 
-naga (used offline) is **stricter** than Tint in several places. Patterns that
-pass in Chrome but fail naga:
+naga (used offline) is **stricter** than Tint in several places, and Tint is
+stricter in a few others, so a green `check:wgsl` is not a Chrome guarantee.
+Known cases in both directions:
 
 | Issue | Tint | naga | Workaround |
 |-------|------|------|------------|
 | Dynamic index of a `let`/`const` value array: `array<f32,3>(a,b,c)[i]` | OK | Error | Use `if` / `select` / storage buffer |
 | Reserved identifiers (`active`, etc.) | Sometimes OK | Error | Rename (e.g. `is_active`) |
 | Incomplete include fragments (no entry) | n/a | Skip | Only check modules with `@vertex`/`@fragment`/`@compute` |
+| `fwidth` / `textureSample` after a branch on a fragment input | **Error** (uniformity) | OK | Take derivatives at the top of the entry point and pass them down (`fdtd-slice.wgsl` `lineMask`) |
 | Multi-file LED/solar | `#include` in compute/render | Full expand via `wgsl-include` | `led-solar-compute.wgsl` / `led-solar-render.wgsl` include constants/structs/physics |
 
 When you hit a naga-only failure that Chrome accepts:

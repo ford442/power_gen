@@ -11,6 +11,7 @@ import { registerCullLayouts } from './layouts/cull.js';
 import { registerSegEnhancedLayouts } from './layouts/seg-enhanced.js';
 import { registerDeviceMeshLayouts } from './layouts/device-mesh.js';
 import { registerPostLayouts } from './layouts/post.js';
+import { registerFdtdLayouts } from './layouts/fdtd.js';
 import { ensureDevicePipelines as ensureDevicePipelinesImpl, type DevicePipelineOptions } from './factories/device-pipelines.js';
 import {
   ensureEnergyPipePipeline as ensureEnergyPipePipelineImpl,
@@ -32,9 +33,15 @@ import {
   ensureTransformerFluxPipeline as ensureTransformerFluxPipelineImpl,
   ensureFluxTracerPipeline as ensureFluxTracerPipelineImpl
 } from './factories/seg-compute.js';
+import {
+  ensureFdtdComputePipelines as ensureFdtdComputePipelinesImpl,
+  ensureFdtdSlicePipeline as ensureFdtdSlicePipelineImpl,
+  type FdtdComputePipelines
+} from './factories/fdtd-pipelines.js';
 
 export type { BindGroupLayoutName, PipelineLayoutName } from './types.js';
 export type { DevicePipelineOptions } from './factories/device-pipelines.js';
+export type { FdtdComputePipelines } from './factories/fdtd-pipelines.js';
 export {
   VB_POS_NORMAL,
   VB_POS_NORMAL_UV,
@@ -108,6 +115,7 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     registerSegEnhancedLayouts(this);
     registerDeviceMeshLayouts(this);
     registerPostLayouts(this);
+    registerFdtdLayouts(this);
   }
 
   getLayout(name: BindGroupLayoutName): GPUBindGroupLayout {
@@ -253,5 +261,13 @@ export class PipelineLayoutCache implements LayoutRegistrar {
 
   async ensureFluxTracerPipeline(code: string): Promise<GPUComputePipeline> {
     return ensureFluxTracerPipelineImpl(this, code);
+  }
+
+  async ensureFdtdComputePipelines(code: string): Promise<FdtdComputePipelines> {
+    return ensureFdtdComputePipelinesImpl(this, code);
+  }
+
+  async ensureFdtdSlicePipeline(code: string, opts?: { sampleCount?: number }): Promise<GPURenderPipeline> {
+    return ensureFdtdSlicePipelineImpl(this, code, opts);
   }
 }

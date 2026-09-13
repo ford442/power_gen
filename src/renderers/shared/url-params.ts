@@ -87,6 +87,19 @@ export function parseTaaEnabled(params: URLSearchParams = defaultParams()): bool
   return true;
 }
 
+/**
+ * FDTD wave-slice kill switch: `?fdtd=0` (aliases: off / false / no).
+ *
+ * The slice is already gated to the pulse-coil focus view at the `high` tier
+ * (ADR-0010, `fdtdSliceGateOpen`); this only ever turns it off. WebGPU-only —
+ * WebGL2 has no slice (docs/WEBGL2.md).
+ */
+export function parseFdtdEnabled(params: URLSearchParams = defaultParams()): boolean {
+  const raw = params.get('fdtd');
+  if (raw === null) return true;
+  return !(raw === '0' || raw === 'off' || raw === 'false' || raw === 'no');
+}
+
 /** Whether Roschin–Godin anomalous environmental effects (magnetic walls, etc.) are enabled. */
 export function parseAnomalousEffects(prototypePreset: PrototypePreset): boolean {
   return prototypePreset === 'lab';

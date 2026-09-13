@@ -191,6 +191,39 @@ Same shape as `fieldAdvect`. Writes packed `FluxSegment` (32 B) for the
 | 2 | storage (read) | CS | Coil boost |
 | 3 | uniform | CS | SEG layout pack |
 
+### `fdtdCompute` — 2D TM_z Yee update (ADR-0010)
+
+Shared by the `updateH` and `updateE` entry points of
+`passes/fdtd-tmz-compute.wgsl`, dispatched alternately 6× per frame at
+`@workgroup_size(8, 8)` over the 256² grid.
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | uniform | CS | `FdtdParams` (288 B, `common/fdtd-params.wgsl`) |
+| 1 | storage (rw) | CS | Ez, `array<f32>` n² |
+| 2 | storage (rw) | CS | Hx |
+| 3 | storage (rw) | CS | Hy |
+
+### `fdtdSlice` — FDTD slice panel in the scene pass (ADR-0010)
+
+`passes/fdtd-slice.wgsl`, a six-vertex world-space quad (no vertex buffer)
+drawn after the device meshes. Reads the same field buffers read-only.
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | uniform | VS | Global frame uniforms (`viewProj`) |
+| 1 | uniform | VS, FS | `FdtdSliceParams` (32 B: center, halfExtent, gains, opacity) |
+| 2 | uniform | FS | `FdtdParams` (grid size, sponge depth, winding markers) |
+| 3 | storage (read) | FS | Ez |
+| 4 | storage (read) | FS | Hx |
+| 5 | storage (read) | FS | Hy |
+
+Built at sample count 1 and 4 like the other scene draws. Slot 1 is declared
+`{ format: 'rg8unorm', writeMask: 0 }` rather than `null`: current Dawn rejects
+`setPipeline` when a pipeline's `null` target meets a pass attachment. Host:
+`src/devices/quanta/fdtd-slice-pass.ts`, built lazily on the first frame the
+gate could open.
+
 ### Post-process / environment
 
 | Layout | Bindings |

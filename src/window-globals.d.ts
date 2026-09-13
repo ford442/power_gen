@@ -35,6 +35,10 @@ export interface MultiVisualizerWindowRef {
     particleCount?: number;
   }>;
   segOmega?: number;
+  /** WebGPU only — `?fdtd=0` kill switch for the pulse-coil wave slice (ADR-0010). */
+  fdtdEnabled?: boolean;
+  /** WebGPU only — undefined until first built, null if the pipeline build failed. */
+  fdtdSlice?: unknown;
   postExposure?: number;
   postBloomStrength?: number;
   energyPipes?: { flowLevel?: number }[];
@@ -62,6 +66,9 @@ export interface MultiVisualizerWindowRef {
     benchmarkSamples?: unknown[];
     endBenchmark?: () => unknown;
     getStats?: () => unknown;
+    qualityTier?: string;
+    /** WebGPU only — set when the pulse-coil wave slice stepped this frame (ADR-0010). */
+    fdtdActive?: boolean;
   } | null;
 }
 

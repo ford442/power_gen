@@ -24,7 +24,9 @@ export type BindGroupLayoutName =
   | 'ssr'
   | 'iblPrefilter'
   | 'taaResolve'
-  | 'depthResolve';
+  | 'depthResolve'
+  | 'fdtdCompute'
+  | 'fdtdSlice';
 
 export type PipelineLayoutName = BindGroupLayoutName | 'emptyGroups';
 

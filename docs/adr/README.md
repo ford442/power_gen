@@ -13,5 +13,6 @@ Lightweight ADRs for the SEG WebGPU Visualizer. Each file is a short record of a
 | [0007](./0007-gpu-chores-exclusive-session.md) | gpu-chores exclusive session (no third GPU device) |
 | [0008](./0008-device-catalog.md) | Device identity catalog (`shaderMode` vs `wasmMode`) |
 | [0009](./0009-lab-session-host.md) | LabSession host: one plant, two GPU backends |
+| [0010](./0010-fdtd-slice.md) | 2D FDTD wave slice (not FEM) |
 
 Status values: **Accepted** · **Superseded** · **Proposed**

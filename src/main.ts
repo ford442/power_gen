@@ -503,6 +503,8 @@ function bootApp(): void {
         wrap.style.display = 'inline-block';
         const ctx = canvas.getContext('2d');
         drawPulseCoilOscilloscope(ctx, vis.devices?.['pulse-coil']?.physicsState, canvas.width, canvas.height);
+        const note = document.getElementById('pulse-coil-fdtd-note');
+        if (note) note.textContent = fdtdSliceNote(vis);
       } else if (wrap) {
         wrap.style.display = 'none';
       }
@@ -510,6 +512,17 @@ function bootApp(): void {
     };
     requestAnimationFrame(tickClassroomUi);
   });
+}
+
+/** One-line status for the pulse-coil wave slice (ADR-0010) beside the scope. */
+function fdtdSliceNote(vis: NonNullable<typeof window.multiVisualizer>): string {
+  if (vis.fdtdEnabled === undefined) return 'Wave slice: WebGPU only';
+  if (!vis.fdtdEnabled) return 'Wave slice off (?fdtd=0)';
+  if (vis.fdtdSlice === null) return 'Wave slice unavailable (pipeline failed)';
+  if (vis.profiler?.fdtdActive) return 'Wave slice: 2D TM, slowed light';
+  const tier = vis.profiler?.qualityTier;
+  if (tier !== 'high' && tier !== 'ultra') return 'Wave slice off (needs high tier)';
+  return 'Wave slice: starting…';
 }
 
 if (document.readyState === 'loading') {

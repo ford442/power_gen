@@ -57,6 +57,7 @@ npm run validate     # typecheck + native C++ smoke + WGSL (naga if installed)
 | Agent / no-GPU VM (explicit opt-in) | http://localhost:5173/?renderer=webgl2 |
 | WASM plant | `?wasmPhysics=1` |
 | Mock hardware twin | `?mockHardware=1` |
+| Disable pulse-coil FDTD wave slice | `?fdtd=0` (ADR-0010) |
 
 Default boot **hard-fails** if WebGPU probe fails (no automatic WebGL2).  
 Cloud VMs with **no GPU adapter** must pass **`?renderer=webgl2`** intentionally.  

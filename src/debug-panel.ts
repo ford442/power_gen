@@ -501,6 +501,9 @@ export class DebugPanel {
       <div style="color: #888;">TAA (ADR-0005 WS2):</div>
       <div style="color: ${stats.taaActive ? '#4f4' : '#888'};">${stats.taaActive ? 'on' : 'off'}</div>
 
+      <div style="color: #888;">FDTD slice (ADR-0010):</div>
+      <div style="color: ${stats.fdtdActive ? '#4f4' : '#888'};">${stats.fdtdActive ? 'on' : 'off'}</div>
+
       <div style="color: #888;">GPU Tier:</div>
       <div style="color: ${stats.gpuTier === 'high' ? '#4f4' : (stats.gpuTier === 'medium' ? '#ff4' : '#f44')}; text-transform: uppercase;">${stats.gpuTier}</div>
 

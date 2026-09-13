@@ -14,6 +14,7 @@ import { ValidatedConstants } from '../../ValidatedConstants';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
+import { fdtdWorldToCell, type FdtdSource } from '../../physics/fdtd-tmz';
 
 const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-7;
 
@@ -233,6 +234,47 @@ export function drawPulseCoilOscilloscope(
   };
   draw(histV, '#4af', PULSE_COIL.vChargeMax);
   draw(histI, '#f84', 80);
+}
+
+/**
+ * FDTD slice placement (ADR-0010), device-local world units. The panel stands
+ * upright in front of the coil, facing the focus camera (+z). It is the coil's
+ * axial cross-section: each turn crosses the plane twice, at ±radius, carrying
+ * J_z out of the plane on one side and into it on the other.
+ */
+export const PULSE_COIL_FDTD = Object.freeze({
+  center: [0, 0.2, 1.3] as readonly number[],
+  halfExtent: 1.9,
+  /** Matches the drawn coil stack (shared cylinder radius 0.8). */
+  windingRadius: 0.82,
+  /** Turn heights, device-local y. Six turns per side → 12 of 16 source slots. */
+  windingY: [-0.9, -0.45, 0, 0.45, 0.9, 1.35] as readonly number[],
+  /** Coil current mapped to J = 1 (same scale as the energy / scope readouts). */
+  currentScaleA: 80,
+  maxDrive: 1.5
+});
+
+/** Unit-amplitude winding sources; the pass scales them by the slewed drive. */
+export function pulseCoilFdtdSources(): FdtdSource[] {
+  const { center, halfExtent, windingRadius, windingY } = PULSE_COIL_FDTD;
+  const out: FdtdSource[] = [];
+  for (const wy of windingY) {
+    const y = fdtdWorldToCell(wy - center[1], halfExtent);
+    out.push({ x: fdtdWorldToCell(-windingRadius - center[0], halfExtent), y, amp: 1, polarity: 1 });
+    out.push({ x: fdtdWorldToCell(windingRadius - center[0], halfExtent), y, amp: -1, polarity: -1 });
+  }
+  return out;
+}
+
+/**
+ * Signed, normalized drive for the slice: the coil current the scope and
+ * readouts show (`pulseCoilCurrentA`), clamped. NaN-safe.
+ */
+export function pulseCoilFdtdDrive(state: Partial<DevicePhysicsState> | null | undefined): number {
+  const iA = state?.pulseCoilCurrentA ?? 0;
+  if (!Number.isFinite(iA)) return 0;
+  const { currentScaleA, maxDrive } = PULSE_COIL_FDTD;
+  return Math.max(-maxDrive, Math.min(maxDrive, iA / currentScaleA));
 }
 
 export const PULSE_COIL_REFERENCES = [

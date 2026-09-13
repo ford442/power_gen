@@ -30,7 +30,9 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 
 - Server backend / accounts
 - Claiming free-energy metrology
-- Full Maxwell FEM in-browser (WASM remains lumped ODEs)
+- Full Maxwell FEM in-browser (WASM remains lumped ODEs). A qualitative 2D
+  FDTD *wave slice* in the pulse-coil focus view is a different product and
+  does not relax this — see [ADR-0010](./0010-fdtd-slice.md).
 
 ## Epic checklist
 

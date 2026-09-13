@@ -199,6 +199,27 @@ Capture: `?renderer=webgl2` → START → `setMode('pulse-coil')` → `captureCa
 - Plant: **JS only by design** (no WASM `SimMode`; sandboxed educational model + footer I/V oscilloscope sparkline)
 - Shareable lab link: `#lab=…;mode=pulse-coil;pcap=0.75` (optional charge fraction)
 
+### Wave slice (WebGPU, `high` tier)
+
+In focus, a panel in front of the coil shows a **2D TM_z FDTD slice**
+([ADR-0010](adr/0010-fdtd-slice.md)) of the coil's axial cross-section:
+
+- **Drive:** six turns, each crossing the plane at ±coil radius as a J_z line
+  source, ⊙ (out of the plane) on the left and ⊗ (into it) on the right.
+  Amplitude follows the displayed coil current, `I / 80 A`, clamped to ±1.5.
+- **Colours:** Ez warm (+) / cool (−); |H| green, which is the coil's own
+  magnetic field filling the bore while current flows; a thin frame marks the
+  absorbing sponge.
+- **Honest scale:** normalized units, vacuum only (the iron armature is not in
+  the field model), and **light slowed** so a front crosses the panel in about a
+  second. A real pulse this slow radiates wavelengths far larger than the bench.
+  Qualitative, not a field-strength measurement.
+- **Gate:** pulse-coil focus at `high` tier; `?fdtd=0` turns it off. F3 shows
+  `FDTD slice (ADR-0010)`; the footer next to the scope says why it is off.
+  WebGL2 skips it.
+- Code: `src/physics/fdtd-tmz.ts` (constants + CPU reference),
+  `src/devices/quanta/fdtd-slice-pass.ts`, `PULSE_COIL_FDTD` in `pulse-coil.ts`.
+
 ---
 
 ## transformer

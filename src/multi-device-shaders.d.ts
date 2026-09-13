@@ -44,4 +44,6 @@ export declare class MultiDeviceShaders {
   readonly ssrComputeShader: string;
   readonly anomalyWallsShader: string;
   readonly depthResolveShader: string;
+  readonly fdtdTmzComputeShader: string;
+  readonly fdtdSliceShader: string;
 }
