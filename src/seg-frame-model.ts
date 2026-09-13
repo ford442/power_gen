@@ -105,8 +105,8 @@ export function computeFrameDimensions(layout: SegLayout): FrameDimensions {
 // ---------------------------------------------------------------------------
 
 interface RawMesh {
-  vertices: Float32Array;
-  indices: Uint16Array;
+  vertices: Float32Array<ArrayBuffer>;
+  indices: Uint16Array<ArrayBuffer>;
 }
 
 class MeshBuilder {
