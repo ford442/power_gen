@@ -29,7 +29,7 @@ export const DEVICE_CATALOG = [
     category: 'core',
     shaderMode: 1,
     wasmMode: 1 as number | null,
-    telemetryKeys: ['heronHead', 'heronVExit', 'heronFlowLmin', 'heronPressureKPa'] as const,
+    telemetryKeys: ['heronHead', 'heronHeadMax', 'heronVExit', 'heronFlowRateLmin', 'heronPressureKPa'] as const,
     fidelity: "WASM (Bernoulli/Swamee–Jain)",
   },
   {
@@ -38,7 +38,7 @@ export const DEVICE_CATALOG = [
     category: 'core',
     shaderMode: 2,
     wasmMode: 2 as number | null,
-    telemetryKeys: ['kelvinVoltage', 'kelvinVoltageN', 'kelvinE', 'kelvinSparkTimer'] as const,
+    telemetryKeys: ['kelvinV', 'kelvinVoltageN', 'kelvinVbreak', 'kelvinE', 'kelvinSparkTimer'] as const,
     fidelity: "WASM (capacitive + spark)",
   },
   {
@@ -47,7 +47,7 @@ export const DEVICE_CATALOG = [
     category: 'core',
     shaderMode: 3,
     wasmMode: 3 as number | null,
-    telemetryKeys: ['solarBattery'] as const,
+    telemetryKeys: ['batteryCharge'] as const,
     fidelity: "WASM (battery SOC)",
   },
   {

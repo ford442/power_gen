@@ -71,6 +71,19 @@ export interface DeviceTelemetrySnap {
   transformerIsA: number;
   transformerK: number;
   transformerFluxN: number;
+  vdgVoltage: number;
+  vdgBeltMps: number;
+  vdgChargeC: number;
+  vdgSparkHz: number;
+  hallVoltage: number;
+  hallCurrent: number;
+  hallFieldT: number;
+  hallCoeff: number;
+  lorentzSledVms: number;
+  lorentzCurrentA: number;
+  lorentzFieldT: number;
+  lorentzForceN: number;
+  lorentzPositionM: number;
   /** Lab bus accounting (EnergyNetwork, W) — simulated, not metrology. */
   powerInW: number;
   powerOutW: number;
