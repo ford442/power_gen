@@ -2,8 +2,11 @@
  * Post-processing config + quality-tier gates (ADR-0005).
  *
  * Auto-quality maps profiler `qualityTier` → bloom / SSAO / contact shadow /
- * motion blur / SSR multipliers. Critical disables SSAO + motion blur and skips
- * the bloom extract/blur passes (composite still runs for filmic tonemap).
+ * motion blur / SSR / TAA multipliers. Critical disables SSAO + motion blur and
+ * skips the bloom extract/blur passes (composite still runs for filmic tonemap).
+ *
+ * Temporal AA is a high/ultra-tier feature and additionally requires focus mode
+ * (it is off in overview) and `?taa=1`; WebGL2 does not implement it at all.
  *
  * Screen-space reflections are a high/ultra-tier feature only: the compute pass
  * is skipped entirely below that, independent of the `?ssr=0` kill switch in
@@ -28,6 +31,8 @@ export interface PostQualityGates {
   contactShadow: number;
   motionBlur: number;
   ssr: number;
+  /** Temporal AA: 1 only on the tiers that can afford the extra full-res pass. */
+  taa: 0 | 1;
 }
 
 /**
@@ -37,6 +42,7 @@ export interface PostQualityGates {
  */
 export const POST_QUALITY_GATES: Record<QualityTier, PostQualityGates> = {
   ultra: {
+    taa: 1,
     bloom: 1,
     ssao: 1,
     contactShadow: 1,
@@ -44,6 +50,7 @@ export const POST_QUALITY_GATES: Record<QualityTier, PostQualityGates> = {
     ssr: 1
   },
   high: {
+    taa: 1,
     bloom: 1,
     ssao: 1,
     contactShadow: 1,
@@ -51,6 +58,7 @@ export const POST_QUALITY_GATES: Record<QualityTier, PostQualityGates> = {
     ssr: 1
   },
   medium: {
+    taa: 0,
     bloom: 1,
     ssao: 0.7,
     contactShadow: 0.85,
@@ -58,6 +66,7 @@ export const POST_QUALITY_GATES: Record<QualityTier, PostQualityGates> = {
     ssr: 0
   },
   low: {
+    taa: 0,
     bloom: 1,
     ssao: 0.3,
     contactShadow: 0.55,
@@ -65,6 +74,7 @@ export const POST_QUALITY_GATES: Record<QualityTier, PostQualityGates> = {
     ssr: 0
   },
   critical: {
+    taa: 0,
     bloom: 0,
     ssao: 0,
     contactShadow: 0.35,
@@ -72,6 +82,18 @@ export const POST_QUALITY_GATES: Record<QualityTier, PostQualityGates> = {
     ssr: 0
   }
 };
+
+/** Tiers that run the TAA resolve pass at all (before the focus-mode gate). */
+export const TAA_QUALITY_TIERS = Object.freeze(['ultra', 'high']);
+
+/**
+ * Whether temporal AA runs for a tier, before the overview-mode gate and the
+ * `?taa=0` override. Overview draws the whole plugin ring, where the extra
+ * full-res pass costs more than the shimmer it removes.
+ */
+export function taaEnabledForTier(tier: QualityTier | string = 'high'): boolean {
+  return (getPostQualityGates(tier).taa ?? 0) > 0;
+}
 
 /** Tiers that run the SSR compute pass at all. */
 export const SSR_QUALITY_TIERS = Object.freeze(['ultra', 'high']);
@@ -93,5 +115,6 @@ export function formatPostQualitySummary(gates: PostQualityGates): string {
   const cs = g.contactShadow <= 0.01 ? 'off' : `${Math.round(g.contactShadow * 100)}%`;
   const mb = g.motionBlur <= 0.01 ? 'off' : `${Math.round(g.motionBlur * 100)}%`;
   const ssr = (g.ssr ?? 0) <= 0.01 ? 'off' : `${Math.round(g.ssr * 100)}%`;
-  return `bloom ${bloom} · ssao ${ssao} · contact ${cs} · mblur ${mb} · ssr ${ssr}`;
+  const taa = (g.taa ?? 0) > 0 ? 'on' : 'off';
+  return `bloom ${bloom} · ssao ${ssao} · contact ${cs} · mblur ${mb} · ssr ${ssr} · taa ${taa}`;
 }

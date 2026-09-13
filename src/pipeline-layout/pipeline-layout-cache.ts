@@ -22,6 +22,7 @@ import {
   ensureBloomPipelines as ensureBloomPipelinesImpl,
   ensureSsrPipeline as ensureSsrPipelineImpl,
   ensureIblPrefilterPipeline as ensureIblPrefilterPipelineImpl,
+  ensureTaaResolvePipeline as ensureTaaResolvePipelineImpl,
   ensureDepthResolvePipeline as ensureDepthResolvePipelineImpl
 } from './factories/scene-pipelines.js';
 import {
@@ -221,6 +222,13 @@ export class PipelineLayoutCache implements LayoutRegistrar {
 
   async ensureIblPrefilterPipeline(code: string): Promise<GPUComputePipeline> {
     return ensureIblPrefilterPipelineImpl(this, code);
+  }
+
+  async ensureTaaResolvePipeline(
+    shaders: { bloomVertShader: string; taaResolveShader: string },
+    format: GPUTextureFormat
+  ): Promise<GPURenderPipeline> {
+    return ensureTaaResolvePipelineImpl(this, shaders, format);
   }
 
   async ensureDepthResolvePipeline(shaders: MultiDeviceShaders): Promise<GPURenderPipeline> {

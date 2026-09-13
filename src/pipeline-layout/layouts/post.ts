@@ -69,6 +69,16 @@ export function registerPostLayouts(r: LayoutRegistrar): void {
   ]);
   r.pl('iblPrefilter', ['iblPrefilter']);
 
+  // Temporal AA resolve (ADR-0005 WS2) — see passes/taa-resolve.wgsl.
+  r.bgl('taaResolve', [
+    texture(0, FS),
+    texture(1, FS),
+    sampler(2, FS),
+    depthTexture(3, FS),
+    uniform(4, FS)
+  ]);
+  r.pl('taaResolve', ['taaResolve']);
+
   r.bgl('depthResolve', [
     depthTextureMultisampled(0, FS)
   ]);

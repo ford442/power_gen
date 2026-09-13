@@ -67,6 +67,10 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] CPU↔WGSL uniform contract check in CI (`npm run check:post`)
 - [x] Negotiate optional features only when present (`rg11b10ufloat-renderable`, etc.)
       plus soft limits and a labelled `defaultQueue` — see `docs/WEBGPU.md`
+- [x] **Temporal AA** — `passes/taa-resolve.wgsl`, reprojected with the camera's
+      own view-projection plus the previous frame's, neighbourhood-clamped, with
+      `prevSceneTexture` as the history. `high`/`ultra` + focus only; `?taa=0`
+      disables; WebGL2 skips it (`docs/WEBGL2.md`).
 - [x] **Metalness/roughness G-buffer** — second `rg8unorm` color target on the
       scene render pass (r=metallic, g=roughness), written by
       `seg-enhanced-frag.wgsl`/`roller-frag.wgsl`; `passes/ssr-compute.wgsl`

@@ -23,6 +23,7 @@ export type BindGroupLayoutName =
   | 'bloomComposite'
   | 'ssr'
   | 'iblPrefilter'
+  | 'taaResolve'
   | 'depthResolve';
 
 export type PipelineLayoutName = BindGroupLayoutName | 'emptyGroups';

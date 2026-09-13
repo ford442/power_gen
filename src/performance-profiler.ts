@@ -69,6 +69,7 @@ export interface ProfilerStats {
   drawPrepMs: number;
   overviewCullActive: boolean;
   msaaActive: boolean;
+  taaActive: boolean;
   postQualityGates: ReturnType<typeof getPostQualityGates>;
   postQualitySummary: string;
   gpuTier: GpuTier;
@@ -164,6 +165,8 @@ export class PerformanceProfiler {
   overviewCullActive: boolean;
   /** Set by the render loop when 4x MSAA drove this frame (ADR-0005 WS2 — `high` tier + focus mode). */
   msaaActive: boolean;
+  /** Set by the render loop when the TAA resolve pass ran this frame (ADR-0005 WS2). */
+  taaActive: boolean;
 
   // Benchmark mode
   benchmarkMode: boolean;
@@ -244,6 +247,7 @@ export class PerformanceProfiler {
     this._drawPrepAcc = 0;
     this.overviewCullActive = false;
     this.msaaActive = false;
+    this.taaActive = false;
 
     // Benchmark mode
     this.benchmarkMode = false;
@@ -636,6 +640,7 @@ export class PerformanceProfiler {
       drawPrepMs: this.drawPrepMs,
       overviewCullActive: this.overviewCullActive,
       msaaActive: this.msaaActive,
+      taaActive: this.taaActive,
       postQualityGates: postGates,
       postQualitySummary: formatPostQualitySummary(postGates),
       gpuTier: this.gpuTier,

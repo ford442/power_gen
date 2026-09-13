@@ -203,6 +203,7 @@ Same shape as `fieldAdvect`. Writes packed `FluxSegment` (32 B) for the
 | `bloomComposite` | 0 scene, 1 bloom, 2 sampler, 3 params, 4 depth, 5 prev scene, 6 SSR reflection |
 | `ssr` | 0 depth, 1 scene, 2 sampler, 3 SsrParams, 4 reflection out (storage), 5 material G-buffer |
 | `iblPrefilter` | 0 IblPrefilterParams, 1 IBL array out (storage, 2d-array) |
+| `taaResolve` | 0 scene, 1 history, 2 sampler, 3 depth, 4 TaaParams |
 | `depthResolve` | 0 multisampled depth |
 
 `ssr` is a compute layout (`passes/ssr-compute.wgsl`) — all six entries are
@@ -222,6 +223,17 @@ every other pipeline in that pass (`sky`, `grid`, `particle`, `fluxSegment`,
 `energyArc`, `fieldLine`, `coil`, `anomalyWall`, `energyPipe`) declares `null`
 at slot 1 instead, which is valid WebGPU (that pipeline simply doesn't write
 the attachment) and needs no shader change.
+
+`taaResolve` (`passes/taa-resolve.wgsl`) is a `FRAGMENT`-visible layout for the
+temporal AA resolve, drawn with the shared `bloom-vert.wgsl` full-screen
+triangle into `taaResolveTexture` (canvas format). Binding 1 is
+`prevSceneTexture` — the same history target motion blur reads, holding the
+previous *resolved* frame while TAA is active. Binding 3 has the same two
+variants SSR does (`taaBindGroup` / `taaBindGroupResolved`): on an MSAA frame
+the single-sample depth texture was never written, so the pass reads the
+manually resolved depth instead. When the pass is gated off the bloom stack
+reads the raw scene bind groups and this layout is unused. See "Temporal AA" in
+`docs/LIGHTING_RIG.md`.
 
 `iblPrefilter` (`passes/ibl-prefilter-compute.wgsl`) is a `COMPUTE` layout that
 bakes the GGX environment chain. Binding 1 is a write-only

@@ -13,9 +13,11 @@
  *   2. Every BloomParams copy has the same field count as packPostUniforms
  *      emits, and the uniform buffer is allocated for exactly that many floats.
  *   3. The SsrParams block size in scene-setup.ts matches ssr-compute.wgsl.
- *   4. The IBL compute prefilter's uniform block, dispatch schedule,
+ *   4. TaaParams matches taa-resolve.wgsl, is packed at the offsets the
+ *      render loop writes, and is gated off below high/ultra + focus.
+ *   5. The IBL compute prefilter's uniform block, dispatch schedule,
  *      workgroup size and environment constants match ibl-prefilter.ts.
- *   5. Every attachable color format is priced, and the scene pass's
+ *   6. Every attachable color format is priced, and the scene pass's
  *      bytes-per-sample either fits the default limit or is negotiated.
  *
  * Usage: node scripts/check-post-contracts.mjs   (exit 1 on drift)
@@ -107,7 +109,63 @@ function check(label, condition, detail) {
   }
 }
 
-// ── 4. IBL compute prefilter ↔ ibl-prefilter.ts ─────────────────────────────
+// ── 4. TaaParams ↔ taa-resolve.wgsl ─────────────────────────────────────────
+{
+  const wgsl = read('src/shaders/passes/taa-resolve.wgsl');
+  const block = /struct TaaParams \{([\s\S]*?)\n\}/.exec(wgsl);
+  check('taa-resolve.wgsl: has TaaParams', !!block, 'no struct TaaParams found');
+  if (block) {
+    const body = block[1];
+    const mats = [...body.matchAll(/:\s*mat4x4f\s*,/g)].length;
+    const vecs = [...body.matchAll(/:\s*vec2f\s*,/g)].length;
+    const scalars = [...body.matchAll(/:\s*f32\s*,/g)].length;
+    const bytes = mats * 64 + vecs * 8 + scalars * 4;
+
+    const declared = /TAA_PARAMS_BYTES = (\d+)/.exec(read('src/visualizer/scene-setup.ts'));
+    check(
+      `TaaParams is ${bytes} B (${mats} mat4 + ${vecs} vec2 + ${scalars} f32)`,
+      declared && Number(declared[1]) === bytes,
+      `scene-setup.ts declares ${declared ? declared[1] : '?'} B`
+    );
+    check('TaaParams is 16-byte aligned', bytes % 16 === 0, `${bytes} B is not a multiple of 16`);
+
+    // The render loop fills the block by float index; the scalars must start
+    // where the two matrices end or alpha/historyValid land in texelSize.
+    const loop = read('src/visualizer/render-loop.ts');
+    check(
+      'TAA scalars are packed after both matrices',
+      /params\.set\(invViewProj, 0\)/.test(loop)
+        && /params\.set\(prevViewProj \?\? viewProj, 16\)/.test(loop)
+        && /params\[32\]/.test(loop) && /params\[35\]/.test(loop),
+      'render-loop.ts does not pack TaaParams at the expected float offsets'
+    );
+  }
+
+  // TAA must be gated off wherever ADR-0005 WS2 says it is. Read the table
+  // from source: post-processing-config.ts re-exports seg-lighting-presets,
+  // which a data: URL import cannot resolve.
+  const config = read('src/post-processing-config.ts');
+  const gateFor = (tier) => {
+    const m = new RegExp(`\\n  ${tier}: \\{([\\s\\S]*?)\\n  \\}`).exec(config);
+    if (!m) return null;
+    const t = /taa:\s*(\d+)/.exec(m[1]);
+    return t ? Number(t[1]) : null;
+  };
+  for (const tier of ['medium', 'low', 'critical']) {
+    check(`taa off at ${tier} tier`, gateFor(tier) === 0, `gate is ${gateFor(tier)}`);
+  }
+  for (const tier of ['high', 'ultra']) {
+    check(`taa on at ${tier} tier`, gateFor(tier) === 1, `gate is ${gateFor(tier)}`);
+  }
+  const loop = read('src/visualizer/render-loop.ts');
+  check(
+    'TAA gate also requires focus mode and ?taa',
+    /gates\?\.taa[\s\S]{0,200}?!this\.isOverviewMode\(\)[\s\S]{0,200}?this\.taaEnabled !== false/.test(loop),
+    'render-loop.ts gate does not check overview mode and the ?taa kill switch'
+  );
+}
+
+// ── 5. IBL compute prefilter ↔ ibl-prefilter.ts ─────────────────────────────
 {
   const {
     IBL_PREFILTER_PARAMS_FLOATS, IBL_LAYERS, IBL_SPEC_LEVELS,
@@ -195,7 +253,7 @@ function check(label, condition, detail) {
   }
 }
 
-// ── 5. Scene color attachments ↔ maxColorAttachmentBytesPerSample ───────────
+// ── 6. Scene color attachments ↔ maxColorAttachmentBytesPerSample ───────────
 {
   const { colorAttachmentBytesPerSample, DEFAULT_COLOR_ATTACHMENT_BYTES_PER_SAMPLE: DEFAULT_BPS } =
     await importTs('src/color-attachment-cost.ts');

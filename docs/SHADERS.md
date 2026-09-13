@@ -130,6 +130,8 @@ post stack:
   aligned
 - `IBL_TEX_SIZE` / `IBL_SPEC_LEVELS` agree between `ibl-prefilter.ts` and
   `pbr-eval.wgsl`
+- `TaaParams` in `passes/taa-resolve.wgsl` matches `TAA_PARAMS_BYTES` and the
+  float offsets `render-loop.ts` writes, and the TAA tier/mode gates are intact
 - `IblPrefilterParams` in `passes/ibl-prefilter-compute.wgsl` matches
   `packIblPrefilterParams()`, the dispatch schedule covers every array layer,
   the workgroup size matches the host's dispatch arithmetic, and the two

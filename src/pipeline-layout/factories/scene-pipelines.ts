@@ -243,6 +243,34 @@ export async function ensureBloomPipelines(
   );
 }
 
+export async function ensureTaaResolvePipeline(
+  cache: PipelineLayoutCache,
+  shaders: { bloomVertShader: string; taaResolveShader: string },
+  format: GPUTextureFormat
+): Promise<GPURenderPipeline> {
+  return cache.getOrCreatePipeline(
+    `taaResolve_${format}_${hashString(shaders.taaResolveShader)}`,
+    async () => {
+      const p = await cache.device.createRenderPipelineAsync({
+        label: 'taa-resolve-pipeline',
+        layout: cache.getPipelineLayout('taaResolve'),
+        vertex: {
+          module: cache.shaderModule('bloom-vert-module', shaders.bloomVertShader),
+          entryPoint: 'main'
+        },
+        fragment: {
+          module: cache.shaderModule('taa-resolve-module', shaders.taaResolveShader),
+          entryPoint: 'main',
+          targets: [{ format }]
+        },
+        primitive: { topology: 'triangle-list' }
+      });
+      cache.pipelines.set('taaResolve', p);
+      return p;
+    }
+  );
+}
+
 export async function ensureIblPrefilterPipeline(
   cache: PipelineLayoutCache,
   code: string

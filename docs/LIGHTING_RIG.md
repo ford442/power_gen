@@ -68,6 +68,7 @@ texture** at startup (segEnhanced bindings 7–8):
 
 Scene renders to an HDR-ish offscreen target (`bloomSceneTexture`). Passes:
 
+0. **TAA resolve** (high/ultra tier, focus mode only) — `passes/taa-resolve.wgsl`
 0. **SSR** (compute, high/ultra tier only) — `passes/ssr-compute.wgsl`
 1. **Extract** — luminance threshold with **corona boost** (green/cyan plasma weighted higher than bare metal specular)
 2. **Blur H / V** — 5-tap Gaussian
@@ -95,15 +96,45 @@ Mesh shaders output **linear HDR** (no per-object tonemap); tonemapping happens 
 `qualityTier` from `PerformanceProfiler` maps to multipliers in
 `src/post-processing-config.ts` (`POST_QUALITY_GATES` → `getPostQualityGates`):
 
-| Tier | Bloom extract/blur | SSAO | Contact shadow | Motion blur | SSR |
-|------|--------------------|------|----------------|-------------|-----|
-| `ultra` | on | 100% | 100% | 100% | on |
-| `high` | on | 100% | 100% | 100% | on |
-| `medium` | on | 70% | 85% | 70% | **off** |
-| `low` | on | 30% | 55% | **off** | **off** |
-| `critical` | **skipped** | **off** | 35% | **off** | **off** |
+| Tier | Bloom extract/blur | SSAO | Contact shadow | Motion blur | SSR | TAA |
+|------|--------------------|------|----------------|-------------|-----|-----|
+| `ultra` | on | 100% | 100% | 100% | on | on |
+| `high` | on | 100% | 100% | 100% | on | on |
+| `medium` | on | 70% | 85% | 70% | **off** | **off** |
+| `low` | on | 30% | 55% | **off** | **off** | **off** |
+| `critical` | **skipped** | **off** | 35% | **off** | **off** | **off** |
 
-The prefiltered IBL chain is **not** in this table — it is always on.
+TAA additionally requires **focus mode** (off in overview) and `?taa=1`;
+see below. The prefiltered IBL chain is **not** in this table — it is always on.
+
+### Temporal AA (ADR-0005 WS2)
+
+Showroom metals and SSR still shimmer under camera orbit once the geometry is
+stable. `passes/taa-resolve.wgsl` runs a full-res resolve **before** SSR and
+bloom, so everything downstream sees the stabilised image.
+
+- **Reprojection** uses the camera's own view-projection and the matrix cached
+  from last frame (`_taaPrevViewProj` in `render-loop.ts`) — no separate TAA
+  camera, no velocity buffer. World position is reconstructed from depth with
+  the same NDC convention `ssr-compute.wgsl` uses.
+- **Neighbourhood clamp**: history outside the 3×3 colour box of the current
+  frame is clamped back into it, and how far it had to move drives a
+  per-pixel rejection that falls back to the current frame. That is what keeps
+  the moving rollers and pipes from smearing.
+- **History** is `prevSceneTexture`, the same target motion blur uses. When TAA
+  runs, the copy at the end of the frame takes the *resolved* image rather than
+  the raw scene, so the blend accumulates exponentially
+  (`TAA_HISTORY_WEIGHT = 0.9`) instead of reaching back only one frame.
+- **Reset** (`_resetTaaHistory()`) on mode switch, SEG layout preset, lighting
+  look, and any resize that reallocates the targets. A reset frame returns the
+  current frame untouched, so there is no ghosting across the transition.
+- **Gates**: `high`/`ultra` tier **and** focus mode (`!isOverviewMode()`) **and**
+  `?taa=1`. Overview draws the whole plugin ring, where the extra full-res pass
+  costs more than the shimmer it removes.
+- **Off ⇒ no cost**: the pass is not encoded and bloom reads the raw scene bind
+  groups, exactly as before this existed.
+- F3 shows `TAA on/off`; `getRendererInfo()` / profiler stats expose `taaActive`.
+- **WebGL2 does not implement TAA** — see `docs/WEBGL2.md`.
 
 `packPostUniforms({ qualityGates })` scales strengths. When `bloom: 0`, the render
 loop skips extract + blur passes (composite still runs for exposure / filmic).

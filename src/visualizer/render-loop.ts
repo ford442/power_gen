@@ -4,7 +4,7 @@ import { MAX_ROLLERS } from '../seg-layout';
 import { packPostUniforms } from '../seg-lighting-presets';
 import { writeQueueBuffer } from '../gpu-buffer-write';
 import { getPostQualityGates } from '../post-processing-config';
-import { SSR_PARAMS_BYTES } from './scene-setup.js';
+import { SSR_PARAMS_BYTES, TAA_PARAMS_BYTES } from './scene-setup.js';
 import { explainerState } from '../seg-explainer/explainer-state';
 import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
@@ -21,6 +21,14 @@ type RenderDevice = DeviceInstance & {
   config: DeviceInstance['config'] & { cullRadius?: number; plugin?: boolean };
 };
 
+/**
+ * History weight for the TAA blend. 0.9 is the usual starting point: enough
+ * accumulation to settle SSR and roller chrome within a few frames, low enough
+ * that the neighbourhood clamp can still pull a disoccluded pixel back inside
+ * one frame.
+ */
+const TAA_HISTORY_WEIGHT = 0.9;
+
 function smoothstep(edge0: number, edge1: number, x: number) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);
@@ -33,6 +41,7 @@ export const renderLoopMethods: ThisType<Host> & {
     segDevice: DeviceInstance | null | undefined
   ): void;
   _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean): void;
+  _encodeTaaResolve(encoder: GPUCommandEncoder, msaaActive: boolean): boolean;
   render(timestamp: number): void;
 } = {
   renderAnomalyWalls(
@@ -63,6 +72,78 @@ export const renderLoopMethods: ThisType<Host> & {
     renderPass.setVertexBuffer(0, this.magneticWallBuffer.vertexBuffer);
     renderPass.setIndexBuffer(this.magneticWallBuffer.indexBuffer, 'uint16');
     renderPass.drawIndexed(this.magneticWallBuffer.indexCount, 1);
+  },
+
+  /**
+   * Encode the temporal AA resolve pass (ADR-0005 WS2).
+   *
+   * Gated on tier (high/ultra), focus mode, `?taa=0` and the pipeline having
+   * been built. Reprojects with the camera's own view-projection and the one
+   * cached from last frame — there is no separate TAA camera and no velocity
+   * buffer; see passes/taa-resolve.wgsl for why that is sufficient here.
+   *
+   * @returns true if the pass was encoded, so the caller knows to composite
+   *   from the resolve target instead of the raw scene.
+   */
+  _encodeTaaResolve(encoder: GPUCommandEncoder, msaaActive: boolean): boolean {
+    const gates = this._postQualityGates;
+    const gateOpen = !!gates?.taa
+      && !this.isOverviewMode()
+      && this.taaEnabled !== false
+      && !!this.taaPipeline
+      && !!this.taaParamsBuffer
+      && !!this.taaResolveView
+      && !!this.cameraController;
+    if (!gateOpen) {
+      // Whatever is in the history belongs to a frame the next TAA frame
+      // cannot trust, so make the first frame back a reset.
+      this._taaHistoryValid = false;
+      this._taaPrevViewProj = null;
+      return false;
+    }
+
+    const bindGroup = msaaActive
+      ? (this.taaBindGroupResolved || this.taaBindGroup)
+      : this.taaBindGroup;
+    if (!bindGroup) {
+      this._taaHistoryValid = false;
+      return false;
+    }
+
+    const camera = this.cameraController!;
+    const viewProj = camera.getViewProjMatrix();
+    const invViewProj = camera.invertMatrix(viewProj);
+    const prevViewProj = this._taaPrevViewProj;
+    // Without a previous matrix there is nothing to reproject from, whatever
+    // the history texture happens to hold.
+    const historyValid = this._taaHistoryValid === true && !!prevViewProj;
+
+    const params = new Float32Array(TAA_PARAMS_BYTES / 4);
+    params.set(invViewProj, 0);
+    params.set(prevViewProj ?? viewProj, 16);
+    params[32] = 1 / Math.max(this.canvas.width || 1, 1);   // texelSize
+    params[33] = 1 / Math.max(this.canvas.height || 1, 1);
+    params[34] = TAA_HISTORY_WEIGHT;                        // alpha
+    params[35] = historyValid ? 1 : 0;
+    writeQueueBuffer(this.device, this.taaParamsBuffer!, params);
+
+    const pass = encoder.beginRenderPass({
+      label: 'taa-resolve-pass',
+      colorAttachments: [{
+        view: this.taaResolveView!,
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        loadOp: 'clear', storeOp: 'store'
+      }]
+    });
+    pass.setPipeline(this.taaPipeline!);
+    pass.setBindGroup(0, bindGroup);
+    pass.draw(3);
+    pass.end();
+
+    // Cache this frame's matrix for the next reprojection. Copy it: the
+    // camera hands back a fresh array today, but this must not depend on that.
+    this._taaPrevViewProj = new Float32Array(viewProj);
+    return true;
   },
 
   /**
@@ -603,18 +684,12 @@ export const renderLoopMethods: ThisType<Host> & {
     const postGates = getPostQualityGates(profiler.qualityTier || 'high');
     this._postQualityGates = postGates;
 
-    // Preserve scene for overdrive motion blur only when the gate allows it.
-    if (
-      postGates.motionBlur > 0.01 &&
-      this.bloomSceneTexture &&
-      this.prevSceneTexture
-    ) {
-      encoder.copyTextureToTexture(
-        { texture: this.bloomSceneTexture },
-        { texture: this.prevSceneTexture },
-        [this.canvas.width || 1, this.canvas.height || 1, 1]
-      );
-    }
+    // ── Temporal AA (high/ultra tier, focus mode only) ───────────────────
+    // Runs before SSR and bloom so everything downstream sees the stabilised
+    // image. `?taa=0` forces it off at any tier. When it does not run, the
+    // bloom stack keeps reading the raw scene texture.
+    this._taaActive = this._encodeTaaResolve(encoder, msaaActive);
+    profiler.taaActive = this._taaActive;
 
     // ── Screen-space reflections (high/ultra tier only) ───────────────────
     // Runs between the scene pass and bloom so the composite can add the
@@ -678,8 +753,11 @@ export const renderLoopMethods: ThisType<Host> & {
           }]
         });
         extractPass.setPipeline(this.bloomExtractPipeline);
-        if (this.bloomExtractBindGroup) {
-          extractPass.setBindGroup(0, this.bloomExtractBindGroup);
+        const extractBindGroup = this._taaActive
+          ? (this.bloomExtractBindGroupTaa || this.bloomExtractBindGroup)
+          : this.bloomExtractBindGroup;
+        if (extractBindGroup) {
+          extractPass.setBindGroup(0, extractBindGroup);
         }
         extractPass.draw(3);
         extractPass.end();
@@ -724,17 +802,46 @@ export const renderLoopMethods: ThisType<Host> & {
         }]
       });
       compositePass.setPipeline(this.bloomCompositePipeline);
-      // MSAA frame: bind depthResolvedTexture for the contact-shadow term
-      // (see ssrBindGroupResolved / `msaaActive` above).
-      const compositeBindGroup = msaaActive
-        ? (this.bloomCompositeBindGroupResolved || this.bloomCompositeBindGroup)
-        : this.bloomCompositeBindGroup;
+      // Two independent axes, so four variants, most specific first:
+      //   msaaActive  → bind depthResolvedTexture for the contact-shadow term
+      //                 (the single-sample depth was never written this frame)
+      //   _taaActive  → read the TAA resolve target instead of the raw scene
+      // Each falls back towards the plain bind group, which is always built.
+      const compositeBindGroup =
+        (msaaActive && this._taaActive ? this.bloomCompositeBindGroupResolvedTaa : null)
+        ?? (this._taaActive ? this.bloomCompositeBindGroupTaa : null)
+        ?? (msaaActive ? this.bloomCompositeBindGroupResolved : null)
+        ?? this.bloomCompositeBindGroup;
       if (compositeBindGroup) {
         compositePass.setBindGroup(0, compositeBindGroup);
       }
       compositePass.draw(3);
       compositePass.end();
     }
+
+    // ── History for the next frame ────────────────────────────────────────
+    // This copy must come *after* the composite: it used to run before the
+    // bloom stack, which meant prevSceneTexture held the frame currently being
+    // composited and the motion-blur mix was a no-op (scene blended with
+    // itself). Copying here is what actually makes it a previous frame.
+    //
+    // When TAA ran, the history is the *resolved* frame, so the next frame's
+    // blend accumulates exponentially instead of only reaching back one frame.
+    if (this.prevSceneTexture && (this._taaActive || postGates.motionBlur > 0.01)) {
+      const source = this._taaActive && this.taaResolveTexture
+        ? this.taaResolveTexture
+        : this.bloomSceneTexture;
+      if (source) {
+        encoder.copyTextureToTexture(
+          { texture: source },
+          { texture: this.prevSceneTexture },
+          [this.canvas.width || 1, this.canvas.height || 1, 1]
+        );
+        // Only now is there a history frame worth reprojecting.
+        if (this._taaActive) this._taaHistoryValid = true;
+      }
+    }
+
     profiler.writeTimestamp(encoder, 1);
 
     profiler.endFrameCpu();
@@ -755,12 +862,14 @@ export class WebGpuFrameLoop {
   render: typeof renderLoopMethods.render;
   renderAnomalyWalls: typeof renderLoopMethods.renderAnomalyWalls;
   _dispatchSsr: typeof renderLoopMethods._dispatchSsr;
+  _encodeTaaResolve: typeof renderLoopMethods._encodeTaaResolve;
 
   constructor(host: MultiDeviceVisualizer) {
     const bound = bindHostMethods(renderLoopMethods, host);
     this.render = bound.render;
     this.renderAnomalyWalls = bound.renderAnomalyWalls;
     this._dispatchSsr = bound._dispatchSsr;
+    this._encodeTaaResolve = bound._encodeTaaResolve;
   }
 }
 
