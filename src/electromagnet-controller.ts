@@ -5,16 +5,32 @@
  * which coils are active and render them with emissive highlights.
  */
 
+export type FiringPattern = 'single' | 'overlap' | 'trapezoidal' | 'sinusoidal';
+
+export interface ElectromagnetControllerConfig {
+  numCoils?: number;
+  offsetAngle?: number;
+  dwellAngle?: number;
+  advanceAngle?: number;
+  firingPattern?: FiringPattern;
+}
+
 class ElectromagnetController {
-  constructor(config = {}) {
+  numCoils: number;
+  offsetAngle: number;
+  dwellAngle: number;
+  advanceAngle: number;
+  firingPattern: FiringPattern;
+
+  constructor(config: ElectromagnetControllerConfig = {}) {
     this.numCoils = config.numCoils || 8;
     this.offsetAngle = config.offsetAngle || 0;
     this.dwellAngle = config.dwellAngle || 67.5;
     this.advanceAngle = config.advanceAngle || 0;
-    this.firingPattern = config.firingPattern || 'overlap'; // 'single' | 'overlap' | 'trapezoidal' | 'sinusoidal'
+    this.firingPattern = config.firingPattern || 'overlap';
   }
 
-  setConfig(config) {
+  setConfig(config: ElectromagnetControllerConfig): void {
     if (config.numCoils !== undefined) this.numCoils = config.numCoils;
     if (config.offsetAngle !== undefined) this.offsetAngle = config.offsetAngle;
     if (config.dwellAngle !== undefined) this.dwellAngle = config.dwellAngle;
@@ -24,11 +40,11 @@ class ElectromagnetController {
 
   /**
    * Compute active coil bitmask for a given electrical angle.
-   * @param {number} electricalAngle - degrees 0-360
-   * @param {number} direction - 1 for clockwise, -1 for counter-clockwise
-   * @returns {number} coilMask - bitmask of active coils
+   * @param electricalAngle - degrees 0-360
+   * @param direction - 1 for clockwise, -1 for counter-clockwise
+   * @returns coilMask - bitmask of active coils
    */
-  computeCoilMask(electricalAngle, direction = 1) {
+  computeCoilMask(electricalAngle: number, direction = 1): number {
     const angle = this._normalizeAngle(electricalAngle + this.advanceAngle * direction);
     let mask = 0;
 
@@ -69,11 +85,11 @@ class ElectromagnetController {
 
   /**
    * Compute per-coil PWM intensities for sinusoidal or trapezoidal patterns.
-   * @param {number} electricalAngle - degrees 0-360
-   * @param {number} direction - 1 or -1
-   * @returns {number[]} Array of PWM values 0-255 per coil
+   * @param electricalAngle - degrees 0-360
+   * @param direction - 1 or -1
+   * @returns Array of PWM values 0-255 per coil
    */
-  computePwmValues(electricalAngle, direction = 1) {
+  computePwmValues(electricalAngle: number, direction = 1): number[] {
     const angle = this._normalizeAngle(electricalAngle + this.advanceAngle * direction);
     const values = new Array(this.numCoils).fill(0);
 
@@ -116,10 +132,10 @@ class ElectromagnetController {
 
   /**
    * Compute the visual angle for each coil in 3D space (for rendering).
-   * @returns {number[]} Array of angles in radians for each coil
+   * @returns Array of angles in radians for each coil
    */
-  getCoilAngles() {
-    const angles = [];
+  getCoilAngles(): number[] {
+    const angles: number[] = [];
     for (let i = 0; i < this.numCoils; i++) {
       const deg = this._normalizeAngle(i * (360 / this.numCoils) + this.offsetAngle);
       angles.push((deg * Math.PI) / 180);
@@ -129,10 +145,9 @@ class ElectromagnetController {
 
   /**
    * Default dwell angle for a given coil count and overlap factor.
-   * @param {number} numCoils
-   * @param {number} overlapFactor - 1.0 = no overlap, 1.5 = 50% overlap
+   * @param overlapFactor - 1.0 = no overlap, 1.5 = 50% overlap
    */
-  static defaultDwellAngle(numCoils, overlapFactor = 1.5) {
+  static defaultDwellAngle(numCoils: number, overlapFactor = 1.5): number {
     return (360 / numCoils) * overlapFactor;
   }
 
@@ -140,13 +155,13 @@ class ElectromagnetController {
   // Helpers
   // ============================================
 
-  _normalizeAngle(deg) {
+  _normalizeAngle(deg: number): number {
     let a = deg % 360;
     if (a < 0) a += 360;
     return a;
   }
 
-  _angularDistance(a, b) {
+  _angularDistance(a: number, b: number): number {
     let diff = Math.abs(a - b);
     if (diff > 180) diff = 360 - diff;
     return diff;

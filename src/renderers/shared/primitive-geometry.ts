@@ -3,8 +3,28 @@
  * Layout: interleaved position (3) + normal (3) per vertex = 6 floats.
  */
 
-export function generateCylinder(radius, height, segments = 24) {
-  const vertices = [], indices = [], normals = [];
+/** Interleaved pos+normal mesh (6 floats/vertex), 16-bit indices. */
+export interface PrimitiveMesh {
+  vertices: Float32Array;
+  indices: Uint16Array;
+}
+
+/** Interleaved pos(3)+normal(3)+uv(2) mesh (8 floats/vertex). */
+export interface UVMesh {
+  vertices: Float32Array;
+  indices: Uint16Array | Uint32Array;
+}
+
+/** Uploaded WebGL2 mesh handles (VAO + backing buffers). */
+export interface UploadedMesh {
+  vao: WebGLVertexArrayObject | null;
+  indexCount: number;
+  vbo: WebGLBuffer | null;
+  ibo: WebGLBuffer | null;
+}
+
+export function generateCylinder(radius: number, height: number, segments = 24): PrimitiveMesh {
+  const vertices: number[] = [], indices: number[] = [], normals: number[] = [];
 
   for (let i = 0; i <= segments; i++) {
     const theta = (i / segments) * Math.PI * 2;
@@ -42,8 +62,8 @@ export function generateCylinder(radius, height, segments = 24) {
   return { vertices: vertexData, indices: new Uint16Array(indices) };
 }
 
-export function generateDisc(innerRadius, outerRadius, thickness, segments = 48) {
-  const vertices = [], indices = [], normals = [];
+export function generateDisc(innerRadius: number, outerRadius: number, thickness: number, segments = 48): PrimitiveMesh {
+  const vertices: number[] = [], indices: number[] = [], normals: number[] = [];
   const h2 = thickness / 2;
 
   for (let i = 0; i <= segments; i++) {
@@ -90,8 +110,8 @@ export function generateDisc(innerRadius, outerRadius, thickness, segments = 48)
 }
 
 /** Torus mesh (major/minor radii) — interleaved pos+normal, 6 floats/vertex. */
-export function generateTorus(majorRadius, minorRadius, majorSegments = 48, minorSegments = 14) {
-  const vertices = [], indices = [], normals = [];
+export function generateTorus(majorRadius: number, minorRadius: number, majorSegments = 48, minorSegments = 14): PrimitiveMesh {
+  const vertices: number[] = [], indices: number[] = [], normals: number[] = [];
 
   for (let major = 0; major <= majorSegments; major++) {
     const theta = (major / majorSegments) * Math.PI * 2;
@@ -134,11 +154,8 @@ export function generateTorus(majorRadius, minorRadius, majorSegments = 48, mino
   return { vertices: vertexData, indices: new Uint16Array(indices) };
 }
 
-/**
- * Upload interleaved pos+normal mesh to WebGL2 buffers.
- * @returns {{ vao: WebGLVertexArrayObject, indexCount: number }}
- */
-export function uploadMesh(gl, mesh) {
+/** Upload interleaved pos+normal mesh to WebGL2 buffers. */
+export function uploadMesh(gl: WebGL2RenderingContext, mesh: PrimitiveMesh): UploadedMesh {
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
 
@@ -159,7 +176,7 @@ export function uploadMesh(gl, mesh) {
 }
 
 /** Upload pos(3)+normal(3)+uv(2) interleaved mesh — 8 floats/vertex. */
-export function uploadMeshWithUV(gl, mesh) {
+export function uploadMeshWithUV(gl: WebGL2RenderingContext, mesh: UVMesh): UploadedMesh {
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
 

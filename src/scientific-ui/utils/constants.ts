@@ -3,6 +3,12 @@
  * Physical constants for LED and Solar cell calculations
  */
 
+export interface LEDColorSpec {
+  vf: number;
+  wavelength: number | null;
+  lumensPerWatt: number;
+}
+
 export const LED_SOLAR_CONSTANTS = {
   // Battery: Li-ion 3.0V (0%) to 4.2V (100%)
   BATTERY: {
@@ -13,7 +19,7 @@ export const LED_SOLAR_CONSTANTS = {
     TEMP_MAX: 60,
     TEMP_OPTIMAL: 25,
   },
-  
+
   // Solar Panel: AM1.5G standard = 1000 W/m²
   SOLAR: {
     IRRADIANCE_MAX: 1200,
@@ -21,7 +27,7 @@ export const LED_SOLAR_CONSTANTS = {
     EFFICIENCY_MIN: 0.15,
     EFFICIENCY_MAX: 0.26,
   },
-  
+
   // LED Forward Voltages by color
   LED: {
     RED: { vf: 2.0, wavelength: 625, lumensPerWatt: 120 },
@@ -29,8 +35,8 @@ export const LED_SOLAR_CONSTANTS = {
     BLUE: { vf: 3.3, wavelength: 470, lumensPerWatt: 70 },
     WHITE: { vf: 3.5, wavelength: null, lumensPerWatt: 150 },
     YELLOW: { vf: 2.1, wavelength: 590, lumensPerWatt: 130 },
-  },
-  
+  } as Record<string, LEDColorSpec>,
+
   // Energy Flow Efficiency Chain
   EFFICIENCY: {
     BATTERY_DISCHARGE: 0.95,
@@ -38,8 +44,8 @@ export const LED_SOLAR_CONSTANTS = {
     TRANSMISSION: 0.85,
     SOLAR_CONVERSION: 0.22,
     BATTERY_CHARGE: 0.95,
-    get ROUND_TRIP() {
-      return this.BATTERY_DISCHARGE * this.LED_CONVERSION * 
+    get ROUND_TRIP(): number {
+      return this.BATTERY_DISCHARGE * this.LED_CONVERSION *
              this.TRANSMISSION * this.SOLAR_CONVERSION * this.BATTERY_CHARGE;
     }
   }

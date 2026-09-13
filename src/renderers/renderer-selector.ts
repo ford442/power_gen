@@ -11,14 +11,13 @@
  * WebGL2 code stays in-tree for agents via ?renderer=webgl2 only.
  */
 
-export const RENDERER_WEBGPU = 'webgpu';
-export const RENDERER_WEBGL2 = 'webgl2';
+export type RendererName = 'webgpu' | 'webgl2';
+
+export const RENDERER_WEBGPU: RendererName = 'webgpu';
+export const RENDERER_WEBGL2: RendererName = 'webgl2';
 export const STORAGE_KEY = 'seg-renderer';
 
-/**
- * @returns {'webgpu' | 'webgl2'}
- */
-export function resolveRenderer() {
+export function resolveRenderer(): RendererName {
   const params = new URLSearchParams(window.location.search);
   const urlRenderer = params.get('renderer');
   if (urlRenderer === RENDERER_WEBGL2 || urlRenderer === RENDERER_WEBGPU) {
@@ -48,9 +47,8 @@ export function resolveRenderer() {
 
 /**
  * Persist renderer choice (optional hot-switch without full reload).
- * @param {'webgpu' | 'webgl2'} renderer
  */
-export function setRendererPreference(renderer) {
+export function setRendererPreference(renderer: RendererName): void {
   try {
     localStorage.setItem(STORAGE_KEY, renderer);
   } catch (_) { /* ignore */ }
@@ -59,10 +57,8 @@ export function setRendererPreference(renderer) {
 
 /**
  * Apply canvas data attributes and window.currentRenderer for Playwright / agents.
- * @param {HTMLCanvasElement | null} canvas
- * @param {'webgpu' | 'webgl2'} renderer
  */
-export function exposeRenderer(canvas, renderer) {
+export function exposeRenderer(canvas: HTMLCanvasElement | null, renderer: RendererName): void {
   window.currentRenderer = renderer;
   if (canvas) {
     canvas.dataset.renderer = renderer;
