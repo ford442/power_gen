@@ -111,7 +111,7 @@ export class SEGAnnotations {
   }
 
   private _syncClassroomStyles(): void {
-    const large = (explainerState as any).classroomMode;
+    const large = explainerState.classroomMode;
     for (const el of this._els.values()) {
       el.style.fontSize = large ? '0.82rem' : '0.62rem';
       el.style.padding = large ? '6px 10px' : '3px 7px';
@@ -283,8 +283,8 @@ export class SEGAnnotations {
     const devicePos = seg.config?.position || [0, 0, 0];
     const anchors = this._anchors(layout, v);
     const seen = new Set<string>();
-    const highlightId = (explainerState as any).highlightId;
-    const classroom = (explainerState as any).classroomMode;
+    const highlightId = explainerState.highlightId;
+    const classroom = explainerState.classroomMode;
     const corona = v.corona ?? v.segOmega ?? 0;
     const ionBoost = highlightId === 'ionization' ? 1 : 0;
 
@@ -293,7 +293,7 @@ export class SEGAnnotations {
       const anchor = this._project(a.pos, viewProj, v.canvas, devicePos);
       const gloss = glossaryForHighlight(a.id);
       let hint = a.hint || '';
-      if (gloss && (highlightId === a.id || (explainerState as any).classroomMode)) {
+      if (gloss && (highlightId === a.id || explainerState.classroomMode)) {
         hint = gloss.body.slice(0, 72) + (gloss.body.length > 72 ? '…' : '');
       }
       const el = this._ensureLabel(a.id, a.label, hint);
@@ -369,7 +369,7 @@ export function initSEGAnnotations(getVisualizer: () => SEGVisualizer | null | u
   const ann = new SEGAnnotations(getVisualizer);
   if (typeof window !== 'undefined') {
     window.segAnnotations = ann;
-    (window as any).toggleSEGAnnotations = () => ann.toggle();
+    window.toggleSEGAnnotations = () => ann.toggle();
   }
   return ann;
 }

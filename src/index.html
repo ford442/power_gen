@@ -81,23 +81,11 @@
         </label>
       </div>
 
-      <!-- Simulation mode -->
+      <!-- Simulation mode: buttons generated from physics/devices.json chrome
+           (emoji/label/sort) by src/mode-buttons.ts at boot — see MODE_MATRIX.md. -->
       <div class="panel-section">
         <h3>Simulation Mode</h3>
-        <button class="mode-btn active" id="btn-seg"    onclick="setMode('seg')">🔮 SEG Generator</button>
-        <button class="mode-btn"        id="btn-heron"  onclick="setMode('heron')">💧 Heron's Fountain</button>
-        <button class="mode-btn"        id="btn-kelvin" onclick="setMode('kelvin')">⚡ Kelvin Thunderstorm</button>
-        <button class="mode-btn"        id="btn-solar"  onclick="setMode('solar')">☀️ LEDs + Solar</button>
-        <button class="mode-btn"        id="btn-mhd"    onclick="setMode('mhd')">🌊 MHD Generator</button>
-        <button class="mode-btn"        id="btn-peltier" onclick="setMode('peltier')">🔥 Peltier</button>
-        <button class="mode-btn"        id="btn-maglev" onclick="setMode('maglev')">🧲 Mag Levitation</button>
-        <button class="mode-btn"        id="btn-homopolar" onclick="setMode('homopolar')">⚙️ Homopolar</button>
-        <button class="mode-btn"        id="btn-halbach-viz" onclick="setMode('halbach-viz')">🧭 Halbach Field</button>
-        <button class="mode-btn"        id="btn-pulse-coil" onclick="setMode('pulse-coil')">🔋 Pulse Coil</button>
-        <button class="mode-btn"        id="btn-transformer" onclick="setMode('transformer')">🔌 Mutual Induction</button>
-        <button class="mode-btn"        id="btn-vdg" onclick="setMode('vdg')">⚡️ Van de Graaff</button>
-        <button class="mode-btn"        id="btn-hall" onclick="setMode('hall')">🧲 Hall-Effect Bench</button>
-        <button class="mode-btn"        id="btn-lorentz-sled" onclick="setMode('lorentz-sled')">🛤️ Lorentz Rail Sled</button>
+        <div id="mode-button-row"></div>
       </div>
 
       <!-- Transformer classroom controls -->

@@ -26,8 +26,8 @@ export function parseSegFrameLevel(
   if (raw === 'off' || raw === '0' || raw === 'false') return 'off';
   if (raw === 'minimal' || raw === 'min' || raw === '1') return 'minimal';
   if (raw === 'full' || raw === '2') return 'full';
-  if (typeof window !== 'undefined' && (window as any).SEG_FRAME_LEVEL) {
-    const w = String((window as any).SEG_FRAME_LEVEL).toLowerCase();
+  if (typeof window !== 'undefined' && window.SEG_FRAME_LEVEL) {
+    const w = String(window.SEG_FRAME_LEVEL).toLowerCase();
     if (w in SEG_FRAME_LEVELS) return w as SegFrameLevel;
   }
   return 'full';

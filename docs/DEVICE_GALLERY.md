@@ -41,7 +41,7 @@ registerDevice({
 ```
 ```
 
-Import side-effect bundle: `src/devices/register-plugins.js` (loaded from `main.ts`).
+Import side-effect bundle: `src/devices/register-plugins.ts` (loaded from `main.ts`).
 
 Overview positions for plugin devices without an explicit `position` are assigned
 by `src/devices/layout-packer.ts` on an outer ring (radius 20 m).

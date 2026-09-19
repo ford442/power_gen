@@ -16,10 +16,18 @@ export interface TelemetryFieldMeta {
   format?: TelemetryValueFormat;
 }
 
+/** Operator-chrome metadata for a device's mode button (index.html has none hand-listed). */
+export interface DeviceChrome {
+  emoji: string;
+  label: string;
+  sort: number;
+}
+
 export interface DeviceCatalogEntry {
   id: string;
   label: string;
   category: string;
+  chrome?: DeviceChrome;
   shaderMode: number;
   wasmMode: number | null;
   telemetryKeys: readonly string[];
@@ -32,6 +40,7 @@ export const DEVICE_CATALOG = [
     id: 'seg',
     label: "SEG",
     category: 'core',
+    chrome: { emoji: "🔮", label: "SEG Generator", sort: 0 } as DeviceChrome | undefined,
     shaderMode: 0,
     wasmMode: 0 as number | null,
     telemetryKeys: ['rpm', 'omega', 'corona', 'voltage', 'current', 'power', 'fieldSim', 'energyDensity'] as const,
@@ -51,6 +60,7 @@ export const DEVICE_CATALOG = [
     id: 'heron',
     label: "Heron's Fountain",
     category: 'core',
+    chrome: { emoji: "💧", label: "Heron's Fountain", sort: 1 } as DeviceChrome | undefined,
     shaderMode: 1,
     wasmMode: 1 as number | null,
     telemetryKeys: ['heronHead', 'heronHeadMax', 'heronVExit', 'heronFlowRateLmin', 'heronPressureKPa'] as const,
@@ -67,6 +77,7 @@ export const DEVICE_CATALOG = [
     id: 'kelvin',
     label: "Kelvin's Thunderstorm",
     category: 'core',
+    chrome: { emoji: "⚡", label: "Kelvin Thunderstorm", sort: 2 } as DeviceChrome | undefined,
     shaderMode: 2,
     wasmMode: 2 as number | null,
     telemetryKeys: ['kelvinV', 'kelvinVoltageN', 'kelvinVbreak', 'kelvinE', 'kelvinSparkTimer'] as const,
@@ -83,6 +94,7 @@ export const DEVICE_CATALOG = [
     id: 'solar',
     label: "Solar / LED",
     category: 'core',
+    chrome: { emoji: "☀️", label: "LEDs + Solar", sort: 3 } as DeviceChrome | undefined,
     shaderMode: 3,
     wasmMode: 3 as number | null,
     telemetryKeys: ['batteryCharge'] as const,
@@ -95,6 +107,7 @@ export const DEVICE_CATALOG = [
     id: 'peltier',
     label: "Peltier",
     category: 'core',
+    chrome: { emoji: "🔥", label: "Peltier", sort: 5 } as DeviceChrome | undefined,
     shaderMode: 4,
     wasmMode: 4 as number | null,
     telemetryKeys: ['peltierHotK', 'peltierColdK', 'peltierDeltaT', 'peltierVoltage', 'peltierCurrent', 'peltierPowerW', 'peltierCOP'] as const,
@@ -113,6 +126,7 @@ export const DEVICE_CATALOG = [
     id: 'mhd',
     label: "MHD Channel",
     category: 'core',
+    chrome: { emoji: "🌊", label: "MHD Generator", sort: 4 } as DeviceChrome | undefined,
     shaderMode: 5,
     wasmMode: 5 as number | null,
     telemetryKeys: ['mhdFlowU', 'mhdBFieldT', 'mhdHartmann', 'mhdVoltage', 'mhdCurrent', 'mhdPowerW'] as const,
@@ -130,6 +144,7 @@ export const DEVICE_CATALOG = [
     id: 'maglev',
     label: "Magnetic Levitation",
     category: 'quanta',
+    chrome: { emoji: "🧲", label: "Mag Levitation", sort: 6 } as DeviceChrome | undefined,
     shaderMode: 6,
     wasmMode: 6 as number | null,
     telemetryKeys: ['maglevGapMm', 'maglevFieldT', 'maglevLiftN', 'maglevRpm'] as const,
@@ -145,6 +160,7 @@ export const DEVICE_CATALOG = [
     id: 'pulse-coil',
     label: "Pulse Coil (R–L)",
     category: 'quanta',
+    chrome: { emoji: "🔋", label: "Pulse Coil", sort: 9 } as DeviceChrome | undefined,
     shaderMode: 7,
     wasmMode: null as number | null,
     telemetryKeys: ['pulseCoilCurrentA', 'pulseCoilVCap', 'pulseCoilBPeakT', 'pulseCoilArmatureMm'] as const,
@@ -160,6 +176,7 @@ export const DEVICE_CATALOG = [
     id: 'homopolar',
     label: "Homopolar Generator",
     category: 'quanta',
+    chrome: { emoji: "⚙️", label: "Homopolar", sort: 7 } as DeviceChrome | undefined,
     shaderMode: 8,
     wasmMode: 7 as number | null,
     telemetryKeys: ['homopolarRpm', 'homopolarEmfV', 'homopolarCurrentA', 'homopolarFieldT'] as const,
@@ -175,6 +192,7 @@ export const DEVICE_CATALOG = [
     id: 'halbach-viz',
     label: "Halbach Field Viz",
     category: 'quanta',
+    chrome: { emoji: "🧭", label: "Halbach Field", sort: 8 } as DeviceChrome | undefined,
     shaderMode: 9,
     wasmMode: null as number | null,
     telemetryKeys: ['halbachSegmentCount', 'halbachMagAngleDeg', 'halbachPeakBT', 'halbachPeriodM', 'halbachDipoleForceN'] as const,
@@ -191,6 +209,7 @@ export const DEVICE_CATALOG = [
     id: 'transformer',
     label: "Mutual Induction",
     category: 'quanta',
+    chrome: { emoji: "🔌", label: "Mutual Induction", sort: 10 } as DeviceChrome | undefined,
     shaderMode: 10,
     wasmMode: 8 as number | null,
     telemetryKeys: ['transformerVp', 'transformerVs', 'transformerIpA', 'transformerIsA', 'transformerK', 'transformerFluxN'] as const,
@@ -208,6 +227,7 @@ export const DEVICE_CATALOG = [
     id: 'vdg',
     label: "Van de Graaff",
     category: 'quanta',
+    chrome: { emoji: "⚡️", label: "Van de Graaff", sort: 11 } as DeviceChrome | undefined,
     shaderMode: 12,
     wasmMode: 9 as number | null,
     telemetryKeys: ['vdgVoltage', 'vdgBeltMps', 'vdgChargeC', 'vdgSparkHz'] as const,
@@ -223,6 +243,7 @@ export const DEVICE_CATALOG = [
     id: 'hall',
     label: "Hall-Effect Bench",
     category: 'quanta',
+    chrome: { emoji: "🧲", label: "Hall-Effect Bench", sort: 12 } as DeviceChrome | undefined,
     shaderMode: 13,
     wasmMode: 10 as number | null,
     telemetryKeys: ['hallVoltage', 'hallCurrent', 'hallFieldT', 'hallCoeff'] as const,
@@ -238,6 +259,7 @@ export const DEVICE_CATALOG = [
     id: 'lorentz-sled',
     label: "Lorentz Rail Sled",
     category: 'quanta',
+    chrome: { emoji: "🛤️", label: "Lorentz Rail Sled", sort: 13 } as DeviceChrome | undefined,
     shaderMode: 14,
     wasmMode: 11 as number | null,
     telemetryKeys: ['lorentzSledVms', 'lorentzCurrentA', 'lorentzFieldT', 'lorentzForceN', 'lorentzPositionM'] as const,
@@ -251,6 +273,24 @@ export const DEVICE_CATALOG = [
     fidelity: "WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it",
   },
 ] as const;
+
+/** Mode-button chrome for devices that have one, in display order. */
+export const MODE_BUTTON_CHROME: readonly { id: string; emoji: string; label: string; sort: number }[] = [
+  { id: 'seg', emoji: "🔮", label: "SEG Generator", sort: 0 },
+  { id: 'heron', emoji: "💧", label: "Heron's Fountain", sort: 1 },
+  { id: 'kelvin', emoji: "⚡", label: "Kelvin Thunderstorm", sort: 2 },
+  { id: 'solar', emoji: "☀️", label: "LEDs + Solar", sort: 3 },
+  { id: 'mhd', emoji: "🌊", label: "MHD Generator", sort: 4 },
+  { id: 'peltier', emoji: "🔥", label: "Peltier", sort: 5 },
+  { id: 'maglev', emoji: "🧲", label: "Mag Levitation", sort: 6 },
+  { id: 'homopolar', emoji: "⚙️", label: "Homopolar", sort: 7 },
+  { id: 'halbach-viz', emoji: "🧭", label: "Halbach Field", sort: 8 },
+  { id: 'pulse-coil', emoji: "🔋", label: "Pulse Coil", sort: 9 },
+  { id: 'transformer', emoji: "🔌", label: "Mutual Induction", sort: 10 },
+  { id: 'vdg', emoji: "⚡️", label: "Van de Graaff", sort: 11 },
+  { id: 'hall', emoji: "🧲", label: "Hall-Effect Bench", sort: 12 },
+  { id: 'lorentz-sled', emoji: "🛤️", label: "Lorentz Rail Sled", sort: 13 },
+];
 
 /** One catalog telemetry key bound to its device, CSV column and display schema. */
 export interface DeviceTelemetryField extends TelemetryFieldMeta {

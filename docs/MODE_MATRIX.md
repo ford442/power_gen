@@ -13,7 +13,7 @@ to `sim.setMode()`. The WASM bridge accepts a **device id string** and looks
 up `wasmMode`; JS-only devices (`wasmMode: null`) do not call into C++.
 
 Never reuse a retired `shaderMode`. New WASM plants take the next value in
-`reservedWasmModes` (), then bump that list — do not
+`reservedWasmModes` (none), then bump that list — do not
 invent a plant by silently reclaiming pulse-coil's shader slot 7.
 
 ## Matrix

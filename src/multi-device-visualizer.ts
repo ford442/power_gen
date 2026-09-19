@@ -3,7 +3,6 @@ import './devices/register-plugins';
 import { MultiDeviceCamera } from './multi-device-camera';
 import { SimRateController } from './sim-rate-controller';
 import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager';
-import { PipelineLayoutCache } from './pipeline-layout-cache';
 import { CameraController } from './camera-controller';
 import { PerformanceProfiler } from './performance-profiler';
 import { DebugPanel } from './debug-panel';
@@ -15,7 +14,6 @@ import { OverviewCullPass } from './devices/overview-cull';
 import {
   computeSEGLayout,
   SEG_LAYOUT_PRESETS,
-  SEG_LAYOUT_UNIFORM_BYTES,
   packSEGLayoutUniforms
 } from './seg-layout';
 import {
@@ -27,15 +25,10 @@ import {
   getLightingPreset,
 } from './seg-lighting-presets';
 import { writeQueueBuffer } from './gpu-buffer-write';
-import { telemetryHub } from './telemetry-hub';
 import { HardwareBridge } from './hardware-bridge';
 import { ElectromagnetController } from './electromagnet-controller';
-import { initHardwarePanel } from './hardware-panel';
-import { initSEGAnnotations } from './seg-annotations';
 import { ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network';
 import type { EnergyNetwork } from './renderers/shared/energy-network';
-import { gpuChores } from './gpu-chores';
-import { showWebGPUHardFail, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import {
   parseSsrEnabled,
   parseTaaEnabled,
@@ -44,20 +37,8 @@ import {
 import { FdtdSlicePass } from './devices/quanta/fdtd-slice-pass';
 import { pulseCoilFdtdDrive } from './devices/quanta/pulse-coil';
 import { FDTD_SLICE_OWNER, fdtdSliceGateOpen } from './physics/fdtd-tmz';
-import { createIblResources } from './ibl-prefilter';
-import type { IblPrefilterCompute } from './ibl-prefilter-gpu';
-import {
-  SEGIntegrationManager,
-  PHYSICS_UNIFORM_BYTES
-} from './integration';
-import {
-  generateCylinder,
-  generateCylinderWithUVs,
-  generateDisc,
-  generateDiscWithUVs,
-  generateBoxWithUVs,
-  type PrimitiveMesh
-} from './visualizer/primitives.js';
+import type { SEGIntegrationManager } from './integration';
+import { generateCylinder } from './visualizer/primitives.js';
 import { SharedGeometryFactory } from './visualizer/setup-geometry.js';
 import { PostStack } from './visualizer/scene-setup.js';
 import { WebGpuFrameLoop } from './visualizer/render-loop.js';
@@ -77,7 +58,12 @@ import type { HeronLayout } from './renderers/shared/device-physics';
 import type { PrototypePreset } from './renderers/shared/url-params.js';
 import type { LightingLook } from './seg-lighting-presets';
 import type { HardwareTwinTelemetry } from './telemetry/types';
-import { getPostQualityGates } from './post-processing-config';
+import type { VisualizerHostFields } from './visualizer/visualizer-host-fields';
+import { facadeMethods } from './visualizer/facade-methods.js';
+import type { VisualizerFacadeMethods } from './visualizer/facade-methods.js';
+import { initMethods } from './visualizer/init-methods.js';
+import type { VisualizerInitMethods } from './visualizer/init-methods.js';
+import { bindHostMethods } from './visualizer/bind-host-methods.js';
 
 type HeronLayoutWithMeta = HeronLayout & { name: string; description: string };
 
@@ -93,6 +79,13 @@ export interface GltfPickable {
   id?: string;
 }
 
+// The GPU field bag (setup-geometry/scene-setup/setup-gltf-owned buffers,
+// pipelines, textures) and the facade methods that just forward to
+// collaborator objects are declared on separate interfaces and merged in via
+// declaration merging, purely to keep this file under the repo's line cap
+// (issues #142/#143/#187) — see src/visualizer/visualizer-host-fields.ts,
+// src/visualizer/facade-methods.ts and src/visualizer/init-methods.ts.
+export interface MultiDeviceVisualizer extends VisualizerHostFields, VisualizerFacadeMethods, VisualizerInitMethods {}
 export class MultiDeviceVisualizer implements VisualizerLike {
   session: LabSession;
   geometryFactory: SharedGeometryFactory;
@@ -140,181 +133,13 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   frameCageInstanceBuffer: GPUBuffer | null;
   frameLabBenchInstanceBuffer: GPUBuffer | null;
 
-  // Set later in init(); undefined until then (matches original runtime behavior).
-  pipelineCache?: PipelineLayoutCache | null;
-  segLayoutUniformBuffer?: GPUBuffer | null;
-  lightingUniformBuffer?: GPUBuffer | null;
-
-  /** Prefiltered GGX environment chain + sampler (ADR-0005 WS2, always-on). */
-  iblResources?: Awaited<ReturnType<typeof createIblResources>> | null;
-  /** Compute prefilter, or null when it could not be built. `undefined` = not tried yet. */
-  iblCompute?: IblPrefilterCompute | null;
-  /** Roughness level count uploaded to LightingConfig.iblLevels (0 = analytic fallback). */
-  iblLevels?: number;
-
-  /** Screen-space reflections (high/ultra tier, `?ssr=0` kill switch). */
+  /** Screen-space reflections (high/ultra tier, `?ssr=0` kill switch); rest of the GPU field bag lives in VisualizerHostFields. */
   ssrEnabled: boolean;
   /** `?taa=0` kill switch — independent of the tier / overview gates. */
   taaEnabled: boolean;
   /** `?fdtd=0` kill switch for the pulse-coil wave slice (ADR-0010). */
   fdtdEnabled: boolean;
-  /** Lazily built on the first frame its gate could open; null if the build failed. */
-  fdtdSlice?: FdtdSlicePass | null;
   private _fdtdSliceInit?: Promise<void> | null;
-  ssrPipeline?: GPUComputePipeline | null;
-  ssrParamsBuffer?: GPUBuffer | null;
-  ssrTexture?: GPUTexture | null;
-  ssrTextureView?: GPUTextureView | null;
-  ssrBindGroup?: GPUBindGroup | null;
-  ssrWidth?: number;
-  ssrHeight?: number;
-  energyPipePipeline?: GPURenderPipeline;
-  energyPipePipelineBase?: GPURenderPipeline;
-  energyPipePipelineMsaa4?: GPURenderPipeline;
-  energyPipeComputePipeline?: GPUComputePipeline;
-  overviewCullPipeline?: GPUComputePipeline;
-  /** GPU frustum cull → draw-indirect for the overview ring (ADR-0005 WS4). */
-  overviewCull?: OverviewCullPass | null;
-  segAnnotations?: unknown;
-
-  // Populated by the merged-in mixins below (setup-geometry.js, scene-setup.js,
-  // materials.js, setup-gltf.js); declared here so class-body reads type-check.
-  materialTableBuffer?: GPUBuffer | null;
-  skyUniformBuffer?: GPUBuffer;
-  batteryGaugeVertexBuffer?: GPUBuffer;
-  batteryGaugeIndexBuffer?: GPUBuffer;
-  batteryGaugeIndexCount?: number;
-
-  // Shared geometry (VisualizerLike surface — see setup-geometry.js)
-  cylinderBuffer?: MeshBuffers | null;
-  kelvinRingBuffer?: MeshBuffers | null;
-  deviceTubeBuffer?: MeshBuffers | null;
-  solarPanelBuffer?: MeshBuffers | null;
-  basePlateBuffer?: MeshBuffers | null;
-  statorRingUVBuffer?: MeshBuffers | null;
-  wiringUVBuffer?: MeshBuffers | null;
-  coreShaftBuffer?: MeshBuffers | null;
-  coreMagnetBuffer?: MeshBuffers | null;
-  corePlateBuffer?: MeshBuffers | null;
-  coreBoltBuffer?: MeshBuffers | null;
-  connectionRingBuffer?: MeshBuffers | null;
-  standBuffer?: MeshBuffers | null;
-  wireBuffers?: MeshBuffers[] | null;
-  coilBuffer?: VertexOnlyBuffers | null;
-  baseInstanceBuffer?: GPUBuffer | null;
-  coreBoltInstanceBuffer?: GPUBuffer | null;
-  coreBoltPositions?: ArrayLike<number>;
-
-  // glTF housing (setup-gltf.js)
-  gltfHousingEnabled?: boolean;
-  gltfHousingDrawables?: GltfDrawable[] | null;
-  gltfHousingAnchors?: GltfPickable[];
-  gltfHousingPickables?: GltfPickable[];
-  gltfAnnotationPoints?: GltfPickable[];
-  gltfLoadedProps?: string[];
-  _gltfPropBuffers?: Record<string, ArrayBuffer> | null;
-  _gltfEmbeddedHousing?: ArrayBuffer | null;
-  _gltfLoadInFlight?: Promise<void> | null;
-  _gltfPickHandlerAttached?: boolean;
-  /** Internal re-entrancy guard inside attachGltfHousingPickHandler (gltf-housing-pick.ts). */
-  _gltfPickBound?: boolean;
-
-  // Shared geometry extras (setup-geometry.js)
-  deviceGeometryBuffers?: Record<string, MeshBuffers & { color?: unknown }>;
-  coilUVBuffer?: MeshBuffers | null;
-  enhancedRollerBuffer?: MeshBuffers | null;
-  /** C-core pickup coil parts (core / winding / foot), not a single MeshBuffers. */
-  cCoreCoilBuffer?: {
-    core: MeshBuffers;
-    winding: MeshBuffers;
-    foot: MeshBuffers;
-  } | null;
-  coilWindingBuffer?: MeshBuffers | null;
-  magneticWallBuffer?: MeshBuffers | null;
-  connectionRingInstances?: GPUBuffer | null;
-  statorRingInstanceBuffer?: GPUBuffer | null;
-
-  // Scene / post (scene-setup.js)
-  depthTexture?: GPUTexture | null;
-  depthAttachmentView?: GPUTextureView | null;
-  depthSampleView?: GPUTextureView | null;
-  /** 4x MSAA scene attachments (ADR-0005 WS2, `high` tier + focus only) — see render-loop.ts `msaaActive`. */
-  sceneMsaaTexture?: GPUTexture | null;
-  sceneMsaaView?: GPUTextureView | null;
-  materialGBufferMsaaTexture?: GPUTexture | null;
-  materialGBufferMsaaView?: GPUTextureView | null;
-  depthMsaaTexture?: GPUTexture | null;
-  depthMsaaAttachmentView?: GPUTextureView | null;
-  depthMsaaSampleView?: GPUTextureView | null;
-  /** Manually resolved (frag_depth) single-sample copy of depthMsaaTexture — see passes/depth-resolve.wgsl. */
-  depthResolvedTexture?: GPUTexture | null;
-  depthResolvedAttachmentView?: GPUTextureView | null;
-  depthResolvedSampleView?: GPUTextureView | null;
-  depthResolvePipeline?: GPURenderPipeline | null;
-  _depthResolveBindGroup?: GPUBindGroup | null;
-  ssrBindGroupResolved?: GPUBindGroup | null;
-  gridPipeline?: GPURenderPipeline | null;
-  gridPipelineBase?: GPURenderPipeline | null;
-  gridPipelineMsaa4?: GPURenderPipeline | null;
-  gridVertexBuffer?: GPUBuffer | null;
-  gridBindGroup?: GPUBindGroup | null;
-  skyPipeline?: GPURenderPipeline | null;
-  skyPipelineBase?: GPURenderPipeline | null;
-  skyPipelineMsaa4?: GPURenderPipeline | null;
-  skyBindGroup?: GPUBindGroup | null;
-  anomalyWallPipeline?: GPURenderPipeline | null;
-  anomalyWallPipelineBase?: GPURenderPipeline | null;
-  anomalyWallPipelineMsaa4?: GPURenderPipeline | null;
-  anomalyWallParamsBuffer?: GPUBuffer | null;
-  anomalyWallBindGroup?: GPUBindGroup | null;
-  bloomSampler?: GPUSampler | null;
-  bloomParamsBuffer?: GPUBuffer | null;
-  bloomBlurDirXBuffer?: GPUBuffer | null;
-  bloomBlurDirYBuffer?: GPUBuffer | null;
-  bloomSceneTexture?: GPUTexture | null;
-  /** Metalness/roughness G-buffer (ADR-0005 WS2) — second color target on the scene pass, read by SSR. */
-  materialGBufferTexture?: GPUTexture | null;
-  materialGBufferView?: GPUTextureView | null;
-  bloomBlurTexture?: GPUTexture | null;
-  bloomTempTexture?: GPUTexture | null;
-  prevSceneTexture?: GPUTexture | null;
-  bloomIntermediateFormat?: GPUTextureFormat;
-  bloomExtractPipeline?: GPURenderPipeline | null;
-  bloomBlurPipeline?: GPURenderPipeline | null;
-  bloomCompositePipeline?: GPURenderPipeline | null;
-  bloomExtractBindGroup?: GPUBindGroup | null;
-  bloomBlurXBindGroup?: GPUBindGroup | null;
-  bloomBlurYBindGroup?: GPUBindGroup | null;
-  bloomCompositeBindGroup?: GPUBindGroup | null;
-  bloomCompositeBindGroupResolved?: GPUBindGroup | null;
-
-  // ── Temporal AA (ADR-0005 WS2) ──────────────────────────────────────────
-  taaResolveTexture?: GPUTexture | null;
-  taaResolveView?: GPUTextureView | null;
-  taaPipeline?: GPURenderPipeline | null;
-  taaParamsBuffer?: GPUBuffer | null;
-  taaBindGroup?: GPUBindGroup | null;
-  taaBindGroupResolved?: GPUBindGroup | null;
-  /** Bloom variants that read the TAA resolve target instead of the raw scene. */
-  bloomExtractBindGroupTaa?: GPUBindGroup | null;
-  bloomCompositeBindGroupTaa?: GPUBindGroup | null;
-  bloomCompositeBindGroupResolvedTaa?: GPUBindGroup | null;
-  /** False until a history frame exists — reset on mode / layout / look / resize. */
-  _taaHistoryValid?: boolean;
-  /** Previous frame's view-projection, for reprojection. */
-  _taaPrevViewProj?: Float32Array | null;
-  /** Whether the TAA pass actually ran this frame (picks the bloom bind groups). */
-  _taaActive?: boolean;
-
-  _canvasResizeObserver?: ResizeObserver | null;
-  _lastCanvasWidth?: number;
-  _lastCanvasHeight?: number;
-
-  // Per-frame render-loop scratch
-  _overviewMeshDetail?: string;
-  _overviewCullActive?: boolean;
-  _postQualityGates?: ReturnType<typeof getPostQualityGates>;
-  _ssrActive?: boolean;
 
   constructor(session: LabSession) {
     console.log('MultiDeviceVisualizer v5 starting - depthStencil fix applied');
@@ -378,6 +203,13 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.diagnostics = new VisualizerDiagnostics(this);
     this.frameLoop = new WebGpuFrameLoop(this);
 
+    // Facade methods that just forward to the collaborator objects above
+    // (see src/visualizer/facade-methods.ts), plus the async boot sequence
+    // (see src/visualizer/init-methods.ts) — attached here rather than
+    // declared as class methods to keep this file under the line cap.
+    Object.assign(this, bindHostMethods(facadeMethods, this));
+    Object.assign(this, bindHostMethods(initMethods, this));
+
     this.ready = this.init();
   }
 
@@ -433,208 +265,6 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     return this.webgpu.globalUniformBuffer;
   }
 
-  async init(): Promise<void> {
-    try {
-      await this.webgpu.init();
-      this.depthFormat = this.webgpu.depthFormat || DEPTH_FORMAT;
-      if (this.webgpu.adapterInfo?.fallback || this.webgpu.adapterInfo?.software) {
-        this.ssrEnabled = false;
-        console.log('[MultiDeviceVisualizer] SSR disabled (fallback/software adapter)');
-      }
-      this.webgpu.resize();
-
-      // Explicit bind-group / pipeline layouts + shared device pipelines (once)
-      this.pipelineCache = new PipelineLayoutCache(this.device, {
-        canvasFormat: this.webgpu.canvasFormat || navigator.gpu.getPreferredCanvasFormat(),
-        depthFormat: this.depthFormat
-      });
-      await this.pipelineCache.ensureDevicePipelines(this.shaders);
-      // 4x MSAA variants (ADR-0005 WS2 showroom pass, `high` tier + focus
-      // mode — see render-loop.ts `msaaActive`), created eagerly here rather
-      // than lazily on first use so the per-frame render loop never awaits
-      // pipeline creation. DevicePipelineManager.applyMsaaState() picks
-      // between the two per frame.
-      await this.pipelineCache.ensureDevicePipelines(this.shaders, { sampleCount: 4 });
-      console.log(
-        `[MultiDeviceVisualizer] Pipeline cache: ${this.pipelineCache.stats.pipelineCreates} creates ` +
-        `(shared across all devices)`
-      );
-
-      // Typed physics hub (ValidatedConstants + fallback formulas → GPU uniforms)
-      try {
-        this.integration = new SEGIntegrationManager(this.device, this.canvas, {
-          enableScientificOverlay: false
-        });
-        this.physicsUniformBuffer = this.integration.getPhysicsUniformBuffer();
-        if (typeof window !== 'undefined') {
-          window.SEGIntegration = window.SEGIntegration || {
-            manager: null,
-            initialize: () => {
-              throw new Error('[MultiDeviceVisualizer] window.SEGIntegration.initialize is not wired for this bootstrap path');
-            }
-          };
-          window.SEGIntegration.manager = this.integration;
-        }
-        console.log('[MultiDeviceVisualizer] SEGIntegrationManager attached (typed physics uniforms)');
-      } catch (e) {
-        console.warn('[MultiDeviceVisualizer] SEGIntegrationManager init failed:', e);
-        this.integration = null;
-        this.physicsUniformBuffer = null;
-      }
-
-      // Profiler reuses the single adapter from WebGPUManager (no second requestAdapter)
-      this.profiler = new PerformanceProfiler(this.device, this.canvas, {
-        adapter: this.webgpu.adapter,
-        adapterInfo: this.webgpu.adapterInfo,
-        textureCompression: this.webgpu.textureCompression
-      });
-      await this.profiler.init();
-      if (this.integration) {
-        this.profiler.trackBuffer('physicsUniforms', PHYSICS_UNIFORM_BYTES, GPUBufferUsage.UNIFORM);
-      }
-
-      // Initialize debug panel
-      this.debugPanel = new DebugPanel(this.profiler);
-
-      // Initialize multi-device camera controller (for view transitions and matrix math)
-      // Note: MultiDeviceCamera focuses on view transitions and matrix operations only.
-      // Input handling is delegated to CameraController.setupInteraction() below.
-      this.cameraController = new MultiDeviceCamera(this.canvas, this.camera.camera, this);
-
-      this.camera.setupInteraction(this.canvas, (mode: string) => this.switchMode(mode));
-
-      this.segLayoutUniformBuffer = this.device.createBuffer({
-        label: 'seg-layout-uniforms',
-        size: SEG_LAYOUT_UNIFORM_BYTES,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-      });
-      this.profiler.trackBuffer('seg-layout-uniforms', SEG_LAYOUT_UNIFORM_BYTES, GPUBufferUsage.UNIFORM);
-      this.refreshSEGLayout(1.0);
-
-      // IBL must be resident before any SEG-enhanced bind group is built.
-      await this.setupIblPrefilter();
-
-      await this.setupSharedGeometry();
-      await this.setupDevices();
-      await this.setupEnergyPipes();
-      await this.setupOverviewCull();
-      await this.setupFloorGrid();
-      await this.setupSkyGradient();
-
-      // Match canvas backing store to layout before depth/bloom textures are allocated.
-      await this._waitForCanvasLayout();
-      await this._syncCanvasSize();
-      await this.setupBloomPipeline();
-      await this.setupTaaPipeline();
-      await this.setupSsrPipeline();
-      await this.setupDepthResolvePipeline();
-      await this.setupAnomalyWallPipeline();
-
-      // Track initial allocations
-      this.profiler.trackBuffer('globalUniforms', 512, GPUBufferUsage.UNIFORM);
-
-      // Create lighting uniform buffer for all lit SEG and solar-gauge passes (192 bytes)
-      this.lightingUniformBuffer = this.device.createBuffer({
-        size: 192,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-      });
-      this.profiler.trackBuffer('lightingUniforms', 192, GPUBufferUsage.UNIFORM);
-
-      this.setupMaterialTableBuffer();
-
-      this.render(0);
-
-      gpuChores.adopt({
-        sessionApi: 'webgpu',
-        device: this.device,
-        pipelineCache: this.pipelineCache
-      });
-      window.getRendererInfo = () => ({
-        renderer: 'webgpu',
-        fps: (this.profiler as { lastFps?: number; fps?: number } | null)?.fps
-          ?? (this.profiler as { lastFps?: number } | null)?.lastFps
-          ?? 0,
-        particleCount: 0,
-        view: this.currentView,
-        speedMult: this.speedMult,
-        segOmega: this.segOmega,
-        corona: this.corona,
-        segLayoutPreset: this.segLayoutPreset,
-        prototypePreset: this.prototypePreset,
-        anomalousEffectsEnabled: this.anomalousEffectsEnabled,
-        heronLayoutPreset: this.heronLayoutPreset,
-        devicesEnabled: { ...this.devicesEnabled },
-        wasmPhysics: !!(typeof window !== 'undefined' && (window as Window & { segWasm?: { enabled?: boolean } }).segWasm?.enabled),
-        telemetry: telemetryHub.getSnapshot()?.seg ?? null,
-        devices: {},
-        debug: {},
-        intentionalGaps: [],
-        hardwareTwin: telemetryHub.getSnapshot()?.hardwareTwin ?? null,
-        chores: gpuChores.breadcrumb(),
-        textureCompression: this.webgpu.textureCompressionUsed !== 'none'
-          ? this.webgpu.textureCompressionUsed
-          : this.webgpu.textureCompression
-      });
-
-      window.runSEGSpeedTest = (speeds?: number[], durationMs?: number) => this.runSpeedTest(speeds, durationMs);
-
-      try {
-        this.segAnnotations = initSEGAnnotations(() => this);
-      } catch (e) {
-        console.warn('[MultiDeviceVisualizer] SEG annotations init failed:', e);
-      }
-
-      window.addEventListener('resize', () => this._syncCanvasSize());
-      this._observeCanvasLayout();
-
-      // Show optimal settings hint
-      this.showOptimalSettingsHint();
-
-      // Hardware twin panel (feature-detects Web Serial; Mock always available)
-      try {
-        initHardwarePanel(this);
-      } catch (e) {
-        console.warn('[MultiDeviceVisualizer] Hardware panel init failed:', e);
-      }
-      // Also default WebGPU mock path to shadow when auto-connecting
-      try {
-        await this.session.maybeConnectMockHardware();
-      } catch (_) { /* ignore */ }
-
-      if (typeof window.syncSEGLayoutUI === 'function') {
-        window.syncSEGLayoutUI();
-      }
-      if (typeof window.syncHeronLayoutUI === 'function') {
-        window.syncHeronLayoutUI();
-      }
-      if (typeof window.syncLayoutPanelsVisibility === 'function') {
-        window.syncLayoutPanelsVisibility();
-      }
-
-    } catch (e) {
-      console.error('[MultiDeviceVisualizer] init failed — hard-fail (no WebGL2):', e);
-      const message = e instanceof Error ? e.message : String(e);
-      const prev = (typeof window !== 'undefined' ? window.webgpuProbe : null) as WebGPUProbeResult | undefined;
-      const fail: WebGPUProbeResult = {
-        ok: false,
-        timestamp: new Date().toISOString(),
-        browser: prev?.browser || { brand: 'unknown', version: '', userAgent: navigator.userAgent, brands: [] },
-        hasNavigatorGpu: !!navigator.gpu,
-        adapter: prev?.adapter || null,
-        features: prev?.features || [],
-        limits: prev?.limits || {},
-        preferredCanvasFormat: prev?.preferredCanvasFormat || null,
-        error: message,
-        chromeVsEdge: (prev?.chromeVsEdge || '') + ' MultiDeviceVisualizer init failed after probe.',
-        probeDeviceDestroyed: prev?.probeDeviceDestroyed ?? false
-      };
-      if (typeof window !== 'undefined') window.webgpuProbe = fail;
-      showWebGPUHardFail(fail);
-      gpuChores.adopt({ sessionApi: 'webgpu', device: null, pipelineCache: null });
-      throw e;
-    }
-  }
-
   setSegFrameLevel(level: string): void {
     const allowed = ['off', 'minimal', 'full'];
     if (!allowed.includes(level)) return;
@@ -680,10 +310,6 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     return this.segLayout!;
   }
 
-  getSEGLayoutPreset(): string {
-    return this.segLayoutPreset;
-  }
-
   /**
    * Switch SEG layout preset at runtime (rebuilds shared SEG meshes + uniform buffer).
    * @param presetName - 'searl', 'roschin', or 'legacy'
@@ -715,10 +341,6 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     }
 
     return layout;
-  }
-
-  getHeronLayoutPreset(): string {
-    return this.heronLayoutPreset;
   }
 
   /**
@@ -775,18 +397,6 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
   switchMode(mode: string): void {
     this.onModeChange(mode);
-  }
-
-  /**
-   * Whether a device should simulate and render this frame.
-   * Overview shows all enabled devices; focused mode shows only the active device.
-   */
-  isDeviceActive(deviceId: string): boolean {
-    return this.session.isDeviceActive(deviceId);
-  }
-
-  isOverviewMode(): boolean {
-    return this.session.isOverviewMode();
   }
 
   async setupDevices(): Promise<void> {
@@ -918,101 +528,10 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     seg.particleCount = count;
   }
 
-  generateCylinder(radius: number, height: number, segments: number): PrimitiveMesh {
-    return generateCylinder(radius, height, segments);
-  }
-  generateCylinderWithUVs(radius: number, height: number, segments: number): PrimitiveMesh {
-    return generateCylinderWithUVs(radius, height, segments);
-  }
-  generateDisc(innerRadius: number, outerRadius: number, thickness: number, segments: number): PrimitiveMesh {
-    return generateDisc(innerRadius, outerRadius, thickness, segments);
-  }
-  generateDiscWithUVs(innerRadius: number, outerRadius: number, thickness: number, segments: number): PrimitiveMesh {
-    return generateDiscWithUVs(innerRadius, outerRadius, thickness, segments);
-  }
-  generateBoxWithUVs(width: number, height: number, depth: number): PrimitiveMesh {
-    return generateBoxWithUVs(width, height, depth);
-  }
-
-  setupSharedGeometry(): Promise<void> { return this.geometryFactory.setupSharedGeometry(); }
-  setupDefaultPrimitiveGeometry(deviceId: string, config: { color?: unknown }): Promise<void> {
-    return this.geometryFactory.setupDefaultPrimitiveGeometry(deviceId, config);
-  }
-  _setupCoreSEGSharedMeshes(): Promise<void> { return this.geometryFactory._setupCoreSEGSharedMeshes(); }
-  _setupAlternateDeviceSharedMeshes(): Promise<void> { return this.geometryFactory._setupAlternateDeviceSharedMeshes(); }
-
-  setupFloorGrid(): Promise<void> { return this.postStack.setupFloorGrid(); }
-  setupSkyGradient(): Promise<void> { return this.postStack.setupSkyGradient(); }
-  setupAnomalyWallPipeline(): Promise<void> { return this.postStack.setupAnomalyWallPipeline(); }
-  setupDepthBuffer(): Promise<void> { return this.postStack.setupDepthBuffer(); }
-  setupBloomTextures(): void { this.postStack.setupBloomTextures(); }
-  setupBloomPipeline(): Promise<void> { return this.postStack.setupBloomPipeline(); }
-  setupTaaPipeline(): Promise<void> { return this.postStack.setupTaaPipeline(); }
-  _rebuildTaaBindGroups(): void { this.postStack._rebuildTaaBindGroups(); }
-
   /**
    * Drop the temporal history. Anything that makes last frame's image a
    * different scene must call this or TAA ghosts across the transition:
    * mode switches, layout presets, and lighting-look changes.
    */
   _resetTaaHistory(): void { this._taaHistoryValid = false; }
-  setupIblPrefilter(): ReturnType<PostStack['setupIblPrefilter']> { return this.postStack.setupIblPrefilter(); }
-  refreshIblPrefilter(): void { this.postStack.refreshIblPrefilter(); }
-  _bakeIbl(): ReturnType<PostStack['_bakeIbl']> { return this.postStack._bakeIbl(); }
-  setupSsrTexture(): void { this.postStack.setupSsrTexture(); }
-  setupSsrPipeline(): Promise<void> { return this.postStack.setupSsrPipeline(); }
-  setupDepthResolvePipeline(): Promise<void> { return this.postStack.setupDepthResolvePipeline(); }
-  _waitForCanvasLayout(): Promise<void> { return this.postStack._waitForCanvasLayout(); }
-  _observeCanvasLayout(): void { this.postStack._observeCanvasLayout(); }
-  _syncCanvasSize(): Promise<void> { return this.postStack._syncCanvasSize(); }
-  _rebuildBloomBindGroups(): void { this.postStack._rebuildBloomBindGroups(); }
-  _rebuildSsrBindGroup(): void { this.postStack._rebuildSsrBindGroup(); }
-  _rebuildDepthResolveBindGroup(): void { this.postStack._rebuildDepthResolveBindGroup(); }
-
-  render(timestamp: number): void { this.frameLoop.render(timestamp); }
-  renderAnomalyWalls(
-    renderPass: GPURenderPassEncoder,
-    globalUniformBuffer: GPUBuffer | null,
-    segDevice: DeviceInstance | null | undefined
-  ): void {
-    this.frameLoop.renderAnomalyWalls(renderPass, globalUniformBuffer, segDevice);
-  }
-  _encodeTaaResolve(encoder: GPUCommandEncoder, msaaActive: boolean): boolean {
-    return this.frameLoop._encodeTaaResolve(encoder, msaaActive);
-  }
-
-  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean): void {
-    this.frameLoop._dispatchSsr(encoder, msaaActive);
-  }
-
-  setupMaterialTableBuffer(): void { this.materialTable.setupMaterialTableBuffer(); }
-
-  runSpeedTest(speeds?: number[], durationMs?: number): Promise<void> {
-    return this.diagnostics.runSpeedTest(speeds, durationMs);
-  }
-  captureParticleSubset(deviceId?: string, maxCount?: number): Promise<unknown> {
-    return this.diagnostics.captureParticleSubset(deviceId, maxCount);
-  }
-  captureOverviewCull(): Promise<unknown> {
-    return this.diagnostics.captureOverviewCull();
-  }
-
-  setupGltfAssets(embeddedGlb?: ArrayBuffer, opts?: { propBuffers?: Record<string, ArrayBuffer> }): Promise<void> {
-    return this.gltfProps.setupGltfAssets(embeddedGlb, opts);
-  }
-  ensureGltfPropsForView(view: string): Promise<void> { return this.gltfProps.ensureGltfPropsForView(view); }
-  updateGltfHousingState(): void { this.gltfProps.updateGltfHousingState(); }
-  _loadGltfPropsForSegFocus(): Promise<void> { return this.gltfProps._loadGltfPropsForSegFocus(); }
-  _loadGltfPropsForSegFocusInner(): Promise<void> { return this.gltfProps._loadGltfPropsForSegFocusInner(); }
-  _disposeFocusOnlyGltfProps(): void { this.gltfProps._disposeFocusOnlyGltfProps(); }
-  _uploadGltfProp(
-    prop: Parameters<GltfPropRegistry['_uploadGltfProp']>[0],
-    ctx: Parameters<GltfPropRegistry['_uploadGltfProp']>[1]
-  ): Promise<void> {
-    return this.gltfProps._uploadGltfProp(prop, ctx);
-  }
-
-  _updateHardwareTwin(deltaTime: number): void { this.session.syncHardwareTwin(deltaTime); }
-  _updateTachometer(): void { this.session.updateTachometer(); }
-  _updateDeviceTelemetry(): void { this.session.publishModeTelemetry(); }
 }

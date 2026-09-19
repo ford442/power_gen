@@ -466,7 +466,7 @@ export function initSEGDiagram2D(getVisualizer: () => SEGVisualizer | null | und
   const diagram = new SEGDiagram2D(getVisualizer);
   if (typeof window !== 'undefined') {
     window.segDiagram2D = diagram;
-    (window as any).toggleSEGDiagram = () => diagram.toggle();
+    window.toggleSEGDiagram = () => diagram.toggle();
   }
   return diagram;
 }

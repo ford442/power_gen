@@ -174,6 +174,61 @@ export const ENERGY_FLOW_CONSTANTS = {
 };
 
 // ============================================
+// Default LED Array (6 LEDs in hex pattern)
+// ============================================
+
+export interface DefaultLEDState {
+  id: number;
+  on: boolean;
+  color: 'red' | 'green' | 'blue' | 'white' | 'yellow';
+  forwardVoltage: number;    // V
+  current: number;           // mA
+  power: number;             // Watts
+  luminousFlux: number;      // Lumens
+  temperature: number;       // Junction temp (°C)
+}
+
+// 6 LEDs: 2 red, 2 green, 1 blue, 1 white (typical arrangement)
+export const DEFAULT_LEDS: DefaultLEDState[] = [
+  { id: 0, on: true, color: 'red', forwardVoltage: 2.0, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
+  { id: 1, on: true, color: 'red', forwardVoltage: 2.0, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
+  { id: 2, on: true, color: 'green', forwardVoltage: 3.2, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
+  { id: 3, on: true, color: 'green', forwardVoltage: 3.2, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
+  { id: 4, on: true, color: 'blue', forwardVoltage: 3.3, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
+  { id: 5, on: true, color: 'white', forwardVoltage: 3.5, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
+];
+
+// ============================================
+// Default Solar Panel State
+// ============================================
+
+export interface DefaultSolarPanelState {
+  area: number;              // m²
+  irradiance: number;        // W/m² received
+  openCircuitVoltage: number; // Voc (V)
+  shortCircuitCurrent: number; // Isc (A)
+  operatingVoltage: number;  // Vmp (V)
+  operatingCurrent: number;  // Imp (A)
+  fillFactor: number;        // 0-1
+  efficiency: number;        // 0-1
+  temperature: number;       // Cell temp (°C)
+  power: number;             // Watts output
+}
+
+export const DEFAULT_SOLAR_PANEL_STATE: DefaultSolarPanelState = {
+  area: 0.006, // 60cm x 100cm (scaled for simulation)
+  irradiance: 0,
+  openCircuitVoltage: 3.6, // 6 cells × 0.6V
+  shortCircuitCurrent: 0,
+  operatingVoltage: 0,
+  operatingCurrent: 0,
+  fillFactor: 0.75,
+  efficiency: 0.22,
+  temperature: 25,
+  power: 0
+};
+
+// ============================================
 // IV Curve Calculator
 // ============================================
 

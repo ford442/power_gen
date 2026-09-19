@@ -12,7 +12,7 @@
  *      pbr-eval.wgsl (also enforced at runtime by assertIblShaderContract).
  *   2. Every BloomParams copy has the same field count as packPostUniforms
  *      emits, and the uniform buffer is allocated for exactly that many floats.
- *   3. The SsrParams block size in scene-setup.ts matches ssr-compute.wgsl.
+ *   3. The SsrParams block size in scene-post-buffers.ts matches ssr-compute.wgsl.
  *   4. TaaParams matches taa-resolve.wgsl, is packed at the offsets the
  *      render loop writes, and is gated off below high/ultra + focus.
  *   5. The IBL compute prefilter's uniform block, dispatch schedule,
@@ -78,8 +78,8 @@ function check(label, condition, detail) {
     });
   }
 
-  const sceneSetup = read('src/visualizer/scene-setup.ts');
-  const bloomBuf = /bloom-params'[\s\S]{0,120}?size:\s*(\d+)/.exec(sceneSetup);
+  const scenePostBuffers = read('src/visualizer/scene-post-buffers.ts');
+  const bloomBuf = /bloom-params'[\s\S]{0,120}?size:\s*(\d+)/.exec(scenePostBuffers);
   check(
     `bloomParamsBuffer sized for ${packed} floats`,
     bloomBuf && Number(bloomBuf[1]) === packed * 4,
@@ -99,11 +99,11 @@ function check(label, condition, detail) {
     const scalars = [...body.matchAll(/:\s*f32\s*,/g)].length;
     const bytes = mats * 64 + vecs * 8 + scalars * 4;
 
-    const declared = /SSR_PARAMS_BYTES = (\d+)/.exec(read('src/visualizer/scene-setup.ts'));
+    const declared = /SSR_PARAMS_BYTES = (\d+)/.exec(read('src/visualizer/scene-post-buffers.ts'));
     check(
       `SsrParams is ${bytes} B (${mats} mat4 + ${vecs} vec2 + ${scalars} f32)`,
       declared && Number(declared[1]) === bytes,
-      `scene-setup.ts declares ${declared ? declared[1] : '?'} B`
+      `scene-post-buffers.ts declares ${declared ? declared[1] : '?'} B`
     );
     check('SsrParams is 16-byte aligned', bytes % 16 === 0, `${bytes} B is not a multiple of 16`);
   }
@@ -121,23 +121,23 @@ function check(label, condition, detail) {
     const scalars = [...body.matchAll(/:\s*f32\s*,/g)].length;
     const bytes = mats * 64 + vecs * 8 + scalars * 4;
 
-    const declared = /TAA_PARAMS_BYTES = (\d+)/.exec(read('src/visualizer/scene-setup.ts'));
+    const declared = /TAA_PARAMS_BYTES = (\d+)/.exec(read('src/visualizer/scene-post-buffers.ts'));
     check(
       `TaaParams is ${bytes} B (${mats} mat4 + ${vecs} vec2 + ${scalars} f32)`,
       declared && Number(declared[1]) === bytes,
-      `scene-setup.ts declares ${declared ? declared[1] : '?'} B`
+      `scene-post-buffers.ts declares ${declared ? declared[1] : '?'} B`
     );
     check('TaaParams is 16-byte aligned', bytes % 16 === 0, `${bytes} B is not a multiple of 16`);
 
     // The render loop fills the block by float index; the scalars must start
     // where the two matrices end or alpha/historyValid land in texelSize.
-    const loop = read('src/visualizer/render-loop.ts');
+    const loop = read('src/visualizer/render-encode.ts');
     check(
       'TAA scalars are packed after both matrices',
       /params\.set\(invViewProj, 0\)/.test(loop)
         && /params\.set\(prevViewProj \?\? viewProj, 16\)/.test(loop)
         && /params\[32\]/.test(loop) && /params\[35\]/.test(loop),
-      'render-loop.ts does not pack TaaParams at the expected float offsets'
+      'render-encode.ts does not pack TaaParams at the expected float offsets'
     );
   }
 
@@ -157,11 +157,11 @@ function check(label, condition, detail) {
   for (const tier of ['high', 'ultra']) {
     check(`taa on at ${tier} tier`, gateFor(tier) === 1, `gate is ${gateFor(tier)}`);
   }
-  const loop = read('src/visualizer/render-loop.ts');
+  const loop = read('src/visualizer/render-encode.ts');
   check(
     'TAA gate also requires focus mode and ?taa',
     /gates\?\.taa[\s\S]{0,200}?!this\.isOverviewMode\(\)[\s\S]{0,200}?this\.taaEnabled !== false/.test(loop),
-    'render-loop.ts gate does not check overview mode and the ?taa kill switch'
+    'render-encode.ts gate does not check overview mode and the ?taa kill switch'
   );
 }
 
