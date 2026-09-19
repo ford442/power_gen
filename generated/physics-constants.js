@@ -122,6 +122,115 @@ export const TRANSFORMER = {
   vPrimaryPeak: 28,
 };
 
+/** Two-node thermoelectric stack — mirrored by PeltierState / PeltierConstants in C++. */
+export const PELTIER = {
+  seebeckVK: 0.00044,
+  couples: 127,
+  rInternalOhm: 2.5,
+  rLoadOhm: 2.5,
+  conductanceWK: 0.5,
+  heatCapHotJK: 40,
+  heatCapColdJK: 60,
+  sinkWK: 1.6,
+  heaterMaxW: 60,
+  ambientK: 293,
+  deltaTRefK: 80,
+  clampBelowAmbientK: 5,
+  hotClampAboveAmbientK: 250,
+  coldClampAboveAmbientK: 150,
+};
+
+/** Hartmann MHD channel — mirrored by MHDState / MhdConstants in C++. */
+export const MHD = {
+  pumpAccelMs2: 6,
+  lorentzK: 2.5,
+  frictionK: 0.8,
+  flowUMaxMps: 5,
+  widthM: 0.1,
+  halfGapM: 0.05,
+  sigmaSm: 1000000,
+  rhoKgM3: 870,
+  nuM2s: 8e-7,
+  rInternalOhm: 0.05,
+  rLoadOhm: 0.05,
+  bFieldBaseT: 0.2,
+  bFieldSpanT: 0.8,
+};
+
+/** Maglev gap spring–damper — mirrored by MaglevState / MaglevConstants in C++. */
+export const MAGLEV = {
+  kSpringNm: 180,
+  cDampNsm: 14,
+  massKg: 0.045,
+  gapInitialM: 0.018,
+  gapTargetBaseM: 0.012,
+  gapTargetSpanM: 0.022,
+  gapMinM: 0.004,
+  gapMaxM: 0.06,
+  liftDriveBase: 0.6,
+  liftDriveSpan: 0.4,
+  rpmMax: 4200,
+  rpmErrBase: 0.3,
+  rpmErrSpan: 0.7,
+};
+
+/** Faraday-disc generator — mirrored by HomopolarState / HomopolarConstants in C++. */
+export const HOMOPOLAR = {
+  discRadiusM: 0.14,
+  bAxialT: 0.55,
+  rOhm: 0.008,
+  lHenry: 0.0015,
+  inertiaKgM2: 0.002,
+  dragNmsPerRad: 0.0008,
+  tauDriveMaxNm: 0.15,
+  rpmMax: 3600,
+  tauDriveBase: 0.6,
+  tauDriveSpan: 0.4,
+  tauDriveTanhGain: 2,
+};
+
+/** Rail sled — mirrored by LorentzState / LorentzSledConstants in C++. */
+export const LORENTZ_SLED = {
+  railLengthM: 2,
+  railGapM: 0.25,
+  sledMassKg: 0.15,
+  supplyVMax: 12,
+  circuitROhm: 0.6,
+  circuitLH: 0.00006,
+  frictionMu: 0.25,
+  viscousDampingNsm: 0.3,
+  vEpsMps: 0.05,
+  fieldTDefault: 0.8,
+  fieldTMax: 1.2,
+  vMaxMps: 12,
+  iMaxA: 22,
+};
+
+/** Pulse coil — JS-only plant (no wasmMode), so TS is the only target. */
+export const PULSE_COIL_CORE = {
+  rOhm: 0.18,
+  lHenry: 0.0012,
+  capF: 0.0022,
+  turns: 48,
+  coilRadiusM: 0.045,
+  armatureMassKg: 0.085,
+  armatureTravelMaxM: 0.12,
+  vChargeMax: 48,
+  kAttractNA2: 0.035,
+  cDampNsm: 1.4,
+};
+
+/** Halbach viewer — JS-only plant (no wasmMode), so TS is the only target. */
+export const HALBACH_VIZ = {
+  radiusM: 0.14,
+  thicknessM: 0.028,
+  segmentMin: 4,
+  segmentMax: 24,
+  segmentSpan: 20,
+  magAngleBase: 0.65,
+  magAngleSpan: 0.7,
+};
+
 export const ENERGY_NETWORK_NAMEPLATES = {
   simulatedOrderOfMagnitude: true,
   deviceNameplateWatts: {

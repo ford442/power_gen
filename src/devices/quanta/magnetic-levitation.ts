@@ -13,9 +13,17 @@ import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
 import { MATERIAL_QUANTA_COIL, MATERIAL_QUANTA_FLOATER, MATERIAL_QUANTA_FLOATER_POST, MATERIAL_STEEL_BASE } from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
 import { estimateHalbachFieldT, MAGNET_BR } from './halbach-field';
+import { MAGLEV, PHYSICAL_CONSTANTS } from '../../../generated/physics-constants';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
+
+/**
+ * Gap spring–damper parameters — the single set shared with the C++ plant.
+ * Generated from physics/constants.json (`maglev` block) into `MAGLEV` (TS)
+ * and `power_gen::MaglevConstants` (C++). Do not re-literal SI numbers here.
+ */
+export { MAGLEV };
 
 /** Ring magnet segments in a simplified Halbach-like azimuthal pattern. */
 function buildHalbachRingInstances(): InstanceArray {
@@ -46,7 +54,7 @@ function buildBaseInstances(): InstanceArray {
 }
 
 /** Levitating disc + centre post (updated each frame via physics gap). */
-function buildFloaterInstances(gapM = 0.018): InstanceArray {
+function buildFloaterInstances(gapM: number = MAGLEV.gapInitialM): InstanceArray {
   const discColor = [0.72, 0.74, 0.78];
   const y = 0.55 + gapM;
   return [
@@ -55,7 +63,7 @@ function buildFloaterInstances(gapM = 0.018): InstanceArray {
   ];
 }
 
-export function buildMagLevMesh(gapM = 0.018): { cylinders: () => InstanceArray } {
+export function buildMagLevMesh(gapM: number = MAGLEV.gapInitialM): { cylinders: () => InstanceArray } {
   return {
     cylinders: (): InstanceArray => [
       ...buildBaseInstances(),
@@ -74,37 +82,42 @@ export { estimateHalbachFieldT } from './halbach-field';
  * @param drive 0..1 from speed slider
  */
 export const stepMagLevPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
-  const gapTarget = 0.012 + 0.022 * drive;
-  const kSpring = 180;
-  const cDamp = 14;
-  const mass = 0.045;
+  const m = MAGLEV;
+  const gapTarget = m.gapTargetBaseM + m.gapTargetSpanM * drive;
 
   const gap = state.maglevGap ?? gapTarget;
   const vel = state.maglevGapVel ?? 0;
-  const lift = kSpring * (gapTarget - gap) * (0.6 + 0.4 * drive);
-  const grav = mass * 9.81;
-  const accel = (lift - grav - cDamp * vel) / mass;
-  // Semi-implicit Euler + wall restitution (zero outward velocity at clamps)
-  let newVel = vel + accel * dt;
+  const lift = m.kSpringNm * (gapTarget - gap) * (m.liftDriveBase + m.liftDriveSpan * drive);
+  const grav = m.massKg * PHYSICAL_CONSTANTS.G;
+  const accel = (lift - grav) / m.massKg;
+  // Semi-implicit Euler with the eddy-damping term taken *implicitly* (the
+  // same treatment the Lorentz sled gives its linear-in-v terms), plus wall
+  // restitution — zero outward velocity at the clamps. Explicit damping is
+  // unstable here: c·dt/m = 14·(1/60)/0.045 ≈ 5.2 ≫ 2, which turned the
+  // floater into a period-2 orbit slapping the 4 mm / 60 mm clamps every
+  // frame instead of levitating. Mirrors _stepMaglev in
+  // cpp/src/plant/maglev_plant.cpp.
+  let newVel = (vel + accel * dt) / (1 + (m.cDampNsm / m.massKg) * dt);
   let newGap = gap + newVel * dt;
-  if (newGap < 0.004) { newGap = 0.004; newVel = Math.max(0, newVel); }
-  if (newGap > 0.06) { newGap = 0.06; newVel = Math.min(0, newVel); }
+  if (newGap < m.gapMinM) { newGap = m.gapMinM; newVel = Math.max(0, newVel); }
+  if (newGap > m.gapMaxM) { newGap = m.gapMaxM; newVel = Math.min(0, newVel); }
 
+  const err = Math.abs(newGap - gapTarget) / Math.max(gapTarget, 0.01);
   state.maglevGap = newGap;
   state.maglevGapVel = newVel;
   state.maglevGapMm = newGap * 1000;
   state.maglevFieldT = estimateHalbachFieldT(newGap);
   state.maglevLiftN = Math.max(0, lift);
-  state.maglevRpm = drive * 4200 * (0.3 + 0.7 * (1 - Math.abs(newGap - gapTarget) / gapTarget));
-  state.energyLevel = Math.min(1, drive * 0.55 + (1 - Math.abs(newGap - gapTarget) / Math.max(gapTarget, 0.01)) * 0.45);
+  state.maglevRpm = drive * m.rpmMax * (m.rpmErrBase + m.rpmErrSpan * (1 - err));
+  state.energyLevel = Math.min(1, drive * 0.55 + (1 - err) * 0.45);
 };
 
 export function createMagLevPhysicsState(): Partial<DevicePhysicsState> {
   return {
-    maglevGap: 0.018,
+    maglevGap: MAGLEV.gapInitialM,
     maglevGapVel: 0,
-    maglevGapMm: 18,
-    maglevFieldT: estimateHalbachFieldT(0.018),
+    maglevGapMm: MAGLEV.gapInitialM * 1000,
+    maglevFieldT: estimateHalbachFieldT(MAGLEV.gapInitialM),
     maglevLiftN: 0,
     maglevRpm: 0
   };
@@ -132,7 +145,7 @@ export const MAGLEV_REFERENCES = [
 ];
 
 const maglevUpdateMesh: NonNullable<DevicePlugin['updateMesh']> = (instance) => {
-  const gap = instance.physicsState?.maglevGap ?? 0.018;
+  const gap = instance.physicsState?.maglevGap ?? MAGLEV.gapInitialM;
   writeMeshCylinders(instance, buildMagLevMesh(gap));
 };
 
@@ -144,7 +157,7 @@ const maglevComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (i
 const maglevUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
   const { budget, energy, gate, pushParticle, time } = ctx;
   const fieldGate = Math.pow(gate(energy, 0.2, 0.75), 1.3);
-  const gap = instance.physicsState?.maglevGap ?? 0.018;
+  const gap = instance.physicsState?.maglevGap ?? MAGLEV.gapInitialM;
   const orbitCount = Math.floor(budget * 0.42 * fieldGate);
   for (let i = 0; i < orbitCount; i++) {
     const a = (i / Math.max(1, orbitCount)) * Math.PI * 2 + time * 1.2;
@@ -172,7 +185,7 @@ export const magneticLevitationPlugin: DevicePlugin = {
     maglevRpm: { label: 'Floater spin', unit: 'RPM', source: 'sim' }
   },
   meshLayout: {
-    cylinders: () => buildMagLevMesh(0.018).cylinders()
+    cylinders: () => buildMagLevMesh(MAGLEV.gapInitialM).cylinders()
   },
   createPhysicsState: createMagLevPhysicsState,
   stepPhysics: stepMagLevPhysics,

@@ -74,6 +74,85 @@ struct TransformerConstants {
   static constexpr float V_PEAK    = 28.0f;
 };
 
+struct PeltierConstants {
+  static constexpr float SEEBECK_VK        = 0.00044f;
+  static constexpr float COUPLES           = 127.0f;
+  static constexpr float R_INTERNAL_OHM    = 2.5f;
+  static constexpr float R_LOAD_OHM        = 2.5f;
+  static constexpr float CONDUCTANCE_WK    = 0.5f;
+  static constexpr float HEAT_CAP_HOT_JK   = 40.0f;
+  static constexpr float HEAT_CAP_COLD_JK  = 60.0f;
+  static constexpr float SINK_WK           = 1.6f;
+  static constexpr float HEATER_MAX_W      = 60.0f;
+  static constexpr float AMBIENT_K         = 293.0f;
+  static constexpr float DELTA_T_REF_K     = 80.0f;
+  static constexpr float CLAMP_BELOW_AMBIENT_K     = 5.0f;
+  static constexpr float HOT_CLAMP_ABOVE_AMBIENT_K  = 250.0f;
+  static constexpr float COLD_CLAMP_ABOVE_AMBIENT_K = 150.0f;
+};
+
+struct MhdConstants {
+  static constexpr float PUMP_ACCEL_MS2 = 6.0f;
+  static constexpr float LORENTZ_K      = 2.5f;
+  static constexpr float FRICTION_K     = 0.8f;
+  static constexpr float FLOW_U_MAX_MPS = 5.0f;
+  static constexpr float WIDTH_M        = 0.1f;
+  static constexpr float HALF_GAP_M     = 0.05f;
+  static constexpr float SIGMA_SM       = 1000000.0f;
+  static constexpr float RHO_KG_M3      = 870.0f;
+  static constexpr float NU_M2S         = 8e-7f;
+  static constexpr float R_INTERNAL_OHM = 0.05f;
+  static constexpr float R_LOAD_OHM     = 0.05f;
+  static constexpr float B_FIELD_BASE_T = 0.2f;
+  static constexpr float B_FIELD_SPAN_T = 0.8f;
+};
+
+struct MaglevConstants {
+  static constexpr float K_SPRING_NM      = 180.0f;
+  static constexpr float C_DAMP_NSM       = 14.0f;
+  static constexpr float MASS_KG          = 0.045f;
+  static constexpr float GAP_INITIAL_M    = 0.018f;
+  static constexpr float GAP_TARGET_BASE_M = 0.012f;
+  static constexpr float GAP_TARGET_SPAN_M = 0.022f;
+  static constexpr float GAP_MIN_M        = 0.004f;
+  static constexpr float GAP_MAX_M        = 0.06f;
+  static constexpr float LIFT_DRIVE_BASE  = 0.6f;
+  static constexpr float LIFT_DRIVE_SPAN  = 0.4f;
+  static constexpr float RPM_MAX          = 4200.0f;
+  static constexpr float RPM_ERR_BASE     = 0.3f;
+  static constexpr float RPM_ERR_SPAN     = 0.7f;
+};
+
+struct HomopolarConstants {
+  static constexpr float DISC_RADIUS_M      = 0.14f;
+  static constexpr float B_AXIAL_T          = 0.55f;
+  static constexpr float R_OHM              = 0.008f;
+  static constexpr float L_HENRY            = 0.0015f;
+  static constexpr float INERTIA_KG_M2      = 0.002f;
+  static constexpr float DRAG_NMS_PER_RAD   = 0.0008f;
+  static constexpr float TAU_DRIVE_MAX_NM   = 0.15f;
+  static constexpr float RPM_MAX            = 3600.0f;
+  static constexpr float TAU_DRIVE_BASE     = 0.6f;
+  static constexpr float TAU_DRIVE_SPAN     = 0.4f;
+  static constexpr float TAU_DRIVE_TANH_GAIN = 2.0f;
+};
+
+struct LorentzSledConstants {
+  static constexpr float RAIL_LENGTH_M        = 2.0f;
+  static constexpr float RAIL_GAP_M           = 0.25f;
+  static constexpr float SLED_MASS_KG         = 0.15f;
+  static constexpr float SUPPLY_V_MAX         = 12.0f;
+  static constexpr float CIRCUIT_R_OHM        = 0.6f;
+  static constexpr float CIRCUIT_L_H          = 0.00006f;
+  static constexpr float FRICTION_MU          = 0.25f;
+  static constexpr float VISCOUS_DAMPING_NSM  = 0.3f;
+  static constexpr float V_EPS_MPS            = 0.05f;
+  static constexpr float FIELD_T_DEFAULT      = 0.8f;
+  static constexpr float FIELD_T_MAX          = 1.2f;
+  static constexpr float V_MAX_MPS            = 12.0f;
+  static constexpr float I_MAX_A              = 22.0f;
+};
+
 /** Simulated nameplate watts per SimMode (order-of-magnitude — not metrology). */
 struct EnergyNetworkNameplates {
   static constexpr int MODE_COUNT = 12;

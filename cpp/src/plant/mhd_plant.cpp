@@ -36,7 +36,7 @@ void SEGSimulator::_stepMHD(float dt) {
     // Pressure-driven channel flow with Lorentz braking (σB²u/ρ) and wall
     // friction; induced load voltage V = B·u·w through a resistive divider.
     MHDState& m = _mhd;
-    m.bFieldT = 0.2f + 0.8f * m.drive;
+    m.bFieldT = m.bFieldBaseT + m.bFieldSpanT * m.drive;
     float accel = m.drive * m.pumpAccel
                 - (m.lorentzK * m.bFieldT * m.bFieldT + m.frictionK) * m.flowU;
     m.flowU = clampf(m.flowU + accel * dt, 0.f, m.flowUMax * 2.f);

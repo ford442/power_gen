@@ -15,22 +15,31 @@ import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
 import { fdtdWorldToCell, type FdtdSource } from '../../physics/fdtd-tmz';
+import { PULSE_COIL_CORE } from '../../../generated/physics-constants';
 
 const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-7;
 
-/** Educational lab-scale coil parameters (classroom-safe energies). */
+/**
+ * Educational lab-scale coil parameters (classroom-safe energies).
+ *
+ * JS-only plant by design (ADR-0002 — no `wasmMode`), so codegen emits TS
+ * only: physics/constants.json (`pulseCoil` block) → `PULSE_COIL_CORE`.
+ * The legacy key names below are kept so callers do not churn; the numbers
+ * come from the JSON, not from literals here.
+ */
 export const PULSE_COIL = Object.freeze({
-  R_ohm: 0.18,
-  L_H: 0.0012,
-  C_F: 0.0022,
-  turns: 48,
-  coilRadiusM: 0.045,
-  armatureMassKg: 0.085,
-  armatureTravelMaxM: 0.12,
-  vChargeMax: 48, // low-voltage lab bank metaphor
-  kAttract: 0.035, // I² attraction proxy (N / A²)
-  cDamp: 1.4
+  R_ohm: PULSE_COIL_CORE.rOhm,
+  L_H: PULSE_COIL_CORE.lHenry,
+  C_F: PULSE_COIL_CORE.capF,
+  turns: PULSE_COIL_CORE.turns,
+  coilRadiusM: PULSE_COIL_CORE.coilRadiusM,
+  armatureMassKg: PULSE_COIL_CORE.armatureMassKg,
+  armatureTravelMaxM: PULSE_COIL_CORE.armatureTravelMaxM,
+  vChargeMax: PULSE_COIL_CORE.vChargeMax, // low-voltage lab bank metaphor
+  kAttract: PULSE_COIL_CORE.kAttractNA2,  // I² attraction proxy (N / A²)
+  cDamp: PULSE_COIL_CORE.cDampNsm
 });
+export { PULSE_COIL_CORE };
 
 function yawQuat(angleRad: number): number[] {
   const half = angleRad * 0.5;

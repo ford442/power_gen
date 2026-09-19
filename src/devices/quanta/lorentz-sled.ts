@@ -46,30 +46,26 @@ import {
   MATERIAL_QUANTA_MAGNET
 } from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
-import { PHYSICAL_CONSTANTS } from '../../../generated/physics-constants';
+import { PHYSICAL_CONSTANTS, LORENTZ_SLED } from '../../../generated/physics-constants';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
 
 const G = PHYSICAL_CONSTANTS.G;
 
-/** Classroom-scale rail-sled bench parameters (mirrored by LorentzState in cpp/src/sim_core.h). */
-export const LORENTZ = Object.freeze({
-  railLengthM: 2.0,      // usable track length; reported position wraps here
-  railGapM: 0.25,        // ℓ — rail separation the armature bridges
-  sledMassKg: 0.15,
-  supplyVMax: 12,        // bench supply at drive = 1
-  circuitROhm: 0.6,      // rails + armature + supply loop resistance
-  circuitLH: 6.0e-5,     // loop inductance (60 µH) — τ = L/R ≈ 100 µs
-  frictionMu: 0.25,      // kinetic friction coefficient, armature on rails
-  viscousDampingNsm: 0.3, // brush/air drag
-  vEpsMps: 0.05,         // tanh regularisation width for Coulomb friction
-  fieldTDefault: 0.8,    // local bench magnet, T
-  fieldTMax: 1.2,
-  // Display normalisers (also used by the WGSL/particle uniform packers).
-  vMaxMps: 12,
-  iMaxA: 22
-});
+/**
+ * Classroom-scale rail-sled bench parameters — the single set shared with
+ * `LorentzState` in cpp/src/plant/lorentz_plant.h. Generated from
+ * physics/constants.json (`lorentzSled` block) into `LORENTZ_SLED` (TS) and
+ * `power_gen::LorentzSledConstants` (C++). Do not re-literal SI numbers
+ * here; edit the JSON and rerun `npm run codegen:constants`.
+ *
+ * `vMaxMps` / `iMaxA` are display normalisers (also used by the
+ * WGSL/particle uniform packers), carried in the same block so the
+ * renderer and the plant cannot drift apart either.
+ */
+export const LORENTZ = LORENTZ_SLED;
+export { LORENTZ_SLED };
 
 /** Clamp + apply the bench field slider (T). Mirrors setLorentzFieldT in the C++ plant. */
 export function setLorentzFieldT(

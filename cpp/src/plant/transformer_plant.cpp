@@ -35,9 +35,19 @@ void SEGSimulator::_stepTransformer(float dt) {
 
     float i1 = t.i1;
     float i2 = t.i2;
-    float phase = t.phase;
+    // Phase accumulates ~20k substeps per second of sim; in float it drifts
+    // by ~1e-2 rad after a few seconds (and worse the longer the bench runs,
+    // because the running value grows without bound). Accumulate in double
+    // and wrap to one period below, so the stored float is always small and
+    // the TS fallback — which has no choice but to use double — integrates
+    // the same drive waveform.
+    double phase = static_cast<double>(t.phase);
     constexpr float kHTarget = 5.0e-5f;
     constexpr int kSubMax = 800;
+
+    const double omegaD = static_cast<double>(omega);
+    const double vPeakDrive = static_cast<double>(t.vPeak) * static_cast<double>(drive);
+    auto driveV = [&](double ph) { return static_cast<float>(vPeakDrive * std::sin(ph)); };
 
     auto deriv = [&](float i1s, float i2s, float v1s, float& di1, float& di2) {
         const float v2s = -t.rLoadOhm * i2s;
@@ -47,7 +57,7 @@ void SEGSimulator::_stepTransformer(float dt) {
         di2 = (L1 * rhs2 - M * rhs1) / D;
     };
 
-    float v1 = t.vPeak * drive * std::sin(phase);
+    float v1 = driveV(phase);
     while (remaining > 1e-8f) {
         int nSub = static_cast<int>(std::ceil(remaining / kHTarget));
         if (nSub < 8) nSub = 8;
@@ -58,15 +68,16 @@ void SEGSimulator::_stepTransformer(float dt) {
         const float h = chunk / static_cast<float>(nSub);
 
         bool ok = true;
+        const double omegaH = omegaD * static_cast<double>(h);
         for (int s = 0; s < nSub; ++s) {
-            v1 = t.vPeak * drive * std::sin(phase);
+            v1 = driveV(phase);
 
             float k1a, k1b, k2a, k2b, k3a, k3b, k4a, k4b;
             deriv(i1, i2, v1, k1a, k1b);
-            const float v1m = t.vPeak * drive * std::sin(phase + 0.5f * omega * h);
+            const float v1m = driveV(phase + 0.5 * omegaH);
             deriv(i1 + 0.5f * h * k1a, i2 + 0.5f * h * k1b, v1m, k2a, k2b);
             deriv(i1 + 0.5f * h * k2a, i2 + 0.5f * h * k2b, v1m, k3a, k3b);
-            const float v1e = t.vPeak * drive * std::sin(phase + omega * h);
+            const float v1e = driveV(phase + omegaH);
             deriv(i1 + h * k3a, i2 + h * k3b, v1e, k4a, k4b);
 
             const float n1 = i1 + (h / 6.f) * (k1a + 2.f * k2a + 2.f * k3a + k4a);
@@ -77,17 +88,21 @@ void SEGSimulator::_stepTransformer(float dt) {
             }
             i1 = n1;
             i2 = n2;
-            phase += omega * h;
+            phase += omegaH;
         }
         if (!ok) break;
         remaining -= chunk;
     }
 
-    if (phase > omega * 100.f) phase -= omega * 100.f;
+    // Wrap to one period: sin() is unchanged, and the stored float keeps
+    // full precision however long the bench has been running.
+    const double twoPi = 2.0 * static_cast<double>(PhysicsConstants::PI);
+    phase = std::fmod(phase, twoPi);
+    if (phase < 0.0) phase += twoPi;
 
     t.i1 = i1;
     t.i2 = i2;
-    t.phase = phase;
+    t.phase = static_cast<float>(phase);
     t.v1 = v1;
     t.v2 = -t.rLoadOhm * i2;
 

@@ -31,10 +31,16 @@ void SEGSimulator::_stepVdg(float dt) {
         v.sparkAccum += 1.f;
     }
 
+    // Rate over the *nominal* window, with the overshoot carried into the
+    // next one: dividing by the accumulated `sparkWindowT` made the reading
+    // depend on which frame the running sum happened to cross 1 s, which
+    // differs by a frame (≈1.7 %) between this float32 sum and the TS
+    // fallback's float64 one. Mirrors stepVdgPhysics in
+    // devices/quanta/van-de-graaff.ts.
     v.sparkWindowT += dt;
     if (v.sparkWindowT >= v.sparkWindowS) {
-        v.sparkHz = v.sparkAccum / v.sparkWindowT;
+        v.sparkHz = v.sparkAccum / v.sparkWindowS;
         v.sparkAccum = 0.f;
-        v.sparkWindowT = 0.f;
+        v.sparkWindowT -= v.sparkWindowS;
     }
 }

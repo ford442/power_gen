@@ -66,10 +66,14 @@ function emitH(data) {
   const vdg = data.vdg;
   const hall = data.hall;
   const tf = data.transformer;
+  const pel = data.peltier;
+  const mhd = data.mhd;
+  const mag = data.maglev;
+  const homo = data.homopolar;
+  const lz = data.lorentzSled;
   const hs = hall.carrierProfiles.semiconductor;
   const hm = hall.carrierProfiles.metal;
   const tau = p.PI * 2;
-  const magnetization = m.Br / p.MU_0;
 
   return `${HEADER_H}
 namespace power_gen {
@@ -142,6 +146,85 @@ struct TransformerConstants {
   static constexpr float R2_OHM    = ${f32(tf.rsOhm)};
   static constexpr float R_LOAD_OHM = ${f32(tf.rLoadOhm)};
   static constexpr float V_PEAK    = ${f32(tf.vPrimaryPeak)};
+};
+
+struct PeltierConstants {
+  static constexpr float SEEBECK_VK        = ${f32(pel.seebeckVK)};
+  static constexpr float COUPLES           = ${f32(pel.couples)};
+  static constexpr float R_INTERNAL_OHM    = ${f32(pel.rInternalOhm)};
+  static constexpr float R_LOAD_OHM        = ${f32(pel.rLoadOhm)};
+  static constexpr float CONDUCTANCE_WK    = ${f32(pel.conductanceWK)};
+  static constexpr float HEAT_CAP_HOT_JK   = ${f32(pel.heatCapHotJK)};
+  static constexpr float HEAT_CAP_COLD_JK  = ${f32(pel.heatCapColdJK)};
+  static constexpr float SINK_WK           = ${f32(pel.sinkWK)};
+  static constexpr float HEATER_MAX_W      = ${f32(pel.heaterMaxW)};
+  static constexpr float AMBIENT_K         = ${f32(pel.ambientK)};
+  static constexpr float DELTA_T_REF_K     = ${f32(pel.deltaTRefK)};
+  static constexpr float CLAMP_BELOW_AMBIENT_K     = ${f32(pel.clampBelowAmbientK)};
+  static constexpr float HOT_CLAMP_ABOVE_AMBIENT_K  = ${f32(pel.hotClampAboveAmbientK)};
+  static constexpr float COLD_CLAMP_ABOVE_AMBIENT_K = ${f32(pel.coldClampAboveAmbientK)};
+};
+
+struct MhdConstants {
+  static constexpr float PUMP_ACCEL_MS2 = ${f32(mhd.pumpAccelMs2)};
+  static constexpr float LORENTZ_K      = ${f32(mhd.lorentzK)};
+  static constexpr float FRICTION_K     = ${f32(mhd.frictionK)};
+  static constexpr float FLOW_U_MAX_MPS = ${f32(mhd.flowUMaxMps)};
+  static constexpr float WIDTH_M        = ${f32(mhd.widthM)};
+  static constexpr float HALF_GAP_M     = ${f32(mhd.halfGapM)};
+  static constexpr float SIGMA_SM       = ${f32(mhd.sigmaSm)};
+  static constexpr float RHO_KG_M3      = ${f32(mhd.rhoKgM3)};
+  static constexpr float NU_M2S         = ${f32(mhd.nuM2s)};
+  static constexpr float R_INTERNAL_OHM = ${f32(mhd.rInternalOhm)};
+  static constexpr float R_LOAD_OHM     = ${f32(mhd.rLoadOhm)};
+  static constexpr float B_FIELD_BASE_T = ${f32(mhd.bFieldBaseT)};
+  static constexpr float B_FIELD_SPAN_T = ${f32(mhd.bFieldSpanT)};
+};
+
+struct MaglevConstants {
+  static constexpr float K_SPRING_NM      = ${f32(mag.kSpringNm)};
+  static constexpr float C_DAMP_NSM       = ${f32(mag.cDampNsm)};
+  static constexpr float MASS_KG          = ${f32(mag.massKg)};
+  static constexpr float GAP_INITIAL_M    = ${f32(mag.gapInitialM)};
+  static constexpr float GAP_TARGET_BASE_M = ${f32(mag.gapTargetBaseM)};
+  static constexpr float GAP_TARGET_SPAN_M = ${f32(mag.gapTargetSpanM)};
+  static constexpr float GAP_MIN_M        = ${f32(mag.gapMinM)};
+  static constexpr float GAP_MAX_M        = ${f32(mag.gapMaxM)};
+  static constexpr float LIFT_DRIVE_BASE  = ${f32(mag.liftDriveBase)};
+  static constexpr float LIFT_DRIVE_SPAN  = ${f32(mag.liftDriveSpan)};
+  static constexpr float RPM_MAX          = ${f32(mag.rpmMax)};
+  static constexpr float RPM_ERR_BASE     = ${f32(mag.rpmErrBase)};
+  static constexpr float RPM_ERR_SPAN     = ${f32(mag.rpmErrSpan)};
+};
+
+struct HomopolarConstants {
+  static constexpr float DISC_RADIUS_M      = ${f32(homo.discRadiusM)};
+  static constexpr float B_AXIAL_T          = ${f32(homo.bAxialT)};
+  static constexpr float R_OHM              = ${f32(homo.rOhm)};
+  static constexpr float L_HENRY            = ${f32(homo.lHenry)};
+  static constexpr float INERTIA_KG_M2      = ${f32(homo.inertiaKgM2)};
+  static constexpr float DRAG_NMS_PER_RAD   = ${f32(homo.dragNmsPerRad)};
+  static constexpr float TAU_DRIVE_MAX_NM   = ${f32(homo.tauDriveMaxNm)};
+  static constexpr float RPM_MAX            = ${f32(homo.rpmMax)};
+  static constexpr float TAU_DRIVE_BASE     = ${f32(homo.tauDriveBase)};
+  static constexpr float TAU_DRIVE_SPAN     = ${f32(homo.tauDriveSpan)};
+  static constexpr float TAU_DRIVE_TANH_GAIN = ${f32(homo.tauDriveTanhGain)};
+};
+
+struct LorentzSledConstants {
+  static constexpr float RAIL_LENGTH_M        = ${f32(lz.railLengthM)};
+  static constexpr float RAIL_GAP_M           = ${f32(lz.railGapM)};
+  static constexpr float SLED_MASS_KG         = ${f32(lz.sledMassKg)};
+  static constexpr float SUPPLY_V_MAX         = ${f32(lz.supplyVMax)};
+  static constexpr float CIRCUIT_R_OHM        = ${f32(lz.circuitROhm)};
+  static constexpr float CIRCUIT_L_H          = ${f32(lz.circuitLH)};
+  static constexpr float FRICTION_MU          = ${f32(lz.frictionMu)};
+  static constexpr float VISCOUS_DAMPING_NSM  = ${f32(lz.viscousDampingNsm)};
+  static constexpr float V_EPS_MPS            = ${f32(lz.vEpsMps)};
+  static constexpr float FIELD_T_DEFAULT      = ${f32(lz.fieldTDefault)};
+  static constexpr float FIELD_T_MAX          = ${f32(lz.fieldTMax)};
+  static constexpr float V_MAX_MPS            = ${f32(lz.vMaxMps)};
+  static constexpr float I_MAX_A              = ${f32(lz.iMaxA)};
 };
 
 /** Simulated nameplate watts per SimMode (order-of-magnitude — not metrology). */
@@ -234,6 +317,13 @@ function emitTs(data) {
   const vdg = data.vdg;
   const hall = data.hall;
   const tf = data.transformer;
+  const pel = data.peltier;
+  const mhdc = data.mhd;
+  const mag = data.maglev;
+  const homo = data.homopolar;
+  const lz = data.lorentzSled;
+  const pc = data.pulseCoil;
+  const hv = data.halbachViz;
   const hs = hall.carrierProfiles.semiconductor;
   const hm = hall.carrierProfiles.metal;
 
@@ -355,6 +445,115 @@ export const TRANSFORMER = {
   rsOhm: ${tf.rsOhm},
   rLoadOhm: ${tf.rLoadOhm},
   vPrimaryPeak: ${tf.vPrimaryPeak},
+} as const;
+
+/** Two-node thermoelectric stack — mirrored by PeltierState / PeltierConstants in C++. */
+export const PELTIER = {
+  seebeckVK: ${pel.seebeckVK},
+  couples: ${pel.couples},
+  rInternalOhm: ${pel.rInternalOhm},
+  rLoadOhm: ${pel.rLoadOhm},
+  conductanceWK: ${pel.conductanceWK},
+  heatCapHotJK: ${pel.heatCapHotJK},
+  heatCapColdJK: ${pel.heatCapColdJK},
+  sinkWK: ${pel.sinkWK},
+  heaterMaxW: ${pel.heaterMaxW},
+  ambientK: ${pel.ambientK},
+  deltaTRefK: ${pel.deltaTRefK},
+  clampBelowAmbientK: ${pel.clampBelowAmbientK},
+  hotClampAboveAmbientK: ${pel.hotClampAboveAmbientK},
+  coldClampAboveAmbientK: ${pel.coldClampAboveAmbientK},
+} as const;
+
+/** Hartmann MHD channel — mirrored by MHDState / MhdConstants in C++. */
+export const MHD = {
+  pumpAccelMs2: ${mhdc.pumpAccelMs2},
+  lorentzK: ${mhdc.lorentzK},
+  frictionK: ${mhdc.frictionK},
+  flowUMaxMps: ${mhdc.flowUMaxMps},
+  widthM: ${mhdc.widthM},
+  halfGapM: ${mhdc.halfGapM},
+  sigmaSm: ${mhdc.sigmaSm},
+  rhoKgM3: ${mhdc.rhoKgM3},
+  nuM2s: ${mhdc.nuM2s},
+  rInternalOhm: ${mhdc.rInternalOhm},
+  rLoadOhm: ${mhdc.rLoadOhm},
+  bFieldBaseT: ${mhdc.bFieldBaseT},
+  bFieldSpanT: ${mhdc.bFieldSpanT},
+} as const;
+
+/** Maglev gap spring–damper — mirrored by MaglevState / MaglevConstants in C++. */
+export const MAGLEV = {
+  kSpringNm: ${mag.kSpringNm},
+  cDampNsm: ${mag.cDampNsm},
+  massKg: ${mag.massKg},
+  gapInitialM: ${mag.gapInitialM},
+  gapTargetBaseM: ${mag.gapTargetBaseM},
+  gapTargetSpanM: ${mag.gapTargetSpanM},
+  gapMinM: ${mag.gapMinM},
+  gapMaxM: ${mag.gapMaxM},
+  liftDriveBase: ${mag.liftDriveBase},
+  liftDriveSpan: ${mag.liftDriveSpan},
+  rpmMax: ${mag.rpmMax},
+  rpmErrBase: ${mag.rpmErrBase},
+  rpmErrSpan: ${mag.rpmErrSpan},
+} as const;
+
+/** Faraday-disc generator — mirrored by HomopolarState / HomopolarConstants in C++. */
+export const HOMOPOLAR = {
+  discRadiusM: ${homo.discRadiusM},
+  bAxialT: ${homo.bAxialT},
+  rOhm: ${homo.rOhm},
+  lHenry: ${homo.lHenry},
+  inertiaKgM2: ${homo.inertiaKgM2},
+  dragNmsPerRad: ${homo.dragNmsPerRad},
+  tauDriveMaxNm: ${homo.tauDriveMaxNm},
+  rpmMax: ${homo.rpmMax},
+  tauDriveBase: ${homo.tauDriveBase},
+  tauDriveSpan: ${homo.tauDriveSpan},
+  tauDriveTanhGain: ${homo.tauDriveTanhGain},
+} as const;
+
+/** Rail sled — mirrored by LorentzState / LorentzSledConstants in C++. */
+export const LORENTZ_SLED = {
+  railLengthM: ${lz.railLengthM},
+  railGapM: ${lz.railGapM},
+  sledMassKg: ${lz.sledMassKg},
+  supplyVMax: ${lz.supplyVMax},
+  circuitROhm: ${lz.circuitROhm},
+  circuitLH: ${lz.circuitLH},
+  frictionMu: ${lz.frictionMu},
+  viscousDampingNsm: ${lz.viscousDampingNsm},
+  vEpsMps: ${lz.vEpsMps},
+  fieldTDefault: ${lz.fieldTDefault},
+  fieldTMax: ${lz.fieldTMax},
+  vMaxMps: ${lz.vMaxMps},
+  iMaxA: ${lz.iMaxA},
+} as const;
+
+/** Pulse coil — JS-only plant (no wasmMode), so TS is the only target. */
+export const PULSE_COIL_CORE = {
+  rOhm: ${pc.rOhm},
+  lHenry: ${pc.lHenry},
+  capF: ${pc.capF},
+  turns: ${pc.turns},
+  coilRadiusM: ${pc.coilRadiusM},
+  armatureMassKg: ${pc.armatureMassKg},
+  armatureTravelMaxM: ${pc.armatureTravelMaxM},
+  vChargeMax: ${pc.vChargeMax},
+  kAttractNA2: ${pc.kAttractNA2},
+  cDampNsm: ${pc.cDampNsm},
+} as const;
+
+/** Halbach viewer — JS-only plant (no wasmMode), so TS is the only target. */
+export const HALBACH_VIZ = {
+  radiusM: ${hv.radiusM},
+  thicknessM: ${hv.thicknessM},
+  segmentMin: ${hv.segmentMin},
+  segmentMax: ${hv.segmentMax},
+  segmentSpan: ${hv.segmentSpan},
+  magAngleBase: ${hv.magAngleBase},
+  magAngleSpan: ${hv.magAngleSpan},
 } as const;
 
 export const ENERGY_NETWORK_NAMEPLATES = {
