@@ -9,6 +9,7 @@
 #   make wasm        – release WASM build → src/public/wasm/
 #   make wasm-dbg    – debug WASM build with source maps
 #   make native      – native binary (smoke-test, no Emscripten needed)
+#                      warning-free build: -Wall -Wextra -Wpedantic -Werror
 #   make compile-db  – native CMake configure → build/compile_commands.json
 #   make clean       – remove build artefacts
 #
@@ -16,8 +17,13 @@
 # ../src/public/wasm/ so Vite / the GitHub Pages root can serve it.
 # =============================================================
 
-SIM_CORE_ROOT := src/sim_core_facade.cpp src/sim_core_embind.cpp src/sim_core_standalone.cpp
-SRC        := $(SIM_CORE_ROOT) $(wildcard src/plant/*.cpp)
+# sim_core_embind.cpp is WASM-only — its body is entirely inside
+# `#ifdef __EMSCRIPTEN__`, so `make native` was compiling an empty
+# translation unit. Keep it out of the native source list (CMake does the
+# same, so the compilation database clangd reads matches).
+SIM_CORE_SHARED := src/sim_core_facade.cpp src/sim_core_standalone.cpp $(wildcard src/plant/*.cpp)
+SRC             := $(SIM_CORE_SHARED) src/sim_core_embind.cpp
+NATIVE_SRC      := $(SIM_CORE_SHARED)
 OUT_DIR    := ../src/public/wasm
 OUT_JS     := $(OUT_DIR)/sim_core.js
 
@@ -39,9 +45,11 @@ wasm-dbg: $(OUT_DIR)
 	  $(SRC) -o $(OUT_DIR)/sim_core_dbg.js
 	@echo "✓  Debug WASM build complete → $(OUT_DIR)/sim_core_dbg.js"
 
+# -Werror: the plants already build clean under -Wall -Wextra -Wpedantic,
+# so a new warning here is a regression, not a backlog item.
 native:
 	mkdir -p build
-	$(CXX) -std=c++17 -O2 -Wall -Wextra -Wpedantic -DSIM_CORE_STANDALONE -I src $(SRC) -o build/sim_core_test
+	$(CXX) -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -DSIM_CORE_STANDALONE -I src $(NATIVE_SRC) -o build/sim_core_test
 	./build/sim_core_test
 	./build/sim_core_test --mode catalog
 	./build/sim_core_test --export-csv 10 build/seg_telemetry.csv 10

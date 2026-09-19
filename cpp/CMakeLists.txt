@@ -6,10 +6,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ── Source ──────────────────────────────────────────────────────
+# sim_core_embind.cpp is WASM-only: its whole body is inside
+# `#ifdef __EMSCRIPTEN__`, so a native build compiles an empty translation
+# unit and the compilation database gains an entry clangd can do nothing
+# with. It is added to the Emscripten target only, below.
 file(GLOB SIM_CORE_PLANT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/plant/*.cpp")
 set(SIM_CORE_ROOT_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_facade.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_embind.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_standalone.cpp"
 )
 add_executable(sim_core ${SIM_CORE_ROOT_SOURCES} ${SIM_CORE_PLANT_SOURCES})
@@ -17,6 +20,8 @@ target_include_directories(sim_core PRIVATE src)
 
 # ── Emscripten / WASM build ─────────────────────────────────────
 if(EMSCRIPTEN)
+  # Embind bindings: WASM build only (see the note above the source list).
+  target_sources(sim_core PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_embind.cpp")
   set_target_properties(sim_core PROPERTIES SUFFIX ".js")
 
   # Shared flags — cpp/emscripten.flags (same set as Makefile wasm target).
@@ -49,8 +54,10 @@ if(EMSCRIPTEN)
 else()
   # Native build: enable standalone smoke-test (clangd / compile_commands.json).
   # CI smoke remains `make native` / `npm run wasm:native` — this path is for
-  # per-TU include flags, not a replacement smoke binary.
+  # per-TU include flags, not a replacement smoke binary. Same flags as the
+  # Makefile's `native` target so clangd sees what CI compiles, minus the
+  # Embind TU, which has no native content to jump into.
   target_compile_definitions(sim_core PRIVATE SIM_CORE_STANDALONE)
-  target_compile_options(sim_core PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(sim_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
   set_target_properties(sim_core PROPERTIES OUTPUT_NAME sim_core_test)
 endif()
