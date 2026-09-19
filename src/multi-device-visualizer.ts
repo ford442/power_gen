@@ -177,15 +177,16 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   overviewCull?: OverviewCullPass | null;
   segAnnotations?: unknown;
 
-  // Populated by the merged-in mixins below (setup-geometry.js, scene-setup.js,
-  // materials.js, setup-gltf.js); declared here so class-body reads type-check.
+  // Populated by the collaborators below (SharedGeometryFactory, PostStack,
+  // MaterialTable, GltfPropRegistry — ADR-0009 bindHostMethods); declared here
+  // so class-body reads type-check.
   materialTableBuffer?: GPUBuffer | null;
   skyUniformBuffer?: GPUBuffer;
   batteryGaugeVertexBuffer?: GPUBuffer;
   batteryGaugeIndexBuffer?: GPUBuffer;
   batteryGaugeIndexCount?: number;
 
-  // Shared geometry (VisualizerLike surface — see setup-geometry.js)
+  // Shared geometry (VisualizerLike surface — see visualizer/setup-geometry.ts)
   cylinderBuffer?: MeshBuffers | null;
   kelvinRingBuffer?: MeshBuffers | null;
   deviceTubeBuffer?: MeshBuffers | null;
@@ -205,7 +206,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   coreBoltInstanceBuffer?: GPUBuffer | null;
   coreBoltPositions?: ArrayLike<number>;
 
-  // glTF housing (setup-gltf.js)
+  // glTF housing (visualizer/setup-gltf.ts)
   gltfHousingEnabled?: boolean;
   gltfHousingDrawables?: GltfDrawable[] | null;
   gltfHousingAnchors?: GltfPickable[];
@@ -219,7 +220,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   /** Internal re-entrancy guard inside attachGltfHousingPickHandler (gltf-housing-pick.ts). */
   _gltfPickBound?: boolean;
 
-  // Shared geometry extras (setup-geometry.js)
+  // Shared geometry extras (visualizer/setup-geometry.ts)
   deviceGeometryBuffers?: Record<string, MeshBuffers & { color?: unknown }>;
   coilUVBuffer?: MeshBuffers | null;
   enhancedRollerBuffer?: MeshBuffers | null;
@@ -234,7 +235,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   connectionRingInstances?: GPUBuffer | null;
   statorRingInstanceBuffer?: GPUBuffer | null;
 
-  // Scene / post (scene-setup.js)
+  // Scene / post (visualizer/scene-setup.ts)
   depthTexture?: GPUTexture | null;
   depthAttachmentView?: GPUTextureView | null;
   depthSampleView?: GPUTextureView | null;

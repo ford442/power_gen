@@ -83,6 +83,33 @@ function snakeCase(key) {
 const TELEMETRY_FORMATS = new Set(['', 'si', 'exp']);
 
 /**
+ * Optional operator-chrome metadata (mode-button emoji/label/order). Devices
+ * without a `chrome` block simply have no mode button generated for them.
+ */
+function validateChrome(devices) {
+  const errors = [];
+  const sorts = new Map();
+  for (const d of devices) {
+    const c = d.chrome;
+    if (c == null) continue;
+    if (typeof c.emoji !== 'string' || !c.emoji) {
+      errors.push(`${d.id}: chrome.emoji must be a non-empty string`);
+    }
+    if (typeof c.label !== 'string' || !c.label) {
+      errors.push(`${d.id}: chrome.label must be a non-empty string`);
+    }
+    if (typeof c.sort !== 'number' || !Number.isFinite(c.sort)) {
+      errors.push(`${d.id}: chrome.sort must be a finite number`);
+    }
+    if (sorts.has(c.sort)) {
+      errors.push(`chrome.sort collision ${c.sort}: ${sorts.get(c.sort)} and ${d.id}`);
+    }
+    sorts.set(c.sort, d.id);
+  }
+  return errors;
+}
+
+/**
  * Every telemetryKey must carry label/unit/digits in `telemetry` so operator
  * chrome, the generic gauge strip and CSV headers all read the same schema.
  */
@@ -345,10 +372,14 @@ function emitTs(data, devices, reserved, wasmCount) {
       if (m.format) parts.push(`format: '${m.format}' as TelemetryValueFormat`);
       return `      ${JSON.stringify(k)}: { ${parts.join(', ')} }`;
     }).join(',\n');
+    const chrome = d.chrome
+      ? `{ emoji: ${JSON.stringify(d.chrome.emoji)}, label: ${JSON.stringify(d.chrome.label)}, sort: ${d.chrome.sort} }`
+      : 'undefined';
     return `  {
     id: '${d.id}',
     label: ${JSON.stringify(d.label)},
     category: '${d.category}',
+    chrome: ${chrome} as DeviceChrome | undefined,
     shaderMode: ${d.shaderMode},
     wasmMode: ${wasm} as number | null,
     telemetryKeys: [${keys}] as const,
@@ -358,6 +389,13 @@ ${meta},
     fidelity: ${JSON.stringify(d.fidelity)},
   }`;
   }).join(',\n');
+
+  const chromeDevices = devices
+    .filter((d) => d.chrome)
+    .sort((a, b) => a.chrome.sort - b.chrome.sort);
+  const chromeRows = chromeDevices.map((d) =>
+    `  { id: '${d.id}', emoji: ${JSON.stringify(d.chrome.emoji)}, label: ${JSON.stringify(d.chrome.label)}, sort: ${d.chrome.sort} }`
+  ).join(',\n');
 
   const snapDevices = devices.filter((d) => !TELEMETRY_SNAP_EXEMPT_IDS.has(d.id));
   const fieldRows = snapDevices.flatMap((d) =>
@@ -393,10 +431,18 @@ export interface TelemetryFieldMeta {
   format?: TelemetryValueFormat;
 }
 
+/** Operator-chrome metadata for a device's mode button (index.html has none hand-listed). */
+export interface DeviceChrome {
+  emoji: string;
+  label: string;
+  sort: number;
+}
+
 export interface DeviceCatalogEntry {
   id: string;
   label: string;
   category: string;
+  chrome?: DeviceChrome;
   shaderMode: number;
   wasmMode: number | null;
   telemetryKeys: readonly string[];
@@ -407,6 +453,11 @@ export interface DeviceCatalogEntry {
 export const DEVICE_CATALOG = [
 ${entries},
 ] as const;
+
+/** Mode-button chrome for devices that have one, in display order. */
+export const MODE_BUTTON_CHROME: readonly { id: string; emoji: string; label: string; sort: number }[] = [
+${chromeRows},
+];
 
 /** One catalog telemetry key bound to its device, CSV column and display schema. */
 export interface DeviceTelemetryField extends TelemetryFieldMeta {
@@ -550,6 +601,7 @@ ${lines.join('\n')}
 }
 
 function emitModeMatrix(devices, reserved) {
+  const reservedText = reserved.length ? reserved.join(', ') : 'none';
   const rows = devices.map((d) => {
     const wasm =
       d.wasmMode == null
@@ -577,7 +629,7 @@ to \`sim.setMode()\`. The WASM bridge accepts a **device id string** and looks
 up \`wasmMode\`; JS-only devices (\`wasmMode: null\`) do not call into C++.
 
 Never reuse a retired \`shaderMode\`. New WASM plants take the next value in
-\`reservedWasmModes\` (${reserved.join(', ')}), then bump that list — do not
+\`reservedWasmModes\` (${reservedText}), then bump that list — do not
 invent a plant by silently reclaiming pulse-coil's shader slot 7.
 
 ## Matrix
@@ -635,6 +687,7 @@ function main() {
   const wasmPlantUsageErrors = checkWasmPlantUsesCatalog();
   const telemetryMetaErrors = validateTelemetryMeta(devices);
   const telemetrySchemaErrors = checkTelemetrySchemaUsesCatalog();
+  const chromeErrors = validateChrome(devices);
 
   const ts = emitTs(data, devices, reserved, wasmCount);
   const h = emitH(devices, reserved, wasmCount);
@@ -653,6 +706,7 @@ function main() {
     ...telemetrySnapErrors,
     ...wasmPlantUsageErrors,
     ...telemetrySchemaErrors,
+    ...chromeErrors,
   ];
   if (CHECK) hard.push(...wgslErrors);
 

@@ -20,6 +20,7 @@ import {
 import { probeWebGPU, showWebGPUHardFail, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 import { initSEGOperatorPanel } from './seg-operator-panel';
+import { renderModeButtons } from './mode-buttons';
 import { initSEGDiagram2D } from './seg-diagram-2d';
 import { initTelemetryExportPanel } from './telemetry/telemetry-export-panel';
 import { initReplayUI } from './telemetry/replay-ui';
@@ -430,6 +431,7 @@ window.setRenderer = (name: string): void => {
 function bootApp(): void {
   restoreSimulationSeedFromStorage();
   initWasm();
+  renderModeButtons();
 
   initSEGOperatorPanel({
     onParticleCountChange(count: number) {
