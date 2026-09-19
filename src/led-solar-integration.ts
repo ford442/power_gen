@@ -17,7 +17,7 @@
  * - Round-trip efficiency: η_total = η_LED × η_geom × η_solar × η_batt (Wolfram|Alpha: "efficiency product")
  */
 
-import { LEDSolarPhysics, IVCurveCalculator } from './led-solar-constants';
+import { LEDSolarPhysics, IVCurveCalculator, DEFAULT_LEDS, DEFAULT_SOLAR_PANEL_STATE } from './led-solar-constants';
 import { ValidatedConstants } from './ValidatedConstants';
 import { SEGIntegrationManager } from './integration';
 
@@ -128,29 +128,15 @@ class LEDSolarSimulation {
   
   private initializeLEDs(): LEDSolarSystemState['leds'] {
     // 6 LEDs: 2 red, 2 green, 1 blue, 1 white (typical arrangement)
-    return [
-      { id: 0, on: true, color: 'red' as const, forwardVoltage: 2.0, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
-      { id: 1, on: true, color: 'red' as const, forwardVoltage: 2.0, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
-      { id: 2, on: true, color: 'green' as const, forwardVoltage: 3.2, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
-      { id: 3, on: true, color: 'green' as const, forwardVoltage: 3.2, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
-      { id: 4, on: true, color: 'blue' as const, forwardVoltage: 3.3, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
-      { id: 5, on: true, color: 'white' as const, forwardVoltage: 3.5, current: 350, power: 0, luminousFlux: 0, temperature: 25 },
-    ];
+    // Table lives in led-solar-constants.ts (DEFAULT_LEDS); clone so each
+    // instance/reset gets fresh, independently-mutable LED objects.
+    return DEFAULT_LEDS.map(led => ({ ...led }));
   }
-  
-  private initializeSolarPanel() {
-    return {
-      area: 0.006, // 60cm x 100cm (scaled for simulation)
-      irradiance: 0,
-      openCircuitVoltage: 3.6, // 6 cells × 0.6V
-      shortCircuitCurrent: 0,
-      operatingVoltage: 0,
-      operatingCurrent: 0,
-      fillFactor: 0.75,
-      efficiency: 0.22,
-      temperature: 25,
-      power: 0
-    };
+
+  private initializeSolarPanel(): LEDSolarSystemState['solarPanel'] {
+    // Panel constants live in led-solar-constants.ts (DEFAULT_SOLAR_PANEL_STATE);
+    // clone so each instance/reset gets a fresh, independently-mutable object.
+    return { ...DEFAULT_SOLAR_PANEL_STATE };
   }
   
   // ============================================
