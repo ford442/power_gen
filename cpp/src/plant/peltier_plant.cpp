@@ -51,8 +51,13 @@ void SEGSimulator::_stepPeltier(float dt) {
     float dTh = (qHeater - qCond - S * I * s.hotK  + qJoule) / s.heatCapHotJK;
     float dTc = (qCond   + S * I * s.coldK + qJoule
                  - s.sinkWK * (s.coldK - s.ambientK)) / s.heatCapColdJK;
-    s.hotK  = clampf(s.hotK  + dTh * dt, s.ambientK - 5.f, s.ambientK + 250.f);
-    s.coldK = clampf(s.coldK + dTc * dt, s.ambientK - 5.f, s.ambientK + 150.f);
+    using PC = power_gen::PeltierConstants;
+    s.hotK  = clampf(s.hotK  + dTh * dt,
+                     s.ambientK - PC::CLAMP_BELOW_AMBIENT_K,
+                     s.ambientK + PC::HOT_CLAMP_ABOVE_AMBIENT_K);
+    s.coldK = clampf(s.coldK + dTc * dt,
+                     s.ambientK - PC::CLAMP_BELOW_AMBIENT_K,
+                     s.ambientK + PC::COLD_CLAMP_ABOVE_AMBIENT_K);
     s.deltaTK  = s.hotK - s.coldK;
     s.currentA = S * s.deltaTK / (s.rInternalOhm + s.rLoadOhm);
     s.voltageV = s.currentA * s.rLoadOhm;

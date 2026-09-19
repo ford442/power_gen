@@ -17,12 +17,12 @@ SEGSimulator::SEGSimulator() {
     lcg_state = static_cast<uint32_t>(std::time(nullptr));
     // Kelvin breakdown: E_BREAKDOWN ~ 3e6 V/m * 0.02 m gap
     _kelvin.vBreak = 3.0e6f * 0.02f;
-    _homopolar.fieldT = std::min(0.55f, PhysicsConstants::Br_DEFAULT * 0.28f);
+    // Homopolar B, VdG capacitance and VdG breakdown used to be re-derived
+    // here from literals; they are codegen'd struct defaults now
+    // (generated/constants.h) and must not be overridden — that is exactly
+    // how the C++ axial field drifted away from the TS fallback's.
     _maglev.fieldT = estimateHalbachFieldT(_maglev.gap);
     _transformer.k = _transformer.kIdeal;
-    // Isolated-sphere capacitance C = 4*pi*eps0*r; breakdown V = E_air(3e6 V/m) * gapM.
-    _vdg.capacitanceF = 4.f * PhysicsConstants::PI * PhysicsConstants::EPSILON_0 * 0.14f;
-    _vdg.vBreak = 3.0e6f * 0.05f;
 }
 
 void SEGSimulator::step(float dt, float loadTorque) {
@@ -157,12 +157,15 @@ float SEGSimulator::getEnergyLevel() const {
         case SIM_MODE_MHD:
             return clampf(_mhd.flowU / std::max(_mhd.flowUMax, 0.1f), 0.f, 1.f);
         case SIM_MODE_MAGLEV: {
-            float gapTarget = 0.012f + 0.022f * _maglev.drive;
+            float gapTarget = power_gen::MaglevConstants::GAP_TARGET_BASE_M
+                            + power_gen::MaglevConstants::GAP_TARGET_SPAN_M * _maglev.drive;
             float err = std::abs(_maglev.gap - gapTarget) / std::max(gapTarget, 0.01f);
             return clampf(_maglev.drive * 0.55f + (1.f - err) * 0.45f, 0.f, 1.f);
         }
         case SIM_MODE_HOMOPOLAR:
-            return clampf(_homopolar.drive * 0.45f + (_homopolar.rpm / 3600.f) * 0.55f, 0.f, 1.f);
+            return clampf(_homopolar.drive * 0.45f
+                          + (_homopolar.rpm / power_gen::HomopolarConstants::RPM_MAX) * 0.55f,
+                          0.f, 1.f);
         case SIM_MODE_TRANSFORMER:
             return clampf(_transformer.drive * 0.55f
                           + std::abs(_transformer.i2) / 3.f * 0.45f, 0.f, 1.f);

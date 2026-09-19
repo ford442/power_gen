@@ -4,30 +4,26 @@
  */
 
 import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
+import { PELTIER } from '../../../generated/physics-constants';
 import { MATERIAL_STEEL_BASE, MATERIAL_STRUCTURAL, MATERIAL_QUANTA_COIL } from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
 import type { DeviceInstanceLike, DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 
-/** Classroom-scale module parameters (mirrors cpp/plant/peltier_plant.cpp spirit). */
-export const PELTIER_PARAMS = Object.freeze({
-  seebeck: 0.0002,
-  couples: 127,
-  rInternalOhm: 2.2,
-  rLoadOhm: 4.0,
-  conductanceWK: 0.55,
-  heatCapHotJK: 28,
-  heatCapColdJK: 32,
-  sinkWK: 1.8,
-  heaterMaxW: 45,
-  ambientK: 298
-});
+/**
+ * Classroom module parameters — the single set shared with the C++ plant.
+ * Generated from physics/constants.json (`peltier` block) into
+ * `PELTIER` (TS) and `power_gen::PeltierConstants` (C++). Do not re-literal
+ * SI numbers here; edit the JSON and rerun `npm run codegen:constants`.
+ */
+export const PELTIER_PARAMS = PELTIER;
+export { PELTIER };
 
 /**
  * Two-node thermal plates: hot (bottom, red tint) + cold (top, blue tint).
  * Emissive scales with ΔT for a cheap heat-map look.
  */
-export function buildPeltierMesh(hotK = 320, coldK = 290, deltaT = 30): { cylinders: () => InstanceArray } {
+export function buildPeltierMesh(hotK: number = PELTIER.ambientK + 27, coldK: number = PELTIER.ambientK - 3, deltaT = 30): { cylinders: () => InstanceArray } {
   const ambient = PELTIER_PARAMS.ambientK;
   const hotN = Math.max(0, Math.min(1, (hotK - ambient) / 120));
   const coldN = Math.max(0, Math.min(1, (ambient - coldK + 40) / 80));
@@ -55,8 +51,8 @@ export function buildPeltierMesh(hotK = 320, coldK = 290, deltaT = 30): { cylind
  */
 export const stepPeltierPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const p = PELTIER_PARAMS;
-  const S = p.seebeck * p.couples;
-  let hotK = state.peltierHotK ?? p.ambientK + 15;
+  const S = p.seebeckVK * p.couples;
+  let hotK = state.peltierHotK ?? p.ambientK;
   let coldK = state.peltierColdK ?? p.ambientK;
   let deltaTK = hotK - coldK;
   const qHeater = drive * p.heaterMaxW;
@@ -65,8 +61,10 @@ export const stepPeltierPhysics: NonNullable<DevicePlugin['stepPhysics']> = (sta
   const qJoule = 0.5 * I * I * p.rInternalOhm;
   const dTh = (qHeater - qCond - S * I * hotK + qJoule) / p.heatCapHotJK;
   const dTc = (qCond + S * I * coldK + qJoule - p.sinkWK * (coldK - p.ambientK)) / p.heatCapColdJK;
-  hotK = Math.max(p.ambientK - 5, Math.min(p.ambientK + 250, hotK + dTh * dt));
-  coldK = Math.max(p.ambientK - 5, Math.min(p.ambientK + 150, coldK + dTc * dt));
+  hotK = Math.max(p.ambientK - p.clampBelowAmbientK,
+    Math.min(p.ambientK + p.hotClampAboveAmbientK, hotK + dTh * dt));
+  coldK = Math.max(p.ambientK - p.clampBelowAmbientK,
+    Math.min(p.ambientK + p.coldClampAboveAmbientK, coldK + dTc * dt));
   deltaTK = hotK - coldK;
   I = S * deltaTK / (p.rInternalOhm + p.rLoadOhm);
   const voltageV = I * p.rLoadOhm;
@@ -80,20 +78,22 @@ export const stepPeltierPhysics: NonNullable<DevicePlugin['stepPhysics']> = (sta
   state.peltierCurrent = I;
   state.peltierPowerW = powerW;
   state.peltierCOP = cop;
-  state.energyLevel = Math.min(1, Math.abs(deltaTK) / 80);
+  state.energyLevel = Math.min(1, Math.abs(deltaTK) / p.deltaTRefK);
 };
 
 export function createPeltierPhysicsState(): Partial<DevicePhysicsState> {
   const p = PELTIER_PARAMS;
+  // Seeded at ambient on both faces, exactly like PeltierState's C++
+  // defaults — the heater drive is what opens ΔT.
   return {
-    peltierHotK: p.ambientK + 12,
+    peltierHotK: p.ambientK,
     peltierColdK: p.ambientK,
-    peltierDeltaT: 12,
+    peltierDeltaT: 0,
     peltierVoltage: 0,
     peltierCurrent: 0,
     peltierPowerW: 0,
     peltierCOP: 0,
-    energyLevel: 0.15
+    energyLevel: 0
   };
 }
 

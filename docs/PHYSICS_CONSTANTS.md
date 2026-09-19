@@ -22,9 +22,76 @@ Outputs:
 
 **Do not hand-edit generated files.** Change `physics/constants.json` and rerun codegen.
 
-Quanta classroom plant numbers (`vdg`, `hall`, `transformer`) emit into TS
-(`VDG` / `HALL` / `TRANSFORMER`) and C++ (`power_gen::VdgConstants`, …).
-Plugin files re-export those objects — do not re-literal the numbers.
+Every classroom plant's ODE numbers emit into TS and C++ from the same JSON
+block. Plugin files and plant structs re-export / default from those
+objects — **do not re-literal the numbers**, and do not re-derive them in a
+constructor either (that is how the homopolar axial field drifted).
+
+| JSON block | TS export | C++ struct |
+|------------|-----------|------------|
+| `vdg` | `VDG` | `power_gen::VdgConstants` |
+| `hall` | `HALL`, `HALL_CARRIER_PROFILES` | `power_gen::HallConstants` |
+| `transformer` | `TRANSFORMER` | `power_gen::TransformerConstants` |
+| `peltier` | `PELTIER` (alias `PELTIER_PARAMS`) | `power_gen::PeltierConstants` |
+| `mhd` | `MHD` (alias `MHD_PARAMS`) | `power_gen::MhdConstants` |
+| `maglev` | `MAGLEV` | `power_gen::MaglevConstants` |
+| `homopolar` | `HOMOPOLAR` | `power_gen::HomopolarConstants` |
+| `lorentzSled` | `LORENTZ_SLED` (alias `LORENTZ`) | `power_gen::LorentzSledConstants` |
+| `pulseCoil` | `PULSE_COIL_CORE` (alias `PULSE_COIL`) | — JS-only plant |
+| `halbachViz` | `HALBACH_VIZ` | — JS-only plant |
+
+Pulse-coil and halbach-viz have no `wasmMode` by design (ADR-0002), so
+codegen emits TS for them only.
+
+Each block carries the **drive shaping** its equations use (`bFieldBaseT` /
+`bFieldSpanT`, `gapTargetBaseM` / `gapTargetSpanM`, `rpmMax`, the clamp
+bounds, …) as well as the SI parameters. Those shaping numbers appear in
+both plants' step functions, so leaving them as literals is the same drift
+risk as leaving out a resistance.
+
+## JS ⇄ WASM golden
+
+`npm run test:golden` (in `npm run validate`) is what keeps the two plants
+honest. `cpp/build/sim_core_test --mode golden` replays every **dual**
+device — catalog `wasmMode` set *and* a TS fallback plant: peltier, mhd,
+maglev, homopolar, transformer, vdg, hall, lorentz-sled — from a fixed
+seed, printing the schedule it used (drive / frames / dt) and its catalog
+`telemetryKeys`. `scripts/test-js-wasm-golden.mjs` steps the TS fallback
+over exactly that schedule and diffs all 40 keys.
+
+The native run is authoritative for the schedule, including dt: it emits
+the float32-rounded `1/60` at full double precision so the JS plant
+integrates the same number. **Add a case to `GOLDEN_CASES` in
+`cpp/src/sim_core_standalone.cpp`**, not to the Node script.
+
+**ε.** Both plants run the same equations over the same schedule, so the
+only expected difference is arithmetic width — C++ integrates in `float`,
+JS in `double`:
+
+```
+|a − b| ≤ max(ABS_EPS, REL_EPS · max(|a|, |b|))     REL_EPS = 2e-4, ABS_EPS = 1e-9
+```
+
+The worst key on the current schedule sits at **4.1e-5** relative (Peltier
+COP / power, 240 frames of a two-node thermal integration), so 2e-4 is
+about 5× headroom. A failure at this tolerance means the *models* have
+drifted apart, not that rounding accumulated — go and find the term that
+differs. `PER_KEY_EPS` in the script records the one key that needs a
+different bound, with its reason; keep that list short.
+
+The script also fails when a dual device has no native case, when the
+native side emits a case with no JS plant wired up, and when a native key
+is not in the catalog's `telemetryKeys` — so a 15th plant cannot land
+without a golden.
+
+### Adding a plant
+
+1. Put its numbers in a `physics/constants.json` block and emit them from
+   `scripts/codegen-physics-constants.mjs` into both TS and C++.
+2. Write the TS fallback as a port of the C++ plant, not a second model.
+3. Add a `GOLDEN_CASES` row and the matching `PLANTS` entry in
+   `scripts/test-js-wasm-golden.mjs`.
+4. `npm run validate`.
 
 Device **identity** (shader vs WASM mode numbers) is a separate catalog:
 [`physics/devices.json`](../physics/devices.json) → `npm run codegen:catalog` /
@@ -37,7 +104,7 @@ Device **identity** (shader vs WASM mode numbers) is a separate catalog:
 | CODATA μ₀, ε₀, G, k_B, e, c, π | Layout ring counts / radii presets → `src/seg-layout.ts` `PRESET_DEFS` |
 | SEG NdFeB Br, μ_r, reference roller geometry | Per-preset world scale, flux-line counts → `seg-layout.ts` + `SEGLayoutUniforms` |
 | Kelvin / Heron / LED–solar core efficiencies | LED spectral wavelengths, IV curve UI metadata → `led-solar-constants.ts` |
-| VDG / Hall / transformer classroom plant numbers | Homopolar / maglev / Lorentz ODE defaults (not codegen yet) |
+| Every classroom plant's ODE defaults + drive shaping | Scene/render scales (e.g. halbach-viz `SCENE_SCALE`, `LORENTZ_SCENE`) — device-local render units, not physics |
 | Particle byte strides (16 / 32 B) | WGSL struct definitions → `src/shaders/common/*.wgsl` |
 
 WASM `SEGSimulator` default ring topology (12/22/32 at scene radii 3.5/5.5/7.5) lives in

@@ -11,19 +11,30 @@
 
 import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
 import { writeMeshCylinders } from '../update-helpers';
-import { ValidatedConstants } from '../../ValidatedConstants';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
+import { HOMOPOLAR } from '../../../generated/physics-constants';
 
-const BR = ValidatedConstants.MAGNET_BR?.value ?? 1.48;
-const DISC_RADIUS = 0.14;
-const B_AXIAL = Math.min(0.55, BR * 0.28);
-const R_COIL = 0.008;
-const L_COIL = 0.0015;
-const J_DISC = 0.002;
-const B_DRAG = 0.0008;
-const TAU_DRIVE_MAX = 0.15;
+/**
+ * Disc / circuit parameters — the single set shared with the C++ plant.
+ * Generated from physics/constants.json (`homopolar` block) into
+ * `HOMOPOLAR` (TS) and `power_gen::HomopolarConstants` (C++). Do not
+ * re-literal SI numbers here.
+ *
+ * `bAxialT` used to be derived here as `min(0.55, SEG Br × 0.28)` = 0.414 T
+ * while the C++ plant defaulted to 0.55 T; the classroom set is now the
+ * C++ value on both sides (see the JSON block's comment).
+ */
+export { HOMOPOLAR };
+
+const DISC_RADIUS = HOMOPOLAR.discRadiusM;
+const B_AXIAL = HOMOPOLAR.bAxialT;
+const R_COIL = HOMOPOLAR.rOhm;
+const L_COIL = HOMOPOLAR.lHenry;
+const J_DISC = HOMOPOLAR.inertiaKgM2;
+const B_DRAG = HOMOPOLAR.dragNmsPerRad;
+const TAU_DRIVE_MAX = HOMOPOLAR.tauDriveMaxNm;
 
 function yawQuat(angleRad: number): number[] {
   const half = angleRad * 0.5;
@@ -82,7 +93,7 @@ export function buildHomopolarMesh(angleRad = 0): { cylinders: () => InstanceArr
 /**
  * Faraday disc EMF (uniform axial B, solid disc): ε = ½ B ω r².
  */
-export function estimateHomopolarEmfV(omegaRadS: number, fieldT = B_AXIAL, radiusM = DISC_RADIUS): number {
+export function estimateHomopolarEmfV(omegaRadS: number, fieldT: number = B_AXIAL, radiusM: number = DISC_RADIUS): number {
   return 0.5 * fieldT * omegaRadS * radiusM * radiusM;
 }
 
@@ -92,10 +103,18 @@ export function estimateHomopolarEmfV(omegaRadS: number, fieldT = B_AXIAL, radiu
 export const stepHomopolarPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const B = state.homopolarFieldT ?? B_AXIAL;
   let omega = state.homopolarOmega ?? 0;
-  let current = state.homopolarCurrent ?? 0;
+  // `homopolarCurrentA` is the catalog telemetry key; `homopolarCurrent` is
+  // an older alias the WASM bridge still fills (apply-wasm-plant.ts writes
+  // both). This step used to *read* the alias and *write* only the catalog
+  // key, so the loop current never fed back and the disc ran unloaded —
+  // no back-EMF braking at all. Read the key, keep the alias in sync.
+  let current = state.homopolarCurrentA ?? state.homopolarCurrent ?? 0;
 
-  const omegaTarget = drive * 3600 * (Math.PI / 30);
-  const tauDrive = TAU_DRIVE_MAX * drive * (0.6 + 0.4 * Math.tanh((omegaTarget - omega) * 2));
+  const omegaTarget = drive * HOMOPOLAR.rpmMax * (Math.PI / 30);
+  const tauDrive = TAU_DRIVE_MAX * drive
+    * (HOMOPOLAR.tauDriveBase
+       + HOMOPOLAR.tauDriveSpan
+         * Math.tanh((omegaTarget - omega) * HOMOPOLAR.tauDriveTanhGain));
 
   const emf = estimateHomopolarEmfV(omega, B);
   const tauLoad = current * B * DISC_RADIUS * 0.5;
@@ -113,8 +132,9 @@ export const stepHomopolarPhysics: NonNullable<DevicePlugin['stepPhysics']> = (s
   state.homopolarRpm = rpm;
   state.homopolarEmfV = emf;
   state.homopolarCurrentA = current;
+  state.homopolarCurrent = current;
   state.homopolarFieldT = B;
-  state.energyLevel = Math.min(1, drive * 0.45 + (rpm / 3600) * 0.55);
+  state.energyLevel = Math.min(1, drive * 0.45 + (rpm / HOMOPOLAR.rpmMax) * 0.55);
 };
 
 export function createHomopolarPhysicsState(): Partial<DevicePhysicsState> {
@@ -156,7 +176,7 @@ const homopolarUpdateMesh: NonNullable<DevicePlugin['updateMesh']> = (instance) 
 };
 
 const homopolarComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']> = (instance, ctx) => {
-  const spinN = (instance.physicsState?.homopolarRpm ?? 0) / 3600;
+  const spinN = (instance.physicsState?.homopolarRpm ?? 0) / HOMOPOLAR.rpmMax;
   return Math.min(1.0, spinN * 0.75 + ctx.speedNorm * 0.25);
 };
 

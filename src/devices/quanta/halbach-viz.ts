@@ -24,10 +24,18 @@ import type { HalbachConfig } from './halbach-field';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
+import { HALBACH_VIZ } from '../../../generated/physics-constants';
 
+export { HALBACH_VIZ };
+
+/**
+ * JS-only plant by design (ADR-0002 — no `wasmMode`), so codegen emits TS
+ * only: physics/constants.json (`halbachViz` block) → `HALBACH_VIZ`.
+ * SCENE_SCALE stays local — it is a render scale, not a physical constant.
+ */
 const SCENE_SCALE = 10;
-const RADIUS_M = 0.14;
-const THICKNESS_M = 0.028;
+const RADIUS_M = HALBACH_VIZ.radiusM;
+const THICKNESS_M = HALBACH_VIZ.thicknessM;
 
 function yawQuat(angleRad: number): number[] {
   const half = angleRad * 0.5;
@@ -145,9 +153,13 @@ export function refreshHalbachFieldGeometry(state: Partial<DevicePhysicsState>):
  * @param drive 0..1 from speed slider
  */
 export const stepHalbachVizPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
-  const segmentCount = Math.max(4, Math.min(24, 4 + Math.round(drive * 20)));
+  const segmentCount = Math.max(
+    HALBACH_VIZ.segmentMin,
+    Math.min(HALBACH_VIZ.segmentMax,
+      HALBACH_VIZ.segmentMin + Math.round(drive * HALBACH_VIZ.segmentSpan))
+  );
   const idealStep = 360 / segmentCount;
-  const magAngleDeg = idealStep * (0.65 + drive * 0.7);
+  const magAngleDeg = idealStep * (HALBACH_VIZ.magAngleBase + drive * HALBACH_VIZ.magAngleSpan);
 
   const layoutParam = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('halbachLinear') === '1'

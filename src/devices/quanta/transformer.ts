@@ -6,7 +6,8 @@
  *
  * Shader/wasm indices: physics/devices.json (codegen) — do not hardcode.
  *
- * References: standard undergrad transformer phasor model (Chapman / Fitzgerald).
+ * References: standard undergrad two-winding transformer model
+ * (Chapman / Fitzgerald).
  */
 
 import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
@@ -56,44 +57,111 @@ export function buildTransformerMesh(ipA = 0, isA = 0, fluxN = 0.3): { cylinders
   };
 }
 
+/** Substep target and cap — same values the C++ plant uses. */
+const H_TARGET_S = 5.0e-5;
+const SUB_MAX = 800;
+/** Browser first frames can deliver dt ≫ 1/60; clamp like the C++ plant. */
+const DT_CLAMP_S = 0.05;
+
 /**
- * Phasor-domain ideal coupled inductors at line frequency.
- * Primary driven as V_p = Vpeak·drive·sin(ωt); secondary loaded by R_load.
+ * Two-winding coupled-inductor ODE, RK4 — a term-for-term port of
+ * `SEGSimulator::_stepTransformer` (cpp/src/plant/transformer_plant.cpp):
+ *
+ *   V1 = L1 dI1/dt + M dI2/dt + R1 I1
+ *   V2 = L2 dI2/dt + M dI1/dt + R2 I2,   V2 = −R_load I2
+ *
+ * This used to be a phasor approximation, i.e. a *third* formula that
+ * neither the C++ plant nor the WGSL shared — so `?wasmPhysics=1` changed
+ * every transformer reading. The fallback now mirrors the plant; the
+ * JS↔native golden (`npm run test:golden`) holds it there.
  *
  * @param drive 0..1
  */
 export const stepTransformerPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
+  if (!(dt > 0) || !Number.isFinite(dt)) return;
+
   const t = TRANSFORMER;
+  const k = state.transformerLeakage ? t.kLeakage : t.kIdeal;
+  const L1 = t.lpH;
+  const L2 = t.lsH;
+  const M = k * Math.sqrt(Math.max(L1 * L2, 1e-12));
+  let D = L1 * L2 - M * M;
+  if (D < 1e-8) D = 1e-8;
+
   const omega = 2 * Math.PI * t.fHz;
-  state.transformerPhase = (state.transformerPhase ?? 0) + omega * dt;
-  if (state.transformerPhase > omega * 100) state.transformerPhase -= omega * 100;
+  const d = Math.max(0, Math.min(1, drive));
+  let remaining = Math.min(dt, DT_CLAMP_S);
 
-  const leakage = !!state.transformerLeakage;
-  const k = leakage ? t.kLeakage : t.kIdeal;
-  const M = k * Math.sqrt(t.lpH * t.lsH);
-  const vp = t.vPrimaryPeak * Math.max(0, Math.min(1, drive)) * Math.sin(state.transformerPhase);
+  let i1 = state.transformerIpA ?? 0;
+  let i2 = state.transformerIsA ?? 0;
+  let phase = state.transformerPhase ?? 0;
 
-  // Steady-state phasor approx refreshed each frame (educational, not ODE stiff solve)
-  const xp = omega * t.lpH;
-  const xs = omega * t.lsH;
-  const xm = omega * M;
-  // Simplified: Ip ≈ Vp / (Rp + jXp) with reflected load
-  const n = t.ns / t.np;
-  const rReflected = t.rLoadOhm / Math.max(n * n, 1e-6);
-  const zMag = Math.hypot(t.rpOhm + rReflected * (k * k), xp * (1 - k * k * 0.15));
-  const ip = vp / Math.max(zMag, 0.05);
-  const vsIdeal = n * vp * k;
-  const is = vsIdeal / Math.max(t.rsOhm + t.rLoadOhm, 0.05);
-  const fluxN = Math.min(1, Math.abs(vp) / (t.vPrimaryPeak + 1e-6) * k);
+  // di1/di2 written into a shared pair so the RK4 stages allocate nothing.
+  let di1 = 0;
+  let di2 = 0;
+  const deriv = (i1s: number, i2s: number, v1s: number): void => {
+    const v2s = -t.rLoadOhm * i2s;
+    const rhs1 = v1s - t.rpOhm * i1s;
+    const rhs2 = v2s - t.rsOhm * i2s;
+    di1 = (L2 * rhs1 - M * rhs2) / D;
+    di2 = (L1 * rhs2 - M * rhs1) / D;
+  };
 
-  state.transformerVp = vp;
-  state.transformerVs = vsIdeal;
-  state.transformerIpA = ip;
-  state.transformerIsA = is;
+  let v1 = t.vPrimaryPeak * d * Math.sin(phase);
+  while (remaining > 1e-8) {
+    let nSub = Math.ceil(remaining / H_TARGET_S);
+    if (nSub < 8) nSub = 8;
+    if (nSub > SUB_MAX) nSub = SUB_MAX;
+    const chunk = remaining > H_TARGET_S * SUB_MAX ? H_TARGET_S * SUB_MAX : remaining;
+    const h = chunk / nSub;
+
+    let ok = true;
+    for (let sub = 0; sub < nSub; sub++) {
+      v1 = t.vPrimaryPeak * d * Math.sin(phase);
+
+      deriv(i1, i2, v1);
+      const k1a = di1, k1b = di2;
+      const v1m = t.vPrimaryPeak * d * Math.sin(phase + 0.5 * omega * h);
+      deriv(i1 + 0.5 * h * k1a, i2 + 0.5 * h * k1b, v1m);
+      const k2a = di1, k2b = di2;
+      deriv(i1 + 0.5 * h * k2a, i2 + 0.5 * h * k2b, v1m);
+      const k3a = di1, k3b = di2;
+      const v1e = t.vPrimaryPeak * d * Math.sin(phase + omega * h);
+      deriv(i1 + h * k3a, i2 + h * k3b, v1e);
+      const k4a = di1, k4b = di2;
+
+      const n1 = i1 + (h / 6) * (k1a + 2 * k2a + 2 * k3a + k4a);
+      const n2 = i2 + (h / 6) * (k1b + 2 * k2b + 2 * k3b + k4b);
+      if (!Number.isFinite(n1) || !Number.isFinite(n2)) {
+        ok = false;
+        break;
+      }
+      i1 = n1;
+      i2 = n2;
+      phase += omega * h;
+    }
+    if (!ok) break;
+    remaining -= chunk;
+  }
+
+  // Wrap to one period: sin() is unchanged, and the C++ plant (which stores
+  // the phase as a float) keeps full precision however long the bench runs.
+  const TWO_PI = 2 * Math.PI;
+  phase = phase % TWO_PI;
+  if (phase < 0) phase += TWO_PI;
+
+  const lambda = L1 * i1 + M * i2;
+  const lambdaRef = t.vPrimaryPeak / Math.max(omega, 1);
+
+  state.transformerIpA = i1;
+  state.transformerIsA = i2;
+  state.transformerPhase = phase;
+  state.transformerVp = v1;
+  state.transformerVs = -t.rLoadOhm * i2;
   state.transformerK = k;
-  state.transformerFluxN = fluxN;
-  state.transformerTurnsRatio = n;
-  state.energyLevel = Math.min(1, drive * 0.55 + Math.abs(is) / 3 * 0.45);
+  state.transformerFluxN = Math.max(0, Math.min(1, Math.abs(lambda) / lambdaRef));
+  state.transformerTurnsRatio = t.ns / t.np;
+  state.energyLevel = Math.min(1, drive * 0.55 + Math.abs(i2) / 3 * 0.45);
 };
 
 export function createTransformerPhysicsState(): Partial<DevicePhysicsState> {

@@ -202,7 +202,7 @@ export const DEVICE_CATALOG = [
       "transformerK": { label: "k", unit: "", digits: 3 },
       "transformerFluxN": { label: "Φ", unit: "Wb", digits: 3, format: 'si' as TelemetryValueFormat },
     } as Record<string, TelemetryFieldMeta>,
-    fidelity: "WASM coupled-inductor ODE (?wasmPhysics=1); JS phasor fallback",
+    fidelity: "WASM coupled-inductor RK4 ODE (?wasmPhysics=1); JS fallback mirrors it",
   },
   {
     id: 'vdg',

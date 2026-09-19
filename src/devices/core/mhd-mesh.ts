@@ -4,30 +4,26 @@
  */
 
 import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
+import { MHD } from '../../../generated/physics-constants';
 import { MATERIAL_STEEL_BASE, MATERIAL_STRUCTURAL, MATERIAL_QUANTA_COIL } from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
 import type { DeviceInstanceLike, DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 
-export const MHD_PARAMS = Object.freeze({
-  pumpAccel: 4.5,
-  lorentzK: 0.85,
-  frictionK: 0.35,
-  flowUMax: 3.5,
-  widthM: 0.12,
-  halfGapM: 0.04,
-  sigmaSm: 7.1e5,
-  rhoKgM3: 6400,
-  nuM2s: 1.2e-6,
-  rInternalOhm: 0.08,
-  rLoadOhm: 0.25
-});
+/**
+ * Channel parameters — the single set shared with the C++ plant. Generated
+ * from physics/constants.json (`mhd` block) into `MHD` (TS) and
+ * `power_gen::MhdConstants` (C++). Do not re-literal SI numbers here; edit
+ * the JSON and rerun `npm run codegen:constants`.
+ */
+export const MHD_PARAMS = MHD;
+export { MHD };
 
 /**
  * Rectangular duct + magnet poles. Arrow-ish cylinders along +X for flow cue.
  */
 export function buildMhdMesh(flowU = 0.5, bFieldT = 0.4, hartmann = 1): { cylinders: () => InstanceArray } {
-  const uN = Math.max(0, Math.min(1, flowU / MHD_PARAMS.flowUMax));
+  const uN = Math.max(0, Math.min(1, flowU / MHD_PARAMS.flowUMaxMps));
   const bN = Math.max(0, Math.min(1, bFieldT / 1.0));
   const haN = Math.max(0, Math.min(1, hartmann / 40));
   const yawX = [0, Math.sin(Math.PI / 4), 0, Math.cos(Math.PI / 4)];
@@ -55,10 +51,10 @@ export function buildMhdMesh(flowU = 0.5, bFieldT = 0.4, hartmann = 1): { cylind
 
 export const stepMhdPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const m = MHD_PARAMS;
-  const bFieldT = 0.2 + 0.8 * drive;
-  let flowU = state.mhdFlowU ?? 0.2;
-  const accel = drive * m.pumpAccel - (m.lorentzK * bFieldT * bFieldT + m.frictionK) * flowU;
-  flowU = Math.max(0, Math.min(m.flowUMax * 2, flowU + accel * dt));
+  const bFieldT = m.bFieldBaseT + m.bFieldSpanT * drive;
+  let flowU = state.mhdFlowU ?? 0;
+  const accel = drive * m.pumpAccelMs2 - (m.lorentzK * bFieldT * bFieldT + m.frictionK) * flowU;
+  flowU = Math.max(0, Math.min(m.flowUMaxMps * 2, flowU + accel * dt));
   const vOpen = bFieldT * flowU * m.widthM;
   const currentA = vOpen / (m.rInternalOhm + m.rLoadOhm);
   const voltageV = currentA * m.rLoadOhm;
@@ -71,18 +67,20 @@ export const stepMhdPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, 
   state.mhdVoltage = voltageV;
   state.mhdCurrent = currentA;
   state.mhdPowerW = powerW;
-  state.energyLevel = Math.min(1, flowU / m.flowUMax);
+  state.energyLevel = Math.min(1, flowU / m.flowUMaxMps);
 };
 
 export function createMhdPhysicsState(): Partial<DevicePhysicsState> {
+  // Seeded at rest with the drive-zero field, exactly like MHDState's C++
+  // defaults — the pump drive is what develops flow.
   return {
-    mhdFlowU: 0.25,
-    mhdBFieldT: 0.3,
-    mhdHartmann: 5,
+    mhdFlowU: 0,
+    mhdBFieldT: MHD_PARAMS.bFieldBaseT,
+    mhdHartmann: 0,
     mhdVoltage: 0,
     mhdCurrent: 0,
     mhdPowerW: 0,
-    energyLevel: 0.1
+    energyLevel: 0
   };
 }
 

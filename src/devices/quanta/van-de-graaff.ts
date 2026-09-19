@@ -106,11 +106,16 @@ export const stepVdgPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, 
     sparkAccum += 1;
   }
 
+  // Rate over the *nominal* window, with the overshoot carried into the
+  // next one: dividing by the accumulated `windowT` made the reading depend
+  // on which frame the sum happened to cross 1 s, which differs by a frame
+  // (≈1.7 %) between this plant's float64 sum and the C++ plant's float32
+  // one. Mirrors _stepVdg in cpp/src/plant/vdg_plant.cpp.
   windowT += dt;
   if (windowT >= VDG.sparkRateWindowS) {
-    sparkHz = sparkAccum / windowT;
+    sparkHz = sparkAccum / VDG.sparkRateWindowS;
     sparkAccum = 0;
-    windowT = 0;
+    windowT -= VDG.sparkRateWindowS;
   }
 
   state.vdgChargeC = chargeC;
