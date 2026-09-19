@@ -10,7 +10,7 @@ Browser GPU particles are kinematic / visual (16-byte `GpuParticle`, WGSL comput
 ## Decision
 
 - Author a **C++17** core (`cpp/src/sim_core.*`) with RK4 (and mode plants), built to WASM via Emscripten; **prebuilt** artifacts committed under `src/public/wasm/`.
-- Bridge from JS: `src/wasm/seg-physics-bridge.js` (+ typed helpers).
+- Bridge from JS: `src/wasm/seg-physics-bridge.ts` (+ typed helpers).
 - **Opt-in at runtime:** `?wasmPhysics=1` / `?wasm=1` / debug panel / `localStorage useWasmPhysics`.
 - Keep GPU particles on the interactive path; expose zero-copy `HEAPF32` views for tools/benchmarks. Document dual layouts: 16 B GPU vs 32 B `SimParticle` (`docs/SHADERS.md`).
 - **The TS fallback mirrors the C++ plant; it does not invent a second model.** Both read the same codegen'd constants (`physics/constants.json` → `generated/`), and `npm run test:golden` steps every dual plant over one native-authored schedule and diffs its catalog telemetry keys (`docs/PHYSICS_CONSTANTS.md`). Toggling `?wasmPhysics=1` must not move a classroom number.

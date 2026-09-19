@@ -3,14 +3,27 @@
  */
 
 import { SEGSim } from './sim';
-import { rowFromWasmSeg, rowsToCsv, TELEMETRY_CSV_COLUMNS } from '../telemetry/telemetry-schema';
+import { rowFromWasmSeg, rowsToCsv, TELEMETRY_CSV_COLUMNS, type TelemetryCsvRow } from '../telemetry/telemetry-schema';
 import { SEG_SPEC } from '../seg-operator-state';
 
-/**
- * @param {object} opts
- * @returns {Promise<{ rows: object[], csv: string, durationSec: number }>}
- */
-export async function runOfflineSegExport(opts = {}) {
+export interface OfflineSegExportOpts {
+  durationSec?: number;
+  sampleHz?: number;
+  drive?: number;
+  loadTorque?: number;
+  loadOhm?: number;
+  fieldStrength?: number;
+  onProgress?: (fraction: number) => void;
+}
+
+export interface OfflineSegExportResult {
+  rows: TelemetryCsvRow[];
+  csv: string;
+  durationSec: number;
+  columns: typeof TELEMETRY_CSV_COLUMNS;
+}
+
+export async function runOfflineSegExport(opts: OfflineSegExportOpts = {}): Promise<OfflineSegExportResult> {
   const {
     durationSec = 10,
     sampleHz = 10,
@@ -35,7 +48,7 @@ export async function runOfflineSegExport(opts = {}) {
   let simTime = 0;
   let accum = 0;
   let frameId = 0;
-  const rows = [];
+  const rows: TelemetryCsvRow[] = [];
   const maxSteps = Math.ceil(durationSec * 60) + 2;
   let steps = 0;
 
@@ -77,20 +90,19 @@ export async function runOfflineSegExport(opts = {}) {
 
 /**
  * Run export in a Web Worker when available.
- * @param {object} opts  Same as runOfflineSegExport
  */
-export function runOfflineSegExportInWorker(opts = {}) {
+export function runOfflineSegExportInWorker(opts: OfflineSegExportOpts = {}): Promise<OfflineSegExportResult> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(
       new URL('../workers/wasm-offline-worker.js', import.meta.url),
       { type: 'module' }
     );
-    worker.onmessage = (e) => {
+    worker.onmessage = (e: MessageEvent<any>) => {
       worker.terminate();
       if (e.data?.ok) resolve(e.data);
       else reject(new Error(e.data?.error || 'Worker failed'));
     };
-    worker.onerror = (err) => {
+    worker.onerror = (err: ErrorEvent) => {
       worker.terminate();
       reject(err);
     };

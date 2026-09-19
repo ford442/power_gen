@@ -17,7 +17,7 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 | **WebGPU scene** | `src/multi-device-visualizer.ts` → `MultiDeviceVisualizer` (GPU backend; plant is `LabSession`) |
 | **WebGL2 fallback** | `src/renderers/webgl2/` → `WebGL2MultiDeviceVisualizer` |
 | **Lab session** | `src/session/lab-session.ts` — operator, WASM plant, telemetry, energy, twin |
-| **Renderer choice** | `src/renderers/renderer-selector.js` |
+| **Renderer choice** | `src/renderers/renderer-selector.ts` |
 | **Device list** | `src/devices/device-registry.ts` + `src/devices/device-config.ts` (`DEVICE_CONFIG`) |
 | **Shaders** | `src/shaders/` — see [`SHADERS.md`](./SHADERS.md) |
 | **C++ / WASM physics** | `cpp/src/sim_core.*` + `src/wasm/seg-physics-bridge.ts` |
