@@ -210,6 +210,12 @@ declare global {
 
     /** SEG component-label overlay singleton (seg-annotations.ts). */
     segAnnotations?: { setEnabled: (on: boolean) => void };
+    /** Toggle the SEG component-label overlay (seg-annotations.ts). */
+    toggleSEGAnnotations?: () => void;
+    /** Toggle the SEG 2D schematic overlay (seg-diagram-2d.ts). */
+    toggleSEGDiagram?: () => void;
+    /** SEG frame/housing visibility override (seg-frame-model.ts); URL `?frame=` takes priority. */
+    SEG_FRAME_LEVEL?: string;
 
     /** Hardware digital twin connect panel singleton (hardware-panel.ts). */
     hardwarePanel?: HardwarePanel;
