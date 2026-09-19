@@ -1,5 +1,7 @@
 import { getPostQualityGates, formatPostQualitySummary } from './post-processing-config';
 import type { AdapterInfoSnapshot } from './webgpu-manager';
+import { gpuTimingMethods } from './performance-profiler-gpu-timing';
+import { displayMethods } from './performance-profiler-display';
 
 export interface PerformanceProfilerOptions {
   /** Pass adapter/info from WebGPUManager — do not call requestAdapter again. */
@@ -105,7 +107,8 @@ export class PerformanceProfiler {
   timestampResolveBuffer: GPUBuffer | null;
   timestampMappedBuffer: GPUBuffer | null;
   timingEnabled: boolean;
-  private _timestampResolvePending: boolean;
+  // Not `private`: written from the mixed-in gpu-timing methods (see bottom of file).
+  _timestampResolvePending: boolean;
   queryCount: number;
 
   // FPS History (60 seconds at 60fps = 3600 samples, but we'll use 1 sample per frame)
@@ -678,94 +681,18 @@ export class PerformanceProfiler {
       .map(String);
     return parts.length ? parts.join(' / ') : `tier:${this.gpuTier}`;
   }
-
-  // Write timestamp to encoder
-  writeTimestamp(encoder: GPUCommandEncoder | GPURenderPassEncoder | GPUComputePassEncoder, index: number): void {
-    if (
-      this.timingEnabled &&
-      typeof (encoder as { writeTimestamp?: unknown }).writeTimestamp === 'function' &&
-      index < this.queryCount &&
-      this.timestampQuerySet
-    ) {
-      (encoder as unknown as { writeTimestamp(qs: GPUQuerySet, i: number): void }).writeTimestamp(this.timestampQuerySet, index);
-    }
-  }
-
-  /** Queue a single in-flight timestamp resolve (avoids buffer-in-use-during-submit). */
-  scheduleResolveTimestamps(): void {
-    if (!this.timingEnabled || this._timestampResolvePending) return;
-    this._timestampResolvePending = true;
-    this.resolveTimestamps()
-      .catch(() => {})
-      .finally(() => { this._timestampResolvePending = false; });
-  }
-
-  // Resolve timestamps
-  async resolveTimestamps(): Promise<number | undefined> {
-    if (!this.timingEnabled || !this.timestampQuerySet || !this.timestampResolveBuffer || !this.timestampMappedBuffer) return;
-
-    const commandEncoder = this.device.createCommandEncoder();
-    commandEncoder.resolveQuerySet(
-      this.timestampQuerySet,
-      0,
-      this.queryCount,
-      this.timestampResolveBuffer,
-      0
-    );
-    commandEncoder.copyBufferToBuffer(
-      this.timestampResolveBuffer,
-      0,
-      this.timestampMappedBuffer,
-      0,
-      this.queryCount * 8
-    );
-    this.device.queue.submit([commandEncoder.finish()]);
-
-    // Read results
-    await this.timestampMappedBuffer.mapAsync(GPUMapMode.READ);
-    const timestamps = new BigUint64Array(this.timestampMappedBuffer.getMappedRange());
-
-    // Convert to milliseconds (nanoseconds to ms)
-    const gpuTimeMs = Number(timestamps[1] - timestamps[0]) / 1_000_000;
-    this.lastGpuTimeMs = gpuTimeMs;
-
-    // Update history
-    const idx = (this.fpsIndex - 1 + this.gpuTimeHistory.length) % this.gpuTimeHistory.length;
-    this.gpuTimeHistory[idx] = gpuTimeMs;
-
-    this.timestampMappedBuffer.unmap();
-    return gpuTimeMs;
-  }
-
-  // Generate FPS graph data for canvas
-  getFPSGraphData(width: number, height: number): FpsGraphPoint[] {
-    const points: FpsGraphPoint[] = [];
-    const count = Math.min(width, this.fpsHistoryFilled ? this.fpsHistory.length : this.fpsIndex);
-
-    for (let i = 0; i < count; i++) {
-      const idx = (this.fpsIndex - count + i + this.fpsHistory.length) % this.fpsHistory.length;
-      const fps = this.fpsHistory[idx];
-      const x = (i / (count - 1)) * width;
-      const y = height - (fps / 80) * height; // Scale 0-80 FPS to height
-      points.push({ x, y, fps });
-    }
-
-    return points;
-  }
-
-  // Get particle vs FPS correlation data
-  getParticleFPSCorrelation(): ParticleFpsCorrelationPoint[] {
-    const data: ParticleFpsCorrelationPoint[] = [];
-    const count = this.fpsHistoryFilled ? this.fpsHistory.length : this.fpsIndex;
-
-    for (let i = 0; i < count; i++) {
-      data.push({
-        particles: this.particleHistory[i],
-        fps: this.fpsHistory[i],
-        frameTime: this.frameTimeHistory[i]
-      });
-    }
-
-    return data;
-  }
 }
+
+// GPU timestamp query/resolve logic (writeTimestamp, scheduleResolveTimestamps,
+// resolveTimestamps) and F3 overlay display-data helpers (getFPSGraphData,
+// getParticleFPSCorrelation) live in the mixin modules below, merged onto the
+// prototype to keep this file under the 700-line cap (issues #142/#143/#187).
+export interface PerformanceProfiler {
+  writeTimestamp(encoder: GPUCommandEncoder | GPURenderPassEncoder | GPUComputePassEncoder, index: number): void;
+  scheduleResolveTimestamps(): void;
+  resolveTimestamps(): Promise<number | undefined>;
+  getFPSGraphData(width: number, height: number): FpsGraphPoint[];
+  getParticleFPSCorrelation(): ParticleFpsCorrelationPoint[];
+}
+
+Object.assign(PerformanceProfiler.prototype, gpuTimingMethods, displayMethods);
