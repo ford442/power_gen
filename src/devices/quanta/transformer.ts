@@ -6,7 +6,8 @@
  *
  * Shader/wasm indices: physics/devices.json (codegen) — do not hardcode.
  *
- * References: standard undergrad transformer phasor model (Chapman / Fitzgerald).
+ * References: standard undergrad two-winding transformer model
+ * (Chapman / Fitzgerald).
  */
 
 import { packInstance, type InstanceArray } from '../../device-mesh-layouts';

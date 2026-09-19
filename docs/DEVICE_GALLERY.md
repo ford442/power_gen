@@ -226,8 +226,10 @@ In focus, a panel in front of the coil shows a **2D TM_z FDTD slice**
 
 **Mutual Induction** — Quanta classroom transformer: primary drive, secondary
 resistive load, coupling coefficient *k*, and an ideal-vs-leakage toggle.
-Textbook two-winding model (Chapman / Fitzgerald) — **not FEM**. JS path is
-a phasor approx; `?wasmPhysics=1` runs the C++ coupled-inductor ODE.
+Textbook two-winding model (Chapman / Fitzgerald) — **not FEM**. Both
+paths run the same coupled-inductor RK4 ODE: the JS fallback is a
+term-for-term port of the C++ plant (it used to be a phasor approximation,
+so `?wasmPhysics=1` changed every reading).
 
 | View | Screenshot |
 |------|------------|
@@ -261,7 +263,7 @@ Capture: `?renderer=webgl2` → START → `setMode('transformer')` →
 - WASM `SimMode`: `8` (`SIM_MODE_TRANSFORMER` from `physics/devices.json`); plugin uses `catalogIdentity('transformer')`
 - UI: Mutual Induction mode button; Ideal / Leakage coupling controls;
   `window.setTransformerLeakage(bool)`
-- Plant: C++ coupled-inductor ODE when `?wasmPhysics=1`; JS phasor fallback
+- Plant: C++ coupled-inductor RK4 ODE when `?wasmPhysics=1`; JS fallback mirrors it exactly
 - Flux: WebGPU `passes/transformer-flux-compute.wgsl` (toroidal-core billboards
   in focus); WebGL2 keeps CPU flux particles
 
@@ -454,7 +456,7 @@ ODE state (`I`, `v`) stays continuous across the wrap.
 | Homopolar / Faraday disc | **Live** (`homopolar`) | WASM `SimMode=7` + JS fallback |
 | Halbach array field visualizer | **Live** (`halbach-viz`) | Field line overlay + slice heatmap |
 | Pulse magnet / coilgun (sandboxed) | **Live** (`pulse-coil`) | Educational R–L only; JS-only forever unless new SimMode reserved |
-| Mutual induction / transformer | **Live** (`transformer`) | WASM L–M ODE (`SimMode=8`) + JS phasor fallback |
+| Mutual induction / transformer | **Live** (`transformer`) | WASM L–M RK4 ODE (`SimMode=8`) + JS fallback mirroring it |
 | Van de Graaff educational twin | **Live** (`vdg`) | WASM belt-charge/spark-gap ODE (`SimMode=9`) + JS fallback; pairs with Kelvin |
 | Simple railgun / Lorentz sled | **Live** (`lorentz-sled`) | WASM R–L + back-EMF + Lorentz-force ODE (`SimMode=11`) + JS fallback; pairs with MHD. Educational rail motor, not a railgun design tool |
 | Hall-effect sensor bench | **Live** (`hall`) | WASM I·B→Hall-voltage model (`SimMode=10`) + JS fallback; pairs with homopolar/Halbach |

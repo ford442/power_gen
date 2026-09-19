@@ -74,7 +74,23 @@ buffer packing
 ./build/sim_core_test --mode chores      # gpu-chores reduce/map goldens
 ./build/sim_core_test --mode catalog     # print id → wasmMode; fail on holes/dupes
 ./build/sim_core_test --mode bench       # print bench_seg_steps_per_sec / bench_particle_steps_per_sec
+./build/sim_core_test --mode golden      # dual-plant telemetry goldens (see below)
 ```
+
+`--mode golden` replays every **dual** device — one with a `wasmMode` *and*
+a TypeScript fallback plant — from a fixed seed and prints the schedule it
+used plus its catalog telemetry keys:
+
+```
+golden.case peltier drive=0.85 frames=240 dt=0.016666667…
+golden.value peltier peltierHotK 297.93249511718750
+```
+
+`npm run test:golden` (part of `npm run validate`) steps the TS fallback
+over exactly that schedule and diffs all 40 keys — see
+[`docs/PHYSICS_CONSTANTS.md`](../docs/PHYSICS_CONSTANTS.md#js--wasm-golden)
+for the ε and what a failure means. The native run is authoritative for
+drive / frames / dt, so a case is added here, not in the Node script.
 
 Plant modes (SimMode enum): `0=SEG` RK4 rollers, `1=Heron` Bernoulli /
 Swamee–Jain, `2=Kelvin` capacitive + spark, `3=Solar` battery SOC,
@@ -82,7 +98,8 @@ Swamee–Jain, `2=Kelvin` capacitive + spark, `3=Solar` battery SOC,
 `5=MHD` Hartmann-style channel flow with Lorentz braking and induced load
 voltage, `6=Maglev` spring–damper gap ODE (mirrors Quanta JS),
 `7=Homopolar` Faraday disc L–R + back-EMF (mirrors Quanta JS),
-`8=Transformer` coupled-inductor ODE (JS phasor is the no-WASM fallback),
+`8=Transformer` coupled-inductor RK4 ODE (the TS fallback is a term-for-term
+port of it, not a phasor approximation),
 `9=VDG` Van de Graaff belt-charge/leakage/spark-gap ODE (mirrors Quanta JS),
 `10=Hall` algebraic I·B → Hall-voltage model (mirrors Quanta JS),
 `11=LorentzSled` rail-motor R–L drive loop + back-EMF + `F = I ℓ × B` on a
@@ -95,8 +112,9 @@ Coil also stays CPU-JS — neither has a `wasmMode`).
 ### Compilation database (clangd)
 
 CI smoke stays `make native` / `npm run wasm:native`. For per-TU include
-paths (`-DSIM_CORE_STANDALONE`, `-I src`) so clangd can jump from
-`plant/vdg_plant.cpp` into `VdgState` / `SEGSimulator`:
+paths (`-DSIM_CORE_STANDALONE`, `-I src`, `-Wall -Wextra -Wpedantic
+-Werror` — the same flags the Makefile's `native` target uses) so clangd
+can jump from `plant/vdg_plant.cpp` into `VdgState` / `SEGSimulator`:
 
 ```bash
 # from repository root
@@ -110,6 +128,12 @@ make compile-db
 `cpp/build/` (except `cpp/build/README.md`) and the repo-root
 `compile_commands.json` symlink are gitignored. `.clangd` sets
 `CompilationDatabase: cpp/build`. Do not commit the JSON.
+
+`sim_core_embind.cpp` is **not** in the native source list (CMake adds it
+with `target_sources()` inside the `EMSCRIPTEN` branch; the Makefile keeps
+`NATIVE_SRC` separate from `SRC`). Its body is entirely inside
+`#ifdef __EMSCRIPTEN__`, so a native build produced an empty translation
+unit and a compilation-database entry clangd could do nothing with.
 
 ### Zero-copy particle / roller buffers
 
@@ -226,7 +250,7 @@ because its precondition doesn't hold yet; native warnings were enabled separate
 | `-msimd128` (`wasm` / `wasm-dbg`) | **Rejected** | RK4 roller stepping and particle CPU replay don't auto-vectorize into a size or speed win here: `sim_core.wasm` grew **51,698 B → 55,301 B raw (+7.0%)** (wider SIMD opcodes, code the roller/particle loops don't exploit), while step throughput was flat within run-to-run noise (SEG RK4 step/s and particle step/s both **±1–2%** across repeated Node-harness runs — no consistent gain). Rejected: it only adds bytes without a measurable step/s win. `wasm-dbg` was confirmed to still compile with `-msimd128` in case a future plant makes this worth revisiting. (Browser support was not the blocker — WebGPU already sets a Safari 16.4+ / Chrome 91+-or-newer floor for this lab, which comfortably covers `-msimd128`'s own requirement.) |
 | `-flto` (release `em++`) | **Rejected** | `sim_core.wasm` was flat (**51,698 B → 51,722 B raw**, ~0%) — nowhere near the ≥10% size or ≥15% step/s bar this issue set. Worse, the particle-replay throughput was **consistently ~5% slower** with LTO across three repeated runs (RK4 roller step/s unaffected). Given a flat size result and a repeatable regression on one of the two benchmarked paths, `-flto` is rejected rather than landed as a wash |
 | `-s WASM_BIGINT=1` | **Skipped** | Only useful once a `u64` counter crosses the JS `Number` boundary. Nothing in `sim_core_embind.cpp`'s current bound surface returns/accepts `u64` — revisit if that changes |
-| `make native`: `-Wall -Wextra -Wpedantic` | **Landed** | `plant/*.cpp` and `sim_core_*.cpp` already build warning-free under `g++`/`clang++` `-std=c++17 -O2 -Wall -Wextra -Wpedantic` — no code changes were needed. Not `-Werror` yet (per this issue's scope: no drive-by hardening beyond what's already clean) |
+| `make native`: `-Wall -Wextra -Wpedantic -Werror` | **Landed** | `plant/*.cpp` and `sim_core_*.cpp` already build warning-free under `g++`/`clang++` `-std=c++17 -O2 -Wall -Wextra -Wpedantic`, so `-Werror` followed with no code changes; a new warning on the native path is a regression, not a backlog item. The CMake native target carries the same flags |
 
 Measured with a distro-packaged Emscripten 3.1.6 + a version-matched `google-closure-compiler`
 (the CI-pinned 3.1.61 in `build-wasm.yml` was unavailable in the measurement environment);
@@ -300,7 +324,8 @@ cpp/
       chores_reduce.cpp     ← GPU-chores CPU reduce fallback
       particles.cpp         ← mode-aware particle seed/step + accessors
   CMakeLists.txt     ← CMake / Emscripten + CMAKE_EXPORT_COMPILE_COMMANDS
-  Makefile           ← make wasm / native / compile-db ($(wildcard src/plant/*.cpp))
+  Makefile           ← make wasm / native / compile-db ($(wildcard src/plant/*.cpp);
+                       native drops the WASM-only Embind TU)
   build/             ← native CMake + sim_core_test (gitignored except README.md)
 ```
 

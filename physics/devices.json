@@ -372,7 +372,7 @@
       "shaderMode": 10,
       "wasmMode": 8,
       "telemetryKeys": ["transformerVp", "transformerVs", "transformerIpA", "transformerIsA", "transformerK", "transformerFluxN"],
-      "fidelity": "WASM coupled-inductor ODE (?wasmPhysics=1); JS phasor fallback",
+      "fidelity": "WASM coupled-inductor RK4 ODE (?wasmPhysics=1); JS fallback mirrors it",
       "telemetry": {
         "transformerVp": {
           "label": "V_p",

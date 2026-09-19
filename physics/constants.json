@@ -70,7 +70,7 @@
     }
   },
   "transformer": {
-    "comment": "Classroom coupled-inductor L–M ODE / JS phasor fallback. Not FEM.",
+    "comment": "Classroom coupled-inductor L-M RK4 ODE, shared by the C++ plant and the TS fallback (which is a term-for-term port of it, not a phasor approximation). Not FEM.",
     "fHz": 60,
     "np": 120,
     "ns": 40,
