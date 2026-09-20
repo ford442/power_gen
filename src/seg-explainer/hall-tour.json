@@ -1,0 +1,86 @@
+{
+  "tourVersion": 1,
+  "id": "hall-intro",
+  "title": "Hall-Effect Bench Tour",
+  "description": "Guided walkthrough of the strip current I, the applied field B, the transverse Hall voltage V_H, and what carrier density does to the signal.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 6,
+      "view": "hall",
+      "cameraOffset": [0, 2.4, 8],
+      "cameraTargetY": 0.2,
+      "title": "A strip, a current, and a field",
+      "body": "A flat conductor carries current along its length while a magnetic field points through its face. Nothing else is needed for the Hall effect — the whole demo is those two inputs and the voltage that appears across the strip.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "current",
+      "durationSec": 8,
+      "view": "hall",
+      "cameraOffset": [-2.4, 1.4, 4.2],
+      "cameraTargetY": 0,
+      "title": "Step 1 — the strip current I",
+      "body": "The leads at each end of the strip push current I along it. Raise the drive slider and the carriers speed up; the lead glow and the particle drift both track I. On its own this current produces no transverse voltage at all.",
+      "highlights": ["hall-strip"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "hall-voltage"
+    },
+    {
+      "id": "field",
+      "durationSec": 9,
+      "view": "hall",
+      "cameraOffset": [0, 3.0, 3.2],
+      "cameraTargetY": 0,
+      "title": "Step 2 — the field B, local or coupled",
+      "body": "By default B rises with the same drive control — an isolated bench, honest about being self-contained. Turn on Lab field coupling and B instead follows the Halbach array's peak |B| estimate, clamped to this bench's range. Either way it is a simulated number, not a metrology reading: watch the 'B source' line under the carrier buttons to see which one is driving the plant.",
+      "highlights": ["hall-probe"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "field-coupling"
+    },
+    {
+      "id": "voltage",
+      "durationSec": 9,
+      "view": "hall",
+      "cameraOffset": [1.6, 1.2, 3.0],
+      "cameraTargetY": 0,
+      "title": "Step 3 — V_H = I·B / (n·e·t)",
+      "body": "With both I and B present the Lorentz force pushes carriers toward one edge until the transverse E-field it builds balances it. The probe pair reads the result. V_H follows the product I·B, so halving either input halves the voltage — neither factor alone tells you what the meter will say.",
+      "highlights": ["hall-probe"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "hall-voltage"
+    },
+    {
+      "id": "carriers",
+      "durationSec": 9,
+      "view": "hall",
+      "cameraOffset": [0, 1.8, 3.6],
+      "cameraTargetY": 0,
+      "title": "Step 4 — why probes are semiconductors",
+      "body": "Switch the sample from Semiconductor to Metal at the same I and B. R_H = 1/(n·e), and a metal's carrier density is ~1e28 m⁻³ against a doped semiconductor's ~1e21 — so the same field produces a signal roughly ten million times smaller. That ratio is the entire reason real Hall probes are semiconductors.",
+      "highlights": ["hall-carrier"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "carrier-density"
+    },
+    {
+      "id": "honesty",
+      "durationSec": 7,
+      "view": "hall",
+      "cameraOffset": [0, 3.2, 7.0],
+      "cameraTargetY": 0,
+      "title": "What this model is not",
+      "body": "One algebraic equation over a lumped strip: no band structure, no temperature drift, no contact misalignment, no offset voltage, and no calibration. Coupled or local, the B here is a simulated estimate — this bench reports classroom numbers, never metrology.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

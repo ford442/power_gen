@@ -131,6 +131,7 @@ EMSCRIPTEN_BINDINGS(sim_core) {
         .function("getHallCoeff", &SEGSimulator::getHallCoeff)
         .function("getHallCarrierMetal", &SEGSimulator::getHallCarrierMetal)
         .function("setHallCarrierMetal", &SEGSimulator::setHallCarrierMetal)
+        .function("setHallFieldCoupledT", &SEGSimulator::setHallFieldCoupledT)
         .function("getLorentzSledVms", &SEGSimulator::getLorentzSledVms)
         .function("getLorentzCurrentA", &SEGSimulator::getLorentzCurrentA)
         .function("getLorentzFieldT", &SEGSimulator::getLorentzFieldT)

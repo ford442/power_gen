@@ -114,18 +114,36 @@ async function importBundle(contents, sourcefile) {
   return import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 }
 
-/** Parse `golden.case <id> drive=… frames=… dt=…` / `golden.value <id> <key> <v>`. */
+/**
+ * Parse `golden.case <id> k=v …` / `golden.value <id> <key> <v>`.
+ *
+ * The key=value tail is read generically rather than positionally, so the
+ * native side can add a knob (a coupled B setpoint, say) without this parser
+ * needing a new capture group. `device` names the catalog device the case
+ * covers, which is not the case id for a variant like `hall-coupled`.
+ */
 function parseGolden(stdout) {
   const cases = new Map();
   let done = false;
   for (const line of stdout.split('\n')) {
-    const c = line.match(/^golden\.case (\S+) drive=(\S+) frames=(\d+) dt=(\S+)$/);
+    const c = line.match(/^golden\.case (\S+) (.*)$/);
     if (c) {
-      cases.set(c[1], {
-        id: c[1],
-        drive: Number(c[2]),
-        frames: Number(c[3]),
-        dt: Number(c[4]),
+      const kv = new Map(
+        c[2].trim().split(/\s+/).filter(Boolean).map((pair) => {
+          const eq = pair.indexOf('=');
+          return [pair.slice(0, eq), pair.slice(eq + 1)];
+        })
+      );
+      const id = c[1];
+      cases.set(id, {
+        id,
+        device: kv.get('device') ?? id,
+        drive: Number(kv.get('drive')),
+        frames: Number(kv.get('frames')),
+        dt: Number(kv.get('dt')),
+        // Lab field coupling (ADR-0011) — negative means "no coupling".
+        hallFieldCoupledT: Number(kv.get('hallFieldCoupledT') ?? -1),
+        lorentzFieldT: Number(kv.get('lorentzFieldT') ?? -1),
         values: new Map(),
       });
       continue;
@@ -181,21 +199,40 @@ const js = await importBundle(ENTRY, 'golden-entry.ts');
 const catalogById = new Map(js.DEVICE_CATALOG.map((d) => [d.id, d]));
 
 // Every dual device — catalog wasmMode set *and* a JS fallback plant — must
-// be covered. This is what stops a new plant landing without a golden.
+// be covered. This is what stops a new plant landing without a golden. A
+// device may have more than one case (a default one and a field-coupled
+// variant); it must have at least one.
 const dualIds = js.DEVICE_CATALOG.filter((d) => d.wasmMode !== null && PLANTS[d.id]).map((d) => d.id);
-for (const id of dualIds) {
-  if (!cases.has(id)) fail(`no native golden case for dual device '${id}' — add it to GOLDEN_CASES`);
+const casesByDevice = new Map();
+for (const kase of cases.values()) {
+  if (!casesByDevice.has(kase.device)) casesByDevice.set(kase.device, []);
+  casesByDevice.get(kase.device).push(kase);
 }
-for (const id of cases.keys()) {
-  if (!PLANTS[id]) fail(`native emitted golden case '${id}' with no JS fallback plant wired up here`);
+for (const id of dualIds) {
+  if (!casesByDevice.has(id)) fail(`no native golden case for dual device '${id}' — add it to GOLDEN_CASES`);
+}
+for (const kase of cases.values()) {
+  if (!PLANTS[kase.device]) {
+    fail(`native emitted golden case '${kase.id}' for device '${kase.device}' with no JS fallback plant wired up here`);
+  }
+}
+
+/**
+ * Apply a case's coupled setpoints to the JS state before stepping. This is
+ * the same write `FieldNetwork.update` makes each frame, so the fallback sees
+ * exactly what `setHallFieldCoupledT` / `setLorentzFieldT` gave the C++ plant.
+ */
+function seedCoupling(state, kase) {
+  if (kase.hallFieldCoupledT >= 0) state.hallFieldCoupledT = kase.hallFieldCoupledT;
+  if (kase.lorentzFieldT >= 0) state.lorentzFieldT = kase.lorentzFieldT;
 }
 
 let compared = 0;
-for (const id of dualIds) {
-  const kase = cases.get(id);
-  if (!kase) continue;
-  const plant = PLANTS[id];
-  const entry = catalogById.get(id);
+for (const kase of cases.values()) {
+  const id = kase.id;
+  const plant = PLANTS[kase.device];
+  const entry = catalogById.get(kase.device);
+  if (!plant || !entry) continue;
 
   const create = js[plant.create];
   const step = js[plant.step];
@@ -205,6 +242,7 @@ for (const id of dualIds) {
   }
 
   const state = create();
+  seedCoupling(state, kase);
   for (let i = 0; i < kase.frames; i++) step(state, kase.dt, kase.drive);
 
   for (const key of entry.telemetryKeys) {
@@ -221,7 +259,7 @@ for (const id of dualIds) {
     if (!Number.isFinite(mine)) { fail(`${id}.${key}: JS value is ${mine}`); continue; }
     if (!Number.isFinite(native)) { fail(`${id}.${key}: native value is ${native}`); continue; }
 
-    const eps = epsFor(id, key);
+    const eps = epsFor(kase.device, key);
     compared++;
     if (!agree(mine, native, eps)) {
       const diff = Math.abs(mine - native);
@@ -250,5 +288,6 @@ if (failures.length) {
 }
 console.log(
   `[golden] JS fallback matches the C++ plant on ${compared} telemetry keys ` +
-  `across ${dualIds.length} dual devices (rel ε ${REL_EPS.toExponential(0)}, abs ε ${ABS_EPS.toExponential(0)})`
+  `across ${cases.size} cases / ${dualIds.length} dual devices ` +
+  `(rel ε ${REL_EPS.toExponential(0)}, abs ε ${ABS_EPS.toExponential(0)})`
 );

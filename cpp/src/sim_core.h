@@ -207,6 +207,7 @@ public:
     float getHallCoeff() const { return _hall.coeff; }
     bool  getHallCarrierMetal() const { return _hall.carrierMetal; }
     void  setHallCarrierMetal(bool metal);
+    void  setHallFieldCoupledT(float fieldT);
 
     float getLorentzSledVms() const { return _lorentz.velocityMps; }
     float getLorentzCurrentA() const { return _lorentz.currentA; }

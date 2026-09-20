@@ -1,0 +1,86 @@
+{
+  "tourVersion": 1,
+  "id": "kelvin-intro",
+  "title": "Kelvin Water Dropper Tour",
+  "description": "Guided walkthrough of induction charging, the positive-feedback loop that makes the dropper interesting, and the spark that ends each cycle.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 6,
+      "view": "kelvin",
+      "cameraOffset": [0, 4, 9],
+      "cameraTargetY": 1.5,
+      "title": "Falling water, rising volts",
+      "body": "Two streams of water fall through two metal rings into two buckets. There is no battery, no belt, and nothing rubbing against anything — the only energy source is gravity pulling the drops down. Kelvin called it a 'water-dropping influence machine' in 1867.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "induction",
+      "durationSec": 9,
+      "view": "kelvin",
+      "cameraOffset": [1.8, 3.2, 4.0],
+      "cameraTargetY": 2.2,
+      "title": "Step 1 — charging by induction",
+      "body": "Each ring is wired to the *opposite* bucket. A ring at a slightly negative potential repels electrons out of the water passing through it, so the drop pinches off carrying a positive charge — and lands in the bucket that makes the other ring more negative still. No contact, no rubbing: the charge is induced.",
+      "highlights": ["kelvin-ring"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "induction-charging"
+    },
+    {
+      "id": "feedback",
+      "durationSec": 9,
+      "view": "kelvin",
+      "cameraOffset": [0, 2.6, 5.0],
+      "cameraTargetY": 1.2,
+      "title": "Step 2 — the positive-feedback loop",
+      "body": "More charge in a bucket means a stronger ring field, which means more charge on the next drop. The plant integrates exactly that: dV/dt carries a term proportional to V itself. A tiny seed imbalance — thermal noise, in the real apparatus — is enough to start it, and the voltage then climbs roughly exponentially rather than linearly.",
+      "highlights": ["kelvin-bucket"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "positive-feedback"
+    },
+    {
+      "id": "voltage",
+      "durationSec": 8,
+      "view": "kelvin",
+      "cameraOffset": [-1.8, 2.4, 4.2],
+      "cameraTargetY": 1.2,
+      "title": "Step 3 — what sets the ceiling",
+      "body": "Two things fight the climb: leakage bleeding charge away, and the rising field pushing back on drops that are trying to fall into a bucket already at their own polarity. Watch the particle stream slow and wander as the voltage readout rises — the drops are doing work against the field they built.",
+      "highlights": ["kelvin-stream"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "sphere-capacitance"
+    },
+    {
+      "id": "spark",
+      "durationSec": 8,
+      "view": "kelvin",
+      "cameraOffset": [0.6, 3.4, 3.4],
+      "cameraTargetY": 1.6,
+      "title": "Step 4 — breakdown, and start again",
+      "body": "When the gap field passes the classroom air-breakdown estimate (~3×10⁶ V/m) the plant fires a spark and dumps most of the stored charge. The voltage collapses, the loop restarts from near zero, and the cycle repeats — the sawtooth in the readout is the whole machine in one trace.",
+      "highlights": ["kelvin-spark"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "corona"
+    },
+    {
+      "id": "honesty",
+      "durationSec": 7,
+      "view": "kelvin",
+      "cameraOffset": [0, 4.2, 9.0],
+      "cameraTargetY": 1.5,
+      "title": "What this model is not",
+      "body": "A single lumped voltage state with a feedback term, a leak term and a breakdown threshold. No drop-by-drop charge accounting, no electrostatic field solve, no humidity, and no shared charge bus with the Van de Graaff — the two electrostatic devices stay separate models here. Classroom numbers, not metrology.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

@@ -15,9 +15,11 @@
  * current and field, but ~1e7× smaller signal, which is *why* semiconductor
  * Hall probes are used in practice).
  *
- * I and B here are both driven by the shared speed/drive control (this
- * bench has no live coupling to halbach-viz's field estimate — a simpler,
- * self-contained choice; see docs/DEVICE_GALLERY.md).
+ * I and B here are both driven by the shared speed/drive control, and that
+ * stays the default (an honest, isolated classroom bench). Under
+ * `?fieldCoupling=1` the `FieldNetwork` writes `hallFieldCoupledT` and B
+ * instead tracks `halbach-viz`'s clamped peak |B| — still a simulated
+ * estimate, not a metrology reading. See ADR-0011 and docs/DEVICE_GALLERY.md.
  *
  * Educational model — not a calibrated metrology instrument. Shader/wasm
  * indices: physics/devices.json (codegen) — do not hardcode.
@@ -90,11 +92,21 @@ export function buildHallMesh(currentNorm = 0, fieldNorm = 0): { cylinders: () =
   };
 }
 
+/** The B this step aims for: the coupled setpoint when one is present, else drive. */
+export function hallFieldTargetT(state: Partial<DevicePhysicsState>, drive: number): number {
+  const coupled = state.hallFieldCoupledT;
+  if (typeof coupled === 'number' && Number.isFinite(coupled)) {
+    return Math.max(0, Math.min(HALL.bMaxT, coupled));
+  }
+  return Math.max(0, Math.min(1, drive)) * HALL.bMaxT;
+}
+
 /**
- * Both I and B track the shared drive control (smoothed, so slider moves
- * read as a brief transient rather than a step). V_H/R_H are pure algebraic
- * functions of the instantaneous I, B, and carrier profile — no ODE
- * stiffness here.
+ * I tracks the shared drive control; B tracks it too unless a coupled setpoint
+ * is present (`?fieldCoupling=1`). Both are smoothed with the same τ, so a
+ * slider move — or a coupling toggle — reads as a brief transient rather than a
+ * step. V_H/R_H are pure algebraic functions of the instantaneous I, B, and
+ * carrier profile — no ODE stiffness here.
  *
  * @param drive 0..1 from the speed slider
  */
@@ -103,7 +115,7 @@ export const stepHallPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state,
   const carrier = state.hallCarrierType ?? 'semiconductor';
 
   const iTarget = d * HALL.iMaxA;
-  const bTarget = d * HALL.bMaxT;
+  const bTarget = hallFieldTargetT(state, d);
   const alpha = Math.min(1, dt / HALL.smoothingTau);
   const current = (state.hallCurrent ?? 0) + (iTarget - (state.hallCurrent ?? 0)) * alpha;
   const fieldT = (state.hallFieldT ?? 0) + (bTarget - (state.hallFieldT ?? 0)) * alpha;
@@ -120,6 +132,7 @@ export function createHallPhysicsState(): Partial<DevicePhysicsState> {
   return {
     hallCurrent: 0,
     hallFieldT: 0,
+    hallFieldCoupledT: null,
     hallCarrierType: 'semiconductor',
     hallVoltage: 0,
     hallCoeff: hallCoefficient('semiconductor'),

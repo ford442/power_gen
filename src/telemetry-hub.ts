@@ -21,6 +21,7 @@ import type { DevicePhysicsState } from './renderers/shared/device-physics';
 import type {
   DeviceTelemetrySnap,
   PublishFrameEnergyNetwork,
+  PublishFrameFieldNetwork,
   PublishFrameHardwareTwin,
   PublishFrameScientific,
   ScientificTelemetry,
@@ -35,6 +36,7 @@ export type {
   HardwareShadowResidual,
   HardwareTwinTelemetry,
   PublishFrameEnergyNetwork,
+  PublishFrameFieldNetwork,
   PublishFrameHardwareTwin,
   PublishFrameScientific,
   ScientificTelemetry,
@@ -78,6 +80,7 @@ export interface PublishFrameOpts {
   scientific?: PublishFrameScientific;
   segTelemetry?: SegOperatorTelemetry;
   energyNetwork?: PublishFrameEnergyNetwork | null;
+  fieldNetwork?: PublishFrameFieldNetwork | null;
   hardwareTwin?: PublishFrameHardwareTwin | null;
   /** Live render loop vs replay player. Replay frames skip the sampler. */
   source?: 'live' | 'replay';
@@ -273,6 +276,7 @@ export class TelemetryHub {
         outerRingTorque: 0
       },
       energyNetwork: null,
+      fieldNetwork: null,
       hardwareTwin: null,
       meta: TELEMETRY_META,
       replay: null
@@ -375,6 +379,9 @@ export class TelemetryHub {
             residualW: netIn.residualW
           }
         : this._snapshot.energyNetwork,
+      fieldNetwork: opts.fieldNetwork !== undefined
+        ? opts.fieldNetwork
+        : this._snapshot.fieldNetwork,
       hardwareTwin: opts.hardwareTwin !== undefined
         ? opts.hardwareTwin
         : this._snapshot.hardwareTwin,

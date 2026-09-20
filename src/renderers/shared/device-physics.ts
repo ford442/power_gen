@@ -161,6 +161,12 @@ export interface HallPhysicsExtension {
   hallCoeff?: number;
   /** 'semiconductor' (default, larger V_H) or 'metal' (much smaller V_H). */
   hallCarrierType?: 'semiconductor' | 'metal';
+  /**
+   * Coupled B setpoint (T) written by `FieldNetwork` under `?fieldCoupling=1`.
+   * `null`/undefined (the default) leaves the bench on its own drive-derived B.
+   * Simulated estimate from `halbach-viz`, not a metrology reading — ADR-0011.
+   */
+  hallFieldCoupledT?: number | null;
   _wasmPlantActive?: boolean;
 }
 
@@ -174,8 +180,14 @@ export interface LorentzSledPhysicsExtension {
   lorentzSledVms?: number;
   /** Armature / loop current, A. */
   lorentzCurrentA?: number;
-  /** Local bench field B, T (slider parameter, not coupled to halbach-viz). */
+  /**
+   * Bench field B in effect this substep, T. Equal to `lorentzFieldLocalT`
+   * unless `?fieldCoupling=1` is on, in which case `FieldNetwork` overwrites it
+   * with the clamped `mhd` channel estimate (ADR-0011).
+   */
   lorentzFieldT?: number;
+  /** Local bench-slider setpoint, T — restored verbatim when coupling is off. */
+  lorentzFieldLocalT?: number;
   /** Lorentz force on the armature, N. */
   lorentzForceN?: number;
   /** Position along the rails, m (wraps at LORENTZ.railLengthM). */

@@ -418,27 +418,42 @@ static int run_lorentz_smoke() {
 // integrates the same float32-rounded 1/60 this binary used).
 struct GoldenCase {
     int         mode;
-    const char* id;
+    const char* id;      // case id — device id, plus a suffix for variants
+    const char* device;  // catalog device whose telemetryKeys this case covers
     float       drive;
     int         frames;
+    // Lab field coupling (ADR-0011). >= 0 pins the destination plant's B to
+    // this setpoint, exactly as FieldNetwork does under ?fieldCoupling=1, so
+    // the golden covers the coupled path on both plants too. Negative = the
+    // device's own local rule (the default, and every pre-existing case).
+    float       hallFieldCoupledT;
+    float       lorentzFieldT;
 };
 
 // Frame counts are chosen so each plant has left its initial transient:
 // the thermal stack has opened a gap, the disc and sled have reached
 // terminal speed, and the VdG sphere has sparked at least once.
 static const GoldenCase GOLDEN_CASES[] = {
-    { SIM_MODE_PELTIER,      "peltier",      0.85f, 240 },
-    { SIM_MODE_MHD,          "mhd",          0.90f, 120 },
-    { SIM_MODE_MAGLEV,       "maglev",       0.60f, 120 },
-    { SIM_MODE_HOMOPOLAR,    "homopolar",    0.90f, 240 },
-    { SIM_MODE_TRANSFORMER,  "transformer",  0.90f,  60 },
+    { SIM_MODE_PELTIER,      "peltier",      "peltier",      0.85f, 240, -1.f, -1.f },
+    { SIM_MODE_MHD,          "mhd",          "mhd",          0.90f, 120, -1.f, -1.f },
+    { SIM_MODE_MAGLEV,       "maglev",       "maglev",       0.60f, 120, -1.f, -1.f },
+    { SIM_MODE_HOMOPOLAR,    "homopolar",    "homopolar",    0.90f, 240, -1.f, -1.f },
+    { SIM_MODE_TRANSFORMER,  "transformer",  "transformer",  0.90f,  60, -1.f, -1.f },
     // 150, not 120: the spark-rate window closes every 1 s (60 frames) and
     // the two plants cross that boundary a frame apart (float32 vs float64
     // running sum of dt), so a multiple of 60 would compare sparkHz across
     // different windows.
-    { SIM_MODE_VDG,          "vdg",          1.00f, 150 },
-    { SIM_MODE_HALL,         "hall",         0.80f, 120 },
-    { SIM_MODE_LORENTZ_SLED, "lorentz-sled", 0.80f, 240 },
+    { SIM_MODE_VDG,          "vdg",          "vdg",          1.00f, 150, -1.f, -1.f },
+    { SIM_MODE_HALL,         "hall",         "hall",         0.80f, 120, -1.f, -1.f },
+    { SIM_MODE_LORENTZ_SLED, "lorentz-sled", "lorentz-sled", 0.80f, 240, -1.f, -1.f },
+    // Field-coupled variants (ADR-0011): same plants, but B pinned to a source
+    // device's estimate instead of the local rule. 0.31 T is inside the Hall
+    // bench's 0.65 T range and *not* 0.8 x bMaxT, so a plant that ignored the
+    // coupled setpoint and kept using drive would not accidentally agree.
+    { SIM_MODE_HALL,         "hall-coupled", "hall",         0.80f, 120, 0.31f, -1.f },
+    // 0.45 T stands in for a mid-drive MHD channel field; the default bench
+    // value is 0.8 T, so the same "would not accidentally agree" argument holds.
+    { SIM_MODE_LORENTZ_SLED, "lorentz-sled-coupled", "lorentz-sled", 0.80f, 240, -1.f, 0.45f },
 };
 static constexpr int GOLDEN_CASE_COUNT =
     static_cast<int>(sizeof(GOLDEN_CASES) / sizeof(GOLDEN_CASES[0]));
@@ -462,11 +477,16 @@ static int run_golden() {
         SEGSimulator sim;
         sim.setMode(g.mode);
         sim.setDrive(g.drive);
+        if (g.hallFieldCoupledT >= 0.f) sim.setHallFieldCoupledT(g.hallFieldCoupledT);
+        if (g.lorentzFieldT >= 0.f) sim.setLorentzFieldT(g.lorentzFieldT);
         for (int i = 0; i < g.frames; ++i) sim.step(dt, 0.f);
 
-        std::printf("golden.case %s drive=%.17g frames=%d dt=%.17g\n",
-                    g.id, static_cast<double>(g.drive), g.frames,
-                    static_cast<double>(dt));
+        std::printf("golden.case %s device=%s drive=%.17g frames=%d dt=%.17g"
+                    " hallFieldCoupledT=%.17g lorentzFieldT=%.17g\n",
+                    g.id, g.device, static_cast<double>(g.drive), g.frames,
+                    static_cast<double>(dt),
+                    static_cast<double>(g.hallFieldCoupledT),
+                    static_cast<double>(g.lorentzFieldT));
 
         switch (g.mode) {
             case SIM_MODE_PELTIER:

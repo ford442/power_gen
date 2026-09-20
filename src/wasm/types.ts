@@ -96,6 +96,7 @@ export interface SEGSimulatorInstance {
   getHallCoeff?(): number;
   getHallCarrierMetal?(): boolean;
   setHallCarrierMetal?(metal: boolean): void;
+  setHallFieldCoupledT?(fieldT: number): void;
   getLorentzSledVms?(): number;
   getLorentzCurrentA?(): number;
   getLorentzFieldT?(): number;

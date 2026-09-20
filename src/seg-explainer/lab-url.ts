@@ -7,7 +7,7 @@
  * tour unless the device has one of its own.
  */
 
-import type { SEGTourPlayer } from './seg-tour-player';
+import { LAB_TOURS, type LabTourKey, type SEGTourPlayer } from './seg-tour-player';
 
 export const LAB_URL_VERSION = 1;
 
@@ -86,17 +86,25 @@ export function decodeLabHash(hash: string = typeof location !== 'undefined' ? l
 }
 
 /**
- * Devices with their own guided tour. Anything not listed shares the SEG tour,
- * which is also the fallback when the device's own player has not initialised.
+ * Devices with their own guided tour, derived from the one tour registry in
+ * `seg-tour-player.ts` — a new script does not need editing here. Anything not
+ * listed shares the SEG tour, which is also the fallback when the device's own
+ * player has not initialised.
  */
-const TOUR_BY_MODE: Record<string, 'vdgTour' | 'lorentzTour'> = {
-  vdg: 'vdgTour',
-  'lorentz-sled': 'lorentzTour'
-};
+const TOUR_BY_MODE: Record<string, LabTourKey> = Object.fromEntries(
+  LAB_TOURS.filter((t) => t.mode).map((t) => [t.mode as string, t.key])
+);
+
+/** Every tour handle currently on `window`, in registry order. */
+function livePlayers(): SEGTourPlayer[] {
+  const w = window as Window & Partial<Record<LabTourKey, SEGTourPlayer>>;
+  return LAB_TOURS.map((t) => w[t.key]).filter((p): p is SEGTourPlayer => !!p);
+}
 
 function tourForMode(mode?: string): SEGTourPlayer | null {
   const key = mode ? TOUR_BY_MODE[mode] : undefined;
-  return (key && window[key]) || window.segTour || null;
+  const w = window as Window & Partial<Record<LabTourKey, SEGTourPlayer>>;
+  return (key && w[key]) || window.segTour || null;
 }
 
 /**
@@ -205,8 +213,7 @@ export function captureLabState(): LabHashOptions {
   const sled = v?.devices?.['lorentz-sled']?.physicsState || v?.devices?.['lorentz-sled']?.physics;
   // Capture whichever tour is actually running, so a shared link reopens on the
   // same step of the same device tour rather than always the SEG one.
-  const activeTour = [window.segTour, window.vdgTour, window.lorentzTour]
-    .find((t) => t?.playing) ?? window.segTour;
+  const activeTour = livePlayers().find((t) => t.playing) ?? window.segTour;
   return {
     mode: v?.currentView === 'overview' ? 'overview' : (v?.currentView || 'seg'),
     layout: v?.getSEGLayoutPreset?.() ?? v?.segLayoutPreset ?? 'searl',

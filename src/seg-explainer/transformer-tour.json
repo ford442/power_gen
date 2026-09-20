@@ -1,0 +1,86 @@
+{
+  "tourVersion": 1,
+  "id": "transformer-intro",
+  "title": "Mutual Induction Tour",
+  "description": "Guided walkthrough of the primary current, the shared core flux, the turns ratio, and what the coupling coefficient k costs you.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 6,
+      "view": "transformer",
+      "cameraOffset": [0, 2.6, 7],
+      "cameraTargetY": 0.2,
+      "title": "Two coils that never touch",
+      "body": "Primary and secondary windings sit on opposite limbs of one laminated core. No wire runs between them — everything that crosses does so as magnetic flux. This is the textbook two-winding model, an ODE in the two loop currents, not a field solve.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "primary",
+      "durationSec": 8,
+      "view": "transformer",
+      "cameraOffset": [-2.2, 1.4, 3.4],
+      "cameraTargetY": 0.2,
+      "title": "Step 1 — the primary current I_p",
+      "body": "The drive slider sets the primary supply. Current I_p in the left winding is what the whole device runs on; the winding glow tracks it. Raise the drive and watch V_p swing — the primary is an inductor with resistance, so I_p lags the applied voltage rather than following it instantly.",
+      "highlights": ["xfmr-primary"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "primary-current"
+    },
+    {
+      "id": "flux",
+      "durationSec": 9,
+      "view": "transformer",
+      "cameraOffset": [0, 2.8, 2.6],
+      "cameraTargetY": 0.4,
+      "title": "Step 2 — flux in the core",
+      "body": "I_p magnetises the steel limbs, and the flux runs around the closed core to the other side. The core glow is the normalised flux. Only a *changing* flux induces anything, which is why the drive here is AC: hold the current still and the secondary goes dead.",
+      "highlights": ["xfmr-core"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "mutual-inductance"
+    },
+    {
+      "id": "secondary",
+      "durationSec": 9,
+      "view": "transformer",
+      "cameraOffset": [2.2, 1.4, 3.4],
+      "cameraTargetY": 0.2,
+      "title": "Step 3 — the secondary and the turns ratio",
+      "body": "The changing flux drives an EMF in the right-hand winding, and the load resistor turns it into current I_s. V_s / V_p follows the turns ratio: more turns buys voltage and costs current. Power out never exceeds power in — this model conserves it, minus the resistive losses it does carry.",
+      "highlights": ["xfmr-secondary"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "turns-ratio"
+    },
+    {
+      "id": "leakage",
+      "durationSec": 9,
+      "view": "transformer",
+      "cameraOffset": [0, 1.8, 4.0],
+      "cameraTargetY": 0.2,
+      "title": "Step 4 — coupling k, and leakage",
+      "body": "M = k·√(L_p·L_s): the coupling coefficient k says what fraction of the primary's flux actually reaches the secondary. Press Leakage to drop k and watch V_s fall while I_p does not — the missing flux closes through air instead of the core. That gap is the difference between the ideal transformer and a real one.",
+      "highlights": ["xfmr-coupling"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "coupling-coefficient"
+    },
+    {
+      "id": "honesty",
+      "durationSec": 7,
+      "view": "transformer",
+      "cameraOffset": [0, 3.2, 6.5],
+      "cameraTargetY": 0.2,
+      "title": "What this model is not",
+      "body": "Two coupled loop equations with a scalar k. No magnetic saturation, no hysteresis loop, no eddy currents, no winding geometry, no FEM anywhere. k is a dial you turn, not a number computed from the core — a teaching model of mutual induction, not a transformer design tool.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

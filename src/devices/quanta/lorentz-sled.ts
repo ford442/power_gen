@@ -26,10 +26,13 @@
  * rail length — the ODE state is continuous, only the *reported* position
  * folds back so the classroom track reads as a loop.
  *
- * B is a local bench parameter (a slider in the device panel), not a live
- * coupling to `halbach-viz` / `mhd` field estimates — the same
- * self-contained choice `hall` makes, documented rather than implied
- * (see docs/DEVICE_GALLERY.md).
+ * B is a local bench parameter by default (a slider in the device panel), the
+ * same isolated-classroom choice `hall` makes. Under `?fieldCoupling=1` the
+ * `FieldNetwork` overwrites `lorentzFieldT` each frame with `mhd`'s channel
+ * field estimate, clamped to `LORENTZ.fieldTMax`, and the slider's own value is
+ * parked in `lorentzFieldLocalT` so turning coupling back off restores it
+ * verbatim. The coupled number is one simulated estimate feeding another — not
+ * Maxwell, not metrology (ADR-0011, docs/DEVICE_GALLERY.md).
  *
  * Shader/wasm indices: physics/devices.json (codegen) — do not hardcode.
  *
@@ -67,14 +70,23 @@ const G = PHYSICAL_CONSTANTS.G;
 export const LORENTZ = LORENTZ_SLED;
 export { LORENTZ_SLED };
 
-/** Clamp + apply the bench field slider (T). Mirrors setLorentzFieldT in the C++ plant. */
+/**
+ * Clamp + apply the bench field slider (T). Mirrors setLorentzFieldT in the C++
+ * plant. Always records the local setpoint; only writes the live `lorentzFieldT`
+ * when nothing is coupling it, so a slider move under `?fieldCoupling=1` is
+ * remembered for when coupling is switched back off rather than fighting the
+ * `FieldNetwork` for a frame.
+ */
 export function setLorentzFieldT(
   state: Partial<DevicePhysicsState> | null | undefined,
-  fieldT: number
+  fieldT: number,
+  opts: { coupled?: boolean } = {}
 ): void {
   if (!state) return;
   const t = Number.isFinite(fieldT) ? fieldT : LORENTZ.fieldTDefault;
-  state.lorentzFieldT = Math.max(0, Math.min(LORENTZ.fieldTMax, t));
+  const clamped = Math.max(0, Math.min(LORENTZ.fieldTMax, t));
+  state.lorentzFieldLocalT = clamped;
+  if (!opts.coupled) state.lorentzFieldT = clamped;
 }
 
 const SIN45 = Math.SQRT1_2;
@@ -207,6 +219,7 @@ export function createLorentzSledPhysicsState(): Partial<DevicePhysicsState> {
     lorentzPositionM: 0,
     lorentzForceN: 0,
     lorentzFieldT: LORENTZ.fieldTDefault,
+    lorentzFieldLocalT: LORENTZ.fieldTDefault,
     energyLevel: 0
   };
 }

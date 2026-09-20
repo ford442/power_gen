@@ -29,17 +29,33 @@ Tour drives:
 
 ## Device tours
 
-Two devices ship their own script alongside the SEG tour, played by the same
-`SEGTourPlayer` from the **SEG Learning** sidebar:
+Five devices ship their own script alongside the SEG tour, played by the same
+`SEGTourPlayer` from the **SEG Learning** sidebar. Every script, its window
+hooks, its `#lab=` mapping and its sidebar button come from the one registry
+`LAB_TOURS` in `seg-tour-player.ts` — adding a tour is one row there plus the
+JSON, not four edits:
 
 | Tour | Script | Steps | API |
 |------|--------|-------|-----|
 | Van de Graaff | `src/seg-explainer/vdg-tour.json` | 5 | `window.startVdgTour()`, `window.goToVdgStep(id)` |
 | Lorentz rail sled | `src/seg-explainer/lorentz-sled-tour.json` | 6 (current → field → force → motion, then what the model is not) | `window.startLorentzTour()`, `window.goToLorentzStep(id)` |
+| Hall-effect bench | `src/seg-explainer/hall-tour.json` | 6 (I → B, local vs coupled → V_H = I·B/(n·e·t) → carrier density, then what the model is not) | `window.startHallTour()`, `window.goToHallStep(id)` |
+| Mutual induction | `src/seg-explainer/transformer-tour.json` | 6 (I_p → core flux → turns ratio → coupling k and leakage, then what the model is not) | `window.startTransformerTour()`, `window.goToTransformerStep(id)` |
+| Kelvin water dropper | `src/seg-explainer/kelvin-tour.json` | 6 (induction charging → positive feedback → what caps the climb → breakdown, then what the model is not) | `window.startKelvinTour()`, `window.goToKelvinStep(id)` |
 
-`#lab=…;tour=1` plays the tour that belongs to `mode` (`TOUR_BY_MODE` in
-`lab-url.js`), falling back to the SEG tour; `shareLabLink()` captures whichever
-tour is actually running, so a link reopens on the same step of the same tour.
+`#lab=…;tour=1` plays the tour that belongs to `mode` (`TOUR_BY_MODE`, derived
+from `LAB_TOURS`), falling back to the SEG tour; `shareLabLink()` captures
+whichever tour is actually running, so a link reopens on the same step of the
+same tour.
+
+### Step camera
+
+A step frames its device with either key:
+
+| Key | Meaning |
+|-----|---------|
+| `camera: { position, target }` | Absolute world keyframe — used by the older SEG-centric scripts written against fixed positions |
+| `cameraOffset: [x, y, z]` (+ optional `cameraTargetY`) | Offset from the step's focused device origin — **preferred**, since most Quanta benches are placed by `applyAutoLayout` and have no stable absolute position |
 
 ## Shareable lab URL
 

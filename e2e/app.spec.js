@@ -732,6 +732,229 @@ test.describe('Hardware twin mock', () => {
   });
 });
 
+// Optional cross-device B bus (ADR-0011) — off by default, and honest about
+// being a simulated estimate when it is on.
+test.describe('Lab field coupling', () => {
+
+  test('default boot leaves Hall / Lorentz B local (isolated classroom)', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    await page.evaluate(() => {
+      window.segOperator?.start?.();
+      window.setMode('hall');
+    });
+
+    await waitForEval(page,
+      () => {
+        const d = window.multiVisualizer?.devices ?? {};
+        const ph = d.hall?.physicsState ?? d.hall?.physics;
+        return (ph?.hallFieldT ?? 0) > 0;
+      },
+      { timeout: 15_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const v = window.multiVisualizer;
+      const d = v?.devices ?? {};
+      const ph = (id) => d[id]?.physicsState ?? d[id]?.physics ?? null;
+      return {
+        coupling: v?.fieldNetwork?.getSnapshot?.()?.couplingEnabled,
+        hallCoupled: ph('hall')?.hallFieldCoupledT ?? null,
+        sledB: ph('lorentz-sled')?.lorentzFieldT,
+        sledLocal: ph('lorentz-sled')?.lorentzFieldLocalT,
+        discMode: document.getElementById('fieldCouplingDisclaimer')?.dataset.mode,
+        hallSource: document.getElementById('hallFieldSource')?.textContent ?? ''
+      };
+    });
+
+    expect(snap.coupling).toBe(false);
+    // Nothing coupling the bench: the plant is on its own drive-derived rule.
+    expect(snap.hallCoupled).toBe(null);
+    expect(snap.sledB).toBeCloseTo(snap.sledLocal, 5);
+    expect(snap.discMode).toBe('local');
+    expect(snap.hallSource).toMatch(/local/i);
+  });
+
+  test('fieldCoupling=1 tracks source estimates within the destination clamp', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'fieldCoupling=1');
+
+    await page.evaluate(() => {
+      window.segOperator?.start?.();
+      window.setMode('hall');
+    });
+
+    await waitForEval(page,
+      () => {
+        const links = window.multiVisualizer?.fieldNetwork?.getSnapshot?.()?.links ?? {};
+        return links['halbach-viz->hall']?.active === true
+          && links['mhd->lorentz-sled']?.active === true;
+      },
+      { timeout: 15_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const v = window.multiVisualizer;
+      const d = v?.devices ?? {};
+      const ph = (id) => d[id]?.physicsState ?? d[id]?.physics ?? null;
+      const links = v?.fieldNetwork?.getSnapshot?.()?.links ?? {};
+      return {
+        links,
+        hallB: ph('hall')?.hallFieldT,
+        hallCoupled: ph('hall')?.hallFieldCoupledT,
+        halbachPeak: ph('halbach-viz')?.halbachPeakBT,
+        sledB: ph('lorentz-sled')?.lorentzFieldT,
+        sledLocal: ph('lorentz-sled')?.lorentzFieldLocalT,
+        mhdB: ph('mhd')?.mhdBFieldT,
+        hub: window.telemetryHub.getSnapshot().fieldNetwork,
+        disc: document.getElementById('fieldCouplingDisclaimer')?.textContent ?? '',
+        discMode: document.getElementById('fieldCouplingDisclaimer')?.dataset.mode,
+        hallSource: document.getElementById('hallFieldSource')?.textContent ?? '',
+        sledSource: document.getElementById('lorentzFieldSource')?.textContent ?? ''
+      };
+    });
+
+    const hallLink = snap.links['halbach-viz->hall'];
+    const sledLink = snap.links['mhd->lorentz-sled'];
+
+    // Hall B is the Halbach peak, clamped to the bench's own catalog maximum.
+    expect(hallLink.sourceT).toBeCloseTo(snap.halbachPeak, 5);
+    expect(snap.hallCoupled).toBeCloseTo(hallLink.appliedT, 5);
+    expect(snap.hallB).toBeGreaterThan(0);
+    expect(snap.hallB).toBeLessThanOrEqual(0.65 + 1e-6);
+    expect(hallLink.appliedT).toBeCloseTo(Math.min(snap.halbachPeak, 0.65), 5);
+
+    // Lorentz B tracks the MHD channel field, and the local slider setpoint is
+    // parked rather than overwritten.
+    expect(sledLink.sourceT).toBeCloseTo(snap.mhdB, 5);
+    expect(snap.sledB).toBeCloseTo(Math.min(snap.mhdB, 1.2), 5);
+    expect(snap.sledLocal).toBeGreaterThan(0);
+    expect(snap.sledLocal).not.toBeCloseTo(snap.sledB, 3);
+
+    // Hub carries the same bus the UI is showing.
+    expect(snap.hub?.couplingEnabled).toBe(true);
+    expect(snap.hub?.links?.['halbach-viz->hall']?.appliedT).toBeCloseTo(hallLink.appliedT, 5);
+
+    expect(snap.discMode).toBe('coupled');
+    expect(snap.disc).toMatch(/not Maxwell/i);
+    expect(snap.disc).toMatch(/not metrology/i);
+    expect(snap.hallSource).toMatch(/halbach-viz/);
+    expect(snap.hallSource).toMatch(/simulated, not metrology/i);
+    expect(snap.sledSource).toMatch(/mhd/);
+  });
+
+  test('field coupling can be toggled back off, restoring the local bench B', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'fieldCoupling=1');
+
+    await page.evaluate(() => {
+      window.segOperator?.start?.();
+      window.setMode('lorentz-sled');
+    });
+    await waitForEval(page,
+      () => window.multiVisualizer?.fieldNetwork?.getLinkForDestination?.('lorentz-sled')?.active === true,
+      { timeout: 15_000 }
+    );
+
+    const local = await page.evaluate(() => {
+      const d = window.multiVisualizer?.devices ?? {};
+      return (d['lorentz-sled']?.physicsState ?? d['lorentz-sled']?.physics)?.lorentzFieldLocalT;
+    });
+
+    await page.evaluate(() => window.setFieldCoupling(false));
+    await waitForEval(page,
+      () => window.multiVisualizer?.fieldNetwork?.getLinkForDestination?.('lorentz-sled')?.active === false,
+      { timeout: 10_000 }
+    );
+
+    const after = await page.evaluate(() => {
+      const d = window.multiVisualizer?.devices ?? {};
+      const ph = d['lorentz-sled']?.physicsState ?? d['lorentz-sled']?.physics;
+      const slider = document.getElementById('lorentzFieldSlider');
+      return {
+        B: ph?.lorentzFieldT,
+        sliderDisabled: slider?.disabled,
+        discMode: document.getElementById('fieldCouplingDisclaimer')?.dataset.mode
+      };
+    });
+
+    expect(after.B).toBeCloseTo(local, 5);
+    expect(after.sliderDisabled).toBe(false);
+    expect(after.discMode).toBe('local');
+  });
+
+});
+
+// Explainer tours that ship their own script (LAB_TOURS registry).
+test.describe('Device explainer tours', () => {
+
+  for (const { mode, startFn, key, firstTitle } of [
+    { mode: 'hall', startFn: 'startHallTour', key: 'hallTour', firstTitle: /strip, a current/i },
+    { mode: 'transformer', startFn: 'startTransformerTour', key: 'transformerTour', firstTitle: /never touch/i },
+    { mode: 'kelvin', startFn: 'startKelvinTour', key: 'kelvinTour', firstTitle: /rising volts/i }
+  ]) {
+    test(`${mode} tour plays via window.${startFn}() and focuses its device`, async ({ page }) => {
+      const { pageErrors } = trackPageErrors(page);
+      await gotoWebGL2(page);
+
+      // waitForEval serializes its predicate with no closure scope, so the key
+      // is stashed on window for the poll to read back.
+      await page.evaluate(([fn, k]) => {
+        window.__tourUnderTest = k;
+        window[fn]();
+      }, [startFn, key]);
+
+      await waitForEval(page,
+        () => window[window.__tourUnderTest]?.playing === true,
+        { timeout: 15_000 }
+      );
+
+      const snap = await page.evaluate((k) => {
+        const t = window[k];
+        const overlay = [...document.querySelectorAll('#seg-tour-overlay')]
+          .find((el) => el.style.display !== 'none');
+        return {
+          playing: t?.playing,
+          steps: t?.steps?.length ?? 0,
+          view: window.multiVisualizer?.currentView,
+          title: overlay?.firstChild?.textContent ?? ''
+        };
+      }, key);
+
+      expect(snap.playing).toBe(true);
+      expect(snap.steps).toBeGreaterThanOrEqual(4);
+      expect(snap.view).toBe(mode);
+      expect(snap.title).toMatch(firstTitle);
+      expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+    });
+  }
+
+  test('#lab= share link reopens a device tour on its step', async ({ page }) => {
+    trackPageErrors(page);
+    // Navigated directly (not via gotoWebGL2 + a hash append): a hash-only
+    // change would not reload, and the lab hash is applied at boot.
+    await page.goto('/?renderer=webgl2#lab=v1;mode=hall;tour=1;step=2', {
+      waitUntil: 'domcontentloaded',
+      timeout: 60_000
+    });
+
+    await waitForEval(page,
+      () => window.hallTour?.playing === true && window.hallTour?.stepIndex === 2,
+      { timeout: 60_000 }
+    );
+
+    const snap = await page.evaluate(() => ({
+      playing: window.hallTour?.playing,
+      step: window.hallTour?.stepIndex,
+      view: window.multiVisualizer?.currentView
+    }));
+    expect(snap.playing).toBe(true);
+    expect(snap.step).toBe(2);
+    expect(snap.view).toBe('hall');
+  });
+});
+
 test.describe('WebGPU required boot', () => {
 
   test('default boot hard-fails without opening WebGL2', async ({ page }) => {

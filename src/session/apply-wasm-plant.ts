@@ -86,6 +86,14 @@ export interface WasmModePlant {
   positionM?: number;
 }
 
+/**
+ * True when field coupling is on for `hall` but the loaded `sim_core.wasm`
+ * predates `setHallFieldCoupledT` (the artefact is committed by CI on main, so
+ * a branch checkout can lag the C++ source). The JS plant then keeps the frame.
+ */
+let _hallCouplingIgnoredByWasm = false;
+let _warnedHallCouplingUnsupported = false;
+
 export function devicePhysics(device: SessionDevice | undefined | null): DevicePhysicsState | null {
   return device?.physicsState ?? device?.physics ?? null;
 }
@@ -233,6 +241,10 @@ function applyPlantToPhysics(
     return;
   }
   if (focus === 'hall' && plant.mode === 'hall') {
+    // A binary too old for setHallFieldCoupledT would report its own
+    // drive-derived B while the panel names a coupled source — a visible lie.
+    // Leave the frame to the JS plant instead, which does honor the setpoint.
+    if (_hallCouplingIgnoredByWasm) return;
     const hall = devicePhysics(devices.hall);
     if (!hall) return;
     hall.hallVoltage = plant.voltage ?? 0;
@@ -265,10 +277,28 @@ export function syncWasmFocusKnobs(devices: SessionDeviceMap, focus: string): vo
     segWasm.setTransformerLeakage?.(leak);
   }
   if (focus === 'hall') {
-    const metal = devicePhysics(devices.hall)?.hallCarrierType === 'metal';
-    segWasm.setHallCarrierMetal?.(metal);
+    const hall = devicePhysics(devices.hall);
+    segWasm.setHallCarrierMetal?.(hall?.hallCarrierType === 'metal');
+    // FieldNetwork already wrote this (null when uncoupled); a negative T tells
+    // the C++ plant to fall back to its own drive-derived B (ADR-0011).
+    const coupledT = hall?.hallFieldCoupledT;
+    const wantsCoupling = typeof coupledT === 'number' && Number.isFinite(coupledT);
+    const accepted = segWasm.setHallFieldCoupledT?.(wantsCoupling ? coupledT : -1) ?? false;
+    _hallCouplingIgnoredByWasm = wantsCoupling && !accepted;
+    if (_hallCouplingIgnoredByWasm && !_warnedHallCouplingUnsupported) {
+      _warnedHallCouplingUnsupported = true;
+      console.warn(
+        '[LabSession] sim_core.wasm predates setHallFieldCoupledT — keeping the JS Hall '
+        + 'plant while field coupling is on, so the reported B matches the coupled setpoint. '
+        + 'Rebuild the WASM artefact (npm run wasm:build) to run the C++ plant coupled.'
+      );
+    }
+  } else {
+    _hallCouplingIgnoredByWasm = false;
   }
   if (focus === 'lorentz-sled') {
+    // Local bench slider or FieldNetwork setpoint — both land in lorentzFieldT,
+    // so the C++ plant and the JS fallback step from the same B either way.
     const fieldT = devicePhysics(devices['lorentz-sled'])?.lorentzFieldT;
     if (fieldT != null) segWasm.setLorentzFieldT?.(fieldT);
   }

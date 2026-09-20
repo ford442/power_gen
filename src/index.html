@@ -101,6 +101,7 @@
         <h3>Carrier density</h3>
         <button type="button" class="layout-btn active" data-hall-carrier="semiconductor" onclick="setHallCarrierType('semiconductor')">Semiconductor</button>
         <button type="button" class="layout-btn" data-hall-carrier="metal" onclick="setHallCarrierType('metal')">Metal</button>
+        <div id="hallFieldSource" data-coupled="false" style="font-size:0.66rem;color:#8cf;margin-top:6px;line-height:1.4;">B source: local drive control</div>
         <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Lumped V_H = IB/(net) model — not a calibrated metrology instrument. Metal's high carrier density gives a much smaller Hall voltage.</div>
       </div>
 
@@ -113,7 +114,18 @@
                  aria-label="Lorentz sled transverse bench field"
                  oninput="setLorentzFieldT(this.valueAsNumber)">
         </div>
-        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Educational Lorentz-force model (F = I&nbsp;&#8467;&nbsp;&times;&nbsp;B on a sliding armature, with friction and back-EMF) — a low-voltage bench rail motor, <strong>not a railgun design tool</strong>. B is a local bench parameter, not coupled to the Halbach or MHD field estimates.</div>
+        <div id="lorentzFieldSource" data-coupled="false" style="font-size:0.66rem;color:#8cf;margin-top:6px;line-height:1.4;">Source: local bench slider</div>
+        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Educational Lorentz-force model (F = I&nbsp;&#8467;&nbsp;&times;&nbsp;B on a sliding armature, with friction and back-EMF) — a low-voltage bench rail motor, <strong>not a railgun design tool</strong>. B is a local bench parameter by default; with <strong>Field coupling</strong> on it follows the MHD channel's simulated B estimate instead — still simulated, not metrology.</div>
+      </div>
+
+      <!-- Lab field bus (ADR-0011) -->
+      <div class="panel-section" id="field-coupling-section">
+        <h3>Lab field coupling</h3>
+        <label class="ctrl-row" style="gap:6px;align-items:center;cursor:pointer;font-size:0.7rem;">
+          <input type="checkbox" id="fieldCouplingToggle" aria-label="Couple destination B to source device estimates">
+          <span>Couple B across devices (Halbach&nbsp;&rarr;&nbsp;Hall, MHD&nbsp;&rarr;&nbsp;sled)</span>
+        </label>
+        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Off by default — each bench keeps its own local B. On, the destination B is the source device's <em>simulated</em> estimate, clamped to the destination's catalog range. Not Maxwell, not metrology.</div>
       </div>
 
       <!-- SEG roller/stator layout preset -->
@@ -179,6 +191,9 @@
           <button class="ctrl-btn" id="explainerTourBtn" type="button" style="font-size:0.68rem;">▶ Guided Tour</button>
           <button class="ctrl-btn" id="explainerVdgTourBtn" type="button" style="font-size:0.68rem;">▶ Van de Graaff Tour</button>
           <button class="ctrl-btn" id="explainerLorentzTourBtn" type="button" style="font-size:0.68rem;">▶ Lorentz Sled Tour</button>
+          <button class="ctrl-btn" id="explainerHallTourBtn" type="button" style="font-size:0.68rem;">▶ Hall-Effect Tour</button>
+          <button class="ctrl-btn" id="explainerTransformerTourBtn" type="button" style="font-size:0.68rem;">▶ Mutual Induction Tour</button>
+          <button class="ctrl-btn" id="explainerKelvinTourBtn" type="button" style="font-size:0.68rem;">▶ Kelvin Dropper Tour</button>
           <button class="ctrl-btn" id="explainerShareBtn" type="button" style="font-size:0.68rem;">⎘ Lab Link</button>
         </div>
         <div class="slider-row">
@@ -365,6 +380,9 @@
   <!-- ── Footer ─────────────────────────────────────────── -->
   <div id="energyNetworkDisclaimer" aria-live="polite">
     Energy pipes: visual only — glow is not measured watts
+  </div>
+  <div id="fieldCouplingDisclaimer" data-mode="local" aria-live="polite">
+    Field coupling: off — Hall and rail-sled B are local bench parameters
   </div>
   <div id="footer">
     <span id="stats">Mode: <span id="modeFooter">SEG</span></span>

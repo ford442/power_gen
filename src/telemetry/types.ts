@@ -98,6 +98,28 @@ export interface EnergyNetworkTelemetry {
   residualW: number;
 }
 
+/**
+ * Shared lab **field** bus snapshot (ADR-0011). One entry per coupling edge,
+ * keyed `from->to`. Every value is a simulated estimate propagated between
+ * plants — not Maxwell, not metrology.
+ */
+export interface FieldCouplingLinkTelemetry {
+  from: string;
+  to: string;
+  label: string;
+  /** Raw source estimate (T) before the destination clamp. */
+  sourceT: number;
+  /** B in effect on the destination plant (T). */
+  appliedT: number;
+  clamped: boolean;
+  active: boolean;
+}
+
+export interface FieldNetworkTelemetry {
+  couplingEnabled: boolean;
+  links: Record<string, FieldCouplingLinkTelemetry>;
+}
+
 /** Sim vs hardware residual in shadow twin mode (ADR-0005). */
 export interface HardwareShadowResidual {
   phaseErrorDeg: number;
@@ -162,6 +184,7 @@ export interface TelemetrySnapshot {
   devices: Record<string, DeviceTelemetrySnap>;
   scientific: ScientificTelemetry;
   energyNetwork: EnergyNetworkTelemetry | null;
+  fieldNetwork: FieldNetworkTelemetry | null;
   /** Null when twin disconnected / unused. */
   hardwareTwin: HardwareTwinTelemetry | null;
   meta: TelemetryMeta;
@@ -193,6 +216,8 @@ export interface PublishFrameEnergyNetwork {
   residualW: number;
   devices?: Record<string, { powerInW: number; powerOutW: number; efficiency: number }>;
 }
+
+export type PublishFrameFieldNetwork = FieldNetworkTelemetry;
 
 export type PublishFrameHardwareTwin = HardwareTwinTelemetry;
 

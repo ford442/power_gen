@@ -279,6 +279,7 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | Lighting + post look |
 | `mockHardware` | `1` | off | Hardware twin mock transport (no serial port) |
 | `energyCoupling` | `1` \| `0` | off (visual-only pipes) | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`) |
+| `fieldCoupling` | `1` \| `0` | off (local bench B) | Feed a source device's simulated **B** estimate into a destination plant (`FieldNetwork`: `halbach-viz`→`hall`, `mhd`→`lorentz-sled`), clamped to the destination's catalog range — ADR-0011. Deliberately a **separate** switch from `energyCoupling`: one toggle cannot honestly claim both watts and tesla are live |
 | `replay` | `1` | off | Show telemetry replay scrubber (load `.seg-replay.json` / CSV; plant step bypassed) |
 | `gpuChores` | `0` / `js` / `wasm` / `webgpu` | auto | Meter backend kill / force. `0` = JS goldens. Never opens a second GPU API. |
 
@@ -289,6 +290,7 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `#lab=…` hash | SEG Explainer shareable lab state — [`SEG_EXPLAINER.md`](./SEG_EXPLAINER.md) |
 | `localStorage useWasmPhysics` | Persist WASM physics toggle |
 | `localStorage seg-energy-coupling` | Persist coupled vs visual-only energy pipes |
+| `localStorage seg-field-coupling` | Persist coupled vs local cross-device **B** (ADR-0011) |
 | `localStorage heron-layout` | Persist Heron preset |
 | `localStorage seg-sim-seed` | Deterministic RNG seed for telemetry/replay |
 

@@ -110,7 +110,12 @@ export const domMethods = {
           <span>Coupled power budget (vs visual-only pipes)</span>
         </label>
         <div id="energyNetworkStatus" style="font-size: 10px; color: #888; margin-bottom: 4px;">Pipes: visual only</div>
-        <div style="font-size: 10px; color: #666;">Not calibrated metrology — education / demo only.</div>
+        <label style="display: flex; align-items: center; cursor: pointer; margin: 8px 0 6px;">
+          <input type="checkbox" id="fieldCouplingDebugToggle" style="margin-right: 8px;">
+          <span>Coupled B field (Halbach&rarr;Hall, MHD&rarr;sled)</span>
+        </label>
+        <div id="fieldNetworkStatus" style="font-size: 10px; color: #888; margin-bottom: 4px;">Field: local bench values</div>
+        <div style="font-size: 10px; color: #666;">Not calibrated metrology — education / demo only. Field coupling propagates a simulated estimate between plants; it is not a Maxwell solve.</div>
       </div>
       <div style="margin-bottom: 10px; padding: 8px; background: rgba(0,40,60,0.5); border-radius: 4px;">
         <div style="color: #8cf; font-weight: bold; margin-bottom: 6px;">C++ WASM Physics</div>
@@ -269,6 +274,41 @@ export const domMethods = {
     });
 
     this._refreshEnergyNetworkStatus = refresh;
+    this._wireFieldNetworkControls();
+  },
+
+  _wireFieldNetworkControls(this: DebugPanel): void {
+    const toggle = document.getElementById('fieldCouplingDebugToggle') as HTMLInputElement | null;
+    const statusEl = document.getElementById('fieldNetworkStatus');
+
+    const getNetwork = () => window.multiVisualizer?.fieldNetwork ?? null;
+
+    const refresh = () => {
+      const net = getNetwork();
+      const snap = net?.getSnapshot?.() ?? null;
+      const coupled = snap?.couplingEnabled ?? net?.couplingEnabled ?? false;
+      if (toggle) toggle.checked = !!coupled;
+      if (!statusEl) return;
+      const links = Object.values(snap?.links ?? {}).filter((l) => l.active);
+      if (!coupled || !links.length) {
+        statusEl.textContent = 'Field: local bench values (no cross-device B)';
+        return;
+      }
+      statusEl.textContent = links
+        .map((l) => `${l.from}\u2192${l.to} ${l.appliedT.toFixed(3)} T${l.clamped ? ' (clamped)' : ''}`)
+        .join(' · ');
+    };
+
+    refresh();
+
+    toggle?.addEventListener('change', (e) => {
+      const enabled = (e.target as HTMLInputElement).checked;
+      if (typeof window.setFieldCoupling === 'function') window.setFieldCoupling(enabled);
+      else getNetwork()?.setCouplingEnabled?.(enabled);
+      refresh();
+    });
+
+    this._refreshFieldNetworkStatus = refresh;
   },
 
   _wireWasmControls(this: DebugPanel): void {
