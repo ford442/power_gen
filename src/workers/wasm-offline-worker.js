@@ -1,7 +1,7 @@
 /**
  * WASM offline SEG telemetry export (worker thread).
  */
-import { runOfflineSegExport } from '../wasm/offline-runner.js';
+import { runOfflineSegExport } from '../wasm/offline-runner';
 
 self.onmessage = async (e) => {
   try {
