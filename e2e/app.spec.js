@@ -930,6 +930,41 @@ test.describe('Device explainer tours', () => {
     });
   }
 
+  test('Kelvin tour glossary is Kelvin-specific, not Van de Graaff text', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    // Step 3 (0-based) is the voltage-ceiling step, step 4 the breakdown step.
+    // Both previously reused the VdG sphere/belt entries, which read as nonsense
+    // on a dropper that has buckets and a gap.
+    await page.evaluate(() => {
+      window.startKelvinTour();
+      window.kelvinTour.goToStep(3);
+    });
+    await waitForEval(page, () => window.kelvinTour?.stepIndex === 3, { timeout: 15_000 });
+
+    const ceiling = await page.evaluate(() => {
+      const overlay = [...document.querySelectorAll('#seg-tour-overlay')]
+        .find((el) => el.style.display !== 'none');
+      return overlay?.querySelector('div[style*="border-left"]')?.textContent ?? '';
+    });
+
+    expect(ceiling).toMatch(/Kelvin/i);
+    expect(ceiling).not.toMatch(/sphere|belt/i);
+
+    await page.evaluate(() => window.kelvinTour.goToStep(4));
+    await waitForEval(page, () => window.kelvinTour?.stepIndex === 4, { timeout: 15_000 });
+
+    const breakdown = await page.evaluate(() => {
+      const overlay = [...document.querySelectorAll('#seg-tour-overlay')]
+        .find((el) => el.style.display !== 'none');
+      return overlay?.querySelector('div[style*="border-left"]')?.textContent ?? '';
+    });
+
+    expect(breakdown).toMatch(/bucket/i);
+    expect(breakdown).not.toMatch(/sphere|belt/i);
+  });
+
   test('#lab= share link reopens a device tour on its step', async ({ page }) => {
     trackPageErrors(page);
     // Navigated directly (not via gotoWebGL2 + a hash append): a hash-only

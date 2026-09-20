@@ -84,6 +84,7 @@ export const FIELD_COUPLING_EDGES: FieldCouplingEdge[] = [
   }
 ];
 
+/** Stable snapshot key for one edge, e.g. `mhd->lorentz-sled`. */
 export function fieldLinkKey(from: string, to: string): string {
   return `${from}->${to}`;
 }
@@ -117,6 +118,7 @@ export interface FieldNetworkUpdateInput {
   devicesEnabled: Record<string, boolean>;
 }
 
+/** `?fieldCoupling=1|0`, or null when the param is absent so storage decides. */
 function readFieldCouplingFromUrl(): boolean | null {
   if (typeof location === 'undefined') return null;
   const v = new URLSearchParams(location.search).get('fieldCoupling');
@@ -125,6 +127,7 @@ function readFieldCouplingFromUrl(): boolean | null {
   return null;
 }
 
+/** Effective preference: URL wins over stored, and both default to off. */
 export function readFieldCouplingPref(): boolean {
   const fromUrl = readFieldCouplingFromUrl();
   if (fromUrl !== null) return fromUrl;
@@ -136,6 +139,7 @@ export function readFieldCouplingPref(): boolean {
   }
 }
 
+/** Remember the toggle across reloads; a storage failure is never fatal. */
 export function persistFieldCouplingPref(enabled: boolean): void {
   if (typeof localStorage === 'undefined') return;
   try {
@@ -145,10 +149,12 @@ export function persistFieldCouplingPref(enabled: boolean): void {
   }
 }
 
+/** WebGPU exposes `physicsState`, WebGL2 aliases it as `physics`. */
 function physicsOf(dev: FieldNetworkDeviceInput | null | undefined): Partial<DevicePhysicsState> | null {
   return dev?.physicsState ?? dev?.physics ?? null;
 }
 
+/** Read a field key only when it holds a usable number (never NaN/Infinity). */
 function readNumber(state: Partial<DevicePhysicsState> | null, key: FieldKey): number | null {
   const v = state?.[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
@@ -164,10 +170,12 @@ export class FieldNetwork {
 
   private readonly _links = new Map<string, FieldCouplingReading>();
 
+  /** Defaults to the stored/URL preference unless a caller forces the mode. */
   constructor(couplingEnabled?: boolean) {
     this.couplingEnabled = couplingEnabled ?? readFieldCouplingPref();
   }
 
+  /** Flip the bus, persist the choice, and repaint the overview disclaimer. */
   setCouplingEnabled(enabled: boolean): void {
     this.couplingEnabled = !!enabled;
     persistFieldCouplingPref(this.couplingEnabled);
@@ -217,6 +225,7 @@ export class FieldNetwork {
     return this.getSnapshot();
   }
 
+  /** Last computed reading for one edge, or null if it has never run. */
   getLink(from: string, to: string): FieldCouplingReading | null {
     return this._links.get(fieldLinkKey(from, to)) ?? null;
   }
@@ -229,6 +238,7 @@ export class FieldNetwork {
     return null;
   }
 
+  /** Plain-object copy for the telemetry hub and the UI. */
   getSnapshot(): FieldNetworkSnapshot {
     return {
       couplingEnabled: this.couplingEnabled,
@@ -263,6 +273,7 @@ export function syncFieldCouplingDisclaimer(
   el.dataset.activeLinks = String(links.length);
 }
 
+/** Paint the overview line once at boot, before the first frame publishes. */
 export function initFieldCouplingDisclaimer(): void {
   syncFieldCouplingDisclaimer(readFieldCouplingPref());
 }

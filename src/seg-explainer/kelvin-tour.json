@@ -54,7 +54,7 @@
       "highlights": ["kelvin-stream"],
       "showDiagram": false,
       "showAnnotations": true,
-      "glossaryTerm": "sphere-capacitance"
+      "glossaryTerm": "kelvin-ceiling"
     },
     {
       "id": "spark",
@@ -67,7 +67,7 @@
       "highlights": ["kelvin-spark"],
       "showDiagram": false,
       "showAnnotations": true,
-      "glossaryTerm": "corona"
+      "glossaryTerm": "kelvin-breakdown"
     },
     {
       "id": "honesty",

@@ -244,7 +244,15 @@ function applyPlantToPhysics(
     // A binary too old for setHallFieldCoupledT would report its own
     // drive-derived B while the panel names a coupled source — a visible lie.
     // Leave the frame to the JS plant instead, which does honor the setpoint.
-    if (_hallCouplingIgnoredByWasm) return;
+    // Clear the ownership flag on the way out rather than relying on a backend
+    // to clear it later: WebGL2 clears it for every unculled device, WebGPU only
+    // when WASM actually owned the step, so a stale `true` would cost the JS
+    // fallback its first frame.
+    if (_hallCouplingIgnoredByWasm) {
+      const stale = devicePhysics(devices.hall);
+      if (stale) stale._wasmPlantActive = false;
+      return;
+    }
     const hall = devicePhysics(devices.hall);
     if (!hall) return;
     hall.hallVoltage = plant.voltage ?? 0;

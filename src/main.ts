@@ -120,8 +120,11 @@ function syncFieldCouplingUI(): void {
   const snap = net?.getSnapshot?.() ?? null;
   const coupled = !!(snap?.couplingEnabled ?? net?.couplingEnabled);
 
+  // `coupled` is authoritative and synchronous; a cached link still reads
+  // active until the next frame's FieldNetwork.update(), so never present a
+  // destination as coupled once the bus itself is off.
   const sledLink = net?.getLinkForDestination?.('lorentz-sled') ?? null;
-  const sledActive = !!sledLink?.active;
+  const sledActive = coupled && !!sledLink?.active;
   const slider = document.getElementById('lorentzFieldSlider') as HTMLInputElement | null;
   const readout = document.getElementById('lorentzFieldValue');
   const sledSource = document.getElementById('lorentzFieldSource');
@@ -143,7 +146,7 @@ function syncFieldCouplingUI(): void {
   }
 
   const hallLink = net?.getLinkForDestination?.('hall') ?? null;
-  const hallActive = !!hallLink?.active;
+  const hallActive = coupled && !!hallLink?.active;
   const hallSource = document.getElementById('hallFieldSource');
   if (hallSource) {
     hallSource.textContent = hallActive && hallLink
