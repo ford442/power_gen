@@ -128,9 +128,29 @@ export class SEGTourPlayer {
   }
 
   /**
+   * Stop any other registered player that is still running.
+   *
+   * Every player shares the camera, the highlight, the body class and the
+   * `#lab=` hash, so two live RAF loops fight over all of them and stack two
+   * overlays. The explainer buttons already enforce this, but they are not the
+   * only entry point — `window.startHallTour()` and friends, `applyLabState()`
+   * replaying a share link, and the `window.startSEGTour` reassignment in
+   * main.ts all reach a player directly. Enforcing it here covers them all.
+   */
+  private _stopOtherTours(): void {
+    if (typeof window === 'undefined') return;
+    const w = window as unknown as WindowWithTours;
+    for (const def of LAB_TOURS) {
+      const other = w[def.key] as SEGTourPlayer | undefined;
+      if (other && other !== this && other.playing) other.stop();
+    }
+  }
+
+  /**
    * Jump to a tour step by index (starts tour if not already playing).
    */
   goToStep(stepIndex: number): void {
+    this._stopOtherTours();
     this.stepIndex = Math.max(0, Math.min(stepIndex, this.steps.length - 1));
     this.playing = true;
     explainerState.tourActive = true;

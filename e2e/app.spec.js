@@ -930,6 +930,45 @@ test.describe('Device explainer tours', () => {
     });
   }
 
+  test('starting a tour stops any other one, from any entry point', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    // The explainer buttons enforce this themselves, but the window hooks and
+    // #lab= replay reach a player directly. Every player shares the camera,
+    // the highlight and the #lab= hash, so two live RAF loops fight over them
+    // and stack two overlays.
+    await page.evaluate(() => {
+      window.startHallTour();
+      window.startKelvinTour();
+    });
+    await waitForEval(page, () => window.kelvinTour?.playing === true, { timeout: 15_000 });
+
+    const viaHooks = await page.evaluate(() => ({
+      playing: ['segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour']
+        .filter((k) => window[k]?.playing),
+      visibleOverlays: [...document.querySelectorAll('#seg-tour-overlay')]
+        .filter((el) => el.style.display !== 'none').length
+    }));
+
+    expect(viaHooks.playing).toEqual(['kelvinTour']);
+    expect(viaHooks.visibleOverlays).toBe(1);
+
+    // Same guarantee when a share link replays a different device's tour.
+    await page.evaluate(() => window.transformerTour.goToStep(1));
+    await waitForEval(page, () => window.transformerTour?.playing === true, { timeout: 10_000 });
+
+    const viaLabHash = await page.evaluate(() => ({
+      playing: ['segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour']
+        .filter((k) => window[k]?.playing),
+      visibleOverlays: [...document.querySelectorAll('#seg-tour-overlay')]
+        .filter((el) => el.style.display !== 'none').length
+    }));
+
+    expect(viaLabHash.playing).toEqual(['transformerTour']);
+    expect(viaLabHash.visibleOverlays).toBe(1);
+  });
+
   test('Kelvin tour glossary is Kelvin-specific, not Van de Graaff text', async ({ page }) => {
     trackPageErrors(page);
     await gotoWebGL2(page);
