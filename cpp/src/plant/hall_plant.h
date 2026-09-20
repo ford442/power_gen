@@ -12,6 +12,10 @@ struct HallState {
     float iMaxA{power_gen::HallConstants::I_MAX_A};
     float bMaxT{power_gen::HallConstants::B_MAX_T};
     float smoothingTau{power_gen::HallConstants::SMOOTHING_TAU};
+    // Coupled B setpoint (T) from the lab FieldNetwork under ?fieldCoupling=1.
+    // Negative = no coupling, i.e. B follows the shared drive control as before
+    // (the default, and what the goldens exercise). See ADR-0011.
+    float fieldCoupledT{-1.f};
     bool  carrierMetal{false}; // false = semiconductor, true = metal
     float drive{0.f};
 };

@@ -16,6 +16,7 @@ import {
 } from '../heron-layout';
 import { isDeviceActive as isDeviceVisible } from '../renderers/shared/device-view';
 import { EnergyNetwork, syncEnergyCouplingDisclaimer } from '../renderers/shared/energy-network';
+import { FieldNetwork, syncFieldCouplingDisclaimer } from '../renderers/shared/field-network';
 import {
   parseAnomalousEffects,
   parsePrototypePreset,
@@ -61,6 +62,8 @@ export class LabSession {
   devices: SessionDeviceMap = {};
 
   energyNetwork = new EnergyNetwork();
+  /** Optional live B coupling between plants (ADR-0011) — off by default. */
+  fieldNetwork = new FieldNetwork();
   camera = new CameraController();
   cameraController: MultiDeviceCamera | null = null;
   simRateController = new SimRateController();
@@ -132,6 +135,12 @@ export class LabSession {
     const useWasm = segWasm.enabled && !replayLocked;
     const drive = segOperator.getDrive();
     const focus = this.plantFocus();
+
+    // Field coupling runs *before* any plant steps, so the C++ plants (via
+    // syncWasmFocusKnobs below) and the JS fallbacks both see the same B this
+    // frame. With coupling off this restores each device's local bench value,
+    // so the default boot is the isolated classroom it has always been.
+    this.fieldNetwork.update({ devices: this.devices, devicesEnabled: this.devicesEnabled });
 
     if (useWasm) {
       applyWasmPlant({ devices: this.devices, focus, simSteps, drive });
@@ -242,6 +251,8 @@ export class LabSession {
     if (netSnap) {
       syncEnergyCouplingDisclaimer(netSnap.couplingEnabled, netSnap);
     }
+    const fieldSnap = this.fieldNetwork.getSnapshot();
+    syncFieldCouplingDisclaimer(fieldSnap.couplingEnabled, fieldSnap);
     if (this.replayLocked) {
       return scientific;
     }
@@ -261,6 +272,7 @@ export class LabSession {
             devices: netSnap.devices
           }
         : null,
+      fieldNetwork: fieldSnap,
       hardwareTwin: this.hardwareTwinTelemetry ?? null
     });
     return scientific;

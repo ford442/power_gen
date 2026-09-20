@@ -58,6 +58,7 @@ export interface SegWasmBridge {
   setDrive(drive: number): void;
   setTransformerLeakage(enabled: boolean): void;
   setHallCarrierMetal(metal: boolean): void;
+  setHallFieldCoupledT(fieldT: number): boolean;
   setLorentzFieldT(fieldT: number): void;
   getModePlant(): unknown;
 
@@ -232,6 +233,21 @@ export const segWasm: SegWasmBridge = {
 
   setHallCarrierMetal(metal: boolean) {
     _instance?.setHallCarrierMetal?.(!!metal);
+  },
+
+  /**
+   * Lab field coupling (ADR-0011). Pass a negative T to clear the coupling.
+   *
+   * Returns whether the loaded binary actually took the setpoint. `src/public/
+   * wasm/sim_core.wasm` is a CI artefact committed on main, so a checkout can
+   * run a binary older than this knob; callers use the result to hand the frame
+   * back to the JS plant rather than report a coupled B the C++ plant ignored.
+   */
+  setHallFieldCoupledT(fieldT: number): boolean {
+    // SEGSim reports whether the *embind* object carries the knob — checking
+    // `_instance` here would only confirm our own TS wrapper has the method.
+    const t = Number(fieldT);
+    return _instance?.setHallFieldCoupledT(Number.isFinite(t) ? t : -1) ?? false;
   },
 
   getModePlant() {

@@ -537,6 +537,37 @@
       background: rgba(40, 8, 8, 0.92);
     }
 
+    /* Field bus (ADR-0011) — stacked above the energy line. Shown in overview
+       like its energy sibling, and additionally in any focus view while
+       coupling is on, since it names the B the focused plant is actually
+       stepping from. */
+    #fieldCouplingDisclaimer {
+      position: fixed;
+      bottom: 64px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: min(92vw, 640px);
+      padding: 6px 14px;
+      border-radius: 6px;
+      background: rgba(0, 12, 24, 0.88);
+      border: 1px solid #0ff4;
+      color: #8ad;
+      font-size: 0.68rem;
+      text-align: center;
+      pointer-events: none;
+      z-index: 50;
+      display: none;
+    }
+    body.overview-mode #fieldCouplingDisclaimer,
+    body.field-coupled #fieldCouplingDisclaimer { display: block; }
+    #fieldCouplingDisclaimer[data-mode="coupled"] {
+      border-color: #4f8;
+      color: #9fc;
+    }
+
+    #lorentzFieldSource[data-coupled="true"],
+    #hallFieldSource[data-coupled="true"] { color: #9fc; }
+
     #hw-twin-badge {
       display: inline-flex;
       align-items: center;

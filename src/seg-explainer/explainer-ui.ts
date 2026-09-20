@@ -3,25 +3,23 @@
  */
 
 import { explainerState } from './explainer-state';
-import { initSEGTour, initVdgTour, initLorentzTour, SEGTourPlayer } from './seg-tour-player';
+import { initLabTours, LAB_TOURS, type LabTourKey, SEGTourPlayer } from './seg-tour-player';
 import { shareLabLink, decodeLabHash, applyLabState } from './lab-url';
 import { SEG_GLOSSARY } from './seg-glossary';
 
 export interface ExplainerUIHandle {
   tour: SEGTourPlayer;
+  /** Every lab tour, keyed by its registry handle (`segTour`, `hallTour`, …). */
+  tours: Record<LabTourKey, SEGTourPlayer>;
   vdgTour: SEGTourPlayer;
   lorentzTour: SEGTourPlayer;
   applyLabFromHash: () => Promise<void>;
 }
 
 export function initExplainerUI(): ExplainerUIHandle {
-  const tour = initSEGTour();
-  const vdgTour = initVdgTour();
-  const lorentzTour = initLorentzTour();
+  const tours = initLabTours();
+  const tour = tours.segTour;
 
-  const tourBtn = document.getElementById('explainerTourBtn');
-  const vdgTourBtn = document.getElementById('explainerVdgTourBtn');
-  const lorentzTourBtn = document.getElementById('explainerLorentzTourBtn');
   const shareBtn = document.getElementById('explainerShareBtn');
   const classroomCb = document.getElementById('explainerClassroom') as HTMLInputElement | null;
   const motionCb = document.getElementById('explainerReducedMotion') as HTMLInputElement | null;
@@ -34,29 +32,21 @@ export function initExplainerUI(): ExplainerUIHandle {
 
   const setStatus = (t: string): void => { if (statusEl) statusEl.textContent = t; };
 
-  tourBtn?.addEventListener('click', () => {
-    if (vdgTour.playing) vdgTour.stop();
-    if (lorentzTour.playing) lorentzTour.stop();
-    if (tour.playing) tour.stop();
-    else tour.start(0);
-    setStatus(tour.playing ? 'Tour playing — Space to pause sim' : 'Tour ended');
-  });
-
-  vdgTourBtn?.addEventListener('click', () => {
-    if (tour.playing) tour.stop();
-    if (lorentzTour.playing) lorentzTour.stop();
-    if (vdgTour.playing) vdgTour.stop();
-    else vdgTour.start(0);
-    setStatus(vdgTour.playing ? 'Van de Graaff tour playing' : 'Tour ended');
-  });
-
-  lorentzTourBtn?.addEventListener('click', () => {
-    if (tour.playing) tour.stop();
-    if (vdgTour.playing) vdgTour.stop();
-    if (lorentzTour.playing) lorentzTour.stop();
-    else lorentzTour.start(0);
-    setStatus(lorentzTour.playing ? 'Lorentz sled tour playing' : 'Tour ended');
-  });
+  // One button per registry row: starting a tour stops whichever other one was
+  // running, and pressing a playing tour's own button toggles it off.
+  for (const def of LAB_TOURS) {
+    const btn = document.getElementById(def.buttonId);
+    if (!btn) continue;
+    const player = tours[def.key];
+    btn.addEventListener('click', () => {
+      const wasPlaying = player.playing;
+      for (const other of LAB_TOURS) {
+        if (tours[other.key].playing) tours[other.key].stop();
+      }
+      if (!wasPlaying) player.start(0);
+      setStatus(player.playing ? def.status : 'Tour ended');
+    });
+  }
 
   shareBtn?.addEventListener('click', () => {
     const url = shareLabLink();
@@ -124,7 +114,7 @@ export function initExplainerUI(): ExplainerUIHandle {
     }
   });
 
-  return { tour, vdgTour, lorentzTour, applyLabFromHash: async () => {
+  return { tour, tours, vdgTour: tours.vdgTour, lorentzTour: tours.lorentzTour, applyLabFromHash: async () => {
     const lab = decodeLabHash();
     if (lab) {
       await applyLabState(lab);

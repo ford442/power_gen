@@ -81,6 +81,7 @@ export class WebGL2MultiDeviceVisualizer {
   set currentView(v) { this.session.currentView = v; }
   get devicesEnabled() { return this.session.devicesEnabled; }
   get energyNetwork() { return this.session.energyNetwork; }
+  get fieldNetwork() { return this.session.fieldNetwork; }
   get hardwareBridge() { return this.session.hardwareBridge; }
   set hardwareBridge(v) { this.session.hardwareBridge = v; }
   get hardwareTargetPhase() { return this.session.hardwareTargetPhase; }

@@ -14,14 +14,24 @@ void SEGSimulator::setHallCarrierMetal(bool metal) {
     _hall.carrierMetal = metal;
 }
 
+// Lab field coupling (ADR-0011). t < 0 clears the coupling and returns the
+// bench to its drive-derived B — the default, so goldens are untouched unless
+// a caller opts in. Mirrors hallFieldTargetT in devices/quanta/hall-effect.ts.
+void SEGSimulator::setHallFieldCoupledT(float fieldT) {
+    _hall.fieldCoupledT = (fieldT >= 0.f)
+        ? clampf(fieldT, 0.f, _hall.bMaxT)
+        : -1.f;
+}
+
 void SEGSimulator::_stepHall(float dt) {
     HallState& h = _hall;
     const float d = clampf(h.drive, 0.f, 1.f);
 
-    // Both I and B track the shared drive control, smoothed so slider moves
-    // read as a brief transient rather than a step.
+    // I tracks the shared drive control; B tracks it too unless the lab field
+    // network has supplied a coupled setpoint. Both smoothed with the same tau,
+    // so a slider move — or a coupling toggle — reads as a brief transient.
     const float iTarget = d * h.iMaxA;
-    const float bTarget = d * h.bMaxT;
+    const float bTarget = (h.fieldCoupledT >= 0.f) ? h.fieldCoupledT : d * h.bMaxT;
     const float alpha = std::min(1.f, dt / h.smoothingTau);
     h.current += (iTarget - h.current) * alpha;
     h.fieldT  += (bTarget - h.fieldT) * alpha;

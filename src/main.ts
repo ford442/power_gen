@@ -44,6 +44,7 @@ import { setTransformerLeakage } from './devices/quanta/transformer.js';
 import { setHallCarrierType } from './devices/quanta/hall-effect.js';
 import { setLorentzFieldT, LORENTZ } from './devices/quanta/lorentz-sled.js';
 import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
+import { syncFieldCouplingDisclaimer } from './renderers/shared/field-network';
 import { ScientificUIManager } from './scientific-ui/index';
 import './multi-device-window-api';
 
@@ -106,6 +107,94 @@ window.setMode = (mode: string): void => {
   if (hallPanel) hallPanel.style.display = mode === 'hall' ? 'block' : 'none';
   const sledPanel = document.getElementById('lorentz-sled-controls');
   if (sledPanel) sledPanel.style.display = mode === 'lorentz-sled' ? 'block' : 'none';
+  syncFieldCouplingUI();
+};
+
+/**
+ * Reflect the lab field bus in the device panels (ADR-0011). Under coupling the
+ * B slider becomes a *display*: it still shows the live number, but the plant is
+ * taking B from the source device, so leaving it editable would be a lie.
+ */
+function syncFieldCouplingUI(): void {
+  const net = window.multiVisualizer?.fieldNetwork ?? null;
+  const snap = net?.getSnapshot?.() ?? null;
+  const coupled = !!(snap?.couplingEnabled ?? net?.couplingEnabled);
+
+  // `coupled` is authoritative and synchronous; a cached link still reads
+  // active until the next frame's FieldNetwork.update(), so never present a
+  // destination as coupled once the bus itself is off.
+  const sledLink = net?.getLinkForDestination?.('lorentz-sled') ?? null;
+  const sledActive = coupled && !!sledLink?.active;
+  const slider = document.getElementById('lorentzFieldSlider') as HTMLInputElement | null;
+  const readout = document.getElementById('lorentzFieldValue');
+  const sledSource = document.getElementById('lorentzFieldSource');
+  if (slider) {
+    slider.disabled = sledActive;
+    slider.title = sledActive
+      ? 'Coupled to mhd — turn field coupling off to set B locally'
+      : '';
+    if (sledActive && sledLink) slider.value = sledLink.appliedT.toFixed(2);
+  }
+  if (readout && sledActive && sledLink) {
+    readout.textContent = `${sledLink.appliedT.toFixed(2)} T`;
+  }
+  if (sledSource) {
+    sledSource.textContent = sledActive && sledLink
+      ? `Source: ${sledLink.from} (simulated, not metrology)${sledLink.clamped ? ' · clamped' : ''}`
+      : 'Source: local bench slider';
+    sledSource.dataset.coupled = sledActive ? 'true' : 'false';
+  }
+
+  const hallLink = net?.getLinkForDestination?.('hall') ?? null;
+  const hallActive = coupled && !!hallLink?.active;
+  const hallSource = document.getElementById('hallFieldSource');
+  if (hallSource) {
+    hallSource.textContent = hallActive && hallLink
+      ? `B source: ${hallLink.from} · ${hallLink.appliedT.toFixed(3)} T (simulated, not metrology)`
+        + `${hallLink.clamped ? ' · clamped' : ''}`
+      : 'B source: local drive control';
+    hallSource.dataset.coupled = hallActive ? 'true' : 'false';
+  }
+
+  document.body.classList.toggle('field-coupled', coupled);
+  if (snap) syncFieldCouplingDisclaimer(coupled, snap);
+}
+
+window.syncFieldCouplingUI = syncFieldCouplingUI;
+
+/**
+ * Wire the operator-panel field-coupling checkbox and keep the coupled B
+ * readouts live. Repainted off the hub at ~4 Hz — the same "hub publishes,
+ * panel paints" path the operator panel uses, not a second animation loop.
+ */
+function wireFieldCouplingControls(): void {
+  const toggle = document.getElementById('fieldCouplingToggle') as HTMLInputElement | null;
+  if (toggle) {
+    toggle.checked = !!window.multiVisualizer?.fieldNetwork?.couplingEnabled;
+    toggle.addEventListener('change', (e) => {
+      window.setFieldCoupling?.((e.target as HTMLInputElement).checked);
+    });
+  }
+  let lastPaintMs = 0;
+  telemetryHub.subscribe(() => {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - lastPaintMs < 250) return;
+    lastPaintMs = now;
+    syncFieldCouplingUI();
+  }, { immediate: false });
+  syncFieldCouplingUI();
+}
+
+/**
+ * Lab field bus toggle (ADR-0011). Off (the default) leaves every device on its
+ * own local B; on, Hall and the rail sled follow clamped source estimates.
+ */
+window.setFieldCoupling = (enabled: boolean): void => {
+  const net = window.multiVisualizer?.fieldNetwork;
+  net?.setCouplingEnabled?.(!!enabled);
+  const toggle = document.getElementById('fieldCouplingToggle') as HTMLInputElement | null;
+  if (toggle) toggle.checked = !!enabled;
+  syncFieldCouplingUI();
 };
 
 /** Classroom toggle: ideal high-k vs leakage coupling on the transformer demo. */
@@ -128,12 +217,19 @@ window.setHallCarrierType = (carrier: 'semiconductor' | 'metal'): void => {
 
 /**
  * Bench-field slider (T) for the Lorentz rail sled. B is a local bench
- * parameter here, not a live coupling to halbach-viz / mhd field estimates.
+ * parameter by default; under `?fieldCoupling=1` the FieldNetwork drives it
+ * from `mhd` instead and this call only records the local setpoint to restore
+ * when coupling is switched back off (ADR-0011).
  */
 window.setLorentzFieldT = (fieldT: number): void => {
   const t = Math.max(0, Math.min(LORENTZ.fieldTMax, Number(fieldT) || 0));
   const phys = window.multiVisualizer?.devices?.['lorentz-sled']?.physicsState;
-  if (phys) setLorentzFieldT(phys, t);
+  const coupled = !!window.multiVisualizer?.fieldNetwork?.getLinkForDestination?.('lorentz-sled')?.active;
+  if (phys) setLorentzFieldT(phys, t, { coupled });
+  if (coupled) {
+    syncFieldCouplingUI();
+    return;
+  }
   // The render loop pushes physicsState.lorentzFieldT into the C++ plant each
   // frame when ?wasmPhysics=1, so there is no separate bridge call here.
   const readout = document.getElementById('lorentzFieldValue');
@@ -462,6 +558,7 @@ function bootApp(): void {
     syncLayoutPanelsVisibility();
     initTelemetryExportPanel();
     initReplayUI();
+    wireFieldCouplingControls();
     const explainer = initExplainerUI();
     await explainer.applyLabFromHash();
 

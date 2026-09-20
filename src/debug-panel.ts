@@ -16,6 +16,8 @@ export class DebugPanel {
   // Not private: assigned from src/debug-panel-dom.ts, which is merged onto the
   // prototype below (see the Object.assign call at the end of this file).
   _refreshEnergyNetworkStatus?: () => void;
+  _refreshFieldNetworkStatus?: () => void;
+  _wireFieldNetworkControls!: () => void;
   _wasmRefreshStatus?: () => void;
 
   constructor(profiler: PerformanceProfiler) {
@@ -87,6 +89,7 @@ export class DebugPanel {
   update(): void {
     const stats = this.profiler.getStats();
     this._refreshEnergyNetworkStatus?.();
+    this._refreshFieldNetworkStatus?.();
 
     // WASM vs GPU particle radius diff (optional)
     if (this.wasmDiffEnabled) {

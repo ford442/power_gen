@@ -38,6 +38,14 @@ Overview mode places SEG, Heron, Kelvin, solar, Peltier, MHD (and plugins) in on
 - Native smoke: `sim_core_test --mode energy-network` steps a 9-edge bus for ≥1 s without NaNs.
 - Residual: `labBudgetW - totalAllocatedW` (unallocated simulated source watts, not a conservation law).
 
+## Related
+
+ADR-0011 adds a **field** bus (cross-device B) on a deliberately separate
+switch, `?fieldCoupling=1`. The two are not merged: one toggle meaning "the lab
+bus is live" would let a classroom that wanted coupled pipe watts silently also
+get a coupled tesla, and the two buses assert different things about different
+quantities.
+
 ## Consequences
 
 - **Positive:** Overview reads as a lab network; disabled devices damp pipes; coupled mode throttles glow when demand exceeds simulated source watts; LOD can thin pipe particles.

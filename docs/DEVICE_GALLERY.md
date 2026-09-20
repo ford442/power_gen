@@ -332,7 +332,7 @@ Capture: `?renderer=webgl2` → START → `setMode('hall')` →
 |-------|------|--------|
 | Hall voltage | V | Plant (`hallVoltage`) |
 | Drive current | A | Smoothed drive-scaled current (`hallCurrent`) |
-| B-field | T | Local slider parameter (`hallFieldT`) |
+| B-field | T | Drive-derived bench parameter, or the coupled Halbach estimate under `?fieldCoupling=1` (`hallFieldT`) |
 | Hall coefficient | m³/C | `R_H = 1/(n·e)` for the selected carrier (`hallCoeff`) |
 
 ### References
@@ -348,8 +348,14 @@ Capture: `?renderer=webgl2` → START → `setMode('hall')` →
 - UI: Hall-Effect Bench mode button; Semiconductor / Metal carrier-density controls;
   `window.setHallCarrierType('semiconductor'|'metal')`
 - Plant: C++ algebraic I·B→Hall-voltage model when `?wasmPhysics=1`; JS fallback mirrors it exactly
-- B field is a local UI parameter here, not live-coupled to `halbach-viz`'s field estimate — the
-  simpler of the two options the design allows, documented rather than treated as a cut corner
+- Explainer: 6-step `#lab=` tour (`src/seg-explainer/hall-tour.json`) —
+  current → field (local vs coupled) → V_H → carrier density, closing on what
+  the model is not; `window.startHallTour()`
+- B field is a local UI parameter **by default** (drive-derived), the isolated-classroom
+  choice. **Off by default**, not unavailable: under `?fieldCoupling=1` it follows
+  `halbach-viz`'s peak |B| estimate clamped to `HALL.bMaxT`, and the panel names the
+  source device. Coupled or local, that B is a **simulated estimate**, never metrology —
+  ADR-0011 and `docs/TELEMETRY.md`
 
 ---
 
@@ -393,7 +399,7 @@ Capture: `?renderer=webgl2` → START → `setMode('lorentz-sled')` →
 |-------|------|--------|
 | Sled speed | m/s | Plant velocity state (`lorentzSledVms`) |
 | Armature current | A | R–L loop current, reduced by back-EMF (`lorentzCurrentA`) |
-| Field B | T | Local bench slider parameter (`lorentzFieldT`) |
+| Field B | T | Local bench slider, or the coupled MHD channel estimate under `?fieldCoupling=1` (`lorentzFieldT`; the slider setpoint is parked in `lorentzFieldLocalT`) |
 | Lorentz force | N | `F = I·ℓ·B` on the armature (`lorentzForceN`) |
 | Position along rails | m | Wraps at `LORENTZ.railLengthM` (`lorentzPositionM`) |
 
@@ -417,9 +423,12 @@ railgun literature is used or intended as a source here.
   `window.setLorentzFieldT(tesla)` (clamped to `LORENTZ.fieldTMax`)
 - Explainer: 6-step `#lab=` tour (`src/seg-explainer/lorentz-sled-tour.json`) —
   current → field → force → motion, closing on what the model is not
-- B is a local bench parameter, **not** live-coupled to `halbach-viz`'s or
-  `mhd`'s field estimate — the same self-contained choice `hall` makes,
-  documented rather than treated as a cut corner
+- B is a local bench parameter **by default** — the same isolated-classroom choice
+  `hall` makes. **Off by default**, not unavailable: under `?fieldCoupling=1` it
+  follows `mhd`'s `mhdBFieldT` clamped to `LORENTZ.fieldTMax`, the slider becomes a
+  read-only display naming the source, and the slider's own setpoint is restored
+  verbatim when coupling is switched off. The coupled number is one simulated
+  estimate feeding another, **not** Maxwell and **not** metrology — ADR-0011
 - Energy pipe: `mhd → lorentz-sled` (the channel generates, the sled consumes
   the same I×B physics as a motor). Under `?energyCoupling=1` the allocation
   and its residual watts remain **simulated accounting** (ADR-0004), not
@@ -461,3 +470,19 @@ ODE state (`I`, `v`) stays continuous across the wrap.
 | Simple railgun / Lorentz sled | **Live** (`lorentz-sled`) | WASM R–L + back-EMF + Lorentz-force ODE (`SimMode=11`) + JS fallback; pairs with MHD. Educational rail motor, not a railgun design tool |
 | Hall-effect sensor bench | **Live** (`hall`) | WASM I·B→Hall-voltage model (`SimMode=10`) + JS fallback; pairs with homopolar/Halbach |
 | Quanta product mockups | Blocked | Awaiting product specs |
+
+### Cross-device coupling (not new devices)
+
+The lab is at 14 devices against ADR-0005's 8–12 target; overview particle/mesh
+LOD is the constraint, not the catalog. Depth beats a 15th bench.
+
+| Pair | State | Notes |
+|------|-------|-------|
+| `halbach-viz` → `hall` | **Live, opt-in** | `?fieldCoupling=1` — Hall B follows the clamped Halbach peak estimate (ADR-0011) |
+| `mhd` → `lorentz-sled` | **Live, opt-in** | `?fieldCoupling=1` for B; `?energyCoupling=1` already couples the pipe watts (ADR-0004) |
+| `homopolar` ↔ `hall` | Candidate | Same I×B physics; no shared B yet. One more `FIELD_COUPLING_EDGES` row when a source estimate is worth propagating |
+| `kelvin` ↔ `vdg` | **Deferred** | Both electrostatic and share no B — a charge/voltage bus is a different model and a later epic, not a field-network edge |
+
+Explicitly **out of scope** for this layer: FEM, FDTD (the pulse-coil slice
+already owns that, ADR-0010), a GPU field solver, Three.js field-line
+libraries, and any claim of calibrated Hall metrology.

@@ -52,6 +52,32 @@ export interface MultiVisualizerWindowRef {
     } | null;
     setCouplingEnabled?: (enabled: boolean) => void;
   } | null;
+  /** Optional live B coupling between plants (ADR-0011) — off by default. */
+  fieldNetwork?: {
+    couplingEnabled?: boolean;
+    getSnapshot?: () => {
+      couplingEnabled: boolean;
+      links: Record<string, {
+        from: string;
+        to: string;
+        label: string;
+        sourceT: number;
+        appliedT: number;
+        clamped: boolean;
+        active: boolean;
+      }>;
+    } | null;
+    getLinkForDestination?: (deviceId: string) => {
+      from: string;
+      to: string;
+      label: string;
+      sourceT: number;
+      appliedT: number;
+      clamped: boolean;
+      active: boolean;
+    } | null;
+    setCouplingEnabled?: (enabled: boolean) => void;
+  } | null;
   getSEGLayoutPreset?: () => string;
   setSEGLayoutPreset?: (preset: string) => void;
   getHeronLayoutPreset?: () => string;
@@ -156,6 +182,8 @@ declare global {
     setTransformerLeakage?: (enabled: boolean) => void;
     setHallCarrierType?: (carrier: 'semiconductor' | 'metal') => void;
     setLorentzFieldT?: (fieldT: number) => void;
+    setFieldCoupling?: (enabled: boolean) => void;
+    syncFieldCouplingUI?: () => void;
     setSegFrameLevel?: (level: string) => void;
     setLightingLook?: (look: string) => void;
     setRenderer?: (name: string) => void;
@@ -170,6 +198,15 @@ declare global {
     lorentzTour?: SEGTourPlayer;
     startLorentzTour?: () => void;
     goToLorentzStep?: (id: string) => void;
+    hallTour?: SEGTourPlayer;
+    startHallTour?: () => void;
+    goToHallStep?: (id: string) => void;
+    transformerTour?: SEGTourPlayer;
+    startTransformerTour?: () => void;
+    goToTransformerStep?: (id: string) => void;
+    kelvinTour?: SEGTourPlayer;
+    startKelvinTour?: () => void;
+    goToKelvinStep?: (id: string) => void;
     captureParticleSubset?: (opts?: { deviceId?: string; maxCount?: number }) => Promise<unknown>;
     captureOverviewCull?: () => Promise<unknown>;
     runSEGSpeedTest?: (speeds?: number[], durationMs?: number) => Promise<unknown>;

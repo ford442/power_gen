@@ -163,6 +163,69 @@ telemetryHub.publishFrame({
 });
 ```
 
+## Field coupling (lab **B** bus)
+
+Separate from the energy bus above, and on its own switch: `?fieldCoupling=1`
+(or `localStorage seg-field-coupling`, or the **Lab field coupling** checkbox in
+the operator panel / debug panel). Mixing watts and tesla into one toggle would
+let `?energyCoupling=1` quietly claim the field estimates are live too, so
+`FieldNetwork` (`src/renderers/shared/field-network.ts`) carries its own flag.
+
+| Mode | Behavior |
+|------|----------|
+| **Local** (default) | Every destination keeps its own bench **B**: `hall` derives it from the shared drive control, `lorentz-sled` from its panel slider. An isolated classroom. |
+| **Coupled** (`?fieldCoupling=1`) | Destination `B = clamp(sourceEstimate, destination min/max)`. The operator panel names the source device; the overview line (`#fieldCouplingDisclaimer`) lists every live link and its value. |
+
+| Edge | Source key | Destination | Clamp |
+|------|-----------|-------------|-------|
+| `halbach-viz` → `hall` | `halbachPeakBT` (dipole-superposition peak) | `hallFieldCoupledT` → `hallFieldT` | `0 … HALL.bMaxT` (0.65 T) |
+| `mhd` → `lorentz-sled` | `mhdBFieldT` (drive-scaled channel field) | `lorentzFieldT` | `0 … LORENTZ.fieldTMax` (1.2 T) |
+
+**Important:** both source numbers are themselves lumped simulated estimates.
+Coupling propagates one simulated estimate into another simulated plant — it
+adds pedagogy, not metrology, and it is **not** a Maxwell / FEM / FDTD solve
+(the only wave solver in the lab is the pulse-coil FDTD slice, ADR-0010). The
+same voice as the ADR-0004 pipes; see ADR-0011.
+
+`lorentz-sled`'s slider setpoint is parked in `lorentzFieldLocalT` while coupled
+and restored verbatim when coupling is switched off, so toggling the bus never
+silently loses a bench value.
+
+### Both plants respect the setpoint
+
+`LabSession.stepPlant` runs `FieldNetwork.update()` **before** any plant steps,
+so the JS fallback and the C++ plant step from the same **B**:
+
+- **JS** — `stepHallPhysics` smooths toward `hallFieldCoupledT` when set
+  (`hallFieldTargetT`), else toward `drive × bMaxT`; `stepLorentzSledPhysics`
+  reads `lorentzFieldT` as it always did.
+- **WASM** — `syncWasmFocusKnobs` pushes `segWasm.setHallFieldCoupledT(T)`
+  (negative clears it) and `setLorentzFieldT(T)` each frame.
+
+`scripts/test-js-wasm-golden.mjs` covers both paths: the native `--mode golden`
+run emits a `hall-coupled` and a `lorentz-sled-coupled` case alongside the
+default ones, and the JS fallback is stepped with the same setpoints seeded.
+
+### Hub snapshot
+
+`telemetryHub.getSnapshot().fieldNetwork` carries the bus:
+
+```js
+{
+  couplingEnabled: true,
+  links: {
+    'halbach-viz->hall': {
+      from: 'halbach-viz', to: 'hall', label: 'Halbach peak |B| → Hall strip',
+      sourceT: 1.418,   // raw source estimate, T
+      appliedT: 0.65,   // after the destination clamp, T
+      clamped: true,    // source fell outside the destination range
+      active: true      // coupling on and both endpoints enabled
+    },
+    'mhd->lorentz-sled': { … }
+  }
+}
+```
+
 ## Export & replay (P2)
 
 Ring-buffer sampling lives on `telemetryHub.sampler` (1–60 Hz). UI: left sidebar **Telemetry Export**.

@@ -1,8 +1,12 @@
 import tourScript from './seg-tour.json';
 import vdgTourScript from './vdg-tour.json';
 import lorentzTourScript from './lorentz-sled-tour.json';
+import hallTourScript from './hall-tour.json';
+import transformerTourScript from './transformer-tour.json';
+import kelvinTourScript from './kelvin-tour.json';
 import { explainerState } from './explainer-state';
 import { glossaryForHighlight, SEG_GLOSSARY } from './seg-glossary';
+import { getMergedDeviceConfig } from '../devices/device-registry';
 
 interface TourCamera {
   position: number[];
@@ -13,7 +17,16 @@ interface TourStep {
   id?: string;
   durationSec?: number;
   view?: string;
+  /** Absolute world camera keyframe. */
   camera?: TourCamera;
+  /**
+   * Camera offset from the step's focused device, in world units — preferred
+   * over `camera` for anything the auto-layout packer places (most Quanta
+   * devices), whose absolute position is not stable across catalog changes.
+   */
+  cameraOffset?: number[];
+  /** Extra height on the look-at point, relative to the device origin. */
+  cameraTargetY?: number;
   title?: string;
   body?: string;
   highlights?: string[];
@@ -115,9 +128,29 @@ export class SEGTourPlayer {
   }
 
   /**
+   * Stop any other registered player that is still running.
+   *
+   * Every player shares the camera, the highlight, the body class and the
+   * `#lab=` hash, so two live RAF loops fight over all of them and stack two
+   * overlays. The explainer buttons already enforce this, but they are not the
+   * only entry point — `window.startHallTour()` and friends, `applyLabState()`
+   * replaying a share link, and the `window.startSEGTour` reassignment in
+   * main.ts all reach a player directly. Enforcing it here covers them all.
+   */
+  private _stopOtherTours(): void {
+    if (typeof window === 'undefined') return;
+    const w = window as unknown as WindowWithTours;
+    for (const def of LAB_TOURS) {
+      const other = w[def.key] as SEGTourPlayer | undefined;
+      if (other && other !== this && other.playing) other.stop();
+    }
+  }
+
+  /**
    * Jump to a tour step by index (starts tour if not already playing).
    */
   goToStep(stepIndex: number): void {
+    this._stopOtherTours();
     this.stepIndex = Math.max(0, Math.min(stepIndex, this.steps.length - 1));
     this.playing = true;
     explainerState.tourActive = true;
@@ -201,8 +234,15 @@ export class SEGTourPlayer {
       window.setMode(step.view);
     }
 
-    if (step.camera && v?.cameraController) {
-      v.cameraController.startCameraTransition(step.camera.position, step.camera.target);
+    // A device-relative offset survives layout changes; an absolute keyframe
+    // is kept for the older SEG-centric scripts that were authored against
+    // fixed positions.
+    const relative = step.cameraOffset && step.view
+      ? deviceRelativeCamera(step.view, step.cameraOffset, step.cameraTargetY ?? 0)
+      : null;
+    const frame = relative ?? (step.camera ? { position: step.camera.position, target: step.camera.target } : null);
+    if (frame && v?.cameraController) {
+      v.cameraController.startCameraTransition(frame.position, frame.target);
     }
 
     const hi = step.highlights?.[0] || step.highlight || null;
@@ -260,36 +300,136 @@ export class SEGTourPlayer {
   }
 }
 
-export function initSEGTour(getVisualizer: GetVisualizer = () => window.multiVisualizer): SEGTourPlayer {
-  const player = new SEGTourPlayer(getVisualizer);
+/**
+ * Position the camera relative to a device's laid-out origin, so a tour step
+ * frames the right bench even after `applyAutoLayout` moves it.
+ */
+function deviceRelativeCamera(
+  deviceId: string,
+  offset: number[],
+  targetY: number
+): { position: number[]; target: number[] } | null {
+  const cfg = getMergedDeviceConfig()[deviceId];
+  const p = cfg?.position;
+  if (!p) return null;
+  return {
+    position: [p[0] + (offset[0] ?? 0), p[1] + (offset[1] ?? 0), p[2] + (offset[2] ?? 0)],
+    target: [p[0], p[1] + targetY, p[2]]
+  };
+}
+
+/**
+ * Every guided tour in the lab. One row per script; the player, the window
+ * hooks, the `#lab=` `tour=1` mapping and the explainer buttons are all driven
+ * from here, so adding a script is one entry rather than four edits.
+ *
+ * `mode` is the device whose `#lab=mode=` share link replays this tour; `null`
+ * marks the SEG tour, which is also the fallback for devices with no script.
+ */
+export interface LabTourDefinition {
+  /** `window[key]` handle, e.g. `hallTour`. */
+  key: LabTourKey;
+  /** `window[startFn]()` hook used by share links, e2e smokes and the buttons. */
+  startFn: string;
+  /** `window[stepFn](highlightId)` hook. */
+  stepFn: string;
+  /** Device id this tour belongs to; null for the SEG/default tour. */
+  mode: string | null;
+  /** Explainer-panel button id. */
+  buttonId: string;
+  /** Status line shown while playing. */
+  status: string;
+  script: TourScript;
+}
+
+export type LabTourKey =
+  | 'segTour' | 'vdgTour' | 'lorentzTour' | 'hallTour' | 'transformerTour' | 'kelvinTour';
+
+export const LAB_TOURS: readonly LabTourDefinition[] = [
+  {
+    key: 'segTour',
+    startFn: 'startSEGTour',
+    stepFn: 'goToSEGStep',
+    mode: null,
+    buttonId: 'explainerTourBtn',
+    status: 'Tour playing — Space to pause sim',
+    script: tourScript
+  },
+  {
+    key: 'vdgTour',
+    startFn: 'startVdgTour',
+    stepFn: 'goToVdgStep',
+    mode: 'vdg',
+    buttonId: 'explainerVdgTourBtn',
+    status: 'Van de Graaff tour playing',
+    script: vdgTourScript
+  },
+  {
+    key: 'lorentzTour',
+    startFn: 'startLorentzTour',
+    stepFn: 'goToLorentzStep',
+    mode: 'lorentz-sled',
+    buttonId: 'explainerLorentzTourBtn',
+    status: 'Lorentz sled tour playing',
+    script: lorentzTourScript
+  },
+  {
+    key: 'hallTour',
+    startFn: 'startHallTour',
+    stepFn: 'goToHallStep',
+    mode: 'hall',
+    buttonId: 'explainerHallTourBtn',
+    status: 'Hall-effect tour playing',
+    script: hallTourScript
+  },
+  {
+    key: 'transformerTour',
+    startFn: 'startTransformerTour',
+    stepFn: 'goToTransformerStep',
+    mode: 'transformer',
+    buttonId: 'explainerTransformerTourBtn',
+    status: 'Mutual-induction tour playing',
+    script: transformerTourScript
+  },
+  {
+    key: 'kelvinTour',
+    startFn: 'startKelvinTour',
+    stepFn: 'goToKelvinStep',
+    mode: 'kelvin',
+    buttonId: 'explainerKelvinTourBtn',
+    status: 'Kelvin dropper tour playing',
+    script: kelvinTourScript
+  }
+];
+
+type WindowWithTours = Record<string, unknown>;
+
+/** Build one tour's player and publish its `window` hooks. */
+export function initLabTour(
+  def: LabTourDefinition,
+  getVisualizer: GetVisualizer = () => window.multiVisualizer
+): SEGTourPlayer {
+  const player = new SEGTourPlayer(getVisualizer, def.script);
   if (typeof window !== 'undefined') {
-    window.segTour = player;
-    window.startSEGTour = () => player.start(0);
-    window.goToSEGStep = (id: string) => player.goToStepForHighlight(id);
+    const w = window as unknown as WindowWithTours;
+    w[def.key] = player;
+    w[def.startFn] = () => player.start(0);
+    w[def.stepFn] = (id: string) => player.goToStepForHighlight(id);
   }
   return player;
 }
 
-/** Van de Graaff explainer tour — same player shape, its own script + overlay. */
-export function initVdgTour(getVisualizer: GetVisualizer = () => window.multiVisualizer): SEGTourPlayer {
-  const player = new SEGTourPlayer(getVisualizer, vdgTourScript);
-  if (typeof window !== 'undefined') {
-    window.vdgTour = player;
-    window.startVdgTour = () => player.start(0);
-    window.goToVdgStep = (id: string) => player.goToStepForHighlight(id);
-  }
-  return player;
+/** Build every tour in `LAB_TOURS`, keyed by its window handle. */
+export function initLabTours(
+  getVisualizer: GetVisualizer = () => window.multiVisualizer
+): Record<LabTourKey, SEGTourPlayer> {
+  const out = {} as Record<LabTourKey, SEGTourPlayer>;
+  for (const def of LAB_TOURS) out[def.key] = initLabTour(def, getVisualizer);
+  return out;
 }
 
-/** Lorentz rail-sled explainer tour — same player shape, its own script + overlay. */
-export function initLorentzTour(getVisualizer: GetVisualizer = () => window.multiVisualizer): SEGTourPlayer {
-  const player = new SEGTourPlayer(getVisualizer, lorentzTourScript);
-  if (typeof window !== 'undefined') {
-    window.lorentzTour = player;
-    window.startLorentzTour = () => player.start(0);
-    window.goToLorentzStep = (id: string) => player.goToStepForHighlight(id);
-  }
-  return player;
+export function initSEGTour(getVisualizer?: GetVisualizer): SEGTourPlayer {
+  return initLabTour(LAB_TOURS[0], getVisualizer);
 }
 
 declare global {

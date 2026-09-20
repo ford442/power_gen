@@ -237,6 +237,17 @@ export class SEGSim {
     this._sim?.setHallCarrierMetal?.(!!metal);
   }
 
+  /**
+   * Coupled Hall B setpoint (T); negative clears it back to the local rule.
+   * Returns false when the loaded binary predates the knob (ADR-0011).
+   */
+  setHallFieldCoupledT(fieldT: number): boolean {
+    if (typeof this._sim?.setHallFieldCoupledT !== 'function') return false;
+    const t = Number(fieldT);
+    this._sim.setHallFieldCoupledT(Number.isFinite(t) ? t : -1);
+    return true;
+  }
+
   setLorentzFieldT(fieldT: number): void {
     this._sim?.setLorentzFieldT?.(Number(fieldT) || 0);
   }

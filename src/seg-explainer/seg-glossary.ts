@@ -123,9 +123,60 @@ export const SEG_GLOSSARY: Record<string, GlossaryEntry> = {
   },
   'bench-field': {
     title: 'Bench field (B)',
-    body: 'The transverse field across the rail gap, set by the local B slider on this device. It is a bench parameter, not a live reading from halbach-viz or mhd.',
+    body: 'The transverse field across the rail gap. By default it is the local B slider on this device; with lab field coupling on it follows the MHD channel\u2019s simulated estimate instead, clamped to this bench\u2019s range.',
     unit: 'T',
     source: 'devices/quanta/lorentz-sled.ts LORENTZ.fieldTDefault'
+  },
+  'field-coupling': {
+    title: 'Lab field coupling',
+    body: 'Optional bus that feeds one device\u2019s simulated B estimate into another\u2019s plant (Halbach \u2192 Hall, MHD \u2192 rail sled), clamped to the destination\u2019s catalog range. Off by default. It propagates a simulated estimate \u2014 it is not a Maxwell solve and not metrology.',
+    unit: 'T',
+    source: 'renderers/shared/field-network.ts (ADR-0011)'
+  },
+  'primary-current': {
+    title: 'Primary current (I_p)',
+    body: 'Current in the driven winding. It magnetises the core; the secondary sees only the flux that current produces, never the current itself.',
+    unit: 'A',
+    source: 'devices/quanta/transformer.ts'
+  },
+  'mutual-inductance': {
+    title: 'Mutual inductance (M)',
+    body: 'M = k\u00b7\u221a(L_p\u00b7L_s) \u2014 how much EMF a change of current in one winding induces in the other. Only a changing flux couples: hold the primary current constant and the secondary goes dead.',
+    unit: 'H',
+    source: 'devices/quanta/transformer.ts'
+  },
+  'turns-ratio': {
+    title: 'Turns ratio (N_s / N_p)',
+    body: 'Sets V_s / V_p in the ideal limit. More secondary turns buys voltage and costs current; power out never exceeds power in.',
+    source: 'devices/quanta/transformer.ts'
+  },
+  'coupling-coefficient': {
+    title: 'Coupling coefficient (k)',
+    body: 'The fraction of primary flux that reaches the secondary, 0\u20131. The Leakage toggle drops k, so V_s falls while I_p does not \u2014 the missing flux closes through air. Here k is a dial, not a number computed from the core geometry.',
+    source: 'devices/quanta/transformer.ts leakage toggle'
+  },
+  'induction-charging': {
+    title: 'Charging by induction',
+    body: 'Each ring is wired to the opposite bucket, so a ring at one polarity pushes the opposite charge onto every drop that falls through it \u2014 without contact and without rubbing.',
+    source: 'Kelvin 1867 water-dropping influence machine'
+  },
+  'kelvin-ceiling': {
+    title: 'Voltage ceiling (Kelvin dropper)',
+    body: 'Each bucket is a small capacitor (\u2248 40 pF), so V = Q/C climbs as charged drops land. Two things fight the climb: leakage bleeding charge away, and the bucket\u2019s own rising field doing work against every incoming drop. The plant carries both as the leak term and the drive term in dV/dt.',
+    unit: 'V',
+    source: 'cpp/src/plant/kelvin_plant.cpp / constants.json kelvin.bucketCapacitanceF'
+  },
+  'kelvin-breakdown': {
+    title: 'Bucket-gap breakdown',
+    body: 'At V_break the gap between the oppositely charged buckets ionises and the plant fires a spark, dumping ~98% of the stored charge so the loop restarts from near zero \u2014 the sawtooth in the readout. V_break is the classroom air-breakdown estimate (3\u00d710\u2076 V/m) across the bench gap, not a measured flashover.',
+    unit: 'V',
+    value: '\u2248 60 kV',
+    source: 'cpp/src/plant/kelvin_plant.h vBreak / constants.json kelvin.eBreakdownVm'
+  },
+  'positive-feedback': {
+    title: 'Positive feedback',
+    body: 'More charge in a bucket strengthens the opposite ring, which charges the next drop harder. dV/dt carries a term proportional to V, so the voltage climbs roughly exponentially until leakage or breakdown caps it.',
+    source: 'cpp/src/plant/kelvin_plant.cpp'
   }
 };
 
@@ -147,7 +198,15 @@ export const HIGHLIGHT_GLOSSARY: Record<string, string> = {
   'hall-carrier': 'carrier-density',
   'lorentz-rails': 'armature-current',
   'lorentz-armature': 'lorentz-force',
-  'lorentz-poles': 'bench-field'
+  'lorentz-poles': 'bench-field',
+  'xfmr-primary': 'primary-current',
+  'xfmr-core': 'mutual-inductance',
+  'xfmr-secondary': 'turns-ratio',
+  'xfmr-coupling': 'coupling-coefficient',
+  'kelvin-ring': 'induction-charging',
+  'kelvin-bucket': 'positive-feedback',
+  'kelvin-stream': 'kelvin-ceiling',
+  'kelvin-spark': 'kelvin-breakdown'
 };
 
 export function glossaryForHighlight(highlightId: string | null | undefined): GlossaryEntry | null {
