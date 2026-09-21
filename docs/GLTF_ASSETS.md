@@ -2,7 +2,8 @@
 
 The visualizer mixes **layout-driven procedural geometry** (rollers, rings, flux lines)
 with **loaded glTF 2.0 meshes** (SEG housing / coil former / stand / base plate, plus
-per-device Quanta CAD: the transformer C-core and the Van de Graaff terminal).
+per-device bench CAD: the transformer C-core, the Van de Graaff terminal, the
+Thomson ring stand, Heron's vessel flanges and Kelvin's jars).
 
 Formal scene graph: `src/assets/scene/scene-node.ts` (`SceneNode`) — ADR-0005.
 glTF trees are built via `buildGltfScene()` → `GltfSceneNode extends SceneNode`.
@@ -27,6 +28,9 @@ Disable stand: `?gltfStand=0`
 Disable base plate: `?gltfBasePlate=0`  
 Disable the transformer C-core: `?gltfTransformerCore=0`  
 Disable the VDG terminal: `?gltfVdgTerminal=0`  
+Disable the Thomson ring stand: `?gltfThomsonStand=0`  
+Disable Heron's vessels: `?gltfHeronVessels=0`  
+Disable Kelvin's jars: `?gltfKelvinJars=0`  
 Force housing on: `?gltfHousing=1`
 
 ## Prop registry (lazy, per device)
@@ -46,6 +50,9 @@ benches' CAD at once.
 | `basePlate` | `seg` | `focus` | ring 13, dark metal | Floor slab below housing plinth; **dispose** on mode leave |
 | `transformerCore` | `transformer` | `focus` | ring 12, laminated steel | C-core + two bobbins — the flux *path* the procedural coils lack |
 | `vdgTerminal` | `vdg` | `focus` | ring 11, polished terminal | Sphere + column + belt runs + discharge electrode |
+| `thomsonStand` | `jumping-ring` | `focus` | ring 12, laminated steel | Plinth, square core, bobbin flanges, rest shoulder, travel stop — **the parts that do not move** |
+| `heronVessels` | `heron` | `focus` | ring 12, glass | Plinth, sealed-vessel lids + tie rods, open basin rim, jet nozzle — **`heronLayout=classic` only** |
+| `kelvinJars` | `kelvin` | `focus` | ring 11, tinned can | Header tank, spouts, drip tips, insulating pillars, open collection jars |
 
 `resolvePropMaterial(prop, drawable)` applies registry overrides (ring index, color,
 emissive scale) over glTF extras. Runtime load/dispose: `setup-gltf.ts`
@@ -53,16 +60,58 @@ emissive scale) over glTF extras. Runtime load/dispose: `setup-gltf.ts`
 
 **Scale and placement.** SEG props are baked through the SEG layout's `worldScale`
 and frame `baseBottomY`, because the SEG assembly's size is layout-preset-driven.
-Non-SEG props are baked at **scale 1, no Y offset**: their device-local metres are
-already the bench's metres, and the device uniform supplies the world position and
-rotation, exactly as it does for the procedural cylinder instances. That is why
-each generator documents its origin.
+Non-SEG props are baked at **scale 1, no Y offset**: they are authored in their
+bench's own device-local units, and the device uniform supplies the world position
+and rotation, exactly as it does for the procedural cylinder instances. That is
+why each generator documents its origin — and the units it is in, which are not
+metres on every bench (see **Units per bench** below).
 
-**Why these two benches first.** The transformer's whole lesson is that flux takes
-a path through iron, and the procedural stand-in is two coils in mid-air with no
-magnetic circuit. The Van de Graaff's *shape* is its explanation — belt, column,
-isolated sphere, gap — and the procedural version reads as a stack of cans. Both
-are also cheap silhouettes: boxes, cylinders and one low-poly sphere.
+**What each prop is for.** A bench earns CAD when the procedural stand-in leaves
+out something the demonstration depends on — not because it would look nicer.
+
+| Bench | What the shared cylinders cannot say |
+|-------|-------------------------------------|
+| `transformer` | Flux takes a path through iron. The stand-in is two coils in mid-air with no magnetic circuit. |
+| `vdg` | The *shape* is the explanation — belt, column, isolated sphere, gap. The stand-in reads as a stack of cans. |
+| `jumping-ring` | Where `h = 0` is, and where the travel stops. Without a shoulder and a top stop the ring appears to float at an arbitrary height and the plant's rigid stops have no counterpart on screen. |
+| `heron` | Which volume is **sealed**. Four identical cylinders cannot distinguish the open catch basin from the closed air vessel, which is the entire hydraulic argument. |
+| `kelvin` | Where the water comes from, and that the collectors are **insulated**. The stand-in draws buckets standing on nothing, fed from nowhere. |
+
+**Props are additive, and back faces are culled.** `render()` draws a bench's CAD
+*before* its procedural mesh, so the GLB is a backdrop the instances draw over —
+not a replacement. And `segEnhanced` is the only pipeline in the repo with
+`cullMode: 'back'`, so a single-sided wall wrapped around a procedural instance
+shows only its near half and hides whatever is inside it. That is why
+`heronVessels` marks the vessel *ends* instead of walling them, and why
+`kelvinJars` puts the jar under the collection can rather than around it: the
+particle passes draw inside those volumes, and an opaque near wall would be a
+worse read than no prop at all.
+
+**What stays procedural, deliberately.** CAD is baked and static; anything whose
+position or glow *is* the simulation must not be baked into it:
+
+- The **jumping ring** itself — its Y is `ringHeightM` straight out of the plant,
+  and it is the only thing on that bench that moves. Its winding courses glow
+  with `I_p`, so they stay instanced too.
+- Kelvin's **induction rings** — `MATERIAL_KELVIN_RING` (ring index 100) torus
+  instances the fragment shader draws as ring geometry, glowing with the
+  accumulated charge.
+- Heron's **water column and jet** — particle passes, not geometry.
+
+**Preset-shaped benches.** SEG's layout presets rescale one assembly, so its props
+bake through `worldScale` (`layoutScaled: true`). Heron's five presets instead move
+the vessels to different heights and re-route the plumbing: no single GLB follows
+them and no scale factor can. `heronVessels` is therefore baked for `classic` and
+`parseGltfHeronVesselsEnabled()` returns false for the other four, which keep the
+procedural vessels they already had. `setHeronLayoutPreset()` re-runs
+`ensureGltfPropsForView()`, so switching preset *without leaving the bench* frees
+the classic GLB's GPU buffers rather than leaving it hanging in a tower layout.
+Both directions are pinned by `npm run test:props`.
+
+The gate asks the **session**, not the URL: `LabSession` publishes its resolved
+preset to `window.HERON_LAYOUT_PRESET`, because `applyStoredHeronLayout()` lets a
+`localStorage` preset override `?heronLayout=` at boot. A prop that read the query
+string would load the classic GLB into a stored tower layout on a cold page.
 
 **Pick / annotation proxies** are still SEG-only. Non-SEG props are drawn and
 anchored but not ray-picked, because the explainer tour's highlight ids
@@ -94,20 +143,38 @@ src/public/assets/
   quanta/
     transformer-core.glb    # generated laminated C-core + bobbins   (~15 KB)
     vdg-terminal.glb        # generated sphere + column + belt + gap (~42 KB)
+    thomson-stand.glb       # generated plinth + core + bobbin + stops (~32 KB)
+    LICENSE.md
+  lab/
+    heron-vessels.glb       # generated lids + basin rim + plinth + jet (~37 KB)
+    kelvin-jars.glb         # generated tank + spouts + jars + pillars (~37 KB)
+    LICENSE.md
 ```
+
+`quanta/` holds the Quanta benches (`src/devices/quanta/`); `lab/` holds the
+original lab devices, which live outside that directory.
 
 Regenerate placeholders:
 
 ```bash
 npm run generate:seg-gltf      # housing, coil former, stand, base plate
-npm run generate:quanta-gltf   # transformer core, VDG terminal
-npm run generate:gltf          # both
+npm run generate:quanta-gltf   # transformer core, VDG terminal, Thomson stand
+npm run generate:lab-gltf      # Heron vessels, Kelvin jars
+npm run generate:gltf          # all three groups
 ```
 
 Shared primitives live in `scripts/lib/seg-placeholder-glb.mjs`: `box`,
 `cylinder` (Y or X axis, optional caps), `sphere` (low-poly lat/long), `merge`,
 and the GLB/KTX2 packer. A new prop should be a few lines of those rather than a
 new packer.
+
+**Units per bench.** `transformer` and `vdg` are authored in metres, tracking
+`physics/constants.json`. `heron`, `kelvin` and `jumping-ring` are **not**: their
+procedural meshes are laid out in device-local *render* units, because the shared
+instance cylinder is r = 0.8, h = 2.5 (`deviceCylinder`) and carries no
+per-instance scale. Each generator names the TS constants it tracks
+(`PRESET_DEFS.classic`, `buildKelvinInstances`, `RING_SCENE`) — copy the numbers
+from there, and never re-derive a render-unit bench from its SI constants.
 
 `npm run test:props` is the guard: every registry entry's URL must exist, parse
 with **this repo's own** hand-rolled loader, carry positions/normals/UVs, and sit
@@ -116,7 +183,18 @@ read fails CI instead of failing at focus time.
 
 ## Authoring workflow (Blender → glTF)
 
-1. Model in **metres** with origin at the SEG assembly centre (Y up).
+1. Model Y-up, in **that bench's own units and origin** — not one global
+   convention (see **Units per bench** above):
+
+   | Bench | Units | Origin |
+   |-------|-------|--------|
+   | `seg` | metres | SEG assembly centre; baked through `worldScale` / `baseBottomY` |
+   | `transformer`, `vdg` | metres, tracking `physics/constants.json` | bench floor plane |
+   | `heron`, `kelvin`, `jumping-ring` | **device-local render units** (the shared instance cylinder is r = 0.8, h = 2.5) | the bench's own procedural origin |
+
+   For a render-unit bench, copy the numbers from the TS layout it has to line up
+   with (`PRESET_DEFS.classic`, `buildKelvinInstances`, `RING_SCENE`) rather than
+   converting from the SI constants — the two are deliberately separate.
 2. Export **glTF 2.0 Binary (.glb)** with:
    - Triangulated meshes
    - Applied transforms
@@ -154,16 +232,20 @@ read fails CI instead of failing at focus time.
 |-------|----------|---------|
 | `extras.annotationId` | yes (on callout nodes) | Tour / explainer highlight id — must match `seg-tour.json` `highlights` and `seg-annotations.js` ids (`shaft`, `inner-ring`, `stator`, `separator`, `outer-ring`, `coil`, …) |
 | `extras.power_gen.materialRingIndex` | no | PBR ring index for structural meshes (default `11.0`); registry override may win |
-| `extras.power_gen.role` | no | `housing` \| `coil_former` \| `stand` \| `base_plate` \| `transformer_core` \| `vdg_terminal` — used for emissive / draw tagging |
+| `extras.power_gen.role` | no | `housing` \| `coil_former` \| `stand` \| `base_plate` \| `transformer_core` \| `vdg_terminal` \| `thomson_stand` \| `heron_vessels` \| `kelvin_jars` — used for emissive / draw tagging |
 | `extras.power_gen.deviceId` | no | Which bench the prop belongs to (default `seg`). The **registry** entry is authoritative; this is for humans reading the GLB |
 | `extras.power_gen.anchors` | no | Named telemetry / rigging points (not tour ids) |
 | `extras.power_gen.compressedAlbedo` | no | Image indices `{ none, bc, etc2, astc }` for GPU-native KTX2 (stand placeholder) |
 
 Use a small invisible **pick-proxy** mesh (see `annotation_pick_proxy` in `housing-shell.glb`) on annotation nodes. Proxies are ray-pick targets only — not drawn at runtime.
 
-4. Drop the file under `src/public/assets/seg/` (SEG) or `src/public/assets/quanta/`
-   (any other bench) and register it in `SEG_GLTF_PROPS` (`prop-registry.ts`) with
-   its `deviceId`, load policy, `enabled` predicate and `softBudgetBytes`.
+4. Drop the file under the directory for its bench — `src/public/assets/seg/`
+   (SEG), `src/public/assets/quanta/` (a bench in `src/devices/quanta/`) or
+   `src/public/assets/lab/` (`heron`, `kelvin`) — and register it in
+   `SEG_GLTF_PROPS` (`prop-registry.ts`) with its `deviceId`, load policy,
+   `enabled` predicate and `softBudgetBytes`. The directory groups by where the
+   bench's code lives, **not** by units: `quanta/` holds both metre-authored
+   (`transformer`, `vdg`) and render-unit (`jumping-ring`) assets.
 5. `materialRingIndex` maps to the seg-enhanced PBR table (`ringIndex` in the instance buffer):
    - `11.0` — structural aluminum (default housing)
    - `12.0` — coil former / phenolic-ish

@@ -384,11 +384,37 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     }
 
     this.session.persistHeronLayoutPreset(presetName);
+    // The vessels move and the plumbing re-routes — as with the SEG layout
+    // presets, the old frame is a different scene, so reprojecting it would
+    // smear the previous build shape across the new one. The CAD prop can also
+    // appear or disappear on this path, which is a larger cut still.
+    this._resetTaaHistory();
 
     const heron = this.devices.heron;
     if (heron?.geometry?.applyHeronLayout) {
       await heron.geometry.applyHeronLayout(presetName);
     }
+
+    // The Heron CAD prop is baked for the `classic` preset only (the presets
+    // re-route the plumbing rather than rescale one shape), so a preset change
+    // is as much a prop change as a mode change is: re-running the per-view
+    // loader disposes the classic vessels when leaving it and reloads them when
+    // coming back. Without this the classic glass would stay hanging in a tower
+    // layout until the user left the bench and returned.
+    if (this.currentView === 'heron') {
+      // Awaited, so the dispose has happened before the camera refocuses — but
+      // a failed prop load must not fail the preset switch, exactly as on the
+      // mode-change path.
+      await this.ensureGltfPropsForView('heron').catch((err: unknown) => {
+        console.warn('[gltf] heron preset prop refresh failed', err);
+      });
+    }
+
+    // Again, because the two awaits above can span many frames — a prop load
+    // includes a GLB fetch. The reset before them covers the geometry swap; by
+    // the time the CAD lands, history has long since gone valid again, and
+    // reprojecting across *that* cut is the smear the first reset was for.
+    this._resetTaaHistory();
 
     if (this.currentView === 'heron' && this.cameraController) {
       this.cameraController.focusOnDevice('heron');

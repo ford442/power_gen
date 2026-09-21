@@ -14,6 +14,8 @@
  * WebGPU only. WebGL2 skips heavy glTF (docs/WEBGL2.md, docs/GLTF_ASSETS.md).
  */
 
+import { parseHeronLayoutPreset, HERON_LAYOUT_PRESETS } from '../../heron-layout';
+
 export type PropLoadPolicy = 'resident' | 'focus';
 
 /** Bench a prop belongs to when an entry does not say. */
@@ -115,12 +117,65 @@ export function parseGltfVdgTerminalEnabled(params?: URLSearchParams): boolean {
   return parseFocusPropEnabled('gltfVdgTerminal', params);
 }
 
+/** Kelvin header tank / insulated jars — default on; disable via `?gltfKelvinJars=0`. */
+export function parseGltfKelvinJarsEnabled(params?: URLSearchParams): boolean {
+  return parseFocusPropEnabled('gltfKelvinJars', params);
+}
+
+/** Thomson ring stand — default on; disable via `?gltfThomsonStand=0`. */
+export function parseGltfThomsonStandEnabled(params?: URLSearchParams): boolean {
+  return parseFocusPropEnabled('gltfThomsonStand', params);
+}
+
+/**
+ * The Heron layout the lab is actually on.
+ *
+ * `LabSession` publishes its resolved preset to `window.HERON_LAYOUT_PRESET`
+ * and that is the authority here, because the query string alone is not: a
+ * preset stored in `localStorage` overrides `?heronLayout=` at boot, and
+ * `persistHeronLayoutPreset()` rewrites the query afterwards. Reading the
+ * session's answer means the prop cannot disagree with the geometry on screen
+ * in either direction.
+ *
+ * Off the browser — `npm run test:props` — there is no session to ask, so the
+ * passed params are the whole truth and `parseHeronLayoutPreset` resolves them.
+ */
+function activeHeronPreset(params: URLSearchParams): string {
+  const published = typeof window !== 'undefined' ? window.HERON_LAYOUT_PRESET : undefined;
+  if (published && published in HERON_LAYOUT_PRESETS) return published;
+  return parseHeronLayoutPreset(params);
+}
+
+/**
+ * Heron vessels — default on **for the `classic` layout preset only**.
+ *
+ * Heron's five presets are not five scales of one shape the way the SEG's are:
+ * `tower` and `wide` move the vessels to different heights and re-route the
+ * plumbing, so a single baked GLB cannot follow them and `layoutScaled` cannot
+ * save it. Rather than ship five GLBs or hang a classic-shaped prop in a tower
+ * layout, the other four presets keep the procedural vessels they already had.
+ *
+ * `setHeronLayoutPreset()` re-runs `ensureGltfPropsForView()` after applying a
+ * preset, and `_disposeFocusOnlyGltfProps()` keeps only what `propsForDevice()`
+ * still reports as enabled — so switching away from `classic` disposes this
+ * prop's GPU buffers, and switching back reloads it.
+ */
+export function parseGltfHeronVesselsEnabled(params?: URLSearchParams): boolean {
+  const resolved = params
+    ?? new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
+  if (!parseFocusPropEnabled('gltfHeronVessels', resolved)) return false;
+  return activeHeronPreset(resolved) === HERON_LAYOUT_PRESETS.classic;
+}
+
 export const SEG_HOUSING_GLB_URL = './assets/seg/housing-shell.glb';
 export const SEG_COIL_FORMER_GLB_URL = './assets/seg/coil-former.glb';
 export const SEG_STAND_GLB_URL = './assets/seg/stand.glb';
 export const SEG_BASE_PLATE_GLB_URL = './assets/seg/base-plate.glb';
 export const TRANSFORMER_CORE_GLB_URL = './assets/quanta/transformer-core.glb';
 export const VDG_TERMINAL_GLB_URL = './assets/quanta/vdg-terminal.glb';
+export const THOMSON_STAND_GLB_URL = './assets/quanta/thomson-stand.glb';
+export const HERON_VESSELS_GLB_URL = './assets/lab/heron-vessels.glb';
+export const KELVIN_JARS_GLB_URL = './assets/lab/kelvin-jars.glb';
 
 export const SEG_GLTF_PROPS: SegGltfPropDef[] = [
   {
@@ -225,6 +280,66 @@ export const SEG_GLTF_PROPS: SegGltfPropDef[] = [
       roughness: 0.22,
       // Terminal trim tracks charge, so keep headroom for the corona glow.
       emissiveScale: 0.8
+    },
+    softBudgetBytes: 50 * 1024
+  },
+  {
+    // Flanged lids on the two sealed vessels, an open rim on the catch basin:
+    // which volume is closed to the air is the fountain's whole argument, and
+    // four identical shared cylinders cannot show it. Ends rather than walls,
+    // because `segEnhanced` culls back faces and a wall would hide the water
+    // inside. Classic preset only — see {@link parseGltfHeronVesselsEnabled}.
+    id: 'heronVessels',
+    deviceId: 'heron',
+    url: HERON_VESSELS_GLB_URL,
+    role: 'heron_vessels',
+    loadPolicy: 'focus',
+    enabled: parseGltfHeronVesselsEnabled,
+    materialOverride: {
+      ringIndex: 12.0,
+      color: [0.58, 0.72, 0.82],
+      metallic: 0.08,
+      roughness: 0.16,
+      // Glass reads as glass mostly through specular, so keep the trim low.
+      emissiveScale: 0.35
+    },
+    softBudgetBytes: 50 * 1024
+  },
+  {
+    // A shared header tank the water comes from, and jars on insulating
+    // pillars — the supply and the isolation the procedural buckets imply but
+    // never draw. The induction rings stay procedural: they glow with charge.
+    id: 'kelvinJars',
+    deviceId: 'kelvin',
+    url: KELVIN_JARS_GLB_URL,
+    role: 'kelvin_jars',
+    loadPolicy: 'focus',
+    enabled: parseGltfKelvinJarsEnabled,
+    materialOverride: {
+      ringIndex: 11.0,
+      color: [0.68, 0.70, 0.74],
+      metallic: 0.55,
+      roughness: 0.34,
+      emissiveScale: 0.45
+    },
+    softBudgetBytes: 50 * 1024
+  },
+  {
+    // The parts of the jumping-ring bench that do NOT move: laminated core,
+    // bobbin, the shoulder at h = 0 and the stop at poleHeightM. The ring and
+    // the winding stay procedural because their height and glow are the plant.
+    id: 'thomsonStand',
+    deviceId: 'jumping-ring',
+    url: THOMSON_STAND_GLB_URL,
+    role: 'thomson_stand',
+    loadPolicy: 'focus',
+    enabled: parseGltfThomsonStandEnabled,
+    materialOverride: {
+      ringIndex: 12.0,
+      color: [0.44, 0.45, 0.49],
+      metallic: 0.64,
+      roughness: 0.40,
+      emissiveScale: 0.5
     },
     softBudgetBytes: 50 * 1024
   }

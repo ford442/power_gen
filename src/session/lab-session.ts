@@ -96,6 +96,7 @@ export class LabSession {
     this.segLayoutPreset = parseSegLayoutPreset(params, this.prototypePreset);
     this.heronLayoutPreset = parseHeronLayoutPreset(params);
     applyStoredHeronLayout(this);
+    publishHeronLayoutPreset(this.heronLayoutPreset);
   }
 
   attachDevices(devices: Record<string, unknown>): void {
@@ -324,6 +325,7 @@ export class LabSession {
     if (!(Object.values(HERON_LAYOUT_PRESETS) as string[]).includes(presetName)) return null;
     this.heronLayoutPreset = presetName;
     this.heronLayout = getHeronLayout(presetName as HeronLayoutPresetId);
+    publishHeronLayoutPreset(presetName);
     const heron = this.devices.heron;
     const phys = heron?.physicsState ?? heron?.physics;
     if (phys) {
@@ -348,6 +350,21 @@ export class LabSession {
       }
     } catch (_) { /* ignore */ }
   }
+}
+
+/**
+ * Publish the preset the lab actually resolved.
+ *
+ * The query string alone is not the answer: `applyStoredHeronLayout()` lets a
+ * `localStorage` preset override `?heronLayout=` at boot, so anything reading
+ * the URL would see the wrong layout until the user switched preset by hand.
+ * Consumers that cannot reach the session — `parseHeronLayoutPreset()`, and the
+ * `heronVessels` CAD prop, whose GLB is baked for `classic` only — read this
+ * instead, so the prop cannot disagree with the geometry on screen.
+ */
+function publishHeronLayoutPreset(presetName: string): void {
+  if (typeof window === 'undefined') return;
+  window.HERON_LAYOUT_PRESET = presetName;
 }
 
 function applyStoredHeronLayout(session: LabSession): void {
