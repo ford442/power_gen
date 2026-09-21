@@ -364,6 +364,7 @@ function applyStoredHeronLayout(session: LabSession): void {
 function isWasmPlantModeSafe(id: string): boolean {
   return [
     'seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd',
-    'maglev', 'homopolar', 'transformer', 'vdg', 'hall', 'lorentz-sled'
+    'maglev', 'homopolar', 'transformer', 'vdg', 'hall', 'lorentz-sled',
+    'jumping-ring'
   ].includes(id);
 }

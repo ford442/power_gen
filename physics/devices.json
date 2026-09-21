@@ -521,6 +521,43 @@
           "digits": 3
         }
       }
+    },
+    {
+      "id": "jumping-ring",
+      "label": "Thomson Jumping Ring",
+      "category": "quanta",
+      "chrome": { "emoji": "💍", "label": "Jumping Ring", "sort": 14 },
+      "shaderMode": 15,
+      "wasmMode": 12,
+      "telemetryKeys": ["ringHeightM", "ringCurrentA", "ringPrimaryIA", "ringForceN", "ringCouplingK"],
+      "fidelity": "WASM coupled L–M(h) RK4 ODE with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it",
+      "telemetry": {
+        "ringHeightM": {
+          "label": "h",
+          "unit": "m",
+          "digits": 3
+        },
+        "ringCurrentA": {
+          "label": "I_ring",
+          "unit": "A",
+          "digits": 1
+        },
+        "ringPrimaryIA": {
+          "label": "I_p",
+          "unit": "A",
+          "digits": 2
+        },
+        "ringForceN": {
+          "label": "F_z",
+          "unit": "N",
+          "digits": 3
+        },
+        "ringCouplingK": {
+          "label": "k(h)",
+          "unit": "",
+          "digits": 3
+        }
+      }
     }
   ]
 }

@@ -71,6 +71,7 @@ function emitH(data) {
   const mag = data.maglev;
   const homo = data.homopolar;
   const lz = data.lorentzSled;
+  const jr = data.jumpingRing;
   const hs = hall.carrierProfiles.semiconductor;
   const hm = hall.carrierProfiles.metal;
   const tau = p.PI * 2;
@@ -227,15 +228,36 @@ struct LorentzSledConstants {
   static constexpr float I_MAX_A              = ${f32(lz.iMaxA)};
 };
 
+/**
+ * Thomson jumping ring — AC primary + shorted single-turn ring with height.
+ * F_HZ is deliberately absent: the plant reads the lab mains frequency from
+ * TransformerConstants::F_HZ so the two benches cannot drift apart.
+ */
+struct JumpingRingConstants {
+  static constexpr float PRIMARY_L_H          = ${f32(jr.primaryLH)};
+  static constexpr float PRIMARY_R_OHM        = ${f32(jr.primaryROhm)};
+  static constexpr float PRIMARY_V_PEAK       = ${f32(jr.primaryVPeak)};
+  static constexpr float RING_L_H             = ${f32(jr.ringLH)};
+  static constexpr float RING_R_OHM           = ${f32(jr.ringROhm)};
+  static constexpr float RING_MASS_KG         = ${f32(jr.ringMassKg)};
+  static constexpr float COUPLING_K0          = ${f32(jr.couplingK0)};
+  static constexpr float COUPLING_LAMBDA_M    = ${f32(jr.couplingLambdaM)};
+  static constexpr float DRAG_NSM             = ${f32(jr.dragNsm)};
+  static constexpr float POLE_HEIGHT_M        = ${f32(jr.poleHeightM)};
+  static constexpr float HEIGHT_REF_M         = ${f32(jr.heightRefM)};
+  static constexpr float I_PRIMARY_MAX_A      = ${f32(jr.iPrimaryMaxA)};
+  static constexpr float I_RING_MAX_A         = ${f32(jr.iRingMaxA)};
+};
+
 /** Simulated nameplate watts per SimMode (order-of-magnitude — not metrology). */
 struct EnergyNetworkNameplates {
-  static constexpr int MODE_COUNT = 12;
+  static constexpr int MODE_COUNT = 13;
   static constexpr float WATTS[MODE_COUNT] = {
     ${f32(en.deviceNameplateWatts.seg)}, ${f32(en.deviceNameplateWatts.heron)}, ${f32(en.deviceNameplateWatts.kelvin)},
     ${f32(en.deviceNameplateWatts.solar)}, ${f32(en.deviceNameplateWatts.peltier)}, ${f32(en.deviceNameplateWatts.mhd)},
     ${f32(en.deviceNameplateWatts.maglev)}, ${f32(en.deviceNameplateWatts.homopolar)},
     ${f32(en.deviceNameplateWatts.transformer)}, ${f32(en.deviceNameplateWatts.vdg)}, ${f32(en.deviceNameplateWatts.hall)},
-    ${f32(en.deviceNameplateWatts['lorentz-sled'])}
+    ${f32(en.deviceNameplateWatts['lorentz-sled'])}, ${f32(en.deviceNameplateWatts['jumping-ring'])}
   };
 };
 
@@ -322,6 +344,7 @@ function emitTs(data) {
   const mag = data.maglev;
   const homo = data.homopolar;
   const lz = data.lorentzSled;
+  const jr = data.jumpingRing;
   const pc = data.pulseCoil;
   const hv = data.halbachViz;
   const hs = hall.carrierProfiles.semiconductor;
@@ -531,6 +554,27 @@ export const LORENTZ_SLED = {
   iMaxA: ${lz.iMaxA},
 } as const;
 
+/**
+ * Thomson jumping ring — mirrored by ThomsonState / JumpingRingConstants in
+ * C++. No fHz here on purpose: the plant drives the primary at the lab mains
+ * frequency TRANSFORMER.fHz, so the two benches share one number.
+ */
+export const JUMPING_RING = {
+  primaryLH: ${jr.primaryLH},
+  primaryROhm: ${jr.primaryROhm},
+  primaryVPeak: ${jr.primaryVPeak},
+  ringLH: ${jr.ringLH},
+  ringROhm: ${jr.ringROhm},
+  ringMassKg: ${jr.ringMassKg},
+  couplingK0: ${jr.couplingK0},
+  couplingLambdaM: ${jr.couplingLambdaM},
+  dragNsm: ${jr.dragNsm},
+  poleHeightM: ${jr.poleHeightM},
+  heightRefM: ${jr.heightRefM},
+  iPrimaryMaxA: ${jr.iPrimaryMaxA},
+  iRingMaxA: ${jr.iRingMaxA},
+} as const;
+
 /** Pulse coil — JS-only plant (no wasmMode), so TS is the only target. */
 export const PULSE_COIL_CORE = {
   rOhm: ${pc.rOhm},
@@ -572,6 +616,7 @@ export const ENERGY_NETWORK_NAMEPLATES = {
     vdg: ${np.vdg},
     hall: ${np.hall},
     'lorentz-sled': ${np['lorentz-sled']},
+    'jumping-ring': ${np['jumping-ring']},
   },
 } as const;
 

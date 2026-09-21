@@ -24,7 +24,17 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 2. Load **static CAD** via glTF/GLB; keep rollers procedural/instanced.
 3. Grow a **WebGPU-first cinematic post stack** (bloom → filmic tonemap + preset exposure → cheap AO / contact shadow → IBL for metals), quality-gated by the profiler.
 4. Mature the **hardware twin** without blocking web-only users: mock transport for CI/demos; real Serial optional; firmware stays experimental.
-5. Target **8–12 devices** via LOD / particle budgets / overview culling (continue closed #90 spirit).
+5. Target **14+ classroom benches, LOD-limited**, via LOD / particle budgets /
+   overview culling (continue closed #90 spirit). *Restated 2026-09:* this
+   originally read "8–12 devices". The live lab passed that while the frame
+   budget held, because the constraint that actually binds is overview
+   particle/mesh LOD, not a device count — so the number is a floor with a
+   gate, not a cap. The gate: a new bench has to teach something no existing
+   one does **and** ride the existing catalog pipeline (ADR-0008) rather than
+   adding a fourth magic number. `jumping-ring` (15th, Lenz's law as motion —
+   the only bench where induction moves a conductor) is the worked example;
+   see the device gallery's cross-device-coupling note, which still prefers
+   depth over the next bench.
 
 ### Explicit non-goals
 
@@ -90,7 +100,7 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Keep firmware optional — never block web-only users
 - [ ] Research only: WebUSB / Bluetooth if Serial is insufficient
 
-### Workstream 4 — Performance headroom (8–12 devices)
+### Workstream 4 — Performance headroom (14+ benches, LOD-limited)
 
 - [x] Continue LOD / particle budgets (`particle-budgets.ts`, mesh LOD ladder, pipe tiers)
 - [x] Overview culling (frustum for 20 m plugin ring + CPU instance prefix)

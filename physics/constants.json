@@ -162,6 +162,22 @@
     "vMaxMps": 12,
     "iMaxA": 22
   },
+  "jumpingRing": {
+    "comment": "Classroom Thomson jumping ring \u2014 Lenz's law as motion. An AC primary on a laminated core drives an aluminium ring modelled as a shorted single-turn secondary carrying mass and gravity. Mutual inductance M(x) = couplingK0\u00b7sqrt(Lp\u00b7Lr)\u00b7exp(-x/couplingLambdaM) falls as the ring rises, so lift decays with height and the ring settles at a hover instead of flying away. Educational demo only: lumped circuit + rigid body, no eddy-current FEM, no temperature-dependent sigma, and no thermal state at all \u2014 the ring never heats or melts here. The drive frequency is the lab mains value in the `transformer` block, not a second literal. Shared term for term by cpp/src/plant/thomson_plant.cpp and devices/quanta/jumping-ring.ts.",
+    "primaryLH": 0.022,
+    "primaryROhm": 1.6,
+    "primaryVPeak": 170.0,
+    "ringLH": 1.33e-7,
+    "ringROhm": 2.3e-4,
+    "ringMassKg": 0.02,
+    "couplingK0": 0.65,
+    "couplingLambdaM": 0.045,
+    "dragNsm": 0.25,
+    "poleHeightM": 0.15,
+    "heightRefM": 0.055,
+    "iPrimaryMaxA": 30.0,
+    "iRingMaxA": 700.0
+  },
   "pulseCoil": {
     "comment": "JS-only by design (ADR-0002: no wasmMode) - TS codegen only, no C++ plant. Series R-L coil with a low-voltage capacitor-bank discharge metaphor; the armature travel is an attraction proxy, not a projectile model.",
     "rOhm": 0.18,
@@ -235,7 +251,8 @@
       "halbach-viz": 80,
       "vdg": 60,
       "hall": 30,
-      "lorentz-sled": 180
+      "lorentz-sled": 180,
+      "jumping-ring": 240
     }
   }
 }

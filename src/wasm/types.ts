@@ -103,6 +103,12 @@ export interface SEGSimulatorInstance {
   getLorentzForceN?(): number;
   getLorentzPositionM?(): number;
   setLorentzFieldT?(fieldT: number): void;
+  getRingHeightM?(): number;
+  getRingCurrentA?(): number;
+  getRingPrimaryIA?(): number;
+  getRingForceN?(): number;
+  getRingCouplingK?(): number;
+  getRingVelocityMps?(): number;
   getEnergyLevel?(): number;
   setNetworkEdges?(flatEdges: number[] | Float32Array): void;
   getNetworkEdgeCount?(): number;

@@ -43,6 +43,7 @@ void SEGSimulator::setDrive(float drive) {
     _vdg.drive = _drive;
     _hall.drive = _drive;
     _lorentz.drive = _drive;
+    _thomson.drive = _drive;
 }
 
 void SEGSimulator::stepWithPerRingTorques(float dt) {
@@ -82,6 +83,9 @@ void SEGSimulator::stepWithPerRingTorques(float dt) {
             break;
         case SIM_MODE_LORENTZ_SLED:
             _stepLorentz(dt);
+            break;
+        case SIM_MODE_JUMPING_RING:
+            _stepThomson(dt);
             break;
         default:
             break;
@@ -140,6 +144,13 @@ float SEGSimulator::estimatePower(float loadTorque) const {
         // the sled), not the total supply draw.
         return std::abs(_lorentz.forceN * _lorentz.velocityMps);
     }
+    if (_mode == SIM_MODE_JUMPING_RING) {
+        // Where the energy actually goes in a Thomson ring: I_r^2 R_r in the
+        // ring itself (this is why a real ring gets hot), plus the mechanical
+        // work F*v done lifting it. Simulated accounting, not a wattmeter.
+        return _thomson.ringCurrentA * _thomson.ringCurrentA * _thomson.rRingOhm
+               + std::abs(_thomson.forceN * _thomson.velocityMps);
+    }
     if (_numRollers == 0) return 0.f;
     return loadTorque * _rollers[0].omega * static_cast<float>(_numRollers) / 3.f;
 }
@@ -176,6 +187,9 @@ float SEGSimulator::getEnergyLevel() const {
         case SIM_MODE_LORENTZ_SLED:
             return clampf(std::abs(_lorentz.velocityMps)
                           / std::max(_lorentz.vMaxMps, 0.01f), 0.f, 1.f);
+        case SIM_MODE_JUMPING_RING:
+            return clampf(_thomson.heightM
+                          / std::max(_thomson.heightRefM, 0.001f), 0.f, 1.f);
         default:
             return clampf(_rollers[0].omega / 50.f, 0.f, 1.f);
     }

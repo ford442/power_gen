@@ -206,6 +206,27 @@ export const LORENTZ_SLED = {
   iMaxA: 22,
 } as const;
 
+/**
+ * Thomson jumping ring — mirrored by ThomsonState / JumpingRingConstants in
+ * C++. No fHz here on purpose: the plant drives the primary at the lab mains
+ * frequency TRANSFORMER.fHz, so the two benches share one number.
+ */
+export const JUMPING_RING = {
+  primaryLH: 0.022,
+  primaryROhm: 1.6,
+  primaryVPeak: 170,
+  ringLH: 1.33e-7,
+  ringROhm: 0.00023,
+  ringMassKg: 0.02,
+  couplingK0: 0.65,
+  couplingLambdaM: 0.045,
+  dragNsm: 0.25,
+  poleHeightM: 0.15,
+  heightRefM: 0.055,
+  iPrimaryMaxA: 30,
+  iRingMaxA: 700,
+} as const;
+
 /** Pulse coil — JS-only plant (no wasmMode), so TS is the only target. */
 export const PULSE_COIL_CORE = {
   rOhm: 0.18,
@@ -247,6 +268,7 @@ export const ENERGY_NETWORK_NAMEPLATES = {
     vdg: 60,
     hall: 30,
     'lorentz-sled': 180,
+    'jumping-ring': 240,
   },
 } as const;
 

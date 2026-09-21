@@ -376,6 +376,80 @@ test.describe('WASM physics (optional)', () => {
     expect(snap.positionM).toBeLessThanOrEqual(2);
     expect(snap.jsSpeed).toBeGreaterThan(0);
   });
+
+  test('jumping-ring ?wasmPhysics=1 uses C++ plant (SimMode 12)', async ({ page }) => {
+    test.setTimeout(300_000);
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'wasmPhysics=1');
+
+    await waitForEval(page,
+      () => document.getElementById('wasmStatus')?.textContent === 'WASM ✓'
+        || window.segWasm?.available === true,
+      { timeout: 90_000 }
+    );
+    await waitForEval(page,
+      () => window.segWasm?.enabled === true && window.multiVisualizer != null,
+      { timeout: 60_000 }
+    );
+
+    // src/public/wasm/sim_core.wasm is a CI artefact committed on main, so a
+    // branch checkout can be running a binary built before this plant existed.
+    // SEGSimulator::setMode rejects a mode past its own SIM_MODE_COUNT, so an
+    // old binary simply will not take 12 — detect that rather than asserting
+    // against a plant it does not have. The JS-fallback test below still covers
+    // the physics on every checkout.
+    const accepted = await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('jumping-ring');
+      window.segWasm?.setMode?.('jumping-ring');
+      return window.segWasm?.getMode?.() === 12;
+    });
+    test.skip(!accepted, 'sim_core.wasm predates SimMode 12 (jumping-ring) — rebuilt by build-wasm.yml on main');
+
+    await waitForEval(page,
+      () => {
+        const plant = window.segWasm?.getModePlant?.();
+        return window.segWasm?.getMode?.() === 12
+          && plant?.mode === 'jumping-ring'
+          && Number.isFinite(plant.ringHeightM) && Number.isFinite(plant.ringCurrentA)
+          && plant.ringHeightM > 0;
+      },
+      { timeout: 90_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const plant = window.segWasm.getModePlant();
+      const phys = window.multiVisualizer?.devices?.['jumping-ring']?.physicsState
+        ?? window.multiVisualizer?.devices?.['jumping-ring']?.physics;
+      return {
+        mode: window.segWasm.getMode(),
+        plantMode: plant?.mode,
+        ringHeightM: plant?.ringHeightM ?? 0,
+        ringCurrentA: plant?.ringCurrentA ?? 0,
+        ringPrimaryIA: plant?.ringPrimaryIA ?? 0,
+        ringForceN: plant?.ringForceN ?? 0,
+        ringCouplingK: plant?.ringCouplingK ?? 0,
+        jsHeight: phys?.ringHeightM ?? -1
+      };
+    });
+
+    expect(snap.mode).toBe(12);
+    expect(snap.plantMode).toBe('jumping-ring');
+    expect(Number.isFinite(snap.ringHeightM)).toBe(true);
+    expect(Number.isFinite(snap.ringCurrentA)).toBe(true);
+    expect(Number.isFinite(snap.ringPrimaryIA)).toBe(true);
+    expect(Number.isFinite(snap.ringForceN)).toBe(true);
+    expect(Number.isFinite(snap.ringCouplingK)).toBe(true);
+    // The ring has left the core shoulder and is inside the pole stop.
+    expect(snap.ringHeightM).toBeGreaterThan(0);
+    expect(snap.ringHeightM).toBeLessThanOrEqual(0.15);
+    // k(h) has fallen from k0 = 0.65 — that decay is why the ring hovers.
+    expect(snap.ringCouplingK).toBeGreaterThan(0);
+    expect(snap.ringCouplingK).toBeLessThan(0.65);
+    // A current is actually circulating in the shorted ring.
+    expect(Math.abs(snap.ringCurrentA)).toBeGreaterThan(1);
+    expect(snap.jsHeight).toBeGreaterThan(0);
+  });
 });
 
 test.describe('Quanta plugin devices (JS fallback)', () => {
@@ -488,6 +562,48 @@ test.describe('Quanta plugin devices (JS fallback)', () => {
     expect(snap.forceN).toBeGreaterThan(0);
     expect(snap.positionM).toBeGreaterThanOrEqual(0);
     expect(snap.positionM).toBeLessThanOrEqual(2);
+  });
+
+  test('jumping-ring JS fallback lifts the ring and drops k(h)', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('jumping-ring');
+    });
+
+    await waitForEval(page,
+      () => {
+        const phys = window.multiVisualizer?.devices?.['jumping-ring']?.physics;
+        return !!phys && Number.isFinite(phys.ringHeightM) && phys.ringHeightM > 0.001;
+      },
+      { timeout: 30_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const phys = window.multiVisualizer.devices['jumping-ring'].physics;
+      return {
+        heightM: phys.ringHeightM,
+        ringCurrentA: phys.ringCurrentA,
+        primaryIA: phys.ringPrimaryIA,
+        forceN: phys.ringForceN,
+        couplingK: phys.ringCouplingK
+      };
+    });
+
+    expect(Number.isFinite(snap.heightM)).toBe(true);
+    expect(Number.isFinite(snap.ringCurrentA)).toBe(true);
+    expect(Number.isFinite(snap.primaryIA)).toBe(true);
+    expect(Number.isFinite(snap.forceN)).toBe(true);
+    expect(Number.isFinite(snap.couplingK)).toBe(true);
+    // The bench's whole claim: the ring leaves the core and stays on the pole.
+    expect(snap.heightM).toBeGreaterThan(0);
+    expect(snap.heightM).toBeLessThanOrEqual(0.15);
+    // An induced current is circulating, and the coupling has decayed with it.
+    expect(Math.abs(snap.ringCurrentA)).toBeGreaterThan(1);
+    expect(snap.couplingK).toBeGreaterThan(0);
+    expect(snap.couplingK).toBeLessThan(0.65);
   });
 
   test('lorentz-sled B slider changes the field and the force', async ({ page }) => {
@@ -892,7 +1008,13 @@ test.describe('Device explainer tours', () => {
   for (const { mode, startFn, key, firstTitle } of [
     { mode: 'hall', startFn: 'startHallTour', key: 'hallTour', firstTitle: /strip, a current/i },
     { mode: 'transformer', startFn: 'startTransformerTour', key: 'transformerTour', firstTitle: /never touch/i },
-    { mode: 'kelvin', startFn: 'startKelvinTour', key: 'kelvinTour', firstTitle: /rising volts/i }
+    { mode: 'kelvin', startFn: 'startKelvinTour', key: 'kelvinTour', firstTitle: /rising volts/i },
+    {
+      mode: 'jumping-ring',
+      startFn: 'startJumpingRingTour',
+      key: 'jumpingRingTour',
+      firstTitle: /Lenz's law you can watch/i
+    }
   ]) {
     test(`${mode} tour plays via window.${startFn}() and focuses its device`, async ({ page }) => {
       const { pageErrors } = trackPageErrors(page);
@@ -945,7 +1067,8 @@ test.describe('Device explainer tours', () => {
     await waitForEval(page, () => window.kelvinTour?.playing === true, { timeout: 15_000 });
 
     const viaHooks = await page.evaluate(() => ({
-      playing: ['segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour']
+      playing: ['segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour',
+        'jumpingRingTour']
         .filter((k) => window[k]?.playing),
       visibleOverlays: [...document.querySelectorAll('#seg-tour-overlay')]
         .filter((el) => el.style.display !== 'none').length
@@ -959,7 +1082,8 @@ test.describe('Device explainer tours', () => {
     await waitForEval(page, () => window.transformerTour?.playing === true, { timeout: 10_000 });
 
     const viaLabHash = await page.evaluate(() => ({
-      playing: ['segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour']
+      playing: ['segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour',
+        'jumpingRingTour']
         .filter((k) => window[k]?.playing),
       visibleOverlays: [...document.querySelectorAll('#seg-tour-overlay')]
         .filter((el) => el.style.display !== 'none').length
@@ -1189,7 +1313,7 @@ test.describe('Telemetry replay scrubber', () => {
 
 test.describe('Catalog telemetry on the hub (plugin devices)', () => {
 
-  // vdg / hall / lorentz-sled publish DeviceTelemetrySnap fields named by
+  // vdg / hall / lorentz-sled / jumping-ring publish DeviceTelemetrySnap fields named by
   // physics/devices.json telemetryKeys — no Partial<> casts in the panel.
   for (const device of [
     { id: 'vdg', keys: ['vdgVoltage', 'vdgBeltMps', 'vdgChargeC', 'vdgSparkHz'], positive: 'vdgVoltage' },
@@ -1198,6 +1322,14 @@ test.describe('Catalog telemetry on the hub (plugin devices)', () => {
       id: 'lorentz-sled',
       keys: ['lorentzSledVms', 'lorentzCurrentA', 'lorentzFieldT', 'lorentzForceN', 'lorentzPositionM'],
       positive: 'lorentzCurrentA'
+    },
+    {
+      id: 'jumping-ring',
+      keys: ['ringHeightM', 'ringCurrentA', 'ringPrimaryIA', 'ringForceN', 'ringCouplingK'],
+      // k(h) is the only key that is positive at every phase of the mains
+      // cycle; the two currents and the force they make all change sign 120
+      // times a second.
+      positive: 'ringCouplingK'
     }
   ]) {
     test(`setMode('${device.id}') publishes finite catalog keys on the hub`, async ({ page }) => {

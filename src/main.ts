@@ -78,7 +78,8 @@ const MODE_DESCRIPTIONS: Record<string, string> = {
   transformer: 'Quanta Magnetics — Mutual Induction: two-winding classroom transformer with coupling k, primary drive, and secondary load. Toggle leakage vs ideal coupling; watch Vp/Vs/Ip/Is and flux. Coupled-inductor RK4 ODE; the JS fallback mirrors the C++ plant `?wasmPhysics=1` runs.',
   vdg: 'Quanta Magnetics — Van de Graaff Generator: belt-charged isolated sphere with leakage and a spark gap. Watch sphere voltage, belt speed, charge, and spark rate. Educational model — classroom electrostatics, not a high-voltage engineering design. JS charge/voltage fallback; `?wasmPhysics=1` uses the C++ belt-charge ODE.',
   hall: 'Quanta Magnetics — Hall-Effect Bench: current-carrying strip in a transverse B field. Toggle semiconductor vs. metal carrier density; watch Hall voltage, current, field, and Hall coefficient. Educational model — not a calibrated metrology instrument. JS algebraic fallback; `?wasmPhysics=1` uses the C++ plant.',
-  'lorentz-sled': 'Quanta Magnetics — Lorentz Rail Sled: a sliding armature bridges two rails in a transverse B field, so the drive current pushes it with F = I ℓ × B against friction and its own back-EMF. Set the bench field with the B slider; watch sled speed, armature current, force, and position. Educational Lorentz-force model — a low-voltage bench rail motor, not a railgun design tool. JS fallback mirrors the C++ plant; `?wasmPhysics=1` uses the C++ ODE.'
+  'lorentz-sled': 'Quanta Magnetics — Lorentz Rail Sled: a sliding armature bridges two rails in a transverse B field, so the drive current pushes it with F = I ℓ × B against friction and its own back-EMF. Set the bench field with the B slider; watch sled speed, armature current, force, and position. Educational Lorentz-force model — a low-voltage bench rail motor, not a railgun design tool. JS fallback mirrors the C++ plant; `?wasmPhysics=1` uses the C++ ODE.',
+  'jumping-ring': 'Quanta Magnetics — Thomson Jumping Ring: an aluminium ring sits on an AC-driven iron core as a shorted single turn. The induced ring current opposes the primary (Lenz), the two repel, and the ring jumps — then hovers, because the coupling k(h) and so the lift fall off with height. Watch ring height, induced ring current, primary current, net force, and k(h). Educational Thomson-ring model — no projectile, and no thermal state at all: this ring never heats, glows or melts. JS fallback mirrors the C++ plant; `?wasmPhysics=1` uses the C++ coupled L–M(h) ODE.'
 };
 
 window.setMode = (mode: string): void => {
@@ -107,6 +108,8 @@ window.setMode = (mode: string): void => {
   if (hallPanel) hallPanel.style.display = mode === 'hall' ? 'block' : 'none';
   const sledPanel = document.getElementById('lorentz-sled-controls');
   if (sledPanel) sledPanel.style.display = mode === 'lorentz-sled' ? 'block' : 'none';
+  const ringPanel = document.getElementById('jumping-ring-controls');
+  if (ringPanel) ringPanel.style.display = mode === 'jumping-ring' ? 'block' : 'none';
   syncFieldCouplingUI();
 };
 

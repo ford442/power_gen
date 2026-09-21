@@ -54,10 +54,10 @@ risk as leaving out a resistance.
 `npm run test:golden` (in `npm run validate`) is what keeps the two plants
 honest. `cpp/build/sim_core_test --mode golden` replays every **dual**
 device — catalog `wasmMode` set *and* a TS fallback plant: peltier, mhd,
-maglev, homopolar, transformer, vdg, hall, lorentz-sled — from a fixed
-seed, printing the schedule it used (drive / frames / dt) and its catalog
-`telemetryKeys`. `scripts/test-js-wasm-golden.mjs` steps the TS fallback
-over exactly that schedule and diffs all 40 keys.
+maglev, homopolar, transformer, vdg, hall, lorentz-sled, jumping-ring —
+from a fixed seed, printing the schedule it used (drive / frames / dt) and
+its catalog `telemetryKeys`. `scripts/test-js-wasm-golden.mjs` steps the TS
+fallback over exactly that schedule and diffs every key.
 
 The native run is authoritative for the schedule, including dt: it emits
 the float32-rounded `1/60` at full double precision so the JS plant

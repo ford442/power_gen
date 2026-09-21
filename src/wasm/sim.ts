@@ -377,6 +377,17 @@ export class SEGSim {
         energyLevel: this._sim.getEnergyLevel?.() ?? 0
       };
     }
+    if (m === 12) {
+      return {
+        mode: 'jumping-ring',
+        ringHeightM: this._sim.getRingHeightM?.() ?? 0,
+        ringCurrentA: this._sim.getRingCurrentA?.() ?? 0,
+        ringPrimaryIA: this._sim.getRingPrimaryIA?.() ?? 0,
+        ringForceN: this._sim.getRingForceN?.() ?? 0,
+        ringCouplingK: this._sim.getRingCouplingK?.() ?? 0,
+        energyLevel: this._sim.getEnergyLevel?.() ?? 0
+      };
+    }
     return {
       mode: 'seg',
       omega: this._sim.getOmega(),

@@ -84,6 +84,11 @@ export interface DeviceTelemetrySnap {
   lorentzFieldT: number;
   lorentzForceN: number;
   lorentzPositionM: number;
+  ringHeightM: number;
+  ringCurrentA: number;
+  ringPrimaryIA: number;
+  ringForceN: number;
+  ringCouplingK: number;
   /** Lab bus accounting (EnergyNetwork, W) — simulated, not metrology. */
   powerInW: number;
   powerOutW: number;

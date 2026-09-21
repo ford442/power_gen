@@ -17,6 +17,7 @@ import { buildTransformerMesh } from '../../devices/quanta/transformer';
 import { buildVdgMesh, VDG_V_BREAK } from '../../devices/quanta/van-de-graaff';
 import { buildHallMesh } from '../../devices/quanta/hall-effect';
 import { buildLorentzSledMesh, LORENTZ } from '../../devices/quanta/lorentz-sled';
+import { buildJumpingRingMesh, RING } from '../../devices/quanta/jumping-ring';
 import { buildPeltierMesh } from '../../devices/core/peltier-mesh';
 import { buildMhdMesh } from '../../devices/core/mhd-mesh';
 import { stepParticles } from '../shared/particle-physics';
@@ -161,6 +162,9 @@ export const renderMethods = {
           lorentzCurrentA: device.physics.lorentzCurrentA,
           lorentzFieldT: device.physics.lorentzFieldT,
           lorentzPositionM: device.physics.lorentzPositionM,
+          ringHeightM: device.physics.ringHeightM,
+          ringCurrentA: device.physics.ringCurrentA,
+          ringCouplingK: device.physics.ringCouplingK,
           simClock: this.simClock,
           speedMult: speed
         });
@@ -338,6 +342,14 @@ if (device.id === 'seg') {
     const fieldNorm = Math.min(1, (device.physics.lorentzFieldT ?? 0) / LORENTZ.fieldTMax);
     this.meshRenderer.drawPluginDevice(
       viewProj, pos, buildLorentzSledMesh(posNorm, currentNorm, fieldNorm).cylinders(), renderOpts
+    );
+  } else if (drawMeshes && device.id === 'jumping-ring') {
+    const heightNorm = Math.min(1, (device.physics.ringHeightM ?? 0) / RING.poleHeightM);
+    const ringNorm = Math.min(1, Math.abs(device.physics.ringCurrentA ?? 0) / RING.iRingMaxA);
+    const primaryNorm = Math.min(1, Math.abs(device.physics.ringPrimaryIA ?? 0) / RING.iPrimaryMaxA);
+    const kNorm = Math.min(1, (device.physics.ringCouplingK ?? RING.couplingK0) / RING.couplingK0);
+    this.meshRenderer.drawPluginDevice(
+      viewProj, pos, buildJumpingRingMesh(heightNorm, ringNorm, primaryNorm, kNorm).cylinders(), renderOpts
     );
   }
 

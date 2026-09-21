@@ -258,6 +258,55 @@ fn posLorentzSled(phase: f32, t: f32, idx: u32) -> vec3f {
   return vec3f(x, y, z);
 }
 
+/// Mode 15 — Thomson jumping ring: flux packets running up the core, out over
+/// the top and back down outside it, plus a ring of current packets riding the
+/// aluminium at its live height. The return path is squeezed where the ring
+/// sits — a cartoon of the flux it is excluding. Illustrative, not a field
+/// solver, and nothing here glows because anything is hot: this bench has no
+/// thermal model at all.
+fn posJumpingRing(phase: f32, t: f32, idx: u32) -> vec3f {
+  let irN = uniforms.physics0;
+  let hN = uniforms.physics1;
+  let kN = uniforms.physics2;
+  // -4 / 12.5 / 2.8 mirror RING_SCENE baseY / poleU / ringRadiusU in
+  // devices/quanta/jumping-ring.ts (device-local render units, not metres).
+  let baseY = -4.0;
+  let poleU = 12.5;
+  let ringR = 2.8;
+  let coreR = 0.55;
+  let outerR = ringR * 1.5;
+  let yRing = baseY + hN * poleU;
+  let u = fract(t * (0.3 + irN * 0.9) + phase);
+
+  if ((idx % 5u) == 0u) {
+    // Induced ring current, orbiting the aluminium where it actually is.
+    let a = u * 6.28318 + t * (1.0 + irN * 4.0);
+    return vec3f(cos(a) * ringR,
+                 yRing + sin(t * 9.0 + phase * 30.0) * 0.12 * irN,
+                 sin(a) * ringR);
+  }
+
+  let a = fract(f32(idx) * 0.618) * 6.28318;
+  var y = baseY;
+  var radius = coreR;
+  if (u < 0.45) {
+    y = baseY + (u / 0.45) * poleU;
+    radius = coreR;
+  } else if (u < 0.55) {
+    y = baseY + poleU;
+    radius = mix(coreR, outerR, (u - 0.45) / 0.1);
+  } else if (u < 0.95) {
+    y = baseY + poleU - ((u - 0.55) / 0.4) * poleU;
+    radius = outerR;
+  } else {
+    y = baseY;
+    radius = mix(outerR, coreR, (u - 0.95) / 0.05);
+  }
+  let near = exp(-abs(y - yRing) * 0.9);
+  radius = radius * (1.0 + near * kN * 0.45);
+  return vec3f(cos(a) * radius, y, sin(a) * radius);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let idx = id.x;
@@ -301,6 +350,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     newPos = posHall(phase, t, idx);
   } else if (m == MODE_LORENTZ_SLED) {
     newPos = posLorentzSled(phase, t, idx);
+  } else if (m == MODE_JUMPING_RING) {
+    newPos = posJumpingRing(phase, t, idx);
   } else {
     newPos = posMagLev(phase, t, idx);
   }

@@ -56,7 +56,12 @@ export const ENERGY_PIPE_EDGES: EnergyPipeEdge[] = [
   // Classroom pair: the MHD channel generates, the rail sled consumes the same
   // I×B physics as a motor. Allocation is simulated accounting (ADR-0004), not
   // metrology — the residual watts shown in overview stay labelled simulated.
-  { from: 'mhd', to: 'lorentz-sled', maxWatts: 300, speed: 1.7 }
+  { from: 'mhd', to: 'lorentz-sled', maxWatts: 300, speed: 1.7 },
+  // Classroom pair: the transformer bench shows mutual inductance as coupled
+  // L-M phasors, the jumping ring shows the same coupling doing mechanical
+  // work on a shorted secondary. Allocation is simulated accounting (ADR-0004),
+  // not metrology.
+  { from: 'transformer', to: 'jumping-ring', maxWatts: 260, speed: 1.8 }
 ];
 
 export const PIPE_COLORS: Record<string, [number, number, number]> = {
@@ -73,7 +78,8 @@ export const PIPE_COLORS: Record<string, [number, number, number]> = {
   'transformer-halbach-viz': [0.35, 0.85, 0.95],
   'halbach-viz-homopolar': [0.55, 0.75, 1.0],
   'homopolar-seg': [0.9, 0.55, 0.2],
-  'mhd-lorentz-sled': [0.95, 0.6, 0.3]
+  'mhd-lorentz-sled': [0.95, 0.6, 0.3],
+  'transformer-jumping-ring': [0.6, 0.8, 1.0]
 };
 
 /** Simulated nameplate draw per device when telemetry watts are unavailable. */

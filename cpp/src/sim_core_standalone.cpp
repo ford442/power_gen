@@ -409,6 +409,115 @@ static int run_lorentz_smoke() {
     return 0;
 }
 
+static int run_jumping_ring_smoke() {
+    SEGSimulator sim;
+    sim.setMode(SIM_MODE_JUMPING_RING);
+    sim.setDrive(0.9f);
+    const float dt = 1.f / 60.f;
+    for (int i = 0; i < 600; ++i) sim.step(dt, 0.f); // 10 s — settle at hover
+
+    const float h = sim.getRingHeightM();
+    const float ir = sim.getRingCurrentA();
+    const float ip = sim.getRingPrimaryIA();
+    const float f = sim.getRingForceN();
+    const float k = sim.getRingCouplingK();
+    printf("Jumping ring h=%.4f m  I_ring=%.1f A  I_p=%.2f A  F=%.3f N  k=%.3f\n",
+           h, ir, ip, f, k);
+    if (!std::isfinite(h) || !std::isfinite(ir) || !std::isfinite(ip)
+        || !std::isfinite(f) || !std::isfinite(k)) {
+        printf("FAIL: jumping ring NaN\n");
+        return 1;
+    }
+    // The whole point of the bench: at a real drive the ring leaves the core.
+    if (h <= 0.005f) {
+        printf("FAIL: ring did not jump under drive (h=%.4f m)\n", h);
+        return 1;
+    }
+    if (h > power_gen::JumpingRingConstants::POLE_HEIGHT_M) {
+        printf("FAIL: ring above the pole stop (h=%.4f m)\n", h);
+        return 1;
+    }
+    // k(h) must have fallen from k0 — that decay is why the ring hovers
+    // instead of accelerating away.
+    if (!(k < power_gen::JumpingRingConstants::COUPLING_K0)) {
+        printf("FAIL: coupling did not fall with height (k=%.4f)\n", k);
+        return 1;
+    }
+    if (std::abs(ir) < 1.f) {
+        printf("FAIL: no ring current induced (%.3f A)\n", ir);
+        return 1;
+    }
+
+    // Lenz, asserted rather than assumed. Both currents alternate, so a single
+    // sample proves nothing; average their product over one mains period. The
+    // ring current opposes the primary, so <Ip*Ir> is negative, and the force
+    // (that product times a negative dM/dh) therefore points *up* on average.
+    // Average the force over the same window for the same reason.
+    const float subDt = 1.f / (power_gen::TransformerConstants::F_HZ * 10.f);
+    double productSum = 0.0;
+    double forceSum = 0.0;
+    for (int i = 0; i < 10; ++i) {
+        sim.step(subDt, 0.f);
+        productSum += static_cast<double>(sim.getRingPrimaryIA())
+                    * static_cast<double>(sim.getRingCurrentA());
+        forceSum += static_cast<double>(sim.getRingForceN());
+    }
+    printf("Jumping ring cycle mean Ip*Ir=%.2f A^2  mean F=%.4f N (weight %.4f N)\n",
+           productSum / 10.0, forceSum / 10.0,
+           static_cast<double>(power_gen::JumpingRingConstants::RING_MASS_KG
+                               * PhysicsConstants::G));
+    if (!(productSum < 0.0)) {
+        printf("FAIL: ring current does not oppose the primary (mean Ip*Ir=%.3f)\n",
+               productSum / 10.0);
+        return 1;
+    }
+    if (!(forceSum > 0.0)) {
+        printf("FAIL: mean magnetic force on the ring is not upward (%.4f N)\n",
+               forceSum / 10.0);
+        return 1;
+    }
+
+    // Weak drive: below the lift threshold the ring must stay on the core
+    // shoulder rather than sinking through it or jittering off.
+    SEGSimulator weak;
+    weak.setMode(SIM_MODE_JUMPING_RING);
+    weak.setDrive(0.0f);
+    for (int i = 0; i < 120; ++i) weak.step(dt, 0.f);
+    const float hWeak = weak.getRingHeightM();
+    printf("Jumping ring (drive=0) h=%.4f m\n", hWeak);
+    if (hWeak != 0.f) {
+        printf("FAIL: undriven ring left the core shoulder (h=%.6f m)\n", hWeak);
+        return 1;
+    }
+
+    if (!std::isfinite(sim.getEnergyLevel()) || sim.getEnergyLevel() < 0.f
+        || sim.getEnergyLevel() > 1.f) {
+        printf("FAIL: jumping ring energy level out of range\n");
+        return 1;
+    }
+
+    // Long-frame stability: a dropped frame is clamped and substepped, so a
+    // 1 s step must stay finite and inside the pole.
+    SEGSimulator big;
+    big.setMode(SIM_MODE_JUMPING_RING);
+    big.setDrive(1.0f);
+    for (int i = 0; i < 20; ++i) big.step(1.0f, 0.f);
+    const float hBig = big.getRingHeightM();
+    const float irBig = big.getRingCurrentA();
+    printf("Jumping ring (dt=1 s x20) h=%.4f m  I_ring=%.1f A\n", hBig, irBig);
+    if (!std::isfinite(hBig) || !std::isfinite(irBig)) {
+        printf("FAIL: long-frame integration produced NaN/Inf\n");
+        return 1;
+    }
+    if (hBig < 0.f || hBig > power_gen::JumpingRingConstants::POLE_HEIGHT_M) {
+        printf("FAIL: long-frame integration unstable (h=%.4f)\n", hBig);
+        return 1;
+    }
+
+    printf("Jumping ring smoke OK (energyLevel=%.3f)\n", sim.getEnergyLevel());
+    return 0;
+}
+
 // --mode golden: replay every dual (JS fallback + C++ plant) device from a
 // fixed seed and print its catalog telemetry keys, so scripts/test-js-wasm-
 // golden.mjs can step the TypeScript fallback against the same schedule and
@@ -422,6 +531,11 @@ struct GoldenCase {
     const char* device;  // catalog device whose telemetryKeys this case covers
     float       drive;
     int         frames;
+    // Frame length. 1/60 for every device whose plant has no drive waveform of
+    // its own; a mains-driven plant needs a dt that is *not* a whole number of
+    // drive periods (see jumping-ring below) or every comparison lands on the
+    // same phase.
+    float       dt;
     // Lab field coupling (ADR-0011). >= 0 pins the destination plant's B to
     // this setpoint, exactly as FieldNetwork does under ?fieldCoupling=1, so
     // the golden covers the coupled path on both plants too. Negative = the
@@ -434,26 +548,43 @@ struct GoldenCase {
 // the thermal stack has opened a gap, the disc and sled have reached
 // terminal speed, and the VdG sphere has sparked at least once.
 static const GoldenCase GOLDEN_CASES[] = {
-    { SIM_MODE_PELTIER,      "peltier",      "peltier",      0.85f, 240, -1.f, -1.f },
-    { SIM_MODE_MHD,          "mhd",          "mhd",          0.90f, 120, -1.f, -1.f },
-    { SIM_MODE_MAGLEV,       "maglev",       "maglev",       0.60f, 120, -1.f, -1.f },
-    { SIM_MODE_HOMOPOLAR,    "homopolar",    "homopolar",    0.90f, 240, -1.f, -1.f },
-    { SIM_MODE_TRANSFORMER,  "transformer",  "transformer",  0.90f,  60, -1.f, -1.f },
+    { SIM_MODE_PELTIER,      "peltier",      "peltier",      0.85f, 240, 1.f / 60.f, -1.f, -1.f },
+    { SIM_MODE_MHD,          "mhd",          "mhd",          0.90f, 120, 1.f / 60.f, -1.f, -1.f },
+    { SIM_MODE_MAGLEV,       "maglev",       "maglev",       0.60f, 120, 1.f / 60.f, -1.f, -1.f },
+    { SIM_MODE_HOMOPOLAR,    "homopolar",    "homopolar",    0.90f, 240, 1.f / 60.f, -1.f, -1.f },
+    { SIM_MODE_TRANSFORMER,  "transformer",  "transformer",  0.90f,  60, 1.f / 60.f, -1.f, -1.f },
     // 150, not 120: the spark-rate window closes every 1 s (60 frames) and
     // the two plants cross that boundary a frame apart (float32 vs float64
     // running sum of dt), so a multiple of 60 would compare sparkHz across
     // different windows.
-    { SIM_MODE_VDG,          "vdg",          "vdg",          1.00f, 150, -1.f, -1.f },
-    { SIM_MODE_HALL,         "hall",         "hall",         0.80f, 120, -1.f, -1.f },
-    { SIM_MODE_LORENTZ_SLED, "lorentz-sled", "lorentz-sled", 0.80f, 240, -1.f, -1.f },
+    { SIM_MODE_VDG,          "vdg",          "vdg",          1.00f, 150, 1.f / 60.f, -1.f, -1.f },
+    { SIM_MODE_HALL,         "hall",         "hall",         0.80f, 120, 1.f / 60.f, -1.f, -1.f },
+    { SIM_MODE_LORENTZ_SLED, "lorentz-sled", "lorentz-sled", 0.80f, 240, 1.f / 60.f, -1.f, -1.f },
+    // dt = 1/90, not 1/60, and 400 frames rather than a multiple of 3.
+    //
+    // The ring is driven by the 60 Hz mains, so a 1/60 frame is exactly one
+    // drive period: every comparison would land on the same phase — the one
+    // where the supply voltage crosses zero. The ring is resistance-dominated
+    // (omega*Lr/Rr ~ 0.2), so its current is very nearly in phase with that
+    // voltage, and both ringCurrentA and the force it produces would be
+    // sampled at ~1% of their own amplitude. Comparing two near-zero numbers
+    // at a relative tolerance says nothing about whether the plants agree.
+    // A 1/90 frame walks the sample around the cycle instead (3 frames per
+    // period), and 400 frames leaves it a third of a period off the crossing.
+    //
+    // 400 x 1/90 = 4.4 s is ~20 mechanical settling times: the ring has left
+    // the core, overshot, and converged on the hover height where the
+    // cycle-averaged lift balances its weight, so the compared row sits on a
+    // fixed point rather than on a transient.
+    { SIM_MODE_JUMPING_RING, "jumping-ring", "jumping-ring", 0.85f, 400, 1.f / 90.f, -1.f, -1.f },
     // Field-coupled variants (ADR-0011): same plants, but B pinned to a source
     // device's estimate instead of the local rule. 0.31 T is inside the Hall
     // bench's 0.65 T range and *not* 0.8 x bMaxT, so a plant that ignored the
     // coupled setpoint and kept using drive would not accidentally agree.
-    { SIM_MODE_HALL,         "hall-coupled", "hall",         0.80f, 120, 0.31f, -1.f },
+    { SIM_MODE_HALL,         "hall-coupled", "hall",         0.80f, 120, 1.f / 60.f, 0.31f, -1.f },
     // 0.45 T stands in for a mid-drive MHD channel field; the default bench
     // value is 0.8 T, so the same "would not accidentally agree" argument holds.
-    { SIM_MODE_LORENTZ_SLED, "lorentz-sled-coupled", "lorentz-sled", 0.80f, 240, -1.f, 0.45f },
+    { SIM_MODE_LORENTZ_SLED, "lorentz-sled-coupled", "lorentz-sled", 0.80f, 240, 1.f / 60.f, -1.f, 0.45f },
 };
 static constexpr int GOLDEN_CASE_COUNT =
     static_cast<int>(sizeof(GOLDEN_CASES) / sizeof(GOLDEN_CASES[0]));
@@ -469,7 +600,6 @@ static int golden_emit(const char* id, const char* key, float value) {
 }
 
 static int run_golden() {
-    const float dt = 1.f / 60.f;
     int bad = 0;
 
     for (int c = 0; c < GOLDEN_CASE_COUNT; ++c) {
@@ -479,12 +609,12 @@ static int run_golden() {
         sim.setDrive(g.drive);
         if (g.hallFieldCoupledT >= 0.f) sim.setHallFieldCoupledT(g.hallFieldCoupledT);
         if (g.lorentzFieldT >= 0.f) sim.setLorentzFieldT(g.lorentzFieldT);
-        for (int i = 0; i < g.frames; ++i) sim.step(dt, 0.f);
+        for (int i = 0; i < g.frames; ++i) sim.step(g.dt, 0.f);
 
         std::printf("golden.case %s device=%s drive=%.17g frames=%d dt=%.17g"
                     " hallFieldCoupledT=%.17g lorentzFieldT=%.17g\n",
                     g.id, g.device, static_cast<double>(g.drive), g.frames,
-                    static_cast<double>(dt),
+                    static_cast<double>(g.dt),
                     static_cast<double>(g.hallFieldCoupledT),
                     static_cast<double>(g.lorentzFieldT));
 
@@ -544,6 +674,13 @@ static int run_golden() {
                 bad |= golden_emit(g.id, "lorentzFieldT",   sim.getLorentzFieldT());
                 bad |= golden_emit(g.id, "lorentzForceN",   sim.getLorentzForceN());
                 bad |= golden_emit(g.id, "lorentzPositionM", sim.getLorentzPositionM());
+                break;
+            case SIM_MODE_JUMPING_RING:
+                bad |= golden_emit(g.id, "ringHeightM",    sim.getRingHeightM());
+                bad |= golden_emit(g.id, "ringCurrentA",   sim.getRingCurrentA());
+                bad |= golden_emit(g.id, "ringPrimaryIA",  sim.getRingPrimaryIA());
+                bad |= golden_emit(g.id, "ringForceN",     sim.getRingForceN());
+                bad |= golden_emit(g.id, "ringCouplingK",  sim.getRingCouplingK());
                 break;
             default:
                 std::fprintf(stderr, "FAIL: no golden emitter for mode %d\n", g.mode);
@@ -724,12 +861,13 @@ int main(int argc, char** argv) {
             if (std::strcmp(argv[i + 1], "vdg") == 0) return run_vdg_smoke();
             if (std::strcmp(argv[i + 1], "hall") == 0) return run_hall_smoke();
             if (std::strcmp(argv[i + 1], "lorentz-sled") == 0) return run_lorentz_smoke();
+            if (std::strcmp(argv[i + 1], "jumping-ring") == 0) return run_jumping_ring_smoke();
             if (std::strcmp(argv[i + 1], "chores") == 0) return run_chores_smoke();
             if (std::strcmp(argv[i + 1], "energy-network") == 0) return run_energy_network_smoke();
             if (std::strcmp(argv[i + 1], "catalog") == 0) return run_catalog_smoke();
             if (std::strcmp(argv[i + 1], "bench") == 0) return run_bench_smoke();
             if (std::strcmp(argv[i + 1], "golden") == 0) return run_golden();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|lorentz-sled|chores|energy-network|catalog|bench|golden)\n", argv[i + 1]);
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|lorentz-sled|jumping-ring|chores|energy-network|catalog|bench|golden)\n", argv[i + 1]);
             return 2;
         }
     }
@@ -811,6 +949,7 @@ int main(int argc, char** argv) {
     if (run_vdg_smoke() != 0) return 1;
     if (run_hall_smoke() != 0) return 1;
     if (run_lorentz_smoke() != 0) return 1;
+    if (run_jumping_ring_smoke() != 0) return 1;
     if (run_chores_smoke() != 0) return 1;
     if (run_energy_network_smoke() != 0) return 1;
 

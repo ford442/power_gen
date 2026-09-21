@@ -112,6 +112,7 @@ std::vector<float> chores_map_scale_f32_vec(const std::vector<float>& data, floa
 #include "plant/vdg_plant.h"
 #include "plant/hall_plant.h"
 #include "plant/lorentz_plant.h"
+#include "plant/thomson_plant.h"
 #include "plant/energy_network.h"
 
 // ─────────────────────────────────────────────────────────────
@@ -216,6 +217,13 @@ public:
     float getLorentzPositionM() const { return _lorentz.positionM; }
     void  setLorentzFieldT(float fieldT);
 
+    float getRingHeightM() const { return _thomson.heightM; }
+    float getRingCurrentA() const { return _thomson.ringCurrentA; }
+    float getRingPrimaryIA() const { return _thomson.primaryIA; }
+    float getRingForceN() const { return _thomson.forceN; }
+    float getRingCouplingK() const { return _thomson.couplingK; }
+    float getRingVelocityMps() const { return _thomson.velocityMps; }
+
     // ── Accessors ─────────────────────────────────────────────
     float getOmega()        const { return _rollers[0].omega; }
     float getRPM()          const { return _rollers[0].omega * 60.f / PhysicsConstants::TAU; }
@@ -293,6 +301,7 @@ private:
     VdgState         _vdg;
     HallState        _hall;
     LorentzState     _lorentz;
+    ThomsonState     _thomson;
 
     // Lab energy bus state
     std::vector<EnergyNetworkEdgeSpec> _networkEdges;
@@ -312,6 +321,7 @@ private:
     void _stepVdg(float dt);
     void _stepHall(float dt);
     void _stepLorentz(float dt);
+    void _stepThomson(float dt);
     void _stepSegRollers(float dt);
 };
 

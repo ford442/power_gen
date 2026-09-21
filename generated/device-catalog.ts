@@ -272,6 +272,23 @@ export const DEVICE_CATALOG = [
     } as Record<string, TelemetryFieldMeta>,
     fidelity: "WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it",
   },
+  {
+    id: 'jumping-ring',
+    label: "Thomson Jumping Ring",
+    category: 'quanta',
+    chrome: { emoji: "💍", label: "Jumping Ring", sort: 14 } as DeviceChrome | undefined,
+    shaderMode: 15,
+    wasmMode: 12 as number | null,
+    telemetryKeys: ['ringHeightM', 'ringCurrentA', 'ringPrimaryIA', 'ringForceN', 'ringCouplingK'] as const,
+    telemetry: {
+      "ringHeightM": { label: "h", unit: "m", digits: 3 },
+      "ringCurrentA": { label: "I_ring", unit: "A", digits: 1 },
+      "ringPrimaryIA": { label: "I_p", unit: "A", digits: 2 },
+      "ringForceN": { label: "F_z", unit: "N", digits: 3 },
+      "ringCouplingK": { label: "k(h)", unit: "", digits: 3 },
+    } as Record<string, TelemetryFieldMeta>,
+    fidelity: "WASM coupled L–M(h) RK4 ODE with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it",
+  },
 ] as const;
 
 /** Mode-button chrome for devices that have one, in display order. */
@@ -290,6 +307,7 @@ export const MODE_BUTTON_CHROME: readonly { id: string; emoji: string; label: st
   { id: 'vdg', emoji: "⚡️", label: "Van de Graaff", sort: 11 },
   { id: 'hall', emoji: "🧲", label: "Hall-Effect Bench", sort: 12 },
   { id: 'lorentz-sled', emoji: "🛤️", label: "Lorentz Rail Sled", sort: 13 },
+  { id: 'jumping-ring', emoji: "💍", label: "Jumping Ring", sort: 14 },
 ];
 
 /** One catalog telemetry key bound to its device, CSV column and display schema. */
@@ -367,6 +385,11 @@ export const DEVICE_TELEMETRY_FIELDS: readonly DeviceTelemetryField[] = [
   { deviceId: 'lorentz-sled', key: 'lorentzFieldT', column: 'lorentz_field_t', label: "B", unit: "T", digits: 3 },
   { deviceId: 'lorentz-sled', key: 'lorentzForceN', column: 'lorentz_force_n', label: "F", unit: "N", digits: 3 },
   { deviceId: 'lorentz-sled', key: 'lorentzPositionM', column: 'lorentz_position_m', label: "x", unit: "m", digits: 3 },
+  { deviceId: 'jumping-ring', key: 'ringHeightM', column: 'ring_height_m', label: "h", unit: "m", digits: 3 },
+  { deviceId: 'jumping-ring', key: 'ringCurrentA', column: 'ring_current_a', label: "I_ring", unit: "A", digits: 1 },
+  { deviceId: 'jumping-ring', key: 'ringPrimaryIA', column: 'ring_primary_ia', label: "I_p", unit: "A", digits: 2 },
+  { deviceId: 'jumping-ring', key: 'ringForceN', column: 'ring_force_n', label: "F_z", unit: "N", digits: 3 },
+  { deviceId: 'jumping-ring', key: 'ringCouplingK', column: 'ring_coupling_k', label: "k(h)", unit: "", digits: 3 },
 ];
 
 const FIELDS_BY_DEVICE: Record<string, DeviceTelemetryField[]> = {};
@@ -404,15 +427,16 @@ export const WASM_MODE_BY_ID: Record<string, number> = {
   'vdg': 9,
   'hall': 10,
   'lorentz-sled': 11,
+  'jumping-ring': 12,
 };
 
-export const WASM_DEVICE_IDS = ['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall', 'lorentz-sled'] as const;
+export const WASM_DEVICE_IDS = ['seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'transformer', 'vdg', 'hall', 'lorentz-sled', 'jumping-ring'] as const;
 
-export const SIM_MODE_COUNT = 12;
+export const SIM_MODE_COUNT = 13;
 
 export const RESERVED_WASM_MODES = [] as const;
 
-export const NEXT_SHADER_MODE = 15;
+export const NEXT_SHADER_MODE = 16;
 
 /** Identity fields for DevicePlugin registration (modeIndex = shaderMode). */
 export function catalogIdentity(id: string): {

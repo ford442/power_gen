@@ -71,6 +71,7 @@ buffer packing
 ./build/sim_core_test --mode vdg         # belt-charge/leakage/spark-gap ODE smoke
 ./build/sim_core_test --mode hall        # I·B → Hall-voltage smoke
 ./build/sim_core_test --mode lorentz-sled # rail-motor R–L + back-EMF + friction smoke
+./build/sim_core_test --mode jumping-ring # Thomson ring coupled L–M(h) + mass/gravity smoke
 ./build/sim_core_test --mode chores      # gpu-chores reduce/map goldens
 ./build/sim_core_test --mode catalog     # print id → wasmMode; fail on holes/dupes
 ./build/sim_core_test --mode bench       # print bench_seg_steps_per_sec / bench_particle_steps_per_sec
