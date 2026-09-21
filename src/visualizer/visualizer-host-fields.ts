@@ -98,6 +98,8 @@ export interface VisualizerHostFields {
   _gltfPropBuffers?: Record<string, ArrayBuffer> | null;
   _gltfEmbeddedHousing?: ArrayBuffer | null;
   _gltfLoadInFlight?: Promise<void> | null;
+  /** View `_gltfLoadInFlight` is loading for, so a fast mode switch can queue behind it. */
+  _gltfLoadInFlightView?: string | null;
   _gltfPickHandlerAttached?: boolean;
   /** Internal re-entrancy guard inside attachGltfHousingPickHandler (gltf-housing-pick.ts). */
   _gltfPickBound?: boolean;

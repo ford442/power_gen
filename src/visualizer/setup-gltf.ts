@@ -108,11 +108,15 @@ export const gltfSetupMethods: ThisType<Host> & {
       return;
     }
 
-    // If already focused on SEG at boot, load immediately; else wait for focus.
-    if (this.currentView === 'seg') {
-      await this.ensureGltfPropsForView('seg');
+    // Booting straight into a focus view is a normal entry point — shareable lab
+    // links carry `mode=` — so load whatever bench we started on rather than
+    // assuming SEG, which would leave a deep-linked bench without its CAD until
+    // the user navigated away and back.
+    const view = this.currentView || 'overview';
+    if (propsForDevice(view).length > 0) {
+      await this.ensureGltfPropsForView(view);
     } else {
-      console.log('[gltf] CAD props deferred until SEG focus (overview stays light)');
+      console.log(`[gltf] CAD props deferred until a bench with props is focused (at "${view}")`);
     }
   },
 
@@ -129,11 +133,36 @@ export const gltfSetupMethods: ThisType<Host> & {
     }
   },
 
-  /** @private */
+  /**
+   * Serialize prop loads. A second request for the *same* view joins the one in
+   * flight; a request for a different view queues **behind** it rather than
+   * being dropped — switching benches faster than a GLB downloads used to leave
+   * the second bench without its CAD until it was re-entered.
+   * @private
+   */
   async _loadGltfPropsForSegFocus(view: string = 'seg') {
-    if (this._gltfLoadInFlight) return this._gltfLoadInFlight;
+    if (this._gltfLoadInFlight) {
+      if (this._gltfLoadInFlightView === view) return this._gltfLoadInFlight;
+      const pending = this._gltfLoadInFlight;
+      this._gltfLoadInFlightView = view;
+      this._gltfLoadInFlight = pending
+        .catch(() => { /* the previous view's failure is already logged */ })
+        // Only continue if the user is still on this view once the queue drains.
+        .then(() => (this.currentView === view
+          ? this._loadGltfPropsForSegFocusInner(view)
+          : undefined))
+        .finally(() => {
+          this._gltfLoadInFlight = null;
+          this._gltfLoadInFlightView = null;
+        });
+      return this._gltfLoadInFlight;
+    }
+    this._gltfLoadInFlightView = view;
     this._gltfLoadInFlight = this._loadGltfPropsForSegFocusInner(view)
-      .finally(() => { this._gltfLoadInFlight = null; });
+      .finally(() => {
+        this._gltfLoadInFlight = null;
+        this._gltfLoadInFlightView = null;
+      });
     return this._gltfLoadInFlight;
   },
 
