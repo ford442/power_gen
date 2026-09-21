@@ -21,6 +21,14 @@ import type {
 import type { GltfPickable } from '../multi-device-visualizer';
 
 export interface VisualizerHostFields {
+  /**
+   * True from the moment `device.lost` fires until GPU state has either
+   * been fully rebuilt on the recovered device or the reload overlay was
+   * shown. The render loop no-ops while this is true (see render-loop.ts)
+   * so it never touches half-rebuilt pipelines/bind groups mid-recovery.
+   */
+  _deviceRecovering?: boolean;
+
   // Set later in init(); undefined until then (matches original runtime behavior).
   pipelineCache?: PipelineLayoutCache | null;
   segLayoutUniformBuffer?: GPUBuffer | null;

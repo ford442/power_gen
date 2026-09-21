@@ -22,6 +22,7 @@ export const renderLoopMethods: ThisType<Host> & {
 } = {
   render(timestamp: number) {
     if (
+      this._deviceRecovering ||
       this.canvas.clientWidth < 1 ||
       this.canvas.clientHeight < 1 ||
       !this.depthAttachmentView ||

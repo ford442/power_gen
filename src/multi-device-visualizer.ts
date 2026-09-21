@@ -140,7 +140,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   taaEnabled: boolean;
   /** `?fdtd=0` kill switch for the pulse-coil wave slice (ADR-0010). */
   fdtdEnabled: boolean;
-  private _fdtdSliceInit?: Promise<void> | null;
+  /** Reset alongside `fdtdSlice` by device-lost recovery — see init-methods.ts. */
+  _fdtdSliceInit?: Promise<void> | null;
 
   constructor(session: LabSession) {
     console.log('MultiDeviceVisualizer v5 starting - depthStencil fix applied');
@@ -150,14 +151,20 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
     // Initialize managers (single adapter path lives in WebGPUManager)
     this.webgpu = new WebGPUManager(this.canvas, {
+      // Session re-init on the existing adapter (ADR-0007: never a second
+      // device) — see recoverFromDeviceLoss in visualizer/init-methods.ts.
+      // Falls back to the reload overlay itself if recovery can't complete.
       onDeviceLost: (info: { reason?: string; message?: string }) => {
-        console.error('[MultiDeviceVisualizer] GPU device lost — prompting reload', info);
-        WebGPUManager.showDeviceLostUI(info);
+        this.recoverFromDeviceLoss(info).catch((e) => {
+          console.error('[MultiDeviceVisualizer] recoverFromDeviceLoss threw — prompting reload', e);
+          WebGPUManager.showDeviceLostUI(info);
+        });
       }
     });
     this.profiler = null;
     this.debugPanel = null;
     this.depthFormat = DEPTH_FORMAT;
+    this._deviceRecovering = false;
 
     this.shaders = new MultiDeviceShaders();
     this.session.cameraController = null;
@@ -422,6 +429,9 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   }
 
   async setupEnergyPipes(): Promise<void> {
+    // Reset rather than assume empty: device-lost recovery calls this again
+    // on a fresh device, and the old pipes' GPU buffers died with it.
+    this.energyPipes = [];
     for (const config of ENERGY_PIPE_EDGES) {
       const pipe = new EnergyPipe(this.device, config, this);
       await pipe.init();
