@@ -183,7 +183,18 @@ read fails CI instead of failing at focus time.
 
 ## Authoring workflow (Blender → glTF)
 
-1. Model in **metres** with origin at the SEG assembly centre (Y up).
+1. Model Y-up, in **that bench's own units and origin** — not one global
+   convention (see **Units per bench** above):
+
+   | Bench | Units | Origin |
+   |-------|-------|--------|
+   | `seg` | metres | SEG assembly centre; baked through `worldScale` / `baseBottomY` |
+   | `transformer`, `vdg` | metres, tracking `physics/constants.json` | bench floor plane |
+   | `heron`, `kelvin`, `jumping-ring` | **device-local render units** (the shared instance cylinder is r = 0.8, h = 2.5) | the bench's own procedural origin |
+
+   For a render-unit bench, copy the numbers from the TS layout it has to line up
+   with (`PRESET_DEFS.classic`, `buildKelvinInstances`, `RING_SCENE`) rather than
+   converting from the SI constants — the two are deliberately separate.
 2. Export **glTF 2.0 Binary (.glb)** with:
    - Triangulated meshes
    - Applied transforms
@@ -221,16 +232,20 @@ read fails CI instead of failing at focus time.
 |-------|----------|---------|
 | `extras.annotationId` | yes (on callout nodes) | Tour / explainer highlight id — must match `seg-tour.json` `highlights` and `seg-annotations.js` ids (`shaft`, `inner-ring`, `stator`, `separator`, `outer-ring`, `coil`, …) |
 | `extras.power_gen.materialRingIndex` | no | PBR ring index for structural meshes (default `11.0`); registry override may win |
-| `extras.power_gen.role` | no | `housing` \| `coil_former` \| `stand` \| `base_plate` \| `transformer_core` \| `vdg_terminal` — used for emissive / draw tagging |
+| `extras.power_gen.role` | no | `housing` \| `coil_former` \| `stand` \| `base_plate` \| `transformer_core` \| `vdg_terminal` \| `thomson_stand` \| `heron_vessels` \| `kelvin_jars` — used for emissive / draw tagging |
 | `extras.power_gen.deviceId` | no | Which bench the prop belongs to (default `seg`). The **registry** entry is authoritative; this is for humans reading the GLB |
 | `extras.power_gen.anchors` | no | Named telemetry / rigging points (not tour ids) |
 | `extras.power_gen.compressedAlbedo` | no | Image indices `{ none, bc, etc2, astc }` for GPU-native KTX2 (stand placeholder) |
 
 Use a small invisible **pick-proxy** mesh (see `annotation_pick_proxy` in `housing-shell.glb`) on annotation nodes. Proxies are ray-pick targets only — not drawn at runtime.
 
-4. Drop the file under `src/public/assets/seg/` (SEG) or `src/public/assets/quanta/`
-   (any other bench) and register it in `SEG_GLTF_PROPS` (`prop-registry.ts`) with
-   its `deviceId`, load policy, `enabled` predicate and `softBudgetBytes`.
+4. Drop the file under the directory for its bench — `src/public/assets/seg/`
+   (SEG), `src/public/assets/quanta/` (a bench in `src/devices/quanta/`) or
+   `src/public/assets/lab/` (`heron`, `kelvin`) — and register it in
+   `SEG_GLTF_PROPS` (`prop-registry.ts`) with its `deviceId`, load policy,
+   `enabled` predicate and `softBudgetBytes`. The directory groups by where the
+   bench's code lives, **not** by units: `quanta/` holds both metre-authored
+   (`transformer`, `vdg`) and render-unit (`jumping-ring`) assets.
 5. `materialRingIndex` maps to the seg-enhanced PBR table (`ringIndex` in the instance buffer):
    - `11.0` — structural aluminum (default housing)
    - `12.0` — coil former / phenolic-ish
