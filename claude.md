@@ -89,6 +89,8 @@ npm run check:wgsl    # naga offline
 npm run check:post    # post uniform contracts
 npm run test:transports # twin transport framing + coast-on-disconnect
 npm run test:audio    # sonification mapping bounds (silent by default)
+npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switches
+npm run generate:gltf # regenerate every placeholder GLB (seg + quanta + lab)
 ```
 
 ## WebGPU notes

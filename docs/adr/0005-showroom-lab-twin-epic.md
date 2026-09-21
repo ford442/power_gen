@@ -54,10 +54,25 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Node hierarchy polish (lazy multi-prop registry, material overrides)
 - [x] **Per-device CAD beyond SEG** — registry entries carry a `deviceId`, and
       `ensureGltfPropsForView()` loads only the focused bench's props while
-      disposing every other bench's focus-policy props. First two:
-      `transformer-core.glb` (the flux path the procedural coils lack) and
+      disposing every other bench's focus-policy props. Five benches:
+      `transformer-core.glb` (the flux path the procedural coils lack),
       `vdg-terminal.glb` (sphere / column / belt / gap, where the shape *is* the
-      explanation). Guarded by `npm run test:props`; see `docs/GLTF_ASSETS.md`
+      explanation), `thomson-stand.glb` (the rest shoulder at `h = 0` and the
+      travel stop at `poleHeightM`, which the procedural pole has neither of),
+      `heron-vessels.glb` (which volume is sealed — the fountain's whole
+      argument) and `kelvin-jars.glb` (the shared supply, and collectors on
+      insulating pillars rather than standing on nothing).
+      Guarded by `npm run test:props`; see `docs/GLTF_ASSETS.md`
+- [x] **What stays procedural** — anything whose position or glow *is* the plant
+      is not baked: the jumping ring itself (`ringHeightM`), its winding courses
+      (`I_p`), Kelvin's induction rings (accumulated charge) and Heron's water.
+      CAD covers the bench, not the physics.
+- [x] **Preset-shaped benches** — SEG's presets rescale one assembly, so its
+      props bake through `worldScale`. Heron's five presets re-route the
+      plumbing instead, so `heronVessels` is baked for `classic` only and
+      `setHeronLayoutPreset()` re-runs `ensureGltfPropsForView()` to free it
+      when the user switches preset without leaving the bench. Pinned in both
+      directions by `npm run test:props`
 - [x] Optional minimal external glTF parser eval (parser only — not a full engine) — **deferred**: hand-rolled loader wins on gzip; **re-evaluated 2026-09** when multi-device CAD landed and it still parses fine, so still deferred; see `docs/GLTF_ASSETS.md`
 - [x] Basis **UASTC** WASM decode evaluated — **not adopted**: GPU-native KTX2 is
       already negotiated per device with zero decode cost, and UASTC's win (one

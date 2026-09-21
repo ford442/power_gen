@@ -390,6 +390,21 @@ export class MultiDeviceVisualizer implements VisualizerLike {
       await heron.geometry.applyHeronLayout(presetName);
     }
 
+    // The Heron CAD prop is baked for the `classic` preset only (the presets
+    // re-route the plumbing rather than rescale one shape), so a preset change
+    // is as much a prop change as a mode change is: re-running the per-view
+    // loader disposes the classic vessels when leaving it and reloads them when
+    // coming back. Without this the classic glass would stay hanging in a tower
+    // layout until the user left the bench and returned.
+    if (this.currentView === 'heron') {
+      // Awaited, so the dispose has happened before the camera refocuses — but
+      // a failed prop load must not fail the preset switch, exactly as on the
+      // mode-change path.
+      await this.ensureGltfPropsForView('heron').catch((err: unknown) => {
+        console.warn('[gltf] heron preset prop refresh failed', err);
+      });
+    }
+
     if (this.currentView === 'heron' && this.cameraController) {
       this.cameraController.focusOnDevice('heron');
     }

@@ -266,6 +266,9 @@ for (const p of props) {
   const soloCases = [
     ['gltfHousing=0&gltfTransformerCore=1', 'transformerCore', 'transformer'],
     ['gltfHousing=0&gltfVdgTerminal=1', 'vdgTerminal', 'vdg'],
+    ['gltfHousing=0&gltfKelvinJars=1', 'kelvinJars', 'kelvin'],
+    ['gltfHousing=0&gltfThomsonStand=1', 'thomsonStand', 'jumping-ring'],
+    ['gltfHousing=0&gltfHeronVessels=1', 'heronVessels', 'heron'],
     ['gltfHousing=0&gltfStand=1', 'stand', 'seg']
   ];
   for (const [query, id, deviceId] of soloCases) {
@@ -286,7 +289,10 @@ for (const p of props) {
     ['gltfStand=0', 'stand', 'seg'],
     ['gltfBasePlate=0', 'basePlate', 'seg'],
     ['gltfTransformerCore=0', 'transformerCore', 'transformer'],
-    ['gltfVdgTerminal=0', 'vdgTerminal', 'vdg']
+    ['gltfVdgTerminal=0', 'vdgTerminal', 'vdg'],
+    ['gltfHeronVessels=0', 'heronVessels', 'heron'],
+    ['gltfKelvinJars=0', 'kelvinJars', 'kelvin'],
+    ['gltfThomsonStand=0', 'thomsonStand', 'jumping-ring']
   ];
   for (const [query, id, deviceId] of perProp) {
     const params = new URLSearchParams(query);
@@ -304,6 +310,83 @@ for (const p of props) {
     check(`?${query.replace('=0', '=1')} forces ${id} on`,
       def.enabled(new URLSearchParams(query.replace('=0', '=1'))) === true,
       'the explicit-on form did not work');
+  }
+}
+
+// ── 4b. Heron's preset gate ────────────────────────────────────────────────
+//
+// `heronVessels` is the one prop whose `enabled` depends on something other
+// than a query switch: the GLB is baked for the `classic` layout, and Heron's
+// presets re-route the plumbing rather than rescale one shape. If this gate
+// ever silently opens, the classic glass hangs in a tower layout; if it
+// silently closes, the bench loses its CAD for no stated reason. Neither shows
+// up anywhere else, so pin both directions here.
+{
+  const heron = registry.getPropDef('heronVessels');
+  check('heronVessels is in the registry', !!heron, 'no prop "heronVessels"');
+  if (heron) {
+    check('heronVessels is on for the default (classic) preset',
+      heron.enabled(new URLSearchParams('')) === true, 'it defaulted off');
+    check('heronVessels is on for an explicit ?heronLayout=classic',
+      heron.enabled(new URLSearchParams('heronLayout=classic')) === true, 'it was off');
+
+    for (const preset of ['compact', 'tower', 'wide', 'spiral']) {
+      const params = new URLSearchParams(`heronLayout=${preset}`);
+      check(`heronVessels is off for ?heronLayout=${preset}`,
+        heron.enabled(params) === false,
+        `the classic GLB would hang in the ${preset} layout`);
+      // And the loader must agree, because `_disposeFocusOnlyGltfProps` keeps
+      // exactly what `propsForDevice` still reports — that is what frees the
+      // GPU buffers when the user switches preset without leaving the bench.
+      check(`propsForDevice("heron") is empty for ?heronLayout=${preset}`,
+        registry.propsForDevice('heron', params).length === 0,
+        registry.propsForDevice('heron', params).map((x) => x.id).join(', '));
+    }
+
+    // An unknown preset falls back to classic in `parseHeronLayoutPreset`, so
+    // a typo in a shared lab URL must not silently strip the CAD.
+    check('heronVessels survives an unknown preset (falls back to classic)',
+      heron.enabled(new URLSearchParams('heronLayout=not-a-preset')) === true,
+      'an unknown preset disabled the prop');
+    // The preset gate must not override an explicit off.
+    check('?gltfHeronVessels=0 still wins on the classic preset',
+      heron.enabled(new URLSearchParams('heronLayout=classic&gltfHeronVessels=0')) === false,
+      'the explicit off was ignored');
+    // ...nor should an explicit on resurrect it in a layout it does not fit.
+    check('?gltfHeronVessels=1 does not force the classic GLB into a tower',
+      heron.enabled(new URLSearchParams('heronLayout=tower&gltfHeronVessels=1')) === false,
+      'the preset gate was bypassed by an explicit on');
+
+    // The session's published preset outranks the query string, because
+    // `applyStoredHeronLayout()` lets a localStorage preset override
+    // `?heronLayout=` at boot. Without this the prop reads the URL, disagrees
+    // with the geometry actually on screen, and hangs classic glass in a tower.
+    const hadWindow = 'window' in globalThis;
+    const priorWindow = globalThis.window;
+    try {
+      globalThis.window = { HERON_LAYOUT_PRESET: 'tower' };
+      check('a published "tower" preset beats an empty query',
+        heron.enabled(new URLSearchParams('')) === false,
+        'the prop stayed on for a session that is not on classic');
+      check('a published "tower" preset beats ?heronLayout=classic',
+        heron.enabled(new URLSearchParams('heronLayout=classic')) === false,
+        'the query string outranked the session');
+
+      globalThis.window = { HERON_LAYOUT_PRESET: 'classic' };
+      check('a published "classic" preset turns the prop on',
+        heron.enabled(new URLSearchParams('heronLayout=tower')) === true,
+        'the prop stayed off for a session that is on classic');
+
+      // A junk global must not strip the CAD — fall back to the query.
+      globalThis.window = { HERON_LAYOUT_PRESET: 'not-a-preset' };
+      check('an unknown published preset falls back to the query',
+        heron.enabled(new URLSearchParams('')) === true
+          && heron.enabled(new URLSearchParams('heronLayout=tower')) === false,
+        'the fallback did not use the query string');
+    } finally {
+      if (hadWindow) globalThis.window = priorWindow;
+      else delete globalThis.window;
+    }
   }
 }
 

@@ -246,6 +246,13 @@ declare global {
 
     /** Force-disable the SEG housing glTF prop (assets/gltf/prop-registry.ts). */
     GLTF_HOUSING?: boolean;
+    /**
+     * Heron layout preset the lab has actually resolved, published by
+     * `LabSession` — `localStorage` can override `?heronLayout=` at boot, so
+     * the query string is not on its own the answer. Read by
+     * `parseHeronLayoutPreset()` and by the `heronVessels` CAD prop's gate.
+     */
+    HERON_LAYOUT_PRESET?: string;
 
     /** SEG component-label overlay singleton (seg-annotations.ts). */
     segAnnotations?: { setEnabled: (on: boolean) => void };

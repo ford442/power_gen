@@ -279,6 +279,9 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `gltfBasePlate` | `1` \| `0` | follows housing | Base plate GLB; `0` skips that prop |
 | `gltfTransformerCore` | `1` \| `0` | follows housing | Transformer C-core GLB (transformer focus); `0` skips that prop |
 | `gltfVdgTerminal` | `1` \| `0` | follows housing | Van de Graaff terminal GLB (vdg focus); `0` skips that prop |
+| `gltfHeronVessels` | `1` \| `0` | follows housing, **classic preset only** | Heron glass vessels GLB (heron focus). Baked for `heronLayout=classic`; the other four presets re-route the plumbing, so the prop stays off there whatever this says — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
+| `gltfKelvinJars` | `1` \| `0` | follows housing | Kelvin header tank + insulated collection jars GLB (kelvin focus); `0` skips that prop |
+| `gltfThomsonStand` | `1` \| `0` | follows housing | Thomson ring stand GLB — core, bobbin, rest shoulder, travel stop (jumping-ring focus). The ring itself stays procedural |
 | `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | Lighting + post look |
 | `mockHardware` | `1` | off | Hardware twin mock transport (no serial port). Other links (`serial` / `bluetooth` / `usb`) are chosen from the Hardware Twin panel — each needs a user gesture for its chooser |
 | `energyCoupling` | `1` \| `0` | off (visual-only pipes) | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`) |
@@ -414,7 +417,12 @@ Manual / agent checks (WebGPU needs a real GPU):
 1. `?renderer=webgl2` — START plant, non-zero telemetry, mode focus buttons.
 2. WebGPU (real GPU) — same + bloom/flux where quality allows.
 3. `npm run validate` before merge when touching physics/shaders/native.
-4. Agent hooks: `window.getRendererInfo()`, `window.captureCanvasFrame({ flipY: true })`, `window.currentRenderer`.
+4. **Per-device CAD props** (WebGPU focus only — WebGL2 skips them): focus the
+   bench and look for `[gltf] <view> CAD props ready: …` in the console. To see
+   one prop on its own, `?gltfHousing=0&gltf<Prop>=1`. `npm run test:props`
+   covers the registry, the byte budgets and the winding off-GPU;
+   [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) has the per-bench table.
+5. Agent hooks: `window.getRendererInfo()`, `window.captureCanvasFrame({ flipY: true })`, `window.currentRenderer`.
 
 ---
 
