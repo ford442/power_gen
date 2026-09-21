@@ -74,9 +74,9 @@ export interface VisualizerFacadeMethods {
   setupGltfAssets(embeddedGlb?: ArrayBuffer, opts?: { propBuffers?: Record<string, ArrayBuffer> }): Promise<void>;
   ensureGltfPropsForView(view: string): Promise<void>;
   updateGltfHousingState(): void;
-  _loadGltfPropsForSegFocus(): Promise<void>;
-  _loadGltfPropsForSegFocusInner(): Promise<void>;
-  _disposeFocusOnlyGltfProps(): void;
+  _loadGltfPropsForSegFocus(view?: string): Promise<void>;
+  _loadGltfPropsForSegFocusInner(view: string): Promise<void>;
+  _disposeFocusOnlyGltfProps(keepDeviceId?: string): void;
   _uploadGltfProp(
     prop: Parameters<GltfPropRegistry['_uploadGltfProp']>[0],
     ctx: Parameters<GltfPropRegistry['_uploadGltfProp']>[1]
@@ -169,9 +169,9 @@ export const facadeMethods: ThisType<Host> & VisualizerFacadeMethods = {
   },
   ensureGltfPropsForView(view) { return this.gltfProps.ensureGltfPropsForView(view); },
   updateGltfHousingState() { this.gltfProps.updateGltfHousingState(); },
-  _loadGltfPropsForSegFocus() { return this.gltfProps._loadGltfPropsForSegFocus(); },
-  _loadGltfPropsForSegFocusInner() { return this.gltfProps._loadGltfPropsForSegFocusInner(); },
-  _disposeFocusOnlyGltfProps() { this.gltfProps._disposeFocusOnlyGltfProps(); },
+  _loadGltfPropsForSegFocus(view) { return this.gltfProps._loadGltfPropsForSegFocus(view); },
+  _loadGltfPropsForSegFocusInner(view) { return this.gltfProps._loadGltfPropsForSegFocusInner(view); },
+  _disposeFocusOnlyGltfProps(keepDeviceId) { this.gltfProps._disposeFocusOnlyGltfProps(keepDeviceId); },
   _uploadGltfProp(prop, ctx) {
     return this.gltfProps._uploadGltfProp(prop, ctx);
   },

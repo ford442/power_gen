@@ -158,6 +158,11 @@ const gltf = {
       children: [1, ...HOUSING_ANNOTATIONS.map((_, i) => annNodeStart + i)],
       extras: {
         power_gen: {
+          // `role` was added to the convention after this generator; the runtime
+          // falls back to the registry's role, but npm run test:props asserts
+          // that GLB and registry agree, so state it here too.
+          role: 'housing',
+          deviceId: 'seg',
           anchors: [
             { name: 'assembly_origin', position: [0, 0, 0] },
             { name: 'telemetry_mount', position: [0, 1.1, 5.2] },
@@ -169,7 +174,7 @@ const gltf = {
     {
       name: 'housing_shell',
       mesh: 0,
-      extras: { power_gen: { materialRingIndex: 11.0 } }
+      extras: { power_gen: { role: 'housing', materialRingIndex: 11.0 } }
     },
     ...annNodes
   ],

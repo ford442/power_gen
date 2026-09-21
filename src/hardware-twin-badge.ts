@@ -1,14 +1,24 @@
 /**
  * Global header badge for hardware twin connection state.
- * States: disconnected | mock | serial
+ * States: disconnected | mock | serial | bluetooth | usb (ADR-0005 WS3).
  */
 
-export type HardwareTwinBadgeState = 'disconnected' | 'mock' | 'serial' | 'connecting' | 'error' | 'connected';
+export type HardwareTwinBadgeState =
+  | 'disconnected'
+  | 'mock'
+  | 'serial'
+  | 'bluetooth'
+  | 'usb'
+  | 'connecting'
+  | 'error'
+  | 'connected';
 
 const LABELS: Record<string, string> = {
   disconnected: 'Twin off',
   mock: 'Twin mock',
   serial: 'Twin serial',
+  bluetooth: 'Twin BLE',
+  usb: 'Twin USB',
   connecting: 'Twin…',
   error: 'Twin error'
 };

@@ -15,5 +15,6 @@ Lightweight ADRs for the SEG WebGPU Visualizer. Each file is a short record of a
 | [0009](./0009-lab-session-host.md) | LabSession host: one plant, two GPU backends |
 | [0010](./0010-fdtd-slice.md) | 2D FDTD wave slice (not FEM) |
 | [0011](./0011-field-coupling.md) | Lab field coupling (optional cross-device B) |
+| [0012](./0012-fdtd-materials.md) | FDTD material cells (μ_r / σ), still 2D, still not FEM |
 
 Status values: **Accepted** · **Superseded** · **Proposed**

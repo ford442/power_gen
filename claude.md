@@ -31,6 +31,7 @@ npm run dev          # http://localhost:5173/  (https: false; localhost is fine 
 | No GPU / agents | `http://localhost:5173/?renderer=webgl2` (required — default WebGPU hard-fails without GPU) |
 | WASM plant | `?wasmPhysics=1` |
 | Mock hardware | `?mockHardware=1` |
+| Lab audio | `?audio=1` (silent until your first click/keypress; header badge mutes) |
 
 Default boot no longer falls back to WebGL2. Probe: `window.webgpuProbe`.
 
@@ -72,7 +73,8 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 
 ## Hardware / firmware — experimental
 
-- Web Serial + mock: `hardware-bridge.ts` / panel — demo with `?mockHardware=1`.
+- Transports: mock / Web Serial / Web Bluetooth (Nordic UART) / WebUSB CDC —
+  `hardware-transport.ts` + `hardware-bridge.ts` / panel. Demo with `?mockHardware=1`.
 - `firmware/seg-driver/` is **not** required for the web app; treat as experimental.
 - Spec: **docs/hardware_connection.md**.
 
@@ -85,6 +87,8 @@ npm run validate      # constants + catalog + typecheck + native C++ + check:pos
 npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline
 npm run check:post    # post uniform contracts
+npm run test:transports # twin transport framing + coast-on-disconnect
+npm run test:audio    # sonification mapping bounds (silent by default)
 ```
 
 ## WebGPU notes

@@ -44,9 +44,52 @@ Do **not** expect these under WebGL2:
 | Full energy-pipe **particle** billboards | `EnergyPipe` + WGSL (WebGL2 uses lines) |
 | GPU timestamp queries | `?gpuTiming=1` |
 | **Temporal AA** | `passes/taa-resolve.wgsl` — **skipped**, see below |
-| **FDTD wave slice** (pulse-coil focus) | `passes/fdtd-tmz-compute.wgsl` + `fdtd-slice.wgsl` — **skipped**; `?fdtd=0` is ignored, and the footer note reads "WebGPU only" (ADR-0010) |
+| **FDTD wave slice** (pulse-coil focus) | `passes/fdtd-tmz-compute.wgsl` + `fdtd-slice.wgsl` — GPU panel **skipped**; a CPU micro-grid readout stands in, see below (ADR-0010/0012) |
 | Hardware bridge / electromagnet coils | CPU twin + panel work on WebGL2 (`?mockHardware=1`); **coil GPU viz** is WebGPU-only |
 | **glTF CAD props** (housing, coil former, …) | `setup-gltf.ts` / `prop-registry.ts` — **skipped** (see below) |
+
+### FDTD wave slice → CPU micro-grid readout
+
+The WebGPU slice is a compute pass plus a scene-pass quad; neither has a cheap
+GLSL equivalent worth maintaining, so ADR-0010 skipped it here entirely. That
+left the fallback with no answer to the one thing the slice teaches, so
+[ADR-0012](./adr/0012-fdtd-materials.md) runs the **same CPU kernel** instead:
+
+| | WebGPU panel | WebGL2 readout |
+|---|---|---|
+| Grid | 256², GPU storage buffers | **64²**, `FdtdTmzGrid` on the main thread |
+| Steps / frame | 6 | 2 (front still crosses in ~1 s) |
+| Materials | μ_r armature + σ turns | same map, same presets |
+| Sources | same windings, world-placed | same windings, world-placed |
+| Drive | coil current, or `?fdtdDrive=transformer` | **coil current only** — see below |
+| Where | world-space quad in front of the coil | 176 px 2D canvas, bottom-left |
+| Cost | a few ms of GPU | **0.23 ms/frame** of CPU (measured in `test:fdtd`) |
+
+`?fdtdDrive=transformer` is **WebGPU-only**, and deliberately so. Borrowing
+another bench's flux means keeping that bench's plant stepping while the pulse
+coil is focused, because the render loop skips `update()` for every unfocused
+device — the WebGPU path does that explicitly
+(`MultiDeviceVisualizer._stepBorrowedDrivePlant`). This overlay only subscribes to
+`TelemetryHub` and owns no device instances, so it cannot; honouring the flag here
+would draw a drive frozen at 0. It always uses the pulse coil's own current.
+
+It is a **readout, not a render path**: no GL state, no shader, and no contact
+with `WebGL2MultiDeviceVisualizer` beyond a `TelemetryHub` subscription. Gated to
+pulse-coil focus, and `?fdtd=0` kills it like the GPU panel (nothing is even
+mounted). It sits **bottom-left**, above the mode label: the bottom-right corner
+belongs to `#tachometer`, and an RPM readout matters more than a wave picture.
+`pointer-events: none`, so it never eats a camera drag.
+
+Agent / e2e hooks on `window.fdtdHeatmapOverlay`:
+
+| Member | Use |
+|--------|-----|
+| `stats()` | `{ active, steps, peakEz, finite, hasMaterials, drive }` — tells a live panel from a blank rectangle |
+| `driveTarget` | Force the drive without running the plant, then watch it propagate |
+| `step()` | Advance one frame by hand |
+
+Host: `src/fdtd-heatmap-overlay.ts`. Covered by two e2e tests (hidden outside
+focus / visible and clear of the tachometer in it; `?fdtd=0` mounts nothing).
 
 ### Temporal AA
 

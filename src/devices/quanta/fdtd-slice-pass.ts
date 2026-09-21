@@ -1,11 +1,17 @@
 /**
- * 2D TM_z FDTD wave slice for the pulse-coil focus view (ADR-0010).
+ * 2D TM_z FDTD wave slice for the pulse-coil focus view (ADR-0010; material
+ * cells and the alternate drive source from ADR-0012).
  *
- * Owns three n² field buffers (Ez, Hx, Hy), the Yee update pipelines and the
- * scene-pass panel pipeline. Each frame the render loop asks {@link update}
- * whether the gate is open; if so it encodes {@link dispatch} inside the
- * shared compute pass and {@link draw} inside the scene pass. Nothing is read
- * back to the CPU.
+ * Owns three n² field buffers (Ez, Hx, Hy), a static n² material map, the Yee
+ * update pipelines and the scene-pass panel pipeline. Each frame the render
+ * loop asks {@link update} whether the gate is open; if so it encodes
+ * {@link dispatch} inside the shared compute pass and {@link draw} inside the
+ * scene pass. Nothing is read back to the CPU.
+ *
+ * The material map (1/μ_r, electric loss) is rasterized once at init and never
+ * rewritten — the coil's armature and windings don't move. `?fdtdMaterials=0`
+ * clears the flag in `FdtdParams` so the same pipeline runs the ADR-0010 vacuum
+ * kernel, which keeps the two pictures directly comparable.
  *
  * Grid time is decoupled from plant time: the grid advances a fixed
  * `FDTD_STEPS_PER_FRAME` Yee steps per frame, i.e. light is slowed by many
@@ -17,15 +23,18 @@
 
 import {
   FDTD_DEFAULT_CONFIG,
+  FDTD_MATERIAL_COMPONENTS,
   FDTD_PARAMS_BYTES,
   FDTD_SLICE_PARAMS_BYTES,
   FDTD_STEPS_PER_FRAME,
   FDTD_WORKGROUP,
+  buildFdtdMaterialMap,
+  fdtdMaterialMapIsVacuum,
   fdtdSliceGateOpen,
   packFdtdParams,
   type FdtdSource
 } from '../../physics/fdtd-tmz';
-import { PULSE_COIL_FDTD, pulseCoilFdtdSources } from './pulse-coil';
+import { PULSE_COIL_FDTD, pulseCoilFdtdMaterials, pulseCoilFdtdSources } from './pulse-coil';
 import { writeQueueBuffer } from '../../gpu-buffer-write';
 import type { PipelineLayoutCache } from '../../pipeline-layout-cache';
 
@@ -49,8 +58,17 @@ export interface FdtdSliceFrame {
   qualityTier: string | null | undefined;
   /** Owning device's world position. */
   devicePos: ArrayLike<number>;
-  /** Signed normalized drive from the owning plugin (pulseCoilFdtdDrive). */
+  /**
+   * Signed normalized drive. `pulseCoilFdtdDrive` (coil current) by default, or
+   * `transformerFdtdDrive` (core flux) under `?fdtdDrive=transformer` — the
+   * caller picks, the pass only slews and scales.
+   */
   drive: number;
+}
+
+export interface FdtdSliceOptions {
+  /** `?fdtdMaterials=0` → run the ADR-0010 vacuum kernel. */
+  materialsEnabled?: boolean;
 }
 
 export class FdtdSlicePass {
@@ -70,6 +88,7 @@ export class FdtdSlicePass {
   private ez: GPUBuffer | null = null;
   private hx: GPUBuffer | null = null;
   private hy: GPUBuffer | null = null;
+  private materialBuffer: GPUBuffer | null = null;
   private paramsBuffer: GPUBuffer | null = null;
   private sliceParamsBuffer: GPUBuffer | null = null;
   private computeBindGroup: GPUBindGroup | null = null;
@@ -83,10 +102,15 @@ export class FdtdSlicePass {
   private readonly frameSources: FdtdSource[] = this.unitSources.map((s) => ({ ...s }));
   private readonly paramsScratch = new Float32Array(FDTD_PARAMS_BYTES / 4);
   private readonly sliceScratch = new Float32Array(FDTD_SLICE_PARAMS_BYTES / 4);
+  /** False → params carry no material flag and the map is never read. */
+  readonly materialsEnabled: boolean;
+  /** True once a non-vacuum map is actually resident. */
+  materialsActive = false;
 
-  constructor(device: GPUDevice, host: FdtdSliceHost) {
+  constructor(device: GPUDevice, host: FdtdSliceHost, opts: FdtdSliceOptions = {}) {
     this.device = device;
     this.host = host;
+    this.materialsEnabled = opts.materialsEnabled !== false;
   }
 
   /** Build pipelines and buffers. Returns false (and stays unready) if the cache is missing. */
@@ -115,6 +139,23 @@ export class FdtdSlicePass {
     this.ez = field('fdtd-ez');
     this.hx = field('fdtd-hx');
     this.hy = field('fdtd-hy');
+
+    // Material map: static, uploaded once. Always allocated and always bound so
+    // the vacuum path uses the same pipeline and bind group; when materials are
+    // off (or the map is vacuum) the shader's flag check skips the read.
+    const materialBytes = this.n * this.n * FDTD_MATERIAL_COMPONENTS * 4;
+    this.materialBuffer = this.device.createBuffer({
+      label: 'fdtd-materials',
+      size: materialBytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    this.host.profiler?.trackBuffer?.('fdtd-materials', materialBytes, GPUBufferUsage.STORAGE);
+    if (this.materialsEnabled) {
+      const map = buildFdtdMaterialMap(pulseCoilFdtdMaterials(), FDTD_DEFAULT_CONFIG);
+      this.materialsActive = !fdtdMaterialMapIsVacuum(map);
+      if (this.materialsActive) writeQueueBuffer(this.device, this.materialBuffer, map);
+    }
+
     this.paramsBuffer = this.device.createBuffer({
       label: 'fdtd-params',
       size: FDTD_PARAMS_BYTES,
@@ -131,7 +172,8 @@ export class FdtdSlicePass {
       { binding: 0, resource: { buffer: this.paramsBuffer } },
       { binding: 1, resource: { buffer: this.ez } },
       { binding: 2, resource: { buffer: this.hx } },
-      { binding: 3, resource: { buffer: this.hy } }
+      { binding: 3, resource: { buffer: this.hy } },
+      { binding: 4, resource: { buffer: this.materialBuffer } }
     ], 'fdtd-compute-bg');
 
     this.ready = true;
@@ -170,7 +212,9 @@ export class FdtdSlicePass {
     writeQueueBuffer(
       this.device,
       this.paramsBuffer!,
-      packFdtdParams(this.frameSources, FDTD_DEFAULT_CONFIG, this.paramsScratch)
+      packFdtdParams(this.frameSources, FDTD_DEFAULT_CONFIG, this.paramsScratch, {
+        materials: this.materialsActive
+      })
     );
 
     const s = this.sliceScratch;
@@ -214,7 +258,9 @@ export class FdtdSlicePass {
   }
 
   destroy(): void {
-    for (const buf of [this.ez, this.hx, this.hy, this.paramsBuffer, this.sliceParamsBuffer]) {
+    for (const buf of [
+      this.ez, this.hx, this.hy, this.materialBuffer, this.paramsBuffer, this.sliceParamsBuffer
+    ]) {
       buf?.destroy();
     }
     this.ready = false;
@@ -225,7 +271,8 @@ export class FdtdSlicePass {
 
   private sliceBindGroupFor(globals: GPUBuffer): GPUBindGroup | null {
     const cache = this.host.pipelineCache;
-    if (!cache || !this.ez || !this.hx || !this.hy || !this.paramsBuffer || !this.sliceParamsBuffer) return null;
+    if (!cache || !this.ez || !this.hx || !this.hy || !this.materialBuffer
+      || !this.paramsBuffer || !this.sliceParamsBuffer) return null;
     if (this.sliceBindGroup && this.sliceBindGroupGlobals === globals) return this.sliceBindGroup;
     this.sliceBindGroup = cache.createBindGroup('fdtdSlice', [
       { binding: 0, resource: { buffer: globals } },
@@ -233,7 +280,8 @@ export class FdtdSlicePass {
       { binding: 2, resource: { buffer: this.paramsBuffer } },
       { binding: 3, resource: { buffer: this.ez } },
       { binding: 4, resource: { buffer: this.hx } },
-      { binding: 5, resource: { buffer: this.hy } }
+      { binding: 5, resource: { buffer: this.hy } },
+      { binding: 6, resource: { buffer: this.materialBuffer } }
     ], 'fdtd-slice-bg');
     this.sliceBindGroupGlobals = globals;
     return this.sliceBindGroup;

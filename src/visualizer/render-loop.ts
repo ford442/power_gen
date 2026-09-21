@@ -317,7 +317,7 @@ export const renderLoopMethods: ThisType<Host> & {
 
     // FDTD wave slice (ADR-0010): pulse-coil focus at `high` only; uploads its
     // uniforms here so the dispatch and draw below see this frame's drive.
-    const fdtdSlice = this.updateFdtdSlice(qualityTier);
+    const fdtdSlice = this.updateFdtdSlice(qualityTier, deltaTime);
     profiler.fdtdActive = !!fdtdSlice;
 
     renderEncodeMethods._encodeFrame.call(

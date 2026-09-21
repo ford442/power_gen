@@ -37,6 +37,8 @@ export interface GltfDrawable {
   instanceBuffer: GPUBuffer;
   gpu: MeshBuffers;
   propId?: string;
+  /** Bench that owns this prop — drives which device draws it and its emissive. */
+  deviceId?: string;
   role?: string | null;
   loadPolicy?: 'resident' | 'focus';
   emissiveScale?: number;
@@ -426,6 +428,13 @@ export interface DeviceInstanceLike {
   renderStand: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
   renderBase: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
   renderGltfHousing: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
+  /** Draw a non-SEG bench's own CAD props in its focus view (ADR-0005 WS1). */
+  renderGltfDeviceProps: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
+  _drawGltfPropsForDevice: (
+    renderPass: GPURenderPassEncoder,
+    globalUniformBuffer: GPUBuffer,
+    deviceId: string
+  ) => void;
   renderFrame: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
   renderStatorRings: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
   renderWiring: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;

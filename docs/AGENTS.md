@@ -273,16 +273,22 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `heronLayout` | preset id | stored / default | Heron vessel layout |
 | `prototype` | `lab` \| `showroom` \| `searl` \| `roschin` \| `godin` | showroom-ish | SEG roller prototype look / lab effects |
 | `frame` | `full` \| `minimal` \| `off` | `full` | SEG structural frame complexity |
-| `gltfHousing` | `1` \| `0` | `1` (WebGPU) | Load glTF CAD props in SEG focus — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
+| `gltfHousing` | `1` \| `0` | `1` (WebGPU) | Default for **all** glTF CAD props (per-device, focus-only). A per-prop switch overrides it, so `?gltfHousing=0&gltfStand=1` shows one prop alone — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
 | `gltfCoilFormer` | `1` \| `0` | follows housing | Coil former GLB; `0` skips that prop |
 | `gltfStand` | `1` \| `0` | follows housing | Stand GLB; `0` skips that prop |
 | `gltfBasePlate` | `1` \| `0` | follows housing | Base plate GLB; `0` skips that prop |
+| `gltfTransformerCore` | `1` \| `0` | follows housing | Transformer C-core GLB (transformer focus); `0` skips that prop |
+| `gltfVdgTerminal` | `1` \| `0` | follows housing | Van de Graaff terminal GLB (vdg focus); `0` skips that prop |
 | `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | Lighting + post look |
-| `mockHardware` | `1` | off | Hardware twin mock transport (no serial port) |
+| `mockHardware` | `1` | off | Hardware twin mock transport (no serial port). Other links (`serial` / `bluetooth` / `usb`) are chosen from the Hardware Twin panel — each needs a user gesture for its chooser |
 | `energyCoupling` | `1` \| `0` | off (visual-only pipes) | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`) |
 | `fieldCoupling` | `1` \| `0` | off (local bench B) | Feed a source device's simulated **B** estimate into a destination plant (`FieldNetwork`: `halbach-viz`→`hall`, `mhd`→`lorentz-sled`), clamped to the destination's catalog range — ADR-0011. Deliberately a **separate** switch from `energyCoupling`: one toggle cannot honestly claim both watts and tesla are live |
 | `replay` | `1` | off | Show telemetry replay scrubber (load `.seg-replay.json` / CSV; plant step bypassed) |
 | `gpuChores` | `0` / `js` / `wasm` / `webgpu` | auto | Meter backend kill / force. `0` = JS goldens. Never opens a second GPU API. |
+| `fdtd` | `0` | on | Kill the 2D wave slice (WebGPU panel **and** the WebGL2 micro-grid readout) — ADR-0010 |
+| `fdtdMaterials` | `1` \| `0` | `1` | μ_r armature + copper turns in the wave slice. `0` reverts to the ADR-0010 vacuum kernel, for a side-by-side comparison — ADR-0012 |
+| `fdtdDrive` | `coil` \| `transformer` | `coil` | What modulates the slice's source amplitude: the pulse coil's discharge current, or the transformer bench's core flux (continuous AC). Winding *geometry* is unchanged; falls back to `coil` if that bench isn't in the lab — ADR-0012 |
+| `audio` | `1` \| `on` \| `true` \| `yes` | off | Lab sonification (spark clicks, coil buzz, SEG drone, MHD flow bed). Arms the graph; an `AudioContext` still waits for a user gesture, and the header badge mutes it — [`LAB_AUDIO.md`](./LAB_AUDIO.md) |
 
 **Related (not always query):**
 
@@ -321,10 +327,15 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 | `src/seg-operator-state.ts` | Authoritative SEG plant (drive, RPM, V/I/P) |
 | `src/seg-layout.ts` | Layout presets (Searl / Roschin / legacy) — data-driven roller counts |
 | `src/assets/scene/scene-node.ts` | Formal scene graph node (ADR-0005) |
-| `src/assets/gltf/*` | Hand-rolled glTF loader + lazy prop registry — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
+| `src/assets/gltf/*` | Hand-rolled glTF loader + lazy **per-device** prop registry — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
+| `src/physics/fdtd-tmz.ts` | 2D TM_z Yee kernel + material map (CPU reference for `test:fdtd`) — ADR-0010/0012 |
+| `src/devices/quanta/fdtd-slice-pass.ts` | WebGPU wave-slice pass (pulse-coil focus, lazily built) |
+| `src/fdtd-heatmap-overlay.ts` | WebGL2 64² CPU micro-grid readout of the same kernel — ADR-0012 |
+| `src/audio/*` | Lab sonification: pure telemetry→parameter mapping, Web Audio graph, header mute badge — [`LAB_AUDIO.md`](./LAB_AUDIO.md) |
 | `src/integration.ts` | Typed physics uniforms + scientific overlay hooks |
 | `src/wasm/seg-physics-bridge.ts` | Optional WASM step + zero-copy views |
-| `src/hardware-bridge.ts` / `hardware-panel.ts` | Web Serial + mock twin (**experimental**) |
+| `src/hardware-bridge.ts` / `hardware-panel.ts` | Hardware twin protocol + panel (**experimental**) |
+| `src/hardware-transport.ts` + `{serial-line,bluetooth-uart,webusb-cdc}-transport.ts` | Interchangeable twin links: mock / serial / BLE NUS / WebUSB CDC — [`hardware_connection.md`](./hardware_connection.md) |
 | `src/renderers/shared/*` | CPU particle + plant steps for both backends |
 
 ---
@@ -333,9 +344,10 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 
 | Piece | Status |
 |-------|--------|
-| `src/hardware-bridge.ts` + panel | **Experimental** — mock works (`?mockHardware=1`); real Web Serial depends on browser + device |
+| `src/hardware-bridge.ts` + panel | **Experimental** — mock works (`?mockHardware=1`); Serial / BLE / WebUSB depend on browser + device |
+| Transports | `serial` (reference), `bluetooth` (Nordic UART, ~20 Hz), `usb` (CDC-ACM, only if Serial can't see the board), `mock`. Unsupported links are disabled in the panel, not hidden |
 | `firmware/seg-driver/` | **Experimental** Arduino-style coil/sensor sketch; not required for the web app |
-| Safety | Disconnect coasts coils; see [`hardware_connection.md`](./hardware_connection.md) |
+| Safety | Disconnect **and transport switching** coast coils on every link; a dropped link leans on the firmware watchdog. `npm run test:transports` pins this |
 
 Do not present firmware as production-ready or as a CI dependency. The visualizer runs fully without hardware.
 

@@ -1442,3 +1442,159 @@ test.describe('Catalog telemetry on the hub (plugin devices)', () => {
     expect(restored.hallFieldT).toBeCloseTo(0.8, 6);
   });
 });
+
+test.describe('Lab sonification (?audio=1)', () => {
+
+  test('default boot constructs no audio and adds no control', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.labAudio, { timeout: 30_000 });
+
+    const state = await page.evaluate(() => ({
+      enabled: window.labAudio.enabled,
+      started: window.labAudio.started,
+      muted: window.labAudio.muted,
+      badge: !!document.getElementById('lab-audio-badge')
+    }));
+    // The acceptance criterion is "default boot is silent" — not merely quiet.
+    expect(state.enabled).toBe(false);
+    expect(state.started).toBe(false);
+    expect(state.muted).toBe(true);
+    expect(state.badge).toBe(false);
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('?audio=1 arms, starts on a gesture, and the badge mutes it', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page, 'audio=1');
+    await waitForEval(page, () => !!window.labAudio, { timeout: 30_000 });
+
+    // Armed but silent: browsers require a user gesture before an AudioContext,
+    // and the badge says so rather than looking broken.
+    const armed = await page.evaluate(() => ({
+      enabled: window.labAudio.enabled,
+      started: window.labAudio.started,
+      muted: window.labAudio.muted,
+      badge: document.getElementById('lab-audio-badge')?.dataset.state ?? null
+    }));
+    expect(armed.enabled).toBe(true);
+    expect(armed.started).toBe(false);
+    expect(armed.muted).toBe(true);
+    expect(armed.badge).toBe('waiting');
+
+    // Trusted input, but not page.click(): an element click waits for the main
+    // thread to acknowledge it, and a SwiftShader frame can stall long enough to
+    // time out after the handler has already run (see helpers.js). page.mouse
+    // dispatches a real browser event — so this exercises the production user-
+    // activation contract that Web Audio startup depends on — without the
+    // actionability wait.
+    const tapBadge = async () => {
+      const box = await page.evaluate(() => {
+        const r = document.getElementById('lab-audio-badge').getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      });
+      await page.mouse.click(box.x, box.y);
+    };
+    await tapBadge();
+    await waitForEval(page, () => window.labAudio.started === true, { timeout: 30_000 });
+    await waitForEval(page, () => window.labAudio.muted === false, { timeout: 30_000 });
+    await waitForEval(page,
+      () => document.getElementById('lab-audio-badge')?.dataset.state === 'on',
+      { timeout: 30_000 });
+
+    // A spark cue must not throw with a live graph.
+    await page.evaluate(() => window.labAudio.click({
+      kind: 'kelvin', frequency: 2600, gain: 0.5, durationS: 0.05
+    }));
+
+    // Mute-able, which is the other half of the acceptance criterion.
+    await tapBadge();
+    await waitForEval(page, () => window.labAudio.muted === true, { timeout: 30_000 });
+    await waitForEval(page,
+      () => document.getElementById('lab-audio-badge')?.dataset.state === 'muted',
+      { timeout: 30_000 });
+
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+});
+
+test.describe('FDTD micro-grid heatmap (WebGL2 stand-in)', () => {
+
+  test('hidden outside pulse-coil focus, visible in it, and clear of the tachometer', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.fdtdHeatmapOverlay, { timeout: 30_000 });
+
+    // Overview: armed but inert — no stepping, nothing on screen.
+    const atBoot = await page.evaluate(() => ({
+      enabled: window.fdtdHeatmapOverlay.enabled,
+      active: window.fdtdHeatmapOverlay.active,
+      visible: !!document.querySelector('#fdtd-heatmap-overlay:not([hidden])')
+    }));
+    expect(atBoot.enabled).toBe(true);
+    expect(atBoot.active).toBe(false);
+    expect(atBoot.visible).toBe(false);
+
+    await page.evaluate(() => window.setMode?.('pulse-coil'));
+    await waitForEval(page, () => window.fdtdHeatmapOverlay.active === true, { timeout: 30_000 });
+
+    const focused = await page.evaluate(() => {
+      const el = document.getElementById('fdtd-heatmap-overlay');
+      const tach = document.getElementById('tachometer');
+      const a = el?.getBoundingClientRect();
+      const t = tach?.getBoundingClientRect();
+      const overlaps = a && t
+        && a.left < t.right && a.right > t.left && a.top < t.bottom && a.bottom > t.top;
+      return {
+        hidden: el?.hasAttribute('hidden') ?? null,
+        width: Math.round(a?.width ?? 0),
+        height: Math.round(a?.height ?? 0),
+        overlapsTachometer: !!overlaps,
+        // A readout must never swallow a camera drag.
+        pointerEvents: el ? getComputedStyle(el).pointerEvents : null
+      };
+    });
+    expect(focused.hidden).toBe(false);
+    expect(focused.width).toBeGreaterThan(100);
+    expect(focused.height).toBeGreaterThan(100);
+    expect(focused.overlapsTachometer).toBe(false);
+    expect(focused.pointerEvents).toBe('none');
+
+    // The grid must actually be evolving, not a blank canvas. Force the drive —
+    // the plant may be idle here — then step and read the public hook.
+    const evolves = await page.evaluate(() => {
+      const o = window.fdtdHeatmapOverlay;
+      o.driveTarget = 1.2;
+      for (let i = 0; i < 90; i++) o.step();
+      return o.stats();
+    });
+    expect(evolves.finite).toBe(true);
+    expect(evolves.peakEz).toBeGreaterThan(0);
+    expect(evolves.hasMaterials).toBe(true);
+    expect(evolves.steps).toBeGreaterThan(0);
+
+    // Leaving focus stops the stepping and hides it again.
+    await page.evaluate(() => window.setMode?.('overview'));
+    await waitForEval(page, () => window.fdtdHeatmapOverlay.active === false, { timeout: 30_000 });
+    const left = await page.evaluate(
+      () => document.getElementById('fdtd-heatmap-overlay')?.hasAttribute('hidden') ?? null
+    );
+    expect(left).toBe(true);
+
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('?fdtd=0 keeps the readout off entirely', async ({ page }) => {
+    await gotoWebGL2(page, 'fdtd=0');
+    await waitForEval(page, () => !!window.fdtdHeatmapOverlay, { timeout: 30_000 });
+    await page.evaluate(() => window.setMode?.('pulse-coil'));
+    const state = await page.evaluate(() => ({
+      enabled: window.fdtdHeatmapOverlay.enabled,
+      active: window.fdtdHeatmapOverlay.active,
+      mounted: !!document.getElementById('fdtd-heatmap-overlay')
+    }));
+    expect(state.enabled).toBe(false);
+    expect(state.active).toBe(false);
+    expect(state.mounted).toBe(false);
+  });
+});

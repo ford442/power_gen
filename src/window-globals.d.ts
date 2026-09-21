@@ -7,6 +7,8 @@ import type { HardwarePanel } from './hardware-panel';
 import type { HardwareBridge } from './hardware-bridge';
 import type { SEGOperatorPanel } from './seg-operator-panel';
 import type { MultiDeviceCamera } from './multi-device-camera';
+import type { FdtdHeatmapOverlay } from './fdtd-heatmap-overlay';
+import type { LabAudio } from './audio/lab-audio';
 
 /**
  * Minimal window-facing view of SegLayout. Kept separate (rather than reusing
@@ -258,6 +260,12 @@ declare global {
     hardwarePanel?: HardwarePanel;
     /** Exposed for console/e2e access after initHardwarePanel(). */
     HardwareBridge?: typeof HardwareBridge;
+
+    /** WebGL2 FDTD CPU micro-grid heatmap (fdtd-heatmap-overlay.ts, ADR-0012). */
+    fdtdHeatmapOverlay?: FdtdHeatmapOverlay;
+
+    /** Lab sonification singleton (audio/lab-audio.ts); only live under `?audio=1`. */
+    labAudio?: LabAudio;
   }
 }
 

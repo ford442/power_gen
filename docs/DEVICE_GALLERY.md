@@ -202,23 +202,37 @@ Capture: `?renderer=webgl2` → START → `setMode('pulse-coil')` → `captureCa
 ### Wave slice (WebGPU, `high` tier)
 
 In focus, a panel in front of the coil shows a **2D TM_z FDTD slice**
-([ADR-0010](adr/0010-fdtd-slice.md)) of the coil's axial cross-section:
+([ADR-0010](adr/0010-fdtd-slice.md), materials
+[ADR-0012](adr/0012-fdtd-materials.md)) of the coil's axial cross-section:
 
 - **Drive:** six turns, each crossing the plane at ±coil radius as a J_z line
   source, ⊙ (out of the plane) on the left and ⊗ (into it) on the right.
   Amplitude follows the displayed coil current, `I / 80 A`, clamped to ±1.5.
+  `?fdtdDrive=transformer` borrows the transformer bench's normalised core flux
+  instead — same windings, continuous AC, so you see successive fronts rather
+  than one transient.
+- **Materials:** the soft-iron armature is a μ_r slab (violet) and each copper
+  turn is a σ disk (slate); both are outlined. The armature visibly **slows and
+  bends** the front — v = 1/√(εμ) < c — and the copper **excludes** it. Off with
+  `?fdtdMaterials=0`, which reverts to the ADR-0010 vacuum kernel so the two
+  pictures can be compared directly.
 - **Colours:** Ez warm (+) / cool (−); |H| green, which is the coil's own
   magnetic field filling the bore while current flows; a thin frame marks the
   absorbing sponge.
-- **Honest scale:** normalized units, vacuum only (the iron armature is not in
-  the field model), and **light slowed** so a front crosses the panel in about a
-  second. A real pulse this slow radiates wavelengths far larger than the bench.
-  Qualitative, not a field-strength measurement.
+- **Honest scale:** normalized units and **light slowed** so a front crosses the
+  panel in about a second. A real pulse this slow radiates wavelengths far larger
+  than the bench. The material constants are **display values**, not SI:
+  μ_r = 24 for the armature and σ = 3 for the turns, because real iron
+  (μ_r ≈ 2000+) and real copper (σ ≈ 6·10⁷ S/m) would simply black out their
+  cells on a 256² normalized grid. Qualitative, not a field-strength measurement.
 - **Gate:** pulse-coil focus at `high` tier; `?fdtd=0` turns it off. F3 shows
   `FDTD slice (ADR-0010)`; the footer next to the scope says why it is off.
-  WebGL2 skips it.
-- Code: `src/physics/fdtd-tmz.ts` (constants + CPU reference),
-  `src/devices/quanta/fdtd-slice-pass.ts`, `PULSE_COIL_FDTD` in `pulse-coil.ts`.
+- **WebGL2:** no GPU panel, but the corner shows the **same CPU kernel** on a 64²
+  micro-grid with the same materials and sources (`?fdtd=0` kills it too) —
+  ADR-0012, `docs/WEBGL2.md`.
+- Code: `src/physics/fdtd-tmz.ts` (constants, material map, CPU reference),
+  `src/devices/quanta/fdtd-slice-pass.ts`, `src/fdtd-heatmap-overlay.ts`,
+  `PULSE_COIL_FDTD` / `pulseCoilFdtdMaterials` in `pulse-coil.ts`.
 
 ---
 
@@ -597,5 +611,6 @@ device that shows induction as motion; depth still beats a 16th.
 | `kelvin` ↔ `vdg` | **Deferred** | Both electrostatic and share no B — a charge/voltage bus is a different model and a later epic, not a field-network edge |
 
 Explicitly **out of scope** for this layer: FEM, FDTD (the pulse-coil slice
-already owns that, ADR-0010), a GPU field solver, Three.js field-line
+already owns that, ADR-0010/0012 — including the one cross-device borrow it
+does make, `?fdtdDrive=transformer`), a GPU field solver, Three.js field-line
 libraries, and any claim of calibrated Hall metrology.

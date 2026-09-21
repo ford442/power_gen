@@ -1,6 +1,6 @@
 # ADR-0005: Showroom / Lab / Twin epic (north star)
 
-- **Status:** Accepted — Workstream 3 (hardware twin maturation) complete; Workstream 2 post stack ongoing
+- **Status:** Accepted — Workstream 3 (hardware twin maturation) complete incl. wireless transports; Workstream 2 post stack ongoing
 - **Date:** 2026-07
 - **Supersedes (spirit):** closed #94 phased CAD plan; complements ADR-0003
 
@@ -52,7 +52,17 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Housing shell glTF (closed #102)
 - [x] Second CAD prop: coil former GLB in SEG focus
 - [x] Node hierarchy polish (lazy multi-prop registry, material overrides)
-- [x] Optional minimal external glTF parser eval (parser only — not a full engine) — **deferred**: hand-rolled loader wins on gzip; see `docs/GLTF_ASSETS.md`
+- [x] **Per-device CAD beyond SEG** — registry entries carry a `deviceId`, and
+      `ensureGltfPropsForView()` loads only the focused bench's props while
+      disposing every other bench's focus-policy props. First two:
+      `transformer-core.glb` (the flux path the procedural coils lack) and
+      `vdg-terminal.glb` (sphere / column / belt / gap, where the shape *is* the
+      explanation). Guarded by `npm run test:props`; see `docs/GLTF_ASSETS.md`
+- [x] Optional minimal external glTF parser eval (parser only — not a full engine) — **deferred**: hand-rolled loader wins on gzip; **re-evaluated 2026-09** when multi-device CAD landed and it still parses fine, so still deferred; see `docs/GLTF_ASSETS.md`
+- [x] Basis **UASTC** WASM decode evaluated — **not adopted**: GPU-native KTX2 is
+      already negotiated per device with zero decode cost, and UASTC's win (one
+      container for all formats) is worth nothing against 4×4 solid placeholders.
+      Trigger to revisit is a real multi-texture prop set; see `docs/GLTF_ASSETS.md`
 - [x] WebGL2: skip heavy glTF or load reduced LODs — documented in `docs/WEBGL2.md`
 - [x] Instancing policy documented (procedural rollers vs static CAD) — `docs/GLTF_ASSETS.md`
 
@@ -96,9 +106,20 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Closed-loop: sensor RPM → roller viz (sanitized; NaN-safe)
 - [x] Open-loop: sim → coil PWM (duty 0–1 clamp; disconnect coasts)
 - [x] Shadow residual charts on scientific UI (`ShadowResidualGauge`)
-- [x] Connection state badge (`disconnected` | `mock` | `serial`)
+- [x] Connection state badge (`disconnected` | `mock` | `serial` | `bluetooth` | `usb`)
 - [x] Keep firmware optional — never block web-only users
-- [ ] Research only: WebUSB / Bluetooth if Serial is insufficient
+- [x] **WebUSB / Bluetooth where Serial is insufficient** — shipped, not just
+      researched. The bridge now speaks to a `HardwareTransport` interface
+      (`src/hardware-transport.ts`) and keeps *all* the safety logic, so the
+      links are interchangeable: `serial` stays the reference path,
+      `bluetooth` (Nordic UART over GATT) covers classroom tables that cannot
+      run a cable, `usb` (raw CDC-ACM) exists only for boards the platform
+      hides from Web Serial, and `mock` is unchanged. BLE writes are chunked to
+      one MTU and queued (GATT ops cannot overlap), and the link asks the bridge
+      for a 20 Hz command period — inside both the firmware watchdog (100 ms)
+      and the host timeout (200 ms). Disconnect and transport *switching* still
+      coast; queued links are flushed so the coast lines reach the board.
+      Pinned by `npm run test:transports`; see `docs/hardware_connection.md`.
 
 ### Workstream 4 — Performance headroom (14+ benches, LOD-limited)
 

@@ -191,7 +191,7 @@ Same shape as `fieldAdvect`. Writes packed `FluxSegment` (32 B) for the
 | 2 | storage (read) | CS | Coil boost |
 | 3 | uniform | CS | SEG layout pack |
 
-### `fdtdCompute` — 2D TM_z Yee update (ADR-0010)
+### `fdtdCompute` — 2D TM_z Yee update (ADR-0010, materials ADR-0012)
 
 Shared by the `updateH` and `updateE` entry points of
 `passes/fdtd-tmz-compute.wgsl`, dispatched alternately 6× per frame at
@@ -203,8 +203,13 @@ Shared by the `updateH` and `updateE` entry points of
 | 1 | storage (rw) | CS | Ez, `array<f32>` n² |
 | 2 | storage (rw) | CS | Hx |
 | 3 | storage (rw) | CS | Hy |
+| 4 | storage (read) | CS | Material map, `array<vec2f>` n² — (1/μ_r, electric half-step loss), ADR-0012 |
 
-### `fdtdSlice` — FDTD slice panel in the scene pass (ADR-0010)
+Binding 4 is **always bound**, even for a vacuum slice: `params.materialFlags`
+bit 0 decides whether the shader reads it, so there is one pipeline and one bind
+group either way (`?fdtdMaterials=0` clears the flag).
+
+### `fdtdSlice` — FDTD slice panel in the scene pass (ADR-0010, materials ADR-0012)
 
 `passes/fdtd-slice.wgsl`, a six-vertex world-space quad (no vertex buffer)
 drawn after the device meshes. Reads the same field buffers read-only.
@@ -217,6 +222,7 @@ drawn after the device meshes. Reads the same field buffers read-only.
 | 3 | storage (read) | FS | Ez |
 | 4 | storage (read) | FS | Hx |
 | 5 | storage (read) | FS | Hy |
+| 6 | storage (read) | FS | Material map (same buffer as `fdtdCompute` binding 4) — tints and outlines the μ_r armature / σ turns, ADR-0012 |
 
 Built at sample count 1 and 4 like the other scene draws. Slot 1 is declared
 `{ format: 'rg8unorm', writeMask: 0 }` rather than `null`: current Dawn rejects

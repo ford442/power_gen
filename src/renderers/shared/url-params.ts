@@ -3,6 +3,7 @@
 // query strings behave the same on both backends.
 
 import { SEG_LAYOUT_PRESETS } from '../../seg-layout';
+import { FDTD_DRIVE_SOURCES, type FdtdDriveSource } from '../../physics/fdtd-tmz';
 
 export type PrototypePreset = 'showroom' | 'lab';
 
@@ -98,6 +99,32 @@ export function parseFdtdEnabled(params: URLSearchParams = defaultParams()): boo
   const raw = params.get('fdtd');
   if (raw === null) return true;
   return !(raw === '0' || raw === 'off' || raw === 'false' || raw === 'no');
+}
+
+/**
+ * FDTD material cells (ADR-0012): `?fdtdMaterials=0` reverts the slice to the
+ * ADR-0010 vacuum kernel, so the μ_r armature and copper turns can be switched
+ * off to compare the two pictures side by side. Default on.
+ */
+export function parseFdtdMaterialsEnabled(params: URLSearchParams = defaultParams()): boolean {
+  const raw = params.get('fdtdMaterials');
+  if (raw === null) return true;
+  return !(raw === '0' || raw === 'off' || raw === 'false' || raw === 'no');
+}
+
+/**
+ * Which catalog device modulates the slice's source amplitude (ADR-0012):
+ * `?fdtdDrive=transformer` borrows the transformer bench's core flux, anything
+ * else (or nothing) keeps the pulse coil's own discharge current.
+ *
+ * The winding *geometry* is always the pulse coil's — the panel lives in its
+ * focus view. Only the modulation changes.
+ */
+export function parseFdtdDriveSource(params: URLSearchParams = defaultParams()): FdtdDriveSource {
+  const raw = (params.get('fdtdDrive') ?? '').toLowerCase();
+  return raw === FDTD_DRIVE_SOURCES.TRANSFORMER
+    ? FDTD_DRIVE_SOURCES.TRANSFORMER
+    : FDTD_DRIVE_SOURCES.COIL;
 }
 
 /** Whether Roschin–Godin anomalous environmental effects (magnetic walls, etc.) are enabled. */

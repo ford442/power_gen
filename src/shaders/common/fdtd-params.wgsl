@@ -1,10 +1,12 @@
 // =============================================================
-// 2D TM_z FDTD slice uniforms (ADR-0010).
+// 2D TM_z FDTD slice uniforms (ADR-0010; materialFlags from ADR-0012).
 // Packed by packFdtdParams in src/physics/fdtd-tmz.ts — keep both in sync
 // (scripts/test-fdtd-slice.mjs checks the byte size).
 // =============================================================
 
 const FDTD_MAX_SOURCES: u32 = 16u;
+/// params.materialFlags bit 0 — mirrors FDTD_FLAG_MATERIALS in src/physics/fdtd-tmz.ts.
+const FDTD_FLAG_MATERIALS: u32 = 1u;
 
 /// 288 B. Grid is n×n cells indexed x + y·n; y points up the slice.
 struct FdtdParams {
@@ -18,7 +20,9 @@ struct FdtdParams {
   sourceCount: u32,
   /// Gaussian J_z blob radius, cells.
   sourceRadius: f32,
-  _pad0: f32,
+  /// Bit 0 (FDTD_FLAG_MATERIALS): apply the (1/mu_r, eLoss) material map.
+  /// Clear → the update is the ADR-0010 vacuum kernel and the map is ignored.
+  materialFlags: u32,
   _pad1: f32,
   /// (x cell, y cell, signed J_z, polarity marker ±1)
   sources: array<vec4f, 16>,
