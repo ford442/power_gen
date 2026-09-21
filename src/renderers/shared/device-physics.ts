@@ -192,6 +192,22 @@ export interface LorentzSledPhysicsExtension {
   lorentzForceN?: number;
   /** Position along the rails, m (wraps at LORENTZ.railLengthM). */
   lorentzPositionM?: number;
+
+  // ── Thomson jumping ring (devices/quanta/jumping-ring.ts) ──
+  /** Ring height above the core shoulder, m (0 = resting, clamped at poleHeightM). */
+  ringHeightM?: number;
+  /** Induced current in the shorted ring, A — the current doing the lifting. */
+  ringCurrentA?: number;
+  /** AC primary winding current, A. */
+  ringPrimaryIA?: number;
+  /** Net magnetic force on the ring, N (I_p·I_r·dM/dh). */
+  ringForceN?: number;
+  /** Coupling k(h) = k0·exp(−h/λ) — falls as the ring rises. */
+  ringCouplingK?: number;
+  /** Ring vertical velocity, m/s (ODE state, not a catalog telemetry key). */
+  ringVelocityMps?: number;
+  /** Mains drive phase ωt, rad, wrapped to one period (ODE state). */
+  ringPhase?: number;
   _wasmPlantActive?: boolean;
 }
 

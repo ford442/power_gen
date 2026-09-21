@@ -62,7 +62,7 @@ Details: docs/AGENTS.md → Language strategy. Shaders: **docs/SHADERS.md**.
 
 Registered core ids: `seg`, `heron`, `kelvin`, `solar`, `peltier`, `mhd`
 (+ Quanta plugins: `maglev`, `homopolar`, `halbach-viz`, `pulse-coil`,
-`transformer`, `vdg`, `hall`, `lorentz-sled`).
+`transformer`, `vdg`, `hall`, `lorentz-sled`, `jumping-ring`).
 WASM plants: `physics/devices.json` `wasmMode` (codegen `enum SimMode`). Shader
 slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 

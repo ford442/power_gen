@@ -1,0 +1,92 @@
+{
+  "tourVersion": 1,
+  "id": "jumping-ring-intro",
+  "title": "Thomson Jumping Ring Tour",
+  "description": "Guided walkthrough of the AC primary, the induced ring current, the Lenz force that fights gravity, and why the coupling — and so the lift — falls with height.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 7,
+      "view": "jumping-ring",
+      "camera": { "position": [0, 2.4, 9], "target": [0, 0.4, 0] },
+      "title": "Lenz's law you can watch",
+      "body": "An aluminium ring sits on the shoulder of an iron core wound with an AC primary. Switch the supply on and the ring leaves the core. Every other bench in this lab reports induction as a number — a Hall voltage, a disc EMF, a phasor. This one reports it as motion.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "primary",
+      "durationSec": 8,
+      "view": "jumping-ring",
+      "camera": { "position": [-1.8, 0.6, 3.6], "target": [-0.2, -0.4, 0] },
+      "title": "Step 1 — the AC primary",
+      "body": "The winding around the base of the core carries mains-frequency AC — the same 60 Hz the mutual-induction bench runs at, read from one shared lab constant. Raise the drive slider and primary current climbs; the alternating flux it pushes through the core is what the ring will react to.",
+      "highlights": ["ring-primary"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "primary-current"
+    },
+    {
+      "id": "induced",
+      "durationSec": 9,
+      "view": "jumping-ring",
+      "camera": { "position": [0.9, 0.9, 3.0], "target": [0, 0.1, 0] },
+      "title": "Step 2 — the induced ring current",
+      "body": "The ring is a shorted single turn, so the changing flux drives a current round it — hundreds of amps through a few tenths of a milliohm. Watch I_ring against I_p: the ring current runs opposite to the primary. That opposition is Lenz's law, and here it is a result of the equations rather than a sign someone chose.",
+      "highlights": ["ring-conductor"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "induced-current"
+    },
+    {
+      "id": "force",
+      "durationSec": 9,
+      "view": "jumping-ring",
+      "camera": { "position": [1.4, 1.4, 2.6], "target": [0, 0.3, 0] },
+      "title": "Step 3 — force against gravity",
+      "body": "Two currents that oppose each other repel. The force telemetry is I_p · I_ring · dM/dh, and at switch-on it peaks at tens of times the ring's own weight — that spike is the jump. The ring then falls back, overshoots downward, and rings down toward a hover.",
+      "highlights": ["ring-conductor"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "lenz-force"
+    },
+    {
+      "id": "coupling",
+      "durationSec": 9,
+      "view": "jumping-ring",
+      "camera": { "position": [-1.1, 1.8, 4.2], "target": [0, 0.5, 0] },
+      "title": "Step 4 — why it stops rising",
+      "body": "k(h) is the coupling between primary and ring, and it decays as the ring climbs away from the core. Less coupling means less induced current and less force, so the lift falls off with height. The ring settles where the cycle-averaged force equals its weight — read k(h) dropping as the height telemetry rises.",
+      "highlights": ["ring-core"],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": "coupling-coefficient"
+    },
+    {
+      "id": "drive",
+      "durationSec": 7,
+      "view": "jumping-ring",
+      "camera": { "position": [0, 1.2, 4.6], "target": [0, 0.3, 0] },
+      "title": "Step 5 — hover height vs drive",
+      "body": "Move the drive slider and the hover height moves with it, but not proportionally: force scales roughly with the square of the supply while the coupling decays exponentially with height, so the equilibrium creeps up logarithmically. Back the drive off far enough and the lift never beats gravity — the ring just sits there.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": true,
+      "glossaryTerm": null
+    },
+    {
+      "id": "honesty",
+      "durationSec": 8,
+      "view": "jumping-ring",
+      "camera": { "position": [0, 3.0, 7.5], "target": [0, 0, 0] },
+      "title": "What this model is not",
+      "body": "A lumped circuit and a rigid body: two coupled inductances, one mass, one drag term. There is no eddy-current field solver, no skin depth, no contact model — and no thermal state at all, so this ring never heats, glows or melts the way a real shorted ring does. Educational Thomson-ring demo: not an induction-furnace model, not a launcher, and there is no projectile anywhere in it.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

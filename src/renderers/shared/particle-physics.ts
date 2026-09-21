@@ -9,6 +9,7 @@ import { ValidatedConstants } from '../../ValidatedConstants';
 import { simRandom } from '../../telemetry/deterministic-rng.js';
 import { VDG_V_BREAK } from '../../devices/quanta/van-de-graaff';
 import { HALL } from '../../devices/quanta/hall-effect';
+import { RING } from '../../devices/quanta/jumping-ring';
 
 const GRAV = 9.81;
 const TAU = Math.PI * 2;
@@ -63,6 +64,10 @@ export interface ParticleUniforms {
   lorentzCurrentA?: number;
   lorentzFieldT?: number;
   lorentzPositionM?: number;
+  /** Thomson jumping ring (mode 15) */
+  ringHeightM?: number;
+  ringCurrentA?: number;
+  ringCouplingK?: number;
 }
 
 interface SpawnParticle {
@@ -356,6 +361,56 @@ function integrateLorentzSled(
   return [x, y, z];
 }
 
+/** Mirrors posJumpingRing in particle-compute.wgsl. */
+function integrateJumpingRing(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  irN = 0,
+  hN = 0,
+  kN = 0
+): [number, number, number] {
+  const phase = p.phase;
+  // -4 / 12.5 / 2.8 mirror RING_SCENE baseY / poleU / ringRadiusU in
+  // devices/quanta/jumping-ring.ts (device-local render units, not metres).
+  const baseY = -4.0;
+  const poleU = 12.5;
+  const ringR = 2.8;
+  const coreR = 0.55;
+  const outerR = ringR * 1.5;
+  const yRing = baseY + hN * poleU;
+  const u = (((t * (0.3 + irN * 0.9) + phase) % 1) + 1) % 1;
+
+  if (idx % 5 === 0) {
+    const a = u * 6.28318 + t * (1.0 + irN * 4.0);
+    return [
+      Math.cos(a) * ringR,
+      yRing + Math.sin(t * 9.0 + phase * 30.0) * 0.12 * irN,
+      Math.sin(a) * ringR
+    ];
+  }
+
+  const a = ((((idx * 0.618) % 1) + 1) % 1) * 6.28318;
+  let y: number;
+  let radius: number;
+  if (u < 0.45) {
+    y = baseY + (u / 0.45) * poleU;
+    radius = coreR;
+  } else if (u < 0.55) {
+    y = baseY + poleU;
+    radius = coreR + ((u - 0.45) / 0.1) * (outerR - coreR);
+  } else if (u < 0.95) {
+    y = baseY + poleU - ((u - 0.55) / 0.4) * poleU;
+    radius = outerR;
+  } else {
+    y = baseY;
+    radius = outerR + ((u - 0.95) / 0.05) * (coreR - outerR);
+  }
+  const near = Math.exp(-Math.abs(y - yRing) * 0.9);
+  radius *= 1 + near * kN * 0.45;
+  return [Math.cos(a) * radius, y, Math.sin(a) * radius];
+}
+
 /**
  * Advance particle buffer in-place (8 floats per particle).
  */
@@ -486,6 +541,12 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
       const flowN = Math.min(1, (u.mhdFlowU ?? 1) / 3.5);
       const bN = Math.min(1, (u.mhdBFieldT ?? 0.4) / 1.0);
       const pos = integrateMHD({ phase }, idx, u.time, flowN, bN);
+      px = pos[0]; py = pos[1]; pz = pos[2];
+    } else if (mode >= 15.0) {
+      const irN = Math.min(1, Math.abs(u.ringCurrentA ?? 0) / RING.iRingMaxA);
+      const hN = Math.min(1, (u.ringHeightM ?? 0) / RING.poleHeightM);
+      const kN = Math.min(1, (u.ringCouplingK ?? 0) / RING.couplingK0);
+      const pos = integrateJumpingRing({ phase }, idx, u.time, irN, hN, kN);
       px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode >= 14.0) {
       // 22 / 2 / 1.2 mirror LORENTZ.iMaxA / railLengthM / fieldTMax in

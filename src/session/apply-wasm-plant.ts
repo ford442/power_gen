@@ -84,6 +84,11 @@ export interface WasmModePlant {
   sledVms?: number;
   forceN?: number;
   positionM?: number;
+  ringHeightM?: number;
+  ringCurrentA?: number;
+  ringPrimaryIA?: number;
+  ringForceN?: number;
+  ringCouplingK?: number;
 }
 
 /**
@@ -273,6 +278,18 @@ function applyPlantToPhysics(
     sled.lorentzPositionM = plant.positionM ?? 0;
     sled.energyLevel = plant.energyLevel ?? 0;
     sled._wasmPlantActive = true;
+    return;
+  }
+  if (focus === 'jumping-ring' && plant.mode === 'jumping-ring') {
+    const ring = devicePhysics(devices['jumping-ring']);
+    if (!ring) return;
+    ring.ringHeightM = plant.ringHeightM ?? 0;
+    ring.ringCurrentA = plant.ringCurrentA ?? 0;
+    ring.ringPrimaryIA = plant.ringPrimaryIA ?? 0;
+    ring.ringForceN = plant.ringForceN ?? 0;
+    ring.ringCouplingK = plant.ringCouplingK ?? 0;
+    ring.energyLevel = plant.energyLevel ?? 0;
+    ring._wasmPlantActive = true;
   }
 }
 

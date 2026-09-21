@@ -160,6 +160,11 @@ function emptyDeviceSnap(id: string): DeviceTelemetrySnap {
     lorentzFieldT: 0,
     lorentzForceN: 0,
     lorentzPositionM: 0,
+    ringHeightM: 0,
+    ringCurrentA: 0,
+    ringPrimaryIA: 0,
+    ringForceN: 0,
+    ringCouplingK: 0,
     powerInW: 0,
     powerOutW: 0,
     efficiency: 0
@@ -236,6 +241,11 @@ function snapFromPhysics(
     lorentzFieldT: physics.lorentzFieldT ?? 0,
     lorentzForceN: physics.lorentzForceN ?? 0,
     lorentzPositionM: physics.lorentzPositionM ?? 0,
+    ringHeightM: physics.ringHeightM ?? 0,
+    ringCurrentA: physics.ringCurrentA ?? 0,
+    ringPrimaryIA: physics.ringPrimaryIA ?? 0,
+    ringForceN: physics.ringForceN ?? 0,
+    ringCouplingK: physics.ringCouplingK ?? 0,
     powerInW: 0,
     powerOutW: 0,
     efficiency: 0

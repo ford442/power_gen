@@ -153,15 +153,36 @@ struct LorentzSledConstants {
   static constexpr float I_MAX_A              = 22.0f;
 };
 
+/**
+ * Thomson jumping ring — AC primary + shorted single-turn ring with height.
+ * F_HZ is deliberately absent: the plant reads the lab mains frequency from
+ * TransformerConstants::F_HZ so the two benches cannot drift apart.
+ */
+struct JumpingRingConstants {
+  static constexpr float PRIMARY_L_H          = 0.022f;
+  static constexpr float PRIMARY_R_OHM        = 1.6f;
+  static constexpr float PRIMARY_V_PEAK       = 170.0f;
+  static constexpr float RING_L_H             = 1.33e-7f;
+  static constexpr float RING_R_OHM           = 0.00023f;
+  static constexpr float RING_MASS_KG         = 0.02f;
+  static constexpr float COUPLING_K0          = 0.65f;
+  static constexpr float COUPLING_LAMBDA_M    = 0.045f;
+  static constexpr float DRAG_NSM             = 0.25f;
+  static constexpr float POLE_HEIGHT_M        = 0.15f;
+  static constexpr float HEIGHT_REF_M         = 0.055f;
+  static constexpr float I_PRIMARY_MAX_A      = 30.0f;
+  static constexpr float I_RING_MAX_A         = 700.0f;
+};
+
 /** Simulated nameplate watts per SimMode (order-of-magnitude — not metrology). */
 struct EnergyNetworkNameplates {
-  static constexpr int MODE_COUNT = 12;
+  static constexpr int MODE_COUNT = 13;
   static constexpr float WATTS[MODE_COUNT] = {
     2000.0f, 400.0f, 150.0f,
     300.0f, 120.0f, 350.0f,
     200.0f, 250.0f,
     110.0f, 60.0f, 30.0f,
-    180.0f
+    180.0f, 240.0f
   };
 };
 

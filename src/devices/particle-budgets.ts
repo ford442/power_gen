@@ -45,7 +45,8 @@ export const DEVICE_PARTICLE_BUDGETS: Record<string, TierBudget> = {
   'pulse-coil': { high: 4200, medium: 2600, low: 1500, critical: 750 },
   vdg: { high: 3600, medium: 2400, low: 1400, critical: 700 },
   hall: { high: 3200, medium: 2100, low: 1200, critical: 600 },
-  'lorentz-sled': { high: 3400, medium: 2200, low: 1300, critical: 650 }
+  'lorentz-sled': { high: 3400, medium: 2200, low: 1300, critical: 650 },
+  'jumping-ring': { high: 3600, medium: 2300, low: 1300, critical: 650 }
 };
 
 /** Core / legacy ids that use DEFAULT_CORE when not listed above. */

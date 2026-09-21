@@ -8,6 +8,7 @@ import type { DevicePipelineManager } from './device-pipeline-manager';
 import type { DevicePhysicsState } from './renderers/shared/device-physics';
 import { VDG_V_BREAK } from './devices/quanta/van-de-graaff';
 import { HALL } from './devices/quanta/hall-effect';
+import { RING } from './devices/quanta/jumping-ring';
 
 interface ComputeGeometryHost {
   particles: GPUBuffer;
@@ -128,6 +129,10 @@ class DeviceComputeManager {
         p0 = Math.min(1, Math.abs(physicsState.lorentzCurrentA ?? 0) / 22);
         p1 = ((((physicsState.lorentzPositionM ?? 0) % 2) + 2) % 2) / 2;
         p2 = Math.min(1, (physicsState.lorentzFieldT ?? 0) / 1.2);
+      } else if (physicsState.deviceId === 'jumping-ring') {
+        p0 = Math.min(1, Math.abs(physicsState.ringCurrentA ?? 0) / RING.iRingMaxA);
+        p1 = Math.min(1, (physicsState.ringHeightM ?? 0) / RING.poleHeightM);
+        p2 = Math.min(1, (physicsState.ringCouplingK ?? 0) / RING.couplingK0);
       }
     }
 

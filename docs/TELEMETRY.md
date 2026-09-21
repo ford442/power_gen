@@ -94,6 +94,7 @@ CSV column names live with the key in
 | `vdg` | `vdgVoltage` (V), `vdgBeltMps` (m/s), `vdgChargeC` (C), `vdgSparkHz` (Hz) | `vdg_voltage`, … |
 | `hall` | `hallVoltage` (V), `hallCurrent` (A), `hallFieldT` (T), `hallCoeff` (m³/C) | `hall_voltage`, … |
 | `lorentz-sled` | `lorentzSledVms` (m/s), `lorentzCurrentA` (A), `lorentzFieldT` (T), `lorentzForceN` (N), `lorentzPositionM` (m) | `lorentz_sled_vms`, … |
+| `jumping-ring` | `ringHeightM` (m), `ringCurrentA` (A), `ringPrimaryIA` (A), `ringForceN` (N), `ringCouplingK` | `ring_height_m`, … |
 
 `seg` is the one exception: its `telemetryKeys` (`rpm`, `omega`, `voltage`, …)
 live on `SegOperatorTelemetry` (`snap.seg`), not on `snap.devices.seg` — the two

@@ -258,6 +258,7 @@ function pluginSourceForId(id) {
     vdg: 'van-de-graaff.ts',
     hall: 'hall-effect.ts',
     'lorentz-sled': 'lorentz-sled.ts',
+    'jumping-ring': 'jumping-ring.ts',
   };
   if (quantaMap[id]) {
     return join(ROOT, 'src', 'devices', 'quanta', quantaMap[id]);

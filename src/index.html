@@ -118,6 +118,13 @@
         <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Educational Lorentz-force model (F = I&nbsp;&#8467;&nbsp;&times;&nbsp;B on a sliding armature, with friction and back-EMF) — a low-voltage bench rail motor, <strong>not a railgun design tool</strong>. B is a local bench parameter by default; with <strong>Field coupling</strong> on it follows the MHD channel's simulated B estimate instead — still simulated, not metrology.</div>
       </div>
 
+      <!-- Thomson jumping-ring classroom notes -->
+      <div class="panel-section" id="jumping-ring-controls" style="display:none;">
+        <h3>Jumping ring</h3>
+        <div style="font-size:0.68rem;color:#0aa;line-height:1.4;">The drive slider sets the AC supply; the ring's hover height follows it. The ring is a shorted single turn — its induced current opposes the primary (<strong>Lenz</strong>), the two repel, and the coupling <em>k(h)</em> decays as the ring rises, so the lift decays with it and the ring settles instead of leaving the pole.</div>
+        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Educational Thomson-ring demo (lumped circuit + rigid body) — <strong>not</strong> an induction-furnace or launcher model, and there is no projectile. There is also <strong>no thermal model at all</strong>: a real shorted ring heats and can glow or melt, and nothing here represents that.</div>
+      </div>
+
       <!-- Lab field bus (ADR-0011) -->
       <div class="panel-section" id="field-coupling-section">
         <h3>Lab field coupling</h3>
@@ -191,6 +198,7 @@
           <button class="ctrl-btn" id="explainerTourBtn" type="button" style="font-size:0.68rem;">▶ Guided Tour</button>
           <button class="ctrl-btn" id="explainerVdgTourBtn" type="button" style="font-size:0.68rem;">▶ Van de Graaff Tour</button>
           <button class="ctrl-btn" id="explainerLorentzTourBtn" type="button" style="font-size:0.68rem;">▶ Lorentz Sled Tour</button>
+          <button class="ctrl-btn" id="explainerJumpingRingTourBtn" type="button" style="font-size:0.68rem;">▶ Jumping Ring Tour</button>
           <button class="ctrl-btn" id="explainerHallTourBtn" type="button" style="font-size:0.68rem;">▶ Hall-Effect Tour</button>
           <button class="ctrl-btn" id="explainerTransformerTourBtn" type="button" style="font-size:0.68rem;">▶ Mutual Induction Tour</button>
           <button class="ctrl-btn" id="explainerKelvinTourBtn" type="button" style="font-size:0.68rem;">▶ Kelvin Dropper Tour</button>

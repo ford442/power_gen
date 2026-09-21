@@ -457,6 +457,113 @@ ODE state (`I`, `v`) stays continuous across the wrap.
 
 ---
 
+---
+
+## jumping-ring
+
+**Thomson Jumping Ring** — an aluminium ring sits on the shoulder of an
+AC-driven iron core as a shorted single turn. The alternating flux induces a
+current round the ring, that current opposes the primary (Lenz), the two repel,
+and the ring is thrown off the core. This is the only bench in the lab where
+induction is reported as **motion** rather than as a number: `hall` gives V_H,
+`homopolar` gives a disc EMF, `transformer` gives coupled-L–M phasors,
+`pulse-coil` gives an R–L discharge — none of them move the conductor they
+induced a current in.
+
+**Educational Thomson-ring model — not an induction furnace, not a launcher,
+and there is no projectile.** It is a lumped circuit plus a rigid body: no
+eddy-current FEM, no skin depth, no contact model. In particular there is **no
+thermal state at all** — a real shorted ring heats and can glow or melt, and
+nothing in this plant represents that (σ is constant and nothing warms up).
+No thrust number here is calibrated against a real apparatus.
+
+Lumped model, with a *height-dependent* mutual inductance:
+
+```
+k(h)  = k0 · exp(−h / λ)
+M(h)  = k(h) · √(Lp·Lr)                dM/dh = −M(h) / λ
+
+Vp = Lp dIp/dt + M dIr/dt + (dM/dh)·v·Ir + Rp·Ip
+0  = Lr dIr/dt + M dIp/dt + (dM/dh)·v·Ip + Rr·Ir     ring is shorted
+m dv/dt = Ip·Ir·(dM/dh) − m·g − b·v                  coenergy gradient
+dh/dt   = v
+```
+
+The motional EMF and the force are the **same** `dM/dh`, so the model is
+energy-consistent and Lenz falls out of the equations rather than being a sign
+someone chose: `Ir` comes out opposing `Ip`, their product is negative on
+average, `dM/dh` is negative, and the force is up.
+
+Because the coupling decays with height, so does the lift. Switch-on throws the
+ring to roughly 1.5× its eventual hover — that transient is the *jump* — and it
+then rings down to the height where the cycle-averaged force equals its weight.
+`poleHeightM` is a rigid stop at the top of the pole; `h = 0` is the core
+shoulder the ring rests on. Back the drive off far enough and the lift never
+beats gravity and the ring simply sits there (asserted by the native smoke's
+`drive = 0` case).
+
+The primary runs at the lab mains frequency `TRANSFORMER.fHz`, not a frequency
+literal of its own, so the two AC benches cannot drift apart.
+
+Integrated with RK4 over adaptive substeps (`h ≈ 50 µs`, well inside the
+leakage `τ = (1−k²)·Lr/Rr ≈ 0.33 ms`), clamped and substepped like the
+transformer plant so a dropped frame stays finite and inside the pole
+(asserted by the native smoke's `dt = 1 s` case).
+
+| View | Screenshot |
+|------|------------|
+| Overview | See [`images/multi-device.png`](images/multi-device.png) |
+| Focus | _pending capture_ |
+
+Capture: `?renderer=webgl2` → START → `setMode('jumping-ring')` → settle a
+second so the ring reaches its hover → `captureCanvasFrame({ flipY: true })` →
+`docs/images/jumping-ring-focus.png`.
+
+### Telemetry
+
+| Field | Unit | Source |
+|-------|------|--------|
+| Ring height | m | Ring above the core shoulder, clamped to `poleHeightM` (`ringHeightM`) |
+| Induced ring current | A | Current round the shorted single turn — the one doing the lifting (`ringCurrentA`) |
+| Primary current | A | AC winding current (`ringPrimaryIA`) |
+| Net force on ring | N | `Ip·Ir·dM/dh` at the reported state; swings sign twice per mains cycle (`ringForceN`) |
+| Coupling k(h) | — | `k0·exp(−h/λ)` — falls as the ring rises, which is why it hovers (`ringCouplingK`) |
+
+### References
+
+1. E. Thomson — the original jumping-ring demonstration (reported 1887/1893)
+2. P. J. H. Tjossem, E. C. Brost — *Am. J. Phys.* (2011), the levitated
+   closed-loop configuration and why the ring hovers rather than leaving
+3. C. S. Schneider, J. P. Ertel — *Am. J. Phys.* (1998), mutual inductance
+   falling with height and the resulting force law
+
+Undergraduate demonstration-physics literature only. No induction-heating,
+furnace or launcher sources are used or intended here.
+
+### Implementation
+
+- Plugin: `src/devices/quanta/jumping-ring.ts` (registered via `quanta/index.ts`)
+- WGSL mode index: `15` (`posJumpingRing` in `shaders/passes/particle-compute.wgsl`)
+- WASM `SimMode`: `12` (`SIM_MODE_JUMPING_RING` from `physics/devices.json`);
+  plugin uses `catalogIdentity('jumping-ring')`
+- Plant: `cpp/src/plant/thomson_plant.cpp`; native smoke `--mode jumping-ring`
+- Golden: `jumping-ring` case in `--mode golden` runs at `dt = 1/90`, not
+  `1/60` — a 1/60 frame is exactly one mains period, so every comparison would
+  land on the drive's zero crossing where the (resistance-dominated) ring
+  current is ~1% of its amplitude. The harness now carries `dt` per case
+- UI: Jumping Ring mode button (from the catalog `chrome` block); the drive
+  slider alone sets the supply — there is no device-specific slider
+- Explainer: 7-step `#lab=` tour (`src/seg-explainer/jumping-ring-tour.json`) —
+  primary → induced current → force → why the lift decays → hover vs drive,
+  closing on what the model is not
+- Energy pipe: `transformer → jumping-ring` (the transformer bench shows the
+  coupling as phasors, the ring shows the same coupling doing mechanical work
+  on a shorted secondary). Under `?energyCoupling=1` the allocation and its
+  residual watts remain **simulated accounting** (ADR-0004), not metrology,
+  and stay labelled as such in the overview disclaimer
+- No field-coupling edge: the ring's drive is the mains supply, not a B
+  setpoint, so there is nothing for `FIELD_COUPLING_EDGES` to feed (ADR-0011)
+
 ## Roadmap (candidate devices)
 
 | Device | Status | Notes |
@@ -469,17 +576,23 @@ ODE state (`I`, `v`) stays continuous across the wrap.
 | Van de Graaff educational twin | **Live** (`vdg`) | WASM belt-charge/spark-gap ODE (`SimMode=9`) + JS fallback; pairs with Kelvin |
 | Simple railgun / Lorentz sled | **Live** (`lorentz-sled`) | WASM R–L + back-EMF + Lorentz-force ODE (`SimMode=11`) + JS fallback; pairs with MHD. Educational rail motor, not a railgun design tool |
 | Hall-effect sensor bench | **Live** (`hall`) | WASM I·B→Hall-voltage model (`SimMode=10`) + JS fallback; pairs with homopolar/Halbach |
+| Thomson jumping ring | **Live** (`jumping-ring`) | WASM coupled L–M(h) RK4 ODE with ring mass/gravity (`SimMode=12`) + JS fallback; pairs with transformer. Lenz's law as motion — no projectile, no thermal model |
+| Lenz drop tube | Candidate | Algebraic terminal-velocity model; would stay `wasmMode: null`. Next one only if it earns its LOD budget |
 | Quanta product mockups | Blocked | Awaiting product specs |
 
 ### Cross-device coupling (not new devices)
 
-The lab is at 14 devices against ADR-0005's 8–12 target; overview particle/mesh
-LOD is the constraint, not the catalog. Depth beats a 15th bench.
+The lab is at 15 devices; ADR-0005's original 8–12 target has been restated as
+**14+ classroom benches, LOD-limited** (see that ADR). Overview particle/mesh
+LOD, not the catalog, is the constraint — a new bench has to earn its budget by
+teaching something no existing one does. `jumping-ring` earned it as the only
+device that shows induction as motion; depth still beats a 16th.
 
 | Pair | State | Notes |
 |------|-------|-------|
 | `halbach-viz` → `hall` | **Live, opt-in** | `?fieldCoupling=1` — Hall B follows the clamped Halbach peak estimate (ADR-0011) |
 | `mhd` → `lorentz-sled` | **Live, opt-in** | `?fieldCoupling=1` for B; `?energyCoupling=1` already couples the pipe watts (ADR-0004) |
+| `transformer` → `jumping-ring` | **Live (energy pipe)** | `?energyCoupling=1` couples the pipe watts (ADR-0004). No field edge: the ring is driven by a mains supply, not a B setpoint |
 | `homopolar` ↔ `hall` | Candidate | Same I×B physics; no shared B yet. One more `FIELD_COUPLING_EDGES` row when a source estimate is worth propagating |
 | `kelvin` ↔ `vdg` | **Deferred** | Both electrostatic and share no B — a charge/voltage bus is a different model and a later epic, not a field-network edge |
 

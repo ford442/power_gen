@@ -81,6 +81,7 @@ const PLANTS = {
   vdg: { create: 'createVdgPhysicsState', step: 'stepVdgPhysics' },
   hall: { create: 'createHallPhysicsState', step: 'stepHallPhysics' },
   'lorentz-sled': { create: 'createLorentzSledPhysicsState', step: 'stepLorentzSledPhysics' },
+  'jumping-ring': { create: 'createJumpingRingPhysicsState', step: 'stepJumpingRingPhysics' },
 };
 
 /** Bundled rather than transformed one file at a time: the plugins import
@@ -94,6 +95,7 @@ export { createTransformerPhysicsState, stepTransformerPhysics } from './src/dev
 export { createVdgPhysicsState, stepVdgPhysics } from './src/devices/quanta/van-de-graaff.ts';
 export { createHallPhysicsState, stepHallPhysics } from './src/devices/quanta/hall-effect.ts';
 export { createLorentzSledPhysicsState, stepLorentzSledPhysics } from './src/devices/quanta/lorentz-sled.ts';
+export { createJumpingRingPhysicsState, stepJumpingRingPhysics } from './src/devices/quanta/jumping-ring.ts';
 export { DEVICE_CATALOG } from './generated/device-catalog.ts';
 `;
 
