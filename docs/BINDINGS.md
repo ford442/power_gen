@@ -313,6 +313,19 @@ variant once per frame — cheap reference reassignment, no GPU work. Layouts
 
 Expect: **O(1) pipeline compiles per shader family**, not O(devices).
 
+## Drift check
+
+`npm run check:bindings` (`scripts/check-bindings.mjs`, part of `npm run validate`)
+diffs each `r.bgl(name, [...])` in `src/pipeline-layout/layouts/fdtd.ts` and
+`post.ts` against the `@group(0) @binding(N)` globals in that layout's WGSL
+pass file(s) — a binding added, removed, or renumbered on either side without
+the other fails the check instead of surfacing as a runtime bind-group-creation
+or pipeline-validation error. Scope today is the `fdtd*` and post-process/
+environment layouts (this file's two tables above); extend `LAYOUT_WGSL_FILES`
+in the script when adding a layout to those two registrars. `roller` /
+`particle` / `segEnhanced` / etc. (device-mesh, particle, cull layouts) are not
+covered yet — still keep those manually aligned with this file.
+
 ## Optional future: schema codegen
 
-A shared JSON/TS schema could emit WGSL `@binding` constants and JS layout entries. Until then, keep this file and `src/pipeline-layout/layouts/*.ts` manually aligned.
+A shared JSON/TS schema could emit WGSL `@binding` constants and JS layout entries, replacing the regex-based drift check above and extending it to every layout. Until then, keep this file and `src/pipeline-layout/layouts/*.ts` manually aligned for layouts outside `check:bindings`'s scope.

@@ -500,6 +500,74 @@ export class WebGPUManager {
     }
   }
 
+  /**
+   * Re-create the device + canvas context on the SAME adapter after
+   * `device.lost` (ADR-0007: still one long-lived device — this never
+   * requests a second `GPUAdapter`). Feature/limit negotiation is re-run so
+   * a spec-compliant adapter that changed its reported support between
+   * losses still gets a valid request.
+   *
+   * Returns `false` instead of throwing (adapter itself is gone, or the
+   * fresh `requestDevice` rejects) so callers can fall back to the reload
+   * overlay. Only device/context/depth/global-uniform state lives here —
+   * visualizer-owned GPU state (pipelines, geometry, devices, IBL, …) is
+   * the caller's job to rebuild once this resolves `true`.
+   */
+  async reinit(): Promise<boolean> {
+    if (!this.adapter || !this.canvasFormat) return false;
+    try {
+      const requiredFeatures = WebGPUManager.negotiateFeatures(this.adapter, {
+        gpuTiming: this.gpuTimingRequested
+      });
+      const requiredLimits = WebGPUManager.negotiateLimits(this.adapter, {
+        ...PREFERRED_LIMITS,
+        ...sceneColorAttachmentLimit(this.canvasFormat)
+      });
+
+      this.logAdapterSummary(this.adapter, requiredFeatures, requiredLimits);
+      this.enabledFeatures = requiredFeatures;
+      this.requestedLimits = requiredLimits;
+
+      this.device = await this.adapter.requestDevice({
+        requiredFeatures: requiredFeatures as GPUFeatureName[],
+        requiredLimits,
+        label: 'seg-primary-device',
+        defaultQueue: { label: 'seg-queue' }
+      });
+
+      this.deviceLost = false;
+      this._attachDeviceHooks(this.device);
+      this._checkColorAttachmentBudget(this.device, this.canvasFormat);
+      this.textureCompression = selectTextureCompression(this.device, this.adapterInfo!);
+      this.textureCompressionUsed = 'none';
+
+      // The old texture died with the device — drop the reference so
+      // resize()/setupDepthBuffer() allocate a fresh one against the new device.
+      this.depthTexture = null;
+
+      this.context = this.canvas.getContext('webgpu');
+      if (!this.context) throw new Error('Failed to get webgpu canvas context');
+
+      const viewFormats = WebGPUManager.canvasViewFormats(this.canvasFormat);
+      this.context.configure({
+        device: this.device,
+        format: this.canvasFormat,
+        alphaMode: this.alphaMode,
+        colorSpace: this.colorSpace,
+        toneMapping: { mode: this.toneMappingMode } as GPUCanvasToneMapping,
+        viewFormats,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+      } as GPUCanvasConfiguration);
+
+      await this.setupGlobalResources();
+      console.log('[WebGPU] Device re-initialized on existing adapter after device.lost');
+      return true;
+    } catch (e) {
+      console.error('[WebGPU] reinit failed (adapter likely gone too):', e);
+      return false;
+    }
+  }
+
   private _attachDeviceHooks(device: GPUDevice): void {
     device.lost.then((info) => {
       this.deviceLost = true;

@@ -23,6 +23,7 @@ gpu-chores adopts that device; it never requests one after a failed probe.
 |-----|-------------------------|
 | Boot probe | Once (then optional ephemeral device destroyed) |
 | `WebGPUManager.init()` | Once for the session device |
+| `WebGPUManager.reinit()` (device-lost recovery) | **No** — reuses the existing `GPUAdapter`, only re-requests the device |
 | `PerformanceProfiler` | **No** — receives `{ adapter, adapterInfo }` from the manager |
 | gpu-chores | **No** — adopts session device only |
 | Debug / GPU tier | Uses profiler’s cached `adapterInfo` |
@@ -140,16 +141,49 @@ Current particle compute uses workgroup size **64** — well within defaults on 
 ### `device.lost`
 
 - Handler attached in `WebGPUManager._attachDeviceHooks`.
-- Default UI: full-screen “WebGPU device lost” + **Reload page** (`showDeviceLostUI`).
-- `MultiDeviceVisualizer` sets `onDeviceLost` to log + show that UI.
-- Full multi-device re-init without reload is not attempted (pipelines/buffers would all need rebuild).
+- `MultiDeviceVisualizer` sets `onDeviceLost` to `recoverFromDeviceLoss`
+  (`src/visualizer/init-methods.ts`) — a **session re-init on the same
+  adapter**, not a reload:
+  1. `WebGPUManager.reinit()` re-runs feature/limit negotiation and calls
+     `adapter.requestDevice` again on the existing `GPUAdapter` (ADR-0007 —
+     still exactly one device; never a second `requestAdapter`). Canvas
+     context is reconfigured and depth/global-uniform state is rebuilt.
+  2. `MultiDeviceVisualizer._bootGpuState()` — the GPU half of `init()`
+     (pipeline cache, integration/profiler, IBL, shared geometry, devices,
+     energy pipes, overview cull, floor/sky, bloom/TAA/SSR/depth-resolve/
+     anomaly-wall, material table) — re-runs on the new device. The
+     one-time DOM/session wiring in `init()` itself (canvas pointer
+     listeners, hardware panel, resize observer, mock-hardware connect)
+     does **not** re-run, so it is never double-registered.
+  3. `LabSession` (plant/telemetry/operator state) and the module-level
+     plant singletons it reads (`segOperator`, `segWasm`) are never touched
+     by GPU re-init, so the sim keeps running at its current RPM through
+     the outage instead of resetting to 0.
+  4. The render loop no-ops (via `_deviceRecovering`) from the moment
+     `device.lost` fires until the rebuild finishes, then resumes on its
+     own next `requestAnimationFrame` tick — no explicit restart needed.
+- If `WebGPUManager.reinit()` fails (adapter itself is gone) or the GPU
+  state rebuild throws, `_deviceRecovering` stays `true` and the classic
+  full-screen “WebGPU device lost” + **Reload page** overlay
+  (`showDeviceLostUI`) is shown — same UI as before, now a fallback rather
+  than the only path.
+- Manual guard against duplicate array pushes across a second boot:
+  `setupEnergyPipes()` resets `this.energyPipes = []` before rebuilding
+  (the historical direct-`init()`-only assumption no longer holds once
+  `_bootGpuState()` can run twice). `setupIblPrefilter()`'s
+  `iblResources`/`iblCompute` memo guards and the lazily-built `fdtdSlice`/
+  `overviewCull` passes are explicitly reset to their "not yet built"
+  sentinel by `recoverFromDeviceLoss` before `_bootGpuState()` runs, since
+  those are the only setup steps in the chain that skip rebuilding when
+  the field is already non-null.
 
 **Manual test:** DevTools → Sensors / `chrome://gpu` GPU process kill, or:
 
 ```js
 // After app load (WebGPU path only)
 window.multiVisualizer.webgpu.device.destroy();
-// Expect device-lost overlay with Reload button
+// Expect the canvas to keep rendering (brief pause) at the same RPM —
+// the device-lost overlay only appears if adapter re-request also fails.
 ```
 
 ### `uncapturederror`
@@ -167,6 +201,7 @@ window.multiVisualizer.webgpu.device.destroy();
 ## Pipelines and bind groups
 
 See **`docs/BINDINGS.md`**. Layouts live in `src/pipeline-layout-cache.ts`; devices do not call `layout: 'auto'`.
+`npm run check:bindings` catches `@binding` drift between the FDTD/post layouts and their WGSL, before it surfaces as a runtime bind-group mismatch.
 
 ## Related files
 
