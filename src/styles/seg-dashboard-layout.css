@@ -587,6 +587,14 @@
       border-color: #0a8;
       color: #9fc;
     }
+    #hw-twin-badge[data-state="bluetooth"] {
+      border-color: #48c;
+      color: #9cf;
+    }
+    #hw-twin-badge[data-state="usb"] {
+      border-color: #0a8;
+      color: #9fc;
+    }
     .hw-twin-dot {
       width: 7px;
       height: 7px;
@@ -595,6 +603,8 @@
     }
     #hw-twin-badge[data-state="mock"] .hw-twin-dot { background: #fa0; box-shadow: 0 0 6px #fa0; }
     #hw-twin-badge[data-state="serial"] .hw-twin-dot { background: #0f8; box-shadow: 0 0 6px #0f8; }
+    #hw-twin-badge[data-state="bluetooth"] .hw-twin-dot { background: #5bf; box-shadow: 0 0 6px #5bf; }
+    #hw-twin-badge[data-state="usb"] .hw-twin-dot { background: #0f8; box-shadow: 0 0 6px #0f8; }
 
     .sci-shadow-residual-readouts {
       display: flex;

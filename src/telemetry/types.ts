@@ -139,8 +139,8 @@ export interface HardwareShadowResidual {
 export interface HardwareTwinTelemetry {
   connected: boolean;
   mock: boolean;
-  /** disconnected | mock | serial — explicit connection state machine */
-  connectionState: 'disconnected' | 'mock' | 'serial';
+  /** disconnected | mock | serial | bluetooth | usb — explicit connection state machine */
+  connectionState: 'disconnected' | 'mock' | 'serial' | 'bluetooth' | 'usb';
   twinMode: 'open' | 'closed' | 'shadow';
   sensorRpm: number;
   sensorPhase: number;

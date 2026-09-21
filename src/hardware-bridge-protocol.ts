@@ -1,5 +1,5 @@
 /**
- * HardwareBridge protocol methods — Read Loop + Command Writing.
+ * HardwareBridge protocol methods — Line Parsing + Command Writing.
  *
  * Split out of hardware-bridge.ts (issues #142/#143/#187). Merged onto
  * HardwareBridge.prototype via `Object.assign` at the bottom of hardware-bridge.ts;
@@ -24,11 +24,9 @@ import {
 } from './hardware-protocol-shared';
 
 export const protocolMethods: ThisType<HardwareBridge> & {
-  _readLoop(): Promise<void>;
-  _processBuffer(): void;
   _parseLine(line: string): void;
   getSensorSnapshot(): SensorSnapshot;
-  _writeLine(text: string): Promise<void>;
+  _writeLine(text: string): void;
   _writeLineImmediate(text: string): void;
   update(sim?: UpdateSimInput): void;
   _sendConfig(): Promise<void>;
@@ -41,38 +39,11 @@ export const protocolMethods: ThisType<HardwareBridge> & {
   coast(): void;
 } = {
   // ============================================
-  // Read Loop
+  // Line Parsing
+  //
+  // Whole lines arrive from the live transport (mock / serial / bluetooth /
+  // usb); framing and the read loop belong to ./hardware-transport.ts.
   // ============================================
-
-  async _readLoop(): Promise<void> {
-    while ((this.status === 'connected') && this.reader) {
-      try {
-        const { value, done } = await this.reader.read();
-        if (done) break;
-        if (value) {
-          this._buffer += value;
-          this._processBuffer();
-        }
-      } catch (err) {
-        if (this.status === 'connected') {
-          this.lastError = (err as Error).message;
-          this._setStatus('error');
-          if (this.onError) this.onError(err as Error);
-          await this._safeShutdown();
-        }
-        break;
-      }
-    }
-  },
-
-  _processBuffer(): void {
-    let newlineIndex: number;
-    while ((newlineIndex = this._buffer.indexOf('\n')) !== -1) {
-      const line = this._buffer.slice(0, newlineIndex).trim();
-      this._buffer = this._buffer.slice(newlineIndex + 1);
-      if (line.length > 0) this._parseLine(line);
-    }
-  },
 
   _parseLine(line: string): void {
     // S{phase},{rpm},{magX},{magY},{magZ},{hallMask},{coilMask},{timestampMs}
@@ -135,22 +106,21 @@ export const protocolMethods: ThisType<HardwareBridge> & {
   // Command Writing
   // ============================================
 
-  async _writeLine(text: string): Promise<void> {
-    if (this.useMock && this._mock) {
-      this._mock.writeLine(text);
-      return;
-    }
-    if (!this.writer || this.status !== 'connected') return;
-    const encoder = new TextEncoder();
+  /**
+   * Queue one protocol line on the live transport. Non-blocking by design: the
+   * coast / watchdog paths must never await a link that has gone away.
+   */
+  _writeLine(text: string): void {
+    if (!this.transport || !this.isConnected) return;
     try {
-      await this.writer.write(encoder.encode(text + '\n'));
+      this.transport.writeLine(text);
     } catch (err) {
       console.error('[HardwareBridge] Write failed:', err);
     }
   },
 
   _writeLineImmediate(text: string): void {
-    // Fire-and-forget for safety paths
+    // Same path — kept as a separate name for the safety call sites.
     this._writeLine(text);
   },
 
@@ -174,9 +144,8 @@ export const protocolMethods: ThisType<HardwareBridge> & {
       this.shadow.simCurrent = sim.simCurrent;
     }
 
-    if (this.useMock && this._mock) {
-      this._mock.setElectricalTargets(this.shadow.simVoltage, this.shadow.simCurrent);
-    }
+    // Mock only: drive its synthetic V/I proxies so the shadow charts move.
+    this.transport?.setElectricalTargets?.(this.shadow.simVoltage, this.shadow.simCurrent);
 
     // Apply twin-mode side effects for setTarget authority
     if (this.twinMode === TWIN_MODES.CLOSED) {

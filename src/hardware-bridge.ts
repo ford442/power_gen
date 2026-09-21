@@ -1,5 +1,5 @@
 /**
- * HardwareBridge — Web Serial (or mock) connection for SEG electromagnet control.
+ * HardwareBridge — hardware-twin link for SEG electromagnet control.
  *
  * Protocol: docs/hardware_connection.md / firmware/seg-driver/protocol.h
  *   App → Arduino: P phase, C coils, CONF geometry
@@ -10,40 +10,76 @@
  *   closed — hardware RPM/phase → visualizer rollers
  *   shadow — sim → hardware; compare HW telemetry vs sim
  *
+ * Transports (ADR-0005 WS3): the bridge owns the protocol and every safety
+ * rule; a {@link HardwareTransport} only moves framed lines. `mock` needs no
+ * hardware, `serial` is the reference link, `bluetooth` covers classroom tables
+ * that cannot run a cable, `usb` is a last resort for boards Web Serial cannot
+ * see. Switching links always coasts the old one first.
+ *
  * Split across three files (issues #142/#143/#187 — "MockSerialTransport vs
  * HardwareBridge vs protocol parse"):
  *   - ./hardware-protocol-shared.ts — constants/helpers shared by all three
  *   - ./mock-serial-transport.ts    — MockSerialTransport (fake serial port)
- *   - ./hardware-bridge-protocol.ts — Read Loop + Command Writing, merged onto
- *     HardwareBridge.prototype below. This file keeps the constructor,
+ *   - ./hardware-bridge-protocol.ts — Line Parsing + Command Writing, merged
+ *     onto HardwareBridge.prototype below. This file keeps the constructor,
  *     Connection Lifecycle and class-field declarations.
  */
 import { MockSerialTransport } from './mock-serial-transport';
 import { protocolMethods } from './hardware-bridge-protocol';
 import { TWIN_MODES, type TwinMode, MODE_RUN, MODE_COAST, clampRpm, clampPwmDuty } from './hardware-protocol-shared';
+import {
+  isBluetoothSupported,
+  isSerialSupported,
+  isWebUsbSupported,
+  supportedTransports,
+  type HardwareTransport,
+  type HardwareTransportKind
+} from './hardware-transport';
+import { SerialLineTransport } from './serial-line-transport';
+import { BluetoothUartTransport } from './bluetooth-uart-transport';
+import { WebUsbCdcTransport } from './webusb-cdc-transport';
 
 export { MockSerialTransport } from './mock-serial-transport';
 export { TWIN_MODES, type TwinMode } from './hardware-protocol-shared';
+export type { HardwareTransport, HardwareTransportKind } from './hardware-transport';
 
 import type { FiringPattern } from './electromagnet-controller';
 
-/** Minimal Web Serial API surface — no `@types/w3c-web-serial` dependency. */
-interface SerialPortFilter {
-  usbVendorId?: number;
-  usbProductId?: number;
+/**
+ * Bridge status. `connected` means the reference Serial link, kept as-is so
+ * existing panels / tests keep working; the wireless links get their own
+ * states rather than hiding behind it.
+ */
+export type HardwareBridgeStatus =
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'mock'
+  | 'bluetooth'
+  | 'usb'
+  | 'error';
+
+/** What the badge and telemetry report. */
+export type HardwareConnectionKind = 'disconnected' | HardwareTransportKind;
+
+/** `status` for a live transport of this kind. */
+export function statusForTransportKind(kind: HardwareTransportKind): HardwareBridgeStatus {
+  switch (kind) {
+    case 'mock': return 'mock';
+    case 'bluetooth': return 'bluetooth';
+    case 'usb': return 'usb';
+    default: return 'connected';
+  }
 }
-interface SerialPort {
-  readable: ReadableStream<Uint8Array>;
-  writable: WritableStream<Uint8Array>;
-  open(options: { baudRate: number }): Promise<void>;
-  close(): Promise<void>;
-}
-interface Serial {
-  requestPort(options?: { filters?: SerialPortFilter[] }): Promise<SerialPort>;
-}
-declare global {
-  interface Navigator {
-    serial?: Serial;
+
+/** Inverse of {@link statusForTransportKind}, for the badge / telemetry. */
+export function connectionKindForStatus(status: string): HardwareConnectionKind {
+  switch (status) {
+    case 'mock': return 'mock';
+    case 'connected': return 'serial';
+    case 'bluetooth': return 'bluetooth';
+    case 'usb': return 'usb';
+    default: return 'disconnected';
   }
 }
 
@@ -56,6 +92,13 @@ export interface HardwareBridgeOptions {
   onSensorData?: ((snapshot: SensorSnapshot) => void) | null;
   onError?: ((err: Error) => void) | null;
   onTwinModeChange?: ((mode: TwinMode) => void) | null;
+}
+
+export interface HardwareConnectOptions {
+  /** Legacy flag — same as `transport: 'mock'`. */
+  mock?: boolean;
+  /** Explicit link. Omitted → Serial, or mock when Serial is unavailable. */
+  transport?: HardwareTransportKind;
 }
 
 export interface HardwareBridgeConfig {
@@ -98,21 +141,18 @@ export interface UpdateSimInput {
 
 export class HardwareBridge {
   baudRate: number;
+  /** Live throttle — a slow link (BLE) may widen it on connect. */
   commandThrottleMs: number;
   commandTimeoutMs: number;
   watchdogMs: number;
+  /** Throttle requested by the caller; restored when the link closes. */
+  private readonly _configuredThrottleMs: number;
 
-  port: SerialPort | null;
-  reader: ReadableStreamDefaultReader<string> | null;
-  writer: WritableStreamDefaultWriter<Uint8Array> | null;
-  readLoopPromise: Promise<void> | null;
-  /** disconnected | connecting | connected | error | mock */
-  status: string;
+  /** The live link, or null. Owns framing + its own read loop. */
+  transport: HardwareTransport | null;
+  private _unsubTransport: Array<() => void>;
+  status: HardwareBridgeStatus;
   lastError: string | null;
-  useMock: boolean;
-  // Not `private`: read/written from hardware-bridge-protocol.ts's mixin methods too.
-  _mock: MockSerialTransport | null;
-  private _unsubMock: (() => void) | null;
 
   // Incoming parsed state from Arduino
   actualPhase: number;
@@ -147,8 +187,6 @@ export class HardwareBridge {
   _lastCommandTime: number;
   _lastUpdateCall: number;
   _commandQueue: string[];
-  private _textDecoder: TextDecoderStream | null;
-  _buffer: string;
   private _watchdogTimer: ReturnType<typeof setInterval> | null;
 
   onStatusChange: ((status: string) => void) | null;
@@ -161,19 +199,15 @@ export class HardwareBridge {
 
   constructor(options: HardwareBridgeOptions = {}) {
     this.baudRate = options.baudRate || 115200;
-    this.commandThrottleMs = options.commandThrottleMs || 16; // ~60Hz
+    this._configuredThrottleMs = options.commandThrottleMs || 16; // ~60Hz
+    this.commandThrottleMs = this._configuredThrottleMs;
     this.commandTimeoutMs = options.commandTimeoutMs || 200; // browser-side safety
     this.watchdogMs = options.watchdogMs || 100; // match firmware
 
-    this.port = null;
-    this.reader = null;
-    this.writer = null;
-    this.readLoopPromise = null;
+    this.transport = null;
+    this._unsubTransport = [];
     this.status = 'disconnected';
     this.lastError = null;
-    this.useMock = false;
-    this._mock = null;
-    this._unsubMock = null;
 
     this.actualPhase = 0;
     this.actualRpm = 0;
@@ -218,8 +252,6 @@ export class HardwareBridge {
     this._lastCommandTime = 0;
     this._lastUpdateCall = 0;
     this._commandQueue = [];
-    this._textDecoder = null;
-    this._buffer = '';
     this._watchdogTimer = null;
 
     this.onStatusChange = options.onStatusChange || null;
@@ -228,125 +260,152 @@ export class HardwareBridge {
     this.onTwinModeChange = options.onTwinModeChange || null;
   }
 
-  /** Explicit connection kind for UI: disconnected | mock | serial */
-  get connectionKind(): 'mock' | 'serial' | 'disconnected' {
-    if (this.status === 'mock') return 'mock';
-    if (this.status === 'connected') return 'serial';
-    return 'disconnected';
+  /** Explicit connection kind for UI: disconnected | mock | serial | bluetooth | usb */
+  get connectionKind(): HardwareConnectionKind {
+    return connectionKindForStatus(this.status);
   }
 
-  static isSerialSupported(): boolean {
-    return typeof navigator !== 'undefined' && !!navigator.serial;
+  /** Short label of the live link (panel badge). */
+  get transportLabel(): string {
+    return this.transport?.label ?? '';
+  }
+
+  static isSerialSupported = isSerialSupported;
+  static isBluetoothSupported = isBluetoothSupported;
+  static isWebUsbSupported = isWebUsbSupported;
+  static supportedTransports = supportedTransports;
+
+  static isTransportSupported(kind: HardwareTransportKind): boolean {
+    switch (kind) {
+      case 'mock': return true;
+      case 'serial': return isSerialSupported();
+      case 'bluetooth': return isBluetoothSupported();
+      case 'usb': return isWebUsbSupported();
+      default: return false;
+    }
   }
 
   // ============================================
   // Connection Lifecycle
   // ============================================
 
-  async connect(opts: { mock?: boolean } = {}): Promise<void> {
-    if (this.status === 'connecting') return;
-    if (this.status === 'mock') {
-      // Switching serial ← mock: coast mock coils before opening a real port.
-      await this.disconnect();
-    }
-    if (this.status === 'connected') return;
+  /**
+   * Legacy entry point: opens Serial, or the mock when `?mockHardware=1` is set
+   * or Web Serial is unavailable. Use {@link connectTransport} to name a link.
+   */
+  async connect(opts: HardwareConnectOptions = {}): Promise<void> {
+    if (opts.transport) return this.connectTransport(opts.transport);
 
     const wantMock = opts.mock === true
       || (typeof location !== 'undefined' && new URLSearchParams(location.search).get('mockHardware') === '1');
+    if (wantMock) return this.connectTransport('mock');
+    if (!isSerialSupported()) {
+      console.info('[HardwareBridge] Web Serial unavailable — using mock');
+      return this.connectTransport('mock');
+    }
+    return this.connectTransport('serial');
+  }
 
-    if (wantMock || !HardwareBridge.isSerialSupported()) {
-      await this._connectMock(wantMock ? undefined : 'Web Serial unavailable — using mock');
+  async connectMock(): Promise<void> {
+    return this.connectTransport('mock');
+  }
+
+  async connectSerial(): Promise<void> {
+    return this.connectTransport('serial');
+  }
+
+  /** Wireless Nordic-UART twin — same protocol, ~20 Hz command rate. */
+  async connectBluetooth(): Promise<void> {
+    return this.connectTransport('bluetooth');
+  }
+
+  /** Raw CDC-ACM, only for boards the platform hides from Web Serial. */
+  async connectUsb(): Promise<void> {
+    return this.connectTransport('usb');
+  }
+
+  /**
+   * Open a link. Already on a link of that kind → no-op. On a different one →
+   * coasts and closes the old one first, so coils are never left commanded by
+   * a transport switch.
+   *
+   * Pass a {@link HardwareTransport} instance instead of a kind to open a link
+   * the page already has permission for — `navigator.serial.getPorts()` or a
+   * remembered `BluetoothDevice` — which skips the chooser and therefore does
+   * not need a fresh user gesture.
+   */
+  async connectTransport(kindOrTransport: HardwareTransportKind | HardwareTransport): Promise<void> {
+    const preBuilt = typeof kindOrTransport === 'string' ? null : kindOrTransport;
+    const kind: HardwareTransportKind = preBuilt ? preBuilt.kind : kindOrTransport as HardwareTransportKind;
+    if (this.status === 'connecting') return;
+    if (this.isConnected) {
+      if (this.connectionKind === kind) return;
+      await this.disconnect();
+    }
+    if (!preBuilt && !HardwareBridge.isTransportSupported(kind)) {
+      const err = new Error(`${kind} transport unavailable in this browser`);
+      this.lastError = err.message;
+      this._setStatus('error');
+      if (this.onError) this.onError(err);
       return;
     }
 
     this._setStatus('connecting');
+    const transport = preBuilt ?? this._createTransport(kind);
     try {
-      if (!navigator.serial) throw new Error('Web Serial unavailable');
-      this.port = await navigator.serial.requestPort({
-        filters: [
-          { usbVendorId: 0x2341 },
-          { usbVendorId: 0x2A03 },
-          { usbVendorId: 0x1A86 },
-          { usbVendorId: 0x10C4 },
-          { usbVendorId: 0x0403 },
-          { usbVendorId: 0x303A }
-        ]
-      });
-
-      await this.port.open({ baudRate: this.baudRate });
-      this.writer = this.port.writable.getWriter();
-      this._textDecoder = new TextDecoderStream();
-      this.port.readable.pipeTo(this._textDecoder.writable as WritableStream<Uint8Array>).catch(() => {});
-      this.reader = this._textDecoder.readable.getReader();
-      this._buffer = '';
-      this.useMock = false;
-      this.readLoopPromise = this._readLoop();
-      await this._sendConfig();
+      this._unsubTransport = [
+        transport.onLine((line) => this._parseLine(line)),
+        transport.onDrop((err) => this._onTransportDrop(err))
+      ];
+      await transport.open();
+      this.transport = transport;
+      // A slow link may not sustain 60 Hz; stay inside the firmware watchdog.
+      this.commandThrottleMs = Math.max(
+        this._configuredThrottleMs,
+        transport.preferredCommandThrottleMs ?? 0
+      );
       this._startWatchdog();
-      this._setStatus('connected');
-      console.log('[HardwareBridge] Connected at', this.baudRate);
+      await this._sendConfig();
+      this._setStatus(statusForTransportKind(kind));
+      console.log(`[HardwareBridge] Connected via ${transport.label}`
+        + (kind === 'serial' ? ` at ${this.baudRate}` : ''));
     } catch (err) {
+      for (const off of this._unsubTransport) off();
+      this._unsubTransport = [];
+      try { await transport.close(); } catch { /* never opened */ }
+      this.transport = null;
+      this.commandThrottleMs = this._configuredThrottleMs;
       this.lastError = (err as Error).message;
       this._setStatus('error');
-      console.error('[HardwareBridge] Connection failed:', err);
+      console.error(`[HardwareBridge] ${kind} connection failed:`, err);
       if (this.onError) this.onError(err as Error);
     }
   }
 
-  async connectMock(): Promise<void> {
-    if (this.status === 'mock') return;
-    if (this.isConnected) {
-      // Switching mock ← serial: coast real coils before starting mock transport.
-      await this.disconnect();
+  private _createTransport(kind: HardwareTransportKind): HardwareTransport {
+    switch (kind) {
+      case 'mock': return new MockSerialTransport();
+      case 'bluetooth': return new BluetoothUartTransport();
+      case 'usb': return new WebUsbCdcTransport();
+      default: return new SerialLineTransport(this.baudRate);
     }
-    return this._connectMock();
-  }
-
-  private async _connectMock(infoMsg?: string): Promise<void> {
-    this._setStatus('connecting');
-    this.useMock = true;
-    this._mock = new MockSerialTransport();
-    this._unsubMock = this._mock.onLine((line) => this._parseLine(line));
-    this._mock.start();
-    this._startWatchdog();
-    await this._sendConfig();
-    this._setStatus('mock');
-    if (infoMsg) console.info('[HardwareBridge]', infoMsg);
-    console.log('[HardwareBridge] Mock serial transport active');
   }
 
   /**
-   * Safe disconnect: coast + coils off, then close port.
+   * Safe disconnect: coast + coils off, then close the link.
    */
   async disconnect(): Promise<void> {
     await this._safeShutdown();
     this._stopWatchdog();
 
-    if (this._unsubMock) {
-      this._unsubMock();
-      this._unsubMock = null;
-    }
-    if (this._mock) {
-      this._mock.stop();
-      this._mock = null;
-    }
-    this.useMock = false;
-
-    if (this.reader) {
-      try { await this.reader.cancel(); } catch (_) { /* */ }
-      this.reader = null;
-    }
-    if (this.writer) {
-      try { this.writer.releaseLock(); } catch (_) { /* */ }
-      this.writer = null;
-    }
-    if (this.port) {
-      try { await this.port.close(); } catch (_) { /* */ }
-      this.port = null;
+    for (const off of this._unsubTransport) off();
+    this._unsubTransport = [];
+    if (this.transport) {
+      try { await this.transport.close(); } catch (_) { /* link may already be dead */ }
+      this.transport = null;
     }
 
-    this.readLoopPromise = null;
-    this._buffer = '';
+    this.commandThrottleMs = this._configuredThrottleMs;
     this.manualMode = false;
     this.manualCoilMask = 0;
     this.manualPwmDuty = 0;
@@ -356,19 +415,49 @@ export class HardwareBridge {
     console.log('[HardwareBridge] Disconnected (coils coasted)');
   }
 
-  // Not `private`: called from hardware-bridge-protocol.ts's `_readLoop` too.
+  /**
+   * Link lost without a `disconnect()` — unplug, out-of-range BLE, read error.
+   * There is nothing left to write a coast down, so the **firmware** watchdog
+   * (no `P` for >100 ms) is what drops the coils; the host side just stops
+   * pretending to be connected.
+   */
+  private _onTransportDrop(err: Error | null): void {
+    if (!this.isConnected && this.status !== 'connecting') return;
+    this._stopWatchdog();
+    for (const off of this._unsubTransport) off();
+    this._unsubTransport = [];
+    const dead = this.transport;
+    this.transport = null;
+    if (dead) {
+      // Best effort: release streams / GATT handles without writing.
+      void Promise.resolve(dead.close()).catch(() => { /* already gone */ });
+    }
+    this.commandThrottleMs = this._configuredThrottleMs;
+    this.manualMode = false;
+    this.manualCoilMask = 0;
+    this.manualPwmDuty = 0;
+    this.targetSpeed = 0;
+    this.controlMode = MODE_COAST;
+    this.lastError = err?.message ?? 'link closed';
+    this._setStatus('error');
+    console.warn('[HardwareBridge] Link dropped —', this.lastError,
+      '(firmware watchdog coasts the coils)');
+    if (err && this.onError) this.onError(err);
+  }
+
+  /**
+   * Best-effort coast + clear coils before tearing down the link.
+   * `flush()` matters on queued links (BLE): without it the GATT writes are
+   * dropped with the connection instead of reaching the board.
+   */
   async _safeShutdown(): Promise<void> {
-    // Best-effort coast + clear coils before tearing down streams
+    const transport = this.transport;
+    if (!transport) return;
     try {
-      if (this.useMock && this._mock) {
-        this._mock.writeLine('P0,0,2');
-        this._mock.writeLine('C0,0,0');
-      } else if (this.writer) {
-        const enc = new TextEncoder();
-        await this.writer.write(enc.encode('P0,0,2\n'));
-        await this.writer.write(enc.encode('C0,0,0\n'));
-      }
-    } catch (_) { /* ignore — port may already be dead */ }
+      transport.writeLine('P0,0,2');
+      transport.writeLine('C0,0,0');
+      await transport.flush?.();
+    } catch (_) { /* ignore — link may already be dead */ }
   }
 
   private _startWatchdog(): void {
@@ -396,11 +485,19 @@ export class HardwareBridge {
   }
 
   get isConnected(): boolean {
-    return this.status === 'connected' || this.status === 'mock';
+    return this.status === 'connected'
+      || this.status === 'mock'
+      || this.status === 'bluetooth'
+      || this.status === 'usb';
   }
 
   get isMock(): boolean {
     return this.status === 'mock';
+  }
+
+  /** True while the link is a real device (not the mock transport). */
+  get isPhysical(): boolean {
+    return this.isConnected && this.status !== 'mock';
   }
 
   get sensorAgeMs(): number {
@@ -412,8 +509,8 @@ export class HardwareBridge {
     return this.sensorAgeMs > 500;
   }
 
-  // Not `private`: called from hardware-bridge-protocol.ts's `_readLoop` too.
-  _setStatus(newStatus: string): void {
+  // Not `private`: called from hardware-bridge-protocol.ts's mixin methods too.
+  _setStatus(newStatus: HardwareBridgeStatus): void {
     if (this.status === newStatus) return;
     this.status = newStatus;
     if (this.onStatusChange) this.onStatusChange(newStatus);
@@ -421,16 +518,14 @@ export class HardwareBridge {
 }
 
 // ============================================
-// Read Loop + Command Writing (src/hardware-bridge-protocol.ts)
+// Line Parsing + Command Writing (src/hardware-bridge-protocol.ts)
 // ============================================
 
 /** TS mixin declaration merging: gives the members added below their types. */
 export interface HardwareBridge {
-  _readLoop(): Promise<void>;
-  _processBuffer(): void;
   _parseLine(line: string): void;
   getSensorSnapshot(): SensorSnapshot;
-  _writeLine(text: string): Promise<void>;
+  _writeLine(text: string): void;
   _writeLineImmediate(text: string): void;
   update(sim?: UpdateSimInput): void;
   _sendConfig(): Promise<void>;

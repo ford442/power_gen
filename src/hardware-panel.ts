@@ -1,6 +1,10 @@
 /**
- * Hardware connect panel — digital twin UI for Web Serial / mock transport.
+ * Hardware connect panel — digital twin UI for the mock / Serial / Bluetooth /
+ * WebUSB transports (ADR-0005 WS3).
  * Injects into #left-panel; streams S telemetry; coil override pad.
+ *
+ * Buttons for links this browser cannot open are disabled rather than hidden,
+ * so a classroom can see *why* the wireless twin isn't offered here.
  */
 
 import { HardwareBridge, TWIN_MODES, type SensorSnapshot } from './hardware-bridge';
@@ -77,7 +81,9 @@ export class HardwarePanel {
         <span class="hw-serial-badge" id="hwSerialBadge"></span>
       </div>
       <div class="hw-btn-row">
-        <button type="button" class="seg-op-btn" id="hwConnectBtn">Connect</button>
+        <button type="button" class="seg-op-btn" id="hwConnectBtn" title="USB CDC serial port">Serial</button>
+        <button type="button" class="seg-op-btn" id="hwBleBtn" title="Wireless Nordic UART (BLE)">BLE</button>
+        <button type="button" class="seg-op-btn" id="hwUsbBtn" title="Raw WebUSB CDC — only if Serial can't see the board">USB</button>
         <button type="button" class="seg-op-btn" id="hwMockBtn" title="No Arduino required">Mock</button>
         <button type="button" class="seg-op-btn seg-op-btn-estop" id="hwDisconnectBtn" disabled>Disconnect</button>
       </div>
@@ -110,7 +116,7 @@ export class HardwarePanel {
         <button type="button" class="seg-op-btn" id="hwBrakeBtn">Brake</button>
       </div>
       <div class="hw-error" id="hwError"></div>
-      <p class="hw-hint">Chrome/Edge + Web Serial. Protocol: docs/hardware_connection.md</p>
+      <p class="hw-hint">Chrome/Edge. Serial is the reference link; BLE is ~20 Hz. Protocol: docs/hardware_connection.md</p>
     `;
     left.appendChild(el);
     this._root = el;
@@ -145,6 +151,7 @@ export class HardwarePanel {
       .hw-serial-badge { margin-left: auto; color: #678; font-size: 0.65rem; }
       .hw-btn-row { display: flex; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
       .hw-btn-row .seg-op-btn { flex: 1; min-width: 70px; font-size: 0.7rem; padding: 6px 4px; }
+      .hw-btn-row .seg-op-btn[data-unsupported] { opacity: 0.4; text-decoration: line-through; }
       .hw-select { width: 100%; background: #0a1520; color: #0ff; border: 1px solid #0ff5; border-radius: 4px; padding: 4px; margin-top: 4px; }
       .hw-stream { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; color: #9cf; background: #061018; padding: 8px; border-radius: 4px; border: 1px solid #0ff2; }
       .hw-k { color: #567; margin-right: 4px; }
@@ -168,7 +175,23 @@ export class HardwarePanel {
         this._setError('Web Serial not available — use Mock');
         return;
       }
-      await b.connect();
+      await b.connectSerial();
+    });
+    document.getElementById('hwBleBtn')?.addEventListener('click', async () => {
+      this._setError('');
+      if (!HardwareBridge.isBluetoothSupported()) {
+        this._setError('Web Bluetooth not available — use Serial or Mock');
+        return;
+      }
+      await b.connectBluetooth();
+    });
+    document.getElementById('hwUsbBtn')?.addEventListener('click', async () => {
+      this._setError('');
+      if (!HardwareBridge.isWebUsbSupported()) {
+        this._setError('WebUSB not available — use Serial or Mock');
+        return;
+      }
+      await b.connectUsb();
     });
     document.getElementById('hwMockBtn')?.addEventListener('click', async () => {
       this._setError('');
@@ -199,11 +222,24 @@ export class HardwarePanel {
       this._paintCoilPad(mask);
     });
 
-    // Feature badge
+    // Feature badge: which links this browser could actually open.
     const badge = document.getElementById('hwSerialBadge');
     if (badge) {
-      badge.textContent = HardwareBridge.isSerialSupported() ? 'Web Serial' : 'No serial API';
+      const kinds = HardwareBridge.supportedTransports().filter((k) => k !== 'mock');
+      badge.textContent = kinds.length ? kinds.join(' / ') : 'mock only';
     }
+
+    // Disable links this browser lacks (Safari/Firefox: no Serial, no BLE, no USB).
+    const gate = (id: string, supported: boolean, why: string) => {
+      const el = document.getElementById(id) as HTMLButtonElement | null;
+      if (!el || supported) return;
+      el.disabled = true;
+      el.dataset.unsupported = '1';
+      el.title = why;
+    };
+    gate('hwConnectBtn', HardwareBridge.isSerialSupported(), 'Web Serial unavailable in this browser');
+    gate('hwBleBtn', HardwareBridge.isBluetoothSupported(), 'Web Bluetooth unavailable in this browser');
+    gate('hwUsbBtn', HardwareBridge.isWebUsbSupported(), 'WebUSB unavailable in this browser');
   }
 
   private _renderStatus(status: string): void {
@@ -212,9 +248,10 @@ export class HardwarePanel {
     const conn = document.getElementById('hwConnectBtn') as HTMLButtonElement | null;
     const mock = document.getElementById('hwMockBtn') as HTMLButtonElement | null;
     const disc = document.getElementById('hwDisconnectBtn') as HTMLButtonElement | null;
+    const live = this.bridge?.isConnected ?? false;
     if (dot) {
       dot.className = 'hw-dot'
-        + (status === 'connected' ? ' on' : '')
+        + (live && status !== 'mock' ? ' on' : '')
         + (status === 'mock' ? ' mock' : '')
         + (status === 'error' ? ' err' : '');
     }
@@ -222,16 +259,27 @@ export class HardwarePanel {
       const labels: Record<string, string> = {
         disconnected: 'Disconnected',
         connecting: 'Connecting…',
-        connected: 'Connected',
+        connected: 'Serial connected',
         mock: 'Mock stream',
+        bluetooth: 'BLE connected',
+        usb: 'WebUSB connected',
         error: 'Error'
       };
       text.textContent = labels[status] || status;
     }
-    const live = status === 'connected' || status === 'mock';
-    if (conn) conn.disabled = live || status === 'connecting';
-    if (mock) mock.disabled = live || status === 'connecting';
+    const busy = live || status === 'connecting';
+    const ble = document.getElementById('hwBleBtn') as HTMLButtonElement | null;
+    const usb = document.getElementById('hwUsbBtn') as HTMLButtonElement | null;
+    for (const [btn, supported] of [
+      [conn, HardwareBridge.isSerialSupported()],
+      [ble, HardwareBridge.isBluetoothSupported()],
+      [usb, HardwareBridge.isWebUsbSupported()],
+      [mock, true]
+    ] as Array<[HTMLButtonElement | null, boolean]>) {
+      if (btn) btn.disabled = busy || !supported;
+    }
     if (disc) disc.disabled = !live;
+    if (status === 'error' && this.bridge?.lastError) this._setError(this.bridge.lastError);
     syncHardwareTwinBadgeFromBridge(this.bridge);
   }
 

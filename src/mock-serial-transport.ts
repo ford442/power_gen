@@ -5,10 +5,18 @@
  * Split out of hardware-bridge.ts (issues #142/#143/#187): self-contained
  * fake serial-port transport used for `?mockHardware=1` / no-Arduino development.
  * Doesn't need anything from HardwareBridge.
+ *
+ * Implements {@link HardwareTransport} so the bridge treats it like any other
+ * link (ADR-0005 WS3). It cannot emulate GATT or USB descriptors — it emulates
+ * the *protocol*, which is the layer the twin actually depends on.
  */
 import { MODE_RUN, MODE_BRAKE, MODE_COAST, finiteNum, clampRpm } from './hardware-protocol-shared';
+import type { HardwareTransport, HardwareTransportKind } from './hardware-transport';
 
-export class MockSerialTransport {
+export class MockSerialTransport implements HardwareTransport {
+  readonly kind: HardwareTransportKind = 'mock';
+  readonly label = 'Mock stream';
+
   private _listeners: Set<(line: string) => void>;
   private _phase: number;
   private _rpm: number;
@@ -49,6 +57,19 @@ export class MockSerialTransport {
       clearInterval(this._timer);
       this._timer = null;
     }
+  }
+
+  async open(): Promise<void> {
+    this.start();
+  }
+
+  async close(): Promise<void> {
+    this.stop();
+  }
+
+  /** The mock never drops on its own; `stop()` is always deliberate. */
+  onDrop(_fn: (err: Error | null) => void): () => void {
+    return () => {};
   }
 
   onLine(fn: (line: string) => void): () => void {

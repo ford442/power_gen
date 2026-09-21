@@ -11,7 +11,7 @@ function finite(n: number | undefined, fallback: number = 0): number {
   return Number.isFinite(n) ? (n as number) : fallback;
 }
 
-type ConnectionState = 'disconnected' | 'mock' | 'serial';
+type ConnectionState = HardwareTwinTelemetry['connectionState'];
 
 export class ShadowResidualGauge {
   container: HTMLElement;
@@ -108,11 +108,17 @@ export class ShadowResidualGauge {
     if (this.iEl) this.iEl.textContent = `${iErr >= 0 ? '+' : ''}${iErr.toFixed(2)} A`;
 
     if (this.stateEl) {
-      const labels: Record<ConnectionState, string> = { mock: 'mock', serial: 'serial', disconnected: 'off' };
+      const labels: Record<ConnectionState, string> = {
+        mock: 'mock',
+        serial: 'serial',
+        bluetooth: 'BLE',
+        usb: 'USB',
+        disconnected: 'off'
+      };
       this.stateEl.textContent = labels[this.connectionState] || this.connectionState;
+      // Only the mock is flagged: its residuals are lag, not measurement.
       this.stateEl.className = 'sci-gauge-value'
-        + (this.connectionState === 'mock' ? ' warning' : '')
-        + (this.connectionState === 'serial' ? '' : '');
+        + (this.connectionState === 'mock' ? ' warning' : '');
     }
 
     this.draw();

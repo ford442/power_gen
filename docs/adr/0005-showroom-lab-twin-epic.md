@@ -1,6 +1,6 @@
 # ADR-0005: Showroom / Lab / Twin epic (north star)
 
-- **Status:** Accepted — Workstream 3 (hardware twin maturation) complete; Workstream 2 post stack ongoing
+- **Status:** Accepted — Workstream 3 (hardware twin maturation) complete incl. wireless transports; Workstream 2 post stack ongoing
 - **Date:** 2026-07
 - **Supersedes (spirit):** closed #94 phased CAD plan; complements ADR-0003
 
@@ -96,9 +96,20 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Closed-loop: sensor RPM → roller viz (sanitized; NaN-safe)
 - [x] Open-loop: sim → coil PWM (duty 0–1 clamp; disconnect coasts)
 - [x] Shadow residual charts on scientific UI (`ShadowResidualGauge`)
-- [x] Connection state badge (`disconnected` | `mock` | `serial`)
+- [x] Connection state badge (`disconnected` | `mock` | `serial` | `bluetooth` | `usb`)
 - [x] Keep firmware optional — never block web-only users
-- [ ] Research only: WebUSB / Bluetooth if Serial is insufficient
+- [x] **WebUSB / Bluetooth where Serial is insufficient** — shipped, not just
+      researched. The bridge now speaks to a `HardwareTransport` interface
+      (`src/hardware-transport.ts`) and keeps *all* the safety logic, so the
+      links are interchangeable: `serial` stays the reference path,
+      `bluetooth` (Nordic UART over GATT) covers classroom tables that cannot
+      run a cable, `usb` (raw CDC-ACM) exists only for boards the platform
+      hides from Web Serial, and `mock` is unchanged. BLE writes are chunked to
+      one MTU and queued (GATT ops cannot overlap), and the link asks the bridge
+      for a 20 Hz command period — inside both the firmware watchdog (100 ms)
+      and the host timeout (200 ms). Disconnect and transport *switching* still
+      coast; queued links are flushed so the coast lines reach the board.
+      Pinned by `npm run test:transports`; see `docs/hardware_connection.md`.
 
 ### Workstream 4 — Performance headroom (14+ benches, LOD-limited)
 

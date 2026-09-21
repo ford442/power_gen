@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "types": ["@webgpu/types"],
+    "types": ["@webgpu/types", "w3c-web-serial", "web-bluetooth", "w3c-web-usb"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

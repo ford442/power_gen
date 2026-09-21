@@ -72,7 +72,8 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 
 ## Hardware / firmware — experimental
 
-- Web Serial + mock: `hardware-bridge.ts` / panel — demo with `?mockHardware=1`.
+- Transports: mock / Web Serial / Web Bluetooth (Nordic UART) / WebUSB CDC —
+  `hardware-transport.ts` + `hardware-bridge.ts` / panel. Demo with `?mockHardware=1`.
 - `firmware/seg-driver/` is **not** required for the web app; treat as experimental.
 - Spec: **docs/hardware_connection.md**.
 
@@ -85,6 +86,7 @@ npm run validate      # constants + catalog + typecheck + native C++ + check:pos
 npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline
 npm run check:post    # post uniform contracts
+npm run test:transports # twin transport framing + coast-on-disconnect
 ```
 
 ## WebGPU notes
