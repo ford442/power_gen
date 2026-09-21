@@ -44,9 +44,31 @@ Do **not** expect these under WebGL2:
 | Full energy-pipe **particle** billboards | `EnergyPipe` + WGSL (WebGL2 uses lines) |
 | GPU timestamp queries | `?gpuTiming=1` |
 | **Temporal AA** | `passes/taa-resolve.wgsl` — **skipped**, see below |
-| **FDTD wave slice** (pulse-coil focus) | `passes/fdtd-tmz-compute.wgsl` + `fdtd-slice.wgsl` — **skipped**; `?fdtd=0` is ignored, and the footer note reads "WebGPU only" (ADR-0010) |
+| **FDTD wave slice** (pulse-coil focus) | `passes/fdtd-tmz-compute.wgsl` + `fdtd-slice.wgsl` — GPU panel **skipped**; a CPU micro-grid readout stands in, see below (ADR-0010/0012) |
 | Hardware bridge / electromagnet coils | CPU twin + panel work on WebGL2 (`?mockHardware=1`); **coil GPU viz** is WebGPU-only |
 | **glTF CAD props** (housing, coil former, …) | `setup-gltf.ts` / `prop-registry.ts` — **skipped** (see below) |
+
+### FDTD wave slice → CPU micro-grid readout
+
+The WebGPU slice is a compute pass plus a scene-pass quad; neither has a cheap
+GLSL equivalent worth maintaining, so ADR-0010 skipped it here entirely. That
+left the fallback with no answer to the one thing the slice teaches, so
+[ADR-0012](./adr/0012-fdtd-materials.md) runs the **same CPU kernel** instead:
+
+| | WebGPU panel | WebGL2 readout |
+|---|---|---|
+| Grid | 256², GPU storage buffers | **64²**, `FdtdTmzGrid` on the main thread |
+| Steps / frame | 6 | 2 (front still crosses in ~1 s) |
+| Materials | μ_r armature + σ turns | same map, same presets |
+| Sources | same windings, world-placed | same windings, world-placed |
+| Where | world-space quad in front of the coil | 176 px 2D canvas, bottom-right |
+| Cost | a few ms of GPU | **0.23 ms/frame** of CPU (measured in `test:fdtd`) |
+
+It is a **readout, not a render path**: no GL state, no shader, and no contact
+with `WebGL2MultiDeviceVisualizer` beyond a `TelemetryHub` subscription. Gated to
+pulse-coil focus, and `?fdtd=0` kills it like the GPU panel.
+`window.fdtdHeatmapOverlay` exposes it for agents/e2e.
+Host: `src/fdtd-heatmap-overlay.ts`.
 
 ### Temporal AA
 

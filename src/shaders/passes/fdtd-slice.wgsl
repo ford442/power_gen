@@ -4,6 +4,9 @@
 //
 //   Ez (signed)  → warm (+) / cool (−) diverging ramp, tanh-compressed
 //   |H|          → green glow (the coil's own magnetic field)
+//   materials    → μ_r cells tinted violet, σ cells tinted slate, both outlined
+//                  (ADR-0012) so the armature and copper turns are visibly
+//                  *there* rather than an unexplained bend in the wave
 //   windings     → ring with a dot (current out of the plane) or a cross (in)
 //   sponge edge  → thin frame, so the absorbing band reads as "not vacuum"
 //
@@ -33,6 +36,8 @@ struct FdtdSliceParams {
 @group(0) @binding(3) var<storage, read> ez: array<f32>;
 @group(0) @binding(4) var<storage, read> hx: array<f32>;
 @group(0) @binding(5) var<storage, read> hy: array<f32>;
+/// (1/mu_r, electric half-step loss) per cell — ADR-0012.
+@group(0) @binding(6) var<storage, read> materials: array<vec2f>;
 
 struct VertexOutput {
   @builtin(position) position: vec4f,
@@ -62,6 +67,24 @@ fn cell(which: u32, x: i32, y: i32) -> f32 {
   if (which == 0u) { return ez[i]; }
   if (which == 1u) { return hx[i]; }
   return hy[i];
+}
+
+/// Material at a (clamped) cell: (1/mu_r, electric loss), vacuum when off.
+fn materialCell(x: i32, y: i32) -> vec2f {
+  if ((params.materialFlags & FDTD_FLAG_MATERIALS) == 0u) {
+    return vec2f(1.0, 0.0);
+  }
+  let n = i32(params.n);
+  let cx = clamp(x, 0, n - 1);
+  let cy = clamp(y, 0, n - 1);
+  return materials[u32(cx + cy * n)];
+}
+
+/// Occupancy of a material at a grid point, 0..1:
+///   .x = permeable fraction (1 − 1/mu_r), .y = conductive fraction (loss)
+fn materialAmount(gp: vec2f) -> vec2f {
+  let m = materialCell(i32(round(gp.x)), i32(round(gp.y)));
+  return vec2f(clamp(1.0 - m.x, 0.0, 1.0), clamp(m.y * 4.0, 0.0, 1.0));
 }
 
 fn bilinear(which: u32, gp: vec2f) -> f32 {
@@ -101,6 +124,23 @@ fn fsMain(input: VertexOutput) -> @location(0) vec4f {
 
   var rgb = vec3f(0.02, 0.035, 0.06);
   var a = 0.1;
+
+  // Materials sit *under* the field layers: the point is that the wave bends
+  // around something the viewer can see, not that the shape hides the wave.
+  let mat = materialAmount(gp);
+  let ironCol = vec3f(0.42, 0.30, 0.62);
+  let copperCol = vec3f(0.30, 0.34, 0.40);
+  let matA = max(mat.x, mat.y) * 0.5;
+  rgb = mix(rgb, mix(copperCol, ironCol, select(0.0, 1.0, mat.x > mat.y)), matA);
+  a = max(a, matA);
+  // Outline where the material starts, so a slab reads as an object.
+  let matEdge = length(vec2f(
+    materialAmount(gp + vec2f(1.0, 0.0)).x - materialAmount(gp - vec2f(1.0, 0.0)).x,
+    materialAmount(gp + vec2f(0.0, 1.0)).x - materialAmount(gp - vec2f(0.0, 1.0)).x
+  ));
+  rgb = mix(rgb, vec3f(0.72, 0.62, 0.95), matEdge * 0.6);
+  a = max(a, matEdge * 0.6);
+
   let hA = h * 0.55;
   rgb = mix(rgb, hCol, hA);
   a = max(a, hA);

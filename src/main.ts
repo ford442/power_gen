@@ -44,6 +44,7 @@ import { setTransformerLeakage } from './devices/quanta/transformer.js';
 import { setHallCarrierType } from './devices/quanta/hall-effect.js';
 import { setLorentzFieldT, LORENTZ } from './devices/quanta/lorentz-sled.js';
 import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
+import { initFdtdHeatmapOverlay } from './fdtd-heatmap-overlay';
 import { syncFieldCouplingDisclaimer } from './renderers/shared/field-network';
 import { ScientificUIManager } from './scientific-ui/index';
 import './multi-device-window-api';
@@ -575,6 +576,15 @@ function bootApp(): void {
       initSEGDiagram2D(() => window.multiVisualizer);
     } catch (e) {
       console.warn('[main] SEG 2D diagram init failed:', e);
+    }
+
+    try {
+      // WebGL2's stand-in for the WebGPU wave slice (ADR-0012). Gated on the
+      // renderer + pulse-coil focus inside, so installing it on WebGPU costs
+      // one hub subscription and nothing else.
+      initFdtdHeatmapOverlay();
+    } catch (e) {
+      console.warn('[main] FDTD micro-grid heatmap init skipped:', e);
     }
 
     const anomalyToggle = document.getElementById('anomalyToggle') as HTMLInputElement | null;

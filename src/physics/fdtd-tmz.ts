@@ -1,25 +1,39 @@
 /**
- * 2D TM_z Yee FDTD slice — shared constants, uniform packing, and a CPU
- * reference kernel (ADR-0010).
+ * 2D TM_z Yee FDTD slice — shared constants, uniform packing, material map, and
+ * a CPU reference kernel (ADR-0010, materials added by ADR-0012).
  *
  * This is a classroom "see the wave" slice, not a design tool: one plane of
- * (Ez, Hx, Hy) on a square grid in normalized units (ε = μ = c = Δx = 1), a
+ * (Ez, Hx, Hy) on a square grid in normalized units (ε = μ₀ = c = Δx = 1), a
  * graded-loss sponge at the edges, and a soft J_z current source. There is no
- * 3D, no FEM, no material model beyond vacuum. `passes/fdtd-tmz-compute.wgsl`
- * runs the same update on the GPU; the CPU kernel here is the reference the
- * contract test (`scripts/test-fdtd-slice.mjs`) checks for stability and edge
- * absorption, and the seed for a future micro-grid fallback.
+ * 3D and no FEM. `passes/fdtd-tmz-compute.wgsl` runs the same update on the
+ * GPU; the CPU kernel here is the reference the contract test
+ * (`scripts/test-fdtd-slice.mjs`) checks for stability and edge absorption, and
+ * the kernel the WebGL2 micro-grid heatmap actually runs.
  *
  * Deliberately dependency-free so Node can import it through a bare esbuild
  * transform.
  *
  * Update (per step, Courant number S = Δt·c/Δx):
- *   Hx ← da·Hx − db·S·(Ez[x, y+1] − Ez[x, y])
- *   Hy ← da·Hy + db·S·(Ez[x+1, y] − Ez[x, y])
+ *   Hx ← da·Hx − db·S·ν·(Ez[x, y+1] − Ez[x, y])
+ *   Hy ← da·Hy + db·S·ν·(Ez[x+1, y] − Ez[x, y])
  *   Ez ← ca·Ez + cb·S·((Hy[x] − Hy[x−1]) − (Hx[y] − Hx[y−1]) − J)
- * with ca = da = (1 − s)/(1 + s), cb = db = 1/(1 + s), s = σ·S/2 graded
- * cubically across the sponge. Matching electric and magnetic loss keeps the
- * sponge impedance-matched to vacuum at normal incidence. Outer Ez ring is PEC.
+ * with ca = da = (1 − s)/(1 + s), cb = db = 1/(1 + s).
+ *
+ * Two things feed `s`, and one feeds `ν`:
+ *   - **Sponge:** s = σ·S/2 graded cubically across the edge band, applied to
+ *     both E and H so the band stays impedance-matched to vacuum at normal
+ *     incidence. Outer Ez ring is PEC behind it.
+ *   - **Material σ** (ADR-0012): the cell's own electric loss, added to the
+ *     sponge's. A copper winding turns into a strong absorber, so the field is
+ *     pushed out of the conductor instead of passing through it.
+ *   - **Material μ_r** (ADR-0012): ν = 1/μ_r on the H update, averaged across
+ *     the two Ez nodes the H component sits between. A permeable armature slows
+ *     the local wave (v = 1/√(εμ) < c) and bends the front — which is the whole
+ *     point of the picture. μ_r ≥ 1 can only *reduce* the effective Courant
+ *     number, so materials cannot destabilise a grid that was stable in vacuum.
+ *
+ * Vacuum is still the default: with no material map (or `?fdtdMaterials=0`) the
+ * update is bit-for-bit the ADR-0010 kernel.
  */
 
 /** Cells per side. 256² ≈ 0.8 MB across the three field buffers. */
@@ -42,9 +56,38 @@ export const FDTD_SLICE_PARAMS_BYTES = 32;
 export const FDTD_WORKGROUP = 8;
 /** Yee steps per rendered frame at `high`. Wave front moves S·steps cells/frame. */
 export const FDTD_STEPS_PER_FRAME = 6;
+/** Floats per material cell: (1/μ_r, electric half-step loss) — an `array<vec2f>`. */
+export const FDTD_MATERIAL_COMPONENTS = 2;
+/** `params.materialFlags` bit 0: apply the material map at all. */
+export const FDTD_FLAG_MATERIALS = 1;
 
-/** The only focus view that owns the slice today (drive source: coil current). */
+/** The only focus view that owns the slice (the panel stands in front of it). */
 export const FDTD_SLICE_OWNER = 'pulse-coil';
+
+/**
+ * Where the source amplitude comes from (ADR-0012). The *geometry* is always
+ * the pulse coil's winding cross-sections — the panel lives in its focus view —
+ * but the modulation may be borrowed from another bench:
+ *
+ *   coil        — the pulse coil's own capacitor-discharge current (default).
+ *                 One big unipolar transient per shot.
+ *   transformer — the transformer bench's normalised core flux. Continuous AC,
+ *                 so the panel shows a standing pattern of successive fronts
+ *                 instead of a single pulse. Honest because it is that device's
+ *                 simulated flux, labelled as such — not a second solver.
+ */
+export const FDTD_DRIVE_SOURCES = {
+  COIL: 'coil',
+  TRANSFORMER: 'transformer'
+} as const;
+
+export type FdtdDriveSource = (typeof FDTD_DRIVE_SOURCES)[keyof typeof FDTD_DRIVE_SOURCES];
+
+/** Catalog device each drive source reads its telemetry from. */
+export const FDTD_DRIVE_DEVICE: Record<FdtdDriveSource, string> = {
+  coil: 'pulse-coil',
+  transformer: 'transformer'
+};
 
 export interface FdtdSource {
   /** grid cell coordinates (float) */
@@ -89,15 +132,127 @@ export function fdtdLossAt(px: number, py: number, cfg: FdtdGridConfig = FDTD_DE
 }
 
 /**
+ * One material patch stamped into the grid (ADR-0012).
+ *
+ * `muR` and `sigma` are **display** numbers, not SI: the grid runs in
+ * normalized units, so σ is "how many half-steps of loss per cell" once scaled
+ * by the Courant number, and μ_r is a straight ratio. Values are chosen so the
+ * picture reads correctly at 256², not so a solver would agree — see
+ * {@link FDTD_MATERIAL_PRESETS}.
+ */
+export interface FdtdMaterialRegion {
+  /** Axis-aligned box (`halfW`/`halfH`) or a circle (`radius`), in cells. */
+  shape: 'rect' | 'disk';
+  x: number;
+  y: number;
+  halfW?: number;
+  halfH?: number;
+  radius?: number;
+  /** Relative permeability, ≥ 1. Slows and bends the local wave. */
+  muR?: number;
+  /** Normalized conductivity, ≥ 0. Damps E, so the field avoids the cell. */
+  sigma?: number;
+  /** Label for the legend / docs. Not used by the kernel. */
+  label?: string;
+}
+
+/**
+ * Display material values for the two things the pulse coil is actually made of.
+ *
+ * Real soft iron is μ_r ≈ 2000–5000 and real copper is σ ≈ 6·10⁷ S/m. Neither
+ * number belongs on a 256² normalized grid: μ_r = 2000 would slow the wave by
+ * ~45× and the armature would simply go black within a frame, and a σ that large
+ * is a perfect mirror one cell thick. These are the *teaching* values — enough
+ * μ_r to visibly refract and enough σ to visibly exclude — and the UI says so.
+ */
+export const FDTD_MATERIAL_PRESETS = Object.freeze({
+  /** Soft-iron armature slug: refracts and holds flux. */
+  IRON_MU_R: 24,
+  /** Copper winding cross-section: strong absorber, field excluded. */
+  COPPER_SIGMA: 3.0,
+  /** Vacuum / air. */
+  VACUUM_MU_R: 1,
+  VACUUM_SIGMA: 0
+});
+
+/** σ (normalized) → half-step electric loss s = σ·S/2, matching the sponge. */
+export function fdtdSigmaToLoss(sigma: number, courant = FDTD_COURANT): number {
+  const s = Number.isFinite(sigma) ? Math.max(0, sigma) : 0;
+  return (s * courant) / 2;
+}
+
+/** μ_r → the 1/μ_r factor the H update multiplies the Ez curl by. */
+export function fdtdMuToInv(muR: number): number {
+  const m = Number.isFinite(muR) ? Math.max(1, muR) : 1;
+  return 1 / m;
+}
+
+/**
+ * Rasterize material regions into an interleaved `(1/μ_r, eLoss)` map, i.e. the
+ * `array<vec2f>` the shader binds. Later regions win where they overlap, so a
+ * winding drawn after the armature reads as copper, not iron.
+ *
+ * Vacuum cells stay exactly `(1, 0)`, which makes the update identical to the
+ * ADR-0010 kernel wherever no region was stamped.
+ */
+export function buildFdtdMaterialMap(
+  regions: readonly FdtdMaterialRegion[],
+  cfg: FdtdGridConfig = FDTD_DEFAULT_CONFIG,
+  out?: Float32Array
+): Float32Array {
+  const { n } = cfg;
+  const len = n * n * FDTD_MATERIAL_COMPONENTS;
+  const map = out && out.length >= len ? out : new Float32Array(len);
+  for (let i = 0; i < len; i += FDTD_MATERIAL_COMPONENTS) {
+    map[i] = 1;      // 1/μ_r
+    map[i + 1] = 0;  // electric loss
+  }
+  for (const r of regions) {
+    const invMu = fdtdMuToInv(r.muR ?? 1);
+    const eLoss = fdtdSigmaToLoss(r.sigma ?? 0, cfg.courant);
+    const reachX = r.shape === 'disk' ? (r.radius ?? 0) : (r.halfW ?? 0);
+    const reachY = r.shape === 'disk' ? (r.radius ?? 0) : (r.halfH ?? 0);
+    const x0 = Math.max(0, Math.floor(r.x - reachX));
+    const x1 = Math.min(n - 1, Math.ceil(r.x + reachX));
+    const y0 = Math.max(0, Math.floor(r.y - reachY));
+    const y1 = Math.min(n - 1, Math.ceil(r.y + reachY));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if (r.shape === 'disk') {
+          const dx = x - r.x;
+          const dy = y - r.y;
+          const rad = r.radius ?? 0;
+          if (dx * dx + dy * dy > rad * rad) continue;
+        }
+        const i = (x + y * n) * FDTD_MATERIAL_COMPONENTS;
+        map[i] = invMu;
+        map[i + 1] = eLoss;
+      }
+    }
+  }
+  return map;
+}
+
+/** True when a map has anything but vacuum in it (skip the upload otherwise). */
+export function fdtdMaterialMapIsVacuum(map: Float32Array | null | undefined): boolean {
+  if (!map) return true;
+  for (let i = 0; i < map.length; i += FDTD_MATERIAL_COMPONENTS) {
+    if (map[i] !== 1 || map[i + 1] !== 0) return false;
+  }
+  return true;
+}
+
+/**
  * Pack `FdtdParams` (see fdtd-tmz-compute.wgsl):
  *   n u32 · pmlCells u32 · courant f32 · lossMax f32 ·
- *   sourceCount u32 · sourceRadius f32 · pad · pad ·
+ *   sourceCount u32 · sourceRadius f32 · materialFlags u32 · pad ·
  *   sources array<vec4f, 16> (x, y, amp, polarity)
  */
 export function packFdtdParams(
   sources: readonly FdtdSource[],
   cfg: FdtdGridConfig = FDTD_DEFAULT_CONFIG,
-  out?: Float32Array
+  out?: Float32Array,
+  opts: { materials?: boolean } = {}
 ): Float32Array {
   const data = out && out.length >= FDTD_PARAMS_BYTES / 4 ? out : new Float32Array(FDTD_PARAMS_BYTES / 4);
   const u32 = new Uint32Array(data.buffer, data.byteOffset, data.length);
@@ -109,6 +264,7 @@ export function packFdtdParams(
   data[3] = cfg.lossMax;
   u32[4] = count;
   data[5] = cfg.sourceRadius;
+  u32[6] = opts.materials ? FDTD_FLAG_MATERIALS : 0;
   for (let i = 0; i < count; i++) {
     const s = sources[i];
     const o = 8 + i * 4;
@@ -152,6 +308,8 @@ export class FdtdTmzGrid {
   private readonly lossHx: Float32Array;
   private readonly lossHy: Float32Array;
   private readonly j: Float32Array;
+  /** Interleaved (1/μ_r, eLoss) per cell, or null for vacuum everywhere. */
+  private materials: Float32Array | null = null;
 
   constructor(cfg: Partial<FdtdGridConfig> = {}) {
     this.cfg = { ...FDTD_DEFAULT_CONFIG, ...cfg };
@@ -171,6 +329,34 @@ export class FdtdTmzGrid {
         this.lossHy[i] = fdtdLossAt(x + 0.5, y, this.cfg);
       }
     }
+  }
+
+  /**
+   * Install a material map from {@link buildFdtdMaterialMap} (or region list),
+   * or `null` for vacuum. Passing regions rasterizes them for you.
+   */
+  setMaterials(
+    materials: Float32Array | readonly FdtdMaterialRegion[] | null | undefined
+  ): void {
+    if (!materials) {
+      this.materials = null;
+      return;
+    }
+    const map = materials instanceof Float32Array
+      ? materials
+      : buildFdtdMaterialMap(materials, this.cfg);
+    const want = this.cfg.n * this.cfg.n * FDTD_MATERIAL_COMPONENTS;
+    if (map.length < want) {
+      throw new Error(`[fdtd] material map has ${map.length} floats, need ${want}`);
+    }
+    // A vacuum map is the same as none, and skipping it keeps `step()` on the
+    // ADR-0010 fast path.
+    this.materials = fdtdMaterialMapIsVacuum(map) ? null : map;
+  }
+
+  /** True when `step()` is applying a material map this frame. */
+  get hasMaterials(): boolean {
+    return this.materials !== null;
   }
 
   reset(): void {
@@ -204,19 +390,32 @@ export class FdtdTmzGrid {
   step(): void {
     const { n, courant: S } = this.cfg;
     const { ez, hx, hy, j } = this;
+    const mat = this.materials;
     for (let y = 0; y < n - 1; y++) {
       for (let x = 0; x < n - 1; x++) {
         const i = x + y * n;
         const sx = this.lossHx[i];
         const sy = this.lossHy[i];
-        hx[i] = ((1 - sx) * hx[i] - S * (ez[i + n] - ez[i])) / (1 + sx);
-        hy[i] = ((1 - sy) * hy[i] + S * (ez[i + 1] - ez[i])) / (1 + sy);
+        // 1/μ_r averaged across the two Ez nodes each H component sits between
+        // (a one-sided value would bias the front by half a cell at a boundary).
+        let nuX = 1;
+        let nuY = 1;
+        if (mat) {
+          const m = i * FDTD_MATERIAL_COMPONENTS;
+          const here = mat[m];
+          nuX = 0.5 * (here + mat[m + n * FDTD_MATERIAL_COMPONENTS]);
+          nuY = 0.5 * (here + mat[m + FDTD_MATERIAL_COMPONENTS]);
+        }
+        hx[i] = ((1 - sx) * hx[i] - S * nuX * (ez[i + n] - ez[i])) / (1 + sx);
+        hy[i] = ((1 - sy) * hy[i] + S * nuY * (ez[i + 1] - ez[i])) / (1 + sy);
       }
     }
     for (let y = 1; y < n - 1; y++) {
       for (let x = 1; x < n - 1; x++) {
         const i = x + y * n;
-        const s = this.lossE[i];
+        // Sponge loss and the cell's own σ loss add: a conductor inside the
+        // sponge is absorbing for both reasons.
+        const s = this.lossE[i] + (mat ? mat[i * FDTD_MATERIAL_COMPONENTS + 1] : 0);
         const curl = (hy[i] - hy[i - 1]) - (hx[i] - hx[i - n]);
         ez[i] = ((1 - s) * ez[i] + S * (curl - j[i])) / (1 + s);
       }

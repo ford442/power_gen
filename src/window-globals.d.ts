@@ -258,6 +258,9 @@ declare global {
     hardwarePanel?: HardwarePanel;
     /** Exposed for console/e2e access after initHardwarePanel(). */
     HardwareBridge?: typeof HardwareBridge;
+
+    /** WebGL2 FDTD CPU micro-grid heatmap (fdtd-heatmap-overlay.ts, ADR-0012). */
+    fdtdHeatmapOverlay?: FdtdHeatmapOverlay;
   }
 }
 

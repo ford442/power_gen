@@ -1,6 +1,6 @@
 # ADR-0010: 2D FDTD wave slice (not FEM)
 
-- **Status:** Accepted
+- **Status:** Accepted — extended by [ADR-0012](./0012-fdtd-materials.md) (μ_r / σ cells)
 - **Date:** 2026-09
 - **Epic:** #193 Workstream A
 
@@ -50,7 +50,8 @@ different product from a design solver:
    buffers, separate from the 16 B / 32 B particle layouts.
 6. **WebGL2 skips the slice** (ADR-0001). The dependency-free CPU kernel in
    `fdtd-tmz.ts` is the reference for `npm run test:fdtd` and the seed if a
-   micro-grid heatmap is ever wanted there.
+   micro-grid heatmap is ever wanted there. *(ADR-0012 took that seed: WebGL2 now
+   runs the same kernel at 64² as a corner readout, not a render path.)*
 7. **No libraries.** The whole update is ~40 lines of WGSL and TS each; no
    header-only Yee helper, Eigen, deal.II or FEniCS.
 
@@ -63,8 +64,12 @@ different product from a design solver:
 - **Negative:** Pictures are qualitative. Vacuum only, so the coil's iron
   armature and any core are invisible to the field; the 2D slice treats each
   winding as an infinite line current perpendicular to the plane.
+  *Partly addressed:* [ADR-0012](./0012-fdtd-materials.md) adds per-cell μ_r / σ
+  on the same grid, so the armature and the copper turns are no longer invisible.
+  The infinite-line-current idealisation and the 2D-ness are unchanged.
 - **Neutral:** The FEM non-goal in ADR-0005 stands. This ADR does not open the
-  door to 3D FDTD, material models, or design use; those need a new ADR.
+  door to 3D FDTD, material models, or design use; those need a new ADR — which
+  is what ADR-0012 is for the material part. 3D and design use remain closed.
 
 ## Related
 

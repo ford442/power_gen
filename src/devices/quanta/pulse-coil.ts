@@ -14,7 +14,12 @@ import { ValidatedConstants } from '../../ValidatedConstants';
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
-import { fdtdWorldToCell, type FdtdSource } from '../../physics/fdtd-tmz';
+import {
+  FDTD_MATERIAL_PRESETS,
+  fdtdWorldToCell,
+  type FdtdMaterialRegion,
+  type FdtdSource
+} from '../../physics/fdtd-tmz';
 import { PULSE_COIL_CORE } from '../../../generated/physics-constants';
 
 const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-7;
@@ -260,19 +265,81 @@ export const PULSE_COIL_FDTD = Object.freeze({
   windingY: [-0.9, -0.45, 0, 0.45, 0.9, 1.35] as readonly number[],
   /** Coil current mapped to J = 1 (same scale as the energy / scope readouts). */
   currentScaleA: 80,
-  maxDrive: 1.5
+  maxDrive: 1.5,
+  /**
+   * Material cross-sections for the ADR-0012 map, device-local world units.
+   * The armature is the soft-iron slug on the coil axis; the winding disks are
+   * the copper the sources already sit on, so the drive lives *inside* a
+   * conductor exactly as it does on the bench.
+   */
+  armature: { halfWidth: 0.34, bottomY: -0.5, topY: 1.5 },
+  windingRadiusM: 0.16
 });
 
-/** Unit-amplitude winding sources; the pass scales them by the slewed drive. */
-export function pulseCoilFdtdSources(): FdtdSource[] {
+/**
+ * Unit-amplitude winding sources; the pass scales them by the slewed drive.
+ *
+ * @param n grid size in cells — pass the WebGL2 micro-grid's size to place the
+ *   same windings on a coarser grid (the placement is in world units, so this is
+ *   just the cell-coordinate scale).
+ */
+export function pulseCoilFdtdSources(n?: number): FdtdSource[] {
   const { center, halfExtent, windingRadius, windingY } = PULSE_COIL_FDTD;
   const out: FdtdSource[] = [];
   for (const wy of windingY) {
-    const y = fdtdWorldToCell(wy - center[1], halfExtent);
-    out.push({ x: fdtdWorldToCell(-windingRadius - center[0], halfExtent), y, amp: 1, polarity: 1 });
-    out.push({ x: fdtdWorldToCell(windingRadius - center[0], halfExtent), y, amp: -1, polarity: -1 });
+    const y = fdtdWorldToCell(wy - center[1], halfExtent, n);
+    out.push({ x: fdtdWorldToCell(-windingRadius - center[0], halfExtent, n), y, amp: 1, polarity: 1 });
+    out.push({ x: fdtdWorldToCell(windingRadius - center[0], halfExtent, n), y, amp: -1, polarity: -1 });
   }
   return out;
+}
+
+/**
+ * Material regions for the slice (ADR-0012): the soft-iron armature bar, then
+ * the copper winding cross-sections on top of it.
+ *
+ * Order matters — {@link buildFdtdMaterialMap} lets later regions win, and a
+ * winding crossing the armature footprint should read as copper (excluding the
+ * field) rather than iron (guiding it).
+ *
+ * `muR` / `sigma` are the display values from {@link FDTD_MATERIAL_PRESETS},
+ * not SI: real soft iron is μ_r ≈ 2000+ and real copper σ ≈ 6·10⁷ S/m, and
+ * either would simply black out its cells on a 256² normalized grid.
+ */
+export function pulseCoilFdtdMaterials(n?: number): FdtdMaterialRegion[] {
+  const {
+    center, halfExtent, windingRadius, windingY, armature, windingRadiusM
+  } = PULSE_COIL_FDTD;
+  const cellsPerMetre = fdtdWorldToCell(1, halfExtent, n) - fdtdWorldToCell(0, halfExtent, n);
+  const cx = fdtdWorldToCell(-center[0], halfExtent, n);
+  const armBottom = fdtdWorldToCell(armature.bottomY - center[1], halfExtent, n);
+  const armTop = fdtdWorldToCell(armature.topY - center[1], halfExtent, n);
+
+  const regions: FdtdMaterialRegion[] = [{
+    shape: 'rect',
+    label: 'soft-iron armature',
+    x: cx,
+    y: (armBottom + armTop) / 2,
+    halfW: armature.halfWidth * cellsPerMetre,
+    halfH: Math.abs(armTop - armBottom) / 2,
+    muR: FDTD_MATERIAL_PRESETS.IRON_MU_R
+  }];
+
+  const turnRadiusCells = Math.max(0.6, windingRadiusM * cellsPerMetre);
+  for (const wy of windingY) {
+    const y = fdtdWorldToCell(wy - center[1], halfExtent, n);
+    for (const side of [-1, 1]) {
+      regions.push({
+        shape: 'disk',
+        label: 'copper turn',
+        x: fdtdWorldToCell(side * windingRadius - center[0], halfExtent, n),
+        y,
+        radius: turnRadiusCells,
+        sigma: FDTD_MATERIAL_PRESETS.COPPER_SIGMA
+      });
+    }
+  }
+  return regions;
 }
 
 /**
@@ -284,6 +351,23 @@ export function pulseCoilFdtdDrive(state: Partial<DevicePhysicsState> | null | u
   if (!Number.isFinite(iA)) return 0;
   const { currentScaleA, maxDrive } = PULSE_COIL_FDTD;
   return Math.max(-maxDrive, Math.min(maxDrive, iA / currentScaleA));
+}
+
+/**
+ * Alternative drive (ADR-0012, `?fdtdDrive=transformer`): the transformer
+ * bench's normalised core flux instead of the pulse coil's own current.
+ *
+ * `transformerFluxN` is already a signed 0..±1 proxy, so the only work here is
+ * the NaN guard and the same clamp. Continuous AC rather than one discharge, so
+ * the panel shows successive fronts instead of a single transient — the picture
+ * a "why does a changing current radiate?" explanation actually wants. The
+ * winding geometry does not change: this modulates the same cross-sections.
+ */
+export function transformerFdtdDrive(state: Partial<DevicePhysicsState> | null | undefined): number {
+  const flux = state?.transformerFluxN ?? 0;
+  if (!Number.isFinite(flux)) return 0;
+  const { maxDrive } = PULSE_COIL_FDTD;
+  return Math.max(-maxDrive, Math.min(maxDrive, flux * maxDrive));
 }
 
 export const PULSE_COIL_REFERENCES = [

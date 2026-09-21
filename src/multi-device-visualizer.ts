@@ -33,11 +33,19 @@ import type { FieldNetwork } from './renderers/shared/field-network';
 import {
   parseSsrEnabled,
   parseTaaEnabled,
-  parseFdtdEnabled
+  parseFdtdEnabled,
+  parseFdtdMaterialsEnabled,
+  parseFdtdDriveSource
 } from './renderers/shared/url-params.js';
 import { FdtdSlicePass } from './devices/quanta/fdtd-slice-pass';
-import { pulseCoilFdtdDrive } from './devices/quanta/pulse-coil';
-import { FDTD_SLICE_OWNER, fdtdSliceGateOpen } from './physics/fdtd-tmz';
+import { pulseCoilFdtdDrive, transformerFdtdDrive } from './devices/quanta/pulse-coil';
+import {
+  FDTD_DRIVE_DEVICE,
+  FDTD_DRIVE_SOURCES,
+  FDTD_SLICE_OWNER,
+  fdtdSliceGateOpen,
+  type FdtdDriveSource
+} from './physics/fdtd-tmz';
 import type { SEGIntegrationManager } from './integration';
 import { generateCylinder } from './visualizer/primitives.js';
 import { SharedGeometryFactory } from './visualizer/setup-geometry.js';
@@ -55,7 +63,7 @@ import type {
   SegFrameBuffers,
   SegLayout
 } from './devices/types';
-import type { HeronLayout } from './renderers/shared/device-physics';
+import type { DevicePhysicsState, HeronLayout } from './renderers/shared/device-physics';
 import type { PrototypePreset } from './renderers/shared/url-params.js';
 import type { LightingLook } from './seg-lighting-presets';
 import type { HardwareTwinTelemetry } from './telemetry/types';
@@ -140,6 +148,10 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   taaEnabled: boolean;
   /** `?fdtd=0` kill switch for the pulse-coil wave slice (ADR-0010). */
   fdtdEnabled: boolean;
+  /** `?fdtdMaterials=0` reverts the slice to the vacuum kernel (ADR-0012). */
+  fdtdMaterialsEnabled: boolean;
+  /** `?fdtdDrive=transformer` borrows another bench's flux (ADR-0012). */
+  fdtdDriveSource: FdtdDriveSource;
   /** Reset alongside `fdtdSlice` by device-lost recovery — see init-methods.ts. */
   _fdtdSliceInit?: Promise<void> | null;
 
@@ -187,6 +199,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.ssrEnabled = parseSsrEnabled(params);
     this.taaEnabled = parseTaaEnabled(params);
     this.fdtdEnabled = parseFdtdEnabled(params);
+    this.fdtdMaterialsEnabled = parseFdtdMaterialsEnabled(params);
+    this.fdtdDriveSource = parseFdtdDriveSource(params);
 
     this.lightingLook = parseLightingLook(params);
     const lookPreset = getLightingPreset(this.lightingLook);
@@ -475,7 +489,9 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     if (this.fdtdSlice === undefined) {
       const wouldOpen = fdtdSliceGateOpen({ ...frame, ready: true });
       if (wouldOpen && !this._fdtdSliceInit && this.pipelineCache) {
-        const pass = new FdtdSlicePass(this.device, this);
+        const pass = new FdtdSlicePass(this.device, this, {
+          materialsEnabled: this.fdtdMaterialsEnabled
+        });
         this._fdtdSliceInit = pass.init().then(
           (ok) => { this.fdtdSlice = ok ? pass : null; },
           (err) => {
@@ -492,8 +508,23 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     return pass.update({
       ...frame,
       devicePos: owner.position,
-      drive: pulseCoilFdtdDrive(owner.physicsState)
+      drive: this._fdtdDrive(owner)
     }) ? pass : null;
+  }
+
+  /**
+   * Source amplitude for the slice (ADR-0012). Default: the pulse coil's own
+   * discharge current. Under `?fdtdDrive=transformer`, the transformer bench's
+   * normalised core flux instead — continuous AC, so the panel shows successive
+   * fronts rather than one transient. If that bench isn't in the lab, fall back
+   * to the coil rather than showing a dead panel.
+   */
+  private _fdtdDrive(owner: { physicsState?: Partial<DevicePhysicsState> | null }): number {
+    if (this.fdtdDriveSource === FDTD_DRIVE_SOURCES.TRANSFORMER) {
+      const src = this.devices[FDTD_DRIVE_DEVICE.transformer];
+      if (src) return transformerFdtdDrive(src.physicsState);
+    }
+    return pulseCoilFdtdDrive(owner.physicsState);
   }
 
   async setupEnergyPipePipeline(): Promise<void> {
