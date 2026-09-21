@@ -45,6 +45,8 @@ import { setHallCarrierType } from './devices/quanta/hall-effect.js';
 import { setLorentzFieldT, LORENTZ } from './devices/quanta/lorentz-sled.js';
 import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
 import { initFdtdHeatmapOverlay } from './fdtd-heatmap-overlay';
+import { LabAudio } from './audio/lab-audio';
+import { initLabAudioBadge } from './audio/lab-audio-badge';
 import { syncFieldCouplingDisclaimer } from './renderers/shared/field-network';
 import { ScientificUIManager } from './scientific-ui/index';
 import './multi-device-window-api';
@@ -585,6 +587,17 @@ function bootApp(): void {
       initFdtdHeatmapOverlay();
     } catch (e) {
       console.warn('[main] FDTD micro-grid heatmap init skipped:', e);
+    }
+
+    try {
+      // Lab sonification (#203 WS D). Constructs nothing without `?audio=1`, and
+      // even then waits for a user gesture before opening an AudioContext, so
+      // default boot is silent rather than merely quiet.
+      const labAudio = new LabAudio();
+      window.labAudio = labAudio;
+      initLabAudioBadge(labAudio);
+    } catch (e) {
+      console.warn('[main] lab audio init skipped:', e);
     }
 
     const anomalyToggle = document.getElementById('anomalyToggle') as HTMLInputElement | null;

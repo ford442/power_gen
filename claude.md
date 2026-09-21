@@ -31,6 +31,7 @@ npm run dev          # http://localhost:5173/  (https: false; localhost is fine 
 | No GPU / agents | `http://localhost:5173/?renderer=webgl2` (required — default WebGPU hard-fails without GPU) |
 | WASM plant | `?wasmPhysics=1` |
 | Mock hardware | `?mockHardware=1` |
+| Lab audio | `?audio=1` (silent until your first click/keypress; header badge mutes) |
 
 Default boot no longer falls back to WebGL2. Probe: `window.webgpuProbe`.
 
@@ -87,6 +88,7 @@ npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline
 npm run check:post    # post uniform contracts
 npm run test:transports # twin transport framing + coast-on-disconnect
+npm run test:audio    # sonification mapping bounds (silent by default)
 ```
 
 ## WebGPU notes

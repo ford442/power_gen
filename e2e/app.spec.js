@@ -1442,3 +1442,69 @@ test.describe('Catalog telemetry on the hub (plugin devices)', () => {
     expect(restored.hallFieldT).toBeCloseTo(0.8, 6);
   });
 });
+
+test.describe('Lab sonification (?audio=1)', () => {
+
+  test('default boot constructs no audio and adds no control', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.labAudio, { timeout: 30_000 });
+
+    const state = await page.evaluate(() => ({
+      enabled: window.labAudio.enabled,
+      started: window.labAudio.started,
+      muted: window.labAudio.muted,
+      badge: !!document.getElementById('lab-audio-badge')
+    }));
+    // The acceptance criterion is "default boot is silent" — not merely quiet.
+    expect(state.enabled).toBe(false);
+    expect(state.started).toBe(false);
+    expect(state.muted).toBe(true);
+    expect(state.badge).toBe(false);
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('?audio=1 arms, starts on a gesture, and the badge mutes it', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page, 'audio=1');
+    await waitForEval(page, () => !!window.labAudio, { timeout: 30_000 });
+
+    // Armed but silent: browsers require a user gesture before an AudioContext,
+    // and the badge says so rather than looking broken.
+    const armed = await page.evaluate(() => ({
+      enabled: window.labAudio.enabled,
+      started: window.labAudio.started,
+      muted: window.labAudio.muted,
+      badge: document.getElementById('lab-audio-badge')?.dataset.state ?? null
+    }));
+    expect(armed.enabled).toBe(true);
+    expect(armed.started).toBe(false);
+    expect(armed.muted).toBe(true);
+    expect(armed.badge).toBe('waiting');
+
+    // Dispatch via evaluate rather than page.click: a real click waits for the
+    // main thread to acknowledge it, and a SwiftShader frame can stall long
+    // enough to time out even though the handler already ran (see helpers.js).
+    // The badge's own handler starts the graph either way.
+    await page.evaluate(() => document.getElementById('lab-audio-badge').click());
+    await waitForEval(page, () => window.labAudio.started === true, { timeout: 30_000 });
+    await waitForEval(page, () => window.labAudio.muted === false, { timeout: 30_000 });
+    await waitForEval(page,
+      () => document.getElementById('lab-audio-badge')?.dataset.state === 'on',
+      { timeout: 30_000 });
+
+    // A spark cue must not throw with a live graph.
+    await page.evaluate(() => window.labAudio.click({
+      kind: 'kelvin', frequency: 2600, gain: 0.5, durationS: 0.05
+    }));
+
+    // Mute-able, which is the other half of the acceptance criterion.
+    await page.evaluate(() => document.getElementById('lab-audio-badge').click());
+    await waitForEval(page, () => window.labAudio.muted === true, { timeout: 30_000 });
+    await waitForEval(page,
+      () => document.getElementById('lab-audio-badge')?.dataset.state === 'muted',
+      { timeout: 30_000 });
+
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+});

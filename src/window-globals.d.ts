@@ -261,6 +261,9 @@ declare global {
 
     /** WebGL2 FDTD CPU micro-grid heatmap (fdtd-heatmap-overlay.ts, ADR-0012). */
     fdtdHeatmapOverlay?: FdtdHeatmapOverlay;
+
+    /** Lab sonification singleton (audio/lab-audio.ts); only live under `?audio=1`. */
+    labAudio?: LabAudio;
   }
 }
 
