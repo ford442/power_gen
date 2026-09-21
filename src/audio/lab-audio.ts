@@ -242,8 +242,18 @@ export class LabAudio {
     bus.gain.cancelScheduledValues(ctx.currentTime);
     bus.gain.setValueAtTime(bus.gain.value, ctx.currentTime);
     bus.gain.linearRampToValueAtTime(target, ctx.currentTime + BUS.rampS);
-    if (muted) void this.suspend();
-    else void this.resume();
+    if (muted) {
+      // Suspending immediately stops processing before the ramp renders, which
+      // turns a deliberate 80 ms fade into the click it exists to avoid. Wait
+      // out the ramp, and abandon the suspend if the user unmutes (or the graph
+      // is rebuilt) in the meantime.
+      const context = ctx;
+      setTimeout(() => {
+        if (this.muted && this.ctx === context) void this.suspend();
+      }, BUS.rampS * 1000);
+    } else {
+      void this.resume();
+    }
   }
 
   /**

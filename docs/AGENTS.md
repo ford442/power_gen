@@ -273,7 +273,7 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `heronLayout` | preset id | stored / default | Heron vessel layout |
 | `prototype` | `lab` \| `showroom` \| `searl` \| `roschin` \| `godin` | showroom-ish | SEG roller prototype look / lab effects |
 | `frame` | `full` \| `minimal` \| `off` | `full` | SEG structural frame complexity |
-| `gltfHousing` | `1` \| `0` | `1` (WebGPU) | Master switch for **all** glTF CAD props (per-device, focus-only) — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
+| `gltfHousing` | `1` \| `0` | `1` (WebGPU) | Default for **all** glTF CAD props (per-device, focus-only). A per-prop switch overrides it, so `?gltfHousing=0&gltfStand=1` shows one prop alone — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
 | `gltfCoilFormer` | `1` \| `0` | follows housing | Coil former GLB; `0` skips that prop |
 | `gltfStand` | `1` \| `0` | follows housing | Stand GLB; `0` skips that prop |
 | `gltfBasePlate` | `1` \| `0` | follows housing | Base plate GLB; `0` skips that prop |

@@ -141,29 +141,35 @@ export const gltfSetupMethods: ThisType<Host> & {
    * @private
    */
   async _loadGltfPropsForSegFocus(view: string = 'seg') {
-    if (this._gltfLoadInFlight) {
-      if (this._gltfLoadInFlightView === view) return this._gltfLoadInFlight;
-      const pending = this._gltfLoadInFlight;
+    const pending = this._gltfLoadInFlight;
+    if (pending && this._gltfLoadInFlightView === view) return pending;
+
+    // Each link in the chain must only clear the slot while it still owns it.
+    // Clearing unconditionally lets an *earlier* load's `finally` wipe the entry
+    // a later one installed, after which a third request starts immediately
+    // instead of queueing — and two uploads then mutate and dispose the shared
+    // glTF arrays at once.
+    const claim = (task: Promise<void>): Promise<void> => {
+      const owned: Promise<void> = task.finally(() => {
+        if (this._gltfLoadInFlight === owned) {
+          this._gltfLoadInFlight = null;
+          this._gltfLoadInFlightView = null;
+        }
+      });
+      this._gltfLoadInFlight = owned;
       this._gltfLoadInFlightView = view;
-      this._gltfLoadInFlight = pending
+      return owned;
+    };
+
+    if (pending) {
+      return claim(pending
         .catch(() => { /* the previous view's failure is already logged */ })
         // Only continue if the user is still on this view once the queue drains.
         .then(() => (this.currentView === view
           ? this._loadGltfPropsForSegFocusInner(view)
-          : undefined))
-        .finally(() => {
-          this._gltfLoadInFlight = null;
-          this._gltfLoadInFlightView = null;
-        });
-      return this._gltfLoadInFlight;
+          : undefined)));
     }
-    this._gltfLoadInFlightView = view;
-    this._gltfLoadInFlight = this._loadGltfPropsForSegFocusInner(view)
-      .finally(() => {
-        this._gltfLoadInFlight = null;
-        this._gltfLoadInFlightView = null;
-      });
-    return this._gltfLoadInFlight;
+    return claim(this._loadGltfPropsForSegFocusInner(view));
   },
 
   /** @private */
@@ -447,8 +453,11 @@ export const gltfSetupMethods: ThisType<Host> & {
       const scale = d.emissiveScale ??
         (d.role === 'coil_former' || d.propId === 'coilFormer' ? 0.65 : 1.0);
       const owner = d.deviceId && d.deviceId !== 'seg' ? this.devices?.[d.deviceId] : null;
+      // `instance.energyLevel` (smoothEnergyLevel) — not physicsState's raw
+      // value — is what drives the device's uniforms, particles and haze, so the
+      // CAD trim tracks the same number as the rest of that bench's effects.
       const emissive = owner
-        ? Math.min(0.55, (owner.physicsState?.energyLevel ?? 0) * 0.55)
+        ? Math.min(0.55, (owner.energyLevel ?? 0) * 0.55)
         : segEmissive;
       updateGltfInstanceEmissive(this.device, d.instanceBuffer, emissive * scale);
     }

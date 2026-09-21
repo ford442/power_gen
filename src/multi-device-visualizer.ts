@@ -63,6 +63,9 @@ import type {
   SegFrameBuffers,
   SegLayout
 } from './devices/types';
+import { stepDevicePhysics } from './renderers/shared/device-physics';
+import { telemetryHub } from './telemetry-hub';
+import { segWasm } from './wasm/seg-physics-bridge';
 import type { DevicePhysicsState, HeronLayout } from './renderers/shared/device-physics';
 import type { PrototypePreset } from './renderers/shared/url-params.js';
 import type { LightingLook } from './seg-lighting-presets';
@@ -479,7 +482,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
    *
    * @returns the pass when it should dispatch and draw this frame, else null
    */
-  updateFdtdSlice(qualityTier: string): FdtdSlicePass | null {
+  updateFdtdSlice(qualityTier: string, deltaTime = 0): FdtdSlicePass | null {
     const owner = this.devices[FDTD_SLICE_OWNER];
     const frame = {
       enabled: this.fdtdEnabled && !!owner,
@@ -508,7 +511,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     return pass.update({
       ...frame,
       devicePos: owner.position,
-      drive: this._fdtdDrive(owner)
+      drive: this._fdtdDrive(owner, deltaTime)
     }) ? pass : null;
   }
 
@@ -519,12 +522,51 @@ export class MultiDeviceVisualizer implements VisualizerLike {
    * fronts rather than one transient. If that bench isn't in the lab, fall back
    * to the coil rather than showing a dead panel.
    */
-  private _fdtdDrive(owner: { physicsState?: Partial<DevicePhysicsState> | null }): number {
+  private _fdtdDrive(
+    owner: { physicsState?: Partial<DevicePhysicsState> | null },
+    deltaTime: number
+  ): number {
     if (this.fdtdDriveSource === FDTD_DRIVE_SOURCES.TRANSFORMER) {
       const src = this.devices[FDTD_DRIVE_DEVICE.transformer];
-      if (src) return transformerFdtdDrive(src.physicsState);
+      if (src?.physicsState) {
+        this._stepBorrowedDrivePlant(src, deltaTime);
+        return transformerFdtdDrive(src.physicsState);
+      }
     }
     return pulseCoilFdtdDrive(owner.physicsState);
+  }
+
+  /**
+   * Keep a *borrowed* drive device's plant running while the slice reads it.
+   *
+   * The render loop skips `device.update()` for every device that is not the
+   * focused one (`getViewParticleLod` returns 0 off-focus), and the slice only
+   * opens in pulse-coil focus. So borrowing the transformer's flux would read a
+   * value frozen at whatever it held when the view changed — usually the 0 it was
+   * created with, i.e. a dead panel rather than the AC fronts the flag promises.
+   *
+   * The slice declares an explicit dependency on that bench's plant, so step
+   * exactly that: **physics only**, no particles, meshes, uniforms or GPU work.
+   * One extra lumped-ODE step per frame, and only while `?fdtdDrive=` is actually
+   * pointing somewhere else.
+   *
+   * No double-stepping: a device is either focused (and updated by the loop) or
+   * borrowed here, never both, because the slice requires pulse-coil focus. The
+   * WASM and replay paths already refresh every device's state each frame, so
+   * they own it and this stands aside.
+   */
+  private _stepBorrowedDrivePlant(
+    src: { id: string; physicsState?: Partial<DevicePhysicsState> | null; speedMult?: number },
+    deltaTime: number
+  ): void {
+    if (!(deltaTime > 0) || src.id === this.currentView) return;
+    if (segWasm.enabled || telemetryHub.isReplayMode()) return;
+    const state = src.physicsState as DevicePhysicsState | undefined;
+    if (!state) return;
+    // Same drive curve device-update.ts applies, so the borrowed bench behaves
+    // exactly as it would if you were looking at it.
+    const drive = Math.min(1, Math.log2((src.speedMult || 1) + 1) / Math.log2(21));
+    stepDevicePhysics(state, deltaTime, drive);
   }
 
   async setupEnergyPipePipeline(): Promise<void> {

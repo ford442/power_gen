@@ -1482,11 +1482,20 @@ test.describe('Lab sonification (?audio=1)', () => {
     expect(armed.muted).toBe(true);
     expect(armed.badge).toBe('waiting');
 
-    // Dispatch via evaluate rather than page.click: a real click waits for the
-    // main thread to acknowledge it, and a SwiftShader frame can stall long
-    // enough to time out even though the handler already ran (see helpers.js).
-    // The badge's own handler starts the graph either way.
-    await page.evaluate(() => document.getElementById('lab-audio-badge').click());
+    // Trusted input, but not page.click(): an element click waits for the main
+    // thread to acknowledge it, and a SwiftShader frame can stall long enough to
+    // time out after the handler has already run (see helpers.js). page.mouse
+    // dispatches a real browser event — so this exercises the production user-
+    // activation contract that Web Audio startup depends on — without the
+    // actionability wait.
+    const tapBadge = async () => {
+      const box = await page.evaluate(() => {
+        const r = document.getElementById('lab-audio-badge').getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      });
+      await page.mouse.click(box.x, box.y);
+    };
+    await tapBadge();
     await waitForEval(page, () => window.labAudio.started === true, { timeout: 30_000 });
     await waitForEval(page, () => window.labAudio.muted === false, { timeout: 30_000 });
     await waitForEval(page,
@@ -1499,7 +1508,7 @@ test.describe('Lab sonification (?audio=1)', () => {
     }));
 
     // Mute-able, which is the other half of the acceptance criterion.
-    await page.evaluate(() => document.getElementById('lab-audio-badge').click());
+    await tapBadge();
     await waitForEval(page, () => window.labAudio.muted === true, { timeout: 30_000 });
     await waitForEval(page,
       () => document.getElementById('lab-audio-badge')?.dataset.state === 'muted',

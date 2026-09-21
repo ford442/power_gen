@@ -43,7 +43,7 @@ import {
   pulseCoilFdtdSources,
   transformerFdtdDrive
 } from './devices/quanta/pulse-coil';
-import { parseFdtdDriveSource, parseFdtdEnabled, parseFdtdMaterialsEnabled } from './renderers/shared/url-params';
+import { parseFdtdEnabled, parseFdtdMaterialsEnabled } from './renderers/shared/url-params';
 import { telemetryHub } from './telemetry-hub';
 import type { TelemetrySnapshot } from './telemetry/types';
 
@@ -156,7 +156,13 @@ export class FdtdHeatmapOverlay {
 
   constructor(opts: FdtdHeatmapOptions = {}) {
     this.enabled = opts.enabled ?? parseFdtdEnabled();
-    this.driveSource = opts.driveSource ?? parseFdtdDriveSource();
+    // Always the coil, unless a caller insists. `?fdtdDrive=transformer` needs
+    // the transformer's plant kept running while another bench is focused, and
+    // the WebGPU pass does that from the render loop (`_stepBorrowedDrivePlant`).
+    // This overlay only reads TelemetryHub — it has no device instances to step —
+    // so honouring the flag here would show a value frozen at 0. A documented
+    // limitation beats a panel that is quietly dead (docs/WEBGL2.md).
+    this.driveSource = opts.driveSource ?? FDTD_DRIVE_SOURCES.COIL;
     this.materialsEnabled = opts.materialsEnabled ?? parseFdtdMaterialsEnabled();
     this.unitSources = pulseCoilFdtdSources(MICRO_GRID_N);
     this.frameSources = this.unitSources.map((s) => ({ ...s }));
@@ -251,7 +257,7 @@ export class FdtdHeatmapOverlay {
     (document.getElementById('canvas-wrapper') ?? document.body).appendChild(root);
 
     this.root = root;
-    this.canvas = root.querySelector('.fdtd-heatmap-canvas');
+    this.canvas = root.querySelector<HTMLCanvasElement>('.fdtd-heatmap-canvas');
     this.ctx = this.canvas?.getContext('2d') ?? null;
     if (this.ctx) this.image = this.ctx.createImageData(MICRO_GRID_N, MICRO_GRID_N);
   }

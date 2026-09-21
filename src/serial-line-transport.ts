@@ -33,6 +33,15 @@ export class SerialLineTransport extends LineTransport {
   private reader: ReadableStreamDefaultReader<string> | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private readLoop: Promise<void> | null = null;
+  /**
+   * The `port.readable` → decoder pipe. Kept because `reader.cancel()` resolves
+   * before the pipe has finished cancelling its *source*, so closing the port
+   * immediately after would reject with the stream still locked — and the
+   * `catch` around `port.close()` would swallow it, leaving the port open and
+   * the device claimed until the tab dies. A later reconnect then fails on
+   * `port.open()`.
+   */
+  private pipeDone: Promise<void> | null = null;
 
   constructor(private readonly baudRate = 115200, port?: SerialPort) {
     super();
@@ -51,7 +60,7 @@ export class SerialLineTransport extends LineTransport {
     const decoder = new TextDecoderStream();
     // `TextDecoderStream.writable` is typed `WritableStream<BufferSource>`; the
     // port's byte stream is a narrower Uint8Array source, hence the cast.
-    port.readable
+    this.pipeDone = port.readable
       .pipeTo(decoder.writable as unknown as WritableStream<Uint8Array>)
       .catch(() => { /* closed with the port */ });
     this.reader = decoder.readable.getReader();
@@ -86,12 +95,23 @@ export class SerialLineTransport extends LineTransport {
       try { await this.reader.cancel(); } catch { /* already gone */ }
       this.reader = null;
     }
+    // Wait for the pipe to release `port.readable` before closing the port.
+    if (this.pipeDone) {
+      try { await this.pipeDone; } catch { /* already gone */ }
+      this.pipeDone = null;
+    }
     if (this.writer) {
       try { this.writer.releaseLock(); } catch { /* already released */ }
       this.writer = null;
     }
     if (this.port) {
-      try { await this.port.close(); } catch { /* already closed */ }
+      try {
+        await this.port.close();
+      } catch (err) {
+        // Not silent: a close that fails leaves the device claimed, and the
+        // symptom (a reconnect that cannot open the port) is otherwise baffling.
+        console.warn('[serialTransport] port.close() failed — device may stay claimed', err);
+      }
       this.port = null;
     }
     this.readLoop = null;

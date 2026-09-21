@@ -69,6 +69,18 @@ export function parseGltfCoilFormerEnabled(params: URLSearchParams = new URLSear
   return parseGltfHousingEnabled(params);
 }
 
+/**
+ * Per-prop switch with `gltfHousing` as the **default**, not an override.
+ *
+ * Precedence is deliberate and predates the per-device registry: an explicit
+ * per-prop value wins, so `?gltfHousing=0&gltfStand=1` shows the stand alone —
+ * which is how you look at one prop without the rest of the assembly in the way.
+ * `?gltfHousing=0` on its own therefore disables every prop that has no explicit
+ * value of its own, which is every prop unless you say otherwise.
+ *
+ * Both halves are pinned by `npm run test:props`, including the conflicting
+ * query, so the precedence cannot drift unnoticed in either direction.
+ */
 function parseFocusPropEnabled(
   key: string,
   params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
@@ -91,7 +103,8 @@ export function parseGltfBasePlateEnabled(params?: URLSearchParams): boolean {
 
 /**
  * Transformer C-core — default on; disable via `?gltfTransformerCore=0`.
- * `?gltfHousing=0` remains the master switch for all CAD props.
+ * Follows `gltfHousing` unless given an explicit value — see
+ * {@link parseFocusPropEnabled} for the precedence.
  */
 export function parseGltfTransformerCoreEnabled(params?: URLSearchParams): boolean {
   return parseFocusPropEnabled('gltfTransformerCore', params);
@@ -228,7 +241,8 @@ export function listPropDeviceIds(): string[] {
 
 /**
  * Authored, enabled props owned by one bench's focus view.
- * The `enabled` predicates already honour `?gltfHousing=0` as a master switch.
+ * The `enabled` predicates apply `?gltfHousing=0` as the default for any prop
+ * without an explicit switch of its own — see {@link parseFocusPropEnabled}.
  */
 export function propsForDevice(
   deviceId: string,

@@ -71,6 +71,17 @@ commercial-solver parity.
    radiate?". The geometry never changes; only the amplitude source does, and it
    falls back to the coil when that bench is not in the lab.
 
+   Borrowing across benches costs one thing worth stating: the render loop skips
+   `update()` for every unfocused device, so the transformer's flux would be
+   frozen at 0 while the pulse coil is focused. `_stepBorrowedDrivePlant` therefore
+   steps **that bench's physics only** — no particles, meshes, uniforms or GPU
+   work — for as long as the slice is reading it, and stands aside when the WASM
+   or replay path already owns every device's state. Two consequences: the
+   transformer's own telemetry advances while the flag is on (honest — the bench
+   *is* running), and the flag is WebGPU-only, because the WebGL2 readout
+   subscribes to TelemetryHub and owns no device instances to step
+   (`docs/WEBGL2.md`).
+
 6. **WebGL2 gets a CPU micro-grid, not a GLSL port.**
    `src/fdtd-heatmap-overlay.ts` runs the *same* `FdtdTmzGrid` kernel — the one
    the contract test checks — on a 64² grid, 2 Yee steps per frame, with the same

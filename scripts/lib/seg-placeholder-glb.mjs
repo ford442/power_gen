@@ -1,5 +1,26 @@
 /**
  * Shared procedural GLB packer + tiny GPU-native KTX2 blobs for SEG placeholders.
+ *
+ * ## Triangle winding convention — get this wrong and the prop vanishes
+ *
+ * CAD props are drawn by the `segEnhanced` pipeline, which is the **only** one in
+ * the repo with `cullMode: 'back'` (`pipeline-layout/factories/device-pipelines.ts`).
+ * The roller pipeline has no cull mode, so meshes built for *it* are not evidence
+ * of anything.
+ *
+ * Every primitive here must therefore match the convention of the meshes that
+ * demonstrably render: `box()` below, and `cylinderY()` in
+ * `generate-seg-coil-former-glb.mjs`. Empirically, both wind each face so that
+ * the triangle's geometric normal (right-hand rule over its index order) is
+ * **anti-parallel to the outward vertex normal**.
+ *
+ * Concretely, for a side quad spanning angles a0 to a1, emit the vertices in the
+ * order (bottom a0, bottom a1, top a1, top a0) and index them (0,1,2),(0,2,3) —
+ * exactly as `cylinderY` does.
+ *
+ * `npm run test:props` checks this on every committed GLB, because it is
+ * invisible to typecheck, invisible to naga, and invisible to any test without a
+ * GPU: a prop with reversed winding simply is not there.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -63,6 +84,11 @@ export function box(cx, cy, cz, w, h, d) {
  * side, a triangle fan per cap — enough for a coil bobbin or a VDG column
  * without spending the placeholder byte budget on smoothness nobody will see
  * from focus distance.
+ *
+ * The Y path emits the same vertex and index order as the shipped `cylinderY`
+ * in generate-seg-coil-former-glb.mjs. The X path maps the radial components to
+ * (y, z) instead of (x, z), which is an odd permutation of the axes and so flips
+ * handedness — its winding is reversed to compensate. See the file header.
  */
 export function cylinder(cx, cy, cz, radius, height, segments = 16, opts = {}) {
   const { caps = true, axis = 'y' } = opts;
@@ -78,6 +104,9 @@ export function cylinder(cx, cy, cz, radius, height, segments = 16, opts = {}) {
     ? [cx + ax, cy + ru, cz + rv]
     : [cx + ru, cy + ax, cz + rv]);
   const axisNormal = axis === 'x' ? [1, 0, 0] : [0, 1, 0];
+  // (axial, u, v) for X vs (u, axial, v) for Y is one transposition, so the X
+  // path comes out mirrored; reverse its winding to keep one convention.
+  const flipWinding = axis === 'x';
 
   let base = 0;
   for (let i = 0; i < seg; i++) {
@@ -99,7 +128,11 @@ export function cylinder(cx, cy, cz, radius, height, segments = 16, opts = {}) {
       normals.push(vert.n[0] - cx, vert.n[1] - cy, vert.n[2] - cz);
       uvs.push(vert.u, vert.v);
     }
-    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    if (flipWinding) {
+      indices.push(base, base + 2, base + 1, base, base + 3, base + 2);
+    } else {
+      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
     base += 4;
 
     if (caps) {
@@ -108,8 +141,9 @@ export function cylinder(cx, cy, cz, radius, height, segments = 16, opts = {}) {
         const p0 = place(c0 * radius, s0 * radius, ax);
         const p1 = place(c1 * radius, s1 * radius, ax);
         const n = [axisNormal[0] * sign, axisNormal[1] * sign, axisNormal[2] * sign];
-        // Wind the far cap the other way so both faces point outward.
-        const tri = sign > 0 ? [centre, p0, p1] : [centre, p1, p0];
+        // Wind the two caps oppositely, then mirror the pair on the X path.
+        const forward = sign > 0 ? [centre, p0, p1] : [centre, p1, p0];
+        const tri = flipWinding ? [forward[0], forward[2], forward[1]] : forward;
         for (const p of tri) {
           positions.push(p[0], p[1], p[2]);
           normals.push(n[0], n[1], n[2]);
@@ -126,6 +160,11 @@ export function cylinder(cx, cy, cz, radius, height, segments = 16, opts = {}) {
 /**
  * Low-poly lat/long sphere. Default 16×8 is ~512 verts — a recognisable dome
  * for a Van de Graaff at a fraction of the placeholder budget.
+ *
+ * `j` runs north (phi 0, +Y) to south, so `j + 1` is the *lower* ring. The quad
+ * is emitted lower-ring-first to match `cylinderY`'s (bottom a0, bottom a1,
+ * top a1, top a0) order — emitting it upper-first reverses the winding and the
+ * whole sphere is back-face culled by `segEnhanced`.
  */
 export function sphere(cx, cy, cz, radius, segU = 16, segV = 8) {
   const u = Math.max(3, Math.floor(segU));
@@ -147,7 +186,7 @@ export function sphere(cx, cy, cz, radius, segU = 16, segV = 8) {
   let base = 0;
   for (let j = 0; j < v; j++) {
     for (let i = 0; i < u; i++) {
-      const quad = [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)];
+      const quad = [at(i, j + 1), at(i + 1, j + 1), at(i + 1, j), at(i, j)];
       for (const vert of quad) {
         positions.push(vert.p[0], vert.p[1], vert.p[2]);
         normals.push(vert.n[0], vert.n[1], vert.n[2]);

@@ -81,9 +81,16 @@ export function initLabAudioBadge(audio: LabAudio): void {
   //
   // So note, in the element's own pointerdown (which fires first), whether this
   // click is the one that starts things, and let that click do only that.
+  // The same reasoning covers the keyboard: this is a <button>, so Enter/Space
+  // dispatch a synthetic click, and `LabAudio` arms a window `keydown` too.
   let startingFromThisClick = false;
   el.addEventListener('pointerdown', () => {
     startingFromThisClick = !audio.started;
+  });
+  el.addEventListener('keydown', (event) => {
+    if ((event.key === 'Enter' || event.key === ' ') && !audio.started) {
+      startingFromThisClick = true;
+    }
   });
   el.addEventListener('click', () => {
     if (startingFromThisClick) {

@@ -157,9 +157,21 @@ export interface SparkCue {
   durationS: number;
 }
 
-/** Bandpass centre + level for one click. `strength` 0..1 scales the level. */
-export function sparkCue(kind: SparkKind, strength: unknown = 1): SparkCue {
-  const s = Math.max(0, Math.min(1, finite(strength, 1)));
+/**
+ * Bandpass centre + level for one click. `strength` 0..1 scales the level.
+ *
+ * Invalid strength falls back to **0**, not 1: turning a NaN voltage ratio into a
+ * full-scale click is the wrong failure direction for the one bug in this feature
+ * that is actually unkind. The event itself is real — an edge was detected — so
+ * the click still fires at the gain floor rather than vanishing; only the unknown
+ * *strength* degrades.
+ *
+ * Note `strength?:` with no default value rather than `= 1`: a default parameter
+ * would intercept `undefined` before {@link finite} ever saw it, so a missing
+ * strength would read as full scale — which is exactly the case this guards.
+ */
+export function sparkCue(kind: SparkKind, strength?: unknown): SparkCue {
+  const s = Math.max(0, Math.min(1, finite(strength, 0)));
   return {
     kind,
     frequency: clampHz(kind === 'vdg' ? SPARK.vdgHz : SPARK.kelvinHz),

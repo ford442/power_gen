@@ -350,8 +350,12 @@ function structBytes(src, name) {
   const n = 96;
   const cfg = { ...m.FDTD_DEFAULT_CONFIG, n, pmlCells: 12 };
   // A permeable slab covering the right half, so a pulse on the axis crosses
-  // into it on one side and stays in vacuum on the other.
-  const slab = [{ shape: 'rect', x: n * 0.75, y: n / 2, halfW: n * 0.25, halfH: n / 2, muR: 9 }];
+  // into it on one side and stays in vacuum on the other. Nudged half a cell
+  // right of centre so the slab starts at x = 49: the source sits at x = 48 and
+  // must be in *vacuum*, or "the vacuum side is unchanged" proves nothing.
+  const slab = [{
+    shape: 'rect', x: n * 0.75 + 0.5, y: n / 2, halfW: n * 0.25 - 0.5, halfH: n / 2, muR: 9
+  }];
 
   const run = (materials) => {
     const g = new m.FdtdTmzGrid(cfg);

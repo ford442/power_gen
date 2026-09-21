@@ -61,8 +61,17 @@ left the fallback with no answer to the one thing the slice teaches, so
 | Steps / frame | 6 | 2 (front still crosses in ~1 s) |
 | Materials | μ_r armature + σ turns | same map, same presets |
 | Sources | same windings, world-placed | same windings, world-placed |
-| Where | world-space quad in front of the coil | 176 px 2D canvas, bottom-right |
+| Drive | coil current, or `?fdtdDrive=transformer` | **coil current only** — see below |
+| Where | world-space quad in front of the coil | 176 px 2D canvas, bottom-left |
 | Cost | a few ms of GPU | **0.23 ms/frame** of CPU (measured in `test:fdtd`) |
+
+`?fdtdDrive=transformer` is **WebGPU-only**, and deliberately so. Borrowing
+another bench's flux means keeping that bench's plant stepping while the pulse
+coil is focused, because the render loop skips `update()` for every unfocused
+device — the WebGPU path does that explicitly
+(`MultiDeviceVisualizer._stepBorrowedDrivePlant`). This overlay only subscribes to
+`TelemetryHub` and owns no device instances, so it cannot; honouring the flag here
+would draw a drive frozen at 0. It always uses the pulse coil's own current.
 
 It is a **readout, not a render path**: no GL state, no shader, and no contact
 with `WebGL2MultiDeviceVisualizer` beyond a `TelemetryHub` subscription. Gated to

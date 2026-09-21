@@ -169,6 +169,48 @@ for (const p of props) {
     }
     check(`${p.id} normals are unit length (err ${worstNormal.toExponential(1)})`,
       worstNormal < 1e-3, `worst normal length error ${worstNormal}`);
+
+    // Triangle winding. `segEnhanced` is the only pipeline in the repo with
+    // `cullMode: 'back'`, and it is the one that draws these props, so a prop
+    // wound the wrong way simply is not on screen. Nothing else can catch that:
+    // not typecheck, not naga, not any test without a GPU.
+    //
+    // The convention (see scripts/lib/seg-placeholder-glb.mjs) is that each
+    // triangle's geometric normal is ANTI-parallel to its vertex normals, as
+    // box() and the shipped coil-former cylinderY both emit.
+    let flipped = 0;
+    let checked = 0;
+    let worstFacing = 1;
+    const at3 = (arr, i) => [arr[i * 8 + 0], arr[i * 8 + 1], arr[i * 8 + 2]];
+    const nrm3 = (arr, i) => [arr[i * 8 + 3], arr[i * 8 + 4], arr[i * 8 + 5]];
+    for (let t = 0; t + 2 < idx.length; t += 3) {
+      const [ia, ib, ic] = [idx[t], idx[t + 1], idx[t + 2]];
+      const p0 = at3(verts, ia);
+      const p1 = at3(verts, ib);
+      const p2 = at3(verts, ic);
+      const e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+      const e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+      const g = [
+        e1[1] * e2[2] - e1[2] * e2[1],
+        e1[2] * e2[0] - e1[0] * e2[2],
+        e1[0] * e2[1] - e1[1] * e2[0]
+      ];
+      const gl = Math.hypot(...g);
+      const vn = [0, 1, 2].map((k) =>
+        (nrm3(verts, ia)[k] + nrm3(verts, ib)[k] + nrm3(verts, ic)[k]) / 3);
+      const vl = Math.hypot(...vn);
+      // Degenerate triangles and zero normals carry no winding information.
+      if (gl < 1e-9 || vl < 1e-9) continue;
+      const align = -(g[0] * vn[0] + g[1] * vn[1] + g[2] * vn[2]) / (gl * vl);
+      checked += 1;
+      worstFacing = Math.min(worstFacing, align);
+      if (align < 0.2) flipped += 1;
+    }
+    check(`${p.id} winding matches the culled-pipeline convention `
+      + `(${checked} tris, worst ${worstFacing.toFixed(2)})`,
+      checked > 0 && flipped === 0,
+      `${flipped} of ${checked} triangle(s) wound the wrong way — segEnhanced `
+      + 'culls back faces, so those surfaces are invisible');
   }
 
   // The runtime reads `extras.power_gen.role` off the nodes; a prop whose GLB
@@ -210,12 +252,32 @@ for (const p of props) {
     new Set(registry.listPropDeviceIds()).size === devices.length,
     `${registry.listPropDeviceIds().join(', ')} vs ${devices.join(', ')}`);
 
-  // `?gltfHousing=0` is the master switch — nothing loads anywhere.
+  // `?gltfHousing=0` is the *default* for every prop, so on its own it clears them all.
   const off = new URLSearchParams('gltfHousing=0');
   for (const deviceId of devices) {
     const enabled = registry.propsForDevice(deviceId, off).filter((p) => p.enabled(off));
     check(`?gltfHousing=0 disables ${deviceId} props`, enabled.length === 0,
       enabled.map((p) => p.id).join(', '));
+  }
+
+  // ...but an explicit per-prop value beats that default, which is how you look
+  // at one prop with the rest of the assembly out of the way. Pinned in both
+  // directions so the precedence cannot drift silently either way.
+  const soloCases = [
+    ['gltfHousing=0&gltfTransformerCore=1', 'transformerCore', 'transformer'],
+    ['gltfHousing=0&gltfVdgTerminal=1', 'vdgTerminal', 'vdg'],
+    ['gltfHousing=0&gltfStand=1', 'stand', 'seg']
+  ];
+  for (const [query, id, deviceId] of soloCases) {
+    const params = new URLSearchParams(query);
+    const def = registry.getPropDef(id);
+    if (!def) continue;
+    check(`?${query} keeps ${id} alone`, def.enabled(params) === true,
+      `${id} was disabled despite an explicit =1`);
+    const others = registry.propsForDevice(deviceId, params).filter((p) => p.id !== id);
+    check(`?${query} leaves ${deviceId}'s other props off`,
+      others.every((p) => p.enabled(params) === false),
+      others.filter((p) => p.enabled(params)).map((p) => p.id).join(', '));
   }
 
   // Per-prop switches take a prop out without disturbing its neighbours.

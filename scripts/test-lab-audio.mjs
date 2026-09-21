@@ -202,12 +202,21 @@ const HOSTILE = [Number.NaN, Infinity, -Infinity, undefined, null, '', 'loud', {
     m.sparkCue('kelvin', 99).gain === m.sparkCue('kelvin', 1).gain
       && m.sparkCue('kelvin', -99).gain === m.sparkCue('kelvin', 0).gain,
     'strength escaped 0..1');
+  // Invalid strength must degrade to the *floor*, never to full scale: a NaN
+  // voltage ratio turning into a full-volume click is the unkind failure.
+  const floorGain = m.sparkCue('kelvin', 0).gain;
   for (const bad of HOSTILE) {
     const cue = m.sparkCue('kelvin', bad);
     check(`spark cue(strength=${JSON.stringify(bad)}) is finite and capped`,
       Number.isFinite(cue.gain) && cue.gain <= m.SPARK.maxGain + 1e-9
         && Number.isFinite(cue.frequency), JSON.stringify(cue));
+    check(`spark cue(strength=${JSON.stringify(bad)}) falls back to the floor, not full scale`,
+      Math.abs(cue.gain - floorGain) < 1e-9,
+      `gain ${cue.gain} vs floor ${floorGain} (full scale is ${m.sparkCue('kelvin', 1).gain})`);
   }
+  check('the spark floor is well below full scale',
+    floorGain > 0 && floorGain < m.sparkCue('kelvin', 1).gain * 0.6,
+    `floor ${floorGain}, full ${m.sparkCue('kelvin', 1).gain}`);
 
   // Kelvin: the plant sets a countdown at breakdown, so a rise is the event.
   check('Kelvin spark fires on the rising edge', m.kelvinSparkFired(0, 0.18) === true,

@@ -18,7 +18,10 @@ Props are **scoped to one device each** and loaded when that device is focused.
 Focusing the transformer does not touch the SEG's GLBs and vice versa, so the
 cost of adding a bench's CAD is paid only by that bench's focus view.
 
-Disable all CAD props: `?gltfHousing=0`  
+Disable all CAD props: `?gltfHousing=0` (the **default** for every prop, so it
+clears them all — but an explicit per-prop value wins, which is how
+`?gltfHousing=0&gltfTransformerCore=1` shows one prop with the rest out of the
+way. Pinned both ways by `npm run test:props`.)  
 Disable coil former only: `?gltfCoilFormer=0`  
 Disable stand: `?gltfStand=0`  
 Disable base plate: `?gltfBasePlate=0`  
