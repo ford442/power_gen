@@ -169,8 +169,13 @@ export const DeviceRenderMixin = {
 
     runDrawWebgpu(this, renderPass, globalUniformBuffer, skipEffects);
 
-    if (this.id !== 'seg' && this.rollerInstances && this.rollerPipeline) {
-      this.renderDeviceMesh(renderPass, globalUniformBuffer);
+    if (this.id !== 'seg') {
+      // CAD props first, so the procedural mesh draws over them where they
+      // overlap — the GLB is the backdrop, not a replacement.
+      this.renderGltfDeviceProps(renderPass, globalUniformBuffer);
+      if (this.rollerInstances && this.rollerPipeline) {
+        this.renderDeviceMesh(renderPass, globalUniformBuffer);
+      }
     }
 
     runDrawWebgpuOverlay(this, renderPass, globalUniformBuffer, skipEffects);
@@ -247,17 +252,52 @@ export const DeviceRenderMixin = {
     renderPass: GPURenderPassEncoder,
     globalUniformBuffer: GPUBuffer
   ): void {
-    const v = this.visualizer;
     if (this.id !== 'seg') return;
+    if (this.visualizer.currentView && this.visualizer.currentView !== 'seg') return;
+    this._drawGltfPropsForDevice(renderPass, globalUniformBuffer, 'seg');
+  },
+
+  /**
+   * Draw this device's own glTF CAD props (ADR-0005 WS1).
+   *
+   * Called from the shared `render()` for every non-SEG bench; SEG keeps
+   * `renderGltfHousing` because its draw order is explicit in `seg-render.ts`.
+   * Props are baked in device-local metres, so the device uniform's position and
+   * rotation place them exactly as it places the procedural cylinders.
+   */
+  renderGltfDeviceProps: function (
+    this: DeviceInstanceLike,
+    renderPass: GPURenderPassEncoder,
+    globalUniformBuffer: GPUBuffer
+  ): void {
+    if (this.id === 'seg') return;
+    // Focus-only: overview never pays for a bench's CAD.
+    if (this.visualizer.currentView !== this.id) return;
+    this._drawGltfPropsForDevice(renderPass, globalUniformBuffer, this.id);
+  },
+
+  /** @private Shared body of the two prop draw entry points. */
+  _drawGltfPropsForDevice: function (
+    this: DeviceInstanceLike,
+    renderPass: GPURenderPassEncoder,
+    globalUniformBuffer: GPUBuffer,
+    deviceId: string
+  ): void {
+    const v = this.visualizer;
     if (!v.gltfHousingEnabled || !v.gltfHousingDrawables?.length) return;
     if (!this.segEnhancedPipeline || !v.lightingUniformBuffer) return;
-    if (v.currentView && v.currentView !== 'seg') return;
+
+    // Drawables from other benches may still be resident (SEG's housing is).
+    const mine = v.gltfHousingDrawables.filter(
+      (d) => (d.deviceId ?? 'seg') === deviceId
+    );
+    if (mine.length === 0) return;
 
     this.renderMode = 0;
     const deviceData = this._buildDeviceUniformData(this.renderMode);
     this.device.queue.writeBuffer(this.deviceUniformBuffer, 0, deviceData);
 
-    for (const drawable of v.gltfHousingDrawables) {
+    for (const drawable of mine) {
       const bindGroup = this._enhancedBindGroup(
         globalUniformBuffer,
         drawable.instanceBuffer,
@@ -269,6 +309,7 @@ export const DeviceRenderMixin = {
       renderPass.setIndexBuffer(drawable.gpu.indexBuffer, 'uint16');
       renderPass.drawIndexed(drawable.gpu.indexCount, 1);
     }
+    v.profiler?.recordDraw?.(mine.length);
   },
 
   renderFrame: function (

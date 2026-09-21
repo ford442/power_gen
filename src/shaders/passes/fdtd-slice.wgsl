@@ -133,10 +133,15 @@ fn fsMain(input: VertexOutput) -> @location(0) vec4f {
   let matA = max(mat.x, mat.y) * 0.5;
   rgb = mix(rgb, mix(copperCol, ironCol, select(0.0, 1.0, mat.x > mat.y)), matA);
   a = max(a, matA);
-  // Outline where the material starts, so a slab reads as an object.
+  // Outline where *either* material starts, so both the armature and the copper
+  // turns read as objects rather than as unexplained changes in the field.
+  let mR = materialAmount(gp + vec2f(1.0, 0.0));
+  let mL = materialAmount(gp - vec2f(1.0, 0.0));
+  let mU = materialAmount(gp + vec2f(0.0, 1.0));
+  let mD = materialAmount(gp - vec2f(0.0, 1.0));
   let matEdge = length(vec2f(
-    materialAmount(gp + vec2f(1.0, 0.0)).x - materialAmount(gp - vec2f(1.0, 0.0)).x,
-    materialAmount(gp + vec2f(0.0, 1.0)).x - materialAmount(gp - vec2f(0.0, 1.0)).x
+    max(mR.x, mR.y) - max(mL.x, mL.y),
+    max(mU.x, mU.y) - max(mD.x, mD.y)
   ));
   rgb = mix(rgb, vec3f(0.72, 0.62, 0.95), matEdge * 0.6);
   a = max(a, matEdge * 0.6);

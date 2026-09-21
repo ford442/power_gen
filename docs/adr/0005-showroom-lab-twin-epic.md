@@ -52,7 +52,17 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
 - [x] Housing shell glTF (closed #102)
 - [x] Second CAD prop: coil former GLB in SEG focus
 - [x] Node hierarchy polish (lazy multi-prop registry, material overrides)
-- [x] Optional minimal external glTF parser eval (parser only — not a full engine) — **deferred**: hand-rolled loader wins on gzip; see `docs/GLTF_ASSETS.md`
+- [x] **Per-device CAD beyond SEG** — registry entries carry a `deviceId`, and
+      `ensureGltfPropsForView()` loads only the focused bench's props while
+      disposing every other bench's focus-policy props. First two:
+      `transformer-core.glb` (the flux path the procedural coils lack) and
+      `vdg-terminal.glb` (sphere / column / belt / gap, where the shape *is* the
+      explanation). Guarded by `npm run test:props`; see `docs/GLTF_ASSETS.md`
+- [x] Optional minimal external glTF parser eval (parser only — not a full engine) — **deferred**: hand-rolled loader wins on gzip; **re-evaluated 2026-09** when multi-device CAD landed and it still parses fine, so still deferred; see `docs/GLTF_ASSETS.md`
+- [x] Basis **UASTC** WASM decode evaluated — **not adopted**: GPU-native KTX2 is
+      already negotiated per device with zero decode cost, and UASTC's win (one
+      container for all formats) is worth nothing against 4×4 solid placeholders.
+      Trigger to revisit is a real multi-texture prop set; see `docs/GLTF_ASSETS.md`
 - [x] WebGL2: skip heavy glTF or load reduced LODs — documented in `docs/WEBGL2.md`
 - [x] Instancing policy documented (procedural rollers vs static CAD) — `docs/GLTF_ASSETS.md`
 

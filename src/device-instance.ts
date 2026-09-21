@@ -103,6 +103,12 @@ export interface DeviceInstance {
   render(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer, skipEffects?: boolean): void;
   renderBase(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
   renderGltfHousing(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
+  renderGltfDeviceProps(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
+  _drawGltfPropsForDevice(
+    renderPass: GPURenderPassEncoder,
+    globalUniformBuffer: GPUBuffer,
+    deviceId: string
+  ): void;
   renderFrame(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
   renderStatorRings(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
   renderWiring(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;

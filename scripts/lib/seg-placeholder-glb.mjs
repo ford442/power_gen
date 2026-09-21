@@ -58,6 +58,108 @@ export function box(cx, cy, cz, w, h, d) {
   return { positions, normals, uvs, indices };
 }
 
+/**
+ * Low-poly cylinder (optionally capped) about the Y or X axis. Quads on the
+ * side, a triangle fan per cap — enough for a coil bobbin or a VDG column
+ * without spending the placeholder byte budget on smoothness nobody will see
+ * from focus distance.
+ */
+export function cylinder(cx, cy, cz, radius, height, segments = 16, opts = {}) {
+  const { caps = true, axis = 'y' } = opts;
+  const seg = Math.max(3, Math.floor(segments));
+  const half = height * 0.5;
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  const indices = [];
+
+  // Map (radial u, radial v, axial) → world, so one body of code covers both axes.
+  const place = (ru, rv, ax) => (axis === 'x'
+    ? [cx + ax, cy + ru, cz + rv]
+    : [cx + ru, cy + ax, cz + rv]);
+  const axisNormal = axis === 'x' ? [1, 0, 0] : [0, 1, 0];
+
+  let base = 0;
+  for (let i = 0; i < seg; i++) {
+    const a0 = (i / seg) * Math.PI * 2;
+    const a1 = ((i + 1) / seg) * Math.PI * 2;
+    const c0 = Math.cos(a0);
+    const s0 = Math.sin(a0);
+    const c1 = Math.cos(a1);
+    const s1 = Math.sin(a1);
+    const ring = [
+      { p: place(c0 * radius, s0 * radius, -half), n: place(c0, s0, 0), u: i / seg, v: 0 },
+      { p: place(c1 * radius, s1 * radius, -half), n: place(c1, s1, 0), u: (i + 1) / seg, v: 0 },
+      { p: place(c1 * radius, s1 * radius, half), n: place(c1, s1, 0), u: (i + 1) / seg, v: 1 },
+      { p: place(c0 * radius, s0 * radius, half), n: place(c0, s0, 0), u: i / seg, v: 1 }
+    ];
+    for (const vert of ring) {
+      positions.push(vert.p[0], vert.p[1], vert.p[2]);
+      // `place` returns a translated point; subtract the centre for the normal.
+      normals.push(vert.n[0] - cx, vert.n[1] - cy, vert.n[2] - cz);
+      uvs.push(vert.u, vert.v);
+    }
+    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    base += 4;
+
+    if (caps) {
+      for (const [ax, sign] of [[half, 1], [-half, -1]]) {
+        const centre = place(0, 0, ax);
+        const p0 = place(c0 * radius, s0 * radius, ax);
+        const p1 = place(c1 * radius, s1 * radius, ax);
+        const n = [axisNormal[0] * sign, axisNormal[1] * sign, axisNormal[2] * sign];
+        // Wind the far cap the other way so both faces point outward.
+        const tri = sign > 0 ? [centre, p0, p1] : [centre, p1, p0];
+        for (const p of tri) {
+          positions.push(p[0], p[1], p[2]);
+          normals.push(n[0], n[1], n[2]);
+          uvs.push(0.5, 0.5);
+        }
+        indices.push(base, base + 1, base + 2);
+        base += 3;
+      }
+    }
+  }
+  return { positions, normals, uvs, indices };
+}
+
+/**
+ * Low-poly lat/long sphere. Default 16×8 is ~512 verts — a recognisable dome
+ * for a Van de Graaff at a fraction of the placeholder budget.
+ */
+export function sphere(cx, cy, cz, radius, segU = 16, segV = 8) {
+  const u = Math.max(3, Math.floor(segU));
+  const v = Math.max(2, Math.floor(segV));
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  const indices = [];
+  const at = (i, j) => {
+    const theta = (i / u) * Math.PI * 2;
+    const phi = (j / v) * Math.PI;
+    const n = [
+      Math.sin(phi) * Math.cos(theta),
+      Math.cos(phi),
+      Math.sin(phi) * Math.sin(theta)
+    ];
+    return { n, p: [cx + n[0] * radius, cy + n[1] * radius, cz + n[2] * radius], u: i / u, v: j / v };
+  };
+  let base = 0;
+  for (let j = 0; j < v; j++) {
+    for (let i = 0; i < u; i++) {
+      const quad = [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)];
+      for (const vert of quad) {
+        positions.push(vert.p[0], vert.p[1], vert.p[2]);
+        normals.push(vert.n[0], vert.n[1], vert.n[2]);
+        uvs.push(vert.u, vert.v);
+      }
+      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      base += 4;
+    }
+  }
+  return { positions, normals, uvs, indices };
+}
+
 export function merge(parts) {
   const positions = [];
   const normals = [];

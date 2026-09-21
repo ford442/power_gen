@@ -1,7 +1,16 @@
 /**
- * Load glTF CAD props for SEG focus view (WebGPU + seg-enhanced PBR).
- * Lazy multi-prop registry: resident housing stays after first focus;
- * focus-only props (coil former+) dispose when leaving SEG.
+ * Load glTF CAD props for the **focused device** (WebGPU + seg-enhanced PBR).
+ *
+ * Lazy per-device registry (ADR-0005 WS1): entering a focus view loads that
+ * bench's props and disposes every other bench's `focus`-policy props, so the
+ * GPU never holds two benches' CAD at once. SEG's resident housing is the one
+ * exception and survives a mode change.
+ *
+ * Scale: SEG props bake through the layout's `worldScale` and frame base offset
+ * (the assembly's size is preset-driven); every other bench bakes at scale 1
+ * with no Y offset, because its GLB is authored in its own metres and the device
+ * uniform already supplies world position and rotation.
+ *
  * WebGL2 fallback keeps procedural geometry only — see docs/GLTF_ASSETS.md.
  */
 import { loadGlb, parseGlb, extractGltfMeshes } from '../assets/gltf/gltf-loader';
@@ -15,7 +24,8 @@ import {
 import { uploadGltfCompressedAlbedo } from '../assets/gltf/ktx2-gpu';
 import {
   parseGltfHousingEnabled,
-  SEG_GLTF_PROPS,
+  allFocusPropIds,
+  propsForDevice,
   resolvePropMaterial,
   type SegGltfPropDef
 } from '../assets/gltf/prop-registry';
@@ -66,13 +76,13 @@ export const gltfSetupMethods: ThisType<Host> & {
     opts?: { propBuffers?: Record<string, ArrayBuffer> }
   ): Promise<void>;
   ensureGltfPropsForView(view: string): Promise<void>;
-  _loadGltfPropsForSegFocus(): Promise<void>;
-  _loadGltfPropsForSegFocusInner(): Promise<void>;
+  _loadGltfPropsForSegFocus(view?: string): Promise<void>;
+  _loadGltfPropsForSegFocusInner(view: string): Promise<void>;
   _uploadGltfProp(
     prop: SegGltfPropDef,
     ctx: { scale: number; yOffset: number; pickables: GltfPickable[] }
   ): Promise<void>;
-  _disposeFocusOnlyGltfProps(): void;
+  _disposeFocusOnlyGltfProps(keepDeviceId?: string): void;
   updateGltfHousingState(): void;
 } = {
   parseGltfHousingEnabled,
@@ -107,49 +117,66 @@ export const gltfSetupMethods: ThisType<Host> & {
   },
 
   /**
-   * Load / dispose props for the active view (SEG focus only).
+   * Load / dispose props for the active view. Every bench with registry entries
+   * gets the same treatment; leaving one disposes its focus-only props.
    */
   async ensureGltfPropsForView(view: string) {
     if (!this.gltfHousingEnabled) return;
-    if (view === 'seg') {
-      await this._loadGltfPropsForSegFocus();
-    } else {
-      this._disposeFocusOnlyGltfProps();
+    // Drop the props of whatever bench we just left before loading this one's.
+    this._disposeFocusOnlyGltfProps(view);
+    if (propsForDevice(view).length > 0) {
+      await this._loadGltfPropsForSegFocus(view);
     }
   },
 
   /** @private */
-  async _loadGltfPropsForSegFocus() {
+  async _loadGltfPropsForSegFocus(view: string = 'seg') {
     if (this._gltfLoadInFlight) return this._gltfLoadInFlight;
-    this._gltfLoadInFlight = this._loadGltfPropsForSegFocusInner()
+    this._gltfLoadInFlight = this._loadGltfPropsForSegFocusInner(view)
       .finally(() => { this._gltfLoadInFlight = null; });
     return this._gltfLoadInFlight;
   },
 
   /** @private */
-  async _loadGltfPropsForSegFocusInner() {
-    const layout = this.segLayout || this.refreshSEGLayout?.(1.0);
-    if (!layout) return;
-    const frameDims = computeFrameDimensions(layout);
-    const scale = layout.worldScale;
-    const yOffset = frameDims.baseBottomY;
+  async _loadGltfPropsForSegFocusInner(view: string) {
+    const props = propsForDevice(view) as SegGltfPropDef[];
+    if (props.length === 0) return;
+
+    // SEG geometry is layout-preset-scaled; other benches are authored in their
+    // own metres and placed by the device uniform.
+    let scale = 1;
+    let yOffset = 0;
+    if (props.some((p) => p.layoutScaled)) {
+      const layout = this.segLayout || this.refreshSEGLayout?.(1.0);
+      if (!layout) return;
+      const frameDims = computeFrameDimensions(layout);
+      scale = layout.worldScale;
+      yOffset = frameDims.baseBottomY;
+    }
+
     const pickables: GltfPickable[] = [...(this.gltfHousingPickables || [])];
     const already = new Set(this.gltfLoadedProps || []);
 
-    for (const prop of SEG_GLTF_PROPS as SegGltfPropDef[]) {
-      if (this.currentView !== 'seg') {
-        this._disposeFocusOnlyGltfProps();
+    for (const prop of props) {
+      // The user can leave focus mid-download; drop what we were loading for it.
+      if (this.currentView !== view) {
+        this._disposeFocusOnlyGltfProps(this.currentView ?? undefined);
         return;
       }
-      if (prop.placeholder || !prop.enabled()) continue;
       if (already.has(prop.id)) continue;
       try {
-        await this._uploadGltfProp(prop, { scale, yOffset, pickables });
+        await this._uploadGltfProp(prop, {
+          scale: prop.layoutScaled ? scale : 1,
+          yOffset: prop.layoutScaled ? yOffset : 0,
+          pickables
+        });
         this.gltfLoadedProps!.push(prop.id);
         already.add(prop.id);
       } catch (err) {
         console.warn(`[gltf] ${prop.id} load failed`, err);
         if (prop.id === 'housing') {
+          // The housing is the resident prop the SEG showroom is built around;
+          // losing it means the CAD path is not viable this session.
           this.gltfHousingEnabled = false;
           this.gltfHousingDrawables = [];
           this.gltfLoadedProps = [];
@@ -159,19 +186,20 @@ export const gltfSetupMethods: ThisType<Host> & {
       }
     }
 
-    if (this.currentView !== 'seg') {
-      this._disposeFocusOnlyGltfProps();
+    if (this.currentView !== view) {
+      this._disposeFocusOnlyGltfProps(this.currentView ?? undefined);
       return;
     }
 
     this.gltfHousingPickables = pickables;
-    if (!this._gltfPickHandlerAttached && this.gltfHousingEnabled) {
+    // Ray picking is SEG-only: the annotation ids belong to the SEG tour.
+    if (view === 'seg' && !this._gltfPickHandlerAttached && this.gltfHousingEnabled) {
       attachGltfHousingPickHandler(this);
       this._gltfPickHandlerAttached = true;
     }
 
     console.log(
-      `[gltf] CAD props ready: ${this.gltfLoadedProps!.join(', ') || '(none)'} — ` +
+      `[gltf] ${view} CAD props ready: ${this.gltfLoadedProps!.join(', ') || '(none)'} — ` +
       `${this.gltfHousingDrawables!.length} drawable(s), ${pickables.length} pick(s)`
     );
   },
@@ -307,6 +335,7 @@ export const gltfSetupMethods: ThisType<Host> & {
       this.gltfHousingDrawables!.push({
         name: drawable.name,
         propId: prop.id,
+        deviceId: prop.deviceId,
         role: drawable.role || prop.role,
         loadPolicy: prop.loadPolicy as 'resident' | 'focus',
         emissiveScale: mat.emissiveScale,
@@ -333,15 +362,27 @@ export const gltfSetupMethods: ThisType<Host> & {
   },
 
   /**
-   * Dispose focus-only CAD props when leaving SEG (overview stays light).
-   * Resident props (housing) keep GPU buffers.
+   * Dispose focus-only CAD props on a mode change (overview stays light).
+   * Resident props (SEG's housing) keep their GPU buffers.
+   *
+   * @param keepDeviceId the bench being entered — its own props survive, so
+   *   re-entering a view does not free and immediately reload the same GLBs.
+   *   Omit it (or pass a view with no props) to drop every focus-only prop.
    * @private
    */
-  _disposeFocusOnlyGltfProps() {
+  _disposeFocusOnlyGltfProps(keepDeviceId?: string) {
+    const focusIds = allFocusPropIds();
+    const keptIds = new Set(
+      keepDeviceId ? propsForDevice(keepDeviceId).map((p) => p.id) : []
+    );
+    /** Drop this prop's GPU buffers on this mode change? */
+    const drops = (propId: string | null | undefined): boolean =>
+      focusIds.has(propId || '') && !keptIds.has(propId || '');
+
     const kept = [];
     let freed = 0;
     for (const d of this.gltfHousingDrawables || []) {
-      if (d.loadPolicy === 'focus') {
+      if (d.loadPolicy === 'focus' && drops(d.propId)) {
         destroyGpuBuffer(d.gpu?.vertexBuffer);
         destroyGpuBuffer(d.gpu?.indexBuffer);
         destroyGpuBuffer(d.instanceBuffer);
@@ -353,27 +394,33 @@ export const gltfSetupMethods: ThisType<Host> & {
     }
     this.gltfHousingDrawables = kept;
 
-    const focusIds = new Set(
-      (SEG_GLTF_PROPS as SegGltfPropDef[]).filter((p) => p.loadPolicy === 'focus').map((p) => p.id)
-    );
-    this.gltfLoadedProps = (this.gltfLoadedProps || []).filter((id) => !focusIds.has(id));
-    this.gltfHousingAnchors = (this.gltfHousingAnchors || []).filter((a) => !focusIds.has(a.propId || ''));
-    this.gltfAnnotationPoints = (this.gltfAnnotationPoints || []).filter((a) => !focusIds.has(a.propId || ''));
-    this.gltfHousingPickables = (this.gltfHousingPickables || []).filter((p) => !focusIds.has(p.propId || ''));
+    this.gltfLoadedProps = (this.gltfLoadedProps || []).filter((id) => !drops(id));
+    this.gltfHousingAnchors = (this.gltfHousingAnchors || []).filter((a) => !drops(a.propId));
+    this.gltfAnnotationPoints = (this.gltfAnnotationPoints || []).filter((a) => !drops(a.propId));
+    this.gltfHousingPickables = (this.gltfHousingPickables || []).filter((p) => !drops(p.propId));
 
     if (freed > 0) {
       console.log(`[gltf] disposed ${freed} focus-only drawable(s) on mode leave`);
     }
   },
 
-  /** RPM / segOmega-driven emissive on housing trim (greenEmissive channel). */
+  /**
+   * Sim-driven emissive trim (greenEmissive channel).
+   *
+   * SEG props follow `segOmega`; a non-SEG prop follows its own device's
+   * `energyLevel`, because a transformer core glowing with the SEG's RPM would be
+   * telling the viewer something untrue.
+   */
   updateGltfHousingState() {
     if (!this.gltfHousingDrawables?.length) return;
-    const omega = this.segOmega ?? 0;
-    const emissive = Math.min(0.55, omega * 0.12);
+    const segEmissive = Math.min(0.55, (this.segOmega ?? 0) * 0.12);
     for (const d of this.gltfHousingDrawables) {
       const scale = d.emissiveScale ??
         (d.role === 'coil_former' || d.propId === 'coilFormer' ? 0.65 : 1.0);
+      const owner = d.deviceId && d.deviceId !== 'seg' ? this.devices?.[d.deviceId] : null;
+      const emissive = owner
+        ? Math.min(0.55, (owner.physicsState?.energyLevel ?? 0) * 0.55)
+        : segEmissive;
       updateGltfInstanceEmissive(this.device, d.instanceBuffer, emissive * scale);
     }
   }
