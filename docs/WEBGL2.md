@@ -66,9 +66,21 @@ left the fallback with no answer to the one thing the slice teaches, so
 
 It is a **readout, not a render path**: no GL state, no shader, and no contact
 with `WebGL2MultiDeviceVisualizer` beyond a `TelemetryHub` subscription. Gated to
-pulse-coil focus, and `?fdtd=0` kills it like the GPU panel.
-`window.fdtdHeatmapOverlay` exposes it for agents/e2e.
-Host: `src/fdtd-heatmap-overlay.ts`.
+pulse-coil focus, and `?fdtd=0` kills it like the GPU panel (nothing is even
+mounted). It sits **bottom-left**, above the mode label: the bottom-right corner
+belongs to `#tachometer`, and an RPM readout matters more than a wave picture.
+`pointer-events: none`, so it never eats a camera drag.
+
+Agent / e2e hooks on `window.fdtdHeatmapOverlay`:
+
+| Member | Use |
+|--------|-----|
+| `stats()` | `{ active, steps, peakEz, finite, hasMaterials, drive }` — tells a live panel from a blank rectangle |
+| `driveTarget` | Force the drive without running the plant, then watch it propagate |
+| `step()` | Advance one frame by hand |
+
+Host: `src/fdtd-heatmap-overlay.ts`. Covered by two e2e tests (hidden outside
+focus / visible and clear of the tachometer in it; `?fdtd=0` mounts nothing).
 
 ### Temporal AA
 

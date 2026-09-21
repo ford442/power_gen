@@ -1508,3 +1508,84 @@ test.describe('Lab sonification (?audio=1)', () => {
     expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
   });
 });
+
+test.describe('FDTD micro-grid heatmap (WebGL2 stand-in)', () => {
+
+  test('hidden outside pulse-coil focus, visible in it, and clear of the tachometer', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.fdtdHeatmapOverlay, { timeout: 30_000 });
+
+    // Overview: armed but inert — no stepping, nothing on screen.
+    const atBoot = await page.evaluate(() => ({
+      enabled: window.fdtdHeatmapOverlay.enabled,
+      active: window.fdtdHeatmapOverlay.active,
+      visible: !!document.querySelector('#fdtd-heatmap-overlay:not([hidden])')
+    }));
+    expect(atBoot.enabled).toBe(true);
+    expect(atBoot.active).toBe(false);
+    expect(atBoot.visible).toBe(false);
+
+    await page.evaluate(() => window.setMode?.('pulse-coil'));
+    await waitForEval(page, () => window.fdtdHeatmapOverlay.active === true, { timeout: 30_000 });
+
+    const focused = await page.evaluate(() => {
+      const el = document.getElementById('fdtd-heatmap-overlay');
+      const tach = document.getElementById('tachometer');
+      const a = el?.getBoundingClientRect();
+      const t = tach?.getBoundingClientRect();
+      const overlaps = a && t
+        && a.left < t.right && a.right > t.left && a.top < t.bottom && a.bottom > t.top;
+      return {
+        hidden: el?.hasAttribute('hidden') ?? null,
+        width: Math.round(a?.width ?? 0),
+        height: Math.round(a?.height ?? 0),
+        overlapsTachometer: !!overlaps,
+        // A readout must never swallow a camera drag.
+        pointerEvents: el ? getComputedStyle(el).pointerEvents : null
+      };
+    });
+    expect(focused.hidden).toBe(false);
+    expect(focused.width).toBeGreaterThan(100);
+    expect(focused.height).toBeGreaterThan(100);
+    expect(focused.overlapsTachometer).toBe(false);
+    expect(focused.pointerEvents).toBe('none');
+
+    // The grid must actually be evolving, not a blank canvas. Force the drive —
+    // the plant may be idle here — then step and read the public hook.
+    const evolves = await page.evaluate(() => {
+      const o = window.fdtdHeatmapOverlay;
+      o.driveTarget = 1.2;
+      for (let i = 0; i < 90; i++) o.step();
+      return o.stats();
+    });
+    expect(evolves.finite).toBe(true);
+    expect(evolves.peakEz).toBeGreaterThan(0);
+    expect(evolves.hasMaterials).toBe(true);
+    expect(evolves.steps).toBeGreaterThan(0);
+
+    // Leaving focus stops the stepping and hides it again.
+    await page.evaluate(() => window.setMode?.('overview'));
+    await waitForEval(page, () => window.fdtdHeatmapOverlay.active === false, { timeout: 30_000 });
+    const left = await page.evaluate(
+      () => document.getElementById('fdtd-heatmap-overlay')?.hasAttribute('hidden') ?? null
+    );
+    expect(left).toBe(true);
+
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('?fdtd=0 keeps the readout off entirely', async ({ page }) => {
+    await gotoWebGL2(page, 'fdtd=0');
+    await waitForEval(page, () => !!window.fdtdHeatmapOverlay, { timeout: 30_000 });
+    await page.evaluate(() => window.setMode?.('pulse-coil'));
+    const state = await page.evaluate(() => ({
+      enabled: window.fdtdHeatmapOverlay.enabled,
+      active: window.fdtdHeatmapOverlay.active,
+      mounted: !!document.getElementById('fdtd-heatmap-overlay')
+    }));
+    expect(state.enabled).toBe(false);
+    expect(state.active).toBe(false);
+    expect(state.mounted).toBe(false);
+  });
+});

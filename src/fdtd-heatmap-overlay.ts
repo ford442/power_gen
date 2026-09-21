@@ -16,6 +16,9 @@
  *   - the same material map (μ_r armature, copper turns) and the same sources,
  *     placed by world position, so it is the same picture at lower resolution
  *
+ * It sits bottom-left rather than bottom-right, because the tachometer owns that
+ * corner and an RPM readout matters more than a wave picture.
+ *
  * It is a **readout, not a render path**: no GL state, no shader, no interaction
  * with the WebGL2 renderer beyond reading TelemetryHub. It therefore cannot
  * regress the fallback's frame budget in any way a `?fdtd=0` cannot switch off.
@@ -142,8 +145,14 @@ export class FdtdHeatmapOverlay {
   private drive = 0;
   private raf = 0;
   private unsubscribe: (() => void) | null = null;
-  private lastSnapshotDrive = 0;
+  /**
+   * Drive the grid aims for, refreshed from every telemetry snapshot. Public so
+   * an agent or a bug report can force the panel without running the plant —
+   * `window.fdtdHeatmapOverlay.driveTarget = 1.2` then watch it propagate.
+   */
+  driveTarget = 0;
   private shouldRun = false;
+  private steps = 0;
 
   constructor(opts: FdtdHeatmapOptions = {}) {
     this.enabled = opts.enabled ?? parseFdtdEnabled();
@@ -166,7 +175,7 @@ export class FdtdHeatmapOverlay {
   }
 
   private onSnapshot(snap: TelemetrySnapshot): void {
-    this.lastSnapshotDrive = heatmapDriveFromSnapshot(snap, this.driveSource);
+    this.driveTarget = heatmapDriveFromSnapshot(snap, this.driveSource);
     const open = this.gateOpen(snap);
     if (open === this.shouldRun) return;
     this.shouldRun = open;
@@ -185,6 +194,7 @@ export class FdtdHeatmapOverlay {
       this.grid.reset();
     }
     this.drive = 0;
+    this.steps = 0;
     if (this.root) this.root.hidden = false;
     this.active = true;
     if (!this.raf) this.raf = requestAnimationFrame(() => this.tick());
@@ -215,10 +225,18 @@ export class FdtdHeatmapOverlay {
     const styles = document.createElement('style');
     styles.id = 'fdtd-heatmap-styles';
     styles.textContent = `
+      /*
+       * Bottom-LEFT, above #corner-bl's one-line mode label. Not the
+       * bottom-right corner: #tachometer lives there (absolute, bottom 8px,
+       * right 8px, 140px wide) and this panel is ~195px across, so it would
+       * cover the RPM readout outright.
+       */
       #fdtd-heatmap-overlay {
-        position: absolute; right: 16px; bottom: 16px; z-index: 5;
+        position: absolute; left: 12px; bottom: 34px; z-index: 5;
         background: rgba(2, 10, 18, 0.88); border: 1px solid #0ff3;
-        border-radius: 5px; padding: 6px 8px 5px; pointer-events: none;
+        border-radius: 5px; padding: 6px 8px 5px;
+        /* A readout, not a control: never eat a camera drag. */
+        pointer-events: none;
         font-size: 0.62rem; color: #8ad; line-height: 1.35;
       }
       #fdtd-heatmap-overlay[hidden] { display: none; }
@@ -242,14 +260,48 @@ export class FdtdHeatmapOverlay {
   step(): void {
     const grid = this.grid;
     if (!grid) return;
-    const target = Number.isFinite(this.lastSnapshotDrive) ? this.lastSnapshotDrive : 0;
+    const target = Number.isFinite(this.driveTarget) ? this.driveTarget : 0;
     this.drive += (target - this.drive) * (1 - Math.exp(-1 / DRIVE_SLEW_FRAMES));
     for (let i = 0; i < this.unitSources.length; i++) {
       this.frameSources[i].amp = this.unitSources[i].amp * this.drive;
     }
     grid.setSources(this.frameSources);
     for (let k = 0; k < MICRO_STEPS_PER_FRAME; k++) grid.step();
+    this.steps += MICRO_STEPS_PER_FRAME;
     this.paint();
+  }
+
+  /**
+   * Agent / e2e hook, in the spirit of `window.getRendererInfo()`: enough to tell
+   * "the panel is running and the field is alive" from "the panel is a blank
+   * rectangle", without reaching into the grid.
+   */
+  stats(): {
+    active: boolean;
+    steps: number;
+    peakEz: number;
+    finite: boolean;
+    hasMaterials: boolean;
+    drive: number;
+  } {
+    const g = this.grid;
+    let peakEz = 0;
+    let finite = true;
+    if (g) {
+      for (let i = 0; i < g.ez.length; i++) {
+        const v = Math.abs(g.ez[i]);
+        if (!Number.isFinite(v)) { finite = false; break; }
+        if (v > peakEz) peakEz = v;
+      }
+    }
+    return {
+      active: this.active,
+      steps: this.steps,
+      peakEz,
+      finite,
+      hasMaterials: !!g?.hasMaterials,
+      drive: this.drive
+    };
   }
 
   private paint(): void {
