@@ -119,8 +119,27 @@ WASM `SEGSimulator` default ring topology (12/22/32 at scene radii 3.5/5.5/7.5) 
 | **PipeParticle** | 32 | 8 | Energy pipes, `common/pipe-particle.wgsl` |
 | **FieldParticle** | 32 | 8 | Field-line advection, `common/field-particle.wgsl` |
 
-C++ `static_assert` and TS `assertParticleLayouts()` guard the 16/32-byte contract.
-Call `assertParticleLayouts()` once during bootstrap if you want a runtime check.
+C++ `static_assert` and TS `assertParticleLayouts()` guard the 16/32-byte contract;
+`src/main.ts` calls `assertParticleLayouts()` once at bootstrap.
+
+### Which stride crosses which boundary
+
+The two particle layouts are **deliberately not unified**: interactive GPU
+particles are 16 B `GpuParticle`, WASM particles are 32 B `SimParticle`.
+Unifying them is a format change touching every compute pass and seed path,
+so each boundary instead states which layout (if any) it carries:
+
+| Boundary | Carries | Stride | Notes |
+|----------|---------|--------|-------|
+| Plant worker → main (`plant-worker-protocol.ts`) | Packed mode-plant scalars + SEG roller state | f32 scalars, then `rollerExportStride` = **4** floats `[angle, ω, radius, height]` × N | **No particles.** The worker steps the plant only; interactive particles stay on the GPU |
+| Main → GPU (interactive particles) | `GpuParticle` | **16 B** (4 floats) | Seeded in `device-geometry.ts`, advected by `passes/particle-compute.wgsl`; struct in `common/particle.wgsl` |
+| WASM `sim_core` heap (`getParticleFloatView`) | `SimParticle` | **32 B** (8 floats) | Zero-copy `HEAPF32` view on the **main-thread** instance; used by the debug-panel diff and offline paths, never uploaded as GPU instances |
+| Offline worker (`wasm-offline-worker.ts`) | Telemetry CSV rows | — | Steps its own `sim_core` particles internally; returns rows, not particles |
+
+Rule of thumb: if a new path ever needs WASM particles on the GPU, add a C++
+export that packs straight to the 16 B `GpuParticle` layout (so neither thread
+inflates to 32 B only to drop half) rather than teaching the render path the
+32 B struct. No such path exists today, so no 16 B export ships yet.
 
 ## Scene-unit scaling
 

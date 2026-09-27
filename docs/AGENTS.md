@@ -260,6 +260,72 @@ power_gen/
 
 **Frame loop (both backends):** `LabSession.stepPlant` → backend device visuals → `LabSession.publishFrame` → encode draw.
 
+### Plant worker (off-frame plant step)
+
+`LabSession.stepPlant` no longer integrates on the animation-frame call stack
+when a `Worker` is available. What moves is exactly what `stepPlant` used to
+step: the SEG operator (JS) and, with `?wasmPhysics=1`, the C++ focus plant —
+`src/workers/plant-worker.ts` runs the same `segOperator.step` /
+`applyWasmPlant` code against its own mirror and its own `sim_core.wasm`
+instance. Field coupling, per-device visuals (`device.update` /
+`stepDevicePhysics` for non-focus benches), particles, energy network and
+`publishFrame` stay on the main thread with the GPU (ADR-0007: the worker
+never calls `requestAdapter`).
+
+| Piece | File |
+|-------|------|
+| Host (queue, epoch, apply) | `src/session/plant-worker-host.ts` |
+| Message protocol + packed snapshot | `src/session/plant-worker-protocol.ts` |
+| Worker entry | `src/workers/plant-worker.ts` |
+| Contract test (Node `worker_threads`) | `scripts/test-plant-worker.mjs` → `npm run test:plant-worker` |
+
+- **One frame of latency (by design).** Frame N applies batch N−1's result,
+  then posts frame N's substeps. The plant the renderer draws is one frame
+  behind the substeps the session clock issued; `getRendererInfo().plant.latencyFrames`
+  reports `1` on this path, `0` in-loop.
+- **One batch in flight.** Substeps issued while a batch runs queue up and ride
+  the next one (capped at 24 — 4 frames of `SimRateController.MAX_SUBSTEPS`),
+  so a slow worker does not lose sim time.
+- **Session clock stays authoritative.** The worker only steps what it is sent:
+  pause (`dt = 0`) posts nothing, `.` posts one step, `[` `]` scale dt before
+  it is sent. The worker never free-runs.
+- **Button presses win.** START / STOP / E-stop / reset / replay bump
+  `segOperator.epoch`; a result computed under an older epoch is dropped and its
+  substeps re-run from the new state. Knobs (drive, field, load) are read at
+  post time and simply take effect one frame later. Known gap: in hardware
+  **closed-loop** twin mode the per-frame RPM override is applied after the
+  post, so the worker integrates from its own ω and the override re-applies
+  each frame (display unchanged; only the integration start point differs).
+- **No SharedArrayBuffer.** Requests are structured-cloned; the plant result is
+  a transferred `Float32Array` (layout in `plant-worker-protocol.ts`, strides in
+  [`PHYSICS_CONSTANTS.md`](./PHYSICS_CONSTANTS.md#particle-layouts)). Default
+  Pages / `file:` boot needs no COOP/COEP headers.
+- **`segWasm` stays truthful.** The main-thread `sim_core` instance is not
+  stepped on this path, so the host publishes the worker's mode plant into the
+  bridge (`segWasm.getMode()` / `getModePlant()` / `lastRollerMeanOmega`).
+  Both instances load (≈ 60 KB wasm + 16 MB initial heap each) — the main one
+  still serves the debug-panel benchmark and the in-loop fallback. Their C++
+  plant states are independent, so a hand-over between paths (the worker
+  becoming ready a few frames after boot, or enabling WASM from the debug
+  panel) restarts the focus plant once from the worker's instance.
+- **Emscripten:** the release `ENVIRONMENT=web` glue already runs in a
+  dedicated worker (it only needs `fetch` + `WebAssembly`), so no
+  `ENVIRONMENT=worker` target was added. `src/wasm/index.ts` loads it with
+  `importScripts` (production: Vite emits the worker as a classic IIFE) or by
+  evaluating the fetched glue (dev: module worker).
+
+**Fallback — in-loop step, exactly as before** (`plant.backend === 'in-loop'`,
+`plant.fallbackReason` says why): no `Worker` global · `?plantWorker=0` ·
+worker not ready yet (first frames after boot) · worker threw (it is terminated
+and never retried) · `?wasmPhysics=1` but the worker could not load `sim_core` ·
+replay (plant step bypassed anyway).
+
+**Measuring it:** F3 → *Plant step (CPU)* shows main-thread ms inside
+`stepPlant` and the worker's batch ms; `window.getRendererInfo().plant` has the
+same numbers plus queue depth and dropped results. Compare against
+`?plantWorker=0`. Golden JS ⇄ C++ parity (`npm run test:golden`) stays
+in-process and does not involve the worker.
+
 **WebGPU context (high level):** one adapter/device in `WebGPUManager` (`featureLevel: core` with compatibility retry); depth `depth24plus` or `depth32float` when SSR is on; canvas preferred format, `alphaMode: 'opaque'`, explicit `colorSpace` + `toneMapping`. Full matrix: [`WEBGPU.md`](./WEBGPU.md). WebGL2 gaps: [`WEBGL2.md`](./WEBGL2.md).
 
 Architecture decisions: [`docs/adr/`](./adr/).
@@ -275,6 +341,7 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `renderer` | `webgpu` \| `webgl2` | **webgpu** (required) | Force backend. `webgl2` is **opt-in only** (not auto-fallback). `localStorage` webgl2 is ignored for default boot. |
 | `wasmPhysics` | `1` | off | Enable C++ WASM plant (`seg-physics-bridge`) |
 | `wasm` | `1` | off | Alias of `wasmPhysics=1` |
+| `plantWorker` | `0` | on (when `Worker` exists) | Keep `LabSession.stepPlant` on the animation frame instead of the plant worker — A/B timing, or debugging the worker. See **Plant worker** above |
 | `gpuPower` | `low` \| `low-power` | `high-performance` | Adapter / WebGL2 context `powerPreference: 'low-power'` (tablet / projector carts). Unset or any other value keeps the default boot |
 | `gpuTiming` | `1` | off | Request `timestamp-query` feature; enable queries in debug panel after reload |
 | `p3` | `1` | off | WebGPU canvas `colorSpace: 'display-p3'` (default `srgb` for CI screenshots) |
@@ -378,13 +445,15 @@ npm run check:wgsl    # extract includes → naga
 npm run check:post    # CPU↔WGSL post contracts
 npm run validate      # typecheck + wasm:native + check:post + check:wgsl
 npm run wasm:native   # g++ smoke test, no Emscripten
+npm run wasm:native:san  # sim_core_test under ASan + UBSan (skips if no sanitizer runtime)
+npm run test:plant-worker # LabSession ⇄ plant worker contract (Node worker_threads)
 npm run wasm:build    # scripts/build-wasm.sh
 ```
 
 | Workflow | What |
 |----------|------|
 | `.github/workflows/static.yml` | typecheck + `build:site` → Pages |
-| `.github/workflows/validate.yml` | typecheck, site build, native C++, WGSL (`REQUIRE_NAGA=1`) |
+| `.github/workflows/validate.yml` | typecheck, plant-worker contract, site build, native C++ (+ ASan/UBSan when the runner has the runtimes), WGSL (`REQUIRE_NAGA=1`) |
 | `.github/workflows/build-wasm.yml` | WASM rebuild when enabled |
 
 ---

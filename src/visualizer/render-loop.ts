@@ -61,6 +61,7 @@ export const renderLoopMethods: ThisType<Host> & {
       frameTimeMs: profiler.lastFrameTimeMs,
       gpuTimeMs: profiler.lastGpuTimeMs
     });
+    profiler.recordPlant(this.session.plantStats);
     profiler.beginFrameCpu();
     this.segOmega = this.session.segOmega;
     this.updateGltfHousingState?.();

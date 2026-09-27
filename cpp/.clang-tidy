@@ -1,0 +1,17 @@
+# Advisory clang-tidy profile for sim_core (not run with -Werror in CI).
+# Run: make tidy   (needs clang-tidy + `make compile-db` first)
+#
+# Kept deliberately narrow: bug-finders and nullptr modernisation. The plants
+# are small ODEs full of physical constants, so readability-magic-numbers and
+# friends would bury every real finding — do not enable them here.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  modernize-use-nullptr,
+  performance-unnecessary-copy-initialization,
+  performance-unnecessary-value-param
+WarningsAsErrors: ''
+HeaderFilterRegex: 'cpp/src/.*'
+FormatStyle: none

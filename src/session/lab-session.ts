@@ -37,8 +37,10 @@ import {
   type SessionDevice,
   type SessionDeviceMap
 } from './apply-wasm-plant';
+import { PlantWorkerHost, type PlantStats } from './plant-worker-host';
 
 export type { SessionDevice, SessionDeviceMap } from './apply-wasm-plant';
+export type { PlantStats } from './plant-worker-host';
 
 export type LabRendererId = 'webgpu' | 'webgl2';
 
@@ -85,6 +87,22 @@ export class LabSession {
   heronLayoutPreset: string;
   heronLayout: HeronLayoutWithMeta | null = null;
 
+  /**
+   * Off-frame plant step (null → always in-loop: no `Worker`, or
+   * `?plantWorker=0`). See plant-worker-host.ts for the one-frame delay.
+   */
+  plantWorker: PlantWorkerHost | null = PlantWorkerHost.create();
+  plantStats: PlantStats = {
+    backend: 'in-loop',
+    fallbackReason: this.plantWorker ? 'worker starting' : PlantWorkerHost.unavailableAtBoot,
+    mainMs: 0,
+    workerMs: 0,
+    latencyFrames: 0,
+    pendingSteps: 0,
+    droppedResults: 0,
+    wasmInWorker: false
+  };
+
   constructor() {
     this.hardwareBridge = new HardwareBridge({
       onError: (e: unknown) => console.error('[HardwareBridge]', e)
@@ -117,6 +135,10 @@ export class LabSession {
 
   /**
    * Operator + optional WASM plant. Backends then run GPU/CPU device visuals.
+   *
+   * With a plant worker the step itself runs off the animation frame and this
+   * applies the *previous* batch's result (one frame of latency); otherwise
+   * the operator / C++ plant step in-loop exactly as before.
    */
   stepPlant(deltaTime: number, speed: number, quality: LabSessionQuality = {}): {
     simSteps: number[];
@@ -124,6 +146,7 @@ export class LabSession {
     useWasm: boolean;
     drive: number;
   } {
+    const t0 = performance.now();
     this.speedMult = speed;
     const load: SimRateLoad = {
       qualityLevel: quality.qualityLevel,
@@ -143,16 +166,35 @@ export class LabSession {
     // so the default boot is the isolated classroom it has always been.
     this.fieldNetwork.update({ devices: this.devices, devicesEnabled: this.devicesEnabled });
 
-    if (useWasm) {
-      applyWasmPlant({ devices: this.devices, focus, simSteps, drive });
-    } else if (!replayLocked) {
-      for (const subDt of simSteps) {
-        if (subDt > 0) segOperator.step(subDt);
+    const worker = this.plantWorker;
+    const fallbackReason = replayLocked
+      ? 'replay'
+      : (worker ? worker.unavailableReason(useWasm) : PlantWorkerHost.unavailableAtBoot);
+
+    if (worker && fallbackReason === null) {
+      worker.step({ devices: this.devices, focus, simSteps, drive, useWasm });
+    } else {
+      worker?.cancel();
+      if (useWasm) {
+        applyWasmPlant({ devices: this.devices, focus, simSteps, drive });
+      } else if (!replayLocked) {
+        for (const subDt of simSteps) {
+          if (subDt > 0) segOperator.step(subDt);
+        }
       }
     }
 
     this.segOmega = segOperator.physics.segOmega;
     this.corona = segOperator.physics.corona;
+    this.plantStats = {
+      backend: fallbackReason === null ? 'worker' : 'in-loop',
+      fallbackReason,
+      mainMs: performance.now() - t0,
+      latencyFrames: fallbackReason === null ? 1 : 0,
+      ...(worker
+        ? worker.stats()
+        : { workerMs: 0, pendingSteps: 0, droppedResults: 0, wasmInWorker: false })
+    };
     return { simSteps, replayLocked, useWasm, drive };
   }
 

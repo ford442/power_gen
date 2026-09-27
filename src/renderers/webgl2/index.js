@@ -161,6 +161,7 @@ export class WebGL2MultiDeviceVisualizer {
         heronLayoutPreset: this.heronLayoutPreset,
         devicesEnabled: { ...this.devicesEnabled },
         wasmPhysics: !!(typeof window !== 'undefined' && window.segWasm?.enabled),
+        plant: { ...this.session.plantStats },
         telemetry: snap?.seg
           ? {
               rpm: snap.seg.rpmDisplay,

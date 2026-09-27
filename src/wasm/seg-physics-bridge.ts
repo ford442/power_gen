@@ -20,6 +20,13 @@ let _instance: SEGSim | null = null;
 let _enabled = false;
 /** Last zero-copy roller view used as a live metric */
 let _lastRollerMeanOmega = 0;
+/**
+ * Plant worker (LabSession): the C++ plant that actually steps lives in the
+ * worker's own sim_core instance, so this main-thread instance goes stale.
+ * The host publishes the worker's last mode plant here and `getMode()` /
+ * `getModePlant()` report it instead. Null whenever the plant steps in-loop.
+ */
+let _remotePlant: { mode?: string } | null = null;
 
 function isWasmEnabled(): boolean {
   if (typeof window === 'undefined') return false;
@@ -38,6 +45,10 @@ export interface SegWasmBridge {
   readonly available: boolean;
   readonly enabled: boolean;
   readonly lastRollerMeanOmega: number;
+  /** Plant worker: publish the zero-copy metric its own sim_core instance computed. */
+  reportRollerMeanOmega(meanOmega: number): void;
+  /** Plant worker: publish (or clear, with null) the mode plant it last stepped. */
+  reportRemotePlant(plant: { mode?: string } | null): void;
 
   init(): Promise<SEGSim | null>;
   dispose(): void;
@@ -103,6 +114,14 @@ export const segWasm: SegWasmBridge = {
   /** Live metric from zero-copy roller buffer (mean |ω|) */
   get lastRollerMeanOmega() {
     return _lastRollerMeanOmega;
+  },
+
+  reportRollerMeanOmega(meanOmega: number) {
+    if (Number.isFinite(meanOmega)) _lastRollerMeanOmega = meanOmega;
+  },
+
+  reportRemotePlant(plant: { mode?: string } | null) {
+    _remotePlant = plant;
   },
 
   async init() {
@@ -216,6 +235,7 @@ export const segWasm: SegWasmBridge = {
   },
 
   getMode() {
+    if (_remotePlant?.mode) return wasmModeForDevice(_remotePlant.mode) ?? 0;
     return _instance?.getMode?.() ?? 0;
   },
 
@@ -251,6 +271,7 @@ export const segWasm: SegWasmBridge = {
   },
 
   getModePlant() {
+    if (_remotePlant) return _remotePlant;
     return _instance?.getModePlant?.() ?? null;
   },
 

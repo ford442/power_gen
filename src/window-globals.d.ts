@@ -130,6 +130,17 @@ export interface RendererInfoSnapshot {
   };
   /** WebGPU: bc | etc2 | astc | none. WebGL2 is always none. */
   textureCompression?: string;
+  /** Where `LabSession.stepPlant` ran last frame (plant worker vs in-loop) and its cost. */
+  plant?: {
+    backend: 'worker' | 'in-loop';
+    fallbackReason: string | null;
+    mainMs: number;
+    workerMs: number;
+    latencyFrames: number;
+    pendingSteps: number;
+    droppedResults: number;
+    wasmInWorker: boolean;
+  };
 }
 
 /** Canvas readback returned by window.captureCanvasFrame() (WebGL2 fallback + agent/e2e hooks). */

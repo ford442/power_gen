@@ -150,6 +150,9 @@ export class DebugPanel {
 
       <div style="color: #888;">Draw prep (CPU):</div>
       <div style="color: #0ff;">${(stats.drawPrepMs ?? 0).toFixed(2)} ms${stats.overviewCullActive ? ' · GPU cull' : ''}</div>
+
+      <div style="color: #888;">Plant step (CPU):</div>
+      <div style="color: #0ff;">${(stats.plantMs ?? 0).toFixed(2)} ms main · ${stats.plantBackend === 'worker' ? `worker ${(stats.plantWorkerMs ?? 0).toFixed(2)} ms (+1 frame)` : (stats.plantBackend || 'in-loop')}</div>
       <div style="color: #888;">Post Quality:</div>
       <div style="color: ${stats.qualityTier === 'critical' || stats.qualityTier === 'low' ? '#ff4' : '#4f4'}; font-size: 10px;">${stats.postQualitySummary || '—'}</div>
 

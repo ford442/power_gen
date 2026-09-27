@@ -103,7 +103,7 @@ async function loadSimCoreFactory(): Promise<SimCoreFactory | null> {
     // Emscripten MODULARIZE output is not an ES module — fall through to script tag.
   }
 
-  if (typeof document === 'undefined') return null;
+  if (typeof document === 'undefined') return loadSimCoreFactoryInWorker();
 
   return new Promise((resolve) => {
     const script = document.createElement('script');
@@ -116,4 +116,39 @@ async function loadSimCoreFactory(): Promise<SimCoreFactory | null> {
     script.onerror = () => resolve(null);
     document.head.appendChild(script);
   });
+}
+
+/**
+ * Dedicated worker (plant / offline workers). There is no `<script>` tag, and
+ * the `ENVIRONMENT=web` MODULARIZE glue is a classic script, so the dynamic
+ * import above loads it as a module whose `var SimCore` never escapes module
+ * scope. The glue itself only needs `fetch` + `WebAssembly`, both present in a
+ * dedicated worker, so no `ENVIRONMENT=worker` build is required:
+ *
+ *   1. classic worker → `importScripts` (throws in module workers);
+ *   2. module worker  → fetch the glue text and evaluate it as a function
+ *      body that returns the factory it declares.
+ */
+async function loadSimCoreFactoryInWorker(): Promise<SimCoreFactory | null> {
+  const g = globalThis as { importScripts?: (...urls: string[]) => void; SimCore?: SimCoreFactory };
+  if (typeof g.importScripts === 'function') {
+    try {
+      g.importScripts(WASM_JS_URL);
+      if (typeof g.SimCore === 'function') return g.SimCore;
+    } catch {
+      // Module worker: importScripts is defined but always throws.
+    }
+  }
+  try {
+    const res = await fetch(WASM_JS_URL);
+    if (!res.ok) return null;
+    const source = await res.text();
+    const factory = new Function(
+      `${source}\n;return typeof SimCore === 'function' ? SimCore : null;`
+    )() as SimCoreFactory | null;
+    return typeof factory === 'function' ? factory : null;
+  } catch (err) {
+    console.warn('[sim_core] Could not evaluate SimCore glue in worker:', err);
+    return null;
+  }
 }
