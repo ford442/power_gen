@@ -5,6 +5,7 @@
 import { SEGSim } from './sim';
 import { rowFromWasmSeg, rowsToCsv, TELEMETRY_CSV_COLUMNS, type TelemetryCsvRow } from '../telemetry/telemetry-schema';
 import { SEG_SPEC } from '../seg-operator-state';
+import type { OfflineWorkerResponse } from '../workers/wasm-offline-worker';
 
 export interface OfflineSegExportOpts {
   durationSec?: number;
@@ -94,10 +95,10 @@ export async function runOfflineSegExport(opts: OfflineSegExportOpts = {}): Prom
 export function runOfflineSegExportInWorker(opts: OfflineSegExportOpts = {}): Promise<OfflineSegExportResult> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(
-      new URL('../workers/wasm-offline-worker.js', import.meta.url),
+      new URL('../workers/wasm-offline-worker.ts', import.meta.url),
       { type: 'module' }
     );
-    worker.onmessage = (e: MessageEvent<any>) => {
+    worker.onmessage = (e: MessageEvent<OfflineWorkerResponse>) => {
       worker.terminate();
       if (e.data?.ok) resolve(e.data);
       else reject(new Error(e.data?.error || 'Worker failed'));

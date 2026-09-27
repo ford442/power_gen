@@ -128,6 +128,15 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 - Physics constants SoT: `physics/constants.json` → codegen → `ValidatedConstants.ts` (ADR-0002/0006). Wolfram MCP manager was removed; do not reintroduce it on the default boot path.
 - **Import style:** JS entry paths import TypeScript modules **extensionless** (e.g. `./telemetry-hub` → `telemetry-hub.ts`). TypeScript sources may use a `.js` emit suffix for cross-file references (`moduleResolution: bundler`). Do not use `from '…ts'` in app code.
 
+### Hygiene (Wave 10 — complete)
+
+| Item | Status |
+|------|--------|
+| 700-line rule restored: `cpp/src/sim_core_standalone.cpp` → `main` + CSV export, with one TU per `--mode` family under `cpp/src/standalone/` (`plant_smokes`, `system_smokes`, `golden`, `bench`; `GOLDEN_CASES` stays the SoT for `test:golden`) | Done |
+| `webgpu-manager.ts` split into `webgpu-init/{adapter,canvas,device-lost}.ts`; public `WebGPUManager` statics unchanged | Done |
+| `seg-dashboard-layout.css` split: shell / `seg-operator-chrome.css` / `seg-layout-presets.css` / `seg-overlays.css` (linked in that order from `index.html`) | Done |
+| `workers/wasm-offline-worker.js` → `.ts` (typed `OfflineWorkerResponse`); Vite worker URL updated | Done |
+
 ### Catalog-driven telemetry chrome (Wave 8 — complete)
 
 | Item | Status |
@@ -154,7 +163,7 @@ APIs per the shared plant-clock rule.
 | Boot policy + shared geometry: `renderers/renderer-selector.ts`, `renderers/shared/primitive-geometry.ts`, `electromagnet-controller.ts`, `devices/register-plugins.ts` → `.ts` | Done |
 | SEG focus chrome: `seg-annotations`, `seg-diagram-2d`, `seg-materials`, `seg-enhanced-geometry`, `seg-roller-model`, `seg-frame-model` → `.ts`; deleted stub `seg-frame-model.d.ts` | Done |
 
-**Still JavaScript (intentional):** `renderers/webgl2/**` (GLSL path, ADR-0001), `seg-geometry/**` + `seg-geometry-generators.js` (procedural builders), `shaders/generators/*` (thin `?raw` re-exports), `shaders/wgsl-include.js` / Vite plugin, `multi-device-shaders.js`. `src/wasm/offline-runner.js` keeps its hand-written `offline-runner.d.ts` (not part of this wave). `src/scientific-ui.js` / `src/scientific-ui-utils.js` are deprecated re-export shims kept for backward compat — import `scientific-ui/index` / `scientific-ui/utils/index` directly instead.
+**Still JavaScript (intentional):** `renderers/webgl2/**` (GLSL path, ADR-0001), `seg-geometry/**` + `seg-geometry-generators.js` (procedural builders), `shaders/generators/*` (thin `?raw` re-exports), `shaders/wgsl-include.js` / Vite plugin, `multi-device-shaders.js`. The root `scientific-ui.js` / `scientific-ui-utils.js` shims and `wasm/offline-runner.js` (+ its hand-written `.d.ts`) are **deleted** — import `scientific-ui/index` / `scientific-ui/utils/index` and `wasm/offline-runner` directly. The last untyped worker, `workers/wasm-offline-worker`, is now `.ts` (Wave 10).
 
 ### TypeScript migration (Wave 6 — complete)
 
@@ -166,7 +175,7 @@ APIs per the shared plant-clock rule.
 | glTF: `assets/gltf/*` → `.ts`; deleted stub `.d.ts` for `gltf-gpu`, `prop-registry`, `overview-cull`, `layout-packer`, `device-mesh-layouts` | Done |
 | Retire Wolfram status panel UI (ADR-0006 follow-up) | Done |
 
-**Still JavaScript (intentional):** `renderers/webgl2/**` (GLSL path, ADR-0001), `seg-geometry/**` (procedural builders), `scientific-ui/gauges/**` (the Wolfram status gauge was removed, not migrated), `shaders/generators/*` (thin `?raw` re-exports), `shaders/wgsl-include.js` / Vite plugin, `multi-device-shaders.js`, `seg-annotations.js`, `electromagnet-controller.js`, `devices/register-plugins.js`, `scientific-data.js`.
+**Still JavaScript:** the intentional set listed under Wave 7 below. The Wave-6 leftovers (`scientific-ui/gauges/**`, `seg-annotations`, `electromagnet-controller`, `devices/register-plugins`, `scientific-data`) were all migrated in Wave 7; the Wolfram status gauge was removed, not migrated.
 
 ### TypeScript migration (Wave 5 — complete)
 
@@ -180,7 +189,7 @@ APIs per the shared plant-clock rule.
 | `assets/scene/scene-node.js` + shared `url-params` / `view-lod` / `device-view` → `.ts` | Done |
 | Delete `WolframMCPManager` from default boot; ADR-0006 updated | Done |
 
-**Still JavaScript (as of Wave 5):** WebGL2 path, procedural geometry builders, scientific-ui gauges, debug-panel UI, some device managers (`device-geometry.js`, uniforms/compute/pipeline managers) — see Wave 6 above for the follow-up that migrated debug-panel and the device managers.
+**Still JavaScript (as of Wave 5):** WebGL2 path, procedural geometry builders, scientific-ui gauges, debug-panel UI, some device managers — all but the intentional set were migrated in Waves 6–7 (see above).
 
 ### TypeScript migration (Wave 4 — complete)
 
@@ -220,7 +229,8 @@ power_gen/
 │   ├── session/                  # LabSession host (plant, mode, telemetry)
 │   ├── multi-device-visualizer.ts
 │   ├── visualizer/               # WebGPU GPU collaborators (geometry, post, glTF, frame loop)
-│   ├── webgpu-manager.ts
+│   ├── webgpu-manager.ts         # Device lifetime (init / reinit); statics delegate to webgpu-init/
+│   ├── webgpu-init/              # adapter.ts (negotiation) · canvas.ts (configure) · device-lost.ts
 │   ├── pipeline-layout-cache.ts  # Explicit layouts + BindGroupLayoutName
 │   ├── device-instance.ts / devices/  # Registry, config, plugins, mixins
 │   ├── energy-pipe.ts            # Overview energy transfer viz (+ network)
@@ -265,6 +275,7 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `renderer` | `webgpu` \| `webgl2` | **webgpu** (required) | Force backend. `webgl2` is **opt-in only** (not auto-fallback). `localStorage` webgl2 is ignored for default boot. |
 | `wasmPhysics` | `1` | off | Enable C++ WASM plant (`seg-physics-bridge`) |
 | `wasm` | `1` | off | Alias of `wasmPhysics=1` |
+| `gpuPower` | `low` \| `low-power` | `high-performance` | Adapter / WebGL2 context `powerPreference: 'low-power'` (tablet / projector carts). Unset or any other value keeps the default boot |
 | `gpuTiming` | `1` | off | Request `timestamp-query` feature; enable queries in debug panel after reload |
 | `p3` | `1` | off | WebGPU canvas `colorSpace: 'display-p3'` (default `srgb` for CI screenshots) |
 | `hdr` | `1` | off | Canvas `toneMapping.mode: 'extended'` **only if** the display reports `(dynamic-range: high)`; bloom composite then outputs linear HDR (`outputLinearHdr`) instead of ACES |
@@ -320,7 +331,7 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 | `src/session/lab-session.ts` | Shared lab host: operator, WASM plant, mode, energy network, twin, telemetry |
 | `src/multi-device-visualizer.ts` | WebGPU backend: devices, pipes, bloom, frame encode, glTF |
 | `src/visualizer/*.ts` | Named WebGPU collaborators (not prototype mixins) |
-| `src/webgpu-manager.ts` | Single adapter/device/canvas/depth path |
+| `src/webgpu-manager.ts` + `src/webgpu-init/*` | Single adapter/device/canvas/depth path: `adapter.ts` (request + feature/limit negotiation), `canvas.ts` (sizing + `configure`), `device-lost.ts` (hooks + reload overlay); the manager owns `init()` / `reinit()` |
 | `src/pipeline-layout-cache.ts` | Shared bind-group layouts + pipelines |
 | `src/device-instance.ts` + `devices/*` | Per-device update/render mixins, registry plugins, `device-config.ts` |
 | `src/energy-pipe.ts` | Overview Bézier energy transfer (visual; `EnergyNetwork` in `renderers/shared/`) |
@@ -394,8 +405,10 @@ npm run wasm:build    # scripts/build-wasm.sh
 - Post cost is also tiered when the showroom stack is present (ADR-0005 WS2) —
   particles/mesh remain the first cut; post follows on low FPS.
 - Details: profiler (F3 / Ctrl+D), [`SHADERS.md`](./SHADERS.md) for WGSL cost.
-- Instance cull today is **CPU prefix** (draw first N / SEG roller half-ring). Full GPU
-  frustum compute for plugins is optional follow-up (ADR-0005 WS4).
+- Instance cull: CPU prefix (draw first N / SEG roller half-ring) **plus** a GPU
+  frustum/LOD compute pass — `shaders/passes/overview-cull-compute.wgsl` +
+  `devices/overview-cull.ts` write per-device particle draw-indirect args with no CPU
+  readback (ADR-0005 WS4, shipped).
 
 ---
 

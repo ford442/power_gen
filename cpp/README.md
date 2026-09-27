@@ -306,7 +306,8 @@ cpp/
     sim_core.h           ← Vec3, SimParticle, SEGRollerState, SEGSimulator API
     sim_core_facade.cpp  ← ctor, mode dispatch, cross-mode accessors
     sim_core_embind.cpp  ← Emscripten / Embind surface (WASM only)
-    sim_core_standalone.cpp ← native smoke-test driver + CSV export
+    sim_core_standalone.cpp ← native driver: main() + CSV export
+    standalone/             ← one TU per --mode family (plant smokes, system smokes, golden, bench)
     plant/
       plant_common.h        ← shared helpers (clampf, hash1/rnd, lcg, Swamee–Jain f)
       heron_plant.h/.cpp    ← HeronState + Bernoulli / Swamee–Jain

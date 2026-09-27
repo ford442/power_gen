@@ -1,0 +1,23 @@
+/**
+ * SEG dashboard — layout-preset button row (SEG layout presets in the left panel).
+ */
+
+    /* SEG layout preset buttons */
+    .layout-btn {
+      display: block;
+      width: 100%;
+      margin: 4px 0;
+      padding: 6px 8px;
+      background: #07101a;
+      border: 1px solid #0ff3;
+      color: #0aa;
+      cursor: pointer;
+      transition: all 0.25s;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-align: left;
+      letter-spacing: 0.3px;
+    }
+    .layout-btn:hover  { background: #0ff1; color: #0ff; border-color: #0ff6; }
+    .layout-btn.active { background: #00d4ff18; color: #0ff; border-color: #0ff; box-shadow: 0 0 8px #0ff4; }

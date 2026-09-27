@@ -1,13 +1,8 @@
 import type { LayoutRegistrar } from '../types.js';
-import { uniform, storage, CS } from '../helpers.js';
+import { BGL } from '../generated/bind-group-layouts.js';
 
 /** Overview frustum cull → draw-indirect. */
 export function registerCullLayouts(r: LayoutRegistrar): void {
-  r.bgl('overviewCull', [
-    storage(0, CS, true),
-    uniform(1, CS),
-    storage(2, CS, false),
-    storage(3, CS, false)
-  ]);
+  r.bgl('overviewCull', BGL.overviewCull);
   r.pl('overviewCull', ['overviewCull']);
 }

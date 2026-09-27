@@ -57,6 +57,9 @@ else()
   # per-TU include flags, not a replacement smoke binary. Same flags as the
   # Makefile's `native` target so clangd sees what CI compiles, minus the
   # Embind TU, which has no native content to jump into.
+  # standalone/*.cpp: the native `--mode` runs (native only, like the driver).
+  file(GLOB SIM_CORE_STANDALONE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/standalone/*.cpp")
+  target_sources(sim_core PRIVATE ${SIM_CORE_STANDALONE_SOURCES})
   target_compile_definitions(sim_core PRIVATE SIM_CORE_STANDALONE)
   target_compile_options(sim_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
   set_target_properties(sim_core PROPERTIES OUTPUT_NAME sim_core_test)

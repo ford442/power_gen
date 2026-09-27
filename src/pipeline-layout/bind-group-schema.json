@@ -1,0 +1,130 @@
+{
+  "$comment": "Source of truth for every @group(0) bind group layout. Entry = [binding, stages, kind, storageTextureFormat?]. stages: V/F/C letters. kinds: uniform | storage | storage-ro | texture | texture-depth | texture-depth-ms | texture-array | storage-texture | storage-texture-array | sampler. 'pipelines' lists the WGSL pass files (src/shaders/passes/) of each pipeline built on the layout. Regenerate: npm run codegen:bindings",
+  "layouts": {
+    "roller": {
+      "pipelines": [["roller-vert.wgsl", "roller-frag.wgsl"]],
+      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [2, "V", "storage-ro"], [3, "F", "uniform"], [5, "F", "storage-ro"]]
+    },
+    "particle": {
+      "pipelines": [["particle-vert.wgsl", "particle-frag.wgsl"]],
+      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [3, "F", "uniform"], [4, "V", "storage-ro"]]
+    },
+    "segEnhanced": {
+      "pipelines": [["seg-enhanced-vert.wgsl", "seg-enhanced-frag.wgsl"]],
+      "entries": [
+        [0, "VF", "uniform"], [1, "VF", "uniform"], [2, "V", "storage-ro"], [3, "F", "uniform"],
+        [4, "V", "uniform"], [5, "F", "uniform"], [6, "F", "storage-ro"], [7, "F", "texture-array"], [8, "F", "sampler"]
+      ]
+    },
+    "fluxSegment": {
+      "pipelines": [["flux-segment-vert.wgsl", "flux-segment-frag.wgsl"]],
+      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [2, "V", "storage-ro"]]
+    },
+    "fieldParticles": {
+      "pipelines": [["energy-arc-vert.wgsl", "energy-arc-frag.wgsl"], ["field-line-vert.wgsl", "field-line-frag.wgsl"]],
+      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [4, "V", "storage-ro"]]
+    },
+    "energyPipe": {
+      "pipelines": [["energy-pipe-vert.wgsl", "energy-pipe-frag.wgsl"]],
+      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [2, "V", "storage-ro"]]
+    },
+    "energyPipeCompute": {
+      "pipelines": [["energy-pipe-compute.wgsl"]],
+      "entries": [[0, "C", "storage"], [1, "C", "uniform"]]
+    },
+    "coil": {
+      "pipelines": [["coil-vert.wgsl", "coil-frag.wgsl"]],
+      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [2, "V", "storage-ro"], [3, "F", "uniform"]]
+    },
+    "particleCompute": {
+      "pipelines": [["particle-compute.wgsl"]],
+      "entries": [[0, "C", "storage"], [1, "C", "uniform"]]
+    },
+    "overviewCull": {
+      "pipelines": [["overview-cull-compute.wgsl"]],
+      "entries": [[0, "C", "storage-ro"], [1, "C", "uniform"], [2, "C", "storage"], [3, "C", "storage"]]
+    },
+    "rollerCompute": {
+      "pipelines": [["seg-roller-compute.wgsl"]],
+      "entries": [[0, "C", "storage"], [1, "C", "uniform"], [2, "C", "uniform"]]
+    },
+    "fieldAdvect": {
+      "pipelines": [["field-advect-compute.wgsl"]],
+      "entries": [[0, "C", "storage"], [1, "C", "uniform"]]
+    },
+    "transformerFlux": {
+      "pipelines": [["transformer-flux-compute.wgsl"]],
+      "entries": [[0, "C", "storage"], [1, "C", "uniform"]]
+    },
+    "choresReduce": {
+      "pipelines": [["chores-reduce-f32.wgsl"]],
+      "entries": [[0, "C", "storage-ro"], [1, "C", "storage"], [2, "C", "uniform"]]
+    },
+    "fluxTracer": {
+      "pipelines": [["flux-line-tracer.wgsl"]],
+      "entries": [[0, "C", "storage"], [1, "C", "uniform"], [2, "C", "storage-ro"], [3, "C", "uniform"]]
+    },
+    "sky": {
+      "pipelines": [["sky-vert.wgsl", "sky-frag.wgsl"]],
+      "entries": [[0, "F", "uniform"]]
+    },
+    "empty": {
+      "pipelines": [["grid-vert.wgsl", "grid-frag.wgsl"]],
+      "entries": []
+    },
+    "anomalyWall": {
+      "pipelines": [["seg-anomaly-walls.wgsl"]],
+      "entries": [[0, "VF", "uniform"], [1, "F", "uniform"]]
+    },
+    "bloomExtract": {
+      "pipelines": [["bloom-vert.wgsl", "bloom-extract.wgsl"]],
+      "entries": [[0, "F", "texture"], [1, "F", "sampler"], [2, "F", "uniform"]]
+    },
+    "bloomBlur": {
+      "pipelines": [["bloom-vert.wgsl", "bloom-blur.wgsl"]],
+      "entries": [[0, "F", "texture"], [1, "F", "sampler"], [2, "F", "uniform"], [3, "F", "uniform"]]
+    },
+    "bloomComposite": {
+      "pipelines": [["bloom-vert.wgsl", "bloom-composite.wgsl"]],
+      "entries": [
+        [0, "F", "texture"], [1, "F", "texture"], [2, "F", "sampler"], [3, "F", "uniform"],
+        [4, "F", "texture-depth"], [5, "F", "texture"], [6, "F", "texture"]
+      ]
+    },
+    "ssr": {
+      "pipelines": [["ssr-compute.wgsl"]],
+      "entries": [
+        [0, "C", "texture-depth"], [1, "C", "texture"], [2, "C", "sampler"], [3, "C", "uniform"],
+        [4, "C", "storage-texture", "rgba16float"], [5, "C", "texture"]
+      ]
+    },
+    "iblPrefilter": {
+      "pipelines": [["ibl-prefilter-compute.wgsl"]],
+      "entries": [[0, "C", "uniform"], [1, "C", "storage-texture-array", "rgba16float"]]
+    },
+    "taaResolve": {
+      "pipelines": [["bloom-vert.wgsl", "taa-resolve.wgsl"]],
+      "entries": [[0, "F", "texture"], [1, "F", "texture"], [2, "F", "sampler"], [3, "F", "texture-depth"], [4, "F", "uniform"]]
+    },
+    "depthResolve": {
+      "pipelines": [["depth-resolve.wgsl"]],
+      "entries": [[0, "F", "texture-depth-ms"]]
+    },
+    "fdtdCompute": {
+      "pipelines": [["fdtd-tmz-compute.wgsl"]],
+      "entries": [[0, "C", "uniform"], [1, "C", "storage"], [2, "C", "storage"], [3, "C", "storage"], [4, "C", "storage-ro"]]
+    },
+    "fdtdSlice": {
+      "pipelines": [["fdtd-slice.wgsl"]],
+      "entries": [
+        [0, "V", "uniform"], [1, "VF", "uniform"], [2, "F", "uniform"],
+        [3, "F", "storage-ro"], [4, "F", "storage-ro"], [5, "F", "storage-ro"], [6, "F", "storage-ro"]
+      ]
+    }
+  },
+  "unboundPasses": {
+    "$comment": "Pass files that are not part of any production pipeline layout (check:bindings fails on any other unmapped pass).",
+    "core-vert.wgsl": "legacy core module; no pipeline built on it",
+    "core-frag.wgsl": "legacy core module; no pipeline built on it"
+  }
+}

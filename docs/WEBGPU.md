@@ -60,7 +60,7 @@ Override: `new WebGPUManager(canvas, { alphaMode: 'premultiplied' })` if a futur
 
 `WebGPUManager.requestPreferredAdapter()` (shared with the boot probe):
 
-1. `{ powerPreference: 'high-performance', forceFallbackAdapter: false, featureLevel: 'core' }`
+1. `{ powerPreference, forceFallbackAdapter: false, featureLevel: 'core' }` — `powerPreference` is **`high-performance`** by default; `?gpuPower=low` (or `low-power`) requests `low-power` for tablet / projector carts (`gpuPowerPreference()` in `webgpu-init/adapter.ts`). The WebGL2 context honours the same param.
 2. If that returns **null**, retry with `featureLevel: 'compatibility'` (Safari/Android).
 3. If `featureLevel` throws (older Chromium), one legacy `requestAdapter` without the key.
 
@@ -90,13 +90,16 @@ Negotiated in `WebGPUManager.negotiateFeatures()` when the adapter supports them
 | `texture-compression-bc` / `etc2` / `astc` | **used** | If the adapter supports them (skipped on fallback/software) | Requested at `requestDevice`. Stand GLB KTX2 albedo uploads BC1 / ASTC / ETC2 via `ktx2-gpu.ts`. F3 / `getRendererInfo().textureCompression` reports `bc` \| `etc2` \| `astc` \| `none`. |
 | `float32-filterable` | **not requested** | — | No sampled `rgba32float` targets (bloom is `rg11b10`; SSR is `rgba16float`). |
 | `bgra8unorm-storage` | **not requested** | — | No compute pass writes the swapchain. |
+| `shader-f16` / `subgroups` / `subgroups-f16` | **not requested** | — | No pass has an f16 or subgroup variant yet (FDTD fields and the IBL GGX bake are f32 / plain loops). Request only alongside the WGSL path that uses it, gated off `compatibility` and software adapters. |
+| `timestamp-query-inside-passes` | **not requested** | — | Profiler scopes are pass-boundary only. |
+| `float32-blendable` | **not requested** | — | No blended f32 target; bloom uses `rg11b10ufloat`. |
 
 Missing features are skipped and logged; init does not fail.
 
 ## Preferred limits (soft)
 
 `WebGPUManager.negotiateLimits()` requests a limit **only if** `adapter.limits[key] >= preferred`.  
-Current soft targets (`PREFERRED_LIMITS` in `webgpu-manager.ts`):
+Current soft targets (`PREFERRED_LIMITS` in `webgpu-init/adapter.ts`, re-exported from `webgpu-manager.ts`):
 
 | Limit | Preferred | Rationale |
 |-------|-----------|-----------|
@@ -205,7 +208,7 @@ See **`docs/BINDINGS.md`**. Layouts live in `src/pipeline-layout-cache.ts`; devi
 
 ## Related files
 
-- `src/webgpu-manager.ts` — adapter/device/canvas/depth hooks  
+- `src/webgpu-manager.ts` — device lifetime (`init` / `reinit`), depth, global uniforms; static helpers delegate to `src/webgpu-init/` (`adapter.ts` negotiation, `canvas.ts` configure, `device-lost.ts` hooks)  
 - `src/pipeline-layout-cache.ts` — explicit layouts + shared pipelines  
 - `src/performance-profiler.ts` — timing + tier (consumes adapter info)  
 - `src/debug-panel.ts` — GPU timing toggle  

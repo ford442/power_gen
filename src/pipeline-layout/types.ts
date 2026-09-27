@@ -32,7 +32,7 @@ export type PipelineLayoutName = BindGroupLayoutName | 'emptyGroups';
 
 export interface LayoutRegistrar {
   readonly device: GPUDevice;
-  bgl(name: BindGroupLayoutName, entries: GPUBindGroupLayoutEntry[]): void;
+  bgl(name: BindGroupLayoutName, entries: readonly GPUBindGroupLayoutEntry[]): void;
   pl(name: PipelineLayoutName, bglNames: BindGroupLayoutName[]): void;
   setEmptyGroupsPipeline(layout: GPUPipelineLayout): void;
 }

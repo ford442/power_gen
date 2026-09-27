@@ -152,9 +152,15 @@ Debug keys (WebGL2 only): `W` wireframe, `P` particle debug, `N` normals,
 | `depth` | `true` | Matches depth buffer |
 | `stencil` | `false` | Matches `depth24plus` (no stencil) |
 | `premultipliedAlpha` | `true` | HTML overlay compositing |
-| `powerPreference` | `'high-performance'` | Same intent as WebGPU |
+| `powerPreference` | `'high-performance'` (`'low-power'` with `?gpuPower=low`) | Same intent as WebGPU |
 | `failIfMajorPerformanceCaveat` | `false` | SwiftShader / agent VMs must still boot |
 | `preserveDrawingBuffer` | **`false`** unless `navigator.webdriver` or `?capture=1` | Playwright `captureCanvasFrame` / `readPixels`; default-off saves GPU memory for humans |
+
+`EXT_texture_filter_anisotropic` is queried at init: `ctx.maxAnisotropy` is
+`min(8, MAX_TEXTURE_MAX_ANISOTROPY_EXT)` (0 when missing) and
+`ctx.applyAnisotropy(target)` sets it on the bound texture — a no-op without
+the extension. The fallback has no glTF and no sampled textures today; this is
+for mipmapped procedural textures only.
 
 ## Architecture
 

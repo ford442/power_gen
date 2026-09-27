@@ -29,6 +29,7 @@
     "generate:lab-gltf": "npm run generate:heron-vessels-glb && npm run generate:kelvin-jars-glb",
     "generate:gltf": "npm run generate:seg-gltf && npm run generate:quanta-gltf && npm run generate:lab-gltf",
     "check:wgsl": "bash scripts/check-wgsl.sh",
+    "codegen:bindings": "node scripts/codegen-bindings.mjs",
     "check:bindings": "node scripts/check-bindings.mjs",
     "test:e2e": "playwright test",
     "test:chores": "node scripts/test-gpu-chores.mjs",

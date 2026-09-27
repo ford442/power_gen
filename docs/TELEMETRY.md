@@ -277,10 +277,10 @@ window.replayPlayer.exit();
 All gauge widgets live under `src/scientific-ui/gauges/`. Import the panel and gauges from a single entry:
 
 ```js
-import { ScientificUIManager, MagneticFieldGauge } from './scientific-ui/index.js';
+import { ScientificUIManager, MagneticFieldGauge } from './scientific-ui/index';
 ```
 
-`main.ts` lazy-loads `ScientificUIManager` (Ctrl+Shift+S toggle). Legacy root shims `scientific-ui.js` and `scientific-ui-utils.js` re-export the package for backward compatibility.
+`main.ts` lazy-loads `ScientificUIManager` (Ctrl+Shift+S toggle). The old root shims `scientific-ui.js` / `scientific-ui-utils.js` are deleted; import the package entry directly.
 
 ## Removed duplicates
 

@@ -527,7 +527,7 @@ transformer plant so a dropped frame stays finite and inside the pole
 | View | Screenshot |
 |------|------------|
 | Overview | See [`images/multi-device.png`](images/multi-device.png) |
-| Focus | _pending capture_ |
+| Focus | ![Jumping ring focus](images/jumping-ring-focus.png) |
 
 Capture: `?renderer=webgl2` → START → `setMode('jumping-ring')` → settle a
 second so the ring reaches its hover → `captureCanvasFrame({ flipY: true })` →

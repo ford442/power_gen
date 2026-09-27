@@ -1,19 +1,11 @@
 import type { LayoutRegistrar } from '../types.js';
-import { uniform, storage, VF, VS, FS, CS } from '../helpers.js';
+import { BGL } from '../generated/bind-group-layouts.js';
 
 /** Interactive particle billboards + particle compute. */
 export function registerParticleLayouts(r: LayoutRegistrar): void {
-  r.bgl('particle', [
-    uniform(0, VF),
-    uniform(1, VF),
-    uniform(3, FS),
-    storage(4, VS, true)
-  ]);
+  r.bgl('particle', BGL.particle);
   r.pl('particle', ['particle']);
 
-  r.bgl('particleCompute', [
-    storage(0, CS, false),
-    uniform(1, CS)
-  ]);
+  r.bgl('particleCompute', BGL.particleCompute);
   r.pl('particleCompute', ['particleCompute']);
 }

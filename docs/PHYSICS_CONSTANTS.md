@@ -14,7 +14,7 @@ Outputs:
 
 | File | Consumer |
 |------|----------|
-| `generated/physics-constants.ts` | TS modules (`ValidatedConstants.ts`, `scientific-data.js`, …) |
+| `generated/physics-constants.ts` | TS modules (`ValidatedConstants.ts`, `scientific-data.ts`, …) |
 | `generated/physics-constants.js` | JS imports (Vite resolves from repo root) |
 | `generated/constants.h` | `cpp/src/sim_core.h` and `cpp/src/plant/*.h` (`PhysicsConstants`, plant classroom numbers) |
 | `generated/constants.wgsl` | Reference copy |
@@ -62,7 +62,7 @@ fallback over exactly that schedule and diffs every key.
 The native run is authoritative for the schedule, including dt: it emits
 the float32-rounded `1/60` at full double precision so the JS plant
 integrates the same number. **Add a case to `GOLDEN_CASES` in
-`cpp/src/sim_core_standalone.cpp`**, not to the Node script.
+`cpp/src/standalone/standalone_golden.cpp`**, not to the Node script.
 
 **ε.** Both plants run the same equations over the same schedule, so the
 only expected difference is arithmetic width — C++ integrates in `float`,

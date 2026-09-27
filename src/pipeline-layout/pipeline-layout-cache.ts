@@ -84,10 +84,10 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     this._buildLayouts();
   }
 
-  bgl(name: BindGroupLayoutName, entries: GPUBindGroupLayoutEntry[]): void {
+  bgl(name: BindGroupLayoutName, entries: readonly GPUBindGroupLayoutEntry[]): void {
     const layout = this.device.createBindGroupLayout({
       label: `bgl-${name}`,
-      entries
+      entries: [...entries]
     });
     this.bindGroupLayouts.set(name, layout);
   }
@@ -138,7 +138,7 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     return this.device.createBindGroup({
       label: label || `bg-${layoutName}`,
       layout: this.getLayout(layoutName),
-      entries
+      entries: [...entries]
     });
   }
 

@@ -1,0 +1,268 @@
+/**
+ * SEG dashboard — overlays and status chrome: replay badge + bar, WebGPU
+ * hard-fail card, energy-network / field-bus disclaimers, hardware-twin badge,
+ * shadow-residual + catalog gauge strips, focus readout.
+ */
+
+    #replay-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border: 1px solid #f0a;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      letter-spacing: 1px;
+      color: #f6c;
+      background: rgba(80, 0, 40, 0.45);
+    }
+    #replay-badge[hidden] { display: none !important; }
+    .replay-badge-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #f0a; box-shadow: 0 0 6px #f0a;
+      animation: blink 1.2s infinite;
+    }
+    body.replay-mode #status { color: #f6c; }
+
+    #replay-bar {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px 10px;
+      pointer-events: auto;
+      background: rgba(4, 12, 20, 0.88);
+      border: 1px solid var(--sci-border-cyan, #0ff4);
+      border-radius: 8px;
+      box-shadow: 0 0 16px rgba(0, 255, 255, 0.12);
+      backdrop-filter: blur(12px);
+    }
+    #replay-bar[hidden] { display: none !important; }
+    .replay-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .replay-bar-title {
+      font-size: 0.68rem;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      color: var(--sci-cyan, #0ff);
+      white-space: nowrap;
+    }
+    #replayFileName {
+      font-size: 0.65rem;
+      color: #0aa;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+      flex: 1;
+    }
+    #replayTime {
+      font-family: ui-monospace, monospace;
+      font-size: 0.68rem;
+      color: #0ff;
+      white-space: nowrap;
+    }
+    #replayScrub { flex: 1; min-width: 80px; accent-color: #f0a; }
+    #replayStatus { font-size: 0.62rem; color: #0aa; }
+    #replayStatus.replay-status-error { color: #f66; }
+    #canvas-wrapper.replay-drop-active {
+      outline: 2px dashed #f0a;
+      outline-offset: -6px;
+    }
+    body.replay-ui-open #tachometer { bottom: 86px; }
+
+    /* WebGPU hard-fail (no WebGL2 auto-fallback) */
+    #webgpu-hard-fail {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(2, 6, 12, 0.94);
+      color: #cde;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+    .webgpu-hard-fail-card {
+      max-width: 640px;
+      width: 100%;
+      border: 1px solid #f64;
+      border-radius: 10px;
+      padding: 20px 22px;
+      background: rgba(20, 8, 10, 0.95);
+      box-shadow: 0 0 32px rgba(255, 60, 40, 0.2);
+    }
+    .webgpu-hard-fail-card h2 {
+      margin: 0 0 10px;
+      color: #f88;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-size: 1.1rem;
+    }
+    .webgpu-hard-fail-lead { color: #eab; line-height: 1.45; }
+    .webgpu-hard-fail-hint { color: #fc8; line-height: 1.4; }
+    .webgpu-hard-fail-pre {
+      max-height: 240px;
+      overflow: auto;
+      font-size: 0.68rem;
+      background: #0a0e14;
+      border: 1px solid #633;
+      padding: 10px;
+      border-radius: 6px;
+      color: #9cf;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .webgpu-hard-fail-foot { font-size: 0.75rem; color: #889; }
+    body.webgpu-hard-fail #canvas-wrapper { pointer-events: none; opacity: 0.25; }
+
+    #energyNetworkDisclaimer {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: min(92vw, 640px);
+      padding: 6px 14px;
+      border-radius: 6px;
+      background: rgba(0, 12, 24, 0.88);
+      border: 1px solid #0ff4;
+      color: #8ad;
+      font-size: 0.68rem;
+      text-align: center;
+      pointer-events: none;
+      z-index: 50;
+      display: none;
+    }
+    body.overview-mode #energyNetworkDisclaimer { display: block; }
+    #energyNetworkDisclaimer[data-mode="coupled"] {
+      border-color: #4f8;
+      color: #9fc;
+    }
+    #energyNetworkDisclaimer.energy-residual-warn {
+      border-color: #f84;
+      color: #fcc;
+      background: rgba(40, 8, 8, 0.92);
+    }
+
+    /* Field bus (ADR-0011) — stacked above the energy line. Shown in overview
+       like its energy sibling, and additionally in any focus view while
+       coupling is on, since it names the B the focused plant is actually
+       stepping from. */
+    #fieldCouplingDisclaimer {
+      position: fixed;
+      bottom: 64px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: min(92vw, 640px);
+      padding: 6px 14px;
+      border-radius: 6px;
+      background: rgba(0, 12, 24, 0.88);
+      border: 1px solid #0ff4;
+      color: #8ad;
+      font-size: 0.68rem;
+      text-align: center;
+      pointer-events: none;
+      z-index: 50;
+      display: none;
+    }
+    body.overview-mode #fieldCouplingDisclaimer,
+    body.field-coupled #fieldCouplingDisclaimer { display: block; }
+    #fieldCouplingDisclaimer[data-mode="coupled"] {
+      border-color: #4f8;
+      color: #9fc;
+    }
+
+    #lorentzFieldSource[data-coupled="true"],
+    #hallFieldSource[data-coupled="true"] { color: #9fc; }
+
+    #hw-twin-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: rgba(0, 20, 30, 0.85);
+      border: 1px solid #345;
+      font-size: 0.72rem;
+      color: #678;
+    }
+    #hw-twin-badge[data-state="mock"] {
+      border-color: #a80;
+      color: #fc6;
+    }
+    #hw-twin-badge[data-state="serial"] {
+      border-color: #0a8;
+      color: #9fc;
+    }
+    #hw-twin-badge[data-state="bluetooth"] {
+      border-color: #48c;
+      color: #9cf;
+    }
+    #hw-twin-badge[data-state="usb"] {
+      border-color: #0a8;
+      color: #9fc;
+    }
+    .hw-twin-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #456;
+    }
+    #hw-twin-badge[data-state="mock"] .hw-twin-dot { background: #fa0; box-shadow: 0 0 6px #fa0; }
+    #hw-twin-badge[data-state="serial"] .hw-twin-dot { background: #0f8; box-shadow: 0 0 6px #0f8; }
+    #hw-twin-badge[data-state="bluetooth"] .hw-twin-dot { background: #5bf; box-shadow: 0 0 6px #5bf; }
+    #hw-twin-badge[data-state="usb"] .hw-twin-dot { background: #0f8; box-shadow: 0 0 6px #0f8; }
+
+    .sci-shadow-residual-readouts {
+      display: flex;
+      gap: 12px;
+      padding: 8px 10px 4px;
+      font-size: 0.68rem;
+      color: #8ad;
+      font-family: var(--sci-font-mono, monospace);
+    }
+    .sci-shadow-residual-readouts b { color: #fc6; font-weight: 600; }
+    .sci-shadow-hint {
+      margin: 0;
+      padding: 4px 10px 8px;
+      font-size: 0.58rem;
+      color: #567;
+      line-height: 1.35;
+    }
+    .sci-shadow-sparkline { height: 72px; }
+
+    /* Generic catalog gauge strip — keys of the focused plugin device */
+    .sci-catalog-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+      gap: 4px 10px;
+      padding: 8px 10px 4px;
+      font-family: var(--sci-font-mono, monospace);
+      font-size: 0.68rem;
+    }
+    .sci-catalog-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+    .sci-catalog-key { color: #8ad; }
+    .sci-catalog-val {
+      color: #fc6;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Focus readout in the right instrument panel (catalog-generated cells) */
+    #device-readout[hidden] { display: none; }

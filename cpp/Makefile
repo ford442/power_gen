@@ -23,7 +23,9 @@
 # same, so the compilation database clangd reads matches).
 SIM_CORE_SHARED := src/sim_core_facade.cpp src/sim_core_standalone.cpp $(wildcard src/plant/*.cpp)
 SRC             := $(SIM_CORE_SHARED) src/sim_core_embind.cpp
-NATIVE_SRC      := $(SIM_CORE_SHARED)
+# standalone/*.cpp are the native `--mode` runs; they compile to nothing
+# without SIM_CORE_STANDALONE, so they stay out of the WASM source list.
+NATIVE_SRC      := $(SIM_CORE_SHARED) $(wildcard src/standalone/*.cpp)
 OUT_DIR    := ../src/public/wasm
 OUT_JS     := $(OUT_DIR)/sim_core.js
 

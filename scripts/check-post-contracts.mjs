@@ -264,7 +264,7 @@ function check(label, condition, detail) {
 
   // Every format that can land on a color target must be priced explicitly;
   // an unlisted one silently falls back to the 16-byte worst case.
-  const manager = read('src/webgpu-manager.ts');
+  const manager = read('src/webgpu-init/adapter.ts');
   const bloomFmt = /BLOOM_HDR_FORMAT:\s*GPUTextureFormat\s*=\s*'([\w-]+)'/.exec(manager);
   const attachable = [
     'bgra8unorm', 'rgba8unorm',            // getPreferredCanvasFormat() candidates
@@ -291,7 +291,7 @@ function check(label, condition, detail) {
     check(
       `scene pass costs ${need} B/sample (default ${DEFAULT_BPS} B)`,
       need <= DEFAULT_BPS || requests,
-      `exceeds the default and webgpu-manager.ts does not request the limit`
+      `exceeds the default and webgpu-init/adapter.ts does not request the limit`
     );
   }
 

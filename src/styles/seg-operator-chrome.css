@@ -1,0 +1,151 @@
+/**
+ * SEG dashboard — operator chrome: left panel sections, mode buttons, control
+ * buttons (start / stop / reset), sliders, SEG explainer + classroom mode.
+ */
+
+    /* ── Left sidebar ─────────────────────────────────── */
+    #left-panel {
+      width: 220px;
+      flex-shrink: 0;
+      background: rgba(0,8,16,0.97);
+      border-right: 1px solid #0ff2;
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .panel-section {
+      border: 1px solid #0ff2;
+      border-radius: 6px;
+      padding: 10px;
+      background: rgba(0,20,30,0.6);
+    }
+    .panel-section h3 {
+      margin: 0 0 8px 0;
+      font-size: 0.65rem;
+      color: #0aa;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      border-bottom: 1px solid #0ff1;
+      padding-bottom: 5px;
+    }
+
+    /* Mode buttons */
+    .mode-btn {
+      display: block;
+      width: 100%;
+      margin: 5px 0;
+      padding: 8px 10px;
+      background: #07101a;
+      border: 1px solid #0ff4;
+      color: #0cc;
+      cursor: pointer;
+      transition: all 0.25s;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mode-btn .mode-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: var(--mode-icon-size, 18px);
+      height: var(--mode-icon-size, 18px);
+      border: 1px solid currentColor;
+      border-radius: 3px;
+      font-size: 0.65rem;
+      flex-shrink: 0;
+      opacity: 0.75;
+    }
+    .mode-btn:hover  { background: #0ff2; color: #0ff; border-color: #0ff; box-shadow: 0 0 8px #0ff4; }
+    .mode-btn.active { background: #00d4ff22; color: #0ff; border-color: #0ff; box-shadow: 0 0 10px #0ff5; }
+    .mode-btn.active .mode-icon { opacity: 1; }
+
+    /* Control buttons */
+    .ctrl-row {
+      display: flex;
+      gap: 6px;
+    }
+    .ctrl-btn {
+      flex: 1;
+      padding: 9px 6px;
+      border-radius: 5px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    #startBtn {
+      background: linear-gradient(135deg,#004d2a,#006b3a);
+      color: #00ff88;
+      border: 1px solid #00ff88;
+      box-shadow: 0 0 8px #00ff8844;
+    }
+    #startBtn:hover { background: linear-gradient(135deg,#006b3a,#009955); box-shadow: 0 0 14px #00ff8877; }
+    #stopBtn {
+      background: linear-gradient(135deg,#4d1a00,#6b2500);
+      color: #ff6600;
+      border: 1px solid #ff6600;
+      box-shadow: 0 0 8px #ff660044;
+    }
+    #stopBtn:hover { background: linear-gradient(135deg,#7a2e00,#993800); box-shadow: 0 0 14px #ff660077; }
+    #resetBtn {
+      background: #07101a;
+      color: #0aa;
+      border: 1px solid #0ff3;
+    }
+    #resetBtn:hover { color: #0ff; border-color: #0ff6; }
+
+    /* Sliders */
+    .slider-row {
+      margin: 6px 0;
+    }
+    .slider-row label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      color: #0aa;
+      margin-bottom: 4px;
+    }
+    .slider-row label span { color: #0ff; font-weight: bold; }
+    input[type="range"] {
+      width: 100%;
+      accent-color: #0ff;
+      cursor: pointer;
+      height: 4px;
+    }
+
+    /* Particle slider row */
+    #particleSlider { accent-color: #f0f; }
+    /* SEG explainer / classroom */
+    .seg-explainer-glossary {
+      margin: 8px 0 0; font-size: 0.58rem; color: #5a8;
+      display: grid; grid-template-columns: auto 1fr; gap: 2px 8px;
+    }
+    .seg-explainer-glossary dt { color: #0aa; }
+    .seg-explainer-glossary dd { margin: 0; color: #0ff; }
+    body.seg-classroom-mode #left-panel .panel-section:not(#seg-explainer-section):not(:first-child) {
+      opacity: 0.35; pointer-events: none;
+    }
+    body.seg-classroom-mode #seg-explainer-section,
+    body.seg-classroom-mode .panel-section:first-child {
+      opacity: 1; pointer-events: auto;
+    }
+    body.seg-classroom-mode #debug-panel,
+    body.seg-classroom-mode .corner-label#corner-tr {
+      display: none !important;
+    }
+    body.seg-tour-active #seg-tour-overlay {
+      display: block;
+    }

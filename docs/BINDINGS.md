@@ -319,19 +319,22 @@ variant once per frame — cheap reference reassignment, no GPU work. Layouts
 
 Expect: **O(1) pipeline compiles per shader family**, not O(devices).
 
-## Drift check
+## Schema codegen + drift check
 
-`npm run check:bindings` (`scripts/check-bindings.mjs`, part of `npm run validate`)
-diffs each `r.bgl(name, [...])` in `src/pipeline-layout/layouts/fdtd.ts` and
-`post.ts` against the `@group(0) @binding(N)` globals in that layout's WGSL
-pass file(s) — a binding added, removed, or renumbered on either side without
-the other fails the check instead of surfacing as a runtime bind-group-creation
-or pipeline-validation error. Scope today is the `fdtd*` and post-process/
-environment layouts (this file's two tables above); extend `LAYOUT_WGSL_FILES`
-in the script when adding a layout to those two registrars. `roller` /
-`particle` / `segEnhanced` / etc. (device-mesh, particle, cull layouts) are not
-covered yet — still keep those manually aligned with this file.
+`src/pipeline-layout/bind-group-schema.json` is the source of truth for every
+`@group(0)` bind group layout: entries (`[binding, stages, kind, format?]`) and
+the WGSL pass files of each pipeline built on it. `npm run codegen:bindings`
+(`scripts/codegen-bindings.mjs`) emits
+`src/pipeline-layout/generated/bind-group-layouts.ts`; the registrars in
+`src/pipeline-layout/layouts/*.ts` pass `BGL.<name>` to `r.bgl(...)` — no
+hand-written entry arrays.
 
-## Optional future: schema codegen
+`npm run check:bindings` (part of `npm run validate`) fails when the generated
+TS is stale, a registrar bypasses `BGL.<name>`, a schema layout is unregistered,
+a pipeline's WGSL declares a binding the layout lacks or with a different
+resource kind / storage-texture format, a layout entry is used by no pipeline,
+or a pass file with bindings maps to no layout (unless listed under
+`unboundPasses`). Coverage: **all** layouts.
 
-A shared JSON/TS schema could emit WGSL `@binding` constants and JS layout entries, replacing the regex-based drift check above and extending it to every layout. Until then, keep this file and `src/pipeline-layout/layouts/*.ts` manually aligned for layouts outside `check:bindings`'s scope.
+To change a binding: edit the schema + the WGSL, then `npm run codegen:bindings`.
+Keep the tables above in sync by hand (they document meaning, not numbers).

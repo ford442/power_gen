@@ -1,112 +1,141 @@
 #!/usr/bin/env node
 /**
- * check-bindings.mjs — assert `@group(0) @binding(N)` drift between
- * `src/pipeline-layout/layouts/*.ts` (JS `GPUBindGroupLayoutDescriptor`
- * source of truth) and the WGSL pass files that consume each layout.
+ * check-bindings.mjs — assert every production bind group layout agrees with
+ * the WGSL that consumes it.
+ *
+ * Source of truth: src/pipeline-layout/bind-group-schema.json. The schema is
+ * compiled into src/pipeline-layout/generated/bind-group-layouts.ts
+ * (`npm run codegen:bindings`), which the layout registrars pass to
+ * `r.bgl(...)`. This script fails when:
+ *
+ *   - the generated TS is stale vs the schema;
+ *   - a `r.bgl('name', ...)` in src/pipeline-layout/layouts/*.ts does not pass
+ *     `BGL.name` (hand-written entries bypass the schema), or a schema layout
+ *     is never registered / a registered one is missing from the schema;
+ *   - a pipeline's WGSL declares a `@group(0)` binding the layout lacks, or
+ *     with a different resource kind (uniform / storage rw / storage read /
+ *     texture / depth / sampler / storage texture + format);
+ *   - a layout entry is declared by none of its pipelines' WGSL;
+ *   - a pass file in src/shaders/passes/ declares bindings but belongs to no
+ *     layout (and is not listed under `unboundPasses`).
  *
  * naga (check:wgsl) validates each WGSL file in isolation and can't see the
- * JS side; check-post-contracts.mjs prices attachment bytes but doesn't
- * touch binding numbers. A layout and its WGSL globals can drift silently —
- * both sides stay individually valid WebGPU/WGSL, they just no longer agree
- * on which binding is which resource — until a bind group creation or
- * pipeline validation error at runtime.
- *
- * Scope: the `fdtd` and `post` layout registrars (docs/BINDINGS.md's `fdtd*`
- * and post-process/environment tables) — see LAYOUT_WGSL_FILES below to add
- * more. Every layout name in LAYOUT_WGSL_FILES must also appear in
- * LAYOUT_FILES's `r.bgl(...)` calls, so a rename on either side fails loudly
- * instead of silently skipping.
+ * JS side; this closes that gap for every layout.
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { loadSchema } from './codegen-bindings.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PASSES_DIR = path.join(ROOT, 'src/shaders/passes');
+const LAYOUTS_DIR = path.join(ROOT, 'src/pipeline-layout/layouts');
 
-const LAYOUT_FILES = [
-  'src/pipeline-layout/layouts/fdtd.ts',
-  'src/pipeline-layout/layouts/post.ts'
-];
-
-/** Layout name -> WGSL pass file(s) declaring its `@group(0)` globals. */
-const LAYOUT_WGSL_FILES = {
-  fdtdCompute: ['fdtd-tmz-compute.wgsl'],
-  fdtdSlice: ['fdtd-slice.wgsl'],
-  sky: ['sky-vert.wgsl', 'sky-frag.wgsl'],
-  empty: ['grid-vert.wgsl', 'grid-frag.wgsl'],
-  anomalyWall: ['seg-anomaly-walls.wgsl'],
-  bloomExtract: ['bloom-extract.wgsl'],
-  bloomBlur: ['bloom-blur.wgsl'],
-  bloomComposite: ['bloom-composite.wgsl'],
-  ssr: ['ssr-compute.wgsl'],
-  iblPrefilter: ['ibl-prefilter-compute.wgsl'],
-  taaResolve: ['taa-resolve.wgsl'],
-  depthResolve: ['depth-resolve.wgsl']
+let failures = 0;
+const fail = (msg) => {
+  failures += 1;
+  console.error(`  FAIL: ${msg}`);
 };
 
-function parseLayoutBindings(tsSource) {
-  const layouts = new Map(); // name -> Set<number>
-  const bglRe = /r\.bgl\(\s*'([^']+)'\s*,\s*\[([\s\S]*?)]\s*\)/g;
-  let m;
-  while ((m = bglRe.exec(tsSource))) {
-    const [, name, body] = m;
-    const bindings = new Set();
-    for (const entry of body.matchAll(/\b\w+\(\s*(\d+)/g)) {
-      bindings.add(Number(entry[1]));
-    }
-    layouts.set(name, bindings);
-  }
-  return layouts;
+// 1. Generated TS freshness.
+try {
+  execFileSync(process.execPath, [path.join(ROOT, 'scripts/codegen-bindings.mjs'), '--check'], { stdio: 'pipe' });
+} catch (e) {
+  fail(String(e.stderr || e.message).trim());
 }
 
-function parseWgslBindings(wgslSource) {
-  const bindings = new Set();
-  for (const m of wgslSource.matchAll(/@group\(\s*0\s*\)\s*@binding\(\s*(\d+)\s*\)/g)) {
-    bindings.add(Number(m[1]));
+const schema = loadSchema();
+const layouts = schema.layouts;
+const unbound = new Set(Object.keys(schema.unboundPasses || {}).filter((k) => !k.startsWith('$')));
+
+// 2. Registrars must feed the generated entries.
+const registered = new Set();
+for (const file of fs.readdirSync(LAYOUTS_DIR).filter((f) => f.endsWith('.ts'))) {
+  const src = fs.readFileSync(path.join(LAYOUTS_DIR, file), 'utf8');
+  for (const m of src.matchAll(/r\.bgl\(\s*'([^']+)'\s*,\s*([^)]*?)\s*\)/g)) {
+    const [, name, arg] = m;
+    registered.add(name);
+    if (arg !== `BGL.${name}`) fail(`${file}: r.bgl('${name}', ${arg}) — must pass BGL.${name} from generated/bind-group-layouts.ts`);
+    if (!layouts[name]) fail(`${file}: layout '${name}' is not in bind-group-schema.json`);
   }
-  return bindings;
+}
+for (const name of Object.keys(layouts)) {
+  if (!registered.has(name)) fail(`schema layout '${name}' is never registered via r.bgl(...)`);
 }
 
-const sortedList = (set) => [...set].sort((a, b) => a - b).join(', ');
+// 3. WGSL vs schema.
+/** Map a WGSL `var<...> name: type` declaration to a schema kind (+ format). */
+function wgslKind(addrSpace, type) {
+  const t = type.replace(/\s+/g, '');
+  if (addrSpace) {
+    const parts = addrSpace.replace(/\s+/g, '').split(',');
+    if (parts[0] === 'uniform') return { kind: 'uniform' };
+    if (parts[0] === 'storage') return { kind: parts[1] === 'read_write' ? 'storage' : 'storage-ro' };
+    return { kind: `?${addrSpace}` };
+  }
+  if (t === 'sampler') return { kind: 'sampler' };
+  if (t === 'texture_depth_2d') return { kind: 'texture-depth' };
+  if (t === 'texture_depth_multisampled_2d') return { kind: 'texture-depth-ms' };
+  if (t === 'texture_2d<f32>') return { kind: 'texture' };
+  if (t === 'texture_2d_array<f32>') return { kind: 'texture-array' };
+  let m = t.match(/^texture_storage_2d<(\w+),write>$/);
+  if (m) return { kind: 'storage-texture', format: m[1] };
+  m = t.match(/^texture_storage_2d_array<(\w+),write>$/);
+  if (m) return { kind: 'storage-texture-array', format: m[1] };
+  return { kind: `?${t}` };
+}
 
+const DECL_RE = /((?:@(?:group|binding)\(\s*\d+\s*\)\s*){2})var(?:<([^>]*)>)?\s+\w+\s*:\s*([^;]+);/g;
+const wgslCache = new Map();
+function parseWgsl(file) {
+  if (wgslCache.has(file)) return wgslCache.get(file);
+  const src = fs.readFileSync(path.join(PASSES_DIR, file), 'utf8');
+  const out = new Map(); // binding -> {kind, format}
+  for (const m of src.matchAll(DECL_RE)) {
+    const group = Number(m[1].match(/@group\(\s*(\d+)/)[1]);
+    const binding = Number(m[1].match(/@binding\(\s*(\d+)/)[1]);
+    if (group !== 0) continue;
+    out.set(binding, wgslKind(m[2], m[3]));
+  }
+  wgslCache.set(file, out);
+  return out;
+}
+
+const mappedPasses = new Set();
 let checked = 0;
-let failures = 0;
-const foundLayoutNames = new Set();
-
-for (const relFile of LAYOUT_FILES) {
-  const src = fs.readFileSync(path.join(ROOT, relFile), 'utf8');
-  const layouts = parseLayoutBindings(src);
-  for (const [name, jsBindings] of layouts) {
-    foundLayoutNames.add(name);
-    const wgslFiles = LAYOUT_WGSL_FILES[name];
-    if (!wgslFiles) continue; // layout not tracked by this script yet
-
-    const wgslBindings = new Set();
-    for (const wf of wgslFiles) {
-      const wgslSrc = fs.readFileSync(path.join(PASSES_DIR, wf), 'utf8');
-      for (const b of parseWgslBindings(wgslSrc)) wgslBindings.add(b);
-    }
-
-    checked += 1;
-    const onlyInJs = [...jsBindings].filter((b) => !wgslBindings.has(b));
-    const onlyInWgsl = [...wgslBindings].filter((b) => !jsBindings.has(b));
-    if (onlyInJs.length || onlyInWgsl.length) {
-      failures += 1;
-      console.error(`  FAIL: ${name} (${relFile} vs ${wgslFiles.join(', ')})`);
-      if (onlyInJs.length) console.error(`    in JS layout but no matching WGSL @binding: ${sortedList(new Set(onlyInJs))}`);
-      if (onlyInWgsl.length) console.error(`    in WGSL but not in JS layout: ${sortedList(new Set(onlyInWgsl))}`);
-    } else {
-      console.log(`  ok: ${name} — {${sortedList(jsBindings)}}`);
+for (const [name, layout] of Object.entries(layouts)) {
+  const entries = new Map(layout.entries.map(([b, , kind, format]) => [b, { kind, format }]));
+  const used = new Set();
+  const before = failures;
+  for (const files of layout.pipelines) {
+    for (const f of files) {
+      mappedPasses.add(f);
+      if (!fs.existsSync(path.join(PASSES_DIR, f))) {
+        fail(`${name}: pass file ${f} does not exist`);
+        continue;
+      }
+      for (const [b, decl] of parseWgsl(f)) {
+        used.add(b);
+        const e = entries.get(b);
+        if (!e) {
+          fail(`${name}: ${f} declares @binding(${b}) but the layout has no entry ${b}`);
+        } else if (e.kind !== decl.kind || (e.format && e.format !== decl.format)) {
+          fail(`${name}@${b}: layout says ${e.kind}${e.format ? `(${e.format})` : ''}, ${f} declares ${decl.kind}${decl.format ? `(${decl.format})` : ''}`);
+        }
+      }
     }
   }
+  for (const b of entries.keys()) {
+    if (!used.has(b)) fail(`${name}: entry ${b} is declared by none of ${layout.pipelines.flat().join(', ')}`);
+  }
+  checked += 1;
+  if (failures === before) console.log(`  ok: ${name} — {${[...entries.keys()].sort((a, b) => a - b).join(', ')}}`);
 }
 
-for (const name of Object.keys(LAYOUT_WGSL_FILES)) {
-  if (!foundLayoutNames.has(name)) {
-    failures += 1;
-    console.error(`  FAIL: layout '${name}' not found via r.bgl(...) in ${LAYOUT_FILES.join(', ')} — LAYOUT_WGSL_FILES is stale`);
-  }
+for (const f of fs.readdirSync(PASSES_DIR).filter((p) => p.endsWith('.wgsl'))) {
+  if (mappedPasses.has(f) || unbound.has(f)) continue;
+  if (parseWgsl(f).size > 0) fail(`${f} declares @group(0) bindings but maps to no layout in bind-group-schema.json`);
 }
 
 if (failures > 0) {

@@ -111,9 +111,9 @@ Hash format:
 
 ```
 explainerState (highlight, classroom, bmult)
-       ├→ seg-annotations.js   (world-space labels + occlusion)
-       ├→ seg-diagram-2d.js    (ring highlight pulse)
-       └→ seg-tour-player.js   (camera + callouts)
+       ├→ seg-annotations.ts   (world-space labels + occlusion)
+       ├→ seg-diagram-2d.ts    (ring highlight pulse)
+       └→ seg-tour-player.ts   (camera + callouts)
 ```
 
-Glossary terms: `src/seg-explainer/seg-glossary.js` (from `scientific-data.js`).
+Glossary terms: `src/seg-explainer/seg-glossary.ts` (from `scientific-data.ts`).
