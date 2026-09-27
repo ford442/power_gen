@@ -45,6 +45,35 @@ test.describe('SEG WebGL2 smoke', () => {
     expect(rpm).toBeGreaterThan(0);
   });
 
+  test('plant worker: START spins the plant off the animation frame', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    // LabSession steps in-loop until the worker reports ready, then hands over.
+    await waitForEval(page, () => window.getRendererInfo?.()?.plant?.backend === 'worker', { timeout: 60_000 });
+    await page.evaluate(() => window.segOperator.start());
+    await waitForEval(page, () => (window.segOperator?.physics?.segOmega ?? 0) > 0.01, { timeout: 60_000 });
+
+    const plant = await page.evaluate(() => window.getRendererInfo().plant);
+    expect(plant.backend).toBe('worker');
+    expect(plant.fallbackReason).toBeNull();
+    expect(plant.latencyFrames).toBe(1);
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('?plantWorker=0 keeps the in-loop plant step', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'plantWorker=0');
+    await waitForEval(page, () => !!window.getRendererInfo?.()?.plant, { timeout: 60_000 });
+    await page.evaluate(() => window.segOperator.start());
+    await waitForEval(page, () => (window.segOperator?.physics?.segOmega ?? 0) > 0.01, { timeout: 60_000 });
+
+    const plant = await page.evaluate(() => window.getRendererInfo().plant);
+    expect(plant.backend).toBe('in-loop');
+    expect(plant.fallbackReason).toBe('?plantWorker=0');
+    expect(plant.latencyFrames).toBe(0);
+  });
+
   test("setMode('seg') focuses SEG view", async ({ page }) => {
     trackPageErrors(page);
     await gotoWebGL2(page);

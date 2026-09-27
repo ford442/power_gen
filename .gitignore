@@ -32,6 +32,8 @@ Thumbs.db
 /compile_commands.json
 cpp/build/**
 !cpp/build/README.md
+# `make compile-db-wasm` (emcmake configure for clangd) — never committed
+cpp/build-wasm/
 
 # Emscripten cache
 .emsdk-cache

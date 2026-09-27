@@ -121,6 +121,11 @@ export function wasmOwnsJsDevicePhysics(
   return QUANTA_WASM_OWNED_IDS.has(deviceId) && !!physics?._wasmPlantActive;
 }
 
+/** Whether the last `syncWasmFocusKnobs` left Hall to the JS plant (see above). */
+export function hallCouplingIgnoredByWasm(): boolean {
+  return _hallCouplingIgnoredByWasm;
+}
+
 function applyPlantToPhysics(
   focus: string,
   devices: SessionDeviceMap,
@@ -133,7 +138,20 @@ function applyPlantToPhysics(
     return;
   }
 
-  const plant = segWasm.getModePlant() as WasmModePlant | null;
+  applyModePlantToDevices(focus, devices, segWasm.getModePlant() as WasmModePlant | null);
+}
+
+/**
+ * Write a non-SEG C++ mode plant into the session devices. The in-loop path
+ * reads the plant straight from `segWasm`; the plant worker decodes it from
+ * its packed snapshot and passes the worker's own Hall-coupling verdict.
+ */
+export function applyModePlantToDevices(
+  focus: string,
+  devices: SessionDeviceMap,
+  plant: WasmModePlant | null,
+  hallCouplingIgnored = _hallCouplingIgnoredByWasm
+): void {
   if (!plant) return;
 
   if (focus === 'heron') {
@@ -253,7 +271,7 @@ function applyPlantToPhysics(
     // to clear it later: WebGL2 clears it for every unculled device, WebGPU only
     // when WASM actually owned the step, so a stale `true` would cost the JS
     // fallback its first frame.
-    if (_hallCouplingIgnoredByWasm) {
+    if (hallCouplingIgnored) {
       const stale = devicePhysics(devices.hall);
       if (stale) stale._wasmPlantActive = false;
       return;

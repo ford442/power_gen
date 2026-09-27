@@ -44,6 +44,16 @@ LabSession
   `captureCanvasFrame`, `currentRenderer`, `segOperator`, `segWasm`,
   `multiVisualizer`) are unchanged.
 
+## Addendum — plant worker
+
+`stepPlant` now hands the operator / C++ focus-plant step to a dedicated
+worker when one is available (`src/session/plant-worker-host.ts`), applying the
+previous batch's result each frame (one frame of latency). The session clock,
+mode, field coupling, device visuals and `publishFrame` stay on the main
+thread; the worker never touches a GPU API, so ADR-0007 holds. Without a
+`Worker` (or with `?plantWorker=0`) the step runs in-loop exactly as above.
+No SharedArrayBuffer / COOP-COEP. Details: `docs/AGENTS.md` → Plant worker.
+
 ## Related
 
 - ADR-0001, ADR-0007, `docs/AGENTS.md`, `docs/WEBGL2.md`

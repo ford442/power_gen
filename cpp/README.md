@@ -136,6 +136,61 @@ with `target_sources()` inside the `EMSCRIPTEN` branch; the Makefile keeps
 `#ifdef __EMSCRIPTEN__`, so a native build produced an empty translation
 unit and a compilation-database entry clangd could do nothing with.
 
+#### WASM translation units (`sim_core_embind.cpp`)
+
+The native database above deliberately skips the Embind TU. To jump from an
+`EMSCRIPTEN_BINDINGS` entry into the method it binds, configure the
+Emscripten build once (configure only — nothing compiles):
+
+```bash
+# needs emcmake on PATH (source emsdk_env.sh)
+make -C cpp compile-db-wasm     # → cpp/build-wasm/compile_commands.json
+```
+
+and start clangd with `--query-driver=**/em++` (VS Code:
+`"clangd.arguments": ["--query-driver=**/em++"]`) so it takes the wasm32
+target, `__EMSCRIPTEN__` and the emsdk sysroot (`<emscripten/bind.h>`) from
+em++. The root `.clangd` routes only `cpp/src/sim_core_embind.cpp` to
+`cpp/build-wasm` (dropping the link-only `--bind`); every other file keeps the
+native database. `cpp/build-wasm/` is gitignored — do not commit the JSON.
+Without it, the Embind TU simply has no database entry (**native-only; Embind
+skipped**), which is the default state of a checkout.
+
+### Sanitizers (ASan + UBSan)
+
+```bash
+npm run wasm:native:san            # probe a toolchain, then make -C cpp native-san
+SAN_CXX=clang++ npm run wasm:native:san
+SAN_REQUIRED=1 npm run wasm:native:san   # fail instead of skip
+```
+
+`make native-san` builds `build/sim_core_test_san` from the same `NATIVE_SRC`
+and `-Wall -Wextra -Wpedantic -Werror` bar as `make native`, with
+`-fsanitize=address,undefined -fno-sanitize-recover=undefined`, then runs the
+default smoke, `--mode golden`, `--mode jumping-ring` and
+`--mode energy-network` with leak detection on. Any report is fatal.
+
+`scripts/native-san.sh` first compiles **and runs** a tiny probe with each of
+`$SAN_CXX`, `clang++`, `g++`: a distro clang without compiler-rt (common —
+Ubuntu's `clang` package does not pull `libclang-rt-*-dev`) fails the link and
+is skipped in favour of g++ with libasan/libubsan. If no toolchain passes, the
+script prints why and exits 0, so gcc-only / minimal CI images are not turned
+red; `validate.yml` runs it after the native smoke.
+
+### clang-tidy (advisory)
+
+```bash
+make -C cpp compile-db tidy
+```
+
+`cpp/.clang-tidy` enables `bugprone-*` (minus swappable-parameters /
+narrowing-conversions), `modernize-use-nullptr` and two `performance-*`
+copy checks — no `readability-magic-numbers`, which would flag every physical
+constant in the plants. `WarningsAsErrors` is empty and `make tidy` never fails;
+at the time of writing it reports 4 findings (2 reserved-identifier, 1
+switch-missing-default-case, 1 implicit-widening). Promote it to CI with
+`-Werror` only once that count is near zero.
+
 ### Zero-copy particle / roller buffers
 
 After `sim.step` / `packRollerState`:
@@ -326,9 +381,12 @@ cpp/
       chores_reduce.cpp     ← GPU-chores CPU reduce fallback
       particles.cpp         ← mode-aware particle seed/step + accessors
   CMakeLists.txt     ← CMake / Emscripten + CMAKE_EXPORT_COMPILE_COMMANDS
-  Makefile           ← make wasm / native / compile-db ($(wildcard src/plant/*.cpp);
-                       native drops the WASM-only Embind TU)
+  Makefile           ← make wasm / native / native-san / tidy / compile-db /
+                       compile-db-wasm ($(wildcard src/plant/*.cpp); native
+                       drops the WASM-only Embind TU)
+  .clang-tidy        ← advisory profile (make tidy)
   build/             ← native CMake + sim_core_test (gitignored except README.md)
+  build-wasm/        ← emcmake configure for clangd (gitignored)
 ```
 
 Each `plant/*.cpp` implements a subset of `SEGSimulator`'s private `_step*`

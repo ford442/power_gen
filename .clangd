@@ -1,5 +1,20 @@
 # Native compilation database from `cmake -S cpp -B cpp/build`.
 # Does not replace `make native` / `npm run wasm:native` in CI.
+If:
+  PathExclude: cpp/src/sim_core_embind\.cpp
 CompileFlags:
   Add: [-DSIM_CORE_STANDALONE]
 CompilationDatabase: cpp/build
+---
+# sim_core_embind.cpp only exists in the Emscripten build. Its entry comes
+# from `make -C cpp compile-db-wasm` (emcmake configure → cpp/build-wasm/).
+# Start clangd with `--query-driver=**/em++` so it picks up the wasm32 target
+# and the emsdk sysroot (<emscripten/bind.h>). `--bind` is a link flag clang
+# does not know; drop it here rather than from the real build.
+# Without cpp/build-wasm/ this TU simply has no database entry — see
+# cpp/README.md → Compilation database.
+If:
+  PathMatch: cpp/src/sim_core_embind\.cpp
+CompileFlags:
+  Remove: [--bind]
+CompilationDatabase: cpp/build-wasm

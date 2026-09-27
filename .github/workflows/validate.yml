@@ -1,5 +1,5 @@
 # =============================================================
-# validate.yml — non-deploy CI: typecheck, native C++ smoke, WGSL
+# validate.yml — non-deploy CI: typecheck, native C++ smoke (+ sanitizers), WGSL
 #
 # Runs on PRs and pushes (does not deploy Pages).
 # Pages deploy remains in static.yml (typecheck + build:site).
@@ -52,6 +52,9 @@ jobs:
       - name: FDTD slice contracts + CPU kernel
         run: npm run test:fdtd
 
+      - name: Plant worker protocol (host ⇄ worker_threads)
+        run: npm run test:plant-worker
+
       - name: Build site (no WASM rebuild)
         run: npm run build:site
 
@@ -67,6 +70,11 @@ jobs:
 
       - name: Native sim_core smoke test
         run: npm run wasm:native
+
+      # Probes for a compiler whose ASan/UBSan runtimes link and run; skips
+      # (exit 0) on images without them, so this never reds a gcc-only job.
+      - name: Native sim_core under ASan + UBSan
+        run: npm run wasm:native:san
 
       - name: WASM build (only if Emscripten is on PATH)
         run: |

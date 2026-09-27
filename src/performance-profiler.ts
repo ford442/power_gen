@@ -69,6 +69,12 @@ export interface ProfilerStats {
   qualityTier: QualityTier;
   drawCallsEstimate: number;
   drawPrepMs: number;
+  /** Main-thread ms in `LabSession.stepPlant` (drops when the plant worker owns the step). */
+  plantMs: number;
+  /** Worker wall ms for the last plant batch (0 in-loop). */
+  plantWorkerMs: number;
+  /** `worker` or `in-loop (<reason>)`. */
+  plantBackend: string;
   overviewCullActive: boolean;
   msaaActive: boolean;
   taaActive: boolean;
@@ -165,6 +171,10 @@ export class PerformanceProfiler {
    */
   drawPrepMs: number;
   private _drawPrepAcc: number;
+  /** Plant step cost, recorded by the render loop after `LabSession.stepPlant`. */
+  plantMs: number;
+  plantWorkerMs: number;
+  plantBackend: string;
   /** Set by the render loop when the GPU overview cull path drove the draws. */
   overviewCullActive: boolean;
   /** Set by the render loop when 4x MSAA drove this frame (ADR-0005 WS2 — `high` tier + focus mode). */
@@ -251,6 +261,9 @@ export class PerformanceProfiler {
 
     this.drawPrepMs = 0;
     this._drawPrepAcc = 0;
+    this.plantMs = 0;
+    this.plantWorkerMs = 0;
+    this.plantBackend = 'in-loop';
     this.overviewCullActive = false;
     this.msaaActive = false;
     this.taaActive = false;
@@ -451,6 +464,15 @@ export class PerformanceProfiler {
     }
   }
 
+  /** Record where last frame's plant step ran and its main / worker cost. */
+  recordPlant(stats: { backend: string; fallbackReason: string | null; mainMs: number; workerMs: number }): void {
+    this.plantMs = stats.mainMs;
+    this.plantWorkerMs = stats.workerMs;
+    this.plantBackend = stats.backend === 'worker'
+      ? 'worker'
+      : `in-loop${stats.fallbackReason ? ` (${stats.fallbackReason})` : ''}`;
+  }
+
   /** Reset draw-call estimate accumulator (call before device draws). */
   beginFrameDraws(): void {
     this._drawCallsAcc = 0;
@@ -645,6 +667,9 @@ export class PerformanceProfiler {
       qualityTier: this.qualityTier,
       drawCallsEstimate: this.drawCallsEstimate,
       drawPrepMs: this.drawPrepMs,
+      plantMs: this.plantMs,
+      plantWorkerMs: this.plantWorkerMs,
+      plantBackend: this.plantBackend,
       overviewCullActive: this.overviewCullActive,
       msaaActive: this.msaaActive,
       taaActive: this.taaActive,

@@ -55,6 +55,14 @@ export class SEGOperatorState {
   physics: DevicePhysicsState;
   private _displayRpm = 0;
   private _displayField = 0;
+  /**
+   * Bumped by every operator action that rewrites plant state or status
+   * (start / stop / E-stop / reset / replay). The plant worker tags each step
+   * batch with it and drops a result computed before the action, so an
+   * in-flight step can never undo a button press. Knobs (`targetDrive`, field,
+   * load) are plain inputs and do not bump it.
+   */
+  epoch = 0;
 
   constructor() {
     this.physics = createDevicePhysicsState('seg');
@@ -62,18 +70,21 @@ export class SEGOperatorState {
   }
 
   start(): void {
+    this.epoch++;
     if (this.status === STATUS.ESTOP) return;
     this.isRunning = true;
     this.status = STATUS.SPINUP;
   }
 
   stop(): void {
+    this.epoch++;
     if (this.status === STATUS.ESTOP) return;
     this.isRunning = false;
     this.status = STATUS.STOPPING;
   }
 
   estop(): void {
+    this.epoch++;
     this.isRunning = false;
     this.status = STATUS.ESTOP;
     this.physics.segOmega = 0;
@@ -81,6 +92,7 @@ export class SEGOperatorState {
   }
 
   reset(): void {
+    this.epoch++;
     this.isRunning = false;
     this.status = STATUS.STANDBY;
     this.totalEnergy = 0;
@@ -93,6 +105,7 @@ export class SEGOperatorState {
 
   clearEstop(): void {
     if (this.status === STATUS.ESTOP) {
+      this.epoch++;
       this.status = STATUS.STANDBY;
     }
   }
@@ -103,10 +116,12 @@ export class SEGOperatorState {
   }
 
   enterReplayMode(): void {
+    this.epoch++;
     this.replayMode = true;
   }
 
   exitReplayMode(): void {
+    this.epoch++;
     this.replayMode = false;
   }
 
@@ -125,6 +140,7 @@ export class SEGOperatorState {
     field_sim_t?: number | string;
     efficiency_pct?: number | string;
   }): void {
+    this.epoch++;
     const omega = Number(sample.seg_omega);
     const corona = Number(sample.corona);
     const drive = Number(sample.drive);

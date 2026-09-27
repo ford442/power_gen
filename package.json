@@ -39,11 +39,13 @@
     "test:audio": "node scripts/test-lab-audio.mjs",
     "test:props": "node scripts/test-prop-registry.mjs",
     "test:golden": "node scripts/test-js-wasm-golden.mjs",
-    "validate": "npm run codegen:constants && npm run check:constants && npm run codegen:catalog && npm run check:catalog && npm run typecheck && npm run wasm:native && npm run test:chores && npm run test:device-mixins && npm run test:fdtd && npm run test:transports && npm run test:audio && npm run test:props && npm run test:golden && npm run check:post && npm run check:wgsl && npm run check:bindings",
+    "test:plant-worker": "node scripts/test-plant-worker.mjs",
+    "validate": "npm run codegen:constants && npm run check:constants && npm run codegen:catalog && npm run check:catalog && npm run typecheck && npm run wasm:native && npm run test:chores && npm run test:device-mixins && npm run test:fdtd && npm run test:transports && npm run test:audio && npm run test:props && npm run test:golden && npm run test:plant-worker && npm run check:post && npm run check:wgsl && npm run check:bindings",
     "deploy": "npm run build:site && python deploy.py",
     "wasm:build": "bash scripts/build-wasm.sh",
     "wasm:build-debug": "bash scripts/build-wasm.sh --debug",
     "wasm:native": "bash scripts/build-wasm.sh --native",
+    "wasm:native:san": "bash scripts/native-san.sh",
     "check:post": "node scripts/check-post-contracts.mjs"
   },
   "keywords": [

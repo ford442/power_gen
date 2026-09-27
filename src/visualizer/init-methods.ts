@@ -92,6 +92,7 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
         intentionalGaps: [],
         hardwareTwin: telemetryHub.getSnapshot()?.hardwareTwin ?? null,
         chores: gpuChores.breadcrumb(),
+        plant: { ...this.session.plantStats },
         textureCompression: this.webgpu.textureCompressionUsed !== 'none'
           ? this.webgpu.textureCompressionUsed
           : this.webgpu.textureCompression
