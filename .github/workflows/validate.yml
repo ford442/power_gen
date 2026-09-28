@@ -55,6 +55,9 @@ jobs:
       - name: Plant worker protocol (host ⇄ worker_threads)
         run: npm run test:plant-worker
 
+      - name: Lab coupling buses (field, charge, energy graph)
+        run: npm run test:coupling
+
       - name: Build site (no WASM rebuild)
         run: npm run build:site
 

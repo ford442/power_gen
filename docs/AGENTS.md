@@ -362,8 +362,9 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `gltfThomsonStand` | `1` \| `0` | follows housing | Thomson ring stand GLB — core, bobbin, rest shoulder, travel stop (jumping-ring focus). The ring itself stays procedural |
 | `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | Lighting + post look |
 | `mockHardware` | `1` | off | Hardware twin mock transport (no serial port). Other links (`serial` / `bluetooth` / `usb`) are chosen from the Hardware Twin panel — each needs a user gesture for its chooser |
-| `energyCoupling` | `1` \| `0` | off (visual-only pipes) | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`) |
-| `fieldCoupling` | `1` \| `0` | off (local bench B) | Feed a source device's simulated **B** estimate into a destination plant (`FieldNetwork`: `halbach-viz`→`hall`, `mhd`→`lorentz-sled`), clamped to the destination's catalog range — ADR-0011. Deliberately a **separate** switch from `energyCoupling`: one toggle cannot honestly claim both watts and tesla are live |
+| `energyCoupling` | `1` \| `0` | off (visual-only pipes) | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`). The pipe graph itself is `physics/coupling.json` → `generated/lab-coupling.{ts,h}` (ADR-0013 rider) |
+| `fieldCoupling` | `1` \| `0` | off (local bench B) | Feed a source device's simulated **B** estimate into a destination plant (`FieldNetwork`: `halbach-viz`→`hall`, `homopolar`→`hall` while Halbach is off, `mhd`→`lorentz-sled`), clamped to the destination's catalog range — ADR-0011. One live source per destination. Deliberately a **separate** switch from `energyCoupling`: one toggle cannot honestly claim both watts and tesla are live |
+| `chargeCoupling` | `1` \| `0` | off (isolated bench voltages) | Seed the Kelvin inductor with the Van de Graaff sphere's potential at the bench, `V·r/d`, clamped to Kelvin's breakdown (`ChargeNetwork`: `vdg`→`kelvin`) — ADR-0013. A **third** separate switch: never implied by, and never implies, `fieldCoupling` or `energyCoupling`. Not a Laplace solve, not calibrated kilovolts |
 | `replay` | `1` | off | Show telemetry replay scrubber (load `.seg-replay.json` / CSV; plant step bypassed) |
 | `gpuChores` | `0` / `js` / `wasm` / `webgpu` | auto | Meter backend kill / force. `0` = JS goldens. Never opens a second GPU API. |
 | `fdtd` | `0` | on | Kill the 2D wave slice (WebGPU panel **and** the WebGL2 micro-grid readout) — ADR-0010 |
@@ -379,6 +380,7 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `localStorage useWasmPhysics` | Persist WASM physics toggle |
 | `localStorage seg-energy-coupling` | Persist coupled vs visual-only energy pipes |
 | `localStorage seg-field-coupling` | Persist coupled vs local cross-device **B** (ADR-0011) |
+| `localStorage seg-charge-coupling` | Persist seeded vs isolated Kelvin (ADR-0013) |
 | `localStorage heron-layout` | Persist Heron preset |
 | `localStorage seg-sim-seed` | Deterministic RNG seed for telemetry/replay |
 
@@ -447,13 +449,14 @@ npm run validate      # typecheck + wasm:native + check:post + check:wgsl
 npm run wasm:native   # g++ smoke test, no Emscripten
 npm run wasm:native:san  # sim_core_test under ASan + UBSan (skips if no sanitizer runtime)
 npm run test:plant-worker # LabSession ⇄ plant worker contract (Node worker_threads)
+npm run test:coupling     # field / charge / energy-graph buses (ADR-0011, ADR-0013)
 npm run wasm:build    # scripts/build-wasm.sh
 ```
 
 | Workflow | What |
 |----------|------|
 | `.github/workflows/static.yml` | typecheck + `build:site` → Pages |
-| `.github/workflows/validate.yml` | typecheck, plant-worker contract, site build, native C++ (+ ASan/UBSan when the runner has the runtimes), WGSL (`REQUIRE_NAGA=1`) |
+| `.github/workflows/validate.yml` | typecheck, plant-worker contract, lab coupling buses, site build, native C++ (+ ASan/UBSan when the runner has the runtimes), WGSL (`REQUIRE_NAGA=1`) |
 | `.github/workflows/build-wasm.yml` | WASM rebuild when enabled |
 
 ---

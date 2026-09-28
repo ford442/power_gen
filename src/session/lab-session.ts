@@ -18,12 +18,17 @@ import { isDeviceActive as isDeviceVisible } from '../renderers/shared/device-vi
 import { EnergyNetwork, syncEnergyCouplingDisclaimer } from '../renderers/shared/energy-network';
 import { FieldNetwork, syncFieldCouplingDisclaimer } from '../renderers/shared/field-network';
 import {
+  CHARGE_COUPLING_EDGES,
+  ChargeNetwork,
+  syncChargeCouplingDisclaimer
+} from '../renderers/shared/charge-network';
+import {
   parseAnomalousEffects,
   parsePrototypePreset,
   parseSegLayoutPreset
 } from '../renderers/shared/url-params';
 import type { PrototypePreset } from '../renderers/shared/url-params';
-import type { HeronLayout } from '../renderers/shared/device-physics';
+import { stepDevicePhysics, type HeronLayout } from '../renderers/shared/device-physics';
 import { SimRateController, type SimRateLoad } from '../sim-rate-controller';
 import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
@@ -66,6 +71,8 @@ export class LabSession {
   energyNetwork = new EnergyNetwork();
   /** Optional live B coupling between plants (ADR-0011) — off by default. */
   fieldNetwork = new FieldNetwork();
+  /** Optional Kelvin seed from the VdG sphere (ADR-0013) — off by default. */
+  chargeNetwork = new ChargeNetwork();
   camera = new CameraController();
   cameraController: MultiDeviceCamera | null = null;
   simRateController = new SimRateController();
@@ -160,10 +167,15 @@ export class LabSession {
     const drive = segOperator.getDrive();
     const focus = this.plantFocus();
 
-    // Field coupling runs *before* any plant steps, so the C++ plants (via
-    // syncWasmFocusKnobs below) and the JS fallbacks both see the same B this
-    // frame. With coupling off this restores each device's local bench value,
-    // so the default boot is the isolated classroom it has always been.
+    // Charge then field coupling run *before* any plant steps, so the C++
+    // plants (via syncWasmFocusKnobs below) and the JS fallbacks both see the
+    // same seed V and B this frame. With coupling off each restores the
+    // device's local bench value, so the default boot is the isolated
+    // classroom it has always been. The two buses write disjoint keys and
+    // neither reads the other's output. Energy accounting stays in
+    // publishFrame, after the step — it reads plants, it never writes them.
+    if (!replayLocked) this.stepOffFocusChargeSources(simSteps, drive);
+    this.chargeNetwork.update({ devices: this.devices, devicesEnabled: this.devicesEnabled });
     this.fieldNetwork.update({ devices: this.devices, devicesEnabled: this.devicesEnabled });
 
     const worker = this.plantWorker;
@@ -196,6 +208,33 @@ export class LabSession {
         : { workerMs: 0, pendingSteps: 0, droppedResults: 0, wasmInWorker: false })
     };
     return { simSteps, replayLocked, useWasm, drive };
+  }
+
+  /**
+   * Keep a charge-bus source charging while you look at its destination.
+   *
+   * In a focus view the backends only step the focused bench, so with Kelvin
+   * focused the VdG sphere would sit at whatever voltage it held when the view
+   * changed — usually the 0 it was created with — and the "coupled" seed would
+   * be a frozen number. While charge coupling is on and a destination is
+   * focused, step each live source's JS plant **physics only** (no particles,
+   * mesh or GPU work) over the same substeps. No double-stepping: the source is
+   * never the focused device here, and in overview the backend loop owns it.
+   * The JS VdG plant is golden-matched to the C++ one, so this holds under
+   * `?wasmPhysics=1` too, where the C++ plant is busy with the focused bench.
+   */
+  private stepOffFocusChargeSources(simSteps: number[], drive: number): void {
+    if (!this.chargeNetwork.couplingEnabled || this.isOverviewMode()) return;
+    for (const edge of CHARGE_COUPLING_EDGES) {
+      if (edge.to !== this.currentView || edge.from === this.currentView) continue;
+      if (this.devicesEnabled[edge.from] === false) continue;
+      const src = this.devices[edge.from];
+      const state = src?.physicsState ?? src?.physics;
+      if (!state) continue;
+      for (const subDt of simSteps) {
+        if (subDt > 0) stepDevicePhysics(state, subDt, drive);
+      }
+    }
   }
 
   syncHardwareTwin(deltaTime: number): void {
@@ -296,6 +335,8 @@ export class LabSession {
     }
     const fieldSnap = this.fieldNetwork.getSnapshot();
     syncFieldCouplingDisclaimer(fieldSnap.couplingEnabled, fieldSnap);
+    const chargeSnap = this.chargeNetwork.getSnapshot();
+    syncChargeCouplingDisclaimer(chargeSnap.couplingEnabled, chargeSnap);
     if (this.replayLocked) {
       return scientific;
     }
@@ -316,6 +357,7 @@ export class LabSession {
           }
         : null,
       fieldNetwork: fieldSnap,
+      chargeNetwork: chargeSnap,
       hardwareTwin: this.hardwareTwinTelemetry ?? null
     });
     return scientific;

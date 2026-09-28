@@ -248,6 +248,14 @@ export class SEGSim {
     return true;
   }
 
+  /** Lab charge coupling (ADR-0013); false when the binary predates the knob. */
+  setKelvinSeedV(seedV: number): boolean {
+    if (typeof this._sim?.setKelvinSeedV !== 'function') return false;
+    const v = Number(seedV);
+    this._sim.setKelvinSeedV(Number.isFinite(v) ? v : -1);
+    return true;
+  }
+
   setLorentzFieldT(fieldT: number): void {
     this._sim?.setLorentzFieldT?.(Number(fieldT) || 0);
   }

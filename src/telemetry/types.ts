@@ -118,11 +118,35 @@ export interface FieldCouplingLinkTelemetry {
   appliedT: number;
   clamped: boolean;
   active: boolean;
+  /** Source that owns the destination this frame when this edge is shadowed. */
+  shadowedBy?: string;
 }
 
 export interface FieldNetworkTelemetry {
   couplingEnabled: boolean;
   links: Record<string, FieldCouplingLinkTelemetry>;
+}
+
+/** One `ChargeNetwork` edge (ADR-0013) — simulated seed estimate, not metrology. */
+export interface ChargeCouplingLinkTelemetry {
+  from: string;
+  to: string;
+  label: string;
+  /** Raw source voltage (V). */
+  sourceV: number;
+  /** gain × sourceV before the destination clamp (V). */
+  estimateV: number;
+  /** Seed written to the destination plant (V; 0 when inactive). */
+  appliedV: number;
+  /** Destination breakdown clamp (V). */
+  maxV: number;
+  clamped: boolean;
+  active: boolean;
+}
+
+export interface ChargeNetworkTelemetry {
+  couplingEnabled: boolean;
+  links: Record<string, ChargeCouplingLinkTelemetry>;
 }
 
 /** Sim vs hardware residual in shadow twin mode (ADR-0005). */
@@ -190,6 +214,7 @@ export interface TelemetrySnapshot {
   scientific: ScientificTelemetry;
   energyNetwork: EnergyNetworkTelemetry | null;
   fieldNetwork: FieldNetworkTelemetry | null;
+  chargeNetwork: ChargeNetworkTelemetry | null;
   /** Null when twin disconnected / unused. */
   hardwareTwin: HardwareTwinTelemetry | null;
   meta: TelemetryMeta;
@@ -223,6 +248,8 @@ export interface PublishFrameEnergyNetwork {
 }
 
 export type PublishFrameFieldNetwork = FieldNetworkTelemetry;
+
+export type PublishFrameChargeNetwork = ChargeNetworkTelemetry;
 
 export type PublishFrameHardwareTwin = HardwareTwinTelemetry;
 

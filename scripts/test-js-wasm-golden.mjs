@@ -73,6 +73,9 @@ const PER_KEY_EPS = {
 
 /** Per-device: the JS fallback entry points and how to seed / step them. */
 const PLANTS = {
+  // Kelvin is a core device: its JS plant is the shared stepDevicePhysics, not
+  // a plugin, so the entry below wraps it under the same create/step names.
+  kelvin: { create: 'createKelvinPhysicsState', step: 'stepKelvinPhysics' },
   peltier: { create: 'createPeltierPhysicsState', step: 'stepPeltierPhysics' },
   mhd: { create: 'createMhdPhysicsState', step: 'stepMhdPhysics' },
   maglev: { create: 'createMagLevPhysicsState', step: 'stepMagLevPhysics' },
@@ -97,6 +100,9 @@ export { createHallPhysicsState, stepHallPhysics } from './src/devices/quanta/ha
 export { createLorentzSledPhysicsState, stepLorentzSledPhysics } from './src/devices/quanta/lorentz-sled.ts';
 export { createJumpingRingPhysicsState, stepJumpingRingPhysics } from './src/devices/quanta/jumping-ring.ts';
 export { DEVICE_CATALOG } from './generated/device-catalog.ts';
+import { createDevicePhysicsState, stepDevicePhysics } from './src/renderers/shared/device-physics.ts';
+export const createKelvinPhysicsState = () => createDevicePhysicsState('kelvin');
+export const stepKelvinPhysics = (state, dt, drive) => stepDevicePhysics(state, dt, drive);
 `;
 
 const failures = [];
@@ -146,6 +152,8 @@ function parseGolden(stdout) {
         // Lab field coupling (ADR-0011) — negative means "no coupling".
         hallFieldCoupledT: Number(kv.get('hallFieldCoupledT') ?? -1),
         lorentzFieldT: Number(kv.get('lorentzFieldT') ?? -1),
+        // Lab charge coupling (ADR-0013) — negative means "isolated bench".
+        kelvinSeedV: Number(kv.get('kelvinSeedV') ?? -1),
         values: new Map(),
       });
       continue;
@@ -221,12 +229,14 @@ for (const kase of cases.values()) {
 
 /**
  * Apply a case's coupled setpoints to the JS state before stepping. This is
- * the same write `FieldNetwork.update` makes each frame, so the fallback sees
- * exactly what `setHallFieldCoupledT` / `setLorentzFieldT` gave the C++ plant.
+ * the same write `FieldNetwork.update` / `ChargeNetwork.update` make each
+ * frame, so the fallback sees exactly what `setHallFieldCoupledT` /
+ * `setLorentzFieldT` / `setKelvinSeedV` gave the C++ plant.
  */
 function seedCoupling(state, kase) {
   if (kase.hallFieldCoupledT >= 0) state.hallFieldCoupledT = kase.hallFieldCoupledT;
   if (kase.lorentzFieldT >= 0) state.lorentzFieldT = kase.lorentzFieldT;
+  if (kase.kelvinSeedV >= 0) state.kelvinSeedCoupledV = kase.kelvinSeedV;
 }
 
 let compared = 0;

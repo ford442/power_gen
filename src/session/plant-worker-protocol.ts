@@ -70,6 +70,8 @@ export interface PlantKnobs {
   hallCarrierType?: string;
   hallFieldCoupledT?: number | null;
   lorentzFieldT?: number;
+  /** Kelvin charge-bus seed (V). Null clears it. Absent outside Kelvin focus. */
+  kelvinSeedCoupledV?: number | null;
 }
 
 export interface PlantWorkerInit {
@@ -106,6 +108,8 @@ export interface PlantWorkerResult {
   plant: Float32Array;
   /** Worker-side `syncWasmFocusKnobs` verdict (stale binary without Hall coupling). */
   hallCouplingIgnored: boolean;
+  /** Same verdict for the Kelvin charge-bus seed (`setKelvinSeedV`). */
+  kelvinSeedIgnored: boolean;
   /** Wall time the worker spent stepping this batch. */
   stepMs: number;
 }

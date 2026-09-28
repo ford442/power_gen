@@ -16,5 +16,6 @@ Lightweight ADRs for the SEG WebGPU Visualizer. Each file is a short record of a
 | [0010](./0010-fdtd-slice.md) | 2D FDTD wave slice (not FEM) |
 | [0011](./0011-field-coupling.md) | Lab field coupling (optional cross-device B) |
 | [0012](./0012-fdtd-materials.md) | FDTD material cells (μ_r / σ), still 2D, still not FEM |
+| [0013](./0013-charge-coupling.md) | Lab charge coupling (optional VdG → Kelvin seed) |
 
 Status values: **Accepted** · **Superseded** · **Proposed**

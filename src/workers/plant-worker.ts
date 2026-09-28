@@ -13,6 +13,7 @@ import { segWasm } from '../wasm/seg-physics-bridge';
 import {
   applyWasmPlant,
   hallCouplingIgnoredByWasm,
+  kelvinSeedIgnoredByWasm,
   type SessionDeviceMap,
   type WasmModePlant
 } from '../session/apply-wasm-plant';
@@ -44,6 +45,9 @@ function knobDevices(knobs: PlantKnobs): SessionDeviceMap {
     },
     'lorentz-sled': {
       physicsState: (knobs.lorentzFieldT != null ? { lorentzFieldT: knobs.lorentzFieldT } : {}) as never
+    },
+    kelvin: {
+      physicsState: { kelvinSeedCoupledV: knobs.kelvinSeedCoupledV ?? null } as never
     }
   };
 }
@@ -90,6 +94,7 @@ function step(msg: PlantWorkerStep): void {
     physics: segOperator.physics,
     plant: packed,
     hallCouplingIgnored: useWasm && hallCouplingIgnoredByWasm(),
+    kelvinSeedIgnored: useWasm && kelvinSeedIgnoredByWasm(),
     stepMs: performance.now() - t0
   };
   ctx.postMessage(res, [packed.buffer]);

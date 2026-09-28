@@ -27,6 +27,7 @@ import { segWasm } from '../wasm/seg-physics-bridge';
 import { WASM_DEVICE_IDS } from '../../generated/device-catalog';
 import {
   applyModePlantToDevices,
+  reportKelvinSeedIgnored,
   devicePhysics,
   type SessionDeviceMap
 } from './apply-wasm-plant';
@@ -112,6 +113,9 @@ function collectKnobs(devices: SessionDeviceMap, focus: string): PlantKnobs {
   } else if (focus === 'lorentz-sled') {
     const fieldT = devicePhysics(devices['lorentz-sled'])?.lorentzFieldT;
     if (fieldT != null) knobs.lorentzFieldT = fieldT;
+  } else if (focus === 'kelvin') {
+    const seed = devicePhysics(devices.kelvin)?.kelvinSeedCoupledV;
+    knobs.kelvinSeedCoupledV = typeof seed === 'number' && Number.isFinite(seed) ? seed : null;
   }
   return knobs;
 }
@@ -272,6 +276,9 @@ export class PlantWorkerHost {
     segOperator.status = res.status;
     Object.assign(segOperator.physics, res.physics);
 
+    // Kelvin is a core plant: ownership is the module flag, not `_wasmPlantActive`.
+    reportKelvinSeedIgnored(res.kelvinSeedIgnored);
+
     const packed = res.plant;
     if (packed[0] & PLANT_FLAG_WASM_STEPPED) {
       const plant = unpackModePlant(packed, WASM_DEVICE_IDS);
@@ -281,7 +288,13 @@ export class PlantWorkerHost {
       const meanOmega = packed[MEAN_OMEGA_INDEX];
       if (!Number.isNaN(meanOmega)) segWasm.reportRollerMeanOmega(meanOmega);
       if (rec.focus !== 'seg' && rec.focus !== 'overview') {
-        applyModePlantToDevices(rec.focus, devices, plant, res.hallCouplingIgnored);
+        applyModePlantToDevices(
+          rec.focus,
+          devices,
+          plant,
+          res.hallCouplingIgnored,
+          res.kelvinSeedIgnored
+        );
         this.ownedFocus = devicePhysics(devices[rec.focus])?._wasmPlantActive ? rec.focus : null;
       } else {
         this.ownedFocus = null;

@@ -241,6 +241,14 @@ export const PULSE_COIL_CORE = {
   cDampNsm: 1.4,
 };
 
+/**
+ * Lab charge bus (ADR-0013) — TS only: the bus writes the Kelvin seed from JS
+ * before the step, and the C++ plant only clamps what it is handed.
+ */
+export const CHARGE_COUPLING = {
+  vdgToKelvinSeparationM: 1,
+};
+
 /** Halbach viewer — JS-only plant (no wasmMode), so TS is the only target. */
 export const HALBACH_VIZ = {
   radiusM: 0.14,

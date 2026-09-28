@@ -27,10 +27,20 @@ void kelvin_particle_step(SimParticle& p, float kelvinE, float dt, float simTime
     }
 }
 
+// Lab charge coupling (ADR-0013). v < 0 (or NaN) clears the seed and returns the
+// bench to its isolated start; otherwise the seed is clamped to the bench's own
+// breakdown voltage. Mirrors kelvinSeedV in renderers/shared/device-physics.ts.
+void SEGSimulator::setKelvinSeedV(float seedV) {
+    _kelvin.seedV = (seedV >= 0.f) ? clampf(seedV, 0.f, _kelvin.vBreak) : 0.f;
+}
+
 void SEGSimulator::_stepKelvin(float dt) {
     KelvinState& k = _kelvin;
     constexpr float chargeRate = 8000.f, feedback = 2.f, leak = 0.3f;
-    k.voltage += (k.drive * (chargeRate + feedback * k.voltage) - leak * k.voltage) * dt;
+    // The inductor sees its own terminal voltage plus any coupled seed; the
+    // seed biases what the droplets carry, it is not a second charge source,
+    // so with no water flowing (drive 0) it does nothing.
+    k.voltage += (k.drive * (chargeRate + feedback * (k.voltage + k.seedV)) - leak * k.voltage) * dt;
     k.voltage = std::max(0.f, k.voltage);
     if (k.voltage >= k.vBreak && k.sparkTimer <= 0.f) {
         k.voltage *= 0.02f;

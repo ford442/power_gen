@@ -98,6 +98,9 @@ export interface WasmModePlant {
  */
 let _hallCouplingIgnoredByWasm = false;
 let _warnedHallCouplingUnsupported = false;
+/** Same, for the Kelvin seed on the lab charge bus (ADR-0013). */
+let _kelvinSeedIgnoredByWasm = false;
+let _warnedKelvinSeedUnsupported = false;
 
 export function devicePhysics(device: SessionDevice | undefined | null): DevicePhysicsState | null {
   return device?.physicsState ?? device?.physics ?? null;
@@ -117,6 +120,9 @@ export function wasmOwnsJsDevicePhysics(
   physics: { _wasmPlantActive?: boolean } | null | undefined
 ): boolean {
   if (!useWasm || deviceId !== focus) return false;
+  // A binary that cannot take the charge-bus seed leaves Kelvin to the JS
+  // plant, which does honor it (see syncWasmFocusKnobs).
+  if (deviceId === 'kelvin' && _kelvinSeedIgnoredByWasm) return false;
   if (CORE_WASM_OWNED_IDS.has(deviceId)) return true;
   return QUANTA_WASM_OWNED_IDS.has(deviceId) && !!physics?._wasmPlantActive;
 }
@@ -124,6 +130,20 @@ export function wasmOwnsJsDevicePhysics(
 /** Whether the last `syncWasmFocusKnobs` left Hall to the JS plant (see above). */
 export function hallCouplingIgnoredByWasm(): boolean {
   return _hallCouplingIgnoredByWasm;
+}
+
+/** Whether the last `syncWasmFocusKnobs` left Kelvin to the JS plant (ADR-0013). */
+export function kelvinSeedIgnoredByWasm(): boolean {
+  return _kelvinSeedIgnoredByWasm;
+}
+
+/**
+ * Main thread: adopt the plant worker's Kelvin-seed verdict. The worker's
+ * module flag does not exist here, and `wasmOwnsJsDevicePhysics` reads this
+ * one to decide whether the JS Kelvin plant still steps.
+ */
+export function reportKelvinSeedIgnored(ignored: boolean): void {
+  _kelvinSeedIgnoredByWasm = ignored;
 }
 
 function applyPlantToPhysics(
@@ -150,7 +170,8 @@ export function applyModePlantToDevices(
   focus: string,
   devices: SessionDeviceMap,
   plant: WasmModePlant | null,
-  hallCouplingIgnored = _hallCouplingIgnoredByWasm
+  hallCouplingIgnored = _hallCouplingIgnoredByWasm,
+  kelvinSeedIgnored = _kelvinSeedIgnoredByWasm
 ): void {
   if (!plant) return;
 
@@ -165,6 +186,7 @@ export function applyModePlantToDevices(
     return;
   }
   if (focus === 'kelvin') {
+    if (kelvinSeedIgnored) return;
     const kelvin = devicePhysics(devices.kelvin);
     if (!kelvin) return;
     kelvin.kelvinV = plant.voltage ?? 0;
@@ -314,6 +336,24 @@ export function applyModePlantToDevices(
 export function syncWasmFocusKnobs(devices: SessionDeviceMap, focus: string): void {
   if (isWasmPlantMode(focus)) {
     segWasm.setMode(focus);
+  }
+  if (focus === 'kelvin') {
+    // ChargeNetwork already wrote the seed (null when uncoupled); a negative V
+    // clears it in the C++ plant (ADR-0013).
+    const seedV = devicePhysics(devices.kelvin)?.kelvinSeedCoupledV;
+    const wantsSeed = typeof seedV === 'number' && Number.isFinite(seedV);
+    const accepted = segWasm.setKelvinSeedV?.(wantsSeed ? seedV : -1) ?? false;
+    _kelvinSeedIgnoredByWasm = wantsSeed && !accepted;
+    if (_kelvinSeedIgnoredByWasm && !_warnedKelvinSeedUnsupported) {
+      _warnedKelvinSeedUnsupported = true;
+      console.warn(
+        '[LabSession] sim_core.wasm predates setKelvinSeedV — keeping the JS Kelvin '
+        + 'plant while charge coupling is on, so the reported V matches the coupled seed. '
+        + 'Rebuild the WASM artefact (npm run wasm:build) to run the C++ plant coupled.'
+      );
+    }
+  } else {
+    _kelvinSeedIgnoredByWasm = false;
   }
   if (focus === 'transformer') {
     const leak = !!devicePhysics(devices.transformer)?.transformerLeakage;

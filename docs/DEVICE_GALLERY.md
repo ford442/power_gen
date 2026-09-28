@@ -320,6 +320,10 @@ Capture: `?renderer=webgl2` → START → `setMode('vdg')` → `captureCanvasFra
 - WASM `SimMode`: `9` (`SIM_MODE_VDG` from `physics/devices.json`); plugin uses `catalogIdentity('vdg')`
 - UI: Van de Graaff mode button; `#lab=` guided tour (`window.startVdgTour()`)
 - Plant: C++ belt-charge/leakage/spark-gap ODE when `?wasmPhysics=1`; JS fallback mirrors it exactly
+- Charge bus (ADR-0013): under `?chargeCoupling=1` the sphere voltage seeds the
+  Kelvin dropper next door (`V·r/d`, clamped to Kelvin's breakdown). The VdG
+  itself is unchanged, since the bus runs one way, and it keeps charging
+  off-focus while Kelvin is being watched. Simulated, not calibrated kilovolts
 
 ---
 
@@ -346,7 +350,7 @@ Capture: `?renderer=webgl2` → START → `setMode('hall')` →
 |-------|------|--------|
 | Hall voltage | V | Plant (`hallVoltage`) |
 | Drive current | A | Smoothed drive-scaled current (`hallCurrent`) |
-| B-field | T | Drive-derived bench parameter, or the coupled Halbach estimate under `?fieldCoupling=1` (`hallFieldT`) |
+| B-field | T | Drive-derived bench parameter, or the coupled Halbach estimate under `?fieldCoupling=1` — the homopolar disc's axial B while Halbach is switched off (`hallFieldT`) |
 | Hall coefficient | m³/C | `R_H = 1/(n·e)` for the selected carrier (`hallCoeff`) |
 
 ### References
@@ -367,7 +371,8 @@ Capture: `?renderer=webgl2` → START → `setMode('hall')` →
   the model is not; `window.startHallTour()`
 - B field is a local UI parameter **by default** (drive-derived), the isolated-classroom
   choice. **Off by default**, not unavailable: under `?fieldCoupling=1` it follows
-  `halbach-viz`'s peak |B| estimate clamped to `HALL.bMaxT`, and the panel names the
+  `halbach-viz`'s peak |B| estimate clamped to `HALL.bMaxT` (or, with Halbach switched
+  off, the homopolar disc's axial B — one source at a time), and the panel names the
   source device. Coupled or local, that B is a **simulated estimate**, never metrology —
   ADR-0011 and `docs/TELEMETRY.md`
 
@@ -607,8 +612,10 @@ device that shows induction as motion; depth still beats a 16th.
 | `halbach-viz` → `hall` | **Live, opt-in** | `?fieldCoupling=1` — Hall B follows the clamped Halbach peak estimate (ADR-0011) |
 | `mhd` → `lorentz-sled` | **Live, opt-in** | `?fieldCoupling=1` for B; `?energyCoupling=1` already couples the pipe watts (ADR-0004) |
 | `transformer` → `jumping-ring` | **Live (energy pipe)** | `?energyCoupling=1` couples the pipe watts (ADR-0004). No field edge: the ring is driven by a mains supply, not a B setpoint |
-| `homopolar` ↔ `hall` | Candidate | Same I×B physics; no shared B yet. One more `FIELD_COUPLING_EDGES` row when a source estimate is worth propagating |
-| `kelvin` ↔ `vdg` | **Deferred** | Both electrostatic and share no B — a charge/voltage bus is a different model and a later epic, not a field-network edge |
+| `homopolar` → `hall` | **Live, opt-in** | `?fieldCoupling=1` — the disc's axial B drives the Hall strip **only while `halbach-viz` is switched off** (one live source per destination). `?energyCoupling=1` adds a 30 W pipe (Hall nameplate) |
+| `vdg` → `kelvin` | **Live, opt-in** | `?chargeCoupling=1` — the sphere's potential at the dropper (`V·r/d`) seeds Kelvin's induction, clamped to Kelvin's breakdown (ADR-0013). A separate charge bus, not a field edge. One direction only |
+| `transformer` → `vdg` | **Live (energy pipe)** | `?energyCoupling=1` — 60 W (VdG nameplate): the belt motor's draw, not watts reaching the sphere |
+| → `pulse-coil` | **Skipped** | No nameplate, and a per-shot bank energy is not a watt without a repetition rate the plant lacks; recorded in `physics/coupling.json` rather than given an invented pipe |
 
 Explicitly **out of scope** for this layer: FEM, FDTD (the pulse-coil slice
 already owns that, ADR-0010/0012 — including the one cross-device borrow it

@@ -48,6 +48,7 @@ import { initFdtdHeatmapOverlay } from './fdtd-heatmap-overlay';
 import { LabAudio } from './audio/lab-audio';
 import { initLabAudioBadge } from './audio/lab-audio-badge';
 import { syncFieldCouplingDisclaimer } from './renderers/shared/field-network';
+import { wireChargeCouplingControls } from './charge-coupling-ui';
 import { ScientificUIManager } from './scientific-ui/index';
 import './multi-device-window-api';
 
@@ -565,6 +566,7 @@ function bootApp(): void {
     initTelemetryExportPanel();
     initReplayUI();
     wireFieldCouplingControls();
+    wireChargeCouplingControls();
     const explainer = initExplainerUI();
     await explainer.applyLabFromHash();
 

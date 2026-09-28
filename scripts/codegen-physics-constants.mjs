@@ -9,6 +9,10 @@
  *   generated/physics-constants.js
  *   src/shaders/generated/constants.wgsl  (copy for #include)
  *
+ * Reads physics/coupling.json (the lab energy-pipe graph, ADR-0004) and emits:
+ *   generated/lab-coupling.ts   (EnergyNetwork pipes + colours)
+ *   generated/lab-coupling.h    (native --mode energy-network smoke)
+ *
  * Usage:
  *   node scripts/codegen-physics-constants.mjs
  *   node scripts/codegen-physics-constants.mjs --check
@@ -21,6 +25,7 @@ import { createHash } from 'node:crypto';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const SRC_JSON = join(ROOT, 'physics', 'constants.json');
+const COUPLING_JSON = join(ROOT, 'physics', 'coupling.json');
 const OUT_DIR = join(ROOT, 'generated');
 const SHADER_OUT = join(ROOT, 'src', 'shaders', 'generated', 'constants.wgsl');
 
@@ -589,6 +594,14 @@ export const PULSE_COIL_CORE = {
   cDampNsm: ${pc.cDampNsm},
 } as const;
 
+/**
+ * Lab charge bus (ADR-0013) — TS only: the bus writes the Kelvin seed from JS
+ * before the step, and the C++ plant only clamps what it is handed.
+ */
+export const CHARGE_COUPLING = {
+  vdgToKelvinSeparationM: ${data.chargeCoupling.vdgToKelvinSeparationM},
+} as const;
+
 /** Halbach viewer — JS-only plant (no wasmMode), so TS is the only target. */
 export const HALBACH_VIZ = {
   radiusM: ${hv.radiusM},
@@ -636,6 +649,95 @@ export const SILICON_REFRACTIVE_INDEX = MATERIALS.siliconRefractiveIndex;
 `;
 }
 
+/**
+ * Resolve physics/coupling.json against the nameplates. An edge states either
+ * `maxWatts` or `nameplate` (a device id); a nameplate that does not exist is a
+ * hard error, so a pipe is dropped rather than drawn with an invented watt.
+ */
+function resolveEnergyPipes(coupling, data) {
+  const nameplates = data.energyNetwork.deviceNameplateWatts;
+  const seen = new Set();
+  return coupling.energyPipes.map((e, i) => {
+    const where = `physics/coupling.json energyPipes[${i}] (${e.from} → ${e.to})`;
+    if (typeof e.from !== 'string' || typeof e.to !== 'string') throw new Error(`${where}: from/to must be device ids`);
+    const key = `${e.from}-${e.to}`;
+    if (seen.has(key)) throw new Error(`${where}: duplicate edge`);
+    seen.add(key);
+    const hasLiteral = typeof e.maxWatts === 'number';
+    const hasNameplate = typeof e.nameplate === 'string';
+    if (hasLiteral === hasNameplate) throw new Error(`${where}: set exactly one of maxWatts / nameplate`);
+    let maxWatts = e.maxWatts;
+    if (hasNameplate) {
+      maxWatts = nameplates[e.nameplate];
+      if (typeof maxWatts !== 'number') {
+        throw new Error(`${where}: no energyNetwork.deviceNameplateWatts['${e.nameplate}'] — skip the pipe, do not invent a watt`);
+      }
+    }
+    if (!(maxWatts > 0)) throw new Error(`${where}: maxWatts must be > 0`);
+    if (!Array.isArray(e.color) || e.color.length !== 3) throw new Error(`${where}: color must be [r, g, b]`);
+    return {
+      from: e.from,
+      to: e.to,
+      maxWatts,
+      speed: e.speed ?? 1.5,
+      color: e.color,
+      nameplate: hasNameplate ? e.nameplate : null
+    };
+  });
+}
+
+function emitCouplingTs(pipes) {
+  const rows = pipes.map((p) =>
+    `  { from: '${p.from}', to: '${p.to}', maxWatts: ${p.maxWatts}, speed: ${p.speed}, `
+    + `color: [${p.color.join(', ')}], nameplate: ${p.nameplate ? `'${p.nameplate}'` : 'null'} },`
+  ).join('\n');
+  return `/**
+ * AUTO-GENERATED from physics/coupling.json — do not edit.
+ * Regenerate: npm run codegen:constants
+ */
+
+export interface EnergyPipeCatalogRow {
+  readonly from: string;
+  readonly to: string;
+  /** Pipe capacity (W) — simulated order-of-magnitude, not metrology. */
+  readonly maxWatts: number;
+  readonly speed: number;
+  readonly color: readonly [number, number, number];
+  /** Device whose nameplate set maxWatts, or null for a literal capacity. */
+  readonly nameplate: string | null;
+}
+
+export const ENERGY_PIPE_CATALOG: readonly EnergyPipeCatalogRow[] = [
+${rows}
+];
+`;
+}
+
+function emitCouplingH(pipes) {
+  const rows = pipes.map((p) => `    { "${p.from}", "${p.to}", ${f32(p.maxWatts)} },`).join('\n');
+  return `// AUTO-GENERATED from physics/coupling.json — do not edit.
+// Regenerate: npm run codegen:constants
+#pragma once
+
+namespace power_gen {
+
+/** One lab energy pipe by device id; the consumer maps ids to SimModes. */
+struct EnergyPipeCatalogRow {
+    const char* from;
+    const char* to;
+    float maxWatts;
+};
+
+static constexpr EnergyPipeCatalogRow ENERGY_PIPE_CATALOG[] = {
+${rows}
+};
+
+static constexpr int ENERGY_PIPE_CATALOG_COUNT = ${pipes.length};
+
+} // namespace power_gen
+`;
+}
+
 function emitJs(tsBody) {
   return tsBody
     .replace(/ as const/g, '')
@@ -675,7 +777,11 @@ function main() {
   const ts = emitTs(data);
   const js = emitJs(ts);
 
+  const pipes = resolveEnergyPipes(JSON.parse(readFileSync(COUPLING_JSON, 'utf8')), data);
+
   const outputs = [
+    [join(OUT_DIR, 'lab-coupling.ts'), emitCouplingTs(pipes)],
+    [join(OUT_DIR, 'lab-coupling.h'), emitCouplingH(pipes)],
     [join(OUT_DIR, 'constants.h'), h],
     [join(OUT_DIR, 'constants.wgsl'), wgsl],
     [join(OUT_DIR, 'physics-constants.ts'), ts],
@@ -688,7 +794,7 @@ function main() {
   }
 
   if (CHECK) {
-    console.log(`[codegen] OK — ${outputs.length} files match physics/constants.json`);
+    console.log(`[codegen] OK — ${outputs.length} files match physics/constants.json + physics/coupling.json`);
   } else {
   const hash = sha256(readFileSync(SRC_JSON, 'utf8'));
     console.log(`[codegen] wrote ${outputs.length} files (source sha256 ${hash.slice(0, 12)}…)`);

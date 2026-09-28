@@ -254,5 +254,9 @@
       "lorentz-sled": 180,
       "jumping-ring": 240
     }
+  },
+  "chargeCoupling": {
+    "comment": "Lab charge bus (ADR-0013) — lumped seed estimate, not a Laplace solve. The seed potential at the Kelvin inductor is V_sphere × r_sphere / d, the potential of an isolated charged sphere at distance d. d is a declared classroom bench separation, not the scene layout distance and not a measurement.",
+    "vdgToKelvinSeparationM": 1.0
   }
 }

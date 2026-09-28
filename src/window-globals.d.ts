@@ -9,6 +9,10 @@ import type { SEGOperatorPanel } from './seg-operator-panel';
 import type { MultiDeviceCamera } from './multi-device-camera';
 import type { FdtdHeatmapOverlay } from './fdtd-heatmap-overlay';
 import type { LabAudio } from './audio/lab-audio';
+import type {
+  ChargeCouplingReading as ChargeNetworkWindowLink,
+  ChargeNetworkSnapshot as ChargeNetworkWindowSnapshot
+} from './renderers/shared/charge-network';
 
 /**
  * Minimal window-facing view of SegLayout. Kept separate (rather than reusing
@@ -67,6 +71,7 @@ export interface MultiVisualizerWindowRef {
         appliedT: number;
         clamped: boolean;
         active: boolean;
+        shadowedBy?: string;
       }>;
     } | null;
     getLinkForDestination?: (deviceId: string) => {
@@ -77,7 +82,15 @@ export interface MultiVisualizerWindowRef {
       appliedT: number;
       clamped: boolean;
       active: boolean;
+      shadowedBy?: string;
     } | null;
+    setCouplingEnabled?: (enabled: boolean) => void;
+  } | null;
+  /** Optional Kelvin seed from the VdG sphere (ADR-0013) — off by default. */
+  chargeNetwork?: {
+    couplingEnabled?: boolean;
+    getSnapshot?: () => ChargeNetworkWindowSnapshot | null;
+    getLinkForDestination?: (deviceId: string) => ChargeNetworkWindowLink | null;
     setCouplingEnabled?: (enabled: boolean) => void;
   } | null;
   getSEGLayoutPreset?: () => string;
@@ -197,6 +210,8 @@ declare global {
     setLorentzFieldT?: (fieldT: number) => void;
     setFieldCoupling?: (enabled: boolean) => void;
     syncFieldCouplingUI?: () => void;
+    setChargeCoupling?: (enabled: boolean) => void;
+    syncChargeCouplingUI?: () => void;
     setSegFrameLevel?: (level: string) => void;
     setLightingLook?: (look: string) => void;
     setRenderer?: (name: string) => void;

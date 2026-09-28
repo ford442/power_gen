@@ -1,0 +1,43 @@
+{
+  "$comment": "Lab energy-pipe graph (ADR-0004), shared by the TS EnergyNetwork and the native --mode energy-network smoke. Regenerate: npm run codegen:constants. Allocation along these pipes is simulated accounting, not metrology. An edge either states maxWatts (the original classroom graph) or names a device whose physics/constants.json energyNetwork.deviceNameplateWatts entry becomes its capacity; codegen fails on a nameplate that does not exist, so a pipe is skipped rather than given an invented watt. The field (ADR-0011) and charge (ADR-0013) buses are separate graphs on separate switches and do not live here.",
+  "energyPipes": [
+    { "from": "seg", "to": "heron", "maxWatts": 1500, "speed": 2.0, "color": [0.15, 0.92, 0.75] },
+    { "from": "heron", "to": "kelvin", "maxWatts": 800, "speed": 1.5, "color": [0.25, 0.65, 1.0] },
+    { "from": "kelvin", "to": "seg", "maxWatts": 600, "speed": 2.5, "color": [0.72, 0.45, 1.0] },
+    { "from": "kelvin", "to": "peltier", "maxWatts": 400, "speed": 1.8, "color": [0.55, 0.35, 0.95] },
+    { "from": "peltier", "to": "solar", "maxWatts": 500, "speed": 2.2, "color": [1.0, 0.82, 0.25] },
+    { "from": "seg", "to": "mhd", "maxWatts": 1200, "speed": 1.6, "color": [0.35, 0.88, 1.0] },
+    { "from": "mhd", "to": "peltier", "maxWatts": 700, "speed": 2.0, "color": [0.45, 0.75, 1.0] },
+    { "from": "solar", "to": "maglev", "maxWatts": 450, "speed": 1.4, "color": [0.25, 0.92, 1.0] },
+    { "from": "maglev", "to": "seg", "maxWatts": 550, "speed": 1.9, "color": [0.15, 0.85, 0.95] },
+    {
+      "from": "solar", "to": "transformer", "maxWatts": 350, "speed": 1.5, "color": [0.95, 0.7, 0.25],
+      "note": "Classroom path: transformer → Halbach → homopolar → SEG metaphor."
+    },
+    { "from": "transformer", "to": "halbach-viz", "maxWatts": 300, "speed": 1.6, "color": [0.35, 0.85, 0.95] },
+    { "from": "halbach-viz", "to": "homopolar", "maxWatts": 320, "speed": 1.7, "color": [0.55, 0.75, 1.0] },
+    { "from": "homopolar", "to": "seg", "maxWatts": 400, "speed": 1.8, "color": [0.9, 0.55, 0.2] },
+    {
+      "from": "mhd", "to": "lorentz-sled", "maxWatts": 300, "speed": 1.7, "color": [0.95, 0.6, 0.3],
+      "note": "The MHD channel generates, the rail sled consumes the same I×B physics as a motor."
+    },
+    {
+      "from": "transformer", "to": "jumping-ring", "maxWatts": 260, "speed": 1.8, "color": [0.6, 0.8, 1.0],
+      "note": "Mutual inductance as coupled L-M phasors, then the same coupling doing mechanical work on a shorted secondary."
+    },
+    {
+      "from": "homopolar", "to": "hall", "nameplate": "hall", "speed": 1.6, "color": [0.95, 0.75, 0.35],
+      "note": "A Faraday disc is the textbook low-voltage, high-current source; the Hall strip wants about an ampere at a fraction of a volt. Capacity is the Hall bench nameplate."
+    },
+    {
+      "from": "transformer", "to": "vdg", "nameplate": "vdg", "speed": 1.5, "color": [0.8, 0.85, 0.95],
+      "note": "The belt motor runs off the bench supply. Capacity is the VdG nameplate — the motor's draw, not the watts reaching the sphere (microamps at ~100 kV is well under a watt)."
+    }
+  ],
+  "skippedEnergyPipes": [
+    {
+      "to": "pulse-coil",
+      "reason": "No pulse-coil entry in energyNetwork.deviceNameplateWatts. The capacitor bank stores ½CV² ≈ 2.5 J per shot; turning that into a continuous watt figure needs a repetition rate the plant does not model, so no pipe is drawn rather than inventing one."
+    }
+  ]
+}

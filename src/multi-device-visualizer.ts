@@ -30,6 +30,7 @@ import { ElectromagnetController } from './electromagnet-controller';
 import { ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network';
 import type { EnergyNetwork } from './renderers/shared/energy-network';
 import type { FieldNetwork } from './renderers/shared/field-network';
+import type { ChargeNetwork } from './renderers/shared/charge-network';
 import {
   parseSsrEnabled,
   parseTaaEnabled,
@@ -247,6 +248,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   set devicesEnabled(v: Record<string, boolean>) { this.session.devicesEnabled = v; }
   get energyNetwork(): EnergyNetwork { return this.session.energyNetwork; }
   get fieldNetwork(): FieldNetwork { return this.session.fieldNetwork; }
+  get chargeNetwork(): ChargeNetwork { return this.session.chargeNetwork; }
   get hardwareBridge(): HardwareBridge { return this.session.hardwareBridge; }
   set hardwareBridge(v: HardwareBridge) { this.session.hardwareBridge = v; }
   get hardwareTargetPhase(): number { return this.session.hardwareTargetPhase; }

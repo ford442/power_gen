@@ -184,6 +184,33 @@
     #lorentzFieldSource[data-coupled="true"],
     #hallFieldSource[data-coupled="true"] { color: #9fc; }
 
+    /* Charge bus (ADR-0013) — stacked above the field line, same rules: shown
+       in overview, and in any focus view while charge coupling is on. */
+    #chargeCouplingDisclaimer {
+      position: fixed;
+      bottom: 96px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: min(92vw, 640px);
+      padding: 6px 14px;
+      border-radius: 6px;
+      background: rgba(0, 12, 24, 0.88);
+      border: 1px solid #0ff4;
+      color: #8ad;
+      font-size: 0.68rem;
+      text-align: center;
+      pointer-events: none;
+      z-index: 50;
+      display: none;
+    }
+    body.overview-mode #chargeCouplingDisclaimer,
+    body.charge-coupled #chargeCouplingDisclaimer { display: block; }
+    #chargeCouplingDisclaimer[data-mode="coupled"] {
+      border-color: #fc4;
+      color: #fe9;
+    }
+    #chargeCouplingSource[data-coupled="true"] { color: #fe9; }
+
     #hw-twin-badge {
       display: inline-flex;
       align-items: center;

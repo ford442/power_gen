@@ -135,7 +135,18 @@
           <input type="checkbox" id="fieldCouplingToggle" aria-label="Couple destination B to source device estimates">
           <span>Couple B across devices (Halbach&nbsp;&rarr;&nbsp;Hall, MHD&nbsp;&rarr;&nbsp;sled)</span>
         </label>
-        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Off by default — each bench keeps its own local B. On, the destination B is the source device's <em>simulated</em> estimate, clamped to the destination's catalog range. Not Maxwell, not metrology.</div>
+        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Off by default — each bench keeps its own local B. On, the destination B is the source device's <em>simulated</em> estimate, clamped to the destination's catalog range. Hall takes one source at a time: Halbach, or the homopolar disc's magnet while Halbach is switched off. Not Maxwell, not metrology.</div>
+      </div>
+
+      <!-- Lab charge bus (ADR-0013) — its own switch, never implied by field or energy -->
+      <div class="panel-section" id="charge-coupling-section">
+        <h3>Lab charge coupling</h3>
+        <label class="ctrl-row" style="gap:6px;align-items:center;cursor:pointer;font-size:0.7rem;">
+          <input type="checkbox" id="chargeCouplingToggle" aria-label="Seed the Kelvin dropper from the Van de Graaff sphere voltage">
+          <span>Seed Kelvin from the Van de Graaff (VdG&nbsp;&rarr;&nbsp;Kelvin)</span>
+        </label>
+        <div id="chargeCouplingSource" data-coupled="false" style="font-size:0.66rem;color:#8cf;margin-top:6px;line-height:1.4;">Kelvin seed: isolated bench (own start-up imbalance)</div>
+        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Off by default — both electrostatic benches keep their own voltages. On, the VdG sphere's potential at the Kelvin inductor (<em>V&middot;r/d</em>, an isolated-sphere estimate at a declared bench distance) biases the dropper's induction, so it charges faster and sparks sooner. Clamped to Kelvin's breakdown. Not a Laplace solve, not calibrated kilovolts.</div>
       </div>
 
       <!-- SEG roller/stator layout preset -->
@@ -394,6 +405,9 @@
   </div>
   <div id="fieldCouplingDisclaimer" data-mode="local" aria-live="polite">
     Field coupling: off — Hall and rail-sled B are local bench parameters
+  </div>
+  <div id="chargeCouplingDisclaimer" data-mode="local" aria-live="polite">
+    Charge coupling: off — Kelvin and Van de Graaff keep isolated bench voltages
   </div>
   <div id="footer">
     <span id="stats">Mode: <span id="modeFooter">SEG</span></span>
