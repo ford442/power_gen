@@ -52,6 +52,9 @@ export interface SEGSimulatorInstance {
   getKelvinVoltageN?(): number;
   getKelvinE?(): number;
   getKelvinSparkTimer?(): number;
+  getKelvinVbreak?(): number;
+  getKelvinSeedV?(): number;
+  setKelvinSeedV?(seedV: number): void;
   getSolarBattery?(): number;
   getPeltierHotK?(): number;
   getPeltierColdK?(): number;

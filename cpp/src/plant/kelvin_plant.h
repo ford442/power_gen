@@ -9,4 +9,9 @@ struct KelvinState {
     float voltageN{0.f};      // 0..1
     float E{0.f};             // upward accel coeff
     float drive{0.f};
+    // Seed potential (V) at the inductor rings from the lab ChargeNetwork under
+    // ?chargeCoupling=1 (ADR-0013): a nearby charged VdG sphere biases the
+    // induction the dropper amplifies. 0 = isolated bench, the default and what
+    // the goldens exercise; V + 0 is exact, so the default path is unchanged.
+    float seedV{0.f};
 };

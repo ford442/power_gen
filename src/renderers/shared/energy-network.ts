@@ -9,6 +9,7 @@
  */
 
 import { ENERGY_NETWORK_NAMEPLATES } from '../../../generated/physics-constants';
+import { ENERGY_PIPE_CATALOG } from '../../../generated/lab-coupling';
 
 interface SegWasmEnergyBus {
   enabled?: boolean;
@@ -37,50 +38,27 @@ export interface EnergyPipeEdge {
   speed?: number;
 }
 
-/** Declarative overview pipe graph (from / to / maxWatts). */
-export const ENERGY_PIPE_EDGES: EnergyPipeEdge[] = [
-  { from: 'seg', to: 'heron', maxWatts: 1500, speed: 2.0 },
-  { from: 'heron', to: 'kelvin', maxWatts: 800, speed: 1.5 },
-  { from: 'kelvin', to: 'seg', maxWatts: 600, speed: 2.5 },
-  { from: 'kelvin', to: 'peltier', maxWatts: 400, speed: 1.8 },
-  { from: 'peltier', to: 'solar', maxWatts: 500, speed: 2.2 },
-  { from: 'seg', to: 'mhd', maxWatts: 1200, speed: 1.6 },
-  { from: 'mhd', to: 'peltier', maxWatts: 700, speed: 2.0 },
-  { from: 'solar', to: 'maglev', maxWatts: 450, speed: 1.4 },
-  { from: 'maglev', to: 'seg', maxWatts: 550, speed: 1.9 },
-  // Classroom path: transformer → Halbach → homopolar → SEG metaphor
-  { from: 'solar', to: 'transformer', maxWatts: 350, speed: 1.5 },
-  { from: 'transformer', to: 'halbach-viz', maxWatts: 300, speed: 1.6 },
-  { from: 'halbach-viz', to: 'homopolar', maxWatts: 320, speed: 1.7 },
-  { from: 'homopolar', to: 'seg', maxWatts: 400, speed: 1.8 },
-  // Classroom pair: the MHD channel generates, the rail sled consumes the same
-  // I×B physics as a motor. Allocation is simulated accounting (ADR-0004), not
-  // metrology — the residual watts shown in overview stay labelled simulated.
-  { from: 'mhd', to: 'lorentz-sled', maxWatts: 300, speed: 1.7 },
-  // Classroom pair: the transformer bench shows mutual inductance as coupled
-  // L-M phasors, the jumping ring shows the same coupling doing mechanical
-  // work on a shorted secondary. Allocation is simulated accounting (ADR-0004),
-  // not metrology.
-  { from: 'transformer', to: 'jumping-ring', maxWatts: 260, speed: 1.8 }
-];
+/**
+ * Declarative overview pipe graph (from / to / maxWatts), generated from
+ * `physics/coupling.json` so the native `--mode energy-network` smoke walks
+ * the same graph. New pipes take their capacity from a device nameplate in
+ * `physics/constants.json`; codegen refuses a nameplate that does not exist, so
+ * a bench with no honest watt figure (pulse-coil) gets no pipe rather than an
+ * invented one. Allocation is simulated accounting (ADR-0004), not metrology.
+ */
+export const ENERGY_PIPE_EDGES: EnergyPipeEdge[] = ENERGY_PIPE_CATALOG.map((row) => ({
+  from: row.from,
+  to: row.to,
+  maxWatts: row.maxWatts,
+  speed: row.speed
+}));
 
-export const PIPE_COLORS: Record<string, [number, number, number]> = {
-  'seg-heron': [0.15, 0.92, 0.75],
-  'heron-kelvin': [0.25, 0.65, 1.0],
-  'kelvin-seg': [0.72, 0.45, 1.0],
-  'kelvin-peltier': [0.55, 0.35, 0.95],
-  'peltier-solar': [1.0, 0.82, 0.25],
-  'seg-mhd': [0.35, 0.88, 1.0],
-  'mhd-peltier': [0.45, 0.75, 1.0],
-  'solar-maglev': [0.25, 0.92, 1.0],
-  'maglev-seg': [0.15, 0.85, 0.95],
-  'solar-transformer': [0.95, 0.7, 0.25],
-  'transformer-halbach-viz': [0.35, 0.85, 0.95],
-  'halbach-viz-homopolar': [0.55, 0.75, 1.0],
-  'homopolar-seg': [0.9, 0.55, 0.2],
-  'mhd-lorentz-sled': [0.95, 0.6, 0.3],
-  'transformer-jumping-ring': [0.6, 0.8, 1.0]
-};
+export const PIPE_COLORS: Record<string, [number, number, number]> = Object.fromEntries(
+  ENERGY_PIPE_CATALOG.map((row) => [
+    `${row.from}-${row.to}`,
+    [row.color[0], row.color[1], row.color[2]] as [number, number, number]
+  ])
+);
 
 /** Simulated nameplate draw per device when telemetry watts are unavailable. */
 export const DEVICE_NOMINAL_WATTS: Record<string, number> = {

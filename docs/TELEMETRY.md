@@ -181,6 +181,12 @@ let `?energyCoupling=1` quietly claim the field estimates are live too, so
 |------|-----------|-------------|-------|
 | `halbach-viz` → `hall` | `halbachPeakBT` (dipole-superposition peak) | `hallFieldCoupledT` → `hallFieldT` | `0 … HALL.bMaxT` (0.65 T) |
 | `mhd` → `lorentz-sled` | `mhdBFieldT` (drive-scaled channel field) | `lorentzFieldT` | `0 … LORENTZ.fieldTMax` (1.2 T) |
+| `homopolar` → `hall` | `homopolarFieldT` (disc axial magnet, 0.55 T) | `hallFieldCoupledT` → `hallFieldT` | `0 … HALL.bMaxT` (0.65 T) |
+
+**One live source per destination, in table order.** A Hall strip sits in one
+magnet gap at a time, so B is never summed: `halbach-viz` owns `hall`, and
+`homopolar` takes it only while Halbach is switched off. The losing edge is
+reported with `active: false, shadowedBy: 'halbach-viz'` and writes nothing.
 
 **Important:** both source numbers are themselves lumped simulated estimates.
 Coupling propagates one simulated estimate into another simulated plant — it
@@ -222,9 +228,60 @@ default ones, and the JS fallback is stepped with the same setpoints seeded.
       clamped: true,    // source fell outside the destination range
       active: true      // coupling on and both endpoints enabled
     },
+    'homopolar->hall': { …, active: false, shadowedBy: 'halbach-viz' },
     'mhd->lorentz-sled': { … }
   }
 }
+```
+
+## Charge coupling (lab **V** bus)
+
+The third bus, on its own switch again: `?chargeCoupling=1` (or `localStorage
+seg-charge-coupling`, or the **Lab charge coupling** checkbox in the operator
+panel / debug panel). Kelvin and the Van de Graaff share no B, so they are not
+a `FieldNetwork` edge. `ChargeNetwork`
+(`src/renderers/shared/charge-network.ts`) moves one voltage estimate between
+them — ADR-0013.
+
+| Mode | Behavior |
+|------|----------|
+| **Isolated** (default) | `kelvinSeedCoupledV = null`. Kelvin climbs from its own start-up imbalance; the VdG is untouched. |
+| **Coupled** (`?chargeCoupling=1`) | `kelvinSeedCoupledV = clamp(vdgVoltage · r_sphere / d, 0, kelvinVbreak)`. The Kelvin induction term sees `V + V_seed`, so with water flowing the dropper **charges faster and sparks sooner**; at drive 0 the seed does nothing. The operator panel (`#chargeCouplingSource`) names the source and both voltages; the overview line (`#chargeCouplingDisclaimer`) lists the live seed. |
+
+| Edge | Source key | Destination | Estimate | Clamp |
+|------|-----------|-------------|----------|-------|
+| `vdg` → `kelvin` | `vdgVoltage` (sphere Q/C) | `kelvinSeedCoupledV` | `V · 0.14 m / 1.0 m` (`VDG.sphereRadiusM / CHARGE_COUPLING.vdgToKelvinSeparationM`) | `0 … kelvinVbreak` (60 kV) |
+
+**Important:** `d` is a declared classroom bench separation in
+`physics/constants.json`, not the scene layout and not a measurement, and
+`V·r/d` is the far-field potential of a lone sphere — no floor, no image
+charges, no Laplace solve, no circuit. One simulated voltage is propagated into
+another simulated plant; the kilovolts are not calibrated.
+
+`LabSession.stepPlant` runs `ChargeNetwork.update()` → `FieldNetwork.update()`
+→ plant step, so the JS Kelvin plant and the C++ one (`segWasm.setKelvinSeedV`,
+negative clears) step from the same seed. While Kelvin is focused the session
+keeps the off-focus VdG plant charging (physics only), otherwise the seed would
+be frozen at whatever the sphere held when the view changed. The native golden
+emits `kelvin` and `kelvin-seeded` cases, so both plants are held to the same
+numbers under the seed.
+
+```js
+telemetryHub.getSnapshot().chargeNetwork
+// {
+//   couplingEnabled: true,
+//   links: {
+//     'vdg->kelvin': {
+//       from: 'vdg', to: 'kelvin',
+//       sourceV: 86000,    // sphere voltage, V
+//       estimateV: 12040,  // V · r/d, before the clamp
+//       appliedV: 12040,   // seed written to the Kelvin plant, V
+//       maxV: 60000,       // Kelvin breakdown clamp
+//       clamped: false,
+//       active: true
+//     }
+//   }
+// }
 ```
 
 ## Export & replay (P2)

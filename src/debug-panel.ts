@@ -18,6 +18,8 @@ export class DebugPanel {
   _refreshEnergyNetworkStatus?: () => void;
   _refreshFieldNetworkStatus?: () => void;
   _wireFieldNetworkControls!: () => void;
+  _refreshChargeNetworkStatus?: () => void;
+  _wireChargeNetworkControls!: () => void;
   _wasmRefreshStatus?: () => void;
 
   constructor(profiler: PerformanceProfiler) {
@@ -90,6 +92,7 @@ export class DebugPanel {
     const stats = this.profiler.getStats();
     this._refreshEnergyNetworkStatus?.();
     this._refreshFieldNetworkStatus?.();
+    this._refreshChargeNetworkStatus?.();
 
     // WASM vs GPU particle radius diff (optional)
     if (this.wasmDiffEnabled) {

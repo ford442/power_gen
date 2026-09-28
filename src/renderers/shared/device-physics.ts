@@ -42,6 +42,12 @@ export interface BaseDevicePhysicsState {
   kelvinVbreak: number;
   kelvinE: number;
   kelvinVoltageN: number;
+  /**
+   * Seed potential (V) at the Kelvin inductor rings, written by `ChargeNetwork`
+   * under `?chargeCoupling=1` from the Van de Graaff sphere voltage. `null` /
+   * undefined (the default) is the isolated bench. Simulated estimate — ADR-0013.
+   */
+  kelvinSeedCoupledV?: number | null;
   batteryCharge: number;
   rollerHeft: number;
   solarN2: number;
@@ -274,6 +280,17 @@ export function createDevicePhysicsState(
   return extendPhysicsState(deviceId, base) as DevicePhysicsState;
 }
 
+/**
+ * Coupled seed in effect on a Kelvin plant: the `ChargeNetwork` setpoint,
+ * clamped to the bench's own breakdown voltage, or 0 on the isolated bench.
+ * Mirrors `SEGSimulator::setKelvinSeedV`.
+ */
+export function kelvinSeedV(state: Pick<BaseDevicePhysicsState, 'kelvinSeedCoupledV' | 'kelvinVbreak'>): number {
+  const v = state.kelvinSeedCoupledV;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return 0;
+  return Math.min(v, state.kelvinVbreak);
+}
+
 export function stepDevicePhysics(
   state: DevicePhysicsState,
   dt: number,
@@ -314,7 +331,10 @@ export function stepDevicePhysics(
     const chargeRate = 8000;
     const feedback = 2.0;
     const leak = 0.3;
-    state.kelvinV += (drive * (chargeRate + feedback * state.kelvinV) - leak * state.kelvinV) * dt;
+    // The inductor sees its own terminal voltage plus any coupled seed (ADR-0013);
+    // with no water flowing (drive 0) the seed does nothing. Mirrors _stepKelvin.
+    const seed = kelvinSeedV(state);
+    state.kelvinV += (drive * (chargeRate + feedback * (state.kelvinV + seed)) - leak * state.kelvinV) * dt;
     state.kelvinV = Math.max(0, state.kelvinV);
     if (state.kelvinV >= state.kelvinVbreak && state.kelvinSparkTimer <= 0) {
       state.kelvinV *= 0.02;

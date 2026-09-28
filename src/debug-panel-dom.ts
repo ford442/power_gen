@@ -115,7 +115,12 @@ export const domMethods = {
           <span>Coupled B field (Halbach&rarr;Hall, MHD&rarr;sled)</span>
         </label>
         <div id="fieldNetworkStatus" style="font-size: 10px; color: #888; margin-bottom: 4px;">Field: local bench values</div>
-        <div style="font-size: 10px; color: #666;">Not calibrated metrology — education / demo only. Field coupling propagates a simulated estimate between plants; it is not a Maxwell solve.</div>
+        <label style="display: flex; align-items: center; cursor: pointer; margin: 8px 0 6px;">
+          <input type="checkbox" id="chargeCouplingDebugToggle" style="margin-right: 8px;">
+          <span>Coupled charge seed (VdG&rarr;Kelvin)</span>
+        </label>
+        <div id="chargeNetworkStatus" style="font-size: 10px; color: #888; margin-bottom: 4px;">Charge: isolated bench voltages</div>
+        <div style="font-size: 10px; color: #666;">Not calibrated metrology — education / demo only. Field and charge coupling propagate a simulated estimate between plants; neither is a Maxwell or Laplace solve.</div>
       </div>
       <div style="margin-bottom: 10px; padding: 8px; background: rgba(0,40,60,0.5); border-radius: 4px;">
         <div style="color: #8cf; font-weight: bold; margin-bottom: 6px;">C++ WASM Physics</div>
@@ -309,6 +314,41 @@ export const domMethods = {
     });
 
     this._refreshFieldNetworkStatus = refresh;
+    this._wireChargeNetworkControls();
+  },
+
+  _wireChargeNetworkControls(this: DebugPanel): void {
+    const toggle = document.getElementById('chargeCouplingDebugToggle') as HTMLInputElement | null;
+    const statusEl = document.getElementById('chargeNetworkStatus');
+
+    const getNetwork = () => window.multiVisualizer?.chargeNetwork ?? null;
+
+    const refresh = () => {
+      const net = getNetwork();
+      const snap = net?.getSnapshot?.() ?? null;
+      const coupled = snap?.couplingEnabled ?? net?.couplingEnabled ?? false;
+      if (toggle) toggle.checked = !!coupled;
+      if (!statusEl) return;
+      const links = Object.values(snap?.links ?? {}).filter((l) => l.active);
+      if (!coupled || !links.length) {
+        statusEl.textContent = 'Charge: isolated bench voltages (no cross-device seed)';
+        return;
+      }
+      statusEl.textContent = links
+        .map((l) => `${l.from}\u2192${l.to} seed ${(l.appliedV / 1000).toFixed(1)} kV${l.clamped ? ' (clamped)' : ''}`)
+        .join(' · ');
+    };
+
+    refresh();
+
+    toggle?.addEventListener('change', (e) => {
+      const enabled = (e.target as HTMLInputElement).checked;
+      if (typeof window.setChargeCoupling === 'function') window.setChargeCoupling(enabled);
+      else getNetwork()?.setCouplingEnabled?.(enabled);
+      refresh();
+    });
+
+    this._refreshChargeNetworkStatus = refresh;
   },
 
   _wireWasmControls(this: DebugPanel): void {

@@ -53,6 +53,11 @@ coupling* checkbox in the operator and debug panels.
    |------|--------|-------------|-------|
    | `halbach-viz` → `hall` | `halbachPeakBT` | `hallFieldCoupledT` → `hallFieldT` | 0 … `HALL.bMaxT` |
    | `mhd` → `lorentz-sled` | `mhdBFieldT` | `lorentzFieldT` | 0 … `LORENTZ.fieldTMax` |
+   | `homopolar` → `hall` | `homopolarFieldT` | `hallFieldCoupledT` → `hallFieldT` | 0 … `HALL.bMaxT` |
+
+   *Amended by ADR-0013:* a destination takes **one live source at a time, in
+   table order** — `homopolar` owns the Hall strip only while `halbach-viz` is
+   switched off, and a shadowed edge reports `shadowedBy` and writes nothing.
 
 4. **One setpoint, both plants.** `LabSession.stepPlant` runs
    `FieldNetwork.update()` *before* any plant steps, so the JS fallback and the
@@ -79,6 +84,8 @@ comes from somewhere else.
 **Kelvin ↔ VDG is deliberately out.** Both are electrostatic and share no B at
 all; a charge/voltage bus between them is a different model with different
 state, and belongs to a later epic rather than being wedged into a field bus.
+That epic is ADR-0013 (`ChargeNetwork`, `?chargeCoupling=1`) — a separate
+module on a separate switch, not a `FIELD_COUPLING_EDGES` row.
 
 ## Goldens
 

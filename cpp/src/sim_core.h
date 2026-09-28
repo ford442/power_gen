@@ -159,6 +159,9 @@ public:
     float getKelvinVoltageN() const { return _kelvin.voltageN; }
     float getKelvinE() const { return _kelvin.E; }
     float getKelvinSparkTimer() const { return _kelvin.sparkTimer; }
+    float getKelvinVbreak() const { return _kelvin.vBreak; }
+    float getKelvinSeedV() const { return _kelvin.seedV; }
+    void  setKelvinSeedV(float seedV);
     float getSolarBattery() const { return _solar.batteryCharge; }
     float getPeltierHotK() const { return _peltier.hotK; }
     float getPeltierColdK() const { return _peltier.coldK; }

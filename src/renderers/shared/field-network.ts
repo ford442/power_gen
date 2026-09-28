@@ -26,7 +26,13 @@ const COUPLING_STORAGE_KEY = 'seg-field-coupling';
 /** Physics-state keys a coupling edge may read or write (all B, in tesla). */
 type FieldKey = keyof Pick<
   DevicePhysicsState,
-  'halbachPeakBT' | 'mhdBFieldT' | 'hallFieldT' | 'hallFieldCoupledT' | 'lorentzFieldT' | 'lorentzFieldLocalT'
+  | 'halbachPeakBT'
+  | 'homopolarFieldT'
+  | 'mhdBFieldT'
+  | 'hallFieldT'
+  | 'hallFieldCoupledT'
+  | 'lorentzFieldT'
+  | 'lorentzFieldLocalT'
 >;
 
 export interface FieldCouplingEdge {
@@ -56,8 +62,14 @@ export interface FieldCouplingEdge {
 
 /**
  * Declarative field graph. Kelvin ↔ VDG is deliberately absent: both are
- * electrostatic and share no B, so a charge/voltage bus is a different model
- * and a later epic (ADR-0011, "Deferred").
+ * electrostatic and share no B, so they live on the separate charge bus
+ * (`charge-network.ts`, ADR-0013) rather than here.
+ *
+ * **One live source per destination, in table order.** A Hall strip sits in one
+ * magnet gap at a time, so two sources are never summed: the first enabled edge
+ * into a destination owns it for the frame, and any later edge into the same
+ * destination is reported `shadowedBy` that source and writes nothing. Order
+ * here is therefore priority.
  */
 export const FIELD_COUPLING_EDGES: FieldCouplingEdge[] = [
   {
@@ -69,6 +81,19 @@ export const FIELD_COUPLING_EDGES: FieldCouplingEdge[] = [
     minT: 0,
     maxT: HALL.bMaxT,
     label: 'Halbach peak |B| → Hall strip'
+  },
+  {
+    // Fallback Hall source: the Faraday disc's axial magnet. Only live while
+    // `halbach-viz` is switched off (see "one live source" above). One more
+    // Hall source is enough — SEG does not also drive it.
+    from: 'homopolar',
+    to: 'hall',
+    sourceKey: 'homopolarFieldT',
+    destKey: 'hallFieldCoupledT',
+    effectiveKey: 'hallFieldT',
+    minT: 0,
+    maxT: HALL.bMaxT,
+    label: 'Homopolar axial B → Hall strip'
   },
   {
     from: 'mhd',
@@ -104,8 +129,13 @@ export interface FieldCouplingReading {
   appliedT: number;
   /** True when the source estimate fell outside the destination clamp. */
   clamped: boolean;
-  /** True when coupling is on *and* both endpoints are enabled. */
+  /** True when coupling is on, both endpoints are enabled, and this edge owns the destination. */
   active: boolean;
+  /**
+   * Set when this edge would be live but an earlier edge already owns the
+   * destination this frame — the id of that source. Absent otherwise.
+   */
+  shadowedBy?: string;
 }
 
 export interface FieldNetworkSnapshot {
@@ -188,6 +218,8 @@ export class FieldNetwork {
    */
   update(input: FieldNetworkUpdateInput): FieldNetworkSnapshot {
     const { devices, devicesEnabled } = input;
+    // Destination id → source id that owns it this frame.
+    const owners = new Map<string, string>();
 
     for (const edge of FIELD_COUPLING_EDGES) {
       const key = fieldLinkKey(edge.from, edge.to);
@@ -195,9 +227,15 @@ export class FieldNetwork {
       const sourceState = physicsOf(devices[edge.from]);
       const endpointsEnabled = devicesEnabled[edge.from] !== false && devicesEnabled[edge.to] !== false;
       const sourceT = readNumber(sourceState, edge.sourceKey) ?? 0;
-      const active = this.couplingEnabled && endpointsEnabled && sourceState != null;
+      const wantsLink = this.couplingEnabled && endpointsEnabled && sourceState != null;
+      const owner = owners.get(edge.to);
+      const active = wantsLink && owner === undefined;
+      if (active) owners.set(edge.to, edge.from);
 
-      if (destState) {
+      if (owner !== undefined) {
+        // An earlier edge already wrote this destination's B — leave it alone,
+        // whether this edge is shadowed or simply off.
+      } else if (destState) {
         if (active) {
           const clampedT = Math.max(edge.minT, Math.min(edge.maxT, sourceT));
           (destState as Record<string, unknown>)[edge.destKey] = clampedT;
@@ -218,7 +256,8 @@ export class FieldNetwork {
         sourceT,
         appliedT,
         clamped: active && (sourceT > edge.maxT || sourceT < edge.minT),
-        active
+        active,
+        ...(wantsLink && owner !== undefined ? { shadowedBy: owner } : {})
       });
     }
 
@@ -230,12 +269,19 @@ export class FieldNetwork {
     return this._links.get(fieldLinkKey(from, to)) ?? null;
   }
 
-  /** The live coupling feeding a destination device, if any is active. */
+  /**
+   * The coupling feeding a destination device: the active edge when one owns
+   * it, otherwise its highest-priority edge (so callers can still read why it
+   * is off). Null when no edge targets the device.
+   */
   getLinkForDestination(deviceId: string): FieldCouplingReading | null {
+    let first: FieldCouplingReading | null = null;
     for (const link of this._links.values()) {
-      if (link.to === deviceId) return link;
+      if (link.to !== deviceId) continue;
+      if (link.active) return link;
+      first ??= link;
     }
-    return null;
+    return first;
   }
 
   /** Plain-object copy for the telemetry hub and the UI. */

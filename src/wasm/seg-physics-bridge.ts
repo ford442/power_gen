@@ -59,6 +59,7 @@ export interface SegWasmBridge {
   setTransformerLeakage(enabled: boolean): void;
   setHallCarrierMetal(metal: boolean): void;
   setHallFieldCoupledT(fieldT: number): boolean;
+  setKelvinSeedV(seedV: number): boolean;
   setLorentzFieldT(fieldT: number): void;
   getModePlant(): unknown;
 
@@ -248,6 +249,16 @@ export const segWasm: SegWasmBridge = {
     // `_instance` here would only confirm our own TS wrapper has the method.
     const t = Number(fieldT);
     return _instance?.setHallFieldCoupledT(Number.isFinite(t) ? t : -1) ?? false;
+  },
+
+  /**
+   * Lab charge coupling (ADR-0013). Pass a negative V to clear the seed. Same
+   * contract as `setHallFieldCoupledT`: the result says whether the loaded
+   * binary took it, so an older CI artefact hands Kelvin back to the JS plant.
+   */
+  setKelvinSeedV(seedV: number): boolean {
+    const v = Number(seedV);
+    return _instance?.setKelvinSeedV(Number.isFinite(v) ? v : -1) ?? false;
   },
 
   getModePlant() {

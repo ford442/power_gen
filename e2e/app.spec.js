@@ -1002,6 +1002,147 @@ test.describe('Lab field coupling', () => {
 
 });
 
+// Optional Kelvin seed from the VdG sphere (ADR-0013) — its own switch, off by
+// default, never implied by the field or energy flags.
+test.describe('Lab charge coupling', () => {
+
+  const kelvinSnap = () => {
+    const v = window.multiVisualizer;
+    const d = v?.devices ?? {};
+    const ph = (id) => d[id]?.physicsState ?? d[id]?.physics ?? null;
+    return {
+      coupling: v?.chargeNetwork?.getSnapshot?.()?.couplingEnabled,
+      link: v?.chargeNetwork?.getSnapshot?.()?.links?.['vdg->kelvin'] ?? null,
+      seed: ph('kelvin')?.kelvinSeedCoupledV ?? null,
+      kelvinV: ph('kelvin')?.kelvinV,
+      vbreak: ph('kelvin')?.kelvinVbreak,
+      vdgV: ph('vdg')?.vdgVoltage,
+      hub: window.telemetryHub.getSnapshot().chargeNetwork,
+      disc: document.getElementById('chargeCouplingDisclaimer')?.textContent ?? '',
+      discMode: document.getElementById('chargeCouplingDisclaimer')?.dataset.mode,
+      source: document.getElementById('chargeCouplingSource')?.textContent ?? ''
+    };
+  };
+
+  for (const query of ['', 'chargeCoupling=0']) {
+    test(`${query || 'default boot'} leaves Kelvin and the VdG isolated`, async ({ page }) => {
+      trackPageErrors(page);
+      await gotoWebGL2(page, query);
+      await page.evaluate(() => {
+        window.segOperator?.start?.();
+        window.setMode('kelvin');
+      });
+      await waitForEval(page,
+        () => {
+          const d = window.multiVisualizer?.devices ?? {};
+          return ((d.kelvin?.physicsState ?? d.kelvin?.physics)?.kelvinV ?? 0) > 0;
+        },
+        { timeout: 15_000 }
+      );
+
+      const snap = await page.evaluate(kelvinSnap);
+      expect(snap.coupling).toBe(false);
+      // Nothing seeding the dropper: the plant starts from its own imbalance.
+      expect(snap.seed).toBe(null);
+      expect(snap.link?.active ?? false).toBe(false);
+      expect(snap.link?.appliedV ?? 0).toBe(0);
+      expect(snap.discMode).toBe('local');
+      expect(snap.disc).toMatch(/isolated/i);
+      expect(snap.source).toMatch(/isolated/i);
+    });
+  }
+
+  test('chargeCoupling=1 seeds Kelvin with the clamped V·r/d estimate, named in the UI', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'chargeCoupling=1');
+    await page.evaluate(() => {
+      window.segOperator?.start?.();
+      window.setMode('kelvin');
+    });
+
+    // The VdG is off-focus here; the session keeps its plant charging so the
+    // seed is a live number rather than the 0 it was created with.
+    await waitForEval(page,
+      () => {
+        const link = window.multiVisualizer?.chargeNetwork?.getSnapshot?.()?.links?.['vdg->kelvin'];
+        return link?.active === true && link.sourceV > 0 && link.appliedV > 0;
+      },
+      { timeout: 20_000 }
+    );
+
+    const snap = await page.evaluate(kelvinSnap);
+    const link = snap.link;
+    // r_sphere / d = 0.14 m / 1.0 m (physics/constants.json).
+    expect(link.estimateV).toBeCloseTo(link.sourceV * 0.14, 3);
+    expect(link.appliedV).toBeCloseTo(Math.min(link.estimateV, snap.vbreak), 3);
+    expect(link.appliedV).toBeLessThanOrEqual(snap.vbreak);
+    expect(snap.seed).toBeCloseTo(link.appliedV, 3);
+
+    expect(snap.hub?.couplingEnabled).toBe(true);
+    expect(snap.hub?.links?.['vdg->kelvin']?.active).toBe(true);
+
+    expect(snap.discMode).toBe('coupled');
+    expect(snap.disc).toMatch(/vdg→kelvin/);
+    expect(snap.disc).toMatch(/not a Laplace solve/i);
+    expect(snap.disc).toMatch(/not calibrated/i);
+    expect(snap.source).toMatch(/vdg/);
+    expect(snap.source).toMatch(/simulated/i);
+
+    // Toggling off hands Kelvin back its own start.
+    await page.evaluate(() => window.setChargeCoupling(false));
+    await waitForEval(page,
+      () => {
+        const d = window.multiVisualizer?.devices ?? {};
+        return (d.kelvin?.physicsState ?? d.kelvin?.physics)?.kelvinSeedCoupledV === null;
+      },
+      { timeout: 10_000 }
+    );
+    const off = await page.evaluate(kelvinSnap);
+    expect(off.discMode).toBe('local');
+    expect(off.link.active).toBe(false);
+  });
+
+  // One page load per case: a cold WebGL2 boot is ~90 s on the SwiftShader VMs,
+  // so three loads in one test would not fit the 180 s budget.
+  for (const [query, expected] of [
+    ['chargeCoupling=1&fieldCoupling=1&energyCoupling=1', { charge: true, field: true, energy: true }],
+    ['fieldCoupling=1&energyCoupling=1', { charge: false, field: true, energy: true }],
+    ['chargeCoupling=1', { charge: true, field: false, energy: false }]
+  ]) {
+    test(`bus flags stay independent: ${query}`, async ({ page }) => {
+      trackPageErrors(page);
+      await gotoWebGL2(page, query);
+      const flags = await page.evaluate(() => {
+        const v = window.multiVisualizer;
+        return {
+          charge: !!v?.chargeNetwork?.couplingEnabled,
+          field: !!v?.fieldNetwork?.couplingEnabled,
+          energy: !!v?.energyNetwork?.couplingEnabled
+        };
+      });
+      expect(flags).toEqual(expected);
+    });
+  }
+
+  test('overview energy pipes reach the VdG and the Hall bench', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'energyCoupling=1');
+    await page.evaluate(() => window.segOperator?.start?.());
+    await waitForEval(page,
+      () => {
+        const pipes = window.multiVisualizer?.energyNetwork?.getSnapshot?.()?.pipes ?? {};
+        return 'homopolar-hall' in pipes && 'transformer-vdg' in pipes;
+      },
+      { timeout: 15_000 }
+    );
+    const pipes = await page.evaluate(() => window.multiVisualizer.energyNetwork.getSnapshot().pipes);
+    expect(pipes['homopolar-hall']).toBeGreaterThanOrEqual(0);
+    expect(pipes['transformer-vdg']).toBeGreaterThanOrEqual(0);
+    // pulse-coil has no nameplate, so it stays off the graph rather than get an invented watt.
+    expect(Object.keys(pipes).some((k) => k.split('-').includes('pulse'))).toBe(false);
+  });
+});
+
 // Explainer tours that ship their own script (LAB_TOURS registry).
 test.describe('Device explainer tours', () => {
 
