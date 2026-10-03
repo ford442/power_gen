@@ -15,8 +15,9 @@
  *      Hall strip; homopolar takes over only when Halbach is off; a shadowed or
  *      disabled edge never clobbers the owner's write.
  *   4. Energy pipes (ADR-0004): generated from physics/coupling.json, every
- *      nameplate edge carries its nameplate watts, and at least one pipe now
- *      touches vdg / hall / pulse-coil.
+ *      nameplate edge carries its nameplate watts, vdg / hall / pulse-coil are
+ *      all on the graph, and the pulse-coil nameplate is still C·V²/(4τ) of
+ *      its recharge constants.
  *   5. Flags: `?chargeCoupling`, `?fieldCoupling` and `?energyCoupling` are
  *      independent — setting one never implies another.
  *
@@ -44,7 +45,7 @@ export * from './src/renderers/shared/charge-network.ts';
 export { FieldNetwork, FIELD_COUPLING_EDGES, readFieldCouplingPref } from './src/renderers/shared/field-network.ts';
 export { ENERGY_PIPE_EDGES, PIPE_COLORS, readEnergyCouplingPref } from './src/renderers/shared/energy-network.ts';
 export { createDevicePhysicsState, stepDevicePhysics, kelvinSeedV } from './src/renderers/shared/device-physics.ts';
-export { VDG, CHARGE_COUPLING, HALL, ENERGY_NETWORK_NAMEPLATES } from './generated/physics-constants.ts';
+export { VDG, CHARGE_COUPLING, HALL, ENERGY_NETWORK_NAMEPLATES, PULSE_COIL_CORE } from './generated/physics-constants.ts';
 `;
 
 const built = await esbuild.build({
@@ -206,6 +207,14 @@ const vdgState = (v) => ({ ...m.createDevicePhysicsState('vdg'), vdgVoltage: v }
   check(touches('vdg') || touches('hall') || touches('pulse-coil'), 'at least one pipe must reach vdg / hall / pulse-coil');
   check(touches('vdg'), 'vdg is on the energy graph');
   check(touches('hall'), 'hall is on the energy graph');
+  check(touches('pulse-coil'), 'pulse-coil is on the energy graph');
+  // The pulse-coil nameplate is derived, not chosen: the peak power of the
+  // bank's exponential recharge, C·V²/(4τ). Retuning C, V or τ without the
+  // nameplate fails here.
+  const pc = m.PULSE_COIL_CORE;
+  const recharge = (pc.capF * pc.vChargeMax ** 2) / (4 * pc.chargeTauS);
+  check(Math.abs(nameplates['pulse-coil'] - recharge) / recharge < 0.02,
+    `pulse-coil nameplate ${nameplates['pulse-coil']} W must match C·V²/(4τ) = ${recharge.toFixed(2)} W`);
   for (const skip of coupling.skippedEnergyPipes ?? []) {
     check(!touches(skip.to), `${skip.to} is listed as skipped but has a pipe`);
     check(typeof skip.reason === 'string' && skip.reason.length > 20, `skipped ${skip.to} must say why`);

@@ -27,7 +27,8 @@ Overview mode places SEG, Heron, Kelvin, solar, Peltier, MHD (and plugins) in on
 - **Default:** visual-only pipes (glow ∝ `energyLevel`, not watts).
 - **Coupled mode:** `?energyCoupling=1` or debug-panel toggle / `localStorage seg-energy-coupling`.
 - SEG source power uses `segOperator` / TelemetryHub `snap.seg.power` (W). Other devices use `energyLevel ×` nameplate estimate from `physics/constants.json` (`energyNetwork.deviceNameplateWatts`, `simulatedOrderOfMagnitude: true`) until calibrated.
-- Pipe graph: `ENERGY_PIPE_EDGES` — shared by WebGPU and WebGL2.
+- Pipe graph: `ENERGY_PIPE_EDGES`, generated from `physics/coupling.json`, shared by WebGPU and WebGL2.
+- A nameplate may be **derived** rather than chosen. `pulse-coil`'s is `C·V²/(4τ)`, the peak power of the capacitor bank's exponential recharge (`physics/constants.json` `pulseCoil`). That makes it a ceiling on the bank's average draw, and `npm run test:coupling` fails if C, V or τ drift away from it.
 - **WASM path:** when `?wasmPhysics=1` and coupling enabled, `sim_core` allocates edge watts; JS keeps pipe flow smoothing and telemetry publish.
 - **Not metrology** without calibration — overview disclaimer + `docs/TELEMETRY.md`.
 

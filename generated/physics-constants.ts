@@ -239,6 +239,8 @@ export const PULSE_COIL_CORE = {
   vChargeMax: 48,
   kAttractNA2: 0.035,
   cDampNsm: 1.4,
+  chargeTauS: 0.35,
+  fireFraction: 0.85,
 } as const;
 
 /**
@@ -277,6 +279,7 @@ export const ENERGY_NETWORK_NAMEPLATES = {
     hall: 30,
     'lorentz-sled': 180,
     'jumping-ring': 240,
+    'pulse-coil': 3.6,
   },
 } as const;
 

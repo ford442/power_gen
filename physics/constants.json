@@ -189,7 +189,10 @@
     "armatureTravelMaxM": 0.12,
     "vChargeMax": 48,
     "kAttractNA2": 0.035,
-    "cDampNsm": 1.4
+    "cDampNsm": 1.4,
+    "chargeTauS": 0.35,
+    "fireFraction": 0.85,
+    "chargeComment": "Idle bank recharges exponentially toward drive*vChargeMax with time constant chargeTauS and auto-fires at fireFraction of that target. The charging power C*V*(Vt-V)/tau peaks at V = Vt/2, so C*vChargeMax^2/(4*chargeTauS) bounds the bank's average draw whatever the residual after a pulse; that bound is the pulse-coil energy nameplate (energyNetwork.deviceNameplateWatts)."
   },
   "halbachViz": {
     "comment": "JS-only by design (ADR-0002: no wasmMode) - TS codegen only. Ring geometry + the segment-count / magnetisation-angle sweep the drive slider walks through. SCENE_SCALE stays in halbach-viz.ts: it is a render scale, not a physical constant.",
@@ -252,7 +255,8 @@
       "vdg": 60,
       "hall": 30,
       "lorentz-sled": 180,
-      "jumping-ring": 240
+      "jumping-ring": 240,
+      "pulse-coil": 3.6
     }
   },
   "chargeCoupling": {

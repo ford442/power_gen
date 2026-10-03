@@ -592,6 +592,8 @@ export const PULSE_COIL_CORE = {
   vChargeMax: ${pc.vChargeMax},
   kAttractNA2: ${pc.kAttractNA2},
   cDampNsm: ${pc.cDampNsm},
+  chargeTauS: ${pc.chargeTauS},
+  fireFraction: ${pc.fireFraction},
 } as const;
 
 /**
@@ -630,6 +632,7 @@ export const ENERGY_NETWORK_NAMEPLATES = {
     hall: ${np.hall},
     'lorentz-sled': ${np['lorentz-sled']},
     'jumping-ring': ${np['jumping-ring']},
+    'pulse-coil': ${np['pulse-coil']},
   },
 } as const;
 

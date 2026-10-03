@@ -1153,22 +1153,22 @@ test.describe('Lab charge coupling', () => {
     });
   }
 
-  test('overview energy pipes reach the VdG and the Hall bench', async ({ page }) => {
+  test('overview energy pipes reach the VdG, the Hall bench and the pulse coil', async ({ page }) => {
     trackPageErrors(page);
     await gotoWebGL2(page, 'energyCoupling=1');
     await page.evaluate(() => window.segOperator?.start?.());
     await waitForEval(page,
       () => {
         const pipes = window.multiVisualizer?.energyNetwork?.getSnapshot?.()?.pipes ?? {};
-        return 'homopolar-hall' in pipes && 'transformer-vdg' in pipes;
+        return 'homopolar-hall' in pipes && 'transformer-vdg' in pipes && 'seg-pulse-coil' in pipes;
       },
       { timeout: 15_000 }
     );
     const pipes = await page.evaluate(() => window.multiVisualizer.energyNetwork.getSnapshot().pipes);
     expect(pipes['homopolar-hall']).toBeGreaterThanOrEqual(0);
     expect(pipes['transformer-vdg']).toBeGreaterThanOrEqual(0);
-    // pulse-coil has no nameplate, so it stays off the graph rather than get an invented watt.
-    expect(Object.keys(pipes).some((k) => k.split('-').includes('pulse'))).toBe(false);
+    // pulse-coil's capacity is its derived recharge nameplate, C·V²/(4τ).
+    expect(pipes['seg-pulse-coil']).toBeGreaterThanOrEqual(0);
   });
 });
 
