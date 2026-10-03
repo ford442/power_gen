@@ -29,8 +29,9 @@ static constexpr EnergyPipeCatalogRow ENERGY_PIPE_CATALOG[] = {
     { "transformer", "jumping-ring", 260.0f },
     { "homopolar", "hall", 30.0f },
     { "transformer", "vdg", 60.0f },
+    { "seg", "pulse-coil", 3.6f },
 };
 
-static constexpr int ENERGY_PIPE_CATALOG_COUNT = 17;
+static constexpr int ENERGY_PIPE_CATALOG_COUNT = 18;
 
 } // namespace power_gen

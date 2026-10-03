@@ -32,12 +32,11 @@
     {
       "from": "transformer", "to": "vdg", "nameplate": "vdg", "speed": 1.5, "color": [0.8, 0.85, 0.95],
       "note": "The belt motor runs off the bench supply. Capacity is the VdG nameplate — the motor's draw, not the watts reaching the sphere (microamps at ~100 kV is well under a watt)."
+    },
+    {
+      "from": "seg", "to": "pulse-coil", "nameplate": "pulse-coil", "speed": 2.1, "color": [0.95, 0.45, 0.6],
+      "note": "The capacitor bank recharges between shots. Capacity is the pulse-coil nameplate, C·V²/(4τ) from physics/constants.json pulseCoil — the peak power of its exponential recharge, so a ceiling on the average draw, not the joules in one shot."
     }
   ],
-  "skippedEnergyPipes": [
-    {
-      "to": "pulse-coil",
-      "reason": "No pulse-coil entry in energyNetwork.deviceNameplateWatts. The capacitor bank stores ½CV² ≈ 2.5 J per shot; turning that into a continuous watt figure needs a repetition rate the plant does not model, so no pipe is drawn rather than inventing one."
-    }
-  ]
+  "skippedEnergyPipes": []
 }

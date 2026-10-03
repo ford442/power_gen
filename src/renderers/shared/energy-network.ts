@@ -43,8 +43,9 @@ export interface EnergyPipeEdge {
  * `physics/coupling.json` so the native `--mode energy-network` smoke walks
  * the same graph. New pipes take their capacity from a device nameplate in
  * `physics/constants.json`; codegen refuses a nameplate that does not exist, so
- * a bench with no honest watt figure (pulse-coil) gets no pipe rather than an
- * invented one. Allocation is simulated accounting (ADR-0004), not metrology.
+ * a bench with no honest watt figure gets no pipe rather than an invented one
+ * (pulse-coil's is derived from its recharge constants). Allocation is
+ * simulated accounting (ADR-0004), not metrology.
  */
 export const ENERGY_PIPE_EDGES: EnergyPipeEdge[] = ENERGY_PIPE_CATALOG.map((row) => ({
   from: row.from,
@@ -62,8 +63,7 @@ export const PIPE_COLORS: Record<string, [number, number, number]> = Object.from
 
 /** Simulated nameplate draw per device when telemetry watts are unavailable. */
 export const DEVICE_NOMINAL_WATTS: Record<string, number> = {
-  ...ENERGY_NETWORK_NAMEPLATES.deviceNameplateWatts,
-  'pulse-coil': 90
+  ...ENERGY_NETWORK_NAMEPLATES.deviceNameplateWatts
 };
 
 /** True when non-SEG nameplates are order-of-magnitude estimates (not calibrated). */
