@@ -615,7 +615,7 @@ device that shows induction as motion; depth still beats a 16th.
 | `homopolar` → `hall` | **Live, opt-in** | `?fieldCoupling=1` — the disc's axial B drives the Hall strip **only while `halbach-viz` is switched off** (one live source per destination). `?energyCoupling=1` adds a 30 W pipe (Hall nameplate) |
 | `vdg` → `kelvin` | **Live, opt-in** | `?chargeCoupling=1` — the sphere's potential at the dropper (`V·r/d`) seeds Kelvin's induction, clamped to Kelvin's breakdown (ADR-0013). A separate charge bus, not a field edge. One direction only |
 | `transformer` → `vdg` | **Live (energy pipe)** | `?energyCoupling=1` — 60 W (VdG nameplate): the belt motor's draw, not watts reaching the sphere |
-| → `pulse-coil` | **Skipped** | No nameplate, and a per-shot bank energy is not a watt without a repetition rate the plant lacks; recorded in `physics/coupling.json` rather than given an invented pipe |
+| `seg` → `pulse-coil` | **Live (energy pipe)** | `?energyCoupling=1` — 3.6 W, the derived pulse-coil nameplate `C·V²/(4τ)`: the peak power of the bank's exponential recharge (`pulseCoil.chargeTauS`), so a ceiling on its average draw, not the ≈ 2.5 J in one shot |
 
 Explicitly **out of scope** for this layer: FEM, FDTD (the pulse-coil slice
 already owns that, ADR-0010/0012 — including the one cross-device borrow it

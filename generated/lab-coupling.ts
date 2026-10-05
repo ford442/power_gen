@@ -32,4 +32,5 @@ export const ENERGY_PIPE_CATALOG: readonly EnergyPipeCatalogRow[] = [
   { from: 'transformer', to: 'jumping-ring', maxWatts: 260, speed: 1.8, color: [0.6, 0.8, 1], nameplate: null },
   { from: 'homopolar', to: 'hall', maxWatts: 30, speed: 1.6, color: [0.95, 0.75, 0.35], nameplate: 'hall' },
   { from: 'transformer', to: 'vdg', maxWatts: 60, speed: 1.5, color: [0.8, 0.85, 0.95], nameplate: 'vdg' },
+  { from: 'seg', to: 'pulse-coil', maxWatts: 3.6, speed: 2.1, color: [0.95, 0.45, 0.6], nameplate: 'pulse-coil' },
 ];

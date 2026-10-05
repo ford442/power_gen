@@ -137,12 +137,15 @@ Two gaps on the older buses closed alongside this one.
     low-voltage, high-current source for a Hall strip.
   - `transformer → vdg` (60 W, VdG nameplate): the belt motor runs off the
     bench supply. This is the motor's draw, not watts reaching the sphere.
-  - `pulse-coil`: **skipped**. It has no nameplate. Its bank stores ≈ 2.5 J per
-    shot, and turning that into watts would need a repetition rate the plant
-    does not model. The skip and its reason are recorded in `coupling.json`.
-    The older hand-set 90 W `DEVICE_NOMINAL_WATTS['pulse-coil']` in
-    `energy-network.ts` only feeds the lab budget estimate. It is not a
-    nameplate, and this ADR does not treat it as one.
+  - `pulse-coil`: originally **skipped**. It had no nameplate. Its bank stores
+    ≈ 2.5 J per shot, and turning that into watts needs a repetition rate.
+    *Amended:* the plant's recharge time constant and fire threshold are now
+    catalog constants (`pulseCoil.chargeTauS`, `fireFraction`). The nameplate
+    is the peak power of that exponential recharge, `C·V²/(4τ)` ≈ 3.6 W, which
+    bounds the average draw whatever charge is left after a pulse. A
+    `seg → pulse-coil` pipe carries it (ADR-0004). The old hand-set 90 W
+    `DEVICE_NOMINAL_WATTS['pulse-coil']` budget override was removed, so the
+    bench has one number instead of two.
 
 ## Goldens
 

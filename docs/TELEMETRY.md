@@ -67,7 +67,7 @@ const unsub = telemetryHub.subscribe((snap) => {
 | Lab bus `powerInW` / `powerOutW` | W (simulated) | `snap.devices[id]` via `EnergyNetwork` — **not metrology** |
 | Lab bus efficiency | % | `snap.devices[id].efficiency` — SEG uses operator model when coupled |
 | Energy network summary | W | `snap.energyNetwork` — budget, allocated, residual |
-| Nameplate watts (non-SEG) | W | `physics/constants.json` → `energyNetwork.deviceNameplateWatts` — `simulatedOrderOfMagnitude: true` |
+| Nameplate watts (non-SEG) | W | `physics/constants.json` → `energyNetwork.deviceNameplateWatts` — `simulatedOrderOfMagnitude: true`. `pulse-coil` (3.6 W) is derived, `C·V²/(4τ)` from the `pulseCoil` recharge constants, and checked by `npm run test:coupling` |
 
 `SEG_SPEC` in `seg-operator-state.ts` is aligned with `ValidatedConstants` / `SEG_DATA`.
 

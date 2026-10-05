@@ -42,7 +42,9 @@ export const PULSE_COIL = Object.freeze({
   armatureTravelMaxM: PULSE_COIL_CORE.armatureTravelMaxM,
   vChargeMax: PULSE_COIL_CORE.vChargeMax, // low-voltage lab bank metaphor
   kAttract: PULSE_COIL_CORE.kAttractNA2,  // I² attraction proxy (N / A²)
-  cDamp: PULSE_COIL_CORE.cDampNsm
+  cDamp: PULSE_COIL_CORE.cDampNsm,
+  chargeTauS: PULSE_COIL_CORE.chargeTauS,     // idle recharge time constant
+  fireFraction: PULSE_COIL_CORE.fireFraction  // auto-fire at this fraction of target
 });
 export { PULSE_COIL_CORE };
 
@@ -143,10 +145,9 @@ export const stepPulseCoilPhysics: NonNullable<DevicePlugin['stepPhysics']> = (s
 
   // Charge bank while idle; auto-fire when near target and drive is on.
   if (!firing) {
-    const chargeTau = 0.35;
-    vCap += (vTarget - vCap) * Math.min(1, dt / chargeTau);
+    vCap += (vTarget - vCap) * Math.min(1, dt / PULSE_COIL.chargeTauS);
     current *= Math.max(0, 1 - 8 * dt); // bleed residual
-    if (drive > 0.08 && vCap > 0.85 * vTarget && vTarget > 4) {
+    if (drive > 0.08 && vCap > PULSE_COIL.fireFraction * vTarget && vTarget > 4) {
       firing = true;
       pulseT = 0;
     }
