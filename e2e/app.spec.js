@@ -427,12 +427,18 @@ test.describe('WASM physics (optional)', () => {
     // old binary simply will not take 12 — detect that rather than asserting
     // against a plant it does not have. The JS-fallback test below still covers
     // the physics on every checkout.
-    const accepted = await page.evaluate(() => {
+    //
+    // Poll rather than read getMode() straight after setMode(): with the plant
+    // worker on, getMode() reports the worker's last plant, which trails the
+    // focus change by one frame (docs/AGENTS.md → plant worker).
+    await page.evaluate(() => {
       window.segOperator.start();
       window.setMode('jumping-ring');
       window.segWasm?.setMode?.('jumping-ring');
-      return window.segWasm?.getMode?.() === 12;
     });
+    const accepted = await page
+      .waitForFunction(() => window.segWasm?.getMode?.() === 12, null, { timeout: 15_000 })
+      .then(() => true, () => false);
     test.skip(!accepted, 'sim_core.wasm predates SimMode 12 (jumping-ring) — rebuilt by build-wasm.yml on main');
 
     await waitForEval(page,
