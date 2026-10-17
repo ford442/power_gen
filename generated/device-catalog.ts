@@ -289,6 +289,23 @@ export const DEVICE_CATALOG = [
     } as Record<string, TelemetryFieldMeta>,
     fidelity: "WASM coupled L–M(h) RK4 ODE with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it",
   },
+  {
+    id: 'drop-tube',
+    label: "Lenz Drop Tube",
+    category: 'quanta',
+    chrome: { emoji: "⏬", label: "Drop Tube", sort: 15 } as DeviceChrome | undefined,
+    shaderMode: 16,
+    wasmMode: null as number | null,
+    telemetryKeys: ['dropTubeVMps', 'dropTubeTerminalVMps', 'dropTubeDragN', 'dropTubeEddyIA', 'dropTubeDepthM'] as const,
+    telemetry: {
+      "dropTubeVMps": { label: "v", unit: "m/s", digits: 3 },
+      "dropTubeTerminalVMps": { label: "v_t", unit: "m/s", digits: 3 },
+      "dropTubeDragN": { label: "F_drag", unit: "N", digits: 3 },
+      "dropTubeEddyIA": { label: "I_eddy", unit: "A", digits: 1 },
+      "dropTubeDepthM": { label: "depth", unit: "m", digits: 3 },
+    } as Record<string, TelemetryFieldMeta>,
+    fidelity: "JS-only algebraic eddy drag (point dipole, thin-walled tube): v_t = m·g/k, exact exponential step",
+  },
 ] as const;
 
 /** Mode-button chrome for devices that have one, in display order. */
@@ -308,6 +325,7 @@ export const MODE_BUTTON_CHROME: readonly { id: string; emoji: string; label: st
   { id: 'hall', emoji: "🧲", label: "Hall-Effect Bench", sort: 12 },
   { id: 'lorentz-sled', emoji: "🛤️", label: "Lorentz Rail Sled", sort: 13 },
   { id: 'jumping-ring', emoji: "💍", label: "Jumping Ring", sort: 14 },
+  { id: 'drop-tube', emoji: "⏬", label: "Drop Tube", sort: 15 },
 ];
 
 /**
@@ -341,6 +359,7 @@ export const DEVICE_SETPOINTS: readonly DeviceSetpoint[] = [
   { deviceId: 'pulse-coil', id: 'pulseCoilCharge', label: "Bank charge target", min: 0, max: 48, step: 1, unit: "V", digits: 0, stateKey: 'pulseCoilChargeSetpointV', liveKey: 'pulseCoilVCap', releasable: true, note: "Replaces drive × V_max as the bank's charge target; the drive slider still arms the auto-fire." },
   { deviceId: 'halbach-viz', id: 'halbachSegments', label: "Segments N", min: 4, max: 24, step: 1, unit: "", digits: 0, stateKey: 'halbachSegmentSetpoint', liveKey: 'halbachSegmentCount', releasable: true, note: "Pins N; the drive slider otherwise sweeps it, and still sets the magnetisation angle." },
   { deviceId: 'lorentz-sled', id: 'lorentzField', label: "Transverse field", min: 0, max: 1.2, step: 0.05, unit: "T", digits: 2, stateKey: 'lorentzFieldLocalT', api: 'setLorentzFieldT' },
+  { deviceId: 'drop-tube', id: 'dropTubeSigma', label: "Tube conductivity σ", min: 0, max: 60, step: 0.1, unit: "MS/m", digits: 1, stateKey: 'dropTubeSigmaSetpointMSm', liveKey: 'dropTubeSigmaMSm', releasable: true, note: "Copper 59.6 · aluminium 37.7 · brass ≈ 16 · stainless ≈ 1.4 · plastic 0. Drag ∝ σ, so v_t ∝ 1/σ; at 0 there is no terminal velocity and the magnet free-falls. Auto returns to copper." },
 ];
 
 /** One catalog telemetry key bound to its device, CSV column and display schema. */
@@ -423,6 +442,11 @@ export const DEVICE_TELEMETRY_FIELDS: readonly DeviceTelemetryField[] = [
   { deviceId: 'jumping-ring', key: 'ringPrimaryIA', column: 'ring_primary_ia', label: "I_p", unit: "A", digits: 2 },
   { deviceId: 'jumping-ring', key: 'ringForceN', column: 'ring_force_n', label: "F_z", unit: "N", digits: 3 },
   { deviceId: 'jumping-ring', key: 'ringCouplingK', column: 'ring_coupling_k', label: "k(h)", unit: "", digits: 3 },
+  { deviceId: 'drop-tube', key: 'dropTubeVMps', column: 'drop_tube_vmps', label: "v", unit: "m/s", digits: 3 },
+  { deviceId: 'drop-tube', key: 'dropTubeTerminalVMps', column: 'drop_tube_terminal_vmps', label: "v_t", unit: "m/s", digits: 3 },
+  { deviceId: 'drop-tube', key: 'dropTubeDragN', column: 'drop_tube_drag_n', label: "F_drag", unit: "N", digits: 3 },
+  { deviceId: 'drop-tube', key: 'dropTubeEddyIA', column: 'drop_tube_eddy_ia', label: "I_eddy", unit: "A", digits: 1 },
+  { deviceId: 'drop-tube', key: 'dropTubeDepthM', column: 'drop_tube_depth_m', label: "depth", unit: "m", digits: 3 },
 ];
 
 const FIELDS_BY_DEVICE: Record<string, DeviceTelemetryField[]> = {};
@@ -469,7 +493,7 @@ export const SIM_MODE_COUNT = 13;
 
 export const RESERVED_WASM_MODES = [] as const;
 
-export const NEXT_SHADER_MODE = 16;
+export const NEXT_SHADER_MODE = 17;
 
 /** Identity fields for DevicePlugin registration (modeIndex = shaderMode). */
 export function catalogIdentity(id: string): {

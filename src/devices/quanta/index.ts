@@ -12,6 +12,7 @@ import { vdgPlugin } from './van-de-graaff.js';
 import { hallPlugin } from './hall-effect.js';
 import { lorentzSledPlugin } from './lorentz-sled.js';
 import { jumpingRingPlugin } from './jumping-ring.js';
+import { dropTubePlugin } from './drop-tube.js';
 
 registerDevice(magneticLevitationPlugin);
 registerDevice(homopolarGeneratorPlugin);
@@ -22,3 +23,4 @@ registerDevice(vdgPlugin);
 registerDevice(hallPlugin);
 registerDevice(lorentzSledPlugin);
 registerDevice(jumpingRingPlugin);
+registerDevice(dropTubePlugin);

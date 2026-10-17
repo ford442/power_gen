@@ -583,6 +583,116 @@ furnace or launcher sources are used or intended here.
 - No field-coupling edge: the ring's drive is the mains supply, not a B
   setpoint, so there is nothing for `FIELD_COUPLING_EDGES` to feed (ADR-0011)
 
+---
+
+## drop-tube
+
+**Lenz Drop Tube** — a neodymium magnet dropped down a vertical copper tube
+takes seconds to fall 60 cm, with nothing touching it. As it passes, the flux
+through each slice of wall changes, each slice carries an eddy current, and
+both the loop ahead (flux growing) and the loop behind (flux shrinking) oppose
+the motion. The drag grows with speed, so the magnet settles at a terminal
+velocity. The jumping ring next door shows Lenz's law as *lift*; this bench
+shows it as a *brake*, and it is the only bench whose answer is a closed-form
+algebraic result rather than an ODE you have to trust.
+
+**Educational point-dipole model — not a brake-design tool and not a maglev
+launcher.** The magnet is a point dipole on the axis of a thin-walled tube:
+no field solver, no FEM, no skin depth, no off-axis rattle, and **no thermal
+state** — at terminal velocity all of `m·g·v` is dissipated in the copper and
+nothing here tracks where it goes. A real magnet has length and sits in a wall
+that is not thin, so expect a real drop to differ by tens of percent.
+
+The model (Levin et al. 2006), with dipole moment
+`p = Br·V/μ0`, mean tube radius `a`, wall `w` and conductivity `σ`:
+
+```
+k    = (45/1024) · (Br·V)² · σ · w / a⁴      μ0 cancels; F_drag = k·v deep inside
+v_t  = m·g / k                                 ≈ 0.17 m/s for the default copper tube
+τ    = m / k                                   ≈ 18 ms — terminal within a few cm
+F    = k · f(x) · v                            f(x): exact end taper of the k integral
+I(z) = σ·w·v·(Br·V)·a/(4π) · [(z1²+a²)^−3/2 − (z2²+a²)^−3/2]   loop current over [z1, z2]
+```
+
+`f(x)` is the closed form of the same `∫ (dΦ/dz)² dz` that gives `k`, cut at the
+tube's two ends (`G(θ) = 5θ/128 + sin2θ/64 − sin4θ/128 − sin6θ/192 −
+sin8θ/1024`), so the drag fades in over about one radius at the mouth and fades
+out at the exit; nothing is a blend constant. With `f` frozen over a substep the
+velocity ODE is linear, so the plant steps it with the **exact** exponential
+solution (`v → v_t,f + (v − v_t,f)·e^(−h/τ_f)`) rather than RK4, substepped at a
+quarter of a radius of travel. `npm run test:drop-tube` checks `k`, `f(x)` and
+the loop currents against numerical quadrature of the flux integral, and the
+transit against an independent RK4 reference.
+
+**Controls.** The drive slider opens the clamp above the mouth — at `0` it
+stays shut — and sets the release height (8–30 cm). The cycle is
+`HELD → FALLING → LANDED` (`dropTubeStage` 0/1/2), re-arming after a short
+dwell. A catalog setpoint slider sets the wall conductivity σ (0–60 MS/m,
+releasable "Auto" → copper 59.6): aluminium (37.7) falls 1.58× faster, stainless
+(≈ 1.4) would need ≈ 7 m/s and is nearly free fall in 60 cm, and at σ = 0 (a
+plastic tube) there is no drag and no terminal velocity — `v_t` reads "—" (it is
+`NaN` in physics state; the hub publishes it as-is).
+
+**Drawing.** The tube is a stack of 4 rings × 8 tangential segments, not a solid
+cylinder: it is how the derivation slices the wall, you can see the magnet
+through the gaps, and it reads the same from any yaw. The rings near the magnet
+glow with the two loop currents; the wall tint goes from copper to grey with
+√(σ/σmax). The scene stretches 1 m to 16 units so a centimetre-scale magnet is
+visible on the overview ring. The particle stream marks the two loops, a short wake
+above the magnet, and the dipole's own field lines.
+
+| View | Screenshot |
+|------|------------|
+| Overview | See [`images/multi-device.png`](images/multi-device.png) |
+| Focus | ![Drop tube focus](images/drop-tube-focus.png) |
+
+Capture: `?renderer=webgl2` → START → `setMode('drop-tube')` → wait for
+`dropTubeStage === 1` with the magnet mid-tube → `captureCanvasFrame({ flipY: true })` →
+`docs/images/drop-tube-focus.png`.
+
+### Telemetry
+
+| Field | Unit | Source |
+|-------|------|--------|
+| Magnet speed | m/s | Downward speed (`dropTubeVMps`) |
+| Terminal velocity | m/s | `m·g/k` for the current σ; `NaN` at σ = 0 (`dropTubeTerminalVMps`) |
+| Eddy drag | N | `k·f(x)·v` — equals the weight mid-tube (`dropTubeDragN`) |
+| Eddy current | A | The loop just ahead of the magnet — ≈ 11 A in copper (`dropTubeEddyIA`) |
+| Depth | m | Magnet centre below the mouth; negative above it (`dropTubeDepthM`) |
+
+### References
+
+1. Y. Levin, F. L. da Silveira, F. B. Rizzato — *Am. J. Phys.* (2006), the
+   tube as a stack of rings and the point-dipole drag law this bench evaluates
+2. C. S. MacLatchy, P. Backman, L. Bogan — *Am. J. Phys.* (1993), measured
+   terminal velocities of magnets in copper and aluminium tubes
+3. M. H. Partovi, E. J. Morris — *Can. J. Phys.* (2006), where the thin-wall,
+   low-speed (no skin depth) limit used here holds and where it stops
+
+Undergraduate demonstration-physics literature only. No brake-design, launcher
+or induction-heating sources are used or intended.
+
+### Implementation
+
+- Plugin: `src/devices/quanta/drop-tube.ts` (registered via `quanta/index.ts`)
+- WGSL mode index: `16` (`posDropTube` in `shaders/passes/particle-compute.wgsl`;
+  `integrateDropTube` mirrors it on WebGL2)
+- WASM `SimMode`: **none** (`wasmMode: null`) — the answer is algebraic, and a
+  C++ mirror would only add a second copy of one exponential to keep in sync
+- Constants: `physics/constants.json` → `dropTube` → `DROP_TUBE`
+  (`generated/physics-constants.ts`), anchored by `validatePhysicalAnchors`
+  (thin wall, magnet fits the bore, σ inside the slider range)
+- UI: Drop Tube mode button (catalog `chrome`); drive slider = clamp + release
+  height; σ is a catalog `setpoints` slider (`dropTubeSigma`)
+- Explainer: 7-step `#lab=` tour (`src/seg-explainer/drop-tube-tour.json`) —
+  release → every slice is a ring → the currents push back → terminal velocity →
+  change the tube, closing on what the model is not
+- LOD: overview particle budget 2400/1500/900/450 by tier; the mesh LOD prefix
+  keeps the magnet and catch pad first, then even ring segments, then odd, so a
+  reduced overview draw still shows the magnet in a (sparser) tube
+- No energy pipe and no nameplate: the bench's only source is gravity. No field
+  or charge coupling either — nothing upstream sets its B
+
 ## Roadmap (candidate devices)
 
 | Device | Status | Notes |
@@ -596,16 +706,18 @@ furnace or launcher sources are used or intended here.
 | Simple railgun / Lorentz sled | **Live** (`lorentz-sled`) | WASM R–L + back-EMF + Lorentz-force ODE (`SimMode=11`) + JS fallback; pairs with MHD. Educational rail motor, not a railgun design tool |
 | Hall-effect sensor bench | **Live** (`hall`) | WASM I·B→Hall-voltage model (`SimMode=10`) + JS fallback; pairs with homopolar/Halbach |
 | Thomson jumping ring | **Live** (`jumping-ring`) | WASM coupled L–M(h) RK4 ODE with ring mass/gravity (`SimMode=12`) + JS fallback; pairs with transformer. Lenz's law as motion — no projectile, no thermal model |
-| Lenz drop tube | Candidate | Algebraic terminal-velocity model; would stay `wasmMode: null`. Next one only if it earns its LOD budget |
+| Lenz drop tube | **Live** (`drop-tube`) | JS-only algebraic eddy drag (`wasmMode: null`): point dipole in a thin-walled tube, `v_t = m·g/k`, exact exponential step. Lenz's law as braking — not a brake-design tool, not a launcher, no thermal model |
 | Quanta product mockups | Blocked | Awaiting product specs |
 
 ### Cross-device coupling (not new devices)
 
-The lab is at 15 devices; ADR-0005's original 8–12 target has been restated as
+The lab is at 16 devices; ADR-0005's original 8–12 target has been restated as
 **14+ classroom benches, LOD-limited** (see that ADR). Overview particle/mesh
 LOD, not the catalog, is the constraint — a new bench has to earn its budget by
 teaching something no existing one does. `jumping-ring` earned it as the only
-device that shows induction as motion; depth still beats a 16th.
+device that shows induction as motion; `drop-tube` as the only one where Lenz
+is a brake with a closed-form answer, on a deliberately small budget. Depth
+still beats a 17th.
 
 | Pair | State | Notes |
 |------|-------|-------|

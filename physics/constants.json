@@ -204,6 +204,26 @@
     "magAngleBase": 0.65,
     "magAngleSpan": 0.7
   },
+  "dropTube": {
+    "comment": "JS-only by design (wasmMode null) - TS codegen only, no C++ plant. Classroom Lenz drop tube: an axially magnetised NdFeB cylinder, treated as a point dipole p = Br*V/mu0, falls on the axis of a thin-walled copper tube (wall w << mean radius a). Each slice of wall is a shorted ring the falling flux sweeps through; summing them gives the textbook eddy drag F = (45/1024)*mu0^2*p^2*sigma*w*v/a^4 = (45/1024)*(Br*V)^2*sigma*w*v/a^4, so the terminal velocity is algebraic, v_t = m*g/k. The same integral taken over the tube's extent (not to infinity) tapers the drag in and out at the two ends. The dipole + thin-wall idealisation is a bound to compare a real drop against, not a calibrated prediction. No FEM, no skin depth (the magnet is slow), no off-axis wobble, and no thermal state: the dissipated m*g*v heats a real tube and nothing here tracks that.",
+    "magnetBrT": 1.2,
+    "magnetRadiusM": 0.006,
+    "magnetLengthM": 0.010,
+    "magnetDensityKgM3": 7500,
+    "tubeMeanRadiusM": 0.010,
+    "tubeWallM": 0.001,
+    "tubeLengthM": 0.6,
+    "sigmaComment": "Wall conductivity in MS/m (1e6 S/m) so the setpoint slider reads in the units a data book uses: copper 59.6, aluminium 37.7, brass ~16, stainless ~1.4, plastic 0. sigmaMaxMSm is the slider ceiling.",
+    "tubeSigmaMSm": 59.6,
+    "sigmaMaxMSm": 60,
+    "releaseMinM": 0.08,
+    "releaseMaxM": 0.30,
+    "catchBelowM": 0.08,
+    "holdS": 0.6,
+    "dwellS": 1.0,
+    "iEddyMaxA": 20,
+    "vRefMps": 2.5
+  },
   "ledSolar": {
     "wallPlugEfficiency": 0.30,
     "siEfficiency": 0.22,

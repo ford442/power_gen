@@ -265,6 +265,9 @@ declare global {
     solarTour?: SEGTourPlayer;
     startSolarTour?: () => void;
     goToSolarStep?: (id: string) => void;
+    dropTubeTour?: SEGTourPlayer;
+    startDropTubeTour?: () => void;
+    goToDropTubeStep?: (id: string) => void;
     captureParticleSubset?: (opts?: { deviceId?: string; maxCount?: number }) => Promise<unknown>;
     captureOverviewCull?: () => Promise<unknown>;
     runSEGSpeedTest?: (speeds?: number[], durationMs?: number) => Promise<unknown>;
