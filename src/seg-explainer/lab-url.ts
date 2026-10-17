@@ -8,6 +8,7 @@
  */
 
 import { LAB_TOURS, type LabTourKey, type SEGTourPlayer } from './seg-tour-player';
+import { applySetpoint, readSetpoint, setpointById } from '../setpoint-sliders';
 
 export const LAB_URL_VERSION = 1;
 
@@ -132,23 +133,22 @@ export async function applyLabState(lab: LabHashState | null | undefined): Promi
     window.setMode(lab.mode);
   }
 
-  if (lab.mode === 'halbach-viz' && lab.halbachSegments != null && window.multiVisualizer) {
-    const dev = window.multiVisualizer.devices?.['halbach-viz'];
-    if (dev?.physicsState) {
-      dev.physicsState.halbachSegmentCount = lab.halbachSegments;
-    }
+  // Setpoints go through the same catalog path as the sliders, so a shared link
+  // pins exactly what the slider would (and shows on it).
+  if (lab.mode === 'halbach-viz' && lab.halbachSegments != null) {
+    const sp = setpointById('halbachSegments');
+    if (sp) applySetpoint(sp, lab.halbachSegments);
   }
-  if (lab.mode === 'pulse-coil' && lab.pulseCoilCharge != null && window.multiVisualizer) {
-    const dev = window.multiVisualizer.devices?.['pulse-coil'];
-    const phys = dev?.physicsState || dev?.physics;
-    if (phys) {
-      const vmax = 48;
-      phys.pulseCoilVCap = Math.max(0, Math.min(1, lab.pulseCoilCharge)) * vmax;
-    }
+  // `pcap` is a charge *fraction* of the bank. Links captured before pcap was a
+  // pinned target carry the instantaneous cap voltage (often 0), so 0 means
+  // "unset" rather than "pin the target to 0 V".
+  if (lab.mode === 'pulse-coil' && lab.pulseCoilCharge != null && lab.pulseCoilCharge > 0) {
+    const sp = setpointById('pulseCoilCharge');
+    if (sp) applySetpoint(sp, Math.max(0, Math.min(1, lab.pulseCoilCharge)) * sp.max);
   }
-  if (lab.mode === 'lorentz-sled' && lab.lorentzFieldT != null
-      && typeof window.setLorentzFieldT === 'function') {
-    window.setLorentzFieldT(lab.lorentzFieldT);
+  if (lab.mode === 'lorentz-sled' && lab.lorentzFieldT != null) {
+    const sp = setpointById('lorentzField');
+    if (sp) applySetpoint(sp, lab.lorentzFieldT);
   }
   if (lab.halbachLinear && typeof window !== 'undefined') {
     const url = new URL(window.location.href);
@@ -205,11 +205,21 @@ export async function applyLabState(lab: LabHashState | null | undefined): Promi
   }
 }
 
+function pinnedValue(id: string): number | undefined {
+  const sp = setpointById(id);
+  return (sp && readSetpoint(sp)) ?? undefined;
+}
+
+function pinnedFraction(id: string): number | undefined {
+  const sp = setpointById(id);
+  const v = sp ? readSetpoint(sp) : null;
+  return sp && v != null ? Math.max(0, Math.min(1, v / sp.max)) : undefined;
+}
+
 export function captureLabState(): LabHashOptions {
   const v = window.multiVisualizer;
   const op = window.segOperator;
   const es = window.explainerState;
-  const pulse = v?.devices?.['pulse-coil']?.physicsState || v?.devices?.['pulse-coil']?.physics;
   const sled = v?.devices?.['lorentz-sled']?.physicsState || v?.devices?.['lorentz-sled']?.physics;
   // Capture whichever tour is actually running, so a shared link reopens on the
   // same step of the same device tour rather than always the SEG one.
@@ -226,9 +236,9 @@ export function captureLabState(): LabHashOptions {
     step: activeTour?.playing ? activeTour.stepIndex : undefined,
     tour: activeTour?.playing ?? false,
     renderer: window.currentRenderer ?? undefined,
-    pulseCoilCharge: pulse?.pulseCoilVCap != null
-      ? Math.max(0, Math.min(1, pulse.pulseCoilVCap / 48))
-      : undefined,
+    // Only a *pinned* target is shareable; the live cap voltage is a transient.
+    pulseCoilCharge: pinnedFraction('pulseCoilCharge'),
+    halbachSegments: pinnedValue('halbachSegments'),
     lorentzFieldT: sled?.lorentzFieldT
   };
 }

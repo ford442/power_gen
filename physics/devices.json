@@ -280,6 +280,21 @@
       "wasmMode": null,
       "telemetryKeys": ["pulseCoilCurrentA", "pulseCoilVCap", "pulseCoilBPeakT", "pulseCoilArmatureMm"],
       "fidelity": "JS-only (fallback-physics for pulseCoilBPeakT)",
+      "setpoints": [
+        {
+          "id": "pulseCoilCharge",
+          "label": "Bank charge target",
+          "min": 0,
+          "max": 48,
+          "step": 1,
+          "unit": "V",
+          "digits": 0,
+          "stateKey": "pulseCoilChargeSetpointV",
+          "liveKey": "pulseCoilVCap",
+          "releasable": true,
+          "note": "Replaces drive × V_max as the bank's charge target; the drive slider still arms the auto-fire."
+        }
+      ],
       "telemetry": {
         "pulseCoilCurrentA": {
           "label": "I",
@@ -345,6 +360,21 @@
       "wasmMode": null,
       "telemetryKeys": ["halbachSegmentCount", "halbachMagAngleDeg", "halbachPeakBT", "halbachPeriodM", "halbachDipoleForceN"],
       "fidelity": "JS-only (CPU field-line viz); estimateHalbachFieldT is a free WASM helper, not a plant",
+      "setpoints": [
+        {
+          "id": "halbachSegments",
+          "label": "Segments N",
+          "min": 4,
+          "max": 24,
+          "step": 1,
+          "unit": "",
+          "digits": 0,
+          "stateKey": "halbachSegmentSetpoint",
+          "liveKey": "halbachSegmentCount",
+          "releasable": true,
+          "note": "Pins N; the drive slider otherwise sweeps it, and still sets the magnetisation angle."
+        }
+      ],
       "telemetry": {
         "halbachSegmentCount": {
           "label": "N",
@@ -494,6 +524,19 @@
       "wasmMode": 11,
       "telemetryKeys": ["lorentzSledVms", "lorentzCurrentA", "lorentzFieldT", "lorentzForceN", "lorentzPositionM"],
       "fidelity": "WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it",
+      "setpoints": [
+        {
+          "id": "lorentzField",
+          "label": "Transverse field",
+          "min": 0,
+          "max": 1.2,
+          "step": 0.05,
+          "unit": "T",
+          "digits": 2,
+          "stateKey": "lorentzFieldLocalT",
+          "api": "setLorentzFieldT"
+        }
+      ],
       "telemetry": {
         "lorentzSledVms": {
           "label": "v",

@@ -147,10 +147,11 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 | Operator focus chrome (footer + right-panel readout cells) generated from catalog fields with catalog units — the hand-rolled 14-branch per-device chain and mode-label map are gone | Done |
 | One generic `CatalogGaugeStrip` in `scientific-ui/` replaces "a bespoke gauge class per device"; SEG gauges keep SEG focus | Done |
 
-**Not in this wave:** the mode-button row in `src/index.html` still hard-lists its
-14 buttons (each carries an emoji the catalog does not model); device setpoint
-sliders (Lorentz B, Halbach segments, pulse-coil charge) stay on their existing
-APIs per the shared plant-clock rule.
+**Follow-up (done):** the mode-button row is catalog-generated (Wave 10), and the
+per-device setpoint sliders (Lorentz B, Halbach segments, pulse-coil charge) are
+now generated from a `setpoints` block in `physics/devices.json` — see
+[Lab mode & setpoints](#lab-mode--setpoints). They still write the APIs they
+always did; nothing steps a plant from an input handler.
 
 ### TypeScript migration (Wave 7 — complete)
 
@@ -361,6 +362,8 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `gltfKelvinJars` | `1` \| `0` | follows housing | Kelvin header tank + insulated collection jars GLB (kelvin focus); `0` skips that prop |
 | `gltfThomsonStand` | `1` \| `0` | follows housing | Thomson ring stand GLB — core, bobbin, rest shoulder, travel stop (jumping-ring focus). The ring itself stays procedural |
 | `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | Lighting + post look |
+| `labMode` | `showroom` \| `lab` \| `twin` | none (remembered: `localStorage seg-lab-mode`) | Apply a **preset bundle** (look, explainer/coupling chrome, twin panel, residual gauges, post floor). Any explicit flag below still wins at boot — see [Lab mode & setpoints](#lab-mode--setpoints) |
+| `class` | `1` \| `0` | off | Classroom mode (large labels, reduced chrome) from the URL, same switch as the explainer checkbox and `#lab=…;class=1`. Also keeps the explainer on screen under `labMode=showroom` |
 | `mockHardware` | `1` | off | Hardware twin mock transport (no serial port). Other links (`serial` / `bluetooth` / `usb`) are chosen from the Hardware Twin panel — each needs a user gesture for its chooser |
 | `energyCoupling` | `1` \| `0` | off (visual-only pipes) | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`). The pipe graph itself is `physics/coupling.json` → `generated/lab-coupling.{ts,h}` (ADR-0013 rider) |
 | `fieldCoupling` | `1` \| `0` | off (local bench B) | Feed a source device's simulated **B** estimate into a destination plant (`FieldNetwork`: `halbach-viz`→`hall`, `homopolar`→`hall` while Halbach is off, `mhd`→`lorentz-sled`), clamped to the destination's catalog range — ADR-0011. One live source per destination. Deliberately a **separate** switch from `energyCoupling`: one toggle cannot honestly claim both watts and tesla are live |
@@ -378,6 +381,7 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 |-----------|---------|
 | `#lab=…` hash | SEG Explainer shareable lab state — [`SEG_EXPLAINER.md`](./SEG_EXPLAINER.md) |
 | `localStorage useWasmPhysics` | Persist WASM physics toggle |
+| `localStorage seg-lab-mode` | Last Showroom / Lab / Twin choice (header control or `?labMode=`-then-click); `?labMode=` beats it |
 | `localStorage seg-energy-coupling` | Persist coupled vs visual-only energy pipes |
 | `localStorage seg-field-coupling` | Persist coupled vs local cross-device **B** (ADR-0011) |
 | `localStorage seg-charge-coupling` | Persist seeded vs isolated Kelvin (ADR-0013) |
@@ -389,6 +393,55 @@ Example:
 ```text
 http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame=minimal
 ```
+
+### Lab mode & setpoints
+
+`?labMode=showroom|lab|twin` (or the three header buttons) applies one bundle —
+`src/lab-mode.ts`, a table plus a `planLabMode()` that subtracts whatever you set
+by hand. **Precedence:** at boot an explicit flag wins over the bundle; clicking a
+header button is an explicit choice and applies the whole bundle (and is
+remembered). No router, no framework — it calls the same setters the flags and
+panels already use.
+
+| | `showroom` | `lab` | `twin` |
+|---|---|---|---|
+| Lighting look | `studio` (`?look=drama` wins) | `lab` | unchanged |
+| Explainer / tours / classroom | hidden, classroom off (`?class=1` keeps them) | visible | visible |
+| Coupling switches (field / charge) + their "off" disclaimers | hidden; all three buses forced off *for the session* (stored preferences untouched; an explicit `?fieldCoupling=1` etc. stays on and keeps its switch visible) | visible, still default-off | visible |
+| Lab audio | muted if running (never *starts* audio — still `?audio=1` + a gesture) | allowed | allowed |
+| Hardware Twin panel | folded to its title | open | open |
+| Shadow-residual gauges (scientific panel) | — | — | opened (closed again on leave, unless you opened it) |
+| Post stack | held at the `high` gates (`profiler.postTierFloor`; particles/FDTD still follow the live tier) | auto | auto |
+| Leaving the mode with a live link | — | — | `bridge.coast()` (never disconnects) |
+| CAD props | default (on; `?gltfHousing=0` and per-prop flags still win) | same | same |
+
+Twin does **not** force `?mockHardware=1`: serial / BLE / USB still need their own
+gesture. Kiosk: `?labMode=showroom&look=drama&audio=1` (audio gesture-gated).
+Classroom: `?labMode=lab&class=1`. Bench: `?labMode=twin`. With no mode anywhere
+nothing is applied and no button is pressed — the dashboard is exactly the
+flag-driven one it was.
+
+**Setpoint sliders** are catalog rows, not markup. `physics/devices.json`
+`setpoints[]` → `DEVICE_SETPOINTS` (`npm run codegen:catalog`) →
+`src/setpoint-sliders.ts` builds one "Bench setpoints" panel per bench into
+`#device-setpoints` and shows the focused bench's. Fields: `id` (camelCase; also
+the DOM stem `<id>Slider` / `<id>Value` / `<id>Source`), `label`, `min`, `max`,
+`step`, `unit`, `digits`, `stateKey`; optional `api` (an existing `window`
+function that owns the write, e.g. `setLorentzFieldT`), `liveKey` (what the
+slider shows while unpinned), `releasable` (adds an **Auto** button that hands the
+quantity back to the plant) and `note`. A slider only *writes* — `api(value)` or
+`physicsState[stateKey] = value` — and the plant clock reads it next step.
+START/STOP/drive are session-level and are not generated. The shipped three:
+Lorentz B (`setLorentzFieldT`, local setpoint), Halbach **N** (pins N; the drive
+still sets the magnetisation angle) and pulse-coil **charge target** (replaces
+drive × V_max; the drive slider still arms the auto-fire). `#lab=` `hseg` /
+`pcap` / `lfield` go through the same path (`pcap=0` means "unset": links captured
+before `pcap` was a pinned target carry the instantaneous cap voltage).
+
+**Focus announcements:** `src/focus-live-region.ts` keeps a visually hidden
+`role="status"` region that says the lab mode and one headline number (the
+bench's first catalog telemetry field) once per focus change, ~0.5 s after the
+switch; `#device-readout` is named `"<bench> readout"`.
 
 ---
 
@@ -407,6 +460,9 @@ http://localhost:5173/?renderer=webgl2&wasmPhysics=1&layout=searl&look=lab&frame
 | `src/performance-profiler.ts` | FPS, auto-quality, optional GPU timestamps, per-device CPU times |
 | `src/sim-rate-controller.ts` | Speed mult / substeps; couples to quality under load |
 | `src/telemetry-hub.ts` | Single telemetry write path for gauges / operator |
+| `src/lab-mode.ts` | Showroom / Lab / Twin preset bundle: `planLabMode()` (pure, tested) + header control |
+| `src/setpoint-sliders.ts` | Generates per-bench setpoint sliders from the catalog `setpoints` block |
+| `src/focus-live-region.ts` | Polite live region: lab mode + one headline number on focus change |
 | `src/seg-operator-state.ts` | Authoritative SEG plant (drive, RPM, V/I/P) |
 | `src/seg-layout.ts` | Layout presets (Searl / Roschin / legacy) — data-driven roller counts |
 | `src/assets/scene/scene-node.ts` | Formal scene graph node (ADR-0005) |
@@ -502,7 +558,7 @@ Manual / agent checks (WebGPU needs a real GPU):
 
 1. `?renderer=webgl2` — START plant, non-zero telemetry, mode focus buttons.
 2. WebGPU (real GPU) — same + bloom/flux where quality allows.
-3. `npm run validate` before merge when touching physics/shaders/native.
+3. `npm run validate` before merge when touching physics/shaders/native (it includes `npm run test:lab-mode`: preset precedence, setpoint ranges vs plant constants, plants honouring a pin, announcement text).
 4. **Per-device CAD props** (WebGPU focus only — WebGL2 skips them): focus the
    bench and look for `[gltf] <view> CAD props ready: …` in the console. To see
    one prop on its own, `?gltfHousing=0&gltf<Prop>=1`. `npm run test:props`
@@ -545,6 +601,7 @@ as the graphics/content epic once the plant stays maintainable.
 ## Extension points
 
 - **New apparatus:** catalog row in `physics/devices.json` + plugin + plant (if `wasmMode` set). Do not add a fourth magic map.
+- **New operator slider for a bench:** a `setpoints[]` row on its catalog entry (no `index.html` edit); make the plant read the `stateKey` (null/NaN = unset), add the field to `renderers/shared/device-physics.ts`, and cover it in `scripts/test-lab-mode.mjs`.
 - **New shader pass:** `.wgsl` in `passes/` + layout name in `pipeline-layout/` + BINDINGS row + `check:wgsl` (+ `check:post` if CPU struct).
 - **New plant mode in WASM:** next `reservedWasmModes` slot in the catalog, then `cpp/src/sim_core.*`. Bridge `setMode` takes a device **id**, not `shaderMode`.
 - **Energy coupling:** pipes are visual today; physical network intent is ADR-0004.

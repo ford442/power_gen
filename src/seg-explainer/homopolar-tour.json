@@ -1,0 +1,99 @@
+{
+  "tourVersion": 1,
+  "id": "homopolar-intro",
+  "title": "Homopolar Generator Tour",
+  "description": "Guided walkthrough of Faraday's disc: EMF = ½ B ω r², the brushed loop, the back-torque that caps the speed, and what this model leaves out.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 7,
+      "view": "homopolar",
+      "cameraOffset": [0, 3.2, 10],
+      "cameraTargetY": 0.2,
+      "title": "A voltage with no commutator",
+      "body": "A copper disc spins between two magnet poles, with one brush on the axle and one on the rim. There are no coils and no alternating field — yet a steady voltage appears between the brushes. This is Faraday's 1831 disc, and the whole bench is one formula and one loop.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "field",
+      "durationSec": 8,
+      "view": "homopolar",
+      "cameraOffset": [-2, 2.2, 5.2],
+      "cameraTargetY": 0.2,
+      "title": "Step 1 — a fixed axial field",
+      "body": "The two poles (blue above, red below) put a uniform axial field of 0.55 T through the disc. It is a constant of the bench: the drive slider spins the disc, but it does not change B. Watch the B-field readout stay put while everything else moves.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "emf",
+      "durationSec": 10,
+      "view": "homopolar",
+      "cameraOffset": [0, 1.9, 4.2],
+      "cameraTargetY": 0.15,
+      "title": "Step 2 — ε = ½ B ω r²",
+      "body": "Each radial strip of the disc moves through B at v = ω r', so it contributes a motional EMF v B along the radius. Add them up from axle to rim (r = 0.14 m) and the total is ε = ½ B ω r². It is linear in the spin rate: double the RPM and the EMF doubles. The EMF readout is this formula evaluated on the live disc speed.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "faraday-disc-emf"
+    },
+    {
+      "id": "loop",
+      "durationSec": 9,
+      "view": "homopolar",
+      "cameraOffset": [2.2, 1.4, 3.6],
+      "cameraTargetY": 0.15,
+      "title": "Step 3 — the brushed loop",
+      "body": "The brushes close a loop of 8 mΩ and 1.5 mH, so the current follows the EMF with an L/R lag of about 190 ms and settles at I = ε / R. That resistance is tiny, which makes the loop close to a short circuit: a few tens of millivolts of EMF already drive amps of current.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "torque",
+      "durationSec": 11,
+      "view": "homopolar",
+      "cameraOffset": [0, 2.6, 6],
+      "cameraTargetY": 0.15,
+      "title": "Step 4 — the back-torque sets the speed",
+      "body": "A current across the disc in a field feels a force, and it opposes the spin: τ = I B r / 2. Substitute I = ε / R and the brake becomes B² r³ ω / 4R — it grows linearly with speed, like a viscous drag. The disc stops accelerating where the drive torque (at most 0.15 N·m) meets that brake, so with this loop it levels off at tens of RPM, nowhere near the 3600 RPM the drive is aiming at. Every watt of electrical power out is a watt the drive torque put in.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "disc-back-torque"
+    },
+    {
+      "id": "pairing",
+      "durationSec": 8,
+      "view": "homopolar",
+      "cameraOffset": [0, 3.8, 8.5],
+      "cameraTargetY": 0.2,
+      "title": "Step 5 — a field source for the Hall bench",
+      "body": "With Lab field coupling switched on (it is off by default), this disc's axial B can stand in as the Hall strip's field — but only while the Halbach array is switched off, because the Hall strip sits in one magnet gap at a time. It is a simulated number handed from one plant to another, not a measurement.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "field-coupling"
+    },
+    {
+      "id": "honesty",
+      "durationSec": 9,
+      "view": "homopolar",
+      "cameraOffset": [0, 4, 11],
+      "cameraTargetY": 0.2,
+      "title": "What this model is not",
+      "body": "An ideal solid disc in a perfectly uniform field with lossless sliding brushes, wired into a lumped L–R loop. There is no brush contact drop, no eddy currents in the disc, no field from the loop current itself and no heating. It conserves energy — it is not a free-energy machine — and it is a classroom Faraday demonstration, not a design model for a real unipolar machine.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

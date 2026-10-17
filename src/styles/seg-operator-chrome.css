@@ -149,3 +149,42 @@
     body.seg-tour-active #seg-tour-overlay {
       display: block;
     }
+
+
+    /* ── Lab mode (src/lab-mode.ts): Showroom / Lab / Twin ─────────────────
+       The header control and the chrome the active preset hides. Attributes sit
+       on <body> so an explicit flag (?class=1, ?fieldCoupling=1) can keep a
+       section on screen without the preset knowing about it. */
+    #lab-mode-switch {
+      display: inline-flex;
+      gap: 0;
+      border: 1px solid #0ff4;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .lab-mode-btn {
+      font: 600 0.7rem 'Segoe UI', Tahoma, sans-serif;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 4px 14px;
+      background: transparent;
+      color: #0aa;
+      border: 0;
+      border-right: 1px solid #0ff3;
+      cursor: pointer;
+    }
+    .lab-mode-btn:last-child { border-right: 0; }
+    .lab-mode-btn:hover { background: rgba(0, 255, 255, 0.08); }
+    .lab-mode-btn:focus-visible { outline: 2px solid #0ff; outline-offset: -2px; }
+    .lab-mode-btn[aria-pressed="true"] {
+      background: rgba(0, 212, 255, 0.22);
+      color: #0ff;
+      text-shadow: 0 0 6px #0ff8;
+    }
+    body[data-show-explainer="0"] #seg-explainer-section,
+    body[data-show-coupling="0"] #field-coupling-section,
+    body[data-show-coupling="0"] #charge-coupling-section,
+    body[data-show-coupling="0"] #fieldCouplingDisclaimer[data-mode="local"],
+    body[data-show-coupling="0"] #chargeCouplingDisclaimer[data-mode="local"] {
+      display: none !important;
+    }

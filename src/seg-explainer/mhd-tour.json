@@ -1,0 +1,99 @@
+{
+  "tourVersion": 1,
+  "id": "mhd-intro",
+  "title": "MHD Channel Tour",
+  "description": "Guided walkthrough of a liquid-metal duct in a transverse field: pump versus Hartmann braking, the Hartmann number, the induced voltage, and the link to the Lorentz sled.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 7,
+      "view": "mhd",
+      "cameraOffset": [0, 5, 18],
+      "cameraTargetY": 0,
+      "title": "A conductor that flows through a field",
+      "body": "A pump pushes a liquid metal along a duct while two magnet poles hold a field across it. A conductor moving through a field generates a voltage, and any current that results is pushed back against the motion by the field. This bench is that push-and-pull in one channel.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "drive",
+      "durationSec": 9,
+      "view": "mhd",
+      "cameraOffset": [-6, 2.5, 10],
+      "cameraTargetY": 0,
+      "title": "Step 1 — one slider, pump and field",
+      "body": "The drive slider sets both the pump (up to 6 m/s² of acceleration) and the field, B = 0.2 T + 0.8 T × drive. The magnet is not an independent knob here: a harder pump comes with a stronger field. Watch the B readout and the pole glow rise with the flow arrows.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "braking",
+      "durationSec": 11,
+      "view": "mhd",
+      "cameraOffset": [0, 3, 8.5],
+      "cameraTargetY": 0.2,
+      "title": "Step 2 — Hartmann braking",
+      "body": "The flow obeys du/dt = pump − (2.5 B² + 0.8) u. The B² term is the magnetic brake: a stronger field brakes harder. At steady state u = pump / (2.5 B² + 0.8), so quartering the drive does not quarter the flow, and going from half to full drive barely changes it — roughly 1.8 m/s either way — because the brake grows as fast as the pump does.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "hartmann-braking"
+    },
+    {
+      "id": "hartmann",
+      "durationSec": 10,
+      "view": "mhd",
+      "cameraOffset": [5, 2, 9],
+      "cameraTargetY": 0,
+      "title": "Step 3 — the Hartmann number",
+      "body": "Ha = B · a · √(σ / ρν) compares the magnetic force to viscous force across the channel. With a 5 cm half-gap and these fluid constants it is about 1900 per tesla, so it reads in the hundreds to nearly two thousand. A large Ha means thin boundary layers and a flattened flow core. The number is reported, but it only describes the regime: nothing in the plant is computed from it.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "hartmann-number"
+    },
+    {
+      "id": "output",
+      "durationSec": 9,
+      "view": "mhd",
+      "cameraOffset": [0, 1.6, 6.5],
+      "cameraTargetY": 0.1,
+      "title": "Step 4 — the induced voltage",
+      "body": "Across the 10 cm channel the moving metal develops V = B · u · w. That EMF drives a current through the fluid's own 0.05 Ω and a 0.05 Ω load, split evenly, so the load sees half of it. At a metre-per-second flow that is a fraction of a volt — a demonstration of the effect, not a power source.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "pairing",
+      "durationSec": 9,
+      "view": "mhd",
+      "cameraOffset": [0, 6, 15],
+      "cameraTargetY": 0,
+      "title": "Step 5 — a field source for the rail sled",
+      "body": "With Lab field coupling switched on (off by default), this channel's B becomes the Lorentz rail sled's bench field, clamped to the sled's 0–1.2 T range. The sled's B slider turns into a display of the number it was handed. Same law on both benches: force from current crossing a field. The B handed over is a simulated estimate, not a measurement.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "field-coupling"
+    },
+    {
+      "id": "honesty",
+      "durationSec": 9,
+      "view": "mhd",
+      "cameraOffset": [0, 7, 20],
+      "cameraTargetY": 0,
+      "title": "What this model is not",
+      "body": "A single flow speed in a lumped channel. There is no velocity profile and no Hartmann layer, no induced magnetic field, no wall conductance and no temperature dependence, and the brake is a fixed coefficient on B² u rather than a force worked out from the load current in the divider. It is a classroom picture of braking and induced voltage — not CFD, and not a design tool for a pump, a generator or a reactor blanket.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

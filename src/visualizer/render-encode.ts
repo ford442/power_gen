@@ -408,7 +408,7 @@ export const renderEncodeMethods: ThisType<Host> & {
     }
 
     // Auto-quality post gates (ADR-0005) — critical skips bloom extract/blur.
-    const postGates = getPostQualityGates(profiler.qualityTier || 'high');
+    const postGates = getPostQualityGates(profiler.postQualityTier || 'high');
     this._postQualityGates = postGates;
 
     // ── Temporal AA (high/ultra tier, focus mode only) ───────────────────

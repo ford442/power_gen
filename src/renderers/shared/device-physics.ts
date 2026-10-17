@@ -79,6 +79,8 @@ export interface HomopolarPhysicsExtension {
 /** Quanta Halbach field visualizer extension fields. */
 export interface HalbachVizPhysicsExtension {
   halbachSegmentCount?: number;
+  /** Pinned N from the catalog setpoint slider; null/undefined = drive-swept. */
+  halbachSegmentSetpoint?: number | null;
   halbachMagAngleDeg?: number;
   halbachLayout?: 'ring' | 'linear';
   halbachPeakBT?: number;
@@ -91,6 +93,8 @@ export interface HalbachVizPhysicsExtension {
 /** Quanta pulse-coil / pulsed electromagnet extension fields. */
 export interface PulseCoilPhysicsExtension {
   pulseCoilVCap?: number;
+  /** Bank charge target (V) from the catalog setpoint slider; null/undefined = drive × V_max. */
+  pulseCoilChargeSetpointV?: number | null;
   pulseCoilCurrent?: number;
   pulseCoilCurrentA?: number;
   pulseCoilBPeakT?: number;

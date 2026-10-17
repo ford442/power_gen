@@ -167,7 +167,12 @@ export const stepPulseCoilPhysics: NonNullable<DevicePlugin['stepPhysics']> = (s
   let pulseT = state.pulseCoilPulseT ?? 0;
   let firing = state.pulseCoilFiring ?? false;
 
-  const vTarget = drive * vChargeMax;
+  // A set charge target (the catalog `pulseCoilCharge` setpoint) replaces
+  // drive × V_max; the drive slider still arms the auto-fire below.
+  const setpointV = state.pulseCoilChargeSetpointV;
+  const vTarget = typeof setpointV === 'number' && Number.isFinite(setpointV)
+    ? Math.max(0, Math.min(vChargeMax, setpointV))
+    : drive * vChargeMax;
 
   // Armature attraction proxy ∝ I² (classroom metaphor for soft-iron pull-in),
   // advanced with the same substeps as the circuit so it sees the whole pulse
