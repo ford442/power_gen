@@ -36,6 +36,7 @@
     "test:device-mixins": "node scripts/test-device-mixins.mjs",
     "test:fdtd": "node scripts/test-fdtd-slice.mjs",
     "test:transports": "node scripts/test-hardware-transports.mjs",
+    "test:firmware-safety": "node scripts/test-firmware-safety.mjs",
     "test:audio": "node scripts/test-lab-audio.mjs",
     "test:props": "node scripts/test-prop-registry.mjs",
     "test:golden": "node scripts/test-js-wasm-golden.mjs",

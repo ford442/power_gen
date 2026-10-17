@@ -779,6 +779,13 @@ test.describe('Hardware twin mock', () => {
     );
     expect(Number.isFinite(twin.hub.shadowResidual.voltageError)).toBe(true);
     expect(Number.isFinite(twin.hub.shadowResidual.currentError)).toBe(true);
+
+    // Protocol v2: the host asks with V2 and the mock answers like a v2 board.
+    await waitForEval(page,
+      () => window.telemetryHub?.getSnapshot?.()?.hardwareTwin?.firmwareProtocol === 2,
+      { timeout: 10_000 }
+    );
+    await expect(page.locator('#hwFirmware')).toHaveText('fw v2 · mock · 8 coils');
   });
 
   test('mock reconnect after disconnect does not leave coils commanded', async ({ page }) => {
