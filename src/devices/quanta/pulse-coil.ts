@@ -22,7 +22,7 @@ import {
 } from '../../physics/fdtd-tmz';
 import { PULSE_COIL_CORE } from '../../../generated/physics-constants';
 
-const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-7;
+const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-6;
 
 /**
  * Educational lab-scale coil parameters (classroom-safe energies).

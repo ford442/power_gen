@@ -210,7 +210,7 @@ Real-time display of Wolfram data in the debug panel:
 
 ### Magnetic Field Calculation
 ```mathematica
-μ0 = 1.2566370614*10^-7;
+μ0 = 1.2566370614*10^-6;
 Br = 1.48;
 R = 0.8; h = 2.5;
 V = π*R^2*h;

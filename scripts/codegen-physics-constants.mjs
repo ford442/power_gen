@@ -770,8 +770,38 @@ function writeOrCheck(path, content) {
   writeFileSync(path, content);
 }
 
+/**
+ * Hard physical anchors. μ0 was once committed a decade low (…e-7 instead of
+ * …e-6): every dipole field and energy density derived from it was off by 10×,
+ * and nothing failed because everything agreed with the typo. These checks tie
+ * the source of truth to a value the repo can verify from first principles.
+ */
+function validatePhysicalAnchors(data) {
+  const errors = [];
+  const p = data.physical;
+  const mu0Ref = 4 * Math.PI * 1e-7; // exact before the 2019 SI redefinition; within 1e-9 after
+  if (Math.abs(p.MU_0 - mu0Ref) / mu0Ref > 1e-6) {
+    errors.push(`physical.MU_0 = ${p.MU_0}; expected 4π×10⁻⁷ = ${mu0Ref} H/m (relative error > 1e-6)`);
+  }
+  const eps0Ref = 1 / (mu0Ref * p.C * p.C);
+  if (Math.abs(p.EPSILON_0 - eps0Ref) / eps0Ref > 1e-6) {
+    errors.push(`physical.EPSILON_0 = ${p.EPSILON_0}; 1/(μ0 c²) = ${eps0Ref} F/m — μ0, ε0 and c disagree`);
+  }
+  const m = data.segMagnet;
+  const magRef = m.Br / (mu0Ref * m.mu_r);
+  if (Math.abs(m.magnetizationAm - magRef) / magRef > 1e-3) {
+    errors.push(`segMagnet.magnetizationAm = ${m.magnetizationAm}; Br/(μ0 μr) = ${magRef.toFixed(0)} A/m`);
+  }
+  return errors;
+}
+
 function main() {
   const data = loadJson();
+  const anchorErrors = validatePhysicalAnchors(data);
+  if (anchorErrors.length) {
+    for (const e of anchorErrors) console.error(`[codegen] ${e}`);
+    process.exit(1);
+  }
   mkdirSync(OUT_DIR, { recursive: true });
   mkdirSync(dirname(SHADER_OUT), { recursive: true });
 
