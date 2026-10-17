@@ -48,7 +48,7 @@ Browser loads src/index.html
 npm install
 npm run dev          # → http://localhost:5173/  (HTTPS is off; localhost is a secure context)
 npm run typecheck
-npm run validate     # typecheck + native C++ smoke + WGSL (naga if installed)
+npm run validate     # codegen checks + typecheck + native C++ + Node test:* suites + post/WGSL/bindings checks
 ```
 
 | Environment | URL |
@@ -123,7 +123,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 - New physics math and public numeric APIs → **TypeScript** (or C++ if part of the WASM plant).
 - New draw/compute passes → **WGSL** in `passes/` + layout in `src/pipeline-layout/layouts/*.ts` + [`BINDINGS.md`](./BINDINGS.md); `check:wgsl` + `check:post` when CPU structs couple; document in [`SHADERS.md`](./SHADERS.md). No new `/* wgsl */` in JS.
 - New device plugins implement the `DevicePlugin` interface from `src/devices/types.ts` — the single source of truth for plugin hooks and the `DeviceInstanceLike` / `VisualizerLike` shapes. Layout defaults go on `plugin.defaults` (core devices share `DEVICE_CONFIG` from `devices/device-config.ts`).
-- `npm run typecheck` covers **`src/**/*.ts` only**. `tsconfig` uses **`allowJs: true` / `checkJs: false`** so JS modules can be imported; remaining JS is not typechecked in CI. JS modules that TS imports may carry a hand-written `.d.ts`.
+- `npm run typecheck` covers **`src/**/*.ts` + `generated/**/*.ts`**. `tsconfig` uses **`allowJs: true` / `checkJs: false`** so JS modules can be imported; remaining JS is not typechecked in CI. JS modules that TS imports may carry a hand-written `.d.ts`.
 - Runtime entry is **`src/main.ts`**. `index.ts` is a typed **barrel**, not the app entry.
 - Physics constants SoT: `physics/constants.json` → codegen → `ValidatedConstants.ts` (ADR-0002/0006). Wolfram MCP manager was removed; do not reintroduce it on the default boot path.
 - **Import style:** JS entry paths import TypeScript modules **extensionless** (e.g. `./telemetry-hub` → `telemetry-hub.ts`). TypeScript sources may use a `.js` emit suffix for cross-file references (`moduleResolution: bundler`). Do not use `from '…ts'` in app code.
@@ -445,7 +445,8 @@ npm run build         # wasm:build + build:site (needs emcc / EMSDK)
 npm run typecheck     # tsc --noEmit
 npm run check:wgsl    # extract includes → naga
 npm run check:post    # CPU↔WGSL post contracts
-npm run validate      # typecheck + wasm:native + check:post + check:wgsl
+npm run validate      # codegen/catalog checks + typecheck + wasm:native + test:* (chores, mixins, fdtd,
+                      #   transports, audio, props, golden, plant-worker, coupling) + check:post/wgsl/bindings
 npm run wasm:native   # g++ smoke test, no Emscripten
 npm run wasm:native:san  # sim_core_test under ASan + UBSan (skips if no sanitizer runtime)
 npm run test:plant-worker # LabSession ⇄ plant worker contract (Node worker_threads)
@@ -527,7 +528,7 @@ Manual / agent checks (WebGPU needs a real GPU):
 | [`SEG_EXPLAINER.md`](./SEG_EXPLAINER.md) | Guided learning / `#lab=` |
 | [`hardware_connection.md`](./hardware_connection.md) | Twin protocol |
 | [`../cpp/README.md`](../cpp/README.md) | WASM core |
-| [`../claude.md`](../claude.md) | Short agent checklist (keep in sync with this file) |
+| [`../CLAUDE.md`](../CLAUDE.md) | Short agent checklist (keep in sync with this file) |
 
 ---
 
