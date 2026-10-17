@@ -125,14 +125,40 @@ export function estimatePulseCoilPeakBT(currentA: number, turns = PULSE_COIL.tur
 }
 
 /**
- * Series R–L with capacitor discharge (underdamped / overdamped handled by Euler).
+ * The discharge loop rings at ω₀ = 1/√(LC) (≈ 615 rad/s, a ~10 ms period), which
+ * is stiff next to a 16 ms frame. It is integrated with RK4 in substeps of at
+ * most a fortieth of that period, so the ring-down is stable and accurate for
+ * any frame dt (forward Euler at one step per frame diverged to NaN). Capped so
+ * a pathological dt cannot spin the frame; at the cap RK4 is still stable to
+ * dt ≈ 1.8 s.
+ */
+const OMEGA0 = 1 / Math.sqrt(PULSE_COIL.L_H * PULSE_COIL.C_F);
+const MAX_SUBSTEP_S = (2 * Math.PI / OMEGA0) / 40;
+const MAX_SUBSTEPS = 400;
+
+/** One RK4 step of  L di/dt = v − R i,  C dv/dt = −i. */
+function rlcStep(i: number, v: number, h: number): [number, number] {
+  const { R_ohm: R, L_H: L, C_F: C } = PULSE_COIL;
+  const di = (iy: number, vy: number): number => (vy - R * iy) / L;
+  const dv = (iy: number): number => -iy / C;
+  const k1i = di(i, v), k1v = dv(i);
+  const k2i = di(i + 0.5 * h * k1i, v + 0.5 * h * k1v), k2v = dv(i + 0.5 * h * k1i);
+  const k3i = di(i + 0.5 * h * k2i, v + 0.5 * h * k2v), k3v = dv(i + 0.5 * h * k2i);
+  const k4i = di(i + h * k3i, v + h * k3v), k4v = dv(i + h * k3i);
+  return [
+    i + (h / 6) * (k1i + 2 * k2i + 2 * k3i + k4i),
+    v + (h / 6) * (k1v + 2 * k2v + 2 * k3v + k4v)
+  ];
+}
+
+/**
+ * Series R–L with capacitor discharge (RK4, substepped — see {@link OMEGA0}).
  * Drive 0..1 sets charge target; when charged, discharge through the coil.
  *
  * @param drive 0..1 from speed slider
  */
 export const stepPulseCoilPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
-  const { R_ohm: R, L_H: L, C_F: C, vChargeMax, armatureMassKg: m,
-    armatureTravelMaxM: xMax, kAttract, cDamp } = PULSE_COIL;
+  const { vChargeMax, armatureMassKg: m, armatureTravelMaxM: xMax, kAttract, cDamp } = PULSE_COIL;
 
   let vCap = state.pulseCoilVCap ?? 0;
   let current = state.pulseCoilCurrent ?? 0;
@@ -143,6 +169,22 @@ export const stepPulseCoilPhysics: NonNullable<DevicePlugin['stepPhysics']> = (s
 
   const vTarget = drive * vChargeMax;
 
+  // Armature attraction proxy ∝ I² (classroom metaphor for soft-iron pull-in),
+  // advanced with the same substeps as the circuit so it sees the whole pulse
+  // rather than one aliased sample of an oscillating current.
+  const stepArmature = (h: number, iNow: number): void => {
+    const F = kAttract * iNow * iNow;
+    const spring = 22 * x; // restoring spring toward rest (x=0 far)
+    vArm += ((F - spring - cDamp * vArm) / m) * h;
+    x = Math.max(0, Math.min(xMax, x + vArm * h));
+    if (x <= 0 && vArm < 0) vArm = 0;
+    if (x >= xMax && vArm > 0) vArm = 0;
+  };
+
+  // Largest |I| seen inside this step — the latched peak must not depend on
+  // where a 10 ms ring happens to be sampled by a 16 ms frame.
+  let iPeakStep = Math.abs(current);
+
   // Charge bank while idle; auto-fire when near target and drive is on.
   if (!firing) {
     vCap += (vTarget - vCap) * Math.min(1, dt / PULSE_COIL.chargeTauS);
@@ -151,11 +193,15 @@ export const stepPulseCoilPhysics: NonNullable<DevicePlugin['stepPhysics']> = (s
       firing = true;
       pulseT = 0;
     }
+    stepArmature(dt, current);
   } else {
-    // Capacitor discharges into series R–L: L di/dt = V_c − R i; C dV/dt = −i
-    const dI = ((vCap - R * current) / L) * dt;
-    current += dI;
-    vCap += (-current / C) * dt;
+    const n = Math.max(1, Math.min(MAX_SUBSTEPS, Math.ceil(dt / MAX_SUBSTEP_S)));
+    const h = dt / n;
+    for (let k = 0; k < n; k++) {
+      [current, vCap] = rlcStep(current, vCap, h);
+      iPeakStep = Math.max(iPeakStep, Math.abs(current));
+      stepArmature(h, current);
+    }
     pulseT += dt;
     // End pulse when bank is depleted or ring-down finishes
     if (pulseT > 0.55 || (Math.abs(vCap) < 0.8 && Math.abs(current) < 0.4)) {
@@ -164,18 +210,14 @@ export const stepPulseCoilPhysics: NonNullable<DevicePlugin['stepPhysics']> = (s
     }
   }
 
-  // Armature attraction proxy ∝ I² (classroom metaphor for soft-iron pull-in)
-  const F = kAttract * current * current;
-  const spring = 22 * x; // restoring spring toward rest (x=0 far)
-  const accel = (F - spring - cDamp * vArm) / m;
-  vArm += accel * dt;
-  x = Math.max(0, Math.min(xMax, x + vArm * dt));
-  if (x <= 0 && vArm < 0) vArm = 0;
-  if (x >= xMax && vArm > 0) vArm = 0;
+  // Never let a non-finite value reach telemetry, the scope or the mesh.
+  if (!Number.isFinite(current) || !Number.isFinite(vCap) || !Number.isFinite(x) || !Number.isFinite(vArm)) {
+    current = 0; vCap = 0; x = 0; vArm = 0; firing = false; pulseT = 0; iPeakStep = 0;
+  }
 
-  const bPeak = estimatePulseCoilPeakBT(current);
+  const bPeak = estimatePulseCoilPeakBT(iPeakStep);
   // Latch peak |I| / B so short discharge spikes remain readable in telemetry
-  const peakI = Math.max(Math.abs(current), (state.pulseCoilPeakIA ?? 0) * Math.exp(-1.2 * dt));
+  const peakI = Math.max(iPeakStep, (state.pulseCoilPeakIA ?? 0) * Math.exp(-1.2 * dt));
   const peakBHold = Math.max(bPeak, (state.pulseCoilBPeakT ?? 0) * Math.exp(-1.2 * dt));
 
   state.pulseCoilVCap = vCap;
