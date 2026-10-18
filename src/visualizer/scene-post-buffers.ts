@@ -213,8 +213,8 @@ export const scenePostBufferMethods: ThisType<Host> & {
     // Metalness/roughness G-buffer (ADR-0005 WS2): second color target on the
     // scene pass, written only by seg-enhanced/roller (chrome/nickel + CAD
     // housing), read by SSR to weight reflections by material instead of a
-    // Fresnel-only grazing term. Every other pass declares a `null` second
-    // target, so its texels keep the render pass's clear value below —
+    // Fresnel-only grazing term. Every other scene pipeline masks its second
+    // target (MATERIAL_GBUFFER_NO_WRITE), so its texels keep the clear value —
     // metallic=0 / roughness=1, i.e. "non-metal" by default.
     this.materialGBufferTexture = this.device.createTexture(
       WebGPUManager.offscreenColorDescriptor({

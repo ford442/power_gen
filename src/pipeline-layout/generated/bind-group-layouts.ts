@@ -49,7 +49,7 @@ export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGro
   ],
   segEnhanced: [
     { binding: 0, visibility: 3, buffer: { type: 'uniform' } },
-    { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 3, buffer: { type: 'uniform', hasDynamicOffset: true } },
     { binding: 2, visibility: 1, buffer: { type: 'read-only-storage' } },
     { binding: 3, visibility: 2, buffer: { type: 'uniform' } },
     { binding: 4, visibility: 1, buffer: { type: 'uniform' } },

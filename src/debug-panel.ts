@@ -21,6 +21,8 @@ export class DebugPanel {
   _refreshChargeNetworkStatus?: () => void;
   _wireChargeNetworkControls!: () => void;
   _wasmRefreshStatus?: () => void;
+  /** Every DOM listener/timer the panel wires (debug-panel-dom.ts); `destroy()` aborts them. */
+  _abort = new AbortController();
 
   constructor(profiler: PerformanceProfiler) {
     this.profiler = profiler;
@@ -45,6 +47,12 @@ export class DebugPanel {
   toggle(): void {
     if (this.visible) this.hide();
     else this.show();
+  }
+
+  destroy(): void {
+    this.hide();
+    this._abort.abort();
+    this.panel?.remove();
   }
 
   startUpdateLoop(): void {

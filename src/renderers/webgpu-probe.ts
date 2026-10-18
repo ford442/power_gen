@@ -3,6 +3,7 @@ import {
   type AdapterFeatureLevel,
   type AdapterInfoSnapshot
 } from '../webgpu-manager';
+import { compatibilityOnlyAdapter } from '../webgpu-init/adapter';
 
 export interface BrowserBrandSnapshot {
   brand: string;
@@ -172,6 +173,14 @@ export async function probeWebGPU(): Promise<WebGPUProbeResult> {
     return fail(browser, `requestAdapter threw: ${e instanceof Error ? e.message : String(e)}`);
   }
   if (!adapter) {
+    if (await compatibilityOnlyAdapter(navigator.gpu)) {
+      return fail(
+        browser,
+        'Only a WebGPU compatibility-mode adapter is available. This app needs core WebGPU ' +
+        '(storage buffers in vertex shaders, sRGB canvas views, textureLoad on depth). ' +
+        'Try ?renderer=webgl2.'
+      );
+    }
     return fail(browser, 'No adapter');
   }
 
@@ -271,6 +280,38 @@ export function showWebGPUHardFail(probe: WebGPUProbeResult): void {
   `;
 
   console.error('[boot] WebGPU hard-fail — WebGL2 not started. window.webgpuProbe =', probe);
+}
+
+/**
+ * Non-fatal boot problem: the renderer is running but part of the UI wiring
+ * threw. A dismissible strip (not the hard-fail card) plus a
+ * `window.webgpuProbe.bootWarnings` entry, so agents can see it too.
+ */
+export function showBootWarning(message: string): void {
+  if (typeof document === 'undefined') return;
+  const probe = window.webgpuProbe as (WebGPUProbeResult & { bootWarnings?: string[] }) | undefined;
+  if (probe) (probe.bootWarnings ??= []).push(message);
+
+  let host = document.getElementById('boot-warning');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'boot-warning';
+    host.setAttribute('role', 'alert');
+    host.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:3000;'
+      + 'max-width:min(640px,calc(100vw - 32px));padding:8px 36px 8px 12px;border-radius:6px;'
+      + 'background:#2a1600;border:1px solid #fa0;color:#fc6;font:12px/1.4 system-ui,sans-serif;';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = '✕';
+    close.setAttribute('aria-label', 'Dismiss');
+    close.style.cssText = 'position:absolute;right:6px;top:6px;background:none;border:0;color:inherit;cursor:pointer;';
+    close.addEventListener('click', () => host?.remove(), { once: true });
+    host.appendChild(close);
+    document.body.appendChild(host);
+  }
+  const line = document.createElement('div');
+  line.textContent = message;
+  host.insertBefore(line, host.lastElementChild);
 }
 
 function escapeHtml(s: string): string {

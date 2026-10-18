@@ -3,7 +3,7 @@
  */
 
 import { finalizeReduce, mapScaleF32Js, reduceF32Js } from './reduce-js';
-import { reduceF32Wasm, mapScaleF32Wasm, wasmChoresAvailable } from './reduce-wasm';
+import { reduceF32Wasm, mapScaleF32Wasm, wasmChoresAvailable, wasmChoresError } from './reduce-wasm';
 import { WebgpuReduce } from './reduce-webgpu';
 import type {
   ChoresAdoptOpts,
@@ -44,6 +44,7 @@ class GpuChoresSession {
   adoptedDevice = false;
   lastOp: string | null = null;
   lastCount = 0;
+  lastBackend: ChoresBackend | null = null;
   private gpu: WebgpuReduce | null = null;
 
   /**
@@ -87,9 +88,13 @@ class GpuChoresSession {
     if (this.backend === 'wasm' && !wasmChoresAvailable()) this.backend = 'js';
   }
 
-  /** Re-check WASM after async sim_core load (does not open a GPU API). */
+  /**
+   * Re-check WASM after async sim_core load (does not open a GPU API). A
+   * WebGPU session keeps its GPU reduce unless `?gpuChores=wasm` forced WASM.
+   */
   refreshBackend(): void {
-    if (this.killSwitch || this.sessionApi === 'webgpu') return;
+    if (this.killSwitch) return;
+    if (this.sessionApi === 'webgpu' && resolveForcedBackend() !== 'wasm') return;
     if (wasmChoresAvailable()) this.backend = 'wasm';
   }
 
@@ -100,21 +105,24 @@ class GpuChoresSession {
       killSwitch: this.killSwitch,
       adoptedDevice: this.adoptedDevice,
       lastOp: this.lastOp,
-      lastCount: this.lastCount
+      lastCount: this.lastCount,
+      lastBackend: this.lastBackend,
+      wasmError: wasmChoresError
     };
   }
 
   reduceF32(data: ArrayLike<number>): ReduceResult {
     this.lastOp = 'reduce_f32';
     this.lastCount = data.length;
+    let result: ReduceResult | null = null;
     if (this.backend === 'webgpu' && this.gpu) {
-      return this.gpu.reduce(data);
+      result = this.gpu.reduce(data);
+    } else if (this.backend === 'wasm') {
+      result = reduceF32Wasm(data);
     }
-    if (this.backend === 'wasm') {
-      const w = reduceF32Wasm(data);
-      if (w) return w;
-    }
-    return finalizeReduce(reduceF32Js(data), 'js');
+    result ??= finalizeReduce(reduceF32Js(data), 'js');
+    this.lastBackend = result.backend;
+    return result;
   }
 
   mapScaleF32(data: ArrayLike<number>, opts: MapScaleOpts = {}): Float32Array {
@@ -122,8 +130,12 @@ class GpuChoresSession {
     this.lastCount = data.length;
     if (this.backend === 'wasm') {
       const w = mapScaleF32Wasm(data, opts);
-      if (w) return w;
+      if (w) {
+        this.lastBackend = 'wasm';
+        return w;
+      }
     }
+    this.lastBackend = 'js';
     return mapScaleF32Js(data, opts);
   }
 }

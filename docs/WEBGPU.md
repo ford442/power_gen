@@ -23,7 +23,7 @@ gpu-chores adopts that device; it never requests one after a failed probe.
 |-----|-------------------------|
 | Boot probe | Once (then optional ephemeral device destroyed) |
 | `WebGPUManager.init()` | Once for the session device |
-| `WebGPUManager.reinit()` (device-lost recovery) | **No** — reuses the existing `GPUAdapter`, only re-requests the device |
+| `WebGPUManager.reinit()` (device-lost recovery) | **Yes, once per loss** — the old adapter was *consumed* by its first `requestDevice` (spec), so asking it again rejects with `OperationError`. Still one live device: the lost one is dead |
 | `PerformanceProfiler` | **No** — receives `{ adapter, adapterInfo }` from the manager |
 | gpu-chores | **No** — adopts session device only |
 | Debug / GPU tier | Uses profiler’s cached `adapterInfo` |
@@ -61,8 +61,8 @@ Override: `new WebGPUManager(canvas, { alphaMode: 'premultiplied' })` if a futur
 `WebGPUManager.requestPreferredAdapter()` (shared with the boot probe):
 
 1. `{ powerPreference, forceFallbackAdapter: false, featureLevel: 'core' }` — `powerPreference` is **`high-performance`** by default; `?gpuPower=low` (or `low-power`) requests `low-power` for tablet / projector carts (`gpuPowerPreference()` in `webgpu-init/adapter.ts`). The WebGL2 context honours the same param.
-2. If that returns **null**, retry with `featureLevel: 'compatibility'` (Safari/Android).
-3. If `featureLevel` throws (older Chromium), one legacy `requestAdapter` without the key.
+2. If `featureLevel` throws (older Chromium), one legacy `requestAdapter` without the key.
+3. If core returns **null**, boot hard-fails. There is **no compatibility-mode retry**: the renderer needs vertex-stage storage buffers, `-srgb` canvas view formats and `textureLoad` on depth (`bloom-composite.wgsl`), none of which compatibility mode provides, so a compat device rendered a black canvas. The probe asks `compatibilityOnlyAdapter()` only to word the hard-fail message ("Only a WebGPU compatibility-mode adapter is available … Try ?renderer=webgl2").
 
 This is **not** a second long-lived device. Probe still destroys its ephemeral device; the session still uses one `seg-primary-device`.
 
@@ -85,7 +85,7 @@ Negotiated in `WebGPUManager.negotiateFeatures()` when the adapter supports them
 
 | Feature | Status | When enabled | Notes |
 |---------|--------|----------------|-------|
-| `timestamp-query` | **used** | URL has `?gpuTiming=1` | Default **off**. Writing timestamps into the main render encoder blanks the canvas on some D3D12/ANGLE stacks. Profiler keeps `timingEnabled = false` until the debug panel toggle. |
+| `timestamp-query` | **used** | URL has `?gpuTiming=1` | Default **off**. Written via pass-descriptor `timestampWrites` (start of the first compute pass → end of the composite pass); the removed `GPUCommandEncoder.writeTimestamp` is not used. Profiler keeps `timingEnabled = false` until the debug panel toggle. |
 | `rg11b10ufloat-renderable` | **used** | Always if present | Bloom extract/blur intermediates (`bloomTempTexture`, `bloomBlurTexture`) via `WebGPUManager.bloomIntermediateFormat()`. Scene + prev-scene stay on the canvas format. |
 | `texture-compression-bc` / `etc2` / `astc` | **used** | If the adapter supports them (skipped on fallback/software) | Requested at `requestDevice`. Stand GLB KTX2 albedo uploads BC1 / ASTC / ETC2 via `ktx2-gpu.ts`. F3 / `getRendererInfo().textureCompression` reports `bc` \| `etc2` \| `astc` \| `none`. |
 | `float32-filterable` | **not requested** | — | No sampled `rgba32float` targets (bloom is `rg11b10`; SSR is `rgba16float`). |
@@ -144,13 +144,19 @@ Current particle compute uses workgroup size **64** — well within defaults on 
 ### `device.lost`
 
 - Handler attached in `WebGPUManager._attachDeviceHooks`.
+- `reason: 'destroyed'` follows only our own `device.destroy()` (page
+  teardown); the manager does **not** recover from it. A real GPU reset
+  reports `'unknown'`. `window.simulateDeviceLost()` destroys the device
+  *flagged as a test*, so recovery runs — use it to exercise this path.
 - `MultiDeviceVisualizer` sets `onDeviceLost` to `recoverFromDeviceLoss`
-  (`src/visualizer/init-methods.ts`) — a **session re-init on the same
-  adapter**, not a reload:
-  1. `WebGPUManager.reinit()` re-runs feature/limit negotiation and calls
-     `adapter.requestDevice` again on the existing `GPUAdapter` (ADR-0007 —
-     still exactly one device; never a second `requestAdapter`). Canvas
-     context is reconfigured and depth/global-uniform state is rebuilt.
+  (`src/visualizer/init-methods.ts`) — a **session re-init**, not a reload:
+  1. `WebGPUManager.reinit()` calls `requestPreferredAdapter()` again, then
+     re-runs feature/limit negotiation and `requestDevice` on the **new**
+     adapter. Re-using the old adapter is a spec error: an adapter is
+     consumed by its first successful `requestDevice`, so recovery used to
+     always end at the reload overlay. ADR-0007 forbids a second *live*
+     device, not a fresh adapter after loss. Canvas context is reconfigured
+     and depth/global-uniform state is rebuilt.
   2. `MultiDeviceVisualizer._bootGpuState()` — the GPU half of `init()`
      (pipeline cache, integration/profiler, IBL, shared geometry, devices,
      energy pipes, overview cull, floor/sky, bloom/TAA/SSR/depth-resolve/
@@ -165,7 +171,7 @@ Current particle compute uses workgroup size **64** — well within defaults on 
   4. The render loop no-ops (via `_deviceRecovering`) from the moment
      `device.lost` fires until the rebuild finishes, then resumes on its
      own next `requestAnimationFrame` tick — no explicit restart needed.
-- If `WebGPUManager.reinit()` fails (adapter itself is gone) or the GPU
+- If `WebGPUManager.reinit()` fails (no adapter on re-request) or the GPU
   state rebuild throws, `_deviceRecovering` stays `true` and the classic
   full-screen “WebGPU device lost” + **Reload page** overlay
   (`showDeviceLostUI`) is shown — same UI as before, now a fallback rather
@@ -184,9 +190,11 @@ Current particle compute uses workgroup size **64** — well within defaults on 
 
 ```js
 // After app load (WebGPU path only)
-window.multiVisualizer.webgpu.device.destroy();
+window.simulateDeviceLost();
 // Expect the canvas to keep rendering (brief pause) at the same RPM —
 // the device-lost overlay only appears if adapter re-request also fails.
+// (A bare device.destroy() reports reason 'destroyed' and is treated as
+// teardown — no recovery.)
 ```
 
 ### `uncapturederror`
@@ -194,9 +202,15 @@ window.multiVisualizer.webgpu.device.destroy();
 - Logged as `[WebGPU] uncapturederror: …` (validation / OOM / internal).
 - Optional `onUncapturedError` callback on `WebGPUManager` options.
 
-## GPU timing (blank-canvas safeguard)
+## GPU timing
 
-1. Default: `timestamp-query` **not** requested → no query sets → no blank canvas risk.
+Timestamps go on pass descriptors (`profiler.passTimestampWrites('begin' | 'end')`):
+query 0 at the beginning of the `particle-compute` pass, query 1 at the end of
+the composite pass. `GPUCommandEncoder.writeTimestamp` was removed from the
+spec; calling it is what used to blank the canvas. Frames without a composite
+pass skip the resolve, and a non-increasing pair is dropped rather than read as 0 ms.
+
+1. Default: `timestamp-query` **not** requested → no query sets.
 2. Profiling: load with `?gpuTiming=1` (reload required to re-request the feature).
 3. In debug panel (F3), enable **GPU Timing** only after step 2.
 4. Never auto-enable `profiler.timingEnabled` on init.

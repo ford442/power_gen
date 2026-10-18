@@ -12,6 +12,7 @@ import {
   getPluginMeshLayouts
 } from './devices/device-registry.js';
 import type { MergedDeviceConfigEntry } from './devices/device-registry.js';
+import type { SegPartSlot } from './devices/device-render';
 import { DeviceSetupMixin } from './devices/device-setup';
 import { DeviceRenderMixin } from './devices/device-render';
 import { DeviceUpdateMixin } from './devices/device-update';
@@ -98,7 +99,10 @@ export interface DeviceInstance {
     instanceBuffer: GPUBuffer,
     keySuffix?: string
   ): GPUBindGroup;
-  _ensureRingUniformBuffers(): void;
+  _ensureSegPartUniformBuffer(): GPUBuffer;
+  _writeSegPartUniforms(): void;
+  _segPartOffset(slot: SegPartSlot, part: string): number;
+  segPartModes(): Record<string, number>;
   renderDeviceMesh(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
   render(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer, skipEffects?: boolean): void;
   renderBase(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;

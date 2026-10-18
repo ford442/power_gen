@@ -46,6 +46,11 @@ export const sceneSetupMethods: ThisType<Host> & {
     const fallbackSoft = !!(this.webgpu?.adapterInfo?.fallback || this.webgpu?.adapterInfo?.software);
     if (fallbackSoft) {
       this.iblLevels = 0;
+      // iblLevels = 0 selects the analytic path, but every segEnhanced bind group
+      // still binds @binding(7): without a texture the first SEG draw threw
+      // "iblResources missing" and WebGPU hard-failed on every software adapter.
+      // 1×1 texels, never sampled for lighting.
+      this.iblResources ??= await createIblResources(this.device, { size: 1, storage: false });
       console.log('[MultiDeviceVisualizer] IBL prefilter skipped (fallback/software adapter)');
       return { levels: 0, cached: true, ms: 0, path: 'skipped' as const };
     }

@@ -8,6 +8,7 @@
  */
 
 import { LAB_TOURS, type LabTourKey, type SEGTourPlayer } from './seg-tour-player';
+import { HALBACH_VIZ, LORENTZ_SLED } from '../../generated/physics-constants';
 
 export const LAB_URL_VERSION = 1;
 
@@ -53,6 +54,30 @@ export function encodeLabHash(opts: LabHashOptions = {}): string {
   return `#lab=${parts.join(';')}`;
 }
 
+/**
+ * Ranges a decoded value is clamped into — the dashboard controls' own ranges
+ * (drive/field sliders 0–100 %, the explainer B× slider) and the catalog
+ * constants for the plugin benches.
+ */
+export const LAB_PARAM_RANGES = {
+  drive: [0, 1],
+  field: [0, 1],
+  bmult: [0.5, 2],
+  halbachSegments: [HALBACH_VIZ.segmentMin, HALBACH_VIZ.segmentMax],
+  pulseCoilCharge: [0, 1],
+  lorentzFieldT: [0, LORENTZ_SLED.fieldTMax],
+  step: [0, 999]
+} as const satisfies Record<string, readonly [number, number]>;
+
+/**
+ * A hand-edited or truncated link (`drive=abc`, `hseg=1e9`) must not push NaN
+ * or an out-of-range value into the plant: non-finite → undefined, so the
+ * field is simply absent and the live control keeps its previous value.
+ */
+function finiteIn(raw: number, [lo, hi]: readonly [number, number]): number | undefined {
+  return Number.isFinite(raw) ? Math.max(lo, Math.min(hi, raw)) : undefined;
+}
+
 export function decodeLabHash(hash: string = typeof location !== 'undefined' ? location.hash : ''): LabHashState | null {
   const m = hash.match(/#lab=([^&]+)/);
   if (!m) return null;
@@ -69,18 +94,18 @@ export function decodeLabHash(hash: string = typeof location !== 'undefined' ? l
     if (k === 'mode') out.mode = v;
     else if (k === 'layout') out.layout = v;
     else if (k === 'heron') out.heronLayout = v;
-    else if (k === 'drive') out.drive = parseFloat(v);
-    else if (k === 'field') out.field = parseFloat(v);
-    else if (k === 'bmult') out.bmult = parseFloat(v);
+    else if (k === 'drive') out.drive = finiteIn(parseFloat(v), LAB_PARAM_RANGES.drive);
+    else if (k === 'field') out.field = finiteIn(parseFloat(v), LAB_PARAM_RANGES.field);
+    else if (k === 'bmult') out.bmult = finiteIn(parseFloat(v), LAB_PARAM_RANGES.bmult);
     else if (k === 'class') out.classroom = v === '1';
     else if (k === 'tour') out.tour = v === '1';
     else if (k === 'hi') out.hi = v;
-    else if (k === 'step') out.step = parseInt(v, 10);
+    else if (k === 'step') out.step = finiteIn(parseInt(v, 10), LAB_PARAM_RANGES.step);
     else if (k === 'renderer') out.renderer = v;
-    else if (k === 'hseg') out.halbachSegments = parseInt(v, 10);
+    else if (k === 'hseg') out.halbachSegments = finiteIn(parseInt(v, 10), LAB_PARAM_RANGES.halbachSegments);
     else if (k === 'hlin') out.halbachLinear = v === '1';
-    else if (k === 'pcap') out.pulseCoilCharge = parseFloat(v);
-    else if (k === 'lfield') out.lorentzFieldT = parseFloat(v);
+    else if (k === 'pcap') out.pulseCoilCharge = finiteIn(parseFloat(v), LAB_PARAM_RANGES.pulseCoilCharge);
+    else if (k === 'lfield') out.lorentzFieldT = finiteIn(parseFloat(v), LAB_PARAM_RANGES.lorentzFieldT);
   }
   return out;
 }
@@ -132,11 +157,16 @@ export async function applyLabState(lab: LabHashState | null | undefined): Promi
     window.setMode(lab.mode);
   }
 
-  if (lab.mode === 'halbach-viz' && lab.halbachSegments != null && window.multiVisualizer) {
-    const dev = window.multiVisualizer.devices?.['halbach-viz'];
-    if (dev?.physicsState) {
-      dev.physicsState.halbachSegmentCount = lab.halbachSegments;
-    }
+  const halbach = window.multiVisualizer?.devices?.['halbach-viz']?.physicsState;
+  if (lab.mode === 'halbach-viz' && lab.halbachSegments != null && halbach) {
+    // A setpoint, not the live count: stepHalbachVizPhysics re-derives the
+    // count from drive every step and would overwrite a direct write.
+    halbach.halbachSegmentSetpoint = lab.halbachSegments;
+    halbach.halbachSetpointDrive = null;
+  }
+  if (lab.halbachLinear && halbach && halbach.halbachLayout !== 'linear') {
+    halbach.halbachLayout = 'linear';
+    halbach.halbachFieldLines = null; // forces a geometry refresh next step
   }
   if (lab.mode === 'pulse-coil' && lab.pulseCoilCharge != null && window.multiVisualizer) {
     const dev = window.multiVisualizer.devices?.['pulse-coil'];
@@ -149,11 +179,6 @@ export async function applyLabState(lab: LabHashState | null | undefined): Promi
   if (lab.mode === 'lorentz-sled' && lab.lorentzFieldT != null
       && typeof window.setLorentzFieldT === 'function') {
     window.setLorentzFieldT(lab.lorentzFieldT);
-  }
-  if (lab.halbachLinear && typeof window !== 'undefined') {
-    const url = new URL(window.location.href);
-    url.searchParams.set('halbachLinear', '1');
-    history.replaceState(null, '', url.pathname + url.search + location.hash);
   }
 
   const op = window.segOperator;
@@ -210,6 +235,7 @@ export function captureLabState(): LabHashOptions {
   const op = window.segOperator;
   const es = window.explainerState;
   const pulse = v?.devices?.['pulse-coil']?.physicsState || v?.devices?.['pulse-coil']?.physics;
+  const halbach = v?.devices?.['halbach-viz']?.physicsState;
   const sled = v?.devices?.['lorentz-sled']?.physicsState || v?.devices?.['lorentz-sled']?.physics;
   // Capture whichever tour is actually running, so a shared link reopens on the
   // same step of the same device tour rather than always the SEG one.
@@ -229,7 +255,9 @@ export function captureLabState(): LabHashOptions {
     pulseCoilCharge: pulse?.pulseCoilVCap != null
       ? Math.max(0, Math.min(1, pulse.pulseCoilVCap / 48))
       : undefined,
-    lorentzFieldT: sled?.lorentzFieldT
+    lorentzFieldT: sled?.lorentzFieldT,
+    halbachSegments: v?.currentView === 'halbach-viz' ? halbach?.halbachSegmentCount : undefined,
+    halbachLinear: halbach?.halbachLayout === 'linear' || undefined
   };
 }
 

@@ -1,7 +1,8 @@
 import type { MultiDeviceShaders } from '../../multi-device-shaders.js';
 import type { PipelineLayoutCache } from '../pipeline-layout-cache.js';
-import { VB_GRID, VB_POS_NORMAL_UV, ALPHA_BLEND, ADDITIVE_SRC_ALPHA, hashString } from '../helpers.js';
+import { VB_GRID, VB_POS_NORMAL_UV, ALPHA_BLEND, ADDITIVE_SRC_ALPHA, MATERIAL_GBUFFER_NO_WRITE, hashString } from '../helpers.js';
 import type { DevicePipelineOptions } from './device-pipelines.js';
+import { bloomIntermediateFormat } from '../../webgpu-init/adapter.js';
 
 export async function ensureEnergyPipePipeline(
   cache: PipelineLayoutCache,
@@ -22,9 +23,9 @@ export async function ensureEnergyPipePipeline(
       fragment: {
         module: cache.shaderModule('energy-pipe-frag', shaders.energyPipeFragShader),
         entryPoint: 'main',
-        // No material G-buffer write — null keeps this compatible with the
+        // No material G-buffer write — a masked target keeps this compatible with the
         // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
-        targets: [{ format: cache.canvasFormat, blend: ADDITIVE_SRC_ALPHA }, null]
+        targets: [{ format: cache.canvasFormat, blend: ADDITIVE_SRC_ALPHA }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'triangle-strip' },
       depthStencil: cache.depthStencil(false, 'less'),
@@ -92,9 +93,9 @@ export async function ensureSkyPipeline(
       fragment: {
         module: cache.shaderModule('sky-frag', shaders.skyFragShader),
         entryPoint: 'main',
-        // No material G-buffer write — null keeps this compatible with the
+        // No material G-buffer write — a masked target keeps this compatible with the
         // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
-        targets: [{ format: cache.canvasFormat }, null]
+        targets: [{ format: cache.canvasFormat }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'triangle-list' },
       depthStencil: cache.depthStencil(false, 'always'),
@@ -122,9 +123,9 @@ export async function ensureGridPipeline(
       fragment: {
         module: cache.shaderModule('grid-frag', shaders.gridFragShader),
         entryPoint: 'main',
-        // No material G-buffer write — null keeps this compatible with the
+        // No material G-buffer write — a masked target keeps this compatible with the
         // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
-        targets: [{ format: cache.canvasFormat, blend: ALPHA_BLEND }, null]
+        targets: [{ format: cache.canvasFormat, blend: ALPHA_BLEND }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'triangle-list' },
       depthStencil: cache.depthStencil(false, 'less'),
@@ -153,9 +154,9 @@ export async function ensureAnomalyWallPipeline(
       fragment: {
         module: cache.shaderModule('anomaly-walls', code),
         entryPoint: 'fsMain',
-        // No material G-buffer write — null keeps this compatible with the
+        // No material G-buffer write — a masked target keeps this compatible with the
         // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
-        targets: [{ format: cache.canvasFormat, blend: ALPHA_BLEND }, null]
+        targets: [{ format: cache.canvasFormat, blend: ALPHA_BLEND }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: cache.depthStencil(false, 'less'),
@@ -198,6 +199,11 @@ export async function ensureBloomPipelines(
   shaders: MultiDeviceShaders
 ): Promise<void> {
   const fmt = cache.canvasFormat;
+  // Extract + blur render into the bloom temp/blur textures, which are
+  // rg11b10ufloat whenever the device has rg11b10ufloat-renderable
+  // (setupBloomTextures); only the composite writes the canvas. Targeting the
+  // canvas format here invalidated every frame's command buffer on such GPUs.
+  const bloomFmt = bloomIntermediateFormat(cache.device, fmt);
   const vertModule = cache.shaderModule('bloom-vert', shaders.bloomVertShader);
 
   await cache.getOrCreatePipeline('bloomExtract', () =>
@@ -208,7 +214,7 @@ export async function ensureBloomPipelines(
       fragment: {
         module: cache.shaderModule('bloom-extract', shaders.bloomExtractShader),
         entryPoint: 'main',
-        targets: [{ format: fmt }]
+        targets: [{ format: bloomFmt }]
       },
       primitive: { topology: 'triangle-list' }
     })
@@ -222,7 +228,7 @@ export async function ensureBloomPipelines(
       fragment: {
         module: cache.shaderModule('bloom-blur', shaders.bloomBlurShader),
         entryPoint: 'main',
-        targets: [{ format: fmt }]
+        targets: [{ format: bloomFmt }]
       },
       primitive: { topology: 'triangle-list' }
     })

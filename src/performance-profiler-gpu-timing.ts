@@ -9,25 +9,33 @@ import type { PerformanceProfiler } from './performance-profiler';
  * normal `this` binding at call time — no special binding helper needed.
  */
 export const gpuTimingMethods = {
-  // Write timestamp to encoder
-  writeTimestamp(
+  /**
+   * `timestampWrites` for a pass descriptor, or `undefined` when timing is off.
+   *
+   * `GPUCommandEncoder.writeTimestamp` was removed from the spec (and from
+   * Chrome); timestamps are now only written at pass boundaries. The frame is
+   * bracketed by `'begin'` on the first compute pass (query 0, start of pass)
+   * and `'end'` on the composite pass (query 1, end of pass), so the reading
+   * covers compute → scene → post → composite.
+   */
+  passTimestampWrites(
     this: PerformanceProfiler,
-    encoder: GPUCommandEncoder | GPURenderPassEncoder | GPUComputePassEncoder,
-    index: number
-  ): void {
-    if (
-      this.timingEnabled &&
-      typeof (encoder as { writeTimestamp?: unknown }).writeTimestamp === 'function' &&
-      index < this.queryCount &&
-      this.timestampQuerySet
-    ) {
-      (encoder as unknown as { writeTimestamp(qs: GPUQuerySet, i: number): void }).writeTimestamp(this.timestampQuerySet, index);
+    edge: 'begin' | 'end'
+  ): GPUComputePassTimestampWrites | undefined {
+    if (!this.timingEnabled || !this.timestampQuerySet || this.queryCount < 2) return undefined;
+    if (edge === 'begin') {
+      this._timestampEndWritten = false;
+      return { querySet: this.timestampQuerySet, beginningOfPassWriteIndex: 0 };
     }
+    this._timestampEndWritten = true;
+    return { querySet: this.timestampQuerySet, endOfPassWriteIndex: 1 };
   },
 
   /** Queue a single in-flight timestamp resolve (avoids buffer-in-use-during-submit). */
   scheduleResolveTimestamps(this: PerformanceProfiler): void {
-    if (!this.timingEnabled || this._timestampResolvePending) return;
+    // A frame without the composite pass (bloom stack not built yet) wrote
+    // only query 0; resolving then would pair it with a stale query 1.
+    if (!this.timingEnabled || this._timestampResolvePending || !this._timestampEndWritten) return;
     this._timestampResolvePending = true;
     this.resolveTimestamps()
       .catch(() => {})
@@ -59,7 +67,12 @@ export const gpuTimingMethods = {
     await this.timestampMappedBuffer.mapAsync(GPUMapMode.READ);
     const timestamps = new BigUint64Array(this.timestampMappedBuffer.getMappedRange());
 
-    // Convert to milliseconds (nanoseconds to ms)
+    // Convert to milliseconds (nanoseconds to ms). Implementations may zero or
+    // clamp timestamps; a non-increasing pair is a dropped sample, not 0 ms.
+    if (timestamps[1] <= timestamps[0]) {
+      this.timestampMappedBuffer.unmap();
+      return undefined;
+    }
     const gpuTimeMs = Number(timestamps[1] - timestamps[0]) / 1_000_000;
     this.lastGpuTimeMs = gpuTimeMs;
 

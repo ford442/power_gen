@@ -326,7 +326,7 @@ same numbers plus queue depth and dropped results. Compare against
 `?plantWorker=0`. Golden JS ⇄ C++ parity (`npm run test:golden`) stays
 in-process and does not involve the worker.
 
-**WebGPU context (high level):** one adapter/device in `WebGPUManager` (`featureLevel: core` with compatibility retry); depth `depth24plus` or `depth32float` when SSR is on; canvas preferred format, `alphaMode: 'opaque'`, explicit `colorSpace` + `toneMapping`. Full matrix: [`WEBGPU.md`](./WEBGPU.md). WebGL2 gaps: [`WEBGL2.md`](./WEBGL2.md).
+**WebGPU context (high level):** one adapter/device in `WebGPUManager` (`featureLevel: core` only — compat-only browsers hard-fail with an explicit message); depth `depth24plus` or `depth32float` when SSR is on; canvas preferred format, `alphaMode: 'opaque'`, explicit `colorSpace` + `toneMapping`. Full matrix: [`WEBGPU.md`](./WEBGPU.md). WebGL2 gaps: [`WEBGL2.md`](./WEBGL2.md).
 
 Architecture decisions: [`docs/adr/`](./adr/).
 

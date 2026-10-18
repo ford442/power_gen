@@ -56,16 +56,30 @@ void chores_map_scale_f32(const float* in, float* out, int count, float scale, f
     }
 }
 
-std::vector<float> chores_reduce_f32_vec(const std::vector<float>& data) {
+namespace {
+std::vector<float> g_choresScratch;
+
+int clampScratchCount(int count) {
+    return std::max(0, std::min(count, static_cast<int>(g_choresScratch.size())));
+}
+}
+
+uintptr_t chores_scratch_ptr(int count) {
+    const size_t n = static_cast<size_t>(std::max(1, count));
+    if (g_choresScratch.size() < n) g_choresScratch.resize(n, 0.f);
+    return reinterpret_cast<uintptr_t>(g_choresScratch.data());
+}
+
+ChoresReduceResult chores_reduce_f32_scratch(int count) {
     float out[5] = {0, 0, 0, 0, 0};
-    chores_reduce_f32(data.empty() ? nullptr : data.data(), static_cast<int>(data.size()), out);
+    const int n = clampScratchCount(count);
+    chores_reduce_f32(n > 0 ? g_choresScratch.data() : nullptr, n, out);
     return { out[0], out[1], out[2], out[3], out[4] };
 }
 
-std::vector<float> chores_map_scale_f32_vec(const std::vector<float>& data, float scale, float bias) {
-    std::vector<float> out(data.size(), 0.f);
-    chores_map_scale_f32(data.empty() ? nullptr : data.data(),
-                         out.empty() ? nullptr : out.data(),
-                         static_cast<int>(data.size()), scale, bias);
-    return out;
+void chores_map_scale_f32_scratch(int count, float scale, float bias) {
+    const int n = clampScratchCount(count);
+    if (n <= 0) return;
+    // Element-wise, so in == out is safe.
+    chores_map_scale_f32(g_choresScratch.data(), g_choresScratch.data(), n, scale, bias);
 }

@@ -91,13 +91,16 @@ fn main(input: FragInput) -> @location(0) vec4f {
     for (var dx = -1; dx <= 1; dx++) {
       if (dx == 0 && dy == 0) { continue; }
       let offset = vec2f(f32(dx), f32(dy)) * taa.texelSize;
-      let c = textureSample(taaSceneTex, taaSampler, input.uv + offset).rgb;
+      let c = textureSampleLevel(taaSceneTex, taaSampler, input.uv + offset, 0.0).rgb;
       boxMin = min(boxMin, c);
       boxMax = max(boxMax, c);
     }
   }
 
-  let history = textureSample(taaHistoryTex, taaSampler, prevUv).rgb;
+  // Explicit LOD: after the depth-dependent early return above, control flow
+  // is non-uniform and implicit-derivative textureSample is a WGSL error
+  // (Tint rejected the module, so TAA silently never ran). Single-mip targets.
+  let history = textureSampleLevel(taaHistoryTex, taaSampler, prevUv, 0.0).rgb;
   let clamped = clamp(history, boxMin, boxMax);
 
   // How far the clamp had to move the sample is a good disocclusion signal:

@@ -20,6 +20,10 @@
  *      flushes before the link closes; a transport switch coasts the old link
  *      first; and a dropped link clears the manual override.
  *   7. BLE asks for a throttle the firmware watchdog can live with.
+ *   8. A WebUSB read pump from a previous open cannot report a drop on, or
+ *      read alongside, the next open (generation counter + awaited loop).
+ *   9. `bridge.on(...)` delivers to every subscriber, unsubscribes, and a
+ *      throwing listener does not stop the others.
  *
  * Usage: node scripts/test-hardware-transports.mjs   (exit 1 on failure)
  */
@@ -350,6 +354,94 @@ class FakeTransport extends LineTransport {
   await bridge.disconnect();
   check('closing the link restores the configured period',
     bridge.commandThrottleMs === defaultThrottle, `${bridge.commandThrottleMs} ms`);
+}
+
+// ── 8. Stale WebUSB pump vs a fast reconnect ───────────────────────────────
+{
+  const cdcConfig = {
+    interfaces: [{
+      interfaceNumber: 1,
+      alternates: [{
+        interfaceClass: 0x0a,
+        endpoints: [
+          { direction: 'out', type: 'bulk', endpointNumber: 2 },
+          { direction: 'in', type: 'bulk', endpointNumber: 3 }
+        ]
+      }]
+    }]
+  };
+  const pending = new Set();
+  const device = {
+    configuration: cdcConfig,
+    async open() {},
+    // Real USB stacks settle in-flight transfers after close() returns.
+    async close() {
+      const stale = [...pending];
+      pending.clear();
+      setTimeout(() => { for (const p of stale) p.reject(new Error('device closed')); }, 5);
+    },
+    async selectConfiguration() {},
+    async claimInterface() {},
+    async releaseInterface() {},
+    async controlTransferOut() {},
+    async transferOut() { return { status: 'ok' }; },
+    transferIn() {
+      return new Promise((resolve, reject) => { pending.add({ resolve, reject }); });
+    },
+    feed(text) {
+      const p = [...pending][0];
+      pending.delete(p);
+      p.resolve({ status: 'ok', data: new DataView(new TextEncoder().encode(text).buffer) });
+    }
+  };
+  const nav = globalThis.navigator;
+  const hadUsb = nav && 'usb' in nav;
+  if (nav) Object.defineProperty(nav, 'usb', { value: { requestDevice: async () => device }, configurable: true });
+
+  const t = new usb.WebUsbCdcTransport(device);
+  const drops = [];
+  const lines = [];
+  t.onDrop((err) => drops.push(err));
+  t.onLine((line) => lines.push(line));
+  await t.open();
+  await t.close();
+  await t.open();
+  await new Promise((r) => setTimeout(r, 20)); // let any stale rejection land
+  check('stale pump reports no drop on the next open', drops.length === 0,
+    `drops: ${drops.map((d) => d?.message).join(', ')}`);
+  check('exactly one pump reads after a reconnect', pending.size === 1, `${pending.size} transfers in flight`);
+  device.feed('I hello\n');
+  await new Promise((r) => setTimeout(r, 0));
+  check('the live pump delivers lines', lines.length === 1 && lines[0] === 'I hello', JSON.stringify(lines));
+  await t.close();
+  if (nav && !hadUsb) delete nav.usb;
+}
+
+// ── 9. Bridge events: multi-subscriber, unsubscribe, isolation ─────────────
+{
+  const bridge = new HardwareBridge();
+  const seen = { a: [], b: [] };
+  const offA = bridge.on('status', (st) => seen.a.push(st));
+  bridge.on('status', () => { throw new Error('panel bug'); });
+  bridge.on('status', (st) => seen.b.push(st));
+  const origError = console.error;
+  console.error = () => {};
+  try {
+    bridge._setStatus('connecting');
+    offA();
+    bridge._setStatus('disconnected');
+  } finally {
+    console.error = origError;
+  }
+  check('every status subscriber hears the change', seen.a[0] === 'connecting' && seen.b[0] === 'connecting',
+    JSON.stringify(seen));
+  check('a throwing listener does not starve later ones', seen.b.length === 2, JSON.stringify(seen.b));
+  check('unsubscribe stops delivery', seen.a.length === 1, JSON.stringify(seen.a));
+
+  const twin = [];
+  bridge.on('twinMode', (m) => twin.push(m));
+  bridge.setTwinMode('shadow');
+  check('twinMode event fires', twin[0] === 'shadow', JSON.stringify(twin));
 }
 
 for (const line of ok) console.log(`  ok: ${line}`);

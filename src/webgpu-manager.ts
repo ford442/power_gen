@@ -105,6 +105,7 @@ export class WebGPUManager {
   textureCompressionUsed: TextureCompressionKind = 'none';
 
   private onDeviceLost: ((info: DeviceLostInfo) => void) | null;
+  private _simulatedLoss = false;
   private onUncapturedError: ((event: GPUUncapturedErrorEvent) => void) | null;
 
   constructor(canvas: HTMLCanvasElement, options: WebGPUManagerOptions = {}) {
@@ -224,12 +225,41 @@ export class WebGPUManager {
     this.deviceLost = false;
     attachDeviceHooks(this.device, {
       markLost: () => { this.deviceLost = true; },
-      onDeviceLost: this.onDeviceLost,
+      onDeviceLost: (info) => this._handleDeviceLost(info),
       onUncapturedError: this.onUncapturedError
     });
     checkColorAttachmentBudget(this.device, canvasFormat);
     this.textureCompression = selectTextureCompression(this.device, this.adapterInfo!);
     this.textureCompressionUsed = 'none';
+  }
+
+  /**
+   * `reason: 'destroyed'` only follows our own `device.destroy()` (page
+   * teardown, tests) — a real GPU reset reports `'unknown'`. Recovering from
+   * our own teardown would race the unload, so only a loss flagged by
+   * {@link simulateDeviceLost} goes on to the recovery handler.
+   */
+  private _handleDeviceLost(info: DeviceLostInfo): void {
+    const simulated = this._simulatedLoss;
+    this._simulatedLoss = false;
+    if (info.reason === 'destroyed' && !simulated) {
+      console.info('[WebGPU] device destroyed by our own teardown — not recovering');
+      return;
+    }
+    if (this.onDeviceLost) this.onDeviceLost(info);
+    else showDeviceLostUI(info);
+  }
+
+  /**
+   * Debug / e2e hook (`window.simulateDeviceLost()`): destroy the live device
+   * and mark the loss as a test so {@link reinit} recovery runs, exactly as
+   * after a real GPU reset.
+   */
+  simulateDeviceLost(): boolean {
+    if (!this.device || this.deviceLost) return false;
+    this._simulatedLoss = true;
+    this.device.destroy();
+    return true;
   }
 
   private _configureCanvas(device: GPUDevice, canvasFormat: GPUTextureFormat): void {
@@ -285,22 +315,30 @@ export class WebGPUManager {
   }
 
   /**
-   * Re-create the device + canvas context on the SAME adapter after
-   * `device.lost` (ADR-0007: still one long-lived device — this never
-   * requests a second `GPUAdapter`). Feature/limit negotiation is re-run so
-   * a spec-compliant adapter that changed its reported support between
-   * losses still gets a valid request.
+   * Re-create the device + canvas context after `device.lost`.
    *
-   * Returns `false` instead of throwing (adapter itself is gone, or the
-   * fresh `requestDevice` rejects) so callers can fall back to the reload
-   * overlay. Only device/context/depth/global-uniform state lives here —
-   * visualizer-owned GPU state (pipelines, geometry, devices, IBL, …) is
-   * the caller's job to rebuild once this resolves `true`.
+   * Requests a **fresh adapter** first: per the WebGPU spec an adapter is
+   * *consumed* by its first successful `requestDevice`, so asking the old
+   * one again always rejects (`OperationError`) and recovery never got past
+   * the reload overlay. ADR-0007 forbids a second *live* device; the lost
+   * one is dead, so this is still one device. Feature/limit negotiation is
+   * re-run against the new adapter.
+   *
+   * Returns `false` instead of throwing (no adapter, or `requestDevice`
+   * rejects) so callers can fall back to the reload overlay. Only
+   * device/context/depth/global-uniform state lives here — visualizer-owned
+   * GPU state (pipelines, geometry, devices, IBL, …) is the caller's job to
+   * rebuild once this resolves `true`.
    */
   async reinit(): Promise<boolean> {
-    if (!this.adapter || !this.canvasFormat) return false;
+    if (!this.canvasFormat || typeof navigator === 'undefined' || !navigator.gpu) return false;
     try {
-      await this._requestDevice(this.adapter, this.canvasFormat);
+      const preferred = await requestPreferredAdapter(navigator.gpu);
+      if (!preferred) throw new Error('No adapter on re-request');
+      this.adapter = preferred.adapter;
+      this.featureLevel = preferred.featureLevel;
+      this.adapterInfo = readAdapterInfo(preferred.adapter, preferred.featureLevel);
+      await this._requestDevice(preferred.adapter, this.canvasFormat);
 
       // The old texture died with the device — drop the reference so
       // resize()/setupDepthBuffer() allocate a fresh one against the new device.
@@ -309,7 +347,7 @@ export class WebGPUManager {
       this._configureCanvas(this.device!, this.canvasFormat);
 
       await this.setupGlobalResources();
-      console.log('[WebGPU] Device re-initialized on existing adapter after device.lost');
+      console.log('[WebGPU] Device re-initialized on a fresh adapter after device.lost');
       return true;
     } catch (e) {
       console.error('[WebGPU] reinit failed (adapter likely gone too):', e);

@@ -1,5 +1,13 @@
 // =============================================================
-// sim_core_embind.cpp  –  Emscripten / Embind surface (unchanged signatures)
+// sim_core_embind.cpp  –  Emscripten / Embind surface
+// =============================================================
+//
+// No std::vector crosses this boundary: register_vector<T> makes a vector
+// parameter accept only its handle type (never a JS array), and every handle
+// returned to JS needs a manual .delete(). Instead:
+//   • low-rate array input  → emscripten::val + convertJSArrayToNumberVector
+//   • per-frame array input → C++-owned scratch + HEAPF32 (get*Ptr idiom)
+// `npm run test:wasm-abi` calls every binding below on the shipped .wasm.
 // =============================================================
 
 #ifdef __EMSCRIPTEN__
@@ -7,6 +15,7 @@
 #include "sim_core.h"
 
 #include <emscripten/bind.h>
+#include <emscripten/val.h>
 #include <string>
 
 using namespace emscripten;
@@ -23,8 +32,12 @@ EMSCRIPTEN_BINDINGS(sim_core) {
         .field("powerOutW", &EnergyNetworkDevicePower::powerOutW)
         .field("efficiency", &EnergyNetworkDevicePower::efficiency);
 
-    register_vector<float>("FloatVector");
-    register_vector<int>("IntVector");
+    value_object<ChoresReduceResult>("ChoresReduceResult")
+        .field("sum", &ChoresReduceResult::sum)
+        .field("min", &ChoresReduceResult::min)
+        .field("max", &ChoresReduceResult::max)
+        .field("sumSq", &ChoresReduceResult::sumSq)
+        .field("count", &ChoresReduceResult::count);
 
     value_object<Vec3>("Vec3")
         .field("x", &Vec3::x)
@@ -50,8 +63,11 @@ EMSCRIPTEN_BINDINGS(sim_core) {
     function("sim_core_version", optional_override([]() -> std::string {
         return std::string(sim_core_version());
     }));
-    function("chores_reduce_f32", &chores_reduce_f32_vec);
-    function("chores_map_scale_f32", &chores_map_scale_f32_vec);
+    function("chores_scratch_ptr", optional_override([](int count) -> double {
+        return static_cast<double>(chores_scratch_ptr(count));
+    }));
+    function("chores_reduce_f32_scratch", &chores_reduce_f32_scratch);
+    function("chores_map_scale_f32_scratch", &chores_map_scale_f32_scratch);
 
     class_<SEGSimulator>("SEGSimulator")
         .constructor()
@@ -71,7 +87,6 @@ EMSCRIPTEN_BINDINGS(sim_core) {
         .function("estimatePower", &SEGSimulator::estimatePower)
         .function("magneticEnergyDensity", &SEGSimulator::magneticEnergyDensity)
         .function("getParticle", &SEGSimulator::getParticle)
-        .function("getParticles", &SEGSimulator::getParticles)
         .function("setRingLoadTorque", &SEGSimulator::setRingLoadTorque)
         .function("setRingLoadTorques", &SEGSimulator::setRingLoadTorques)
         .function("stepWithPerRingTorques", &SEGSimulator::stepWithPerRingTorques)
@@ -148,9 +163,15 @@ EMSCRIPTEN_BINDINGS(sim_core) {
         .function("getRingCouplingK", &SEGSimulator::getRingCouplingK)
         .function("getRingVelocityMps", &SEGSimulator::getRingVelocityMps)
         .function("getEnergyLevel", &SEGSimulator::getEnergyLevel)
-        .function("setNetworkEdges", &SEGSimulator::setNetworkEdges)
+        // Low-rate (once per coupling enable): any JS array or typed array.
+        .function("setNetworkEdges", optional_override([](SEGSimulator& self, val flatEdges) {
+            self.setNetworkEdges(convertJSArrayToNumberVector<float>(flatEdges));
+        }))
         .function("getNetworkEdgeCount", &SEGSimulator::getNetworkEdgeCount)
-        .function("updateEnergyNetwork", &SEGSimulator::updateEnergyNetwork)
+        .function("getScratchPtr", optional_override([](SEGSimulator& self, int count) -> double {
+            return static_cast<double>(self.getScratchPtr(count));
+        }))
+        .function("updateEnergyNetworkFromScratch", &SEGSimulator::updateEnergyNetworkFromScratch)
         .function("getNetworkSummary", &SEGSimulator::getNetworkSummary)
         .function("getNetworkEdgeAllocatedW", &SEGSimulator::getNetworkEdgeAllocatedW)
         .function("getNetworkDevicePower", &SEGSimulator::getNetworkDevicePower)

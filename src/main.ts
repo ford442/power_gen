@@ -17,7 +17,7 @@ import {
   RENDERER_WEBGPU,
   RENDERER_WEBGL2
 } from './renderers/renderer-selector';
-import { probeWebGPU, showWebGPUHardFail, type WebGPUProbeResult } from './renderers/webgpu-probe';
+import { probeWebGPU, showWebGPUHardFail, showBootWarning, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 import { initSEGOperatorPanel } from './seg-operator-panel';
 import { renderModeButtons } from './mode-buttons';
@@ -560,6 +560,8 @@ function bootApp(): void {
   }
 
   bootstrapVisualizer().then(async () => {
+    // Hard-fail page (no renderer): nothing to wire, and no rAF loop to leak.
+    if (!window.currentRenderer) return;
     wireSEGLayoutControls();
     wireHeronLayoutControls();
     syncLayoutPanelsVisibility();
@@ -635,9 +637,15 @@ function bootApp(): void {
       } else if (wrap) {
         wrap.style.display = 'none';
       }
-      requestAnimationFrame(tickClassroomUi);
+      // Stops once the renderer is gone (showWebGPUHardFail clears it).
+      if (window.currentRenderer) requestAnimationFrame(tickClassroomUi);
     };
     requestAnimationFrame(tickClassroomUi);
+  }).catch((e) => {
+    // Renderer failures hard-fail inside bootstrapVisualizer; this is the UI
+    // wiring after it (bad #lab= link, panel init throw) — report, don't swallow.
+    console.error('[main] post-boot UI wiring failed:', e);
+    showBootWarning(`Some controls failed to initialise: ${e instanceof Error ? e.message : String(e)}`);
   });
 }
 

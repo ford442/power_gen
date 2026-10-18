@@ -13,6 +13,14 @@ export interface CameraState {
 
 export type ViewMode = 'seg' | 'heron' | 'kelvin' | 'solar';
 
+/** Keyboard shortcuts must not fire while the user is typing or using a control. */
+function isTypingTarget(t: EventTarget | null): boolean {
+  const el = t as HTMLElement | null;
+  if (!el || typeof el.tagName !== 'string') return false;
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
+    || el.isContentEditable;
+}
+
 export class CameraController {
   camera: CameraState;
   currentView: ViewMode | 'overview';
@@ -20,6 +28,8 @@ export class CameraController {
   lastMouseX: number;
   lastMouseY: number;
   mouseButtons: number;
+  /** Removes every listener `setupInteraction` added (re-setup or dispose). */
+  private _interactionAbort: AbortController | null = null;
 
   constructor() {
     this.camera = {
@@ -43,50 +53,69 @@ export class CameraController {
   }
 
   setupInteraction(canvas: HTMLCanvasElement, onModeChange: (mode: ViewMode) => void): void {
-    canvas.addEventListener('mousedown', (e) => {
+    // Re-setup (device-loss rebuild, renderer re-init) must not stack handlers.
+    this._interactionAbort?.abort();
+    this._interactionAbort = new AbortController();
+    const { signal } = this._interactionAbort;
+    // Touch drags orbit instead of scrolling the page (and cancelling the pointer).
+    canvas.style.touchAction = 'none';
+
+    // Pointer Events + capture: a drag that leaves the canvas (or the window)
+    // keeps orbiting and always sees its pointerup, so it can't get stuck
+    // "down". Covers mouse, pen and touch with one code path.
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
       this.mouseDown = true;
       this.lastMouseX = e.clientX;
       this.lastMouseY = e.clientY;
       this.mouseButtons = e.buttons;
-    });
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+    }, { signal });
 
-    canvas.addEventListener('mouseup', () => {
+    const release = (e: PointerEvent) => {
       this.mouseDown = false;
       this.mouseButtons = 0;
-    });
+      if (canvas.hasPointerCapture?.(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    };
+    canvas.addEventListener('pointerup', release, { signal });
+    canvas.addEventListener('pointercancel', release, { signal });
+    canvas.addEventListener('lostpointercapture', () => {
+      this.mouseDown = false;
+      this.mouseButtons = 0;
+    }, { signal });
 
-    canvas.addEventListener('mousemove', (e) => {
+    canvas.addEventListener('pointermove', (e) => {
       if (!this.mouseDown) return;
 
       const deltaX = e.clientX - this.lastMouseX;
       const deltaY = e.clientY - this.lastMouseY;
 
-      if (this.mouseButtons & 1) { // Left button - orbit
+      if (this.mouseButtons & 1) { // Primary button / touch - orbit
         this.orbit(deltaX * 0.01, deltaY * 0.01);
       }
 
       this.lastMouseX = e.clientX;
       this.lastMouseY = e.clientY;
-    });
+    }, { signal });
 
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.zoom(e.deltaY * 0.001);
-    }, { passive: false });
+    }, { passive: false, signal });
 
-    // Mode switching with number keys
+    // Mode switching with number keys — not while typing in a field
     document.addEventListener('keydown', (e) => {
+      if (isTypingTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key >= '1' && e.key <= '4') {
         const modes: ViewMode[] = ['seg', 'heron', 'kelvin', 'solar'];
         const mode = modes[parseInt(e.key) - 1];
         onModeChange(mode);
       }
-    });
+    }, { signal });
 
     // Keyboard orbit / zoom (accessibility) — arrow keys, +/- when not typing
     document.addEventListener('keydown', (e) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (isTypingTarget(e.target)) return;
       const step = e.shiftKey ? 0.04 : 0.02;
       if (e.key === 'ArrowLeft') { this.orbit(step, 0); e.preventDefault(); }
       else if (e.key === 'ArrowRight') { this.orbit(-step, 0); e.preventDefault(); }
@@ -94,7 +123,13 @@ export class CameraController {
       else if (e.key === 'ArrowDown') { this.orbit(0, step); e.preventDefault(); }
       else if (e.key === '+' || e.key === '=') { this.zoom(-1); e.preventDefault(); }
       else if (e.key === '-' || e.key === '_') { this.zoom(1); e.preventDefault(); }
-    });
+    }, { signal });
+  }
+
+  /** Drop all input listeners. */
+  disposeInteraction(): void {
+    this._interactionAbort?.abort();
+    this._interactionAbort = null;
   }
 
   orbit(deltaPhi: number, deltaTheta: number): void {

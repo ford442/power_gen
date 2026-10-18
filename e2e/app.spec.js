@@ -137,6 +137,27 @@ test.describe('SEG WebGL2 smoke', () => {
     expect(frame.height).toBeGreaterThan(0);
     expect(frame.pixelBytes).toBe(frame.width * frame.height * 4);
   });
+
+  test('WebGL2 context loss shows the reload overlay instead of a silent black canvas', async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    const lost = await page.evaluate(() => {
+      const gl = document.querySelector('#gpuCanvas').getContext('webgl2');
+      const ext = gl?.getExtension('WEBGL_lose_context');
+      if (!ext) return false;
+      ext.loseContext();
+      return true;
+    });
+    test.skip(!lost, 'WEBGL_lose_context unavailable');
+
+    await waitForEval(page,
+      () => document.querySelector('#webgpu-device-lost h2')?.textContent === 'WebGL2 context lost'
+        && !!document.getElementById('webgpu-device-lost-reload'),
+      { timeout: 10_000 }
+    );
+    expect(errors.pageErrors).toEqual([]);
+  });
 });
 
 test.describe('WASM physics (optional)', () => {
@@ -816,6 +837,58 @@ test.describe('Hardware twin mock', () => {
     expect(state.pwmDuty).toBe(0);
   });
 
+  test('hardware panel DOM follows the bridge: status text, sensors, buttons', async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await gotoWebGL2(page, 'mockHardware=1');
+
+    // LabSession owns the bridge; the panel must hear about the auto-connect
+    // through bridge.on('status') — it used to sit on "Disconnected" forever.
+    await waitForEval(page,
+      () => document.getElementById('hwStatusText')?.textContent === 'Mock stream',
+      { timeout: 15_000 }
+    );
+    await waitForEval(page,
+      () => /^-?\d/.test(document.getElementById('hwPhase')?.textContent ?? ''),
+      { timeout: 10_000 }
+    );
+
+    // Real DOM clicks on the panel's own buttons.
+    await page.evaluate(() => document.getElementById('hwDisconnectBtn').click());
+    await waitForEval(page,
+      () => document.getElementById('hwStatusText')?.textContent === 'Disconnected'
+        && document.getElementById('hwDisconnectBtn')?.disabled === true,
+      { timeout: 10_000 }
+    );
+
+    await page.evaluate(() => document.getElementById('hwMockBtn').click());
+    await waitForEval(page,
+      () => document.getElementById('hwStatusText')?.textContent === 'Mock stream'
+        && document.getElementById('hwDisconnectBtn')?.disabled === false,
+      { timeout: 10_000 }
+    );
+
+    // Twin mode set on the bridge reaches the <select> (twinMode event).
+    await page.evaluate(() => window.multiVisualizer.hardwareBridge.setTwinMode('closed'));
+    await waitForEval(page,
+      () => document.getElementById('hwTwinMode')?.value === 'closed',
+      { timeout: 5_000 }
+    );
+
+    // Re-attaching is idempotent: one subscriber set, one panel, one click handler.
+    const after = await page.evaluate(() => {
+      const b = window.multiVisualizer.hardwareBridge;
+      window.hardwarePanel.attach(window.multiVisualizer);
+      window.hardwarePanel.attach(window.multiVisualizer);
+      return {
+        panels: document.querySelectorAll('#hardware-panel').length,
+        statusListeners: b._listeners.status.size
+      };
+    });
+    expect(after.panels).toBe(1);
+    expect(after.statusListeners).toBe(1);
+    expect(errors.pageErrors).toEqual([]);
+  });
+
   test('scientific UI shows shadow residual chart with mockHardware', async ({ page }) => {
     trackPageErrors(page);
     await gotoWebGL2(page, 'mockHardware=1');
@@ -1306,6 +1379,10 @@ test.describe('Device explainer tours', () => {
 
   test('#lab= share link reopens a device tour on its step', async ({ page }) => {
     trackPageErrors(page);
+    // Steps auto-advance every ~6 s, which is shorter than a SwiftShader boot,
+    // so the first poll could already see step 3. Reduced motion disables
+    // auto-advance (seg-tour-player `_loop`), which pins the restored step.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     // Navigated directly (not via gotoWebGL2 + a hash append): a hash-only
     // change would not reload, and the lab hash is applied at boot.
     await page.goto('/?renderer=webgl2#lab=v1;mode=hall;tour=1;step=2', {
@@ -1641,6 +1718,9 @@ test.describe('Lab sonification (?audio=1)', () => {
   });
 
   test('?audio=1 arms, starts on a gesture, and the badge mutes it', async ({ page }) => {
+    // Boot plus three gesture round-trips: on SwiftShader each one can stall
+    // the main thread for 10–25 s, which overruns the default 180 s budget.
+    test.slow();
     const { pageErrors } = trackPageErrors(page);
     await gotoWebGL2(page, 'audio=1');
     await waitForEval(page, () => !!window.labAudio, { timeout: 30_000 });

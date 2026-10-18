@@ -153,26 +153,30 @@ export function refreshHalbachFieldGeometry(state: Partial<DevicePhysicsState>):
  * @param drive 0..1 from speed slider
  */
 export const stepHalbachVizPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
-  const segmentCount = Math.max(
-    HALBACH_VIZ.segmentMin,
-    Math.min(HALBACH_VIZ.segmentMax,
-      HALBACH_VIZ.segmentMin + Math.round(drive * HALBACH_VIZ.segmentSpan))
-  );
+  const fromDrive = HALBACH_VIZ.segmentMin + Math.round(drive * HALBACH_VIZ.segmentSpan);
+  // A restored `hseg` setpoint wins until the user moves the drive slider.
+  const setpoint = state.halbachSegmentSetpoint;
+  let requested = fromDrive;
+  if (setpoint != null && Number.isFinite(setpoint)) {
+    if (state.halbachSetpointDrive == null) state.halbachSetpointDrive = drive;
+    if (Math.abs(drive - state.halbachSetpointDrive) > 1e-3) {
+      state.halbachSegmentSetpoint = null;
+      state.halbachSetpointDrive = null;
+    } else {
+      requested = Math.round(setpoint);
+    }
+  }
+  const segmentCount = Math.max(HALBACH_VIZ.segmentMin, Math.min(HALBACH_VIZ.segmentMax, requested));
   const idealStep = 360 / segmentCount;
   const magAngleDeg = idealStep * (HALBACH_VIZ.magAngleBase + drive * HALBACH_VIZ.magAngleSpan);
-
-  const layoutParam = typeof window !== 'undefined'
-    && new URLSearchParams(window.location.search).get('halbachLinear') === '1'
-    ? 'linear'
-    : 'ring';
+  const layout = state.halbachLayout ?? 'ring';
 
   const changed = segmentCount !== state.halbachSegmentCount
-    || Math.abs(magAngleDeg - (state.halbachMagAngleDeg ?? 0)) > 0.05
-    || layoutParam !== state.halbachLayout;
+    || Math.abs(magAngleDeg - (state.halbachMagAngleDeg ?? 0)) > 0.05;
 
   state.halbachSegmentCount = segmentCount;
   state.halbachMagAngleDeg = magAngleDeg;
-  state.halbachLayout = layoutParam;
+  state.halbachLayout = layout;
 
   if (changed || !state.halbachFieldLines) {
     refreshHalbachFieldGeometry(state);
@@ -181,11 +185,25 @@ export const stepHalbachVizPhysics: NonNullable<DevicePlugin['stepPhysics']> = (
   state.energyLevel = Math.min(1, drive * 0.5 + (state.halbachPeakBT ?? 0) * 0.5);
 };
 
+/** `?halbachLinear=1`, read once when the state is created (not every step). */
+function halbachLayoutFromUrl(): 'ring' | 'linear' {
+  try {
+    return typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('halbachLinear') === '1'
+      ? 'linear'
+      : 'ring';
+  } catch {
+    return 'ring';
+  }
+}
+
 export function createHalbachVizPhysicsState(): Partial<DevicePhysicsState> {
   const state: Partial<DevicePhysicsState> = {
     halbachSegmentCount: 8,
+    halbachSegmentSetpoint: null,
+    halbachSetpointDrive: null,
     halbachMagAngleDeg: 45,
-    halbachLayout: 'ring',
+    halbachLayout: halbachLayoutFromUrl(),
     halbachPeakBT: 0,
     halbachPeriodM: 0,
     halbachDipoleForceN: 0,
