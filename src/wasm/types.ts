@@ -181,6 +181,12 @@ export interface SimCoreModule {
   chores_reduce_f32_scratch?(count: number): ChoresReduceRaw;
   /** In place over the first `count` scratch floats. */
   chores_map_scale_f32_scratch?(count: number, scale: number, bias: number): void;
+  /**
+   * Hann-windowed (optional) one-sided amplitude spectrum in dB of the first
+   * `count` scratch floats, zero-padded to the next power of two N; writes the
+   * N/2 + 1 bins over the head of the scratch and returns that count (0 = bad input).
+   */
+  chores_fft_db_scratch?(count: number, hann: boolean, floorDb: number): number;
 }
 
 export type SimCoreFactory = (opts?: Record<string, unknown>) => Promise<SimCoreModule>;

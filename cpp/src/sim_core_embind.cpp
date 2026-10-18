@@ -68,6 +68,7 @@ EMSCRIPTEN_BINDINGS(sim_core) {
     }));
     function("chores_reduce_f32_scratch", &chores_reduce_f32_scratch);
     function("chores_map_scale_f32_scratch", &chores_map_scale_f32_scratch);
+    function("chores_fft_db_scratch", &chores_fft_db_scratch);
 
     class_<SEGSimulator>("SEGSimulator")
         .constructor()
