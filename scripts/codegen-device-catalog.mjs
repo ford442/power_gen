@@ -302,6 +302,7 @@ function pluginSourceForId(id) {
     hall: 'hall-effect.ts',
     'lorentz-sled': 'lorentz-sled.ts',
     'jumping-ring': 'jumping-ring.ts',
+    'drop-tube': 'drop-tube.ts',
   };
   if (quantaMap[id]) {
     return join(ROOT, 'src', 'devices', 'quanta', quantaMap[id]);

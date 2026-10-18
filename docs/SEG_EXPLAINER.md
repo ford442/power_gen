@@ -50,6 +50,8 @@ there (with a `label` for the button, which `explainer-ui.ts` generates into
 | Thermoelectric stack | `src/seg-explainer/peltier-tour.json` | 6 (two thermal nodes → Seebeck voltage → Peltier heat feedback → what "COP" means here, then what the model is not) | `window.startPeltierTour()`, `window.goToPeltierStep(id)` |
 | MHD channel | `src/seg-explainer/mhd-tour.json` | 7 (pump and field share one slider → Hartmann braking → Hartmann number → induced voltage → feeds the Lorentz sled under field coupling, then what the model is not) | `window.startMhdTour()`, `window.goToMhdStep(id)` |
 | Magnetic levitation | `src/seg-explainer/maglev-tour.json` | 6 (target gap → spring sag → overdamped settling → what B, F and RPM mean, then what the model is not) | `window.startMaglevTour()`, `window.goToMaglevStep(id)` |
+| Thomson jumping ring | `src/seg-explainer/jumping-ring-tour.json` | 7 (primary → induced current → force → why the lift decays → hover vs drive, then what the model is not) | `window.startJumpingRingTour()`, `window.goToJumpingRingStep(id)` |
+| Lenz drop tube | `src/seg-explainer/drop-tube-tour.json` | 7 (release → every slice of wall is a ring → the currents push back → terminal velocity → change the tube's σ, then what the model is not) | `window.startDropTubeTour()`, `window.goToDropTubeStep(id)` |
 | LED + solar loop | `src/seg-explainer/solar-tour.json` | 6 (LED power → efficiency chain → state of charge only falls → the I–V sketch, then what the model is not) | `window.startSolarTour()`, `window.goToSolarStep(id)` |
 
 Every device tour ends on a **What this model is not** step, and every step

@@ -33,7 +33,10 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
    one does **and** ride the existing catalog pipeline (ADR-0008) rather than
    adding a fourth magic number. `jumping-ring` (15th, Lenz's law as motion —
    the only bench where induction moves a conductor) is the worked example;
-   see the device gallery's cross-device-coupling note, which still prefers
+   `drop-tube` (16th, Lenz's law as braking, #217) is the second, admitted
+   with `wasmMode: null` because its answer is algebraic, and with a mesh LOD
+   prefix ordered so a cut overview draw drops tube rings, never the magnet.
+   See the device gallery's cross-device-coupling note, which still prefers
    depth over the next bench.
 
 ### Explicit non-goals
@@ -175,6 +178,24 @@ marker while the path is active.
 - [x] Catalog `setpoints` generate the Lorentz B / Halbach N / pulse-coil charge
       sliders (they only write; the plant clock still steps the plants).
 - [x] Focus-change live region (lab mode + one headline number).
+
+### Workstream 6 — Museum north star (#217)
+
+Gated on Wave 10, bind-group codegen, the plant Worker and the charge bus
+(#212–#215) being closed, which they are. One PR per workstream.
+
+- [x] **Lenz drop tube** (`drop-tube`, 16th bench) — JS-only point-dipole eddy
+      drag, `v_t = m·g/k`, exact exponential step, σ setpoint slider, 7-step
+      tour closing on what it is not. Particle budget 2400/1500/900/450; the
+      overview mesh prefix keeps magnet + pad first. Pinned by
+      `npm run test:drop-tube`; see `docs/DEVICE_GALLERY.md` → *drop-tube*.
+      No FEM, no thermal model, not a brake-design tool or launcher.
+- [ ] Artist CAD replacing placeholder GLBs (SEG housing + coil former first),
+      or meshopt decode documented as "not needed yet" with a byte comparison.
+      Still no Three.js / Babylon / PlayCanvas, no UASTC; WebGL2 still skips glTF.
+- [ ] Firmware line protocol `v=2` (old sketches still coast) + ESP32 BLE NUS
+      matching `bluetooth-uart-transport.ts`, or an explicit deferral with a
+      reason. Disconnect → coast on every transport; watchdog no looser.
 
 ### Acceptance (epic-level)
 

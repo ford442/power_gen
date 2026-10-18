@@ -601,6 +601,58 @@
           "digits": 3
         }
       }
+    },
+    {
+      "id": "drop-tube",
+      "label": "Lenz Drop Tube",
+      "category": "quanta",
+      "chrome": { "emoji": "⏬", "label": "Drop Tube", "sort": 15 },
+      "shaderMode": 16,
+      "wasmMode": null,
+      "telemetryKeys": ["dropTubeVMps", "dropTubeTerminalVMps", "dropTubeDragN", "dropTubeEddyIA", "dropTubeDepthM"],
+      "fidelity": "JS-only algebraic eddy drag (point dipole, thin-walled tube): v_t = m·g/k, exact exponential step",
+      "setpoints": [
+        {
+          "id": "dropTubeSigma",
+          "label": "Tube conductivity σ",
+          "min": 0,
+          "max": 60,
+          "step": 0.1,
+          "unit": "MS/m",
+          "digits": 1,
+          "stateKey": "dropTubeSigmaSetpointMSm",
+          "liveKey": "dropTubeSigmaMSm",
+          "releasable": true,
+          "note": "Copper 59.6 · aluminium 37.7 · brass ≈ 16 · stainless ≈ 1.4 · plastic 0. Drag ∝ σ, so v_t ∝ 1/σ; at 0 there is no terminal velocity and the magnet free-falls. Auto returns to copper."
+        }
+      ],
+      "telemetry": {
+        "dropTubeVMps": {
+          "label": "v",
+          "unit": "m/s",
+          "digits": 3
+        },
+        "dropTubeTerminalVMps": {
+          "label": "v_t",
+          "unit": "m/s",
+          "digits": 3
+        },
+        "dropTubeDragN": {
+          "label": "F_drag",
+          "unit": "N",
+          "digits": 3
+        },
+        "dropTubeEddyIA": {
+          "label": "I_eddy",
+          "unit": "A",
+          "digits": 1
+        },
+        "dropTubeDepthM": {
+          "label": "depth",
+          "unit": "m",
+          "digits": 3
+        }
+      }
     }
   ]
 }

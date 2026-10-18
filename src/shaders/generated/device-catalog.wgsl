@@ -17,3 +17,4 @@ const MODE_VDG: u32 = 12u;
 const MODE_HALL: u32 = 13u;
 const MODE_LORENTZ_SLED: u32 = 14u;
 const MODE_JUMPING_RING: u32 = 15u;
+const MODE_DROP_TUBE: u32 = 16u;

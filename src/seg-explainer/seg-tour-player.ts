@@ -2,6 +2,7 @@ import tourScript from './seg-tour.json';
 import vdgTourScript from './vdg-tour.json';
 import lorentzTourScript from './lorentz-sled-tour.json';
 import jumpingRingTourScript from './jumping-ring-tour.json';
+import dropTubeTourScript from './drop-tube-tour.json';
 import hallTourScript from './hall-tour.json';
 import transformerTourScript from './transformer-tour.json';
 import kelvinTourScript from './kelvin-tour.json';
@@ -355,7 +356,7 @@ export interface LabTourDefinition {
 
 export type LabTourKey =
   | 'segTour' | 'vdgTour' | 'lorentzTour' | 'hallTour' | 'transformerTour' | 'kelvinTour'
-  | 'jumpingRingTour'
+  | 'jumpingRingTour' | 'dropTubeTour'
   | 'heronTour' | 'pulseCoilTour' | 'homopolarTour' | 'halbachTour'
   | 'peltierTour' | 'mhdTour' | 'maglevTour' | 'solarTour';
 
@@ -399,6 +400,16 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     label: '▶ Jumping Ring Tour',
     status: 'Jumping ring tour playing',
     script: jumpingRingTourScript
+  },
+  {
+    key: 'dropTubeTour',
+    startFn: 'startDropTubeTour',
+    stepFn: 'goToDropTubeStep',
+    mode: 'drop-tube',
+    buttonId: 'explainerDropTubeTourBtn',
+    label: '▶ Lenz Drop Tube Tour',
+    status: 'Drop tube tour playing',
+    script: dropTubeTourScript
   },
   {
     key: 'hallTour',

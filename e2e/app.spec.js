@@ -641,6 +641,51 @@ test.describe('Quanta plugin devices (JS fallback)', () => {
     expect(snap.couplingK).toBeLessThan(0.65);
   });
 
+  test('drop-tube JS plant falls at its algebraic terminal velocity', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('drop-tube');
+    });
+
+    // Released, inside the tube, past the entry transient (τ = m/k ≈ 18 ms, so
+    // gone within a few cm) and clear of the exit taper. The plant clamps a
+    // frame to 50 ms, so on a slow SwiftShader host the hold + fall to 10 cm
+    // can take ~30 frames — give it the same 90 s the other slow waits get.
+    await waitForEval(page,
+      () => {
+        const phys = window.multiVisualizer?.devices?.['drop-tube']?.physics;
+        return !!phys && phys.dropTubeStage === 1 && phys.dropTubeDepthM > 0.1 && phys.dropTubeDepthM < 0.55;
+      },
+      { timeout: 90_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const phys = window.multiVisualizer.devices['drop-tube'].physics;
+      const hub = window.telemetryHub?.getSnapshot?.()?.devices?.['drop-tube'];
+      return {
+        v: phys.dropTubeVMps,
+        vt: phys.dropTubeTerminalVMps,
+        dragN: phys.dropTubeDragN,
+        eddyA: phys.dropTubeEddyIA,
+        depthM: phys.dropTubeDepthM,
+        hubV: hub?.dropTubeVMps
+      };
+    });
+
+    // The bench's whole claim: mid-tube the magnet sits at v_t = m·g/k.
+    expect(snap.vt).toBeGreaterThan(0.05);
+    expect(snap.vt).toBeLessThan(0.5);
+    expect(Math.abs(snap.v - snap.vt) / snap.vt).toBeLessThan(0.01);
+    // The drag is doing it, carried by a circulating eddy current.
+    expect(snap.dragN).toBeGreaterThan(0);
+    expect(snap.eddyA).toBeGreaterThan(1);
+    expect(Number.isFinite(snap.hubV)).toBe(true);
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
   test('lorentz-sled B slider changes the field and the force', async ({ page }) => {
     trackPageErrors(page);
     await gotoWebGL2(page);
@@ -1184,7 +1229,7 @@ test.describe('Device explainer tours', () => {
   // Every LAB_TOURS handle on window; the "only one plays" checks read this.
   const ALL_TOUR_KEYS = [
     'segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour',
-    'jumpingRingTour', 'heronTour', 'pulseCoilTour', 'homopolarTour', 'halbachTour',
+    'jumpingRingTour', 'dropTubeTour', 'heronTour', 'pulseCoilTour', 'homopolarTour', 'halbachTour',
     'peltierTour', 'mhdTour', 'maglevTour', 'solarTour'
   ];
 
@@ -1197,6 +1242,12 @@ test.describe('Device explainer tours', () => {
       startFn: 'startJumpingRingTour',
       key: 'jumpingRingTour',
       firstTitle: /Lenz's law you can watch/i
+    },
+    {
+      mode: 'drop-tube',
+      startFn: 'startDropTubeTour',
+      key: 'dropTubeTour',
+      firstTitle: /will not fall/i
     },
     { mode: 'heron', startFn: 'startHeronTour', key: 'heronTour', firstTitle: /height in, jet out/i },
     {
@@ -1605,6 +1656,13 @@ test.describe('Catalog telemetry on the hub (plugin devices)', () => {
       // cycle; the two currents and the force they make all change sign 120
       // times a second.
       positive: 'ringCouplingK'
+    },
+    {
+      id: 'drop-tube',
+      keys: ['dropTubeVMps', 'dropTubeTerminalVMps', 'dropTubeDragN', 'dropTubeEddyIA', 'dropTubeDepthM'],
+      // v_t is positive from the first step (a copper tube always has one);
+      // the speed is 0 while the clamp holds and on the catch pad.
+      positive: 'dropTubeTerminalVMps'
     }
   ]) {
     test(`setMode('${device.id}') publishes finite catalog keys on the hub`, async ({ page }) => {
@@ -2096,14 +2154,15 @@ test.describe('Catalog setpoint sliders', () => {
     const { pageErrors } = trackPageErrors(page);
     await gotoWebGL2(page);
     await waitForEval(page, () => !!document.getElementById('lorentzFieldSlider'), { timeout: 60_000 });
-    const dom = await page.evaluate(() => ['lorentzFieldSlider', 'halbachSegmentsSlider', 'pulseCoilChargeSlider'].map((id) => {
+    const dom = await page.evaluate(() => ['lorentzFieldSlider', 'halbachSegmentsSlider', 'pulseCoilChargeSlider', 'dropTubeSigmaSlider'].map((id) => {
       const el = document.getElementById(id);
       return { id, min: el?.min, max: el?.max, step: el?.step, label: el?.getAttribute('aria-label') };
     }));
     expect(dom).toEqual([
       expect.objectContaining({ id: 'lorentzFieldSlider', min: '0', max: '1.2', step: '0.05' }),
       expect.objectContaining({ id: 'halbachSegmentsSlider', min: '4', max: '24', step: '1' }),
-      expect.objectContaining({ id: 'pulseCoilChargeSlider', min: '0', max: '48', step: '1' })
+      expect.objectContaining({ id: 'pulseCoilChargeSlider', min: '0', max: '48', step: '1' }),
+      expect.objectContaining({ id: 'dropTubeSigmaSlider', min: '0', max: '60', step: '0.1' })
     ]);
     for (const d of dom) expect(d.label).toBeTruthy();
 
@@ -2115,6 +2174,7 @@ test.describe('Catalog setpoint sliders', () => {
     expect(await shown('halbach-viz')).toEqual(['halbach-viz']);
     expect(await shown('pulse-coil')).toEqual(['pulse-coil']);
     expect(await shown('lorentz-sled')).toEqual(['lorentz-sled']);
+    expect(await shown('drop-tube')).toEqual(['drop-tube']);
     expect(await shown('overview')).toEqual([]);
     expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
   });
@@ -2182,6 +2242,62 @@ test.describe('Catalog setpoint sliders', () => {
       return (d.physicsState ?? d.physics).pulseCoilChargeSetpointV;
     });
     expect(set).toBe(30);
+  });
+
+  test('drop-tube σ slider swaps the tube material, and Auto returns to copper', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.multiVisualizer?.devices?.['drop-tube']
+      && !!document.getElementById('dropTubeSigmaSlider'), { timeout: 60_000 });
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('drop-tube');
+    });
+    const read = () => page.evaluate(() => {
+      const d = window.multiVisualizer.devices['drop-tube'];
+      const ph = d.physicsState ?? d.physics;
+      return { set: ph.dropTubeSigmaSetpointMSm, sigma: ph.dropTubeSigmaMSm, vt: ph.dropTubeTerminalVMps };
+    });
+    await waitForEval(page, () => {
+      const d = window.multiVisualizer.devices['drop-tube'];
+      return Number.isFinite((d.physicsState ?? d.physics).dropTubeTerminalVMps);
+    }, { timeout: 30_000 });
+    const copper = await read();
+    expect(copper.set).toBeNull();
+    expect(copper.sigma).toBeCloseTo(59.6, 5);
+
+    // Aluminium: v_t scales as 1/σ.
+    await page.evaluate(() => {
+      const s = document.getElementById('dropTubeSigmaSlider');
+      s.value = '37.7';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await waitForEval(page, () => {
+      const d = window.multiVisualizer.devices['drop-tube'];
+      return (d.physicsState ?? d.physics).dropTubeSigmaMSm === 37.7;
+    }, { timeout: 30_000 });
+    const al = await read();
+    expect(al.set).toBe(37.7);
+    expect(al.vt / copper.vt).toBeCloseTo(59.6 / 37.7, 4);
+
+    // Plastic: no terminal velocity, and the readout says so rather than a number.
+    await page.evaluate(() => {
+      const s = document.getElementById('dropTubeSigmaSlider');
+      s.value = '0';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await waitForEval(page, () => {
+      const d = window.multiVisualizer.devices['drop-tube'];
+      return (d.physicsState ?? d.physics).dropTubeSigmaMSm === 0;
+    }, { timeout: 30_000 });
+    expect(Number.isNaN((await read()).vt)).toBe(true);
+
+    await page.evaluate(() => document.getElementById('dropTubeSigmaRelease').click());
+    await waitForEval(page, () => {
+      const d = window.multiVisualizer.devices['drop-tube'];
+      return (d.physicsState ?? d.physics).dropTubeSigmaMSm === 59.6;
+    }, { timeout: 30_000 });
+    expect((await read()).set).toBeNull();
   });
 
   test('#lab= pcap / hseg / lfield share links pin through the same setpoints', async ({ page }) => {

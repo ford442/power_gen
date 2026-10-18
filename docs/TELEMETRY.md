@@ -95,6 +95,7 @@ CSV column names live with the key in
 | `hall` | `hallVoltage` (V), `hallCurrent` (A), `hallFieldT` (T), `hallCoeff` (m³/C) | `hall_voltage`, … |
 | `lorentz-sled` | `lorentzSledVms` (m/s), `lorentzCurrentA` (A), `lorentzFieldT` (T), `lorentzForceN` (N), `lorentzPositionM` (m) | `lorentz_sled_vms`, … |
 | `jumping-ring` | `ringHeightM` (m), `ringCurrentA` (A), `ringPrimaryIA` (A), `ringForceN` (N), `ringCouplingK` | `ring_height_m`, … |
+| `drop-tube` | `dropTubeVMps` (m/s), `dropTubeTerminalVMps` (m/s; `NaN` at σ = 0), `dropTubeDragN` (N), `dropTubeEddyIA` (A), `dropTubeDepthM` (m) | `drop_tube_v_mps`, … |
 
 `seg` is the one exception: its `telemetryKeys` (`rpm`, `omega`, `voltage`, …)
 live on `SegOperatorTelemetry` (`snap.seg`), not on `snap.devices.seg` — the two

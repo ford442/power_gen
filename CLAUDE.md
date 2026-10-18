@@ -64,7 +64,7 @@ Details: docs/AGENTS.md → Language strategy. Shaders: **docs/SHADERS.md**.
 
 Registered core ids: `seg`, `heron`, `kelvin`, `solar`, `peltier`, `mhd`
 (+ Quanta plugins: `maglev`, `homopolar`, `halbach-viz`, `pulse-coil`,
-`transformer`, `vdg`, `hall`, `lorentz-sled`, `jumping-ring`).
+`transformer`, `vdg`, `hall`, `lorentz-sled`, `jumping-ring`, `drop-tube`).
 WASM plants: `physics/devices.json` `wasmMode` (codegen `enum SimMode`). Shader
 slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 
@@ -92,6 +92,7 @@ npm run test:transports # twin transport framing + coast-on-disconnect
 npm run test:audio    # sonification mapping bounds (silent by default)
 npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switches
 npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement
+npm run test:drop-tube # drop-tube k / end taper / loops vs quadrature, transit vs RK4
 npm run generate:gltf # regenerate every placeholder GLB (seg + quanta + lab)
 ```
 

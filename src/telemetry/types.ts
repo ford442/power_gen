@@ -89,6 +89,11 @@ export interface DeviceTelemetrySnap {
   ringPrimaryIA: number;
   ringForceN: number;
   ringCouplingK: number;
+  dropTubeVMps: number;
+  dropTubeTerminalVMps: number;
+  dropTubeDragN: number;
+  dropTubeEddyIA: number;
+  dropTubeDepthM: number;
   /** Lab bus accounting (EnergyNetwork, W) — simulated, not metrology. */
   powerInW: number;
   powerOutW: number;

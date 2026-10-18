@@ -15,8 +15,9 @@
  *   4. Setpoints: catalog rows validate, their ranges match the plant constants
  *      they stand in for, writes clamp, `api` is preferred over `stateKey`, and
  *      a releasable setpoint returns control to the plant.
- *   5. Plants: a pinned Halbach N / pulse-coil target is honoured, an unset one
- *      changes nothing, and the drive still decides what it always decided.
+ *   5. Plants: a pinned Halbach N / pulse-coil target / drop-tube σ is honoured,
+ *      an unset one changes nothing, and the drive still decides what it always
+ *      decided.
 
  *   6. Live region: one sentence, mode + one number, never NaN.
  *   7. Structure: no UI framework and no new runtime dependency.
@@ -158,8 +159,8 @@ const consts = JSON.parse(read('physics/constants.json'));
   const rows = [];
   for (const d of cat.devices) for (const s of d.setpoints || []) rows.push({ ...s, deviceId: d.id });
   const ids = rows.map((r) => r.id);
-  check('catalog declares the Lorentz, Halbach and pulse-coil setpoints',
-    ['lorentzField', 'halbachSegments', 'pulseCoilCharge'].every((i) => ids.includes(i)), ids.join());
+  check('catalog declares the Lorentz, Halbach, pulse-coil and drop-tube setpoints',
+    ['lorentzField', 'halbachSegments', 'pulseCoilCharge', 'dropTubeSigma'].every((i) => ids.includes(i)), ids.join());
   check('setpoint ids are unique', new Set(ids).size === ids.length, ids.join());
   check('generated DEVICE_SETPOINTS matches the catalog row for row',
     sp.setpointsForDevice('lorentz-sled').length === 1 && sp.setpointById('halbachSegments')?.deviceId === 'halbach-viz'
@@ -178,6 +179,10 @@ const consts = JSON.parse(read('physics/constants.json'));
     `${hal.min}..${hal.max} vs ${findKey(consts, 'segmentMin')}..${findKey(consts, 'segmentMax')}`);
   const pc = sp.setpointById('pulseCoilCharge');
   check('pulse-coil slider max == vChargeMax', pc.max === findKey(consts, 'vChargeMax'), `${pc.max} vs ${findKey(consts, 'vChargeMax')}`);
+  const tube = sp.setpointById('dropTubeSigma');
+  check('drop-tube σ slider spans 0..sigmaMaxMSm and reaches the catalog tube',
+    tube?.min === 0 && tube?.max === consts.dropTube.sigmaMaxMSm && consts.dropTube.tubeSigmaMSm <= tube?.max,
+    `${tube?.min}..${tube?.max} vs 0..${consts.dropTube.sigmaMaxMSm}`);
 
   // Write semantics against a fake window.
   const calls = [];
@@ -260,6 +265,21 @@ function findKey(obj, key) {
     zero.pulseCoilVCap < 1, `${zero.pulseCoilVCap}`);
   const nanPc = settle({ pulseCoilVCap: 0, pulseCoilChargeSetpointV: Number.NaN }, 0.05);
   check('pulse-coil NaN setpoint falls back to drive × V_max', Math.abs(nanPc.pulseCoilVCap - noSet.pulseCoilVCap) < 1e-9, `${nanPc.pulseCoilVCap}`);
+
+  // Drop tube: a pinned σ sets the terminal velocity; unset / NaN is the catalog copper.
+  const dtm = await importTsBundle('src/devices/quanta/drop-tube.ts');
+  const midTube = (extra) => {
+    const st = { ...dtm.createDropTubePhysicsState(), ...extra };
+    for (let i = 0; i < 6000 && !(st.dropTubeDepthM > dtm.TUBE.tubeLengthM / 2); i++) dtm.stepDropTubePhysics(st, 1 / 60, 0.5);
+    return st;
+  };
+  const cu = midTube({});
+  check('drop-tube unset: falls at the catalog tube\'s v_t', Math.abs(cu.dropTubeVMps - dtm.dropTubeTerminalVelocity(dtm.TUBE.tubeSigmaMSm)) < 1e-3 * cu.dropTubeVMps,
+    `${cu.dropTubeVMps}`);
+  const half = midTube({ dropTubeSigmaSetpointMSm: dtm.TUBE.tubeSigmaMSm / 2 });
+  check('drop-tube pinned at half σ: twice the terminal velocity', Math.abs(half.dropTubeVMps / cu.dropTubeVMps - 2) < 2e-3, `${half.dropTubeVMps / cu.dropTubeVMps}`);
+  const nanTube = midTube({ dropTubeSigmaSetpointMSm: Number.NaN });
+  check('drop-tube NaN σ falls back to the catalog tube', nanTube.dropTubeSigmaMSm === dtm.TUBE.tubeSigmaMSm, String(nanTube.dropTubeSigmaMSm));
 }
 
 // ── 6. Live region ─────────────────────────────────────────────────────────
@@ -281,6 +301,23 @@ function findKey(obj, key) {
     lr.headlineFor({ view: 'pulse-coil', seg: null, devices: {} }) === 'Pulse Coil (R–L)', lr.headlineFor({ view: 'pulse-coil', seg: null, devices: {} }));
 }
 
+// ── 6b. Tours: every glossary term a step names exists ─────────────────────
+{
+  const tp = await importTsBundle('src/seg-explainer/seg-tour-player.ts');
+  const gl = await importTsBundle('src/seg-explainer/seg-glossary.ts');
+  const missing = [];
+  for (const def of tp.LAB_TOURS) {
+    for (const step of def.script.steps || []) {
+      if (step.glossaryTerm && !gl.SEG_GLOSSARY[step.glossaryTerm]) missing.push(`${def.key}:${step.id}→${step.glossaryTerm}`);
+    }
+  }
+  check('every tour step\'s glossaryTerm resolves (a missing one silently shows nothing)', missing.length === 0, missing.join(', '));
+  const tube = tp.LAB_TOURS.find((t) => t.mode === 'drop-tube');
+  const last = tube?.script.steps.at(-1);
+  check('drop-tube tour closes on what the model is not', /not/i.test(last?.title ?? '') && /thermal/i.test(last?.body ?? '')
+    && /not a brake-design tool/i.test(last?.body ?? ''), last?.title ?? 'no drop-tube tour');
+}
+
 // ── 7. Structure ───────────────────────────────────────────────────────────
 {
   const pkg = JSON.parse(read('package.json'));
@@ -290,7 +327,8 @@ function findKey(obj, key) {
   const idx = read('src/index.html');
   check('index.html carries only the header host + setpoint host, no per-device slider markup',
     idx.includes('id="lab-mode-switch"') && idx.includes('id="device-setpoints"') && !idx.includes('id="lorentzFieldSlider"')
-      && !idx.includes('id="halbachSegmentsSlider"') && !idx.includes('id="pulseCoilChargeSlider"'), 'hand-wired slider crept back');
+      && !idx.includes('id="halbachSegmentsSlider"') && !idx.includes('id="pulseCoilChargeSlider"')
+      && !idx.includes('id="dropTubeSigmaSlider"'), 'hand-wired slider crept back');
 }
 
 for (const line of ok) console.log(`  ok: ${line}`);
