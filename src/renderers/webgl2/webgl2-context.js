@@ -3,6 +3,7 @@
  * Maps to WebGPU device/context acquisition in webgpu-manager.js.
  */
 import { showDeviceLostUI } from '../../webgpu-init/device-lost';
+import { labConfig } from '../../config/lab-config';
 
 /** Anisotropy ceiling for procedural meshes on the fallback renderer. */
 export const MAX_ANISOTROPY_CAP = 8;
@@ -17,9 +18,7 @@ export class WebGL2Context {
   }
 
   init() {
-    const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
-    const capture = params?.get('capture') === '1';
-    const gpuPower = params?.get('gpuPower');
+    const { capture, gpuPower } = labConfig();
     const gl = this.canvas.getContext('webgl2', {
       alpha: false,
       antialias: true,
@@ -27,7 +26,7 @@ export class WebGL2Context {
       stencil: false,
       premultipliedAlpha: true,
       // ?gpuPower=low mirrors the WebGPU adapter hint (docs/WEBGPU.md).
-      powerPreference: gpuPower === 'low' || gpuPower === 'low-power' ? 'low-power' : 'high-performance',
+      powerPreference: gpuPower,
       failIfMajorPerformanceCaveat: false,
       preserveDrawingBuffer: !!(typeof navigator !== 'undefined' && navigator.webdriver) || capture
     });

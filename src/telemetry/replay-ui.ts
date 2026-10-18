@@ -3,6 +3,7 @@
  */
 
 import { replayPlayer, type ReplayPlayerState } from './replay-player';
+import { labConfig } from '../config/lab-config';
 
 function $(id: string): HTMLElement | null {
   return document.getElementById(id);
@@ -16,8 +17,7 @@ function fmtTime(s: number): string {
 }
 
 export function isReplayQueryEnabled(): boolean {
-  if (typeof window === 'undefined') return false;
-  return new URLSearchParams(window.location.search).get('replay') === '1';
+  return labConfig().replay;
 }
 
 export function setReplayBarVisible(visible: boolean): void {

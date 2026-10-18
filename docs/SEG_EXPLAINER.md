@@ -60,10 +60,10 @@ never an absolute world position — the auto-layout ring moves benches. Tours
 that mention a coupling bus (Halbach, homopolar, MHD) describe it as **off by
 default**.
 
-`#lab=…;tour=1` plays the tour that belongs to `mode` (`TOUR_BY_MODE`, derived
-from `LAB_TOURS`), falling back to the SEG tour; `shareLabLink()` captures
-whichever tour is actually running, so a link reopens on the same step of the
-same tour.
+A link with `tour` plays the tour that belongs to `mode` (`TOUR_BY_MODE`,
+derived from `LAB_TOURS`), falling back to the SEG tour; `shareLabLink()`
+captures whichever tour is actually running, so a link reopens on the same step
+of the same tour.
 
 ### Step camera
 
@@ -76,28 +76,35 @@ A step frames its device with either key:
 
 ## Shareable lab URL
 
-Hash format:
+**Lab Link** opens the share dialog: a `#lab2=` link (copied to the
+clipboard and written to the address bar), its QR code, and a
+**Download .lab.json** button. The link carries the non-default LabConfig
+share fields — mode, layouts, look, coupling buses, seed, drive / field / B×,
+classroom, highlight, tour + step and pinned setpoints — compressed with
+`deflate-raw`. Format, precedence and `.lab.json`: [`LAB_CONFIG.md`](./LAB_CONFIG.md).
+
+Legacy links still load:
 
 ```
 #lab=v1;mode=seg;layout=searl;drive=0.50;field=0.50;bmult=2.00;class=1;tour=1;hi=coil;step=5
 ```
 
-| Param | Meaning |
-|-------|---------|
-| `mode` | `seg`, `overview`, … |
-| `layout` | `searl`, `roschin`, `legacy` |
-| `drive` | Operator throttle 0–1 |
-| `field` | Base excitation 0–1 |
-| `bmult` | B-field experiment multiplier |
-| `class` | `1` = classroom mode |
-| `tour` | `1` = auto-start tour |
-| `hi` | Annotation / highlight id (`coil`, `shaft`, `inner-ring`, …) |
-| `step` | Tour step index (0-based) when `tour=1` |
-| `lfield` | Lorentz rail sled bench field B, tesla (`mode=lorentz-sled`) |
+| v1 param | LabConfig field |
+|----------|-----------------|
+| `mode` | `mode` (`seg`, `overview`, …) |
+| `layout` / `heron` | `layout` / `heronLayout` |
+| `drive` / `field` / `bmult` | `drive` / `field` / `bmult` |
+| `class` | `classroom` (`1` only) |
+| `tour` / `step` | `tour` / `tourStep` |
+| `hi` | `highlight` (`coil`, `shaft`, `inner-ring`, …) |
+| `hseg` / `pcap` / `lfield` | `setpoints.halbachSegments` / `.pulseCoilCharge` (fraction × bank max) / `.lorentzField` — on their own bench only |
+| `hlin` | `halbachLinear` |
 
-**UI:** **Lab Link** copies URL to clipboard and updates `location.hash`.
+While a tour plays, the address bar follows its step (`#lab2=` with `tour` and
+`tourStep`), so copying the URL reopens the same step of the same tour.
 
-**API:** `window.shareLabLink()`, `window.startSEGTour()`, `window.goToSEGStep('coil')`
+**API:** `window.shareLabLink()`, `window.lab.openShareDialog()`,
+`window.lab.loadConfig(obj)`, `window.startSEGTour()`, `window.goToSEGStep('coil')`
 
 ## Experiments
 

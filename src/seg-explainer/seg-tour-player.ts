@@ -199,14 +199,13 @@ export class SEGTourPlayer {
       || explainerState.highlightId
       || this.steps[this.stepIndex]?.highlights?.[0]
       || null;
-    import('./lab-url').then((m) => {
-      const state = m.captureLabState();
-      if (hi) state.hi = hi;
-      if (this.playing) state.step = this.stepIndex;
-      if (this.playing) state.tour = true;
-      const hash = m.encodeLabHash(state);
-      history.replaceState(null, '', hash);
-    }).catch(() => {});
+    const playing = this.playing;
+    const step = this.stepIndex;
+    import('./lab-url').then((m) => m.syncTourShareHash({
+      highlight: hi ?? null,
+      tour: playing || null,
+      tourStep: playing ? step : null
+    })).catch(() => {});
   }
 
   stop(): void {

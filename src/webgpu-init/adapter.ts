@@ -8,6 +8,7 @@
 
 import { selectTextureCompression } from '../assets/gltf/ktx2-gpu';
 import { MATERIAL_GBUFFER_FORMAT } from '../pipeline-layout';
+import { labConfigFor } from '../config/lab-config';
 import {
   DEFAULT_COLOR_ATTACHMENT_BYTES_PER_SAMPLE,
   colorAttachmentBytesPerSample
@@ -105,15 +106,8 @@ export function isSoftwareAdapterText(...parts: Array<string | undefined>): bool
  * tablet and projector carts running the lab as a slideshow. Anything else
  * (including no param) keeps the default `high-performance`.
  */
-export function gpuPowerPreference(
-  search = typeof location !== 'undefined' ? location.search : ''
-): GPUPowerPreference {
-  try {
-    const v = new URLSearchParams(search).get('gpuPower');
-    return v === 'low' || v === 'low-power' ? 'low-power' : 'high-performance';
-  } catch {
-    return 'high-performance';
-  }
+export function gpuPowerPreference(search?: string): GPUPowerPreference {
+  return labConfigFor(search).config.gpuPower;
 }
 
 /**

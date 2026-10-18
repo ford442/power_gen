@@ -7,6 +7,7 @@
 // Toggle via URL ?frame=full|minimal|off or debug panel "SEG frame" select.
 
 import type { SegLayout, SegLayoutRing, MeshBuffers } from './devices/types';
+import { labConfigFor } from './config/lab-config';
 
 export type SegFrameLevel = 'off' | 'minimal' | 'full';
 
@@ -19,13 +20,9 @@ export const SEG_FRAME_LEVELS: { off: 0; minimal: 1; full: 2 } = {
 /**
  * Parse frame visibility from URL / window override.
  */
-export function parseSegFrameLevel(
-  params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
-): SegFrameLevel {
-  const raw = params.get('frame');
-  if (raw === 'off' || raw === '0' || raw === 'false') return 'off';
-  if (raw === 'minimal' || raw === 'min' || raw === '1') return 'minimal';
-  if (raw === 'full' || raw === '2') return 'full';
+export function parseSegFrameLevel(params?: URLSearchParams): SegFrameLevel {
+  const r = labConfigFor(params);
+  if (r.sources.frame !== 'default') return r.config.frame;
   if (typeof window !== 'undefined' && window.SEG_FRAME_LEVEL) {
     const w = String(window.SEG_FRAME_LEVEL).toLowerCase();
     if (w in SEG_FRAME_LEVELS) return w as SegFrameLevel;

@@ -50,16 +50,6 @@ export interface ColorTargets {
   shaderEncodesOutput: boolean;
 }
 
-export function parseColorPipelineMode(
-  search = typeof location !== 'undefined' ? location.search : ''
-): ColorPipelineMode {
-  try {
-    return new URLSearchParams(search).get('color') === 'legacy' ? 'legacy' : 'linear';
-  } catch {
-    return 'linear';
-  }
-}
-
 /** The `-srgb` twin of an 8-bit canvas format, or null when there is none. */
 export function srgbViewFormat(format: GPUTextureFormat): GPUTextureFormat | null {
   if (format === 'bgra8unorm') return 'bgra8unorm-srgb';

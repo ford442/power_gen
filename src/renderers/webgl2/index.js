@@ -57,10 +57,8 @@ export class WebGL2MultiDeviceVisualizer {
     this.lastFrameTime = 0;
     this.fps = 60;
 
-    const params = new URLSearchParams(window.location.search);
-
-    this.segFrameLevel = parseSegFrameLevel(params);
-    this.lightingLook = parseLightingLook(params);
+    this.segFrameLevel = parseSegFrameLevel();
+    this.lightingLook = parseLightingLook();
     this.lightingPreset = getLightingPreset(this.lightingLook);
 
     this.segLayout = computeSEGLayout(this.session.segLayoutPreset, 1.0);

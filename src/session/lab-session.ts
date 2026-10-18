@@ -43,6 +43,7 @@ import {
   type SessionDeviceMap
 } from './apply-wasm-plant';
 import { PlantWorkerHost, type PlantStats } from './plant-worker-host';
+import { coerceLabField, labConfig, persistLabConfig, setLabUrlParam } from '../config/lab-config';
 
 export type { SessionDevice, SessionDeviceMap } from './apply-wasm-plant';
 export type { PlantStats } from './plant-worker-host';
@@ -122,12 +123,11 @@ export class LabSession {
       onError: (e: unknown) => console.error('[HardwareBridge]', e)
     });
 
-    const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-    this.prototypePreset = parsePrototypePreset(params);
+    this.prototypePreset = parsePrototypePreset();
     this.anomalousEffectsEnabled = parseAnomalousEffects(this.prototypePreset);
-    this.segLayoutPreset = parseSegLayoutPreset(params, this.prototypePreset);
-    this.heronLayoutPreset = parseHeronLayoutPreset(params);
-    applyStoredHeronLayout(this);
+    this.segLayoutPreset = parseSegLayoutPreset(undefined, this.prototypePreset);
+    this.heronLayoutPreset = parseHeronLayoutPreset();
+    applyResolvedHeronLayout(this);
     publishHeronLayoutPreset(this.heronLayoutPreset);
   }
 
@@ -421,11 +421,8 @@ export class LabSession {
 
   persistSegLayoutPreset(presetName: string): void {
     this.segLayoutPreset = presetName;
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('layout', presetName);
-      window.history.replaceState(null, '', url);
-    } catch (_) { /* ignore */ }
+    const layout = coerceLabField('layout', presetName);
+    if (layout) setLabUrlParam('layout', layout);
   }
 
   persistHeronLayoutPreset(presetName: string): HeronLayoutWithMeta | null {
@@ -440,18 +437,17 @@ export class LabSession {
       phys.heronHeadMax = this.heronLayout.headMaxM;
       phys.heronHead = Math.min(phys.heronHead, this.heronLayout.headMaxM);
     }
-    try { localStorage.setItem('heron-layout', presetName); } catch (_) { /* ignore */ }
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('heronLayout', presetName);
-      window.history.replaceState(null, '', url);
-    } catch (_) { /* ignore */ }
+    const preset = coerceLabField('heronLayout', presetName);
+    if (preset) {
+      persistLabConfig('heronLayout', preset);
+      setLabUrlParam('heronLayout', preset);
+    }
     return this.heronLayout;
   }
 
   async maybeConnectMockHardware(): Promise<void> {
     try {
-      if (new URLSearchParams(location.search).get('mockHardware') === '1') {
+      if (labConfig().mockHardware) {
         await this.hardwareBridge.connectMock();
         this.hardwareBridge.setTwinMode(TWIN_MODES.SHADOW);
       }
@@ -462,26 +458,19 @@ export class LabSession {
 /**
  * Publish the preset the lab actually resolved.
  *
- * The query string alone is not the answer: `applyStoredHeronLayout()` lets a
- * `localStorage` preset override `?heronLayout=` at boot, so anything reading
- * the URL would see the wrong layout until the user switched preset by hand.
- * Consumers that cannot reach the session — `parseHeronLayoutPreset()`, and the
- * `heronVessels` CAD prop, whose GLB is baked for `classic` only — read this
- * instead, so the prop cannot disagree with the geometry on screen.
+ * The query string alone is not the answer: LabConfig resolves `?heronLayout=`
+ * over a share link and the remembered `heron-layout`, and a window override
+ * sits under all three. Consumers that cannot reach the session —
+ * `parseHeronLayoutPreset()`, and the `heronVessels` CAD prop, whose GLB is
+ * baked for `classic` only — read this instead, so the prop cannot disagree
+ * with the geometry on screen.
  */
 function publishHeronLayoutPreset(presetName: string): void {
   if (typeof window === 'undefined') return;
   window.HERON_LAYOUT_PRESET = presetName;
 }
 
-function applyStoredHeronLayout(session: LabSession): void {
-  try {
-    const storedHeron = localStorage.getItem('heron-layout');
-    const presets: string[] = Object.values(HERON_LAYOUT_PRESETS);
-    if (storedHeron && presets.includes(storedHeron)) {
-      session.heronLayoutPreset = storedHeron;
-    }
-  } catch (_) { /* ignore */ }
+function applyResolvedHeronLayout(session: LabSession): void {
   session.heronLayout = getHeronLayout(session.heronLayoutPreset as HeronLayoutPresetId);
 }
 

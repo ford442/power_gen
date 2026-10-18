@@ -11,7 +11,8 @@
  *   2. Precedence: an explicit flag beats the bundle (look, audio, class, each
  *      bus separately); an explicit-on bus or classroom keeps its controls on
  *      screen; a hand-set look never gets overwritten.
- *   3. Resolution: `?labMode=` beats the remembered mode; junk is ignored.
+ *   3. Resolution: `?labMode=` beats the remembered mode; junk is ignored;
+ *      values go through the one LabConfig parser (src/config/lab-config.ts).
  *   4. Setpoints: catalog rows validate, their ranges match the plant constants
  *      they stand in for, writes clamp, `api` is preferred over `stateKey`, and
  *      a releasable setpoint returns control to the plant.
@@ -64,6 +65,9 @@ function check(label, condition, detail) {
 }
 
 const lm = await importTsBundle('src/lab-mode.ts');
+const shareUrl = await importTsBundle('src/config/share-url.ts');
+/** A share hash as boot sees it: decoded (both codecs are a lazy chunk). */
+const hashFields = (h) => shareUrl.decodeHashFields(h);
 const MODES = lm.LAB_MODES;
 
 // ── 1. Presets ─────────────────────────────────────────────────────────────
@@ -100,26 +104,27 @@ const MODES = lm.LAB_MODES;
 
   const drama = lm.planLabMode('showroom', { look: 'drama' });
   check('?look=drama beats the showroom look', drama.look === null, String(drama.look));
+  // Overrides are parsed LabConfig values: an unknown look never becomes one.
   check('an invalid ?look= does not suppress the preset look',
-    lm.planLabMode('showroom', { look: 'neon' }).look === 'studio', 'invalid look swallowed the preset');
+    lm.planLabMode('showroom', lm.readLabModeOverrides('?look=neon')).look === 'studio', 'invalid look swallowed the preset');
 
-  check('?audio=1 keeps showroom from muting', lm.planLabMode('showroom', { audio: '1' }).muteAudio === false, 'muted anyway');
+  check('?audio=1 keeps showroom from muting', lm.planLabMode('showroom', { audio: true }).muteAudio === false, 'muted anyway');
   check('showroom without ?audio mutes (it never starts audio)', plain.muteAudio === true, 'not muted');
 
-  const fieldOn = lm.planLabMode('showroom', { fieldCoupling: '1' });
+  const fieldOn = lm.planLabMode('showroom', { fieldCoupling: true });
   check('?fieldCoupling=1 is not forced off by showroom, the other buses still are',
     !fieldOn.forceOff.fieldCoupling && fieldOn.forceOff.chargeCoupling && fieldOn.forceOff.energyCoupling,
     JSON.stringify(fieldOn.forceOff));
   check('an explicit-on bus keeps its controls on screen in showroom',
     fieldOn.showCouplingControls === true, 'live bus with hidden switch');
-  const fieldOff = lm.planLabMode('showroom', { fieldCoupling: '0' });
+  const fieldOff = lm.planLabMode('showroom', { fieldCoupling: false });
   check('an explicit-off bus is left alone and does not reveal the controls',
     !fieldOff.forceOff.fieldCoupling && fieldOff.showCouplingControls === false, JSON.stringify(fieldOff));
 
-  const cls = lm.planLabMode('showroom', { classroom: '1' });
+  const cls = lm.planLabMode('showroom', { classroom: true });
   check('?class=1 keeps classroom on and the explainer visible in showroom',
     !cls.classroomOff && cls.showExplainer === true, JSON.stringify(cls));
-  check('?class=0 does not reveal the explainer', lm.planLabMode('showroom', { classroom: '0' }).showExplainer === false, 'revealed');
+  check('?class=0 does not reveal the explainer', lm.planLabMode('showroom', { classroom: false }).showExplainer === false, 'revealed');
 
   for (const m of ['lab', 'twin']) {
     const p = lm.planLabMode(m, {});
@@ -138,16 +143,22 @@ const MODES = lm.LAB_MODES;
   check('no param and nothing stored → no mode', lm.resolveBootLabMode('?renderer=webgl2', null) === null, 'invented a mode');
   check('junk ?labMode= falls back to the remembered mode', lm.resolveBootLabMode('?labMode=disco', 'lab') === 'lab', 'junk accepted');
   check('junk everywhere → no mode', lm.resolveBootLabMode('?labMode=disco', 'disco') === null, 'junk accepted');
-  check('mode names are case-sensitive and exact', lm.resolveBootLabMode('?labMode=Lab', null) === null, 'Lab accepted');
+  // One tolerant LabConfig parser: enum values match case-insensitively.
+  check('mode names match case-insensitively', lm.resolveBootLabMode('?labMode=Lab', null) === 'lab', 'Lab rejected');
+  check('a remembered mode is parsed the same way', lm.resolveBootLabMode('', 'TWIN') === 'twin', 'stored TWIN rejected');
 
   const o = lm.readLabModeOverrides('?look=drama&audio=1&class=1&fieldCoupling=0&chargeCoupling=1&renderer=webgl2');
   check('overrides read look/audio/class/buses and nothing else',
-    o.look === 'drama' && o.audio === '1' && o.classroom === '1' && o.fieldCoupling === '0'
-      && o.chargeCoupling === '1' && o.energyCoupling === undefined && !('renderer' in o), JSON.stringify(o));
+    o.look === 'drama' && o.audio === true && o.classroom === true && o.fieldCoupling === false
+      && o.chargeCoupling === true && o.energyCoupling === undefined && !('renderer' in o), JSON.stringify(o));
+  check('an unparsable flag is not an override', !('audio' in lm.readLabModeOverrides('?audio=maybe')), 'audio=maybe counted');
+  check('booleans take on/off/yes/no', lm.readLabModeOverrides('?fieldCoupling=on&chargeCoupling=no').chargeCoupling === false
+    && lm.readLabModeOverrides('?fieldCoupling=on').fieldCoupling === true, 'tolerant booleans lost');
   check('?lighting= is the same override as ?look=', lm.readLabModeOverrides('?lighting=lab').look === 'lab', 'alias lost');
   check('a #lab= share link with class=1 is an explicit classroom',
-    lm.readLabModeOverrides('', '#lab=v1;mode=seg;class=1;tour=1').classroom === '1', 'hash class lost');
-  check('a #lab= link without class=1 is not', lm.readLabModeOverrides('', '#lab=v1;mode=seg').classroom === undefined, 'hash class invented');
+    lm.readLabModeOverrides('', await hashFields('#lab=v1;mode=seg;class=1;tour=1')).classroom === true, 'hash class lost');
+  check('the URL outranks the share link', lm.readLabModeOverrides('?class=0', await hashFields('#lab=v1;class=1')).classroom === false, 'hash beat URL');
+  check('a #lab= link without class=1 is not', lm.readLabModeOverrides('', await hashFields('#lab=v1;mode=seg')).classroom === undefined, 'hash class invented');
   check('storage key is seg-lab-mode', lm.LAB_MODE_STORAGE_KEY === 'seg-lab-mode', lm.LAB_MODE_STORAGE_KEY);
 }
 

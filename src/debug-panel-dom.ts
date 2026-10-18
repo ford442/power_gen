@@ -3,6 +3,7 @@
 // Methods here are merged onto DebugPanel.prototype via Object.assign in debug-panel.ts,
 // so `this` behaves exactly as it did when these were declared directly on the class.
 import type { DebugPanel } from './debug-panel';
+import { labConfig, persistLabConfig, reloadWithLabParam } from './config/lab-config';
 
 export const domMethods = {
   createPanel(this: DebugPanel): void {
@@ -205,9 +206,7 @@ export const domMethods = {
     this._wireEnergyNetworkControls();
     const frameSelect = document.getElementById('segFrameLevelSelect') as HTMLSelectElement | null;
     if (frameSelect) {
-      const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-      const initial = params.get('frame') || 'full';
-      if (['off', 'minimal', 'full'].includes(initial)) frameSelect.value = initial;
+      frameSelect.value = labConfig().frame;
       frameSelect.addEventListener('change', (e) => {
         if (typeof window.setSegFrameLevel === 'function') {
           window.setSegFrameLevel((e.target as HTMLSelectElement).value);
@@ -217,9 +216,7 @@ export const domMethods = {
 
     const lookSelect = document.getElementById('lightingLookSelect') as HTMLSelectElement | null;
     if (lookSelect) {
-      const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-      const initialLook = params.get('look') || params.get('lighting') || 'studio';
-      if (['studio', 'lab', 'drama'].includes(initialLook)) lookSelect.value = initialLook;
+      lookSelect.value = labConfig().look;
       lookSelect.addEventListener('change', (e) => {
         if (typeof window.setLightingLook === 'function') {
           window.setLightingLook((e.target as HTMLSelectElement).value);
@@ -400,14 +397,10 @@ export const domMethods = {
       segWasm.setEnabled((e.target as HTMLInputElement).checked);
       // Reload so MultiDeviceVisualizer picks enabled flag at init paths cleanly
       if ((e.target as HTMLInputElement).checked) {
-        const u = new URL(location.href);
-        u.searchParams.set('wasmPhysics', '1');
-        location.href = u.toString();
+        reloadWithLabParam('wasmPhysics', true);
       } else {
-        const u = new URL(location.href);
-        u.searchParams.delete('wasmPhysics');
-        try { localStorage.setItem('useWasmPhysics', 'false'); } catch { /* */ }
-        location.href = u.toString();
+        persistLabConfig('wasmPhysics', false);
+        reloadWithLabParam('wasmPhysics', null);
       }
     }, { signal: this._abort.signal });
 

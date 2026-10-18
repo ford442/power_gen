@@ -48,6 +48,7 @@ import {
 import { SerialLineTransport } from './serial-line-transport';
 import { BluetoothUartTransport } from './bluetooth-uart-transport';
 import { WebUsbCdcTransport } from './webusb-cdc-transport';
+import { labConfig } from './config/lab-config';
 
 export { MockSerialTransport } from './mock-serial-transport';
 export { TWIN_MODES, type TwinMode, type FirmwareHello, parseFirmwareHello } from './hardware-protocol-shared';
@@ -388,8 +389,7 @@ export class HardwareBridge {
   async connect(opts: HardwareConnectOptions = {}): Promise<void> {
     if (opts.transport) return this.connectTransport(opts.transport);
 
-    const wantMock = opts.mock === true
-      || (typeof location !== 'undefined' && new URLSearchParams(location.search).get('mockHardware') === '1');
+    const wantMock = opts.mock === true || labConfig().mockHardware;
     if (wantMock) return this.connectTransport('mock');
     if (!isSerialSupported()) {
       console.info('[HardwareBridge] Web Serial unavailable — using mock');

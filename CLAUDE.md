@@ -36,7 +36,14 @@ npm run dev          # http://localhost:5173/  (https: false; localhost is fine 
 
 Default boot no longer falls back to WebGL2. Probe: `window.webgpuProbe`.
 
-Full query matrix: **docs/AGENTS.md → Query-parameter matrix**.
+Full query matrix: **docs/AGENTS.md → Query-parameter matrix** (generated).
+
+**New flag or remembered preference?** Add a row to `config/lab-config.json`,
+run `npm run codegen:lab-config`, and read it with `labConfig()` from
+`src/config/lab-config.ts`. Never read `location.search` / `location.hash` /
+`localStorage` directly — `check:lab-config` fails CI on it. Share links are
+`#lab2=` (old `#lab=v1` still loads); `.lab.json` drops onto the page.
+Details: **docs/LAB_CONFIG.md**.
 
 ## Dual renderer
 
@@ -86,6 +93,9 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 ```bash
 npm run typecheck
 npm run codegen:catalog  # physics/devices.json → TS/C++/WGSL/docs
+npm run codegen:lab-config # config/lab-config.json → generated/lab-config.ts + docs/AGENTS.md matrix
+npm run check:lab-config # drift + no raw location.search/hash/localStorage outside src/config/
+npm run test:lab-config  # parser, precedence, #lab=v1 mapping, #lab2= round-trip
 npm run validate      # constants + catalog + typecheck + native C++ + check:post + WGSL
 npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline

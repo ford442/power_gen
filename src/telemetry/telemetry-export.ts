@@ -11,6 +11,7 @@ import {
 import { buildReplayFile, type ReplayFile } from './replay-format';
 import { replayFromCsvText } from './replay-parse';
 import { gpuChores } from '../gpu-chores';
+import { getSimulationSeed } from './deterministic-rng';
 
 export { rowsToCsv, downloadText, downloadJson };
 
@@ -44,11 +45,8 @@ export function buildConfigSnapshot() {
       renderer: window.currentRenderer ?? null
     },
     seed: (() => {
-      try {
-        return localStorage.getItem('seg-sim-seed');
-      } catch {
-        return null;
-      }
+      const s = getSimulationSeed();
+      return s == null ? null : String(s);
     })()
   };
 }

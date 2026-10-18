@@ -44,7 +44,7 @@ import {
   setMaxCanvasDimension,
   offscreenColorDescriptor,
   resolveDepthFormat,
-  searchParams,
+  parseColorPipelineMode,
   wantsDisplayP3,
   wantsGpuTiming,
   type CanvasPixelSize,
@@ -53,7 +53,6 @@ import {
 } from './webgpu-init/canvas';
 import { attachDeviceHooks, showDeviceLostUI, type DeviceLostInfo } from './webgpu-init/device-lost';
 import {
-  parseColorPipelineMode,
   resolveColorTargets,
   type ColorPipelineMode,
   type ColorTargets
@@ -135,10 +134,6 @@ export class WebGPUManager {
 
   static wantsGpuTiming(search?: string): boolean {
     return wantsGpuTiming(search);
-  }
-
-  static searchParams(search?: string): URLSearchParams {
-    return searchParams(search);
   }
 
   static wantsDisplayP3(search?: string): boolean {

@@ -46,6 +46,7 @@ import {
   type SparkKind
 } from './lab-audio-mapping';
 import { telemetryHub } from '../telemetry-hub';
+import { labConfigFor } from '../config/lab-config';
 import type { TelemetrySnapshot } from '../telemetry/types';
 
 /** Seconds of white noise generated once and reused by every noise voice. */
@@ -67,11 +68,8 @@ type Voice = {
 };
 
 /** `?audio=1` (aliases on / true / yes). Silent unless explicitly asked for. */
-export function parseLabAudioEnabled(
-  params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
-): boolean {
-  const raw = (params.get('audio') ?? '').toLowerCase();
-  return raw === '1' || raw === 'on' || raw === 'true' || raw === 'yes';
+export function parseLabAudioEnabled(params?: URLSearchParams): boolean {
+  return labConfigFor(params).config.audio;
 }
 
 export class LabAudio {

@@ -5,6 +5,7 @@
 // Toggle via ?look=studio|lab|drama or debug panel / setLightingLook().
 
 import type { ColorPipelineMode } from './webgpu-init/color-pipeline';
+import { labConfigFor } from './config/lab-config';
 
 export type LightingLook = 'studio' | 'lab' | 'drama';
 
@@ -143,9 +144,10 @@ const PRESETS: Record<LightingLook, LightingPreset> = {
   }
 };
 
-export function parseLightingLook(params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')): LightingLook {
-  const raw = params.get('look') || params.get('lighting');
-  if (raw && raw in PRESETS) return raw as LightingLook;
+/** `?look=` / `?lighting=` or a share link; then `window.SEG_LIGHTING_LOOK`; then studio. */
+export function parseLightingLook(params?: URLSearchParams): LightingLook {
+  const r = labConfigFor(params);
+  if (r.sources.look !== 'default') return r.config.look;
   const win = typeof window !== 'undefined' ? (window as unknown as { SEG_LIGHTING_LOOK?: string }) : undefined;
   if (win?.SEG_LIGHTING_LOOK && win.SEG_LIGHTING_LOOK in PRESETS) {
     return win.SEG_LIGHTING_LOOK as LightingLook;

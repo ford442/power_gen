@@ -334,6 +334,8 @@ declare global {
     startSEGTour?: () => void;
     startVdgTour?: () => void;
     shareLabLink?: () => Promise<unknown>;
+    /** LabConfig console / agent / embed API (src/config/lab-api.ts). */
+    lab?: import('./config/lab-api').LabApi;
 
     /** URL / window overrides shared by WebGPU + WebGL2 (url-params). */
     SEG_PROTOTYPE_PRESET?: 'lab' | 'showroom';

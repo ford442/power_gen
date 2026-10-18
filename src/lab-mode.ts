@@ -14,6 +14,17 @@
  */
 import type { LightingLook } from './seg-lighting-presets';
 import { LAB_TOURS } from './seg-explainer/seg-tour-player';
+import {
+  coerceLabField,
+  labConfigResolved,
+  persistLabConfig,
+  resolveLabConfig,
+  restoreStoredLabValues,
+  setLabUrlParam,
+  snapshotStoredLabValues,
+  type LabConfig,
+  type ResolvedLabConfig
+} from './config/lab-config';
 
 export const LAB_MODES = ['showroom', 'lab', 'twin'] as const;
 export type LabMode = (typeof LAB_MODES)[number];
@@ -100,37 +111,36 @@ export function isLabMode(v: unknown): v is LabMode {
   return typeof v === 'string' && (LAB_MODES as readonly string[]).includes(v);
 }
 
-/** Raw explicit values (`'1'`, `'drama'`, …) for the flags the user set by hand. */
-export type LabModeOverrides = Partial<Record<LabModeFlag, string>>;
+/** Parsed explicit values for the flags the user set by hand (URL or share link). */
+export type LabModeOverrides = Partial<Pick<LabConfig, LabModeFlag>>;
 
 const BUS_FLAGS = ['fieldCoupling', 'chargeCoupling', 'energyCoupling'] as const;
+const OVERRIDE_FLAGS: readonly LabModeFlag[] = ['look', 'audio', 'classroom', ...BUS_FLAGS];
+
+/** The preset-controlled flags a resolved config sets explicitly. */
+export function labModeOverridesFrom(r: ResolvedLabConfig): LabModeOverrides {
+  const out: Record<string, unknown> = {};
+  for (const flag of OVERRIDE_FLAGS) {
+    const src = r.sources[flag];
+    if ((src === 'url' || src === 'hash') && r.config[flag] != null) out[flag] = r.config[flag];
+  }
+  return out as LabModeOverrides;
+}
 
 /**
  * Which preset-controlled flags the URL sets explicitly. `class` also arrives
- * as `class=1` in a `#lab=` share link, which is just as explicit.
+ * as `class=1` in a `#lab=` share link (and any of them in `#lab2=`), which is
+ * just as explicit — `hashFields` is such a link, decoded. Values are parsed:
+ * an unparsable one is not an override.
  */
-export function readLabModeOverrides(search: string, hash = ''): LabModeOverrides {
-  const params = new URLSearchParams(search);
-  const out: LabModeOverrides = {};
-  const look = params.get('look') ?? params.get('lighting');
-  if (look != null) out.look = look;
-  const audio = params.get('audio');
-  if (audio != null) out.audio = audio;
-  const cls = params.get('class');
-  if (cls != null) out.classroom = cls;
-  else if (/#lab=[^&]*\bclass=1\b/.test(hash)) out.classroom = '1';
-  for (const flag of BUS_FLAGS) {
-    const v = params.get(flag);
-    if (v != null) out[flag] = v;
-  }
-  return out;
+export function readLabModeOverrides(search: string, hashFields: Record<string, unknown> = {}): LabModeOverrides {
+  return labModeOverridesFrom(resolveLabConfig({ search, hashFields }));
 }
 
 /** `?labMode=` wins over the remembered choice; anything unrecognised is ignored. */
 export function resolveBootLabMode(search: string, stored: string | null): LabMode | null {
-  const fromUrl = new URLSearchParams(search).get('labMode');
-  if (isLabMode(fromUrl)) return fromUrl;
-  return isLabMode(stored) ? stored : null;
+  const fromUrl = resolveLabConfig({ search }).config.labMode;
+  return fromUrl ?? coerceLabField('labMode', stored) ?? null;
 }
 
 /** What actually gets applied once explicit flags have had their say. */
@@ -148,8 +158,6 @@ export interface LabModePlan {
   coastOnLeave: boolean;
 }
 
-const LOOKS: readonly string[] = ['studio', 'lab', 'drama'];
-
 /**
  * Preset ∖ explicit overrides. An explicit bus flag keeps that bus out of the
  * force-off; an explicit-on flag also keeps its controls on screen, since a
@@ -157,12 +165,11 @@ const LOOKS: readonly string[] = ['studio', 'lab', 'drama'];
  */
 export function planLabMode(mode: LabMode, overrides: LabModeOverrides = {}): LabModePlan {
   const p = LAB_MODE_PRESETS[mode];
-  const on = (v: string | undefined): boolean => v === '1' || v === 'true' || v === 'on';
   const busOverridden = (f: (typeof BUS_FLAGS)[number]): boolean => overrides[f] != null;
-  const anyBusOn = BUS_FLAGS.some((f) => on(overrides[f]));
+  const anyBusOn = BUS_FLAGS.some((f) => overrides[f] === true);
   return {
     mode,
-    look: overrides.look != null && LOOKS.includes(overrides.look) ? null : p.look,
+    look: overrides.look != null ? null : p.look,
     muteAudio: p.muteAudio && overrides.audio == null,
     forceOff: {
       fieldCoupling: p.couplingOff && !busOverridden('fieldCoupling'),
@@ -170,7 +177,7 @@ export function planLabMode(mode: LabMode, overrides: LabModeOverrides = {}): La
       energyCoupling: p.couplingOff && !busOverridden('energyCoupling')
     },
     showCouplingControls: p.couplingControls || anyBusOn,
-    showExplainer: p.explainer || on(overrides.classroom),
+    showExplainer: p.explainer || overrides.classroom === true,
     classroomOff: p.classroomOff && overrides.classroom == null,
     twinPanelCollapsed: p.twinPanelCollapsed,
     residualGauges: p.residualGauges,
@@ -183,8 +190,6 @@ export function planLabMode(mode: LabMode, overrides: LabModeOverrides = {}): La
 // DOM side — everything below touches the page
 // ─────────────────────────────────────────────────────────────
 
-const STORED_COUPLING_KEYS = ['seg-field-coupling', 'seg-charge-coupling', 'seg-energy-coupling'];
-
 let currentMode: LabMode | null = null;
 let residualOpenedByTwin = false;
 
@@ -192,44 +197,16 @@ export function getLabMode(): LabMode | null {
   return currentMode;
 }
 
-function readStored(): string | null {
-  try {
-    return localStorage.getItem(LAB_MODE_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writeStored(mode: LabMode): void {
-  try {
-    localStorage.setItem(LAB_MODE_STORAGE_KEY, mode);
-  } catch {
-    /* private window / blocked storage: the mode just isn't remembered */
-  }
-}
-
 /**
  * Run `fn`, then put the stored coupling preferences back. Forcing a bus off
  * for a showroom session must not rewrite what the next lab session boots with.
  */
 function keepingStoredCouplingPrefs(fn: () => void): void {
-  const saved = new Map<string, string | null>();
-  try {
-    for (const k of STORED_COUPLING_KEYS) saved.set(k, localStorage.getItem(k));
-  } catch {
-    /* no storage — nothing to preserve */
-  }
+  const saved = snapshotStoredLabValues(BUS_FLAGS);
   try {
     fn();
   } finally {
-    try {
-      for (const [k, v] of saved) {
-        if (v == null) localStorage.removeItem(k);
-        else localStorage.setItem(k, v);
-      }
-    } catch {
-      /* ignore */
-    }
+    restoreStoredLabValues(saved);
   }
 }
 
@@ -304,23 +281,15 @@ function paintSwitch(mode: LabMode | null): void {
  */
 export function setLabMode(mode: LabMode, source: 'boot' | 'user' = 'user'): void {
   if (!isLabMode(mode)) return;
-  const overrides = source === 'boot'
-    ? readLabModeOverrides(location.search, location.hash)
-    : {};
+  const overrides = source === 'boot' ? labModeOverridesFrom(labConfigResolved()) : {};
   const previous = currentMode;
   currentMode = mode;
   applyPlan(planLabMode(mode, overrides), previous);
   paintSwitch(mode);
 
   if (source === 'user') {
-    writeStored(mode);
-    try {
-      const url = new URL(location.href);
-      url.searchParams.set('labMode', mode);
-      history.replaceState(null, '', url.pathname + url.search + url.hash);
-    } catch {
-      /* non-http origin (file://, sandboxed frame) */
-    }
+    persistLabConfig('labMode', mode);
+    setLabUrlParam('labMode', mode);
   }
   window.dispatchEvent(new CustomEvent('seg-lab-mode', { detail: { mode } }));
 }
@@ -355,15 +324,14 @@ export function initLabMode(): LabMode | null {
   const host = document.getElementById('lab-mode-switch');
   if (host) renderSwitch(host);
 
-  const cls = new URLSearchParams(location.search).get('class');
-  if (cls === '1' || cls === '0') {
-    const on = cls === '1';
-    window.explainerState?.setClassroomMode(on);
+  const { config, sources } = labConfigResolved();
+  if (sources.classroom === 'url' && config.classroom != null) {
+    window.explainerState?.setClassroomMode(config.classroom);
     const cb = document.getElementById('explainerClassroom') as HTMLInputElement | null;
-    if (cb) cb.checked = on;
+    if (cb) cb.checked = config.classroom;
   }
 
-  const mode = resolveBootLabMode(location.search, readStored());
+  const mode = config.labMode;
   if (mode) setLabMode(mode, 'boot');
   return mode;
 }

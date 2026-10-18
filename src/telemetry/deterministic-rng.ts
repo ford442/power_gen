@@ -1,7 +1,9 @@
 /**
  * Seeded PRNG for reproducible particle initialization and replay.
- * Mulberry32 — fast, deterministic, no dependencies.
+ * Mulberry32 — fast, deterministic. The seed is a LabConfig field: `?seed=`,
+ * a share link, or the value remembered in `seg-sim-seed`.
  */
+import { labConfigResolved, persistLabConfig } from '../config/lab-config';
 
 let _seed: number | null = null;
 let _rng: (() => number) | null = null;
@@ -21,18 +23,20 @@ export function getSimulationSeed(): number | null {
   return _seed;
 }
 
-export function setSimulationSeed(seed: number): void {
+/**
+ * Seed the PRNG. `persist` (default) remembers it for the next load; a seed
+ * that came from a link is applied without rewriting the remembered one.
+ */
+export function setSimulationSeed(seed: number, persist = true): void {
   _seed = seed >>> 0;
   _rng = mulberry32(_seed);
-  if (typeof localStorage !== 'undefined') {
-    try { localStorage.setItem('seg-sim-seed', String(_seed)); } catch { /* ignore */ }
-  }
+  if (persist) persistLabConfig('seed', _seed);
 }
 
 export function clearSimulationSeed(): void {
   _seed = null;
   _rng = null;
-  try { localStorage.removeItem('seg-sim-seed'); } catch { /* ignore */ }
+  persistLabConfig('seed', null);
 }
 
 /** Deterministic [0,1) when seeded; otherwise Math.random(). */
@@ -40,10 +44,8 @@ export function simRandom(): number {
   return _rng ? _rng() : Math.random();
 }
 
-/** Restore seed from localStorage if present. */
-export function restoreSimulationSeedFromStorage(): void {
-  try {
-    const raw = localStorage.getItem('seg-sim-seed');
-    if (raw != null && raw !== '') setSimulationSeed(Number(raw) >>> 0);
-  } catch { /* ignore */ }
+/** Boot: seed from `?seed=` / share link / storage, if any of them has one. */
+export function restoreSimulationSeed(): void {
+  const { config, sources } = labConfigResolved();
+  if (config.seed != null) setSimulationSeed(config.seed, sources.seed === 'storage');
 }

@@ -17,6 +17,8 @@ import {
   RENDERER_WEBGPU,
   RENDERER_WEBGL2
 } from './renderers/renderer-selector';
+import { initLabConfig, persistLabConfig } from './config/lab-config';
+import { installLabApi } from './config/lab-api';
 import { probeWebGPU, showWebGPUHardFail, showBootWarning, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 import { initSEGOperatorPanel } from './seg-operator-panel';
@@ -29,7 +31,7 @@ import { initTelemetryExportPanel } from './telemetry/telemetry-export-panel';
 import { initReplayUI } from './telemetry/replay-ui';
 import { replayPlayer } from './telemetry/replay-player';
 import { initExplainerUI } from './seg-explainer/explainer-ui';
-import { restoreSimulationSeedFromStorage } from './telemetry/deterministic-rng';
+import { restoreSimulationSeed } from './telemetry/deterministic-rng';
 import { applyReplay, type ReplayFile } from './telemetry/replay-format';
 import { telemetryHub } from './telemetry-hub';
 import { gpuChores } from './gpu-chores';
@@ -541,11 +543,7 @@ window.setRenderer = (name: string): void => {
     console.warn('Use setRenderer("webgpu") or setRenderer("webgl2")');
     return;
   }
-  try {
-    localStorage.setItem('seg-renderer', n);
-  } catch (_) {
-    /* ignore */
-  }
+  persistLabConfig('renderer', n);
   window.DEBUG_RENDERER = n;
   location.reload();
 };
@@ -555,7 +553,7 @@ window.setRenderer = (name: string): void => {
  * Optional WASM/assets can delay `load`; agent hooks and sciUI must still start.
  */
 function bootApp(): void {
-  restoreSimulationSeedFromStorage();
+  restoreSimulationSeed();
   initWasm();
   renderModeButtons();
   renderSetpointPanels();
@@ -692,11 +690,21 @@ function fdtdSliceNote(vis: NonNullable<typeof window.multiVisualizer>): string 
   return 'Wave slice: starting…';
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', bootApp);
-} else {
-  bootApp();
+/**
+ * A `#lab2=` share link inflates asynchronously (CompressionStream); every
+ * boot-time reader must already see it, so the boot waits for that one
+ * decode. Without a #lab2= hash this resolves on the next microtask.
+ */
+function bootWhenConfigReady(): void {
+  initLabConfig().catch(() => undefined).then(bootApp);
 }
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootWhenConfigReady);
+} else {
+  bootWhenConfigReady();
+}
+installLabApi();
 
 // ── Telemetry / replay agent API ─────────────────────────────
 window.exportTelemetryCsv = () => {

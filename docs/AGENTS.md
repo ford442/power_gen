@@ -18,6 +18,7 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 | **WebGL2 fallback** | `src/renderers/webgl2/` → `WebGL2MultiDeviceVisualizer` |
 | **Lab session** | `src/session/lab-session.ts` — operator, WASM plant, telemetry, energy, twin |
 | **Renderer choice** | `src/renderers/renderer-selector.ts` |
+| **Lab config** | `config/lab-config.json` → `generated/lab-config.ts`; the one URL / share-hash / storage reader is `src/config/lab-config.ts` — see [`LAB_CONFIG.md`](./LAB_CONFIG.md) |
 | **Device list** | `src/devices/device-registry.ts` + `src/devices/device-config.ts` (`DEVICE_CONFIG`) |
 | **Shaders** | `src/shaders/` — see [`SHADERS.md`](./SHADERS.md) |
 | **C++ / WASM physics** | `cpp/src/sim_core.*` + `src/wasm/seg-physics-bridge.ts` |
@@ -336,60 +337,84 @@ Architecture decisions: [`docs/adr/`](./adr/).
 
 ## Query-parameter matrix
 
-All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics=1`).
+<!-- lab-config:begin — AUTO-GENERATED from config/lab-config.json; edit that file, then npm run codegen:lab-config -->
 
-| Param | Values | Default | Effect |
+**Precedence (every field):** URL query param > share-link hash (`#lab2=`, or a
+legacy `#lab=v1;…`) > `localStorage` > default. Booleans accept
+`1/0/on/off/true/false/yes/no` everywhere; numbers are finite-checked and
+clamped, so NaN from a hand-edited link never reaches a plant; anything
+unparsable falls through to the next layer. One reader —
+`src/config/lab-config.ts` — and `npm run check:lab-config` fails on drift or on
+raw `location.search` / `localStorage` access anywhere else in `src/`.
+
+| Param | Values | Default | Stored | Share | Effect |
+|-------|--------|---------|--------|-------|--------|
+| `renderer` | `webgpu` \| `webgl2` | **webgpu** (required) | `seg-renderer` | — | Force backend. `webgl2` is **opt-in only** (not auto-fallback). A stored `seg-renderer=webgl2` is ignored for default boot (only a stored `webgpu` is honoured); `window.DEBUG_RENDERER` still sits between URL and storage. |
+| `wasmPhysics` / `wasm` | `1` \| `0` | off | `useWasmPhysics` | yes | Enable the C++ WASM plant (`seg-physics-bridge`). `wasm` is an alias. The debug-panel toggle persists it. |
+| `plantWorker` | `1` \| `0` | on (when `Worker` exists) | — | — | `0` keeps `LabSession.stepPlant` on the animation frame instead of the plant worker — A/B timing, or debugging the worker. See **Plant worker** above. |
+| `seed` | `0`–`4294967295` | unseeded (`Math.random`) | `seg-sim-seed` | yes | Deterministic RNG seed (Mulberry32) for particle init, telemetry and replay. Share links and experiments carry it. |
+| `gpuPower` | `low` \| `low-power` | `high-performance` | — | — | Adapter / WebGL2 context `powerPreference: 'low-power'` (tablet / projector carts). Unset or any other value keeps the default boot. |
+| `gpuTiming` | `1` \| `0` | off | — | — | Request the `timestamp-query` feature; enable queries in the debug panel after reload. |
+| `p3` | `1` \| `0` | off | — | — | WebGPU canvas `colorSpace: 'display-p3'` (default `srgb` for CI screenshots). |
+| `hdr` | `1` \| `0` | off | — | — | `rgba16float` canvas with `toneMapping.mode: 'extended'` **only if** the display reports `(dynamic-range: high)`; bloom composite then outputs linear HDR (`outputLinearHdr`, extended sRGB encode in-shader) instead of ACES. Ignored with `color=legacy`. |
+| `color` | `linear` \| `legacy` | **linear** | — | — | WebGPU colour pipeline (#223): float scene / TAA / bloom mip chain, composite through the canvas `-srgb` view, authored colours decoded to linear, retuned look presets. `legacy` keeps the old 8-bit, no-encode path for one release. `getRendererInfo().colorPipeline` reports the formats — [`LIGHTING_RIG.md`](./LIGHTING_RIG.md#colour-pipeline-color-223). |
+| `renderScale` | `0.5`–`1` | `1` | — | — | WebGPU backbuffer scale vs exact device pixels (`devicePixelContentBoxSize`); the canvas is also clamped to `maxTextureDimension2D` — [`WEBGPU.md`](./WEBGPU.md). Clamped; `≤ 0` or unparsable is `1`. |
+| `capture` | `1` \| `0` | off | — | — | WebGL2 `preserveDrawingBuffer: true` (also on when `navigator.webdriver`). |
+| `ssr` | `1` \| `0` | on | — | — | Screen-space reflections kill switch (the quality tier still gates SSR to high/ultra). `window.SEG_SSR_ENABLED` applies when the URL does not say. |
+| `taa` | `1` \| `0` | on | — | — | Temporal AA kill switch (WebGPU only; the tier still gates TAA to high/ultra focus). `window.SEG_TAA_ENABLED` applies when the URL does not say. |
+| `gpuChores` | `0` \| `js` \| `wasm` \| `webgpu` | `auto` | `seg-gpu-chores` | — | Meter backend kill / force. `0` / `off` / `js` = JS goldens (stored `seg-gpu-chores=off` too). Never opens a second GPU API. |
+| `layout` | `searl` \| `roschin` \| `legacy` | preset default (`roschin` under `prototype=lab`, else `searl`) | — | yes | SEG layout pack. The layout control rewrites this param. |
+| `heronLayout` | `classic` \| `compact` \| `tower` \| `wide` \| `spiral` | `classic` | `heron-layout` | yes | Heron vessel layout. The layout control rewrites this param and the stored preset. |
+| `prototype` | `lab` \| `showroom` \| `searl` \| `roschin` \| `godin` | `showroom` | — | yes | SEG roller prototype look / lab effects. `window.SEG_PROTOTYPE_PRESET` applies when the URL does not say. |
+| `frame` | `full` \| `minimal` \| `off` | `full` | — | yes | SEG structural frame complexity. |
+| `gltfHousing` | `1` \| `0` | on (WebGPU) | — | — | Default for **all** glTF CAD props (per-device, focus-only). A per-prop switch overrides it, so `?gltfHousing=0&gltfStand=1` shows one prop alone — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md). |
+| `gltfCoilFormer` | `1` \| `0` | follows housing | — | — | Coil former GLB; `0` skips that prop. |
+| `gltfStand` | `1` \| `0` | follows housing | — | — | Stand GLB; `0` skips that prop. |
+| `gltfBasePlate` | `1` \| `0` | follows housing | — | — | Base plate GLB; `0` skips that prop. |
+| `gltfTransformerCore` | `1` \| `0` | follows housing | — | — | Transformer C-core GLB (transformer focus); `0` skips that prop. |
+| `gltfVdgTerminal` | `1` \| `0` | follows housing | — | — | Van de Graaff terminal GLB (vdg focus); `0` skips that prop. |
+| `gltfHeronVessels` | `1` \| `0` | follows housing, **classic preset only** | — | — | Heron glass vessels GLB (heron focus). Baked for `heronLayout=classic`; the other four presets re-route the plumbing, so the prop stays off there whatever this says — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md). |
+| `gltfKelvinJars` | `1` \| `0` | follows housing | — | — | Kelvin header tank + insulated collection jars GLB (kelvin focus); `0` skips that prop. |
+| `gltfThomsonStand` | `1` \| `0` | follows housing | — | — | Thomson ring stand GLB — core, bobbin, rest shoulder, travel stop (jumping-ring focus). The ring itself stays procedural. |
+| `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | — | yes | Lighting + post look. `lighting` is an alias; `window.SEG_LIGHTING_LOOK` applies when nothing else says. |
+| `labMode` | `showroom` \| `lab` \| `twin` | none | `seg-lab-mode` | yes | Apply a **preset bundle** (look, explainer/coupling chrome, twin panel, residual gauges, post floor). An explicit flag (URL or share link) still wins at boot — see [Lab mode & setpoints](#lab-mode--setpoints). The header control remembers the last choice. |
+| `class` | `1` \| `0` | off | — | yes | Classroom mode (large labels, reduced chrome), same switch as the explainer checkbox and `#lab=…;class=1`. Also keeps the explainer on screen under `labMode=showroom`. |
+| `mockHardware` | `1` \| `0` | off | — | — | Hardware twin mock transport (no serial port). Other links (`serial` / `bluetooth` / `usb`) are chosen from the Hardware Twin panel — each needs a user gesture for its chooser. |
+| `energyCoupling` | `1` \| `0` | off (visual-only pipes) | `seg-energy-coupling` | yes | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`). The pipe graph itself is `physics/coupling.json` → `generated/lab-coupling.{ts,h}` (ADR-0013 rider). |
+| `fieldCoupling` | `1` \| `0` | off (local bench B) | `seg-field-coupling` | yes | Feed a source device's simulated **B** estimate into a destination plant (`FieldNetwork`: `halbach-viz`→`hall`, `homopolar`→`hall` while Halbach is off, `mhd`→`lorentz-sled`), clamped to the destination's catalog range — ADR-0011. One live source per destination. Deliberately a **separate** switch from `energyCoupling`: one toggle cannot honestly claim both watts and tesla are live. |
+| `chargeCoupling` | `1` \| `0` | off (isolated bench voltages) | `seg-charge-coupling` | yes | Seed the Kelvin inductor with the Van de Graaff sphere's potential at the bench, `V·r/d`, clamped to Kelvin's breakdown (`ChargeNetwork`: `vdg`→`kelvin`) — ADR-0013. A **third** separate switch: never implied by, and never implies, `fieldCoupling` or `energyCoupling`. Not a Laplace solve, not calibrated kilovolts. |
+| `replay` | `1` \| `0` | off | — | — | Show the telemetry replay scrubber (load `.seg-replay.json` / CSV; plant step bypassed until you take over from a snapshot keyframe). |
+| `fdtd` | `1` \| `0` | on | — | — | `0` kills the 2D wave slice (WebGPU panel **and** the WebGL2 micro-grid readout) — ADR-0010. |
+| `fdtdMaterials` | `1` \| `0` | on | — | — | μ_r armature + copper turns in the wave slice. `0` reverts to the ADR-0010 vacuum kernel, for a side-by-side comparison — ADR-0012. |
+| `fdtdDrive` | `coil` \| `transformer` | `coil` | — | — | What modulates the slice's source amplitude: the pulse coil's discharge current, or the transformer bench's core flux (continuous AC). Winding *geometry* is unchanged; falls back to `coil` if that bench isn't in the lab — ADR-0012. |
+| `halbachLinear` | `1` \| `0` | off | — | yes | Lay the Halbach bench out as a linear array instead of a ring (read when the bench is created; share links switch it live). |
+| `audio` | `1` \| `0` | off | — | — | Lab sonification (spark clicks, coil buzz, SEG drone, MHD flow bed). Arms the graph; an `AudioContext` still waits for a user gesture, and the header badge mutes it — [`LAB_AUDIO.md`](./LAB_AUDIO.md). |
+| `embed` | `1` \| `0` | off | — | — | Embed mode: hide the dashboard chrome and accept the typed `postMessage` protocol from `embedOrigins` — [`EMBED.md`](./EMBED.md). |
+| `embedOrigins` | comma-separated origins | this page's own origin only | — | — | Origins allowed to drive an `?embed=1` lab over `postMessage` (exact `scheme://host[:port]` matches; `*` is refused). The parent page's messages from anywhere else are ignored. |
+| `experiment` | experiment id | none | — | yes | Open the experiment panel on this reference experiment (`src/experiments/*.experiment.json`) — [`EXPERIMENTS.md`](./EXPERIMENTS.md). |
+| `mode` | device id \| `overview` | overview | — | yes | Focused bench at boot (any catalog device id, or `overview`). |
+
+**Share-link state** — not query params; carried by `#lab2=` links and
+`.lab.json` (`window.lab.loadConfig`), applied live:
+
+| Field | Values | Default | Effect |
 |-------|--------|---------|--------|
-| `renderer` | `webgpu` \| `webgl2` | **webgpu** (required) | Force backend. `webgl2` is **opt-in only** (not auto-fallback). `localStorage` webgl2 is ignored for default boot. |
-| `wasmPhysics` | `1` | off | Enable C++ WASM plant (`seg-physics-bridge`) |
-| `wasm` | `1` | off | Alias of `wasmPhysics=1` |
-| `plantWorker` | `0` | on (when `Worker` exists) | Keep `LabSession.stepPlant` on the animation frame instead of the plant worker — A/B timing, or debugging the worker. See **Plant worker** above |
-| `gpuPower` | `low` \| `low-power` | `high-performance` | Adapter / WebGL2 context `powerPreference: 'low-power'` (tablet / projector carts). Unset or any other value keeps the default boot |
-| `gpuTiming` | `1` | off | Request `timestamp-query` feature; enable queries in debug panel after reload |
-| `p3` | `1` | off | WebGPU canvas `colorSpace: 'display-p3'` (default `srgb` for CI screenshots) |
-| `hdr` | `1` | off | `rgba16float` canvas with `toneMapping.mode: 'extended'` **only if** the display reports `(dynamic-range: high)`; bloom composite then outputs linear HDR (`outputLinearHdr`, extended sRGB encode in-shader) instead of ACES. Ignored with `color=legacy` |
-| `color` | `linear` \| `legacy` | **linear** | WebGPU colour pipeline (#223): float scene / TAA / bloom mip chain, composite through the canvas `-srgb` view, authored colours decoded to linear, retuned look presets. `legacy` keeps the old 8-bit, no-encode path for one release. `getRendererInfo().colorPipeline` reports the formats — [`LIGHTING_RIG.md`](./LIGHTING_RIG.md#colour-pipeline-color-223) |
-| `renderScale` | `0.5`–`1` | `1` | WebGPU backbuffer scale vs exact device pixels (`devicePixelContentBoxSize`); the canvas is also clamped to `maxTextureDimension2D` — [`WEBGPU.md`](./WEBGPU.md) |
-| `capture` | `1` | off | WebGL2 `preserveDrawingBuffer: true` (also on when `navigator.webdriver`) |
-| `layout` | `searl` \| `roschin` \| `legacy` | preset default | SEG layout pack |
-| `heronLayout` | preset id | stored / default | Heron vessel layout |
-| `prototype` | `lab` \| `showroom` \| `searl` \| `roschin` \| `godin` | showroom-ish | SEG roller prototype look / lab effects |
-| `frame` | `full` \| `minimal` \| `off` | `full` | SEG structural frame complexity |
-| `gltfHousing` | `1` \| `0` | `1` (WebGPU) | Default for **all** glTF CAD props (per-device, focus-only). A per-prop switch overrides it, so `?gltfHousing=0&gltfStand=1` shows one prop alone — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
-| `gltfCoilFormer` | `1` \| `0` | follows housing | Coil former GLB; `0` skips that prop |
-| `gltfStand` | `1` \| `0` | follows housing | Stand GLB; `0` skips that prop |
-| `gltfBasePlate` | `1` \| `0` | follows housing | Base plate GLB; `0` skips that prop |
-| `gltfTransformerCore` | `1` \| `0` | follows housing | Transformer C-core GLB (transformer focus); `0` skips that prop |
-| `gltfVdgTerminal` | `1` \| `0` | follows housing | Van de Graaff terminal GLB (vdg focus); `0` skips that prop |
-| `gltfHeronVessels` | `1` \| `0` | follows housing, **classic preset only** | Heron glass vessels GLB (heron focus). Baked for `heronLayout=classic`; the other four presets re-route the plumbing, so the prop stays off there whatever this says — [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) |
-| `gltfKelvinJars` | `1` \| `0` | follows housing | Kelvin header tank + insulated collection jars GLB (kelvin focus); `0` skips that prop |
-| `gltfThomsonStand` | `1` \| `0` | follows housing | Thomson ring stand GLB — core, bobbin, rest shoulder, travel stop (jumping-ring focus). The ring itself stays procedural |
-| `look` / `lighting` | `studio` \| `lab` \| `drama` | `studio` | Lighting + post look |
-| `labMode` | `showroom` \| `lab` \| `twin` | none (remembered: `localStorage seg-lab-mode`) | Apply a **preset bundle** (look, explainer/coupling chrome, twin panel, residual gauges, post floor). Any explicit flag below still wins at boot — see [Lab mode & setpoints](#lab-mode--setpoints) |
-| `class` | `1` \| `0` | off | Classroom mode (large labels, reduced chrome) from the URL, same switch as the explainer checkbox and `#lab=…;class=1`. Also keeps the explainer on screen under `labMode=showroom` |
-| `mockHardware` | `1` | off | Hardware twin mock transport (no serial port). Other links (`serial` / `bluetooth` / `usb`) are chosen from the Hardware Twin panel — each needs a user gesture for its chooser |
-| `energyCoupling` | `1` \| `0` | off (visual-only pipes) | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`). The pipe graph itself is `physics/coupling.json` → `generated/lab-coupling.{ts,h}` (ADR-0013 rider) |
-| `fieldCoupling` | `1` \| `0` | off (local bench B) | Feed a source device's simulated **B** estimate into a destination plant (`FieldNetwork`: `halbach-viz`→`hall`, `homopolar`→`hall` while Halbach is off, `mhd`→`lorentz-sled`), clamped to the destination's catalog range — ADR-0011. One live source per destination. Deliberately a **separate** switch from `energyCoupling`: one toggle cannot honestly claim both watts and tesla are live |
-| `chargeCoupling` | `1` \| `0` | off (isolated bench voltages) | Seed the Kelvin inductor with the Van de Graaff sphere's potential at the bench, `V·r/d`, clamped to Kelvin's breakdown (`ChargeNetwork`: `vdg`→`kelvin`) — ADR-0013. A **third** separate switch: never implied by, and never implies, `fieldCoupling` or `energyCoupling`. Not a Laplace solve, not calibrated kilovolts |
-| `replay` | `1` | off | Show telemetry replay scrubber (load `.seg-replay.json` / CSV; plant step bypassed) |
-| `gpuChores` | `0` / `js` / `wasm` / `webgpu` | auto | Meter backend kill / force. `0` = JS goldens. Never opens a second GPU API. |
-| `fdtd` | `0` | on | Kill the 2D wave slice (WebGPU panel **and** the WebGL2 micro-grid readout) — ADR-0010 |
-| `fdtdMaterials` | `1` \| `0` | `1` | μ_r armature + copper turns in the wave slice. `0` reverts to the ADR-0010 vacuum kernel, for a side-by-side comparison — ADR-0012 |
-| `fdtdDrive` | `coil` \| `transformer` | `coil` | What modulates the slice's source amplitude: the pulse coil's discharge current, or the transformer bench's core flux (continuous AC). Winding *geometry* is unchanged; falls back to `coil` if that bench isn't in the lab — ADR-0012 |
-| `audio` | `1` \| `on` \| `true` \| `yes` | off | Lab sonification (spark clicks, coil buzz, SEG drone, MHD flow bed). Arms the graph; an `AudioContext` still waits for a user gesture, and the header badge mutes it — [`LAB_AUDIO.md`](./LAB_AUDIO.md) |
+| `drive` | `0`–`1` | unset | Operator drive (0–1). |
+| `field` | `0`–`1` | unset | SEG base field strength (0–1). |
+| `bmult` | `0.5`–`2` | unset | Explainer field multiplier B×. |
+| `highlight` | string | unset | Explainer annotation highlight id. |
+| `tour` | `1` \| `0` | unset | Play the focused bench's guided tour. |
+| `tourStep` | `0`–`999` | unset | Tour step to open on. |
+| `setpoints` | `{ <setpoint id>: value }` | none (plants free-run) | Pinned catalog setpoints (`physics/devices.json` `setpoints[]`), clamped to each setpoint's range. |
 
-**Related (not always query):**
+**Share links v2:** `#lab2=` + base64url(`deflate-raw`(JSON of the non-default
+share fields)), native `CompressionStream` (an uncompressed `j` codec where
+it is missing), no library. Only share fields travel — a link cannot pick the
+renderer or GPU flags. Old `#lab=v1;…` links still parse. A query param
+still outranks the hash, so loading a `.lab.json` also drops the params it
+overrides from the address bar. Details: [`LAB_CONFIG.md`](./LAB_CONFIG.md).
 
-| Mechanism | Purpose |
-|-----------|---------|
-| `#lab=…` hash | SEG Explainer shareable lab state — [`SEG_EXPLAINER.md`](./SEG_EXPLAINER.md) |
-| `localStorage useWasmPhysics` | Persist WASM physics toggle |
-| `localStorage seg-lab-mode` | Last Showroom / Lab / Twin choice (header control or `?labMode=`-then-click); `?labMode=` beats it |
-| `localStorage seg-energy-coupling` | Persist coupled vs visual-only energy pipes |
-| `localStorage seg-field-coupling` | Persist coupled vs local cross-device **B** (ADR-0011) |
-| `localStorage seg-charge-coupling` | Persist seeded vs isolated Kelvin (ADR-0013) |
-| `localStorage heron-layout` | Persist Heron preset |
-| `localStorage seg-sim-seed` | Deterministic RNG seed for telemetry/replay |
+<!-- lab-config:end -->
 
 Example:
 
@@ -585,7 +610,8 @@ Manual / agent checks (WebGPU needs a real GPU):
 | [`LIGHTING_RIG.md`](./LIGHTING_RIG.md) | Lighting looks + post quality gates |
 | [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) | SceneNode + glTF CAD props |
 | [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) | Devices & plugins |
-| [`SEG_EXPLAINER.md`](./SEG_EXPLAINER.md) | Guided learning / `#lab=` |
+| [`SEG_EXPLAINER.md`](./SEG_EXPLAINER.md) | Guided learning / share links |
+| [`LAB_CONFIG.md`](./LAB_CONFIG.md) | LabConfig schema, precedence, `#lab2=` links, `.lab.json`, `window.lab` |
 | [`hardware_connection.md`](./hardware_connection.md) | Twin protocol |
 | [`../cpp/README.md`](../cpp/README.md) | WASM core |
 | [`../CLAUDE.md`](../CLAUDE.md) | Short agent checklist (keep in sync with this file) |

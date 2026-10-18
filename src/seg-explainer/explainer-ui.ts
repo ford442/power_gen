@@ -4,7 +4,7 @@
 
 import { explainerState } from './explainer-state';
 import { initLabTours, LAB_TOURS, type LabTourKey, SEGTourPlayer } from './seg-tour-player';
-import { shareLabLink, decodeLabHash, applyLabState } from './lab-url';
+import { bootLiveFields } from '../config/lab-config';
 import { SEG_GLOSSARY } from './seg-glossary';
 
 export interface ExplainerUIHandle {
@@ -74,8 +74,10 @@ export function initExplainerUI(): ExplainerUIHandle {
   }
 
   shareBtn?.addEventListener('click', () => {
-    const url = shareLabLink();
-    setStatus(`Lab link copied (${url.length} chars)`);
+    void import('../config/share-dialog')
+      .then((m) => m.openShareDialog())
+      .then(() => setStatus('Lab link copied'))
+      .catch((e: unknown) => setStatus(`Could not build a link: ${e instanceof Error ? e.message : String(e)}`));
   });
 
   classroomCb?.addEventListener('change', (e) => {
@@ -140,9 +142,11 @@ export function initExplainerUI(): ExplainerUIHandle {
   });
 
   return { tour, tours, vdgTour: tours.vdgTour, lorentzTour: tours.lorentzTour, applyLabFromHash: async () => {
-    const lab = decodeLabHash();
-    if (lab) {
-      await applyLabState(lab);
+    const fields = bootLiveFields();
+    if (Object.keys(fields).length) {
+      // The share-link applier is its own chunk; a plain boot never loads it.
+      const { applyLabConfig } = await import('./lab-url');
+      await applyLabConfig(fields);
       setStatus('Restored lab from URL');
     }
   } };

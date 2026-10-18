@@ -43,6 +43,9 @@ jobs:
       - name: Device catalog codegen (CI check)
         run: npm run check:catalog
 
+      - name: LabConfig codegen + raw URL/storage access gate (CI check)
+        run: npm run check:lab-config
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -63,6 +66,9 @@ jobs:
 
       - name: Lab share links (#lab= finite/clamped, setpoints survive steps)
         run: npm run test:lab-url
+
+      - name: LabConfig parser, precedence, #lab2= share links
+        run: npm run test:lab-config
 
       - name: Build site (no WASM rebuild)
         run: npm run build:site

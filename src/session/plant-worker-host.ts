@@ -25,6 +25,7 @@
 import { segOperator } from '../seg-operator-state';
 import { segWasm } from '../wasm/seg-physics-bridge';
 import { WASM_DEVICE_IDS } from '../../generated/device-catalog';
+import { labConfig } from '../config/lab-config';
 import {
   applyModePlantToDevices,
   reportKelvinSeedIgnored,
@@ -86,19 +87,11 @@ const MEAN_OMEGA_INDEX = PLANT_PACK_HEADER + PLANT_PACK_KEYS.indexOf('meanOmega'
 const MAX_PENDING_STEPS = 24;
 
 function plantWorkerDisabledByQuery(): boolean {
-  if (typeof location === 'undefined') return false;
-  return new URLSearchParams(location.search).get('plantWorker') === '0';
+  return !labConfig().plantWorker;
 }
 
 function wasmRequestedAtBoot(): boolean {
-  if (typeof location === 'undefined') return false;
-  const params = new URLSearchParams(location.search);
-  if (params.get('wasmPhysics') === '1' || params.get('wasm') === '1') return true;
-  try {
-    return localStorage.getItem('useWasmPhysics') === 'true';
-  } catch {
-    return false;
-  }
+  return labConfig().wasmPhysics;
 }
 
 /** Device-side knobs the C++ focus plant reads (see `syncWasmFocusKnobs`). */

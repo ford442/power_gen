@@ -2402,3 +2402,70 @@ test.describe('Catalog setpoint sliders', () => {
     expect(s.pcap).toBe(24);
   });
 });
+
+test.describe('LabConfig share links v2 (#224 §1)', () => {
+  test('window.lab.loadConfig applies live fields and writes a #lab2= link that boots back', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.multiVisualizer?.devices?.hall && !!window.lab, { timeout: 120_000 });
+
+    const result = await page.evaluate(() => window.lab.loadConfig({
+      format: 'seg-lab', version: 1, schema: 'old-schema',
+      config: { mode: 'hall', look: 'lab', fieldCoupling: true, seed: 4242, bogus: 1, renderer: 'webgpu' }
+    }));
+    expect(result.reloading).toBe(false);
+    expect([...result.applied].sort()).toEqual(['fieldCoupling', 'look', 'mode', 'seed']);
+    expect(result.ignored).toEqual(expect.arrayContaining(['bogus', 'renderer']));
+
+    const live = await page.evaluate(() => ({
+      view: window.multiVisualizer.currentView,
+      look: window.multiVisualizer.lightingLook,
+      field: window.multiVisualizer.fieldNetwork?.couplingEnabled,
+      hash: location.hash
+    }));
+    expect(live.view).toBe('hall');
+    expect(live.look).toBe('lab');
+    expect(live.field).toBe(true);
+    expect(live.hash.startsWith('#lab2=')).toBe(true);
+
+    const url = await page.evaluate(() => window.lab.shareLink());
+    expect(url).toMatch(/[?&]renderer=webgl2.*#lab2=[zj][A-Za-z0-9_-]+$/);
+    expect(url.length).toBeLessThan(600);
+
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await waitForEval(page, () => window.currentRenderer === 'webgl2'
+      && window.multiVisualizer?.currentView === 'hall', { timeout: 120_000 });
+    const booted = await page.evaluate(() => ({
+      look: window.multiVisualizer.lightingLook,
+      lookSource: window.lab.sources().look,
+      field: window.multiVisualizer.fieldNetwork?.couplingEnabled,
+      seed: window.lab.config().seed,
+      seedSource: window.lab.sources().seed
+    }));
+    expect(booted.look).toBe('lab');
+    expect(booted.lookSource).toBe('hash');
+    expect(booted.field).toBe(true);
+    expect(booted.seed).toBe(4242);
+    expect(booted.seedSource).toBe('hash');
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('a dropped .lab.json loads; a junk #lab2= is ignored, not fatal', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await page.goto('/?renderer=webgl2#lab2=zNOT-A-REAL-PAYLOAD', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await waitForEval(page, () => window.currentRenderer === 'webgl2' && !!window.multiVisualizer?.devices?.transformer
+      && !!window.lab, { timeout: 120_000 });
+
+    await page.evaluate(() => {
+      const file = new File([JSON.stringify({
+        format: 'seg-lab', version: 1, schema: 'x', config: { mode: 'transformer', heronLayout: 'tower' }
+      })], 'bench.lab.json', { type: 'application/json' });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      document.body.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    });
+    await waitForEval(page, () => window.multiVisualizer?.currentView === 'transformer'
+      && window.multiVisualizer?.heronLayoutPreset === 'tower', { timeout: 60_000 });
+    expect(pageErrors).toEqual([]);
+  });
+});
