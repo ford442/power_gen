@@ -190,9 +190,17 @@ Gated on Wave 10, bind-group codegen, the plant Worker and the charge bus
       overview mesh prefix keeps magnet + pad first. Pinned by
       `npm run test:drop-tube`; see `docs/DEVICE_GALLERY.md` → *drop-tube*.
       No FEM, no thermal model, not a brake-design tool or launcher.
-- [ ] Artist CAD replacing placeholder GLBs (SEG housing + coil former first),
-      or meshopt decode documented as "not needed yet" with a byte comparison.
-      Still no Three.js / Babylon / PlayCanvas, no UASTC; WebGL2 still skips glTF.
+- [x] meshopt decode documented as **not needed yet** with a byte comparison
+      (`docs/GLTF_ASSETS.md` → *meshopt decode — measured, not needed yet*):
+      38.8 KB gzip across all nine GLBs today, 25.7 KB welded with no
+      extension, 16.6 KB with meshopt + quantization — 9.1 KB saved overall
+      against a 7.8 KB decoder, and under 2.5 KB per focused bench. Measuring
+      also found every committed GLB spec-invalid (accessors overran their
+      bufferViews; cgltf refused them all); the writers are fixed and
+      `npm run test:props` now checks spec structure. **No artist GLB yet** —
+      the SEG housing and coil former are still the first candidates, now
+      starting from files external tools accept. Still no Three.js / Babylon /
+      PlayCanvas, no UASTC; WebGL2 still skips glTF.
 - [ ] Firmware line protocol `v=2` (old sketches still coast) + ESP32 BLE NUS
       matching `bluetooth-uart-transport.ts`, or an explicit deferral with a
       reason. Disconnect → coast on every transport; watchdog no looser.

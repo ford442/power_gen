@@ -196,24 +196,25 @@ const gltf = {
       }]
     }
   ],
+  // One bufferView per interleaved vertex block (stride 32 = pos 12 + normal 12
+  // + uv 8), with the attributes at accessor byteOffset 0 / 12 / 24. Three views
+  // at offsets 0/12/24 sized count×element (what this used to write) leave every
+  // accessor overrunning its view by ~2.7× — the repo's loader reads by stride
+  // and never noticed, but cgltf (gltfpack) rejects it ("buffer too short").
   accessors: [
-    { bufferView: 0, componentType: 5126, count: housing.vertexCount, type: 'VEC3', min: posMin, max: posMax },
-    { bufferView: 1, componentType: 5126, count: housing.vertexCount, type: 'VEC3' },
-    { bufferView: 2, componentType: 5126, count: housing.vertexCount, type: 'VEC2' },
-    { bufferView: 3, componentType: 5123, count: housing.indices.length, type: 'SCALAR' },
-    { bufferView: 4, componentType: 5126, count: pick.vertexCount, type: 'VEC3', min: pickMin, max: pickMax },
-    { bufferView: 5, componentType: 5126, count: pick.vertexCount, type: 'VEC3' },
-    { bufferView: 6, componentType: 5126, count: pick.vertexCount, type: 'VEC2' },
-    { bufferView: 7, componentType: 5123, count: pick.indices.length, type: 'SCALAR' }
+    { bufferView: 0, byteOffset: 0, componentType: 5126, count: housing.vertexCount, type: 'VEC3', min: posMin, max: posMax },
+    { bufferView: 0, byteOffset: 12, componentType: 5126, count: housing.vertexCount, type: 'VEC3' },
+    { bufferView: 0, byteOffset: 24, componentType: 5126, count: housing.vertexCount, type: 'VEC2' },
+    { bufferView: 1, componentType: 5123, count: housing.indices.length, type: 'SCALAR' },
+    { bufferView: 2, byteOffset: 0, componentType: 5126, count: pick.vertexCount, type: 'VEC3', min: pickMin, max: pickMax },
+    { bufferView: 2, byteOffset: 12, componentType: 5126, count: pick.vertexCount, type: 'VEC3' },
+    { bufferView: 2, byteOffset: 24, componentType: 5126, count: pick.vertexCount, type: 'VEC2' },
+    { bufferView: 3, componentType: 5123, count: pick.indices.length, type: 'SCALAR' }
   ],
   bufferViews: [
-    { buffer: 0, byteOffset: 0, byteLength: housing.vertexCount * 12, byteStride: 32, target: 34962 },
-    { buffer: 0, byteOffset: 12, byteLength: housing.vertexCount * 12, byteStride: 32, target: 34962 },
-    { buffer: 0, byteOffset: 24, byteLength: housing.vertexCount * 8, byteStride: 32, target: 34962 },
+    { buffer: 0, byteOffset: 0, byteLength: housing.vertexCount * 32, byteStride: 32, target: 34962 },
     { buffer: 0, byteOffset: housingIdxOffset, byteLength: housingIdxBytes.byteLength, target: 34963 },
-    { buffer: 0, byteOffset: housingVertBytes, byteLength: pick.vertexCount * 12, byteStride: 32, target: 34962 },
-    { buffer: 0, byteOffset: housingVertBytes + 12, byteLength: pick.vertexCount * 12, byteStride: 32, target: 34962 },
-    { buffer: 0, byteOffset: housingVertBytes + 24, byteLength: pick.vertexCount * 8, byteStride: 32, target: 34962 },
+    { buffer: 0, byteOffset: housingVertBytes, byteLength: pick.vertexCount * 32, byteStride: 32, target: 34962 },
     { buffer: 0, byteOffset: pickIdxOffset, byteLength: pickIdxBytes.byteLength, target: 34963 }
   ],
   buffers: [{ byteLength: finalBin.byteLength }]
