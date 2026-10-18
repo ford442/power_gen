@@ -299,6 +299,7 @@ Ring-buffer sampling lives on `telemetryHub.sampler` (1–60 Hz). UI: left sideb
 | Replay scrubber | `?replay=1` or debug **Show replay scrubber** — drag-drop / file picker, play-pause-step. Parses in `src/workers/replay-worker.ts`. CSV load reconstructs a minimal replay. Live `publishFrame` and `segOperator.step()` are bypassed; gauges read injected hub snapshots. |
 | Benchmark pack | `window.exportBenchmarkPack()` — profiler FPS/memory snapshot |
 | Particle readback | `window.captureParticleSubset({ deviceId, maxCount })` (WebGPU, debug) |
+| Analyse a recording | **Analysis** button or `window.openAnalysis()` → **+ Current recording** turns the sampler rows into a run (`time_s` → `t`, CSV columns → catalog keys) for time / X–Y / spectrum plots, fits and CSV / PNG export — [`ANALYSIS.md`](./ANALYSIS.md) |
 
 `TELEMETRY_CSV_VERSION` is **2** — v2 appended the per-device catalog columns
 after the base set. A v1 file still loads: `csvToRows` matches columns by name
