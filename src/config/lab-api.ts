@@ -1,10 +1,11 @@
 /**
  * `window.lab` — the console / agent / embed surface for LabConfig (#224 §1).
  *
- * The entry chunk carries only this table of lazy hooks plus a drop listener
- * for `.lab.json` files; loading, exporting, the share dialog, plant
- * snapshots (§2, session/lab-snapshot.ts) and the experiment runner / panel
- * (§3) are their own chunks.
+ * The entry chunk carries only this table of lazy hooks; loading, exporting,
+ * the share dialog, plant snapshots (§2, session/lab-snapshot.ts), the
+ * experiment runner / panel (§3), the teacher console (§5) and the post-boot
+ * extras — `.lab.json` drop target, Experiments button, classroom channel,
+ * embed endpoint (lab-post-boot.ts) — are their own chunks.
  */
 import {
   labConfig,
@@ -57,39 +58,16 @@ export interface LabApi {
   captureSnapshot(): Promise<PlantSnapshot>;
   /** Restore a {@link captureSnapshot} object; false when it is not one or the C++ plant refused it. */
   restoreSnapshot(state: unknown): Promise<boolean>;
+  /** Teacher console: broadcast to this lab's other tabs (src/embed/, EMBED.md). */
+  openTeacherConsole(): Promise<void>;
+  /** Under `?embed=1`: the origins the postMessage endpoint answers. */
+  embedOrigins?: () => string[];
   [extra: string]: unknown;
 }
 
 const lazyFile = (): Promise<typeof import('./lab-file')> => import('./lab-file');
 const lazyPanel = (): Promise<typeof import('../experiments/experiment-panel')> => import('../experiments/experiment-panel');
 const lazySnapshot = (): Promise<typeof import('../session/lab-snapshot')> => import('../session/lab-snapshot');
-
-/** True for a drag that carries at least one file (we cannot see names until drop). */
-function dragHasFiles(e: DragEvent): boolean {
-  return !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
-}
-
-function installLabFileDrop(): void {
-  if (typeof document === 'undefined') return;
-  document.addEventListener('dragover', (e) => {
-    if (dragHasFiles(e)) e.preventDefault();
-  });
-  document.addEventListener('drop', (e) => {
-    const file = Array.from(e.dataTransfer?.files ?? []).find((f) => /\.lab\.json$/i.test(f.name));
-    if (!file) return;
-    e.preventDefault();
-    void lazyFile()
-      .then((m) => m.loadLabFile(file))
-      .then((r) => setLabStatus(`Loaded ${file.name}: ${r.applied.length} setting(s)${r.reloading ? ' — reloading' : ''}`))
-      .catch((err: unknown) => setLabStatus(`Could not load ${file.name}: ${err instanceof Error ? err.message : String(err)}`));
-  });
-}
-
-function setLabStatus(text: string): void {
-  console.info(`[lab] ${text}`);
-  const el = document.getElementById('explainerStatus');
-  if (el) el.textContent = text;
-}
 
 export function installLabApi(): void {
   if (typeof window === 'undefined') return;
@@ -109,27 +87,10 @@ export function installLabApi(): void {
     openExperiment: (id) => lazyPanel().then((m) => m.openExperimentPanel(id)),
     openExperimentDef: (def) => lazyPanel().then((m) => m.openExperimentDefinition(def)),
     captureSnapshot: () => lazySnapshot().then((m) => m.captureLabSnapshot()),
-    restoreSnapshot: (state) => lazySnapshot().then((m) => m.restoreLabSnapshot(state))
+    restoreSnapshot: (state) => lazySnapshot().then((m) => m.restoreLabSnapshot(state)),
+    openTeacherConsole: () => import('../embed/teacher-console').then((m) => void m.openTeacherConsole())
   };
   window.lab = api;
-  installLabFileDrop();
-  installExperimentsButton();
-}
-
-/** "Experiments" beside the Analysis button in the Telemetry Export row. */
-function installExperimentsButton(): void {
-  if (typeof document === 'undefined' || document.getElementById('experimentsOpenBtn')) return;
-  const row = document.getElementById('telemetryBenchExportBtn')?.parentElement;
-  if (!row) return;
-  const btn = Object.assign(document.createElement('button'), {
-    type: 'button',
-    id: 'experimentsOpenBtn',
-    className: 'ctrl-btn',
-    textContent: 'Experiments',
-    title: 'Scripted experiments and sweeps (simulated, not metrology)',
-    onclick: () => { void window.lab?.openExperiment().catch((err: unknown) => console.warn('[experiments] panel failed to load', err)); }
-  });
-  btn.style.fontSize = '0.68rem';
-  btn.setAttribute('aria-haspopup', 'dialog');
-  row.append(btn);
+  // Before first paint, so an embedded lab never flashes the dashboard chrome.
+  if (labConfig().embed) document.documentElement.dataset.labEmbed = '';
 }

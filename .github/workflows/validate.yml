@@ -79,6 +79,9 @@ jobs:
       - name: Classroom (PWA precache, recorder helpers) + touch camera gestures
         run: npm run test:classroom && npm run test:camera-gestures
 
+      - name: Embed postMessage protocol, origin allowlist, classroom channel
+        run: npm run test:embed
+
       - name: Build site (no WASM rebuild)
         run: npm run build:site
 

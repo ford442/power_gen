@@ -1,7 +1,7 @@
 /**
  * SEG dashboard — overlays and status chrome: replay badge + bar, WebGPU
  * hard-fail card, energy-network / field-bus disclaimers, hardware-twin badge,
- * shadow-residual + catalog gauge strips, focus readout.
+ * shadow-residual + catalog gauge strips, focus readout, `?embed=1` chrome.
  */
 
     #replay-badge {
@@ -293,3 +293,31 @@
 
     /* Focus readout in the right instrument panel (catalog-generated cells) */
     #device-readout[hidden] { display: none; }
+
+    /* ── ?embed=1 (#224 §5, EMBED.md): canvas + disclaimer badge only ── */
+    html[data-lab-embed] #header,
+    html[data-lab-embed] #left-panel,
+    html[data-lab-embed] #right-panel,
+    html[data-lab-embed] #footer,
+    html[data-lab-embed] .corner-label,
+    html[data-lab-embed] #tachometer,
+    html[data-lab-embed] #debugPanel,
+    html[data-lab-embed] #sci-panel-toggle,
+    html[data-lab-embed] .sci-panel:not(#replay-bar),
+    html[data-lab-embed] #hardware-panel,
+    html[data-lab-embed] #lab-audio-badge { display: none !important; }
+    html[data-lab-embed] body { height: 100vh; }
+    #lab-embed-badge {
+      position: absolute;
+      left: 8px;
+      bottom: 8px;
+      z-index: 60;
+      padding: 2px 8px;
+      border: 1px solid #0ff4;
+      border-radius: 10px;
+      background: rgba(0, 12, 24, 0.8);
+      color: #8ad;
+      font-size: 0.66rem;
+      letter-spacing: 0.4px;
+      pointer-events: none;
+    }

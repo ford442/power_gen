@@ -2535,3 +2535,111 @@ test.describe('Plant snapshots (#224 §2)', () => {
     expect(pageErrors).toEqual([]);
   });
 });
+
+test.describe('Embed postMessage protocol (#224 §5)', () => {
+  // One lab boot: a parent page on an allowed origin frames the lab, and a
+  // sibling frame on another origin tries the same requests. Both parents are
+  // served by page.route, so no second server is needed, and are https — a
+  // lab framed by a plain http page is no secure context and cannot boot
+  // (EMBED.md). Chrome's Local
+  // Network Access checks would block a "public" (routed) page from framing
+  // the localhost dev server — a deployed lab is public — so this test runs
+  // in its own browser with them off (launchOptions cannot vary per group).
+  test('an allowed parent gets hello / loadConfig replies; another origin gets nothing', async ({ playwright, baseURL }) => {
+    // A full lab boot plus the lazy embed / lab-file chunks inside a frame;
+    // under SwiftShader on a loaded VM each step can take minutes.
+    test.setTimeout(900_000);
+    const browser = await playwright.chromium.launch({
+      args: ['--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']
+    });
+    try {
+      await embedProtocolFlow(await browser.newPage({ viewport: { width: 1280, height: 800 } }), baseURL);
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+/** @param {import('@playwright/test').Page} page @param {string | undefined} baseURL */
+async function embedProtocolFlow(page, baseURL) {
+  const { pageErrors } = trackPageErrors(page);
+  const labUrl = new URL('/?renderer=webgl2&embed=1&embedOrigins=https://school.example', baseURL).href;
+  const labOrigin = new URL(labUrl).origin;
+  const recorder = `<script>
+    window.__got = [];
+    window.addEventListener('message', (ev) => window.__got.push({ origin: ev.origin, data: ev.data }));
+  </script>`;
+  await page.route('https://school.example/**', (route) => route.fulfill({
+    contentType: 'text/html',
+    body: `<!doctype html><title>parent</title>${recorder}
+      <iframe id="lab" src="${labUrl}" style="width:640px;height:400px"></iframe>
+      <iframe id="evil" src="https://evil.example/frame.html" style="width:10px;height:10px"></iframe>`
+  }));
+  await page.route('https://evil.example/**', (route) => route.fulfill({
+    contentType: 'text/html', body: `<!doctype html><title>evil</title>${recorder}`
+  }));
+
+  await page.goto('https://school.example/parent.html', { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await waitForEval(page, () => window.__got.some((m) => m.data?.type === 'lab:ready'), { timeout: 330_000, intervalMs: 500 });
+
+  const replies = await page.evaluate(async (target) => {
+    const lab = document.getElementById('lab').contentWindow;
+    const wait = (id) => new Promise((resolve) => {
+      const t0 = Date.now();
+      (function poll() {
+        const hit = window.__got.find((m) => m.data?.requestId === id);
+        if (hit || Date.now() - t0 > 300_000) resolve(hit ?? null);
+        else setTimeout(poll, 100);
+      })();
+    });
+    lab.postMessage({ type: 'lab:hello', requestId: 'h1' }, target);
+    lab.postMessage({ type: 'lab:loadConfig', requestId: 'c1', config: { mode: 'hall', bogus: 1 } }, target);
+    lab.postMessage({ type: 'lab:subscribe', requestId: 'bad', keys: ['document.cookie'] }, target);
+    return { hello: await wait('h1'), load: await wait('c1'), bad: await wait('bad') };
+  }, labOrigin);
+  expect(replies.hello?.origin).toBe(labOrigin);
+  expect(replies.hello?.data).toMatchObject({ type: 'lab:hello:result', ok: true, protocol: 1, disclaimer: 'Simulated, not metrology' });
+  expect(replies.hello?.data.capabilities).toEqual(expect.arrayContaining(['lab:loadConfig', 'lab:subscribe']));
+  expect(replies.load?.data).toMatchObject({ type: 'lab:loadConfig:result', ok: true, requestId: 'c1' });
+  expect(replies.load?.data.result.applied).toEqual(['mode']);
+  expect(replies.load?.data.result.ignored).toEqual(['bogus']);
+  expect(replies.bad?.data).toMatchObject({ type: 'lab:error', ok: false, requestId: 'bad' });
+
+  const lab = page.frame({ url: /embed=1/ });
+  expect(lab).not.toBeNull();
+  await waitForEval(lab, () => window.multiVisualizer?.currentView === 'hall', { timeout: 120_000 });
+  const chrome = await lab.evaluate(() => ({
+    embed: document.documentElement.hasAttribute('data-lab-embed'),
+    header: getComputedStyle(document.getElementById('header')).display,
+    left: getComputedStyle(document.getElementById('left-panel')).display,
+    badge: document.getElementById('lab-embed-badge')?.textContent ?? null
+  }));
+  expect(chrome).toEqual({ embed: true, header: 'none', left: 'none', badge: 'Simulated, not metrology' });
+
+  // The sibling frame on https://evil.example can reach the lab's window
+  // but not its protocol. A ping from the parent, sent after, proves the
+  // lab already processed (and dropped) the evil messages.
+  const evil = page.frame({ url: /evil\.example/ });
+  expect(evil).not.toBeNull();
+  await evil.evaluate((target) => {
+    const lab = window.parent.frames[0];
+    lab.postMessage({ type: 'lab:hello', requestId: 'e1' }, target);
+    lab.postMessage({ type: 'lab:loadConfig', requestId: 'e2', config: { mode: 'transformer' } }, target);
+  }, labOrigin);
+  const ping = await page.evaluate(async (target) => {
+    document.getElementById('lab').contentWindow.postMessage({ type: 'lab:ping', requestId: 'p1' }, target);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 180_000) {
+      const hit = window.__got.find((m) => m.data?.requestId === 'p1');
+      if (hit) return hit.data;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return null;
+  }, labOrigin);
+  expect(ping).toMatchObject({ type: 'lab:ping:result', ok: true });
+  expect(ping.status.view).toBe('hall');
+  const evilGot = await evil.evaluate(() => window.__got.filter((m) => typeof m.data?.type === 'string' && m.data.type.startsWith('lab:')));
+  expect(evilGot).toEqual([]);
+  expect(await lab.evaluate(() => window.multiVisualizer?.currentView)).toBe('hall');
+  expect(pageErrors).toEqual([]);
+}

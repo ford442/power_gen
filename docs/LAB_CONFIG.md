@@ -101,7 +101,7 @@ over it.
   "state": { "…plant snapshot (§2)…" }, "runs": [ "…RecordedRun (§4)…" ] }
 ```
 
-- **Import:** drop a `*.lab.json` anywhere on the page, or
+- **Import:** drop a `*.lab.json` anywhere on the page once the lab has booted, or
   `await window.lab.loadConfig(obj)` / `window.lab.loadFile(file)`. A bare
   config object (`{ "look": "lab" }`) works too. Live fields apply in place
   and the address bar becomes the matching `#lab2=` link (query params that
@@ -120,6 +120,8 @@ over it.
 | `openShareDialog()` | Link + QR code (`qrcode-generator`, lazy) + `.lab.json` download |
 | `exportLabFile()` / `downloadLabFile(name?)` | `.lab.json` of the running lab |
 | `captureSnapshot()` / `restoreSnapshot(state)` | Plant snapshot (§2) — the `state` above; [SNAPSHOTS.md](SNAPSHOTS.md) |
+| `openTeacherConsole()` | Teacher console over `BroadcastChannel('seg-lab')` — [`EMBED.md`](./EMBED.md) |
+| `embedOrigins()` | Under `?embed=1`: the origins the postMessage endpoint answers |
 
 Experiments (§3) and the analysis panel (§4) add their own members when their
 chunks install.

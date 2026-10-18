@@ -693,6 +693,10 @@ function bootApp(): void {
       if (window.currentRenderer) requestAnimationFrame(tickClassroomUi);
     };
     requestAnimationFrame(tickClassroomUi);
+
+    // `.lab.json` drop + classroom (student listener, ?embed=1, ?teacher=1). Lazy.
+    import('./config/lab-post-boot').then((m) => m.startLabPostBoot())
+      .catch((e: unknown) => console.warn('[main] lab extras skipped:', e));
   }).catch((e) => {
     // Renderer failures hard-fail inside bootstrapVisualizer; this is the UI
     // wiring after it (bad #lab= link, panel init throw) — report, don't swallow.
