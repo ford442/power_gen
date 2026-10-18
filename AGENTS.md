@@ -2,7 +2,7 @@
 
 **Full architecture map:** [`docs/AGENTS.md`](docs/AGENTS.md)  
 **ADRs:** [`docs/adr/`](docs/adr/)  
-**Short checklist:** [`claude.md`](claude.md)
+**Short checklist:** [`CLAUDE.md`](CLAUDE.md)
 
 This file adds **Cursor Cloud / headless VM** notes only.
 
@@ -17,9 +17,11 @@ No backend, database, or server-side service.
   `server.https: false`). Serves `src/index.html`.
 - **Build (Pages):** `npm run build:site`. Prebuilt WASM: `src/public/wasm/`.
 - **Build (full):** `npm run build` (needs `emcc` or `EMSDK`).
-- **Validate:** `npm run validate` → typecheck + native C++ + WGSL.
+- **Validate:** `npm run validate` → codegen/catalog checks + typecheck + native
+  C++ + Node `test:*` suites (golden, plant-worker, coupling, transports, …) +
+  post/WGSL/bindings checks. Sanitizers: `npm run wasm:native:san`.
 - **E2E:** `npm run test:e2e` → Playwright + `?renderer=webgl2` (CI: `validate.yml`).
-- **Typecheck:** `npm run typecheck` (`src/**/*.ts` only).
+- **Typecheck:** `npm run typecheck` (`src/**/*.ts` + `generated/**/*.ts`).
 
 ### Browser testing caveat (important)
 
@@ -37,13 +39,16 @@ No backend, database, or server-side service.
 
 ### C++ WASM physics path
 
-Core: `cpp/src/sim_core.cpp`. Bridge: `src/wasm/seg-physics-bridge.ts`.  
-Enable: `?wasmPhysics=1` (or `?wasm=1`). Zero-copy views via `HEAPF32`.  
+Core: `cpp/src/sim_core_*.cpp` + per-device plants in `cpp/src/plant/`. Bridge:
+`src/wasm/seg-physics-bridge.ts`. Enable: `?wasmPhysics=1` (or `?wasm=1`).
+Zero-copy views via `HEAPF32`. The interactive plant step runs in a Worker
+(`src/workers/plant-worker.ts`); `?plantWorker=0` keeps it on the main thread.
 Docs: `cpp/README.md`, ADR-0002.
 
 ### Hardware digital twin (experimental)
 
-- Bridge/UI: `hardware-bridge.ts`, `hardware-panel.ts` — **experimental**
+- Bridge/UI: `hardware-bridge.ts`, `hardware-panel.ts` — **experimental**.
+  Transports: Web Serial, BLE UART, WebUSB CDC (`src/*-transport.ts`)
 - Demo without serial: `?mockHardware=1`
 - Firmware under `firmware/seg-driver/` is **experimental**, not required for the app
 - Spec: `docs/hardware_connection.md`

@@ -103,11 +103,17 @@ export interface MultiVisualizerWindowRef {
   onModeChange?: (mode: string) => void;
   captureParticleSubset?: (deviceId: string, maxCount: number) => Promise<unknown>;
   captureOverviewCull?: () => Promise<unknown>;
+  /** Active lighting look (`studio` | `lab` | `drama`). */
+  lightingLook?: string;
+  /** Hardware twin bridge, once the panel has attached one. */
+  hardwareBridge?: { isConnected: boolean; coast: () => void } | null;
   profiler?: {
     benchmarkSamples?: unknown[];
     endBenchmark?: () => unknown;
     getStats?: () => unknown;
     qualityTier?: string;
+    /** Showroom hold: post gates never drop below this tier (lab-mode.ts). */
+    postTierFloor?: string | null;
     /** WebGPU only — set when the pulse-coil wave slice stepped this frame (ADR-0010). */
     fdtdActive?: boolean;
   } | null;
@@ -260,7 +266,7 @@ declare global {
     syncHeronLayoutUI?: () => void;
     syncLayoutPanelsVisibility?: () => void;
     DEBUG_RENDERER?: string;
-    sciUI?: { toggle: () => void; show?: () => void; hide?: () => void } | null;
+    sciUI?: { toggle: () => void; show?: () => void; hide?: () => void; isVisible?: boolean } | null;
     segTour?: SEGTourPlayer;
     vdgTour?: SEGTourPlayer;
     goToVdgStep?: (id: string) => void;
@@ -276,6 +282,30 @@ declare global {
     kelvinTour?: SEGTourPlayer;
     startKelvinTour?: () => void;
     goToKelvinStep?: (id: string) => void;
+    heronTour?: SEGTourPlayer;
+    startHeronTour?: () => void;
+    goToHeronStep?: (id: string) => void;
+    pulseCoilTour?: SEGTourPlayer;
+    startPulseCoilTour?: () => void;
+    goToPulseCoilStep?: (id: string) => void;
+    homopolarTour?: SEGTourPlayer;
+    startHomopolarTour?: () => void;
+    goToHomopolarStep?: (id: string) => void;
+    halbachTour?: SEGTourPlayer;
+    startHalbachTour?: () => void;
+    goToHalbachStep?: (id: string) => void;
+    peltierTour?: SEGTourPlayer;
+    startPeltierTour?: () => void;
+    goToPeltierStep?: (id: string) => void;
+    mhdTour?: SEGTourPlayer;
+    startMhdTour?: () => void;
+    goToMhdStep?: (id: string) => void;
+    maglevTour?: SEGTourPlayer;
+    startMaglevTour?: () => void;
+    goToMaglevStep?: (id: string) => void;
+    solarTour?: SEGTourPlayer;
+    startSolarTour?: () => void;
+    goToSolarStep?: (id: string) => void;
     captureParticleSubset?: (opts?: { deviceId?: string; maxCount?: number }) => Promise<unknown>;
     captureOverviewCull?: () => Promise<unknown>;
     runSEGSpeedTest?: (speeds?: number[], durationMs?: number) => Promise<unknown>;
@@ -340,6 +370,10 @@ declare global {
 
     /** Lab sonification singleton (audio/lab-audio.ts); only live under `?audio=1`. */
     labAudio?: LabAudio;
+
+    /** Showroom / Lab / Twin preset bundle (lab-mode.ts); null until one is chosen. */
+    setLabMode?: (mode: 'showroom' | 'lab' | 'twin') => void;
+    getLabMode?: () => 'showroom' | 'lab' | 'twin' | null;
   }
 }
 

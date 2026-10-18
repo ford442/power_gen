@@ -153,20 +153,31 @@ export function refreshHalbachFieldGeometry(state: Partial<DevicePhysicsState>):
  * @param drive 0..1 from speed slider
  */
 export const stepHalbachVizPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
-  const fromDrive = HALBACH_VIZ.segmentMin + Math.round(drive * HALBACH_VIZ.segmentSpan);
-  // A restored `hseg` setpoint wins until the user moves the drive slider.
-  const setpoint = state.halbachSegmentSetpoint;
-  let requested = fromDrive;
-  if (setpoint != null && Number.isFinite(setpoint)) {
-    if (state.halbachSetpointDrive == null) state.halbachSetpointDrive = drive;
-    if (Math.abs(drive - state.halbachSetpointDrive) > 1e-3) {
-      state.halbachSegmentSetpoint = null;
-      state.halbachSetpointDrive = null;
+  // A pinned N (the catalog `halbachSegments` setpoint) replaces the drive
+  // sweep; the magnetisation angle below still follows the drive.
+  const pinned = state.halbachSegmentSetpoint;
+  const swept = HALBACH_VIZ.segmentMin + Math.round(drive * HALBACH_VIZ.segmentSpan);
+  let requested = swept;
+  if (typeof pinned === 'number' && Number.isFinite(pinned)) {
+    if (state.halbachSegmentSetpointSource === 'link') {
+      if (state.halbachSetpointDrive == null) state.halbachSetpointDrive = drive;
+      if (Math.abs(drive - state.halbachSetpointDrive) > 1e-3) {
+        state.halbachSegmentSetpoint = null;
+        state.halbachSegmentSetpointSource = null;
+        state.halbachSetpointDrive = null;
+      } else {
+        requested = Math.round(pinned);
+      }
     } else {
-      requested = Math.round(setpoint);
+      requested = Math.round(pinned);
     }
+  } else {
+    state.halbachSetpointDrive = null;
   }
-  const segmentCount = Math.max(HALBACH_VIZ.segmentMin, Math.min(HALBACH_VIZ.segmentMax, requested));
+  const segmentCount = Math.max(
+    HALBACH_VIZ.segmentMin,
+    Math.min(HALBACH_VIZ.segmentMax, requested)
+  );
   const idealStep = 360 / segmentCount;
   const magAngleDeg = idealStep * (HALBACH_VIZ.magAngleBase + drive * HALBACH_VIZ.magAngleSpan);
   const layout = state.halbachLayout ?? 'ring';
@@ -201,6 +212,7 @@ export function createHalbachVizPhysicsState(): Partial<DevicePhysicsState> {
   const state: Partial<DevicePhysicsState> = {
     halbachSegmentCount: 8,
     halbachSegmentSetpoint: null,
+    halbachSegmentSetpointSource: null,
     halbachSetpointDrive: null,
     halbachMagAngleDeg: 45,
     halbachLayout: halbachLayoutFromUrl(),

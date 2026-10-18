@@ -36,6 +36,7 @@ export class HardwarePanel {
   /** Aborts every DOM listener `_wire` added — on re-attach and destroy. */
   private _wireAbort: AbortController | null;
   private _raf: number;
+  private _collapsed: boolean;
 
   constructor(options: HardwarePanelOptions = {}) {
     this.visualizer = options.visualizer || null;
@@ -44,6 +45,7 @@ export class HardwarePanel {
     this._unsub = [];
     this._wireAbort = null;
     this._raf = 0;
+    this._collapsed = false;
   }
 
   /**
@@ -107,7 +109,7 @@ export class HardwarePanel {
     el.id = 'hardware-panel';
     el.className = 'hw-panel';
     el.innerHTML = `
-      <div class="ctrl-section-title">Hardware Twin</div>
+      <div class="ctrl-section-title hw-title" id="hwTitle" role="button" tabindex="0" aria-controls="hardware-panel">Hardware Twin</div>
       <div class="hw-status-row">
         <span class="hw-dot" id="hwDot"></span>
         <span id="hwStatusText">Disconnected</span>
@@ -154,6 +156,18 @@ export class HardwarePanel {
     left.appendChild(el);
     this._root = el;
 
+    // Lab mode (src/lab-mode.ts) decides whether the panel starts folded away.
+    const title = el.querySelector<HTMLElement>('#hwTitle');
+    const toggle = (): void => this.setCollapsed(!this._collapsed);
+    title?.addEventListener('click', toggle);
+    title?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggle();
+      }
+    });
+    this.setCollapsed(document.body.dataset.hwPanel === 'collapsed');
+
     // Coil pad buttons
     const pad = el.querySelector('#hwCoilPad');
     // `bridge`, not `this.bridge`: on first attach the field is not set yet.
@@ -172,12 +186,28 @@ export class HardwarePanel {
     return true;
   }
 
+  /**
+   * Fold the panel down to its title. Folding never disconnects or coasts: the
+   * link, the coil override and the header badge carry on underneath.
+   */
+  setCollapsed(collapsed: boolean): void {
+    this._collapsed = collapsed;
+    const root = this._root;
+    if (!root) return;
+    root.dataset.collapsed = String(collapsed);
+    root.querySelector('#hwTitle')?.setAttribute('aria-expanded', String(!collapsed));
+  }
+
   private _injectStyles(): void {
     if (document.getElementById('hw-panel-styles')) return;
     const s = document.createElement('style');
     s.id = 'hw-panel-styles';
     s.textContent = `
       .hw-panel { margin-top: 12px; padding-top: 10px; border-top: 1px solid #0ff3; font-size: 0.75rem; }
+      .hw-title { cursor: pointer; user-select: none; }
+      .hw-title::after { content: ' ▾'; color: #0aa; }
+      .hw-panel[data-collapsed="true"] .hw-title::after { content: ' ▸'; }
+      .hw-panel[data-collapsed="true"] > :not(.hw-title) { display: none; }
       .hw-status-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
       .hw-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; box-shadow: 0 0 6px #000; }
       .hw-dot.on { background: #0f8; box-shadow: 0 0 8px #0f8; }

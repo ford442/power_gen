@@ -1,7 +1,7 @@
 {
   "$comment": "Single source of truth for cross-language physics constants. Regenerate: npm run codegen:constants",
   "physical": {
-    "MU_0": 1.2566370614e-7,
+    "MU_0": 1.2566370614e-6,
     "EPSILON_0": 8.854187817e-12,
     "C": 299792458,
     "K_B": 1.380649e-23,

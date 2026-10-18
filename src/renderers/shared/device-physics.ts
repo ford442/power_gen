@@ -86,6 +86,8 @@ export interface HalbachVizPhysicsExtension {
   halbachSegmentSetpoint?: number | null;
   /** Drive at the first step after the setpoint was applied (null = not yet seen). */
   halbachSetpointDrive?: number | null;
+  /** Whether a pinned N came from a share link (released by moving the drive). */
+  halbachSegmentSetpointSource?: 'link' | 'slider' | null;
   halbachMagAngleDeg?: number;
   /** Set once from `?halbachLinear=1` at creation, or by a `#lab=…;hlin=1` link. */
   halbachLayout?: 'ring' | 'linear';
@@ -99,6 +101,8 @@ export interface HalbachVizPhysicsExtension {
 /** Quanta pulse-coil / pulsed electromagnet extension fields. */
 export interface PulseCoilPhysicsExtension {
   pulseCoilVCap?: number;
+  /** Bank charge target (V) from the catalog setpoint slider; null/undefined = drive × V_max. */
+  pulseCoilChargeSetpointV?: number | null;
   pulseCoilCurrent?: number;
   pulseCoilCurrentA?: number;
   pulseCoilBPeakT?: number;

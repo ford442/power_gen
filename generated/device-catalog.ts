@@ -310,6 +310,39 @@ export const MODE_BUTTON_CHROME: readonly { id: string; emoji: string; label: st
   { id: 'jumping-ring', emoji: "💍", label: "Jumping Ring", sort: 14 },
 ];
 
+/**
+ * One operator setpoint slider (physics/devices.json `setpoints`). The panel
+ * generates the control; it only ever *writes* `api(value)` or
+ * `physicsState[stateKey] = value` — the plant clock reads it on its next step.
+ */
+export interface DeviceSetpoint {
+  deviceId: string;
+  /** camelCase; also the DOM id stem (`<id>Slider`, `<id>Value`, `<id>Source`). */
+  id: string;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  unit: string;
+  digits: number;
+  /** `physicsState` field the slider writes (when no `api`). */
+  stateKey: string;
+  /** `physicsState` field shown while the setpoint is unset. */
+  liveKey?: string;
+  /** `window` function that already owns this write (e.g. setLorentzFieldT). */
+  api?: string;
+  /** Show a release control that hands the quantity back to the plant. */
+  releasable?: boolean;
+  note?: string;
+}
+
+/** Catalog-declared setpoint sliders, in catalog order. */
+export const DEVICE_SETPOINTS: readonly DeviceSetpoint[] = [
+  { deviceId: 'pulse-coil', id: 'pulseCoilCharge', label: "Bank charge target", min: 0, max: 48, step: 1, unit: "V", digits: 0, stateKey: 'pulseCoilChargeSetpointV', liveKey: 'pulseCoilVCap', releasable: true, note: "Replaces drive × V_max as the bank's charge target; the drive slider still arms the auto-fire." },
+  { deviceId: 'halbach-viz', id: 'halbachSegments', label: "Segments N", min: 4, max: 24, step: 1, unit: "", digits: 0, stateKey: 'halbachSegmentSetpoint', liveKey: 'halbachSegmentCount', releasable: true, note: "Pins N; the drive slider otherwise sweeps it, and still sets the magnetisation angle." },
+  { deviceId: 'lorentz-sled', id: 'lorentzField', label: "Transverse field", min: 0, max: 1.2, step: 0.05, unit: "T", digits: 2, stateKey: 'lorentzFieldLocalT', api: 'setLorentzFieldT' },
+];
+
 /** One catalog telemetry key bound to its device, CSV column and display schema. */
 export interface DeviceTelemetryField extends TelemetryFieldMeta {
   deviceId: string;

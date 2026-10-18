@@ -3,6 +3,8 @@ import type { AdapterInfoSnapshot } from './webgpu-manager';
 import { gpuTimingMethods } from './performance-profiler-gpu-timing';
 import { displayMethods } from './performance-profiler-display';
 
+const TIER_RANK: Record<string, number> = { critical: 0, low: 1, medium: 2, high: 3, ultra: 4 };
+
 export interface PerformanceProfilerOptions {
   /** Pass adapter/info from WebGPUManager — do not call requestAdapter again. */
   adapter?: GPUAdapter | null;
@@ -162,6 +164,13 @@ export class PerformanceProfiler {
   // Quality tier label derived from qualityLevel (for SimRate / UI)
   qualityTier: QualityTier;
 
+  /**
+   * Showroom hold (labMode): the post stack never gates below this tier. Only
+   * post reads {@link postQualityTier}; particles, FDTD and `qualityLevel` keep
+   * following the live tier, so a slow GPU still sheds the expensive work.
+   */
+  postTierFloor: QualityTier | null;
+
   /** Estimated draw calls this frame (CPU-side count of draw/drawIndexed). */
   drawCallsEstimate: number;
   private _drawCallsAcc: number;
@@ -258,6 +267,7 @@ export class PerformanceProfiler {
 
     // Quality tier label derived from qualityLevel (for SimRate / UI)
     this.qualityTier = 'high'; // high | medium | low | critical
+    this.postTierFloor = null;
 
     this.drawCallsEstimate = 0;
     this._drawCallsAcc = 0;
@@ -552,6 +562,13 @@ export class PerformanceProfiler {
     }
   }
 
+  /** Tier the post stack gates on: the live tier, raised to {@link postTierFloor}. */
+  get postQualityTier(): QualityTier {
+    const floor = this.postTierFloor;
+    if (!floor) return this.qualityTier;
+    return TIER_RANK[floor] > TIER_RANK[this.qualityTier] ? floor : this.qualityTier;
+  }
+
   private _updateQualityTier(): void {
     const q = this.qualityLevel;
     if (q < 0.4) this.qualityTier = 'critical';
@@ -698,7 +715,7 @@ export class PerformanceProfiler {
       .map(([id, ms]) => ({ id, ms }))
       .sort((a, b) => b.ms - a.ms);
 
-    const postGates = getPostQualityGates(this.qualityTier);
+    const postGates = getPostQualityGates(this.postQualityTier);
 
     return {
       currentFPS: this.fpsHistory[(this.fpsIndex - 1 + this.fpsHistory.length) % this.fpsHistory.length],

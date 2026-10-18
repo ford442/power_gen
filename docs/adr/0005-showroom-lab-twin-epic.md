@@ -165,6 +165,17 @@ pass's visible count, per-device LOD level, and the actual `instanceCount` the
 GPU wrote, alongside `drawPrepMs`. F3 shows `Draw prep (CPU)` with a `GPU cull`
 marker while the path is active.
 
+### Workstream 5 — Modes as a switch, not six flags
+
+- [x] **`?labMode=showroom|lab|twin`** (+ header control, `localStorage seg-lab-mode`):
+      one preset bundle over the existing flags (look, explainer, coupling chrome,
+      twin panel, residual gauges, post floor). Explicit flags win at boot; a
+      header click applies the whole bundle. Twin never forces `mockHardware`.
+      See `docs/AGENTS.md` → *Lab mode & setpoints*; pinned by `npm run test:lab-mode`.
+- [x] Catalog `setpoints` generate the Lorentz B / Halbach N / pulse-coil charge
+      sliders (they only write; the plant clock still steps the plants).
+- [x] Focus-change live region (lab mode + one headline number).
+
 ### Acceptance (epic-level)
 
 - [x] Written ADR / checklist (this file) + Future pointer in `docs/AGENTS.md`
