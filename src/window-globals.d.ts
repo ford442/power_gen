@@ -379,6 +379,13 @@ declare global {
     /** Showroom / Lab / Twin preset bundle (lab-mode.ts); null until one is chosen. */
     setLabMode?: (mode: 'showroom' | 'lab' | 'twin') => void;
     getLabMode?: () => 'showroom' | 'lab' | 'twin' | null;
+
+    /**
+     * Classroom recorder (classroom/recorder.ts, lazy): record the lab canvas
+     * (+ audible lab audio) for `seconds` and resolve the video Blob — no
+     * download. Rejects while another recording runs. docs/CLASSROOM.md.
+     */
+    recordBench?: (seconds?: number) => Promise<Blob>;
   }
 }
 

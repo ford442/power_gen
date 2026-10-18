@@ -78,6 +78,8 @@ export interface LabConfig {
   fdtdDrive: 'coil' | 'transformer';
   halbachLinear: boolean;
   audio: boolean;
+  offline: boolean;
+  recordControl: boolean;
   embed: boolean;
   embedOrigins: readonly string[];
   experiment: string | null;
@@ -136,6 +138,8 @@ const ROWS: readonly LabFieldRow[] = [
   { key: 'fdtdDrive', type: 'enum', default: "coil", values: ["coil","transformer"] },
   { key: 'halbachLinear', type: 'bool', default: false, share: true, live: true },
   { key: 'audio', type: 'bool', default: false },
+  { key: 'offline', type: 'bool', default: true, url: ["offline","sw"] },
+  { key: 'recordControl', type: 'bool', default: true },
   { key: 'embed', type: 'bool', default: false },
   { key: 'embedOrigins', type: 'list', default: [] },
   { key: 'experiment', type: 'string', default: null, pattern: "^[a-z0-9][a-z0-9-]{0,63}$", share: true, live: true },
@@ -157,4 +161,4 @@ export const LAB_CONFIG_DEFAULTS = Object.fromEntries(
 ) as unknown as Readonly<LabConfig>;
 
 /** Hash of the field specs — versions `.lab.json` and #lab2= payloads. */
-export const LAB_CONFIG_SCHEMA_HASH = 'd539cbe47be9';
+export const LAB_CONFIG_SCHEMA_HASH = '361533f4ab69';

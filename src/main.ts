@@ -17,7 +17,7 @@ import {
   RENDERER_WEBGPU,
   RENDERER_WEBGL2
 } from './renderers/renderer-selector';
-import { initLabConfig, persistLabConfig } from './config/lab-config';
+import { initLabConfig, labConfig, persistLabConfig } from './config/lab-config';
 import { installLabApi } from './config/lab-api';
 import { probeWebGPU, showWebGPUHardFail, showBootWarning, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
@@ -634,6 +634,19 @@ function bootApp(): void {
       installAnalysisEntry();
     } catch (e) {
       console.warn('[main] analysis panel entry skipped:', e);
+    }
+
+    // Offline PWA + Record control (#224 §5, docs/CLASSROOM.md) — a lazy chunk;
+    // registers a service worker only on production http(s) boots.
+    const { offline, recordControl } = labConfig();
+    import('./classroom/install')
+      .then((m) => m.installClassroom({ serviceWorker: offline, recordControl }))
+      .catch((e) => console.warn('[main] classroom init skipped:', e));
+
+    // ?experiment=<id> (also carried by a #lab2= link) opens its panel.
+    const experimentId = labConfig().experiment;
+    if (experimentId) {
+      window.lab?.openExperiment(experimentId).catch((e: unknown) => console.warn('[main] experiment panel skipped:', e));
     }
 
     // After the explainer, audio and hardware panel exist: the mode bundle

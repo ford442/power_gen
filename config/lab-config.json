@@ -455,6 +455,27 @@
       "doc": "Lab sonification (spark clicks, coil buzz, SEG drone, MHD flow bed). Arms the graph; an `AudioContext` still waits for a user gesture, and the header badge mutes it — [`LAB_AUDIO.md`](./LAB_AUDIO.md)."
     },
     {
+      "key": "offline",
+      "type": "bool",
+      "default": true,
+      "url": ["offline", "sw"],
+      "share": false,
+      "live": false,
+      "group": "session",
+      "docDefault": "on (production http(s) boots)",
+      "doc": "Offline PWA service worker: precaches the hashed build, WASM and GLBs so a classroom boots without a network, and asks before applying an update. `0` skips registration **and** unregisters a worker from an earlier visit (the kill switch for a bad deploy). Dev, `file:` and plain-http LAN hosts never register — [`CLASSROOM.md`](./CLASSROOM.md)."
+    },
+    {
+      "key": "recordControl",
+      "type": "bool",
+      "default": true,
+      "url": ["recordControl"],
+      "share": false,
+      "live": false,
+      "group": "session",
+      "doc": "The Record row (10 / 30 / 60 s clips, burned-in timestamp and disclaimer) in the Telemetry Export panel. `0` hides it; `window.recordBench(seconds)` stays available — [`CLASSROOM.md`](./CLASSROOM.md)."
+    },
+    {
       "key": "embed",
       "type": "bool",
       "default": false,

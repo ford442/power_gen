@@ -63,7 +63,9 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
 
       // Pointer/wheel listeners on the canvas — one-time only. _bootGpuState()
       // re-runs on device-lost recovery and must not double-register these.
-      this.camera.setupInteraction(this.canvas, (mode: string) => this.switchMode(mode));
+      // Double-tap focus reads cameraController through a getter: device-lost
+      // recovery rebuilds it, and these listeners outlive that.
+      this.camera.setupInteraction(this.canvas, (mode: string) => this.switchMode(mode), () => this.cameraController);
 
       this.render(0);
 

@@ -389,6 +389,8 @@ raw `location.search` / `localStorage` access anywhere else in `src/`.
 | `fdtdDrive` | `coil` \| `transformer` | `coil` | — | — | What modulates the slice's source amplitude: the pulse coil's discharge current, or the transformer bench's core flux (continuous AC). Winding *geometry* is unchanged; falls back to `coil` if that bench isn't in the lab — ADR-0012. |
 | `halbachLinear` | `1` \| `0` | off | — | yes | Lay the Halbach bench out as a linear array instead of a ring (read when the bench is created; share links switch it live). |
 | `audio` | `1` \| `0` | off | — | — | Lab sonification (spark clicks, coil buzz, SEG drone, MHD flow bed). Arms the graph; an `AudioContext` still waits for a user gesture, and the header badge mutes it — [`LAB_AUDIO.md`](./LAB_AUDIO.md). |
+| `offline` / `sw` | `1` \| `0` | on (production http(s) boots) | — | — | Offline PWA service worker: precaches the hashed build, WASM and GLBs so a classroom boots without a network, and asks before applying an update. `0` skips registration **and** unregisters a worker from an earlier visit (the kill switch for a bad deploy). Dev, `file:` and plain-http LAN hosts never register — [`CLASSROOM.md`](./CLASSROOM.md). |
+| `recordControl` | `1` \| `0` | on | — | — | The Record row (10 / 30 / 60 s clips, burned-in timestamp and disclaimer) in the Telemetry Export panel. `0` hides it; `window.recordBench(seconds)` stays available — [`CLASSROOM.md`](./CLASSROOM.md). |
 | `embed` | `1` \| `0` | off | — | — | Embed mode: hide the dashboard chrome and accept the typed `postMessage` protocol from `embedOrigins` — [`EMBED.md`](./EMBED.md). |
 | `embedOrigins` | comma-separated origins | this page's own origin only | — | — | Origins allowed to drive an `?embed=1` lab over `postMessage` (exact `scheme://host[:port]` matches; `*` is refused). The parent page's messages from anywhere else are ignored. |
 | `experiment` | experiment id | none | — | yes | Open the experiment panel on this reference experiment (`src/experiments/*.experiment.json`) — [`EXPERIMENTS.md`](./EXPERIMENTS.md). |
@@ -501,6 +503,9 @@ switch; `#device-readout` is named `"<bench> readout"`.
 | `src/devices/quanta/fdtd-slice-pass.ts` | WebGPU wave-slice pass (pulse-coil focus, lazily built) |
 | `src/fdtd-heatmap-overlay.ts` | WebGL2 64² CPU micro-grid readout of the same kernel — ADR-0012 |
 | `src/audio/*` | Lab sonification: pure telemetry→parameter mapping, Web Audio graph, header mute badge — [`LAB_AUDIO.md`](./LAB_AUDIO.md) |
+| `src/classroom/*` | Classroom delivery (lazy chunk from `main.ts`): service-worker registration + "Update available" prompt, Record control, lazy recorder (`window.recordBench`) — [`CLASSROOM.md`](./CLASSROOM.md) |
+| `scripts/vite-plugin-precache.mjs` | Build step: writes `dist/sw.js` (precache list + content-hash version) from `src/classroom/sw-template.js` — [`CLASSROOM.md`](./CLASSROOM.md) |
+| `src/camera-controller.ts` + `camera-touch.ts` / `camera-gestures.ts` | Camera input: mouse inline; touch / pen (orbit, pan, pinch, double-tap focus) in a lazy chunk — [`CLASSROOM.md`](./CLASSROOM.md#touch-camera) |
 | `src/integration.ts` | Typed physics uniforms + scientific overlay hooks |
 | `src/wasm/seg-physics-bridge.ts` | Optional WASM step + zero-copy views |
 | `src/hardware-bridge.ts` / `hardware-panel.ts` | Hardware twin protocol + panel (**experimental**) |
@@ -582,7 +587,10 @@ npm run dev               # or run dev manually, then: npx playwright test
 ```
 
 Covers page boot, START → telemetry, mode focus, `captureCanvasFrame`, and optional `?wasmPhysics=1`
-(each WASM-backed plugin device has a `setMode(id)` + plant smoke and a JS-fallback pair).
+(each WASM-backed plugin device has a `setMode(id)` + plant smoke and a JS-fallback pair),
+plus touch gestures and recording (`e2e/classroom.spec.js`). The offline PWA needs a
+production build: `npm run test:e2e:offline` runs `e2e/*.preview.js` against `vite preview`
+on port 4183 ([`CLASSROOM.md`](./CLASSROOM.md#tests)).
 CI: `validate.yml` job **Playwright (WebGL2)** on PRs.
 
 Manual / agent checks (WebGPU needs a real GPU):
@@ -616,6 +624,8 @@ Manual / agent checks (WebGPU needs a real GPU):
 | [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) | Devices & plugins |
 | [`SEG_EXPLAINER.md`](./SEG_EXPLAINER.md) | Guided learning / share links |
 | [`LAB_CONFIG.md`](./LAB_CONFIG.md) | LabConfig schema, precedence, `#lab2=` links, `.lab.json`, `window.lab` |
+| [`CLASSROOM.md`](./CLASSROOM.md) | Offline PWA + update prompt, touch gestures, video recording |
+| [`LAB_AUDIO.md`](./LAB_AUDIO.md) | Lab sonification (`?audio=1`) |
 | [`hardware_connection.md`](./hardware_connection.md) | Twin protocol |
 | [`../cpp/README.md`](../cpp/README.md) | WASM core |
 | [`../CLAUDE.md`](../CLAUDE.md) | Short agent checklist (keep in sync with this file) |

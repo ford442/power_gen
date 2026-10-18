@@ -76,6 +76,9 @@ jobs:
       - name: Reference experiments headless (expect blocks, wasm + js)
         run: npm run test:experiments
 
+      - name: Classroom (PWA precache, recorder helpers) + touch camera gestures
+        run: npm run test:classroom && npm run test:camera-gestures
+
       - name: Build site (no WASM rebuild)
         run: npm run build:site
 
