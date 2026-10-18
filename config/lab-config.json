@@ -477,6 +477,16 @@
       "doc": "Origins allowed to drive an `?embed=1` lab over `postMessage` (exact `scheme://host[:port]` matches; `*` is refused). The parent page's messages from anywhere else are ignored."
     },
     {
+      "key": "teacher",
+      "type": "bool",
+      "default": false,
+      "url": ["teacher"],
+      "share": false,
+      "live": false,
+      "group": "embed",
+      "doc": "Open the teacher console: broadcast a config / experiment to every student tab of this lab on the same origin (`BroadcastChannel('seg-lab')`) and see a roster — [`EMBED.md`](./EMBED.md)."
+    },
+    {
       "key": "experiment",
       "type": "string",
       "default": null,

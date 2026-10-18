@@ -35,6 +35,9 @@ No backend, database, or server-side service.
 - Hooks: `window.getRendererInfo()`, `window.captureCanvasFrame({ flipY: true })`.
 - WebGL2 visual gaps: **`docs/WEBGL2.md`**. Telemetry: **`docs/TELEMETRY.md`**.
 - Offline WGSL: `npm run check:wgsl` (naga). See **`docs/SHADERS.md`**.
+- Embed: `?embed=1&embedOrigins=<origin>` (canvas + badge, postMessage
+  protocol); parent demo at `/embed-demo.html`; teacher console `?teacher=1`.
+  See **`docs/EMBED.md`**.
 - Query-param matrix: **`docs/AGENTS.md`**.
 
 ### C++ WASM physics path

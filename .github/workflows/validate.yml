@@ -70,6 +70,9 @@ jobs:
       - name: LabConfig parser, precedence, #lab2= share links
         run: npm run test:lab-config
 
+      - name: Embed postMessage protocol, origin allowlist, classroom channel
+        run: npm run test:embed
+
       - name: Build site (no WASM rebuild)
         run: npm run build:site
 

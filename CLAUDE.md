@@ -96,6 +96,7 @@ npm run codegen:catalog  # physics/devices.json → TS/C++/WGSL/docs
 npm run codegen:lab-config # config/lab-config.json → generated/lab-config.ts + docs/AGENTS.md matrix
 npm run check:lab-config # drift + no raw location.search/hash/localStorage outside src/config/
 npm run test:lab-config  # parser, precedence, #lab=v1 mapping, #lab2= round-trip
+npm run test:embed      # embed postMessage validator, origin allowlist, hz clamp, classroom channel
 npm run validate      # constants + catalog + typecheck + native C++ + check:post + WGSL
 npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline

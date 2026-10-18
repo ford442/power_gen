@@ -19,6 +19,7 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 | **Lab session** | `src/session/lab-session.ts` — operator, WASM plant, telemetry, energy, twin |
 | **Renderer choice** | `src/renderers/renderer-selector.ts` |
 | **Lab config** | `config/lab-config.json` → `generated/lab-config.ts`; the one URL / share-hash / storage reader is `src/config/lab-config.ts` — see [`LAB_CONFIG.md`](./LAB_CONFIG.md) |
+| **Embed / classroom** | `src/embed/` — `?embed=1` postMessage endpoint, teacher console on `BroadcastChannel('seg-lab')` — see [`EMBED.md`](./EMBED.md) |
 | **Device list** | `src/devices/device-registry.ts` + `src/devices/device-config.ts` (`DEVICE_CONFIG`) |
 | **Shaders** | `src/shaders/` — see [`SHADERS.md`](./SHADERS.md) |
 | **C++ / WASM physics** | `cpp/src/sim_core.*` + `src/wasm/seg-physics-bridge.ts` |
@@ -391,6 +392,7 @@ raw `location.search` / `localStorage` access anywhere else in `src/`.
 | `audio` | `1` \| `0` | off | — | — | Lab sonification (spark clicks, coil buzz, SEG drone, MHD flow bed). Arms the graph; an `AudioContext` still waits for a user gesture, and the header badge mutes it — [`LAB_AUDIO.md`](./LAB_AUDIO.md). |
 | `embed` | `1` \| `0` | off | — | — | Embed mode: hide the dashboard chrome and accept the typed `postMessage` protocol from `embedOrigins` — [`EMBED.md`](./EMBED.md). |
 | `embedOrigins` | comma-separated origins | this page's own origin only | — | — | Origins allowed to drive an `?embed=1` lab over `postMessage` (exact `scheme://host[:port]` matches; `*` is refused). The parent page's messages from anywhere else are ignored. |
+| `teacher` | `1` \| `0` | off | — | — | Open the teacher console: broadcast a config / experiment to every student tab of this lab on the same origin (`BroadcastChannel('seg-lab')`) and see a roster — [`EMBED.md`](./EMBED.md). |
 | `experiment` | experiment id | none | — | yes | Open the experiment panel on this reference experiment (`src/experiments/*.experiment.json`) — [`EXPERIMENTS.md`](./EXPERIMENTS.md). |
 | `mode` | device id \| `overview` | overview | — | yes | Focused bench at boot (any catalog device id, or `overview`). |
 
@@ -612,6 +614,7 @@ Manual / agent checks (WebGPU needs a real GPU):
 | [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) | Devices & plugins |
 | [`SEG_EXPLAINER.md`](./SEG_EXPLAINER.md) | Guided learning / share links |
 | [`LAB_CONFIG.md`](./LAB_CONFIG.md) | LabConfig schema, precedence, `#lab2=` links, `.lab.json`, `window.lab` |
+| [`EMBED.md`](./EMBED.md) | `?embed=1` postMessage protocol + origin allowlist, teacher console (`BroadcastChannel('seg-lab')`), `embed-demo.html` |
 | [`hardware_connection.md`](./hardware_connection.md) | Twin protocol |
 | [`../cpp/README.md`](../cpp/README.md) | WASM core |
 | [`../CLAUDE.md`](../CLAUDE.md) | Short agent checklist (keep in sync with this file) |

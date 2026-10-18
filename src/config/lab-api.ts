@@ -1,10 +1,10 @@
 /**
  * `window.lab` — the console / agent / embed surface for LabConfig (#224 §1).
  *
- * The entry chunk carries only this table of lazy hooks plus a drop listener
- * for `.lab.json` files; loading, exporting and the share dialog are their own
- * chunks. Experiments (§3) and snapshots (§2) add their methods here when
- * their chunks install.
+ * The entry chunk carries only this table of lazy hooks; loading, exporting,
+ * the share dialog and the `.lab.json` drop target (lab-post-boot.ts) are
+ * their own chunks. Experiments (§3) and snapshots (§2) add their methods
+ * here when their chunks install.
  */
 import {
   labConfig,
@@ -38,37 +38,14 @@ export interface LabApi {
   downloadLabFile(name?: string): Promise<void>;
   /** Installed by the experiments chunk (§3): show / run an experiment by id. */
   openExperiment?: (id: string) => void;
+  /** Teacher console: broadcast to this lab's other tabs (src/embed/, EMBED.md). */
+  openTeacherConsole(): Promise<void>;
+  /** Under `?embed=1`: the origins the postMessage endpoint answers. */
+  embedOrigins?: () => string[];
   [extra: string]: unknown;
 }
 
 const lazyFile = (): Promise<typeof import('./lab-file')> => import('./lab-file');
-
-/** True for a drag that carries at least one file (we cannot see names until drop). */
-function dragHasFiles(e: DragEvent): boolean {
-  return !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
-}
-
-function installLabFileDrop(): void {
-  if (typeof document === 'undefined') return;
-  document.addEventListener('dragover', (e) => {
-    if (dragHasFiles(e)) e.preventDefault();
-  });
-  document.addEventListener('drop', (e) => {
-    const file = Array.from(e.dataTransfer?.files ?? []).find((f) => /\.lab\.json$/i.test(f.name));
-    if (!file) return;
-    e.preventDefault();
-    void lazyFile()
-      .then((m) => m.loadLabFile(file))
-      .then((r) => setLabStatus(`Loaded ${file.name}: ${r.applied.length} setting(s)${r.reloading ? ' — reloading' : ''}`))
-      .catch((err: unknown) => setLabStatus(`Could not load ${file.name}: ${err instanceof Error ? err.message : String(err)}`));
-  });
-}
-
-function setLabStatus(text: string): void {
-  console.info(`[lab] ${text}`);
-  const el = document.getElementById('explainerStatus');
-  if (el) el.textContent = text;
-}
 
 export function installLabApi(): void {
   if (typeof window === 'undefined') return;
@@ -82,8 +59,10 @@ export function installLabApi(): void {
     shareLink: () => import('../seg-explainer/lab-url').then((m) => m.shareLabLink()),
     openShareDialog: () => import('./share-dialog').then((m) => m.openShareDialog()),
     exportLabFile: () => lazyFile().then((m) => m.exportLabFile()),
-    downloadLabFile: (name) => lazyFile().then((m) => m.downloadLabFile(name))
+    downloadLabFile: (name) => lazyFile().then((m) => m.downloadLabFile(name)),
+    openTeacherConsole: () => import('../embed/teacher-console').then((m) => void m.openTeacherConsole())
   };
   window.lab = api;
-  installLabFileDrop();
+  // Before first paint, so an embedded lab never flashes the dashboard chrome.
+  if (labConfig().embed) document.documentElement.dataset.labEmbed = '';
 }

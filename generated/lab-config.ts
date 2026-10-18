@@ -80,6 +80,7 @@ export interface LabConfig {
   audio: boolean;
   embed: boolean;
   embedOrigins: readonly string[];
+  teacher: boolean;
   experiment: string | null;
   mode: string | null;
   drive: number | null;
@@ -138,6 +139,7 @@ const ROWS: readonly LabFieldRow[] = [
   { key: 'audio', type: 'bool', default: false },
   { key: 'embed', type: 'bool', default: false },
   { key: 'embedOrigins', type: 'list', default: [] },
+  { key: 'teacher', type: 'bool', default: false },
   { key: 'experiment', type: 'string', default: null, pattern: "^[a-z0-9][a-z0-9-]{0,63}$", share: true, live: true },
   { key: 'mode', type: 'string', default: null, pattern: "^[a-z0-9][a-z0-9-]{0,31}$", share: true, live: true },
   { key: 'drive', type: 'number', default: null, min: 0, max: 1, url: [], share: true, live: true },
@@ -157,4 +159,4 @@ export const LAB_CONFIG_DEFAULTS = Object.fromEntries(
 ) as unknown as Readonly<LabConfig>;
 
 /** Hash of the field specs — versions `.lab.json` and #lab2= payloads. */
-export const LAB_CONFIG_SCHEMA_HASH = 'd539cbe47be9';
+export const LAB_CONFIG_SCHEMA_HASH = '1480f89235b8';
