@@ -151,6 +151,8 @@ export async function applyLabConfig(c: Partial<LabConfig>): Promise<void> {
 
   const tour = tourForMode(c.mode);
   const step = c.tourStep ?? null;
+  // The scripts are a lazy chunk; the step lookup below needs this one's.
+  if (tour && (c.tour || c.highlight || step != null)) await tour.ready().catch(() => undefined);
   if (c.tour && tour) {
     if (c.highlight) {
       const idx = tour._findStepForHighlight(c.highlight);

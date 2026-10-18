@@ -1305,6 +1305,13 @@ test.describe('Lab charge coupling', () => {
 
 // Explainer tours that ship their own script (LAB_TOURS registry).
 test.describe('Device explainer tours', () => {
+  // The scripts are a lazy chunk (seg-tour-player.ts warms it after boot); a
+  // first start can wait on it, and a starved SwiftShader runner serves the
+  // dev server's modules slowly.
+  test.describe.configure({ timeout: 300_000 });
+  const TOUR_START = { timeout: 90_000 };
+  // A #lab= link is applied during boot, so its wait covers boot + the chunk.
+  const BOOT_AND_TOUR = { timeout: 180_000 };
 
   // Every LAB_TOURS handle on window; the "only one plays" checks read this.
   const ALL_TOUR_KEYS = [
@@ -1381,7 +1388,7 @@ test.describe('Device explainer tours', () => {
 
       await waitForEval(page,
         () => window[window.__tourUnderTest]?.playing === true,
-        { timeout: 15_000 }
+        TOUR_START
       );
 
       const snap = await page.evaluate((k) => {
@@ -1416,7 +1423,7 @@ test.describe('Device explainer tours', () => {
       window.startHallTour();
       window.startKelvinTour();
     });
-    await waitForEval(page, () => window.kelvinTour?.playing === true, { timeout: 15_000 });
+    await waitForEval(page, () => window.kelvinTour?.playing === true, TOUR_START);
 
     const viaHooks = await page.evaluate((keys) => ({
       playing: keys
@@ -1454,7 +1461,7 @@ test.describe('Device explainer tours', () => {
       window.startKelvinTour();
       window.kelvinTour.goToStep(3);
     });
-    await waitForEval(page, () => window.kelvinTour?.stepIndex === 3, { timeout: 15_000 });
+    await waitForEval(page, () => window.kelvinTour?.stepIndex === 3, TOUR_START);
 
     const ceiling = await page.evaluate(() => {
       const overlay = [...document.querySelectorAll('#seg-tour-overlay')]
@@ -1466,7 +1473,7 @@ test.describe('Device explainer tours', () => {
     expect(ceiling).not.toMatch(/sphere|belt/i);
 
     await page.evaluate(() => window.kelvinTour.goToStep(4));
-    await waitForEval(page, () => window.kelvinTour?.stepIndex === 4, { timeout: 15_000 });
+    await waitForEval(page, () => window.kelvinTour?.stepIndex === 4, TOUR_START);
 
     const breakdown = await page.evaluate(() => {
       const overlay = [...document.querySelectorAll('#seg-tour-overlay')]
@@ -1493,7 +1500,7 @@ test.describe('Device explainer tours', () => {
 
     await waitForEval(page,
       () => window.hallTour?.playing === true && window.hallTour?.stepIndex === 2,
-      { timeout: 60_000 }
+      BOOT_AND_TOUR
     );
 
     const snap = await page.evaluate(() => ({
@@ -1526,7 +1533,7 @@ test.describe('Device explainer tours', () => {
       await waitForEval(page,
         () => window[window.__tourUnderTest]?.playing === true
           && window[window.__tourUnderTest]?.stepIndex === 2,
-        { timeout: 60_000 }
+        BOOT_AND_TOUR
       );
 
       const snap = await page.evaluate((k) => ({
@@ -1554,7 +1561,7 @@ test.describe('Device explainer tours', () => {
     expect(ids).toContain('explainerShareBtn');
 
     await page.evaluate(() => document.getElementById('explainerPulseCoilTourBtn').click());
-    await waitForEval(page, () => window.pulseCoilTour?.playing === true, { timeout: 15_000 });
+    await waitForEval(page, () => window.pulseCoilTour?.playing === true, TOUR_START);
     const view = await page.evaluate(() => window.multiVisualizer?.currentView);
     expect(view).toBe('pulse-coil');
   });

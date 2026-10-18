@@ -315,16 +315,19 @@ function findKey(obj, key) {
 // ── 6b. Tours: every glossary term a step names exists ─────────────────────
 {
   const tp = await importTsBundle('src/seg-explainer/seg-tour-player.ts');
+  const ts = await importTsBundle('src/seg-explainer/tour-scripts.ts');
   const gl = await importTsBundle('src/seg-explainer/seg-glossary.ts');
   const missing = [];
+  check('every LAB_TOURS row has a script (tour-scripts.ts)', tp.LAB_TOURS.every((d) => ts.TOUR_SCRIPTS[d.key]?.steps?.length),
+    tp.LAB_TOURS.filter((d) => !ts.TOUR_SCRIPTS[d.key]).map((d) => d.key).join(', '));
   for (const def of tp.LAB_TOURS) {
-    for (const step of def.script.steps || []) {
+    for (const step of ts.TOUR_SCRIPTS[def.key]?.steps || []) {
       if (step.glossaryTerm && !gl.SEG_GLOSSARY[step.glossaryTerm]) missing.push(`${def.key}:${step.id}→${step.glossaryTerm}`);
     }
   }
   check('every tour step\'s glossaryTerm resolves (a missing one silently shows nothing)', missing.length === 0, missing.join(', '));
   const tube = tp.LAB_TOURS.find((t) => t.mode === 'drop-tube');
-  const last = tube?.script.steps.at(-1);
+  const last = tube && ts.TOUR_SCRIPTS[tube.key].steps.at(-1);
   check('drop-tube tour closes on what the model is not', /not/i.test(last?.title ?? '') && /thermal/i.test(last?.body ?? '')
     && /not a brake-design tool/i.test(last?.body ?? ''), last?.title ?? 'no drop-tube tour');
 }

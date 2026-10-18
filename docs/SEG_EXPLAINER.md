@@ -31,10 +31,15 @@ Tour drives:
 
 Every bench except the SEG itself ships its own script alongside the SEG tour,
 played by the same `SEGTourPlayer` from the **SEG Learning** sidebar. Every
-script, its window hooks, its `#lab=` mapping and its sidebar button come from
-the one registry `LAB_TOURS` in `seg-tour-player.ts` — adding a tour is one row
+tour's window hooks, its `#lab=` mapping and its sidebar button come from the
+one registry `LAB_TOURS` in `seg-tour-player.ts` — adding a tour is one row
 there (with a `label` for the button, which `explainer-ui.ts` generates into
-`#explainerTourRow`) plus the JSON, not four edits:
+`#explainerTourRow`), the JSON, and its line in `tour-scripts.ts`, not four
+edits. The scripts are one lazy chunk (`tour-scripts.ts`, kept out of the entry
+bundle): a player fetches it on its first start, so `start()` /
+`goToStep()` resolve once the tour is playing and `ready()` resolves once the
+script is in. Two starts while it loads behave as they do afterwards — the
+latest wins, and a `stop()` cancels a pending start:
 
 | Tour | Script | Steps | API |
 |------|--------|-------|-----|

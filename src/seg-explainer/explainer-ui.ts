@@ -68,8 +68,12 @@ export function initExplainerUI(): ExplainerUIHandle {
       for (const other of LAB_TOURS) {
         if (tours[other.key].playing) tours[other.key].stop();
       }
-      if (!wasPlaying) player.start(0);
-      setStatus(player.playing ? def.status : 'Tour ended');
+      if (wasPlaying) {
+        setStatus('Tour ended');
+        return;
+      }
+      // A first start fetches the tour-scripts chunk before it plays.
+      void player.start(0).then(() => setStatus(player.playing ? def.status : 'Tour ended'));
     });
   }
 
