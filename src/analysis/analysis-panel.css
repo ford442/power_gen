@@ -1,0 +1,161 @@
+/*
+ * Analysis panel (#224 §4). Imported `?inline` by analysis-panel.ts only, so it
+ * ships inside the lazy chunk — the entry JS and CSS do not grow. The dashboard is dark
+ * only; series colours are the validated dark categorical slots
+ * (analysis-panel.ts SERIES_COLORS) on --an-surface.
+ */
+.analysis-panel {
+  --an-surface: #0a1420;
+  --an-raised: #0f1c2a;
+  --an-border: #1f3a48;
+  --an-ink: #d6ebf0;
+  --an-ink-2: #9fbcc4;
+  --an-ink-3: #6f8d96;
+  --an-accent: #00e5ff;
+  --an-good: #2fbf71;
+  --an-bad: #ef5b5b;
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 16px;
+  background: rgba(0, 4, 8, 0.6);
+  overflow-y: auto;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+.analysis-panel[hidden] { display: none; }
+
+.analysis-dialog {
+  width: min(980px, 100%);
+  background: var(--an-surface);
+  border: 1px solid var(--an-border);
+  border-radius: 6px;
+  padding: 12px 14px 14px;
+  color: var(--an-ink);
+  font-size: 0.78rem;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+}
+
+.analysis-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.analysis-head h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--an-accent);
+}
+.analysis-disclaimer {
+  padding: 2px 8px;
+  border: 1px solid #a8801f;
+  border-radius: 10px;
+  color: #f2cf73;
+  font-size: 0.68rem;
+}
+.analysis-close {
+  margin-left: auto;
+  min-width: 32px;
+  min-height: 32px;
+  background: transparent;
+  border: 1px solid var(--an-border);
+  border-radius: 4px;
+  color: var(--an-ink);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.analysis-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 6px 0;
+}
+.analysis-row label { display: inline-flex; align-items: center; gap: 4px; color: var(--an-ink-2); }
+.analysis-panel select,
+.analysis-panel button {
+  font: inherit;
+  font-size: 0.74rem;
+  color: var(--an-ink);
+  background: var(--an-raised);
+  border: 1px solid var(--an-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  min-height: 28px;
+}
+.analysis-panel select { max-width: min(320px, 70vw); }
+.analysis-panel button { cursor: pointer; }
+.analysis-panel button:disabled { opacity: 0.45; cursor: default; }
+.analysis-panel button[aria-pressed='true'] { border-color: var(--an-accent); color: var(--an-accent); }
+.analysis-panel :focus-visible { outline: 2px solid var(--an-accent); outline-offset: 1px; }
+
+.analysis-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  max-height: 88px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--an-border);
+  border-radius: 4px;
+}
+.analysis-columns legend { padding: 0 4px; color: var(--an-ink-3); }
+
+.analysis-plots {
+  position: relative;
+  min-height: 160px;
+  margin-top: 6px;
+  border-radius: 4px;
+}
+.analysis-plots:focus-visible { outline: 2px solid var(--an-accent); }
+.analysis-plots .uplot { font-family: inherit; color: var(--an-ink-2); }
+.analysis-plots .u-legend { font-size: 0.7rem; color: var(--an-ink-2); }
+.analysis-plots .u-legend .u-series th { font-weight: normal; }
+.analysis-plots .u-select { background: rgba(0, 229, 255, 0.12); }
+.analysis-empty { padding: 32px 8px; color: var(--an-ink-3); text-align: center; }
+
+.analysis-readout {
+  display: block;
+  min-height: 1.3em;
+  margin-top: 4px;
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: var(--an-ink);
+  overflow-wrap: anywhere;
+}
+.analysis-fit {
+  margin: 6px 0 0;
+  font-family: monospace;
+  font-size: 0.74rem;
+  color: var(--an-ink);
+  overflow-wrap: anywhere;
+}
+.analysis-fit:empty { display: none; }
+.analysis-notes,
+.analysis-expects {
+  margin: 4px 0 0;
+  padding-left: 0;
+  list-style: none;
+  font-size: 0.72rem;
+  color: var(--an-ink-2);
+}
+.analysis-expects li { margin: 2px 0; }
+.analysis-expects .an-mark { display: inline-block; min-width: 3.6em; font-weight: 600; }
+.analysis-expects .pass .an-mark { color: var(--an-good); }
+.analysis-expects .fail .an-mark { color: var(--an-bad); }
+
+.analysis-foot { margin-top: 10px; border-top: 1px solid var(--an-border); padding-top: 8px; }
+.analysis-meta { color: var(--an-ink-3); font-size: 0.68rem; overflow-wrap: anywhere; }
+
+@media (max-width: 480px) {
+  .analysis-panel { padding: 0; }
+  .analysis-dialog { min-height: 100%; border-radius: 0; border-width: 0; padding: 10px 10px 12px; }
+}

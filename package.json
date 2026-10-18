@@ -86,6 +86,7 @@
   },
   "homepage": "https://ford442.github.io/power_gen/",
   "dependencies": {
-    "ktx-parse": "^2.0.0"
+    "ktx-parse": "^2.0.0",
+    "uplot": "1.6.32"
   }
 }

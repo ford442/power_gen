@@ -381,3 +381,18 @@ declare global {
 }
 
 export {};
+
+// Analysis panel (#224 §4) — set by src/analysis/entry.ts installAnalysisEntry().
+declare global {
+  interface Window {
+    /** Open the analysis panel (lazy chunk); ids: [main run, overlay run]. */
+    openAnalysis?: (runIds?: string[]) => Promise<void>;
+    /** Run store for experiment runners, console and e2e (src/analysis/run-store.ts). */
+    analysisRuns?: {
+      addRun: typeof import('./analysis/run-store').addRun;
+      listRuns: typeof import('./analysis/run-store').listRuns;
+      getRun: typeof import('./analysis/run-store').getRun;
+      clearRuns: typeof import('./analysis/run-store').clearRuns;
+    };
+  }
+}
