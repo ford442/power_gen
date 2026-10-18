@@ -2460,23 +2460,25 @@ test.describe('LabConfig share links v2 (#224 §1)', () => {
   });
 
   test('a dropped .lab.json loads; a junk #lab2= is ignored, not fatal', async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(480_000);
     const { pageErrors } = trackPageErrors(page);
     await page.goto('/?renderer=webgl2#lab2=zNOT-A-REAL-PAYLOAD', { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await waitForEval(page, () => window.currentRenderer === 'webgl2' && !!window.multiVisualizer?.devices?.transformer
       && !!window.lab, { timeout: 120_000 });
 
-    await page.evaluate(() => {
+    const taken = await page.evaluate(() => {
       const file = new File([JSON.stringify({
         format: 'seg-lab', version: 1, schema: 'x', config: { mode: 'transformer', heronLayout: 'tower' }
       })], 'bench.lab.json', { type: 'application/json' });
       const dt = new DataTransfer();
       dt.items.add(file);
-      document.body.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      return !document.body.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
     });
-    // The drop listener is there from boot; the loader is a lazy chunk.
+    // The drop listener is there from boot, so the drop is taken at once; the
+    // loader is a lazy lab-file → lab-url chain, 90 s+ in dev mode on SwiftShader.
+    expect(taken).toBe(true);
     await waitForEval(page, () => window.multiVisualizer?.currentView === 'transformer'
-      && window.multiVisualizer?.heronLayoutPreset === 'tower', { timeout: 150_000 });
+      && window.multiVisualizer?.heronLayoutPreset === 'tower', { timeout: 300_000 });
     expect(pageErrors).toEqual([]);
   });
 });
@@ -2581,7 +2583,8 @@ test.describe('Plant snapshots (#224 §2)', () => {
     await waitForEval(page, () => window.segOperator?.replayMode === true, { timeout: 60_000 });
     await expect(page.locator('#replayTakeOverBtn')).toBeEnabled();
 
-    await page.locator('#replayTakeOverBtn').click();
+    // DOM click: a locator click waits on frames, which SwiftShader starves.
+    await page.evaluate(() => document.getElementById('replayTakeOverBtn').click());
     // The click lazy-loads the snapshot chunk; slow in dev mode on SwiftShader.
     await expect(page.locator('#replayStatus')).toHaveText(/Took over from the t = 11\.00 s keyframe/, { timeout: 120_000 });
 
