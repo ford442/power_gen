@@ -629,6 +629,12 @@ function bootApp(): void {
       console.warn('[main] lab audio init skipped:', e);
     }
 
+    // Offline PWA + Record control (#224 §5, docs/CLASSROOM.md) — a lazy chunk;
+    // registers a service worker only on production http(s) boots.
+    import('./classroom/install')
+      .then((m) => m.installClassroom())
+      .catch((e) => console.warn('[main] classroom init skipped:', e));
+
     // After the explainer, audio and hardware panel exist: the mode bundle
     // reaches into all three.
     window.setLabMode = (mode) => setLabMode(mode, 'user');
