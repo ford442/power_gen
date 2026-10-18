@@ -153,6 +153,12 @@ export interface SEGSimulatorInstance {
     powerOutW: number;
     efficiency: number;
   };
+  /** Plant snapshot (#224 §2): floats in `mode`'s state vector. */
+  plantStateSize?(mode: number): number;
+  /** Writes `mode`'s state into the scratch; returns the float count. */
+  plantSave?(mode: number): number;
+  /** Reads `count` scratch floats into `mode`'s plant; false on a layout / count / NaN refusal. */
+  plantLoad?(mode: number, count: number, layoutHash: number): boolean;
   /** Byte offset into WASM heap (use with HEAPF32) */
   getParticleBufferPtr?(): number;
   getParticleFloatCount?(): number;
@@ -181,6 +187,8 @@ export interface SimCoreModule {
   chores_reduce_f32_scratch?(count: number): ChoresReduceRaw;
   /** In place over the first `count` scratch floats. */
   chores_map_scale_f32_scratch?(count: number, scale: number, bias: number): void;
+  /** PLANT_STATE_LAYOUT_HASH this binary was built with. */
+  plant_state_layout_hash?(): number;
 }
 
 export type SimCoreFactory = (opts?: Record<string, unknown>) => Promise<SimCoreModule>;

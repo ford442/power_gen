@@ -223,6 +223,16 @@ export class PlantWorkerHost {
     };
   }
 
+  /**
+   * The worker, for plant snapshot calls (#224 §2: `plantSave` / `plantLoad`,
+   * driven by session/lab-snapshot.ts) — null unless it is up with sim_core.
+   * Their replies carry no `seq`, so `onMessage` ignores them; the worker
+   * handles messages in order, so a save sees every batch posted before it.
+   */
+  snapshotPort(): Worker | null {
+    return this.failed || !this.ready || !this.wasmAvailable ? null : this.worker;
+  }
+
   dispose(): void {
     this.worker.terminate();
     this.failed = true;

@@ -33,6 +33,7 @@ export function initReplayUI(): void {
   const playBtn = $('replayPlayBtn') as HTMLButtonElement | null;
   const stepBtn = $('replayStepBtn') as HTMLButtonElement | null;
   const exitBtn = $('replayExitBtn') as HTMLButtonElement | null;
+  const takeOverBtn = $('replayTakeOverBtn') as HTMLButtonElement | null;
   const openBtn = $('replayOpenBtn') as HTMLButtonElement | null;
   const fileInput = $('replayFileInput') as HTMLInputElement | null;
   const scrub = $('replayScrub') as HTMLInputElement | null;
@@ -60,6 +61,8 @@ export function initReplayUI(): void {
     }
     if (stepBtn) stepBtn.disabled = !s.loaded;
     if (exitBtn) exitBtn.disabled = !s.loaded;
+    // Only files recorded with plant snapshot keyframes can be taken over.
+    if (takeOverBtn) takeOverBtn.disabled = !s.loaded || !replayPlayer.replay?.keyframes?.length;
     if (scrub) {
       const max = Math.max(s.duration, 0.001);
       scrub.max = String(max);
@@ -87,6 +90,11 @@ export function initReplayUI(): void {
   exitBtn?.addEventListener('click', () => {
     replayPlayer.exit();
     if (!isReplayQueryEnabled()) setReplayBarVisible(false);
+  });
+  takeOverBtn?.addEventListener('click', () => {
+    void import('../session/lab-snapshot')
+      .then((m) => m.takeOverReplay())
+      .then((msg) => { if (statusEl) statusEl.textContent = msg; });
   });
 
   const pick = () => fileInput?.click();

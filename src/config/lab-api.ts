@@ -3,8 +3,8 @@
  *
  * The entry chunk carries only this table of lazy hooks plus a drop listener
  * for `.lab.json` files; loading, exporting and the share dialog are their own
- * chunks. Experiments (§3) and snapshots (§2) add their methods here when
- * their chunks install.
+ * chunks. Snapshots (§2) are lazy stubs here too (session/lab-snapshot.ts);
+ * experiments (§3) add their methods when their chunk installs.
  */
 import {
   labConfig,
@@ -14,6 +14,7 @@ import {
   type LabConfigSource
 } from './lab-config';
 import type { LabFile, LabLoadResult } from './lab-file';
+import type { PlantSnapshot } from '../session/plant-snapshot';
 
 export interface LabApi {
   /** Resolved config for this page load (URL > share hash > storage > default). */
@@ -36,12 +37,17 @@ export interface LabApi {
   exportLabFile(): Promise<LabFile>;
   /** Download {@link exportLabFile} as `<name>.lab.json`. */
   downloadLabFile(name?: string): Promise<void>;
+  /** Plant snapshot (§2): every plant, the operator, clock and seed — docs/SNAPSHOTS.md. */
+  captureSnapshot(): Promise<PlantSnapshot>;
+  /** Restore a {@link captureSnapshot} object; false when it is not one or the C++ plant refused it. */
+  restoreSnapshot(state: unknown): Promise<boolean>;
   /** Installed by the experiments chunk (§3): show / run an experiment by id. */
   openExperiment?: (id: string) => void;
   [extra: string]: unknown;
 }
 
 const lazyFile = (): Promise<typeof import('./lab-file')> => import('./lab-file');
+const lazySnapshot = (): Promise<typeof import('../session/lab-snapshot')> => import('../session/lab-snapshot');
 
 /** True for a drag that carries at least one file (we cannot see names until drop). */
 function dragHasFiles(e: DragEvent): boolean {
@@ -82,7 +88,9 @@ export function installLabApi(): void {
     shareLink: () => import('../seg-explainer/lab-url').then((m) => m.shareLabLink()),
     openShareDialog: () => import('./share-dialog').then((m) => m.openShareDialog()),
     exportLabFile: () => lazyFile().then((m) => m.exportLabFile()),
-    downloadLabFile: (name) => lazyFile().then((m) => m.downloadLabFile(name))
+    downloadLabFile: (name) => lazyFile().then((m) => m.downloadLabFile(name)),
+    captureSnapshot: () => lazySnapshot().then((m) => m.captureLabSnapshot()),
+    restoreSnapshot: (state) => lazySnapshot().then((m) => m.restoreLabSnapshot(state))
   };
   window.lab = api;
   installLabFileDrop();

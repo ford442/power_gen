@@ -102,17 +102,26 @@ int run_snapshots() {
             fail(id, "save → load → save is not the identity");
         }
 
-        advance(a, SNAP_N);
-        advance(b, SNAP_N);
-        const std::vector<float> va = save(a, mode);
-        const std::vector<float> vb = save(b, mode);
+        // Every frame, not just the last: a missed accumulator can diverge for
+        // a window and then re-converge.
+        std::vector<float> va;
         int diverged = -1;
-        for (size_t i = 0; i < va.size(); ++i) {
-            if (!bits_equal(va[i], vb[i])) { diverged = static_cast<int>(i); break; }
+        int frame = 0;
+        while (diverged < 0 && frame < SNAP_N) {
+            advance(a, 1);
+            advance(b, 1);
+            ++frame;
+            va = save(a, mode);
+            const std::vector<float> vb = save(b, mode);
+            for (size_t i = 0; i < va.size(); ++i) {
+                if (!bits_equal(va[i], vb[i])) { diverged = static_cast<int>(i); break; }
+            }
+            if (diverged >= 0) {
+                std::fprintf(stderr, "FAIL: snapshots %s: diverged at frame +%d, index %d (%.9g vs %.9g)\n",
+                             id, frame, diverged, static_cast<double>(va[diverged]), static_cast<double>(vb[diverged]));
+            }
         }
         if (diverged >= 0) {
-            std::fprintf(stderr, "FAIL: snapshots %s: diverged after %d frames at index %d (%.9g vs %.9g)\n",
-                         id, SNAP_N, diverged, static_cast<double>(va[diverged]), static_cast<double>(vb[diverged]));
             bad = 1;
             continue;
         }

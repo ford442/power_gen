@@ -86,6 +86,20 @@ jobs:
       - name: Native sim_core smoke test
         run: npm run wasm:native
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Needs the native binary above: native + shipped-wasm + TS plant
+      # snapshot round trips (bit-identical) and the JS → C++ cross-load.
+      - name: Plant snapshots (save → load → step, every backend)
+        run: npm run test:snapshots
+
       # Probes for a compiler whose ASan/UBSan runtimes link and run; skips
       # (exit 0) on images without them, so this never reds a gcc-only job.
       - name: Native sim_core under ASan + UBSan

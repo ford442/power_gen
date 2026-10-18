@@ -438,6 +438,11 @@ export class TelemetryHub {
     this.sampler.clear();
   }
 
+  /** Put the session clock back to a plant snapshot's `t` (#224 §2). */
+  setSimTimeS(t: number): void {
+    if (Number.isFinite(t) && t >= 0) this._simTimeS = t;
+  }
+
   /** Record telemetry for N seconds of simulation time. */
   startRecording(durationSec = 10, sampleHz?: number): void {
     if (sampleHz != null) this.sampler.setSampleHz(sampleHz);
