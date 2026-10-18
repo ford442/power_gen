@@ -474,6 +474,9 @@ switch; `#device-readout` is named `"<bench> readout"`.
 | `src/devices/quanta/fdtd-slice-pass.ts` | WebGPU wave-slice pass (pulse-coil focus, lazily built) |
 | `src/fdtd-heatmap-overlay.ts` | WebGL2 64² CPU micro-grid readout of the same kernel — ADR-0012 |
 | `src/audio/*` | Lab sonification: pure telemetry→parameter mapping, Web Audio graph, header mute badge — [`LAB_AUDIO.md`](./LAB_AUDIO.md) |
+| `src/classroom/*` | Classroom delivery (lazy chunk from `main.ts`): service-worker registration + "Update available" prompt, Record control, lazy recorder (`window.recordBench`) — [`CLASSROOM.md`](./CLASSROOM.md) |
+| `scripts/vite-plugin-precache.mjs` | Build step: writes `dist/sw.js` (precache list + content-hash version) from `src/classroom/sw-template.js` — [`CLASSROOM.md`](./CLASSROOM.md) |
+| `src/camera-controller.ts` + `camera-touch.ts` / `camera-gestures.ts` | Camera input: mouse inline; touch / pen (orbit, pan, pinch, double-tap focus) in a lazy chunk — [`CLASSROOM.md`](./CLASSROOM.md#touch-camera) |
 | `src/integration.ts` | Typed physics uniforms + scientific overlay hooks |
 | `src/wasm/seg-physics-bridge.ts` | Optional WASM step + zero-copy views |
 | `src/hardware-bridge.ts` / `hardware-panel.ts` | Hardware twin protocol + panel (**experimental**) |
@@ -555,7 +558,10 @@ npm run dev               # or run dev manually, then: npx playwright test
 ```
 
 Covers page boot, START → telemetry, mode focus, `captureCanvasFrame`, and optional `?wasmPhysics=1`
-(each WASM-backed plugin device has a `setMode(id)` + plant smoke and a JS-fallback pair).
+(each WASM-backed plugin device has a `setMode(id)` + plant smoke and a JS-fallback pair),
+plus touch gestures and recording (`e2e/classroom.spec.js`). The offline PWA needs a
+production build: `npm run test:e2e:offline` runs `e2e/*.preview.js` against `vite preview`
+on port 4183 ([`CLASSROOM.md`](./CLASSROOM.md#tests)).
 CI: `validate.yml` job **Playwright (WebGL2)** on PRs.
 
 Manual / agent checks (WebGPU needs a real GPU):
@@ -586,6 +592,8 @@ Manual / agent checks (WebGPU needs a real GPU):
 | [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) | SceneNode + glTF CAD props |
 | [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) | Devices & plugins |
 | [`SEG_EXPLAINER.md`](./SEG_EXPLAINER.md) | Guided learning / `#lab=` |
+| [`CLASSROOM.md`](./CLASSROOM.md) | Offline PWA + update prompt, touch gestures, video recording |
+| [`LAB_AUDIO.md`](./LAB_AUDIO.md) | Lab sonification (`?audio=1`) |
 | [`hardware_connection.md`](./hardware_connection.md) | Twin protocol |
 | [`../cpp/README.md`](../cpp/README.md) | WASM core |
 | [`../CLAUDE.md`](../CLAUDE.md) | Short agent checklist (keep in sync with this file) |

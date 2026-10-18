@@ -32,6 +32,21 @@ including `audio=0`, stays silent.
                                  flow bed           (mhdFlowU, mhdCurrent)
 ```
 
+**Recording tap.** While a classroom clip records, the compressor also feeds the
+recorder:
+
+```
+  compressor ──┬── destination (speakers, unchanged)
+               └── MediaStreamAudioDestinationNode ── video recorder
+```
+
+`createRecordingTap()` makes that branch for the classroom video recorder
+([`CLASSROOM.md`](./CLASSROOM.md#recording)); the speaker path is untouched. It
+returns `null` when audio is off, not yet started, or muted, so a clip then has no
+audio track at all. While a tap is open, muting ramps the bus to zero but skips the
+deferred suspend, so the clip's audio stays in step with its video;
+`releaseRecordingTap()` disconnects it (and suspends if muted).
+
 Four oscillator/noise voices, three filters, one compressor, one master gain.
 **No sample pack.** The noise bed is one second of `Math.random()` written into an
 `AudioBuffer` at startup and looped — smaller than any WAV and more honest,
@@ -88,7 +103,7 @@ clicks faster than they are distinguishable.
 | Web Audio graph | `src/audio/lab-audio.ts` |
 | Header badge / mute switch | `src/audio/lab-audio-badge.ts` |
 | Contract test | `npm run test:audio` → `scripts/test-lab-audio.mjs` |
-| Agent hook | `window.labAudio` (`start()`, `toggleMuted()`, `setMuted()`) |
+| Agent hook | `window.labAudio` (`start()`, `toggleMuted()`, `setMuted()`, `createRecordingTap()` / `releaseRecordingTap()`) |
 
 Both renderers get it: the module reads `TelemetryHub` only, so WebGPU and WebGL2
 behave identically and it costs the renderers nothing.
