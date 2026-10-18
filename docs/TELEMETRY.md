@@ -295,7 +295,7 @@ Ring-buffer sampling lives on `telemetryHub.sampler` (1–60 Hz). UI: left sideb
 | Download CSV | `window.exportTelemetryCsv()` — columns in `src/telemetry/telemetry-schema.ts`: the SEG/lab-bus base set (including optional `phase_error_deg`, `rpm_error`, `voltage_error_v`, `current_error_a`, `energy_residual_w`, `hw_connection_state`) followed by every catalog device column (`hall_voltage`, `lorentz_sled_vms`, …) |
 | Config JSON | `window.exportConfigJson()` — constants + layout + operator setpoints |
 | WASM offline 10s | **WASM 10s** — worker runs `SEGSimulator` headless, same CSV schema |
-| Replay file | v1 JSON: seed, layout presets, speed curve + samples (`src/telemetry/replay-format.ts`). Samples are CSV v2 rows, so a replay round-trips plugin telemetry, not only SEG RPM |
+| Replay file | v1 JSON: seed, layout presets, speed curve + samples (`src/telemetry/replay-format.ts`). Samples are CSV v2 rows, so a replay round-trips plugin telemetry, not only SEG RPM. Optional `keyframes: [{ t, snapshot }]` — plant snapshots taken every 2 s while recording ([SNAPSHOTS.md](SNAPSHOTS.md)) |
 | Replay scrubber | `?replay=1` or debug **Show replay scrubber** — drag-drop / file picker, play-pause-step. Parses in `src/workers/replay-worker.ts`. CSV load reconstructs a minimal replay. Live `publishFrame` and `segOperator.step()` are bypassed; gauges read injected hub snapshots. |
 | Benchmark pack | `window.exportBenchmarkPack()` — profiler FPS/memory snapshot |
 | Particle readback | `window.captureParticleSubset({ deviceId, maxCount })` (WebGPU, debug) |
@@ -322,6 +322,10 @@ Deterministic particles: set **RNG seed** in export panel or `localStorage seg-s
 2. Open `?replay=1` (or the debug-panel button) and load the file — parse runs in a Web Worker.
 3. Scrub / play / step. The header shows a **REPLAY** badge; `telemetryHub.getSnapshot().replay` is set; the sampler does not record replay frames. Device columns in the samples are fed back through `publishFrame({ devicePhysics })`, so `snap.devices.hall` / `vdg` / `lorentz-sled` restore alongside SEG.
 4. **×** exits replay and live plant / telemetry resume.
+5. **Take over** (files recorded with snapshot keyframes) restores the keyframe
+   at or before the cursor and runs the plant live from there — see
+   [SNAPSHOTS.md → Replay take-over](SNAPSHOTS.md#replay-take-over). Older files
+   have no keyframes and replay as before.
 
 ```js
 await window.loadReplayFile(file);          // JSON or CSV
