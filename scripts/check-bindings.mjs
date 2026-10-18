@@ -141,6 +141,31 @@ for (const f of fs.readdirSync(PASSES_DIR).filter((p) => p.endsWith('.wgsl'))) {
   if (parseWgsl(f).size > 0) fail(`${f} declares @group(0) bindings but maps to no layout in bind-group-schema.json`);
 }
 
+// Per-stage resource counts must fit the WebGPU core defaults: PREFERRED_LIMITS
+// (webgpu-init/adapter.ts) requests nothing, so a layout that outgrows a
+// default would fail createBindGroupLayout on every adapter at boot.
+{
+  const CORE_DEFAULTS = {
+    'storage buffers': [8, (k) => k === 'storage' || k === 'storage-ro'],
+    'uniform buffers': [12, (k) => k === 'uniform' || k === 'uniform-dynamic'],
+    'sampled textures': [16, (k) => k.startsWith('texture')],
+    'storage textures': [4, (k) => k.startsWith('storage-texture')],
+    samplers: [16, (k) => k === 'sampler']
+  };
+  for (const [what, [limit, match]] of Object.entries(CORE_DEFAULTS)) {
+    let peak = 0;
+    let where = '';
+    for (const [name, layout] of Object.entries(layouts)) {
+      for (const stage of 'VFC') {
+        const n = layout.entries.filter(([, st, kind]) => st.includes(stage) && match(kind)).length;
+        if (n > peak) { peak = n; where = `${name}/${stage}`; }
+      }
+    }
+    if (peak > limit) fail(`${where} uses ${peak} ${what} per stage; core default is ${limit} and PREFERRED_LIMITS requests none`);
+    else console.log(`  ok: ${what} per stage peak ${peak} (${where}) ≤ core default ${limit}`);
+  }
+}
+
 if (failures > 0) {
   console.error(`[check-bindings] ${failures} binding drift issue(s) across ${checked} layout(s)`);
   process.exit(1);

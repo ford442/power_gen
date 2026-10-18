@@ -37,7 +37,7 @@ Do **not** expect these under WebGL2:
 
 | Gap | WebGPU location |
 |-----|-----------------|
-| Bloom / tonemap / previous-frame post | `setupBloomPipeline` |
+| Bloom / tonemap / previous-frame post; linear-HDR colour pipeline (`?color=`, `?renderScale=` are WebGPU-only — WebGL2 output is unchanged) | `setupBloomPipeline`, `webgpu-init/color-pipeline.ts` |
 | RK4 magnetic flux line tracer | `fluxTracer` compute + segment billboards |
 | Energy arc meshes between rollers | `energyArc` pipeline |
 | SEG enhanced PBR + UV materials | `segEnhanced` shaders |

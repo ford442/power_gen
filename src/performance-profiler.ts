@@ -404,10 +404,20 @@ export class PerformanceProfiler {
   }
 
   // Track texture allocation. `sampleCount` > 1 (MSAA) multiplies the
-  // per-sample storage the GPU actually allocates for the attachment.
-  trackTexture(name: string, width: number, height: number, format: GPUTextureFormat, sampleCount = 1): TextureAllocation {
+  // per-sample storage the GPU actually allocates for the attachment;
+  // `byteSize` overrides the estimate (mip chains). Re-tracking a name — every
+  // resize does — replaces the old entry instead of adding to the total.
+  trackTexture(
+    name: string,
+    width: number,
+    height: number,
+    format: GPUTextureFormat,
+    sampleCount = 1,
+    byteSize?: number
+  ): TextureAllocation {
+    this.untrackTextures([name]);
     const bytesPerPixel = this.getBytesPerPixel(format);
-    const size = width * height * bytesPerPixel * sampleCount;
+    const size = byteSize ?? width * height * bytesPerPixel * sampleCount;
     const entry: TextureAllocation = {
       name,
       width,
@@ -422,6 +432,25 @@ export class PerformanceProfiler {
     return entry;
   }
 
+  /** Drop tracked textures by name (destroyed or never re-created). */
+  untrackTextures(names: string[]): void {
+    const drop = new Set(names);
+    let freed = 0;
+    this.textureAllocations = this.textureAllocations.filter((t) => {
+      if (!drop.has(t.name)) return true;
+      freed += t.size;
+      return false;
+    });
+    this.totalTextureMemory -= freed;
+  }
+
+  /** `getRendererInfo().gpuMemory`: tracked bytes (an estimate — drivers pad and compress). */
+  gpuMemoryEstimate(): { textureBytes: number; bufferBytes: number; textures: Record<string, number> } {
+    const textures: Record<string, number> = {};
+    for (const t of this.textureAllocations) textures[t.name] = (textures[t.name] ?? 0) + t.size;
+    return { textureBytes: this.totalTextureMemory, bufferBytes: this.totalBufferMemory, textures };
+  }
+
   getBytesPerPixel(format: GPUTextureFormat): number {
     const formatSizes: Record<string, number> = {
       'r8unorm': 1, 'r8uint': 1, 'r8sint': 1,
@@ -430,7 +459,7 @@ export class PerformanceProfiler {
       'r32uint': 4, 'r32sint': 4, 'r32float': 4,
       'rg16uint': 4, 'rg16sint': 4, 'rg16float': 4,
       'rgba8unorm': 4, 'rgba8uint': 4, 'rgba8sint': 4,
-      'bgra8unorm': 4,
+      'bgra8unorm': 4, 'rgba8unorm-srgb': 4, 'bgra8unorm-srgb': 4,
       'rgb10a2unorm': 4,
       'rg11b10ufloat': 4,
       'rgba16uint': 8, 'rgba16sint': 8, 'rgba16float': 8,

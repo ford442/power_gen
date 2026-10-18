@@ -4,6 +4,7 @@
  */
 import { getDeviceModeIndex } from './devices/device-registry';
 import { writeQueueBuffer } from './gpu-buffer-write';
+import { authoredColor } from './seg-lighting-presets';
 import type { DeviceInstanceConfig } from './device-instance';
 import type { VisualizerLike } from './devices/types';
 
@@ -78,8 +79,9 @@ class DeviceUniformManager {
       pad = this.batteryCharge;
     }
 
+    const colorMode = this.visualizer.pipelineCache?.colorTargets.mode;
     const materialData = new Float32Array([
-      ...baseColor,        // baseColor
+      ...authoredColor(baseColor, colorMode),  // baseColor (sRGB pick → working space)
       pad,                 // _pad1 (battery / extra param)
       ...glowColor,        // glowColor
       emission             // emission
@@ -97,7 +99,7 @@ class DeviceUniformManager {
       const core = this.config.core;
       // baseColor (3) + emission (1) + coreColor (3) + glowIntensity (1)
       const coreMaterialData = new Float32Array([
-        ...core.baseColor, 0.0,  // baseColor + padding
+        ...authoredColor(core.baseColor, colorMode), 0.0,  // baseColor + padding
         ...core.coreColor, 1.5   // coreColor + glowIntensity
       ]);
       writeQueueBuffer(this.device, this.coreMaterialBuffer, coreMaterialData);
@@ -157,7 +159,10 @@ class DeviceUniformManager {
 
     if (this.id === 'solar') {
       // Update material buffer to reflect battery charge
-      const baseColor = this.config.color ?? [0.7, 0.7, 0.75];
+      const baseColor = authoredColor(
+        this.config.color ?? [0.7, 0.7, 0.75],
+        this.visualizer.pipelineCache?.colorTargets.mode
+      );
       const glowColor = [1.0, 0.9, 0.4];
       const emission = 1.2 + energyLevel * 1.8;
       const materialData = new Float32Array([

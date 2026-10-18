@@ -109,5 +109,14 @@ fn main(input: FragInput) -> @location(0) vec4f {
   let rejection = length(clamped - history) / max(length(boxMax - boxMin), 1e-4);
   let alpha = taa.alpha * (1.0 - clamp(rejection, 0.0, 1.0));
 
-  return vec4f(mix(current.rgb, clamped, alpha), current.a);
+  // Luminance-weighted blend (Karis, "High Quality Temporal Supersampling",
+  // 2014). The linear colour pipeline (#223) stores unclipped HDR, where a
+  // plain lerp lets one 40.0 specular texel dominate the accumulation and
+  // flicker as it enters and leaves the neighbourhood box. Weighting each side
+  // by 1 / (1 + luma) blends roughly in tonemapped space; for [0,1] input the
+  // result stays close to the plain mix.
+  let wc = (1.0 - alpha) / (1.0 + dot(current.rgb, vec3f(0.2126, 0.7152, 0.0722)));
+  let wh = alpha / (1.0 + dot(clamped, vec3f(0.2126, 0.7152, 0.0722)));
+  let blended = (current.rgb * wc + clamped * wh) / max(wc + wh, 1e-5);
+  return vec4f(blended, current.a);
 }

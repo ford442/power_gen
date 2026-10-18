@@ -3,6 +3,7 @@ import './devices/register-plugins';
 import { MultiDeviceCamera } from './multi-device-camera';
 import { SimRateController } from './sim-rate-controller';
 import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager';
+import { parseColorPipelineMode } from './webgpu-init/color-pipeline';
 import { CameraController } from './camera-controller';
 import { PerformanceProfiler } from './performance-profiler';
 import { DebugPanel } from './debug-panel';
@@ -207,7 +208,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.fdtdDriveSource = parseFdtdDriveSource(params);
 
     this.lightingLook = parseLightingLook(params);
-    const lookPreset = getLightingPreset(this.lightingLook);
+    const lookPreset = getLightingPreset(this.lightingLook, parseColorPipelineMode());
     this.lightingConfig = { ...lookPreset.lighting };
     this.postPreset = lookPreset;
     this.postExposure = lookPreset.post.exposure;
@@ -302,7 +303,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
   /** Switch studio / lab / drama lighting + post look at runtime. */
   setLightingLook(look: string): void {
-    const preset = getLightingPreset(look as LightingLook);
+    const preset = getLightingPreset(look as LightingLook, this.webgpu.colorMode);
     if (!preset) return;
     this.lightingLook = look as LightingLook;
     this.postPreset = preset;
@@ -320,11 +321,13 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
   _uploadSkyUniforms(energy = 0): void {
     if (!this.skyUniformBuffer || !this.device) return;
-    const sky = this.postPreset?.sky ?? getLightingPreset(this.lightingLook).sky;
+    const sky = this.postPreset?.sky ?? getLightingPreset(this.lightingLook, this.webgpu.colorMode).sky;
     writeQueueBuffer(this.device, this.skyUniformBuffer, new Float32Array([
       sky.mode,
       sky.energy + energy * 0.5,
-      0, 0
+      // SkyParams.linear: decode the backdrop's sRGB-picked literals (sky-frag.wgsl).
+      this.webgpu.colorMode === 'linear' ? 1 : 0,
+      0
     ]));
   }
 

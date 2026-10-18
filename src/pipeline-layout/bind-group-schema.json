@@ -84,6 +84,10 @@
       "pipelines": [["bloom-vert.wgsl", "bloom-blur.wgsl"]],
       "entries": [[0, "F", "texture"], [1, "F", "sampler"], [2, "F", "uniform"], [3, "F", "uniform"]]
     },
+    "bloomMip": {
+      "pipelines": [["bloom-vert.wgsl", "bloom-downsample.wgsl"], ["bloom-vert.wgsl", "bloom-upsample.wgsl"]],
+      "entries": [[0, "F", "texture"], [1, "F", "sampler"], [2, "F", "uniform"], [3, "F", "uniform"]]
+    },
     "bloomComposite": {
       "pipelines": [["bloom-vert.wgsl", "bloom-composite.wgsl"]],
       "entries": [
