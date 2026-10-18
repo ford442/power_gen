@@ -35,6 +35,7 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 | `hall` | 13 | 10 (`SIM_MODE_HALL`) | `hallVoltage` (V), `hallCurrent` (A), `hallFieldT` (T), `hallCoeff` (m³/C) | WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback |
 | `lorentz-sled` | 14 | 11 (`SIM_MODE_LORENTZ_SLED`) | `lorentzSledVms` (m/s), `lorentzCurrentA` (A), `lorentzFieldT` (T), `lorentzForceN` (N), `lorentzPositionM` (m) | WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it |
 | `jumping-ring` | 15 | 12 (`SIM_MODE_JUMPING_RING`) | `ringHeightM` (m), `ringCurrentA` (A), `ringPrimaryIA` (A), `ringForceN` (N), `ringCouplingK` | WASM coupled L–M(h) RK4 ODE with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it |
+| `drop-tube` | 16 | none (`wasmMode: null`) | `dropTubeVMps` (m/s), `dropTubeTerminalVMps` (m/s), `dropTubeDragN` (N), `dropTubeEddyIA` (A), `dropTubeDepthM` (m) | JS-only algebraic eddy drag (point dipole, thin-walled tube): v_t = m·g/k, exact exponential step |
 
 ## How to add a device
 

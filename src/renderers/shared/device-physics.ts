@@ -221,6 +221,38 @@ export interface LorentzSledPhysicsExtension {
   _wasmPlantActive?: boolean;
 }
 
+/**
+ * Quanta Lenz drop tube (devices/quanta/drop-tube.ts) — a magnet falling
+ * through a conducting tube, braked by the eddy currents it induces. JS-only
+ * plant (no wasmMode); a point dipole in a thin-walled tube, not a FEM model.
+ */
+export interface DropTubePhysicsExtension {
+  /** Magnet centre below the tube mouth, m (negative above it, in the release clamp). */
+  dropTubeDepthM?: number;
+  /** Downward magnet speed, m/s. */
+  dropTubeVMps?: number;
+  /** Algebraic terminal velocity m·g/k for the σ in effect, m/s; NaN when σ = 0 (none exists). */
+  dropTubeTerminalVMps?: number;
+  /** Eddy drag on the magnet, N (k·f(depth)·v). */
+  dropTubeDragN?: number;
+  /** Eddy-current loop in the wall just ahead of the magnet, A. */
+  dropTubeEddyIA?: number;
+  /** The opposite-handed loop just behind it, A (visuals; not a catalog key). */
+  dropTubeEddyTrailIA?: number;
+  /** Fraction of the infinite-tube drag at this depth — the end taper, 0..1. */
+  dropTubeInTube?: number;
+  /** Wall conductivity in effect, MS/m (the setpoint slider's live value). */
+  dropTubeSigmaMSm?: number;
+  /** Pinned σ (MS/m) from the catalog setpoint slider; null/NaN = the catalog copper tube. */
+  dropTubeSigmaSetpointMSm?: number | null;
+  /** 0 held in the release clamp · 1 falling · 2 resting on the catch pad. */
+  dropTubeStage?: number;
+  /** Release-clamp depth for the current drive, m (negative: above the mouth). */
+  dropTubeClampDepthM?: number;
+  /** Seconds spent in the current held / landed stage. */
+  dropTubeTimerS?: number;
+}
+
 /** Full per-device physics plant state (built-in + plugin extensions). */
 export type DevicePhysicsState = BaseDevicePhysicsState &
   Partial<MaglevPhysicsExtension> &
@@ -232,7 +264,8 @@ export type DevicePhysicsState = BaseDevicePhysicsState &
   Partial<TransformerPhysicsExtension> &
   Partial<VdgPhysicsExtension> &
   Partial<HallPhysicsExtension> &
-  Partial<LorentzSledPhysicsExtension>;
+  Partial<LorentzSledPhysicsExtension> &
+  Partial<DropTubePhysicsExtension>;
 
 export interface CreateDevicePhysicsOpts {
   heronLayout?: HeronLayout;

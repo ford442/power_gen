@@ -127,6 +127,13 @@
         <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Educational Thomson-ring demo (lumped circuit + rigid body) — <strong>not</strong> an induction-furnace or launcher model, and there is no projectile. There is also <strong>no thermal model at all</strong>: a real shorted ring heats and can glow or melt, and nothing here represents that.</div>
       </div>
 
+      <!-- Lenz drop-tube classroom notes (σ slider is a catalog setpoint above) -->
+      <div class="panel-section" id="drop-tube-controls" style="display:none;">
+        <h3>Lenz drop tube</h3>
+        <div style="font-size:0.68rem;color:#0aa;line-height:1.4;">The drive slider opens the release clamp (0 keeps it shut) and sets how high above the mouth it lets go. Inside the tube the drag is <em>k·v</em>, so the magnet settles at <em>v_t = m·g/k</em> whatever speed it arrived with. The tube is drawn as a stack of rings because that is how the drag is derived: each slice of wall is a shorted ring the falling flux sweeps through.</div>
+        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Point dipole in a thin-walled tube — a textbook idealisation to compare a real drop against, <strong>not</strong> a brake-design tool or a maglev launcher. No FEM, no skin depth, and <strong>no thermal model</strong>: at terminal velocity all of <em>m·g·v</em> heats the wall, and nothing here tracks where it goes.</div>
+      </div>
+
       <!-- Lab field bus (ADR-0011) -->
       <div class="panel-section" id="field-coupling-section">
         <h3>Lab field coupling</h3>

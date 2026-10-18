@@ -39,9 +39,13 @@ constructor either (that is how the homopolar axial field drifted).
 | `lorentzSled` | `LORENTZ_SLED` (alias `LORENTZ`) | `power_gen::LorentzSledConstants` |
 | `pulseCoil` | `PULSE_COIL_CORE` (alias `PULSE_COIL`) | — JS-only plant |
 | `halbachViz` | `HALBACH_VIZ` | — JS-only plant |
+| `dropTube` | `DROP_TUBE` | — JS-only plant |
 
-Pulse-coil and halbach-viz have no `wasmMode` by design (ADR-0002), so
-codegen emits TS for them only.
+Pulse-coil, halbach-viz and drop-tube have no `wasmMode` by design (ADR-0002;
+the drop tube's answer is algebraic), so codegen emits TS for them only.
+`validatePhysicalAnchors` also refuses a `dropTube` block whose wall is not
+thin (`w < a/4`, the model's assumption), whose magnet does not fit the bore,
+or whose default σ falls outside its own slider range.
 
 Each block carries the **drive shaping** its equations use (`bFieldBaseT` /
 `bFieldSpanT`, `gapTargetBaseM` / `gapTargetSpanM`, `rpmMax`, the clamp

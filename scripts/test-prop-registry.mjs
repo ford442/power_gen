@@ -12,7 +12,9 @@
  * So this checks, for every registry entry:
  *
  *   1. Shape: unique id, a real device id, a load policy, an `enabled` predicate.
- *   2. The file exists, and is under its `softBudgetBytes`.
+ *   2. The file exists, is under its `softBudgetBytes`, and is a structurally
+ *      valid GLB by the spec's own rules (`glbSpecProblems`) — what external
+ *      tools read, which our loader is more forgiving than.
  *   3. It **parses with this repo's own loader** (`parseGlb` + `extractGltfMeshes`)
  *      and yields triangles with positions, normals and UVs — the exact path the
  *      runtime takes. This is also the tripwire for the deferred external-parser
@@ -75,6 +77,82 @@ function assetPath(url) {
   return join(ROOT, 'src/public', url.replace(/^\.?\//, ''));
 }
 
+const COMPONENT_BYTES = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
+const TYPE_COMPONENTS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
+
+/**
+ * Structural glTF 2.0 / GLB rules that this repo's loader does not need but
+ * external readers check. Our loader reads interleaved attributes by stride and
+ * never looks at a bufferView's byteLength, so every placeholder GLB shipped
+ * with accessors overrunning their views ~2.7× and nothing here noticed — until
+ * cgltf (gltfpack) refused all nine ("buffer too short"). An artist's first
+ * step is importing the placeholder they are replacing into a DCC tool, so this
+ * is checked rather than assumed. Returns a list of problems (empty = valid).
+ */
+function glbSpecProblems(buf) {
+  const problems = [];
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  if (buf.byteLength < 20 || dv.getUint32(0, true) !== 0x46546c67) return ['not a GLB (magic)'];
+  if (dv.getUint32(4, true) !== 2) problems.push(`GLB version ${dv.getUint32(4, true)}`);
+  if (dv.getUint32(8, true) !== buf.byteLength) problems.push('header length ≠ file length');
+  const jsonLen = dv.getUint32(12, true);
+  if (dv.getUint32(16, true) !== 0x4e4f534a) return [...problems, 'first chunk is not JSON'];
+  if (jsonLen % 4) problems.push('JSON chunk not 4-byte padded');
+  const json = JSON.parse(new TextDecoder().decode(buf.subarray(20, 20 + jsonLen)));
+  // gltf-loader.ts implements no extensions, so a meshopt / quantized file
+  // must fail here by name, not decode as garbage (docs/GLTF_ASSETS.md → meshopt).
+  for (const ext of json.extensionsRequired ?? []) {
+    problems.push(`requires ${ext}, which src/assets/gltf/gltf-loader.ts does not implement`);
+  }
+  let binLen = 0;
+  const binAt = 20 + jsonLen;
+  if (binAt + 8 <= buf.byteLength) {
+    binLen = dv.getUint32(binAt, true);
+    if (dv.getUint32(binAt + 4, true) !== 0x004e4942) problems.push('second chunk is not BIN');
+    if (binAt + 8 + binLen > buf.byteLength) problems.push('BIN chunk runs past the file');
+  }
+  const buffers = json.buffers ?? [];
+  if (buffers[0] && buffers[0].uri === undefined && buffers[0].byteLength > binLen) {
+    problems.push(`buffer 0 declares ${buffers[0].byteLength} B, BIN chunk holds ${binLen}`);
+  }
+  const views = json.bufferViews ?? [];
+  views.forEach((v, i) => {
+    const b = buffers[v.buffer];
+    if (!b) { problems.push(`bufferView ${i} → missing buffer ${v.buffer}`); return; }
+    if ((v.byteOffset ?? 0) + v.byteLength > b.byteLength) problems.push(`bufferView ${i} runs past its buffer`);
+    if (v.byteStride !== undefined && (v.byteStride < 4 || v.byteStride > 252 || v.byteStride % 4)) {
+      problems.push(`bufferView ${i} byteStride ${v.byteStride}`);
+    }
+  });
+  (json.accessors ?? []).forEach((a, i) => {
+    const comp = COMPONENT_BYTES[a.componentType];
+    const n = TYPE_COMPONENTS[a.type];
+    if (!comp || !n) { problems.push(`accessor ${i} type ${a.type}/${a.componentType}`); return; }
+    if (a.bufferView === undefined) return;
+    const v = views[a.bufferView];
+    if (!v) { problems.push(`accessor ${i} → missing bufferView ${a.bufferView}`); return; }
+    const elem = comp * n;
+    const stride = v.byteStride ?? elem;
+    const off = a.byteOffset ?? 0;
+    if (off % comp) problems.push(`accessor ${i} byteOffset ${off} not aligned to ${comp}`);
+    if (v.byteStride !== undefined && off + elem > stride) problems.push(`accessor ${i} element straddles the stride`);
+    const need = off + stride * (a.count - 1) + elem;
+    if (need > v.byteLength) problems.push(`accessor ${i} needs ${need} B of bufferView ${a.bufferView}, which has ${v.byteLength}`);
+  });
+  for (const [mi, mesh] of (json.meshes ?? []).entries()) {
+    for (const [pi, prim] of (mesh.primitives ?? []).entries()) {
+      const counts = Object.values(prim.attributes ?? {}).map((ai) => json.accessors?.[ai]?.count);
+      if (new Set(counts).size > 1) problems.push(`mesh ${mi}/${pi} attributes disagree on count`);
+      const pos = json.accessors?.[prim.attributes?.POSITION];
+      if (pos && (!pos.min || !pos.max)) problems.push(`mesh ${mi}/${pi} POSITION lacks min/max`);
+    }
+  }
+  (json.images ?? []).forEach((img, i) => {
+    if (img.bufferView !== undefined && !views[img.bufferView]) problems.push(`image ${i} → missing bufferView`);
+  });
+  return problems;
+}
+
 // ── 1. Registry shape ──────────────────────────────────────────────────────
 {
   check('registry is non-empty', Array.isArray(props) && props.length >= 6,
@@ -131,6 +209,10 @@ for (const p of props) {
   ok.push(`${p.id} asset present (${bytes} bytes)`);
   check(`${p.id} is within its ${p.softBudgetBytes} B budget`, bytes <= p.softBudgetBytes,
     `${bytes} B exceeds ${p.softBudgetBytes} B — shrink it or raise the budget deliberately`);
+
+  const specProblems = glbSpecProblems(readFileSync(file));
+  check(`${p.id} is a spec-valid GLB (accessors fit their views — cgltf reads it, not just our loader)`,
+    specProblems.length === 0, specProblems.slice(0, 3).join('; '));
 
   // The runtime path, exactly: parseGlb → extractGltfMeshes.
   let extracted = null;

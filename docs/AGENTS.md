@@ -86,6 +86,7 @@ Client-side **multi-device physics lab**: real-time visualization of research ap
 | `hall` | Quanta Hall bench (plugin) | Algebraic `V_H = IB/(net)` (`?wasmPhysics=1`, `SimMode=10`) + JS fallback; **not** a calibrated metrology instrument — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md#hall) |
 | `lorentz-sled` | Quanta Lorentz rail sled (plugin) | Lumped R–L + back-EMF + `F = I ℓ × B` vs friction (`?wasmPhysics=1`, `SimMode=11`) + JS fallback mirroring it; no FEM, no contact physics, no projectile — an educational rail motor, **not a railgun design tool** — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md#lorentz-sled) |
 | `jumping-ring` | Quanta Thomson jumping ring (plugin) | Coupled L–M(h) RK4 ODE with ring mass/gravity (`?wasmPhysics=1`, `SimMode=12`) + JS fallback mirroring it; Lenz's law as motion. No eddy-current FEM, no projectile, and **no thermal state at all** — the ring never heats or melts — not an induction-furnace or launcher model — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md#jumping-ring) |
+| `drop-tube` | Quanta Lenz drop tube (plugin) | Algebraic eddy drag on a point dipole in a thin-walled tube, `v_t = m·g/k`, stepped exactly; **JS plant only** (`wasmMode: null`) with a σ setpoint slider; Lenz's law as braking. No field solver, no skin depth, **no thermal state** — not a brake-design tool or launcher — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md#drop-tube) |
 
 Dashboard overview can enable **all** registered sim devices (typically 6 core + plugins). Particle budgets and mesh detail are **not** equal across devices — auto-quality and view LOD scale further. Do not document “full physical fidelity on every device.”
 
@@ -485,8 +486,9 @@ switch; `#device-readout` is named `"<bench> readout"`.
 |-------|--------|
 | `src/hardware-bridge.ts` + panel | **Experimental** — mock works (`?mockHardware=1`); Serial / BLE / WebUSB depend on browser + device |
 | Transports | `serial` (reference), `bluetooth` (Nordic UART, ~20 Hz), `usb` (CDC-ACM, only if Serial can't see the board), `mock`. Unsupported links are disabled in the panel, not hidden |
-| `firmware/seg-driver/` | **Experimental** Arduino-style coil/sensor sketch; not required for the web app |
-| Safety | Disconnect **and transport switching** coast coils on every link; a dropped link leans on the firmware watchdog. `npm run test:transports` pins this |
+| `firmware/seg-driver/` | **Experimental** Arduino-style coil/sensor sketch, line protocol v2 (v1 lines + a `V2` hello); Uno / Mega / ESP32 pin maps; on-board BLE deferred. Not required for the web app — [`firmware/seg-driver/README.md`](../firmware/seg-driver/README.md) |
+| Safety | Disconnect **and transport switching** coast coils on every link; a dropped link leans on the firmware watchdog. `npm run test:transports` pins this (v1 and v2 boards) |
+| Lock-on test | `npm run test:firmware-safety` compiles the sketch's safety core + `setup()`/`loop()` with the host C++ compiler and checks watchdog / DC cap / bounded brake / wired pins every simulated ms. **By hand, never CI**; no compiler → SKIPPED |
 
 Do not present firmware as production-ready or as a CI dependency. The visualizer runs fully without hardware.
 

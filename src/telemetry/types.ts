@@ -89,6 +89,11 @@ export interface DeviceTelemetrySnap {
   ringPrimaryIA: number;
   ringForceN: number;
   ringCouplingK: number;
+  dropTubeVMps: number;
+  dropTubeTerminalVMps: number;
+  dropTubeDragN: number;
+  dropTubeEddyIA: number;
+  dropTubeDepthM: number;
   /** Lab bus accounting (EnergyNetwork, W) — simulated, not metrology. */
   powerInW: number;
   powerOutW: number;
@@ -172,6 +177,8 @@ export interface HardwareTwinTelemetry {
   sensorCurrent: number;
   /** Present when connected; primary e2e assertion field. */
   shadowResidual: HardwareShadowResidual;
+  /** Line protocol from the board's `I v=N` hello; null until one arrives (v1 never sends one). */
+  firmwareProtocol: number | null;
 }
 
 /** Literature refs with uncertainty metadata for gauges */
