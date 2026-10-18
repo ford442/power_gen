@@ -77,6 +77,8 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 - Transports: mock / Web Serial / Web Bluetooth (Nordic UART) / WebUSB CDC —
   `hardware-transport.ts` + `hardware-bridge.ts` / panel. Demo with `?mockHardware=1`.
 - `firmware/seg-driver/` is **not** required for the web app; treat as experimental.
+  Line protocol v2 = v1 lines + a `V2` → `I v=2 …` hello (`bridge.firmware`).
+  On-board ESP32 BLE is deferred (its README says why).
 - Spec: **docs/hardware_connection.md**.
 
 ## Commands
@@ -88,7 +90,8 @@ npm run validate      # constants + catalog + typecheck + native C++ + check:pos
 npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline
 npm run check:post    # post uniform contracts
-npm run test:transports # twin transport framing + coast-on-disconnect
+npm run test:transports # twin transport framing + coast-on-disconnect + v2 hello
+npm run test:firmware-safety # coil lock-on test, host C++ (by hand — not in validate/CI)
 npm run test:audio    # sonification mapping bounds (silent by default)
 npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switches
 npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement

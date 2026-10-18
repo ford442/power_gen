@@ -486,8 +486,9 @@ switch; `#device-readout` is named `"<bench> readout"`.
 |-------|--------|
 | `src/hardware-bridge.ts` + panel | **Experimental** — mock works (`?mockHardware=1`); Serial / BLE / WebUSB depend on browser + device |
 | Transports | `serial` (reference), `bluetooth` (Nordic UART, ~20 Hz), `usb` (CDC-ACM, only if Serial can't see the board), `mock`. Unsupported links are disabled in the panel, not hidden |
-| `firmware/seg-driver/` | **Experimental** Arduino-style coil/sensor sketch; not required for the web app |
-| Safety | Disconnect **and transport switching** coast coils on every link; a dropped link leans on the firmware watchdog. `npm run test:transports` pins this |
+| `firmware/seg-driver/` | **Experimental** Arduino-style coil/sensor sketch, line protocol v2 (v1 lines + a `V2` hello); Uno / Mega / ESP32 pin maps; on-board BLE deferred. Not required for the web app — [`firmware/seg-driver/README.md`](../firmware/seg-driver/README.md) |
+| Safety | Disconnect **and transport switching** coast coils on every link; a dropped link leans on the firmware watchdog. `npm run test:transports` pins this (v1 and v2 boards) |
+| Lock-on test | `npm run test:firmware-safety` compiles the sketch's safety core + `setup()`/`loop()` with the host C++ compiler and checks watchdog / DC cap / bounded brake / wired pins every simulated ms. **By hand, never CI**; no compiler → SKIPPED |
 
 Do not present firmware as production-ready or as a CI dependency. The visualizer runs fully without hardware.
 

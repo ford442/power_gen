@@ -201,9 +201,22 @@ Gated on Wave 10, bind-group codegen, the plant Worker and the charge bus
       the SEG housing and coil former are still the first candidates, now
       starting from files external tools accept. Still no Three.js / Babylon /
       PlayCanvas, no UASTC; WebGL2 still skips glTF.
-- [ ] Firmware line protocol `v=2` (old sketches still coast) + ESP32 BLE NUS
-      matching `bluetooth-uart-transport.ts`, or an explicit deferral with a
-      reason. Disconnect → coast on every transport; watchdog no looser.
+- [x] Firmware line protocol `v=2`: v1 lines byte for byte plus a `V2` → `I v=2 …`
+      hello, so a v2 host still drives and coasts a v1 sketch. The host asks on
+      connect (≤ 5 tries), shows the board in the panel and publishes
+      `hardwareTwin.firmwareProtocol`; the mock answers like a v2 board.
+      Watchdog unchanged at 100 ms (and the host's value is pinned to
+      `protocol.h`); the sketch is stricter — malformed / undefined commands
+      coast, BRAKE ≤ 50 % for ≤ 1 s, no coil on > 2 s at a stretch, `CONF`
+      clamped to wired pins. "We will not ship firmware that can lock a coil
+      on" is `npm run test:firmware-safety` (host C++, by hand, **not CI**);
+      writing it found the v1 lock-on paths the README tabulates. Pin maps for
+      Uno / Mega / ESP32 in `firmware/seg-driver/README.md`. **ESP32 BLE NUS
+      on the board is deferred** there with reasons (no board or toolchain to
+      bench it, ESP32 BLE APIs differ by core version, a radio path into a coil
+      driver is not where untested code goes) and the contract a BLE build
+      must meet. Disconnect → coast on every transport, pinned by
+      `npm run test:transports` against v1 and v2 boards.
 
 ### Acceptance (epic-level)
 

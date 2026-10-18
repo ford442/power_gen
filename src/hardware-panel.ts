@@ -82,6 +82,7 @@ export class HardwarePanel {
         <span id="hwStatusText">Disconnected</span>
         <span class="hw-serial-badge" id="hwSerialBadge"></span>
       </div>
+      <div class="hw-fw" id="hwFirmware"></div>
       <div class="hw-btn-row">
         <button type="button" class="seg-op-btn" id="hwConnectBtn" title="USB CDC serial port">Serial</button>
         <button type="button" class="seg-op-btn" id="hwBleBtn" title="Wireless Nordic UART (BLE)">BLE</button>
@@ -179,6 +180,7 @@ export class HardwarePanel {
       .hw-dot.mock { background: #fa0; box-shadow: 0 0 8px #fa0; }
       .hw-dot.err { background: #f44; }
       .hw-serial-badge { margin-left: auto; color: #678; font-size: 0.65rem; }
+      .hw-fw { color: #678; font-size: 0.65rem; margin: -4px 0 6px 16px; min-height: 1em; }
       .hw-btn-row { display: flex; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
       .hw-btn-row .seg-op-btn { flex: 1; min-width: 70px; font-size: 0.7rem; padding: 6px 4px; }
       .hw-btn-row .seg-op-btn[data-unsupported] { opacity: 0.4; text-decoration: line-through; }
@@ -310,7 +312,25 @@ export class HardwarePanel {
     }
     if (disc) disc.disabled = !live;
     if (status === 'error' && this.bridge?.lastError) this._setError(this.bridge.lastError);
+    this._renderFirmware();
     syncHardwareTwinBadgeFromBridge(this.bridge);
+  }
+
+  /** The board's v2 hello (or its absence). Arrives after connect, so the loop polls it. */
+  private _renderFirmware(): void {
+    const el = document.getElementById('hwFirmware');
+    const b = this.bridge;
+    if (!el || !b) return;
+    const label = b.firmwareLabel;
+    if (el.textContent === label) return;
+    el.textContent = label;
+    const fw = b.firmware;
+    el.title = fw
+      ? `Line protocol v${fw.protocol} · ${fw.firmware} on ${fw.board} over ${fw.link}`
+        + (fw.watchdogMs !== null ? ` · watchdog ${fw.watchdogMs} ms` : '')
+        + (fw.brakePwmMax !== null && fw.brakeMaxMs !== null
+          ? ` · brake ≤ ${fw.brakePwmMax}/255 for ≤ ${fw.brakeMaxMs} ms` : '')
+      : label ? 'No v2 hello yet. A v1 sketch never answers; it is still driven, and coasted, with v1 lines.' : '';
   }
 
   private _renderSensors(snap: SensorSnapshot | null): void {
@@ -374,6 +394,7 @@ export class HardwarePanel {
       if (this.bridge?.isConnected && this.bridge.lastSensorUpdate) {
         this._renderSensors(this.bridge.getSensorSnapshot());
       }
+      this._renderFirmware();
       this._raf = requestAnimationFrame(tick);
     };
     this._raf = requestAnimationFrame(tick);
