@@ -16,6 +16,7 @@ import { FIELD_COUPLING_EDGES } from '../renderers/shared/field-network';
 import { canonicalKnobId, knobNumber, knobSpec } from './knobs';
 import { isRecordKey, recordKeyDevice } from './readers';
 import { hasBound } from './expect';
+import { parsePlantSnapshot, type PlantSnapshot } from '../session/plant-snapshot';
 import type {
   Condition,
   ExpectDef,
@@ -51,6 +52,8 @@ export interface ValidatedExperiment {
   recordKeys: string[];
   /** Sweep grid points (empty without a sweep). */
   sweepPoints: Record<string, number>[];
+  /** The parsed `snapshot` the run starts from, if any. */
+  snapshot: PlantSnapshot | null;
   warnings: string[];
 }
 
@@ -311,6 +314,14 @@ export function validateExperiment(raw: unknown): ValidatedExperiment {
     if (e.ratio) { e.ratio.num = summaryKey(`${where}.ratio.num`, e.ratio.num); e.ratio.den = summaryKey(`${where}.ratio.den`, e.ratio.den); }
   }
 
+  let snapshot: PlantSnapshot | null = null;
+  if (raw.snapshot !== undefined) {
+    const parsed = parsePlantSnapshot(raw.snapshot);
+    for (const e of parsed.errors) err(`snapshot: ${e}`);
+    for (const w of parsed.warnings) warnings.push(`snapshot: ${w}`);
+    snapshot = parsed.snapshot;
+  }
+
   if (errors.length) throw new ExperimentError(errors);
 
   const def: ExperimentDef = {
@@ -324,9 +335,10 @@ export function validateExperiment(raw: unknown): ValidatedExperiment {
     ...(plots.length ? { plots } : {}),
     ...(sweep ? { sweep } : {}),
     ...(summary ? { summary } : {}),
-    ...(summaryExpect ? { summaryExpect } : {})
+    ...(summaryExpect ? { summaryExpect } : {}),
+    ...(snapshot ? { snapshot } : {})
   };
-  return { def, focus, devices, config, duration: runEnd, dt: dt as number, recordKeys, sweepPoints, warnings };
+  return { def, focus, devices, config, duration: runEnd, dt: dt as number, recordKeys, sweepPoints, snapshot, warnings };
 }
 
 function conditionOf(where: string, o: Record<string, unknown>, err: (m: string) => void): Condition {

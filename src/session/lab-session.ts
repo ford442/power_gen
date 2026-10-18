@@ -8,6 +8,7 @@ import { CameraController } from '../camera-controller';
 import { HardwareBridge, TWIN_MODES } from '../hardware-bridge';
 import type { MultiDeviceCamera } from '../multi-device-camera';
 import { getAllSimDeviceIds } from '../devices/device-registry';
+import { WASM_DEVICE_IDS } from '../../generated/device-catalog';
 import {
   getHeronLayout,
   HERON_LAYOUT_PRESETS,
@@ -75,6 +76,9 @@ export interface LabExperimentClock {
 }
 
 export class LabSession {
+  /** The page's session (the last one constructed) — lazy chunks such as plant snapshots reach it here. */
+  static active: LabSession | null = null;
+
   rendererId: LabRendererId = 'webgpu';
 
   currentView = 'overview';
@@ -137,6 +141,7 @@ export class LabSession {
   experimentClock: LabExperimentClock | null = null;
 
   constructor() {
+    LabSession.active = this;
     this.hardwareBridge = new HardwareBridge({
       onError: (e: unknown) => console.error('[HardwareBridge]', e)
     });
@@ -506,10 +511,7 @@ function applyResolvedHeronLayout(session: LabSession): void {
   session.heronLayout = getHeronLayout(session.heronLayoutPreset as HeronLayoutPresetId);
 }
 
+/** Devices with a C++ plant mode (catalog `wasmMode`). */
 function isWasmPlantModeSafe(id: string): boolean {
-  return [
-    'seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd',
-    'maglev', 'homopolar', 'transformer', 'vdg', 'hall', 'lorentz-sled',
-    'jumping-ring'
-  ].includes(id);
+  return (WASM_DEVICE_IDS as readonly string[]).includes(id);
 }

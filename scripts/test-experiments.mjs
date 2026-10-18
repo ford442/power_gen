@@ -42,6 +42,8 @@ const built = await esbuild.build({
     contents: `
       export { validateExperiment, sweepGrid, ExperimentError } from './src/experiments/validate';
       export { runExperimentSync, summarizeSweep } from './src/experiments/offline';
+      export { ExperimentBench } from './src/experiments/bench';
+      export { parsePlantSnapshot, saveDeviceState } from './src/session/plant-snapshot';
       export { ExperimentInterpreter, liveBatch, MAX_LIVE_BATCH_S } from './src/experiments/interpreter';
       export { knobSpec, canonicalKnobId, EXPERIMENT_KNOBS } from './src/experiments/knobs';
       export { meets, conditionText, proportionalFit, reduce } from './src/experiments/expect';
@@ -297,6 +299,67 @@ check('rms', Math.abs(X.reduce([3, -3, 3, -3], 'rms') - 3) < 1e-12);
   check('slow frames: expect judged', interp.expects.length === 1 && interp.expects[0].pass, JSON.stringify(interp.expects));
   check('liveBatch keeps an uncut frame', JSON.stringify(X.liveBatch([1 / 60, 1 / 60], 0.5)) === JSON.stringify([1 / 60, 1 / 60]));
   check('liveBatch keeps a paused frame', JSON.stringify(X.liveBatch([], 0.5)) === '[]');
+}
+
+// §2 × §3 — an experiment from a saved operating point. A bench stepped 1 s,
+// captured through JSON and restored into a fresh bench steps on bit-identically
+// with the original (the C++ vector loads exactly; the JS plants and the
+// operator through their layouts).
+for (const backend of ['wasm', 'js']) {
+  const v = X.validateExperiment({
+    id: 'resume',
+    title: 'resume',
+    config: { mode: 'lorentz-sled' },
+    steps: [{ at: 0, record: ['lorentzForceN', 'lorentzSledVms'], hz: 60, until: 0.5 }]
+  });
+  const mk = () => new X.ExperimentBench(v.focus, v.devices, v.config, backend === 'wasm' ? X.SEGSim.fromModule(wasmMod) : null, wasmMod);
+  const a = mk();
+  X.knobSpec('drive').write(a, 1);
+  X.knobSpec('lorentz-sled.fieldT').write(a, 0.3);
+  for (let i = 0; i < 60; i++) a.step(1 / 60);
+  const captured = a.capture(1, 42);
+  const parsed = X.parsePlantSnapshot(JSON.parse(JSON.stringify(captured)));
+  check(`${backend}: bench snapshot parses`, parsed.snapshot && !parsed.errors.length, parsed.errors.join('; '));
+  check(`${backend}: bench snapshot backend`, captured.backend === (backend === 'wasm' ? 'wasm' : 'js') && (backend === 'js') === !captured.wasm, captured.backend);
+  const b = mk();
+  const warnings = b.restore(parsed.snapshot);
+  check(`${backend}: restore has no warnings`, warnings.length === 0, warnings.join('; '));
+  let worst = '';
+  for (let i = 0; i < 120 && !worst; i++) {
+    a.step(1 / 60);
+    b.step(1 / 60);
+    const sa = X.saveDeviceState('lorentz-sled', a.devices['lorentz-sled'].physicsState);
+    const sb = X.saveDeviceState('lorentz-sled', b.devices['lorentz-sled'].physicsState);
+    for (const k of Object.keys(sa)) {
+      if (!Object.is(sa[k], sb[k])) { worst = `step ${i}: ${k} ${sa[k]} vs ${sb[k]}`; break; }
+    }
+    const oa = X.saveDeviceState('seg', a.operator.physics);
+    const ob = X.saveDeviceState('seg', b.operator.physics);
+    for (const k of Object.keys(oa)) {
+      if (!worst && !Object.is(oa[k], ob[k])) worst = `step ${i}: seg.${k} ${oa[k]} vs ${ob[k]}`;
+    }
+  }
+  check(`${backend}: a restored bench steps on bit-identically (2 s)`, !worst, worst);
+
+  // The run itself starts from the operating point (a moving sled), not from rest.
+  const fresh = runOnce(v, backend);
+  const resumed = X.runExperimentSync(X.validateExperiment({ ...v.def, snapshot: captured }), {
+    cpp: backend === 'wasm' ? X.SEGSim.fromModule(wasmMod) : null,
+    cppModule: wasmMod
+  });
+  const at0 = (run, k) => run.rows[0][run.columns.indexOf(k)];
+  const cap = captured.devices['lorentz-sled'];
+  check(`${backend}: an experiment with a snapshot starts at its operating point`,
+    cap.lorentzSledVms > 0.01 && at0(resumed, 'lorentzSledVms') === cap.lorentzSledVms
+      && at0(resumed, 'lorentzForceN') === cap.lorentzForceN && at0(fresh, 'lorentzSledVms') === 0,
+    `v: resumed ${at0(resumed, 'lorentzSledVms')}, captured ${cap.lorentzSledVms}, fresh ${at0(fresh, 'lorentzSledVms')}`);
+}
+{
+  let msg = '';
+  try {
+    X.validateExperiment({ id: 'bad-snap', title: 'x', config: { mode: 'lorentz-sled' }, steps: [{ at: 0, record: ['lorentzForceN'], until: 1 }], snapshot: { format: 'nope' } });
+  } catch (err) { msg = String(err.message); }
+  check('validator rejects a junk snapshot', /snapshot/.test(msg), msg);
 }
 
 rmSync(TMP, { recursive: true, force: true });

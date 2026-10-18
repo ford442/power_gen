@@ -72,6 +72,7 @@ static constexpr int ROLLER_EXPORT_STRIDE = 4;
 
 #include "../../generated/constants.h"
 #include "../../generated/device-catalog.h"
+#include "../../generated/plant-state.h"
 
 // ─────────────────────────────────────────────────────────────
 // Free functions
@@ -311,6 +312,19 @@ public:
     EnergyNetworkSummary getNetworkSummary() const { return _networkSummary; }
     float getNetworkEdgeAllocatedW(int edgeIndex) const;
     EnergyNetworkDevicePower getNetworkDevicePower(int mode) const;
+
+    // ── Plant snapshots (#224 §2) ─────────────────────────────
+    // Layout = physics/devices.json `state` blocks, codegen'd into
+    // generated/plant-state{,-impl}.h. Same scratch idiom as the energy bus:
+    //   save: n = plantSave(mode); ptr = getScratchPtr(n); read n floats
+    //   load: ptr = getScratchPtr(n); write n floats; plantLoad(mode, n, hash)
+    /// Floats in one mode's snapshot (0 for an unknown mode).
+    int  plantStateSize(int mode) const;
+    /// Write `mode`'s plant state into the scratch; returns the float count.
+    int  plantSave(int mode);
+    /// Restore `mode`'s plant from the scratch. Refuses (false, nothing
+    /// changed) a layout-hash or count mismatch, or a non-finite value.
+    bool plantLoad(int mode, int count, uint32_t layoutHash);
 
     static const char* version();
 

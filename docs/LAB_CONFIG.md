@@ -119,8 +119,9 @@ over it.
 | `shareLink()` | Build, copy and return a `#lab2=` link |
 | `openShareDialog()` | Link + QR code (`qrcode-generator`, lazy) + `.lab.json` download |
 | `exportLabFile()` / `downloadLabFile(name?)` | `.lab.json` of the running lab |
+| `captureSnapshot()` / `restoreSnapshot(state)` | Plant snapshot (§2) — the `state` above; [SNAPSHOTS.md](SNAPSHOTS.md) |
 
-Snapshots (§2), experiments (§3) and the analysis panel (§4) add their own
-members when their chunks install.
+Experiments (§3) and the analysis panel (§4) add their own members when their
+chunks install.
 
 Everything here is a simulation setup, not a measurement.

@@ -69,6 +69,9 @@ EMSCRIPTEN_BINDINGS(sim_core) {
     function("chores_reduce_f32_scratch", &chores_reduce_f32_scratch);
     function("chores_map_scale_f32_scratch", &chores_map_scale_f32_scratch);
     function("chores_fft_db_scratch", &chores_fft_db_scratch);
+    function("plant_state_layout_hash", optional_override([]() -> uint32_t {
+        return PLANT_STATE_LAYOUT_HASH;
+    }));
 
     class_<SEGSimulator>("SEGSimulator")
         .constructor()
@@ -173,6 +176,10 @@ EMSCRIPTEN_BINDINGS(sim_core) {
             return static_cast<double>(self.getScratchPtr(count));
         }))
         .function("updateEnergyNetworkFromScratch", &SEGSimulator::updateEnergyNetworkFromScratch)
+        // Plant snapshots: the float vector goes through the same scratch.
+        .function("plantStateSize", &SEGSimulator::plantStateSize)
+        .function("plantSave", &SEGSimulator::plantSave)
+        .function("plantLoad", &SEGSimulator::plantLoad)
         .function("getNetworkSummary", &SEGSimulator::getNetworkSummary)
         .function("getNetworkEdgeAllocatedW", &SEGSimulator::getNetworkEdgeAllocatedW)
         .function("getNetworkDevicePower", &SEGSimulator::getNetworkDevicePower)

@@ -58,14 +58,15 @@ async function runOffline(
   wasm: boolean,
   sweepPoint: Record<string, number> | undefined,
   onProgress: (f: number) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onWarning?: (message: string) => void
 ): Promise<RecordedRun> {
   if (signal?.aborted) throw abortError();
   if (typeof Worker === 'undefined') {
     const { SEGSim } = await import('../wasm/sim');
     const sim = wasm ? await SEGSim.create() : null;
     try {
-      return runExperimentSync(v, { cpp: sim?.wasmAvailable ? sim : null, sweepPoint, onProgress });
+      return runExperimentSync(v, { cpp: sim?.wasmAvailable ? sim : null, sweepPoint, onProgress, onWarning });
     } finally {
       sim?.dispose();
     }
@@ -84,6 +85,7 @@ async function runOffline(
     worker.onmessage = (e: MessageEvent<ExperimentWorkerResponse>) => {
       const msg = e.data;
       if (msg.type === 'progress') return onProgress(msg.fraction);
+      if (msg.type === 'warning') return onWarning?.(msg.message);
       done();
       if (msg.type === 'done') resolve(msg.run);
       else reject(new Error(msg.error));
@@ -134,21 +136,24 @@ export async function runExperimentDetailed(idOrDef: unknown, opts: RunExperimen
     return { run, runs: [run], warnings: [...v.warnings, ...warnings] };
   }
 
+  // Run-time warnings (a C++ plant that refused the snapshot), once each.
+  const runWarnings = new Set<string>();
+  const warn = (w: string) => { runWarnings.add(w); };
   if (!v.sweepPoints.length) {
-    const run = await runOffline(v, wasm, undefined, (f) => opts.onProgress?.(f), opts.signal);
+    const run = await runOffline(v, wasm, undefined, (f) => opts.onProgress?.(f), opts.signal, warn);
     store([run]);
-    return { run, runs: [run], warnings: v.warnings };
+    return { run, runs: [run], warnings: [...v.warnings, ...runWarnings] };
   }
 
   const fractions = v.sweepPoints.map(() => 0);
   const report = () => opts.onProgress?.(fractions.reduce((s, f) => s + f, 0) / fractions.length);
   const runs = await mapPool(v.sweepPoints, sweepConcurrency(), (point, i) =>
-    runOffline(v, wasm, point, (f) => { fractions[i] = f; report(); }, opts.signal)
+    runOffline(v, wasm, point, (f) => { fractions[i] = f; report(); }, opts.signal, warn)
   );
   const summary = summarizeSweep(v, runs);
   // Summary last, so it is the newest — what the panel opens first.
   store([...runs, summary]);
-  return { run: summary, runs, warnings: v.warnings };
+  return { run: summary, runs, warnings: [...v.warnings, ...runWarnings] };
 }
 
 export async function runExperiment(idOrDef: unknown, opts: RunExperimentOpts = {}): Promise<RecordedRun> {

@@ -2,9 +2,9 @@
  * `window.lab` — the console / agent / embed surface for LabConfig (#224 §1).
  *
  * The entry chunk carries only this table of lazy hooks plus a drop listener
- * for `.lab.json` files; loading, exporting, the share dialog and the
- * experiment runner / panel are their own chunks. Snapshots (§2) add their
- * methods here when their chunk installs.
+ * for `.lab.json` files; loading, exporting, the share dialog, plant
+ * snapshots (§2, session/lab-snapshot.ts) and the experiment runner / panel
+ * (§3) are their own chunks.
  */
 import {
   labConfig,
@@ -17,6 +17,7 @@ import type { LabFile, LabFileExportOpts, LabLoadResult } from './lab-file';
 import type { RecordedRun } from '../analysis/run-types';
 import type { RunExperimentOpts } from '../experiments/run';
 import type { ExperimentSummary } from '../experiments/registry';
+import type { PlantSnapshot } from '../session/plant-snapshot';
 
 export interface LabApi {
   /** Resolved config for this page load (URL > share hash > storage > default). */
@@ -52,11 +53,16 @@ export interface LabApi {
   openExperiment(id?: string): Promise<void>;
   /** Add an experiment definition (e.g. from a `.lab.json`) and open it in the panel. */
   openExperimentDef(def: unknown): Promise<void>;
+  /** Plant snapshot (§2): every plant, the operator, clock and seed — docs/SNAPSHOTS.md. */
+  captureSnapshot(): Promise<PlantSnapshot>;
+  /** Restore a {@link captureSnapshot} object; false when it is not one or the C++ plant refused it. */
+  restoreSnapshot(state: unknown): Promise<boolean>;
   [extra: string]: unknown;
 }
 
 const lazyFile = (): Promise<typeof import('./lab-file')> => import('./lab-file');
 const lazyPanel = (): Promise<typeof import('../experiments/experiment-panel')> => import('../experiments/experiment-panel');
+const lazySnapshot = (): Promise<typeof import('../session/lab-snapshot')> => import('../session/lab-snapshot');
 
 /** True for a drag that carries at least one file (we cannot see names until drop). */
 function dragHasFiles(e: DragEvent): boolean {
@@ -101,7 +107,9 @@ export function installLabApi(): void {
     runExperiment: (idOrDef, opts) => import('../experiments/run').then((m) => m.runExperiment(idOrDef, opts)),
     listExperiments: () => import('../experiments/registry').then((m) => m.listReferenceExperiments()),
     openExperiment: (id) => lazyPanel().then((m) => m.openExperimentPanel(id)),
-    openExperimentDef: (def) => lazyPanel().then((m) => m.openExperimentDefinition(def))
+    openExperimentDef: (def) => lazyPanel().then((m) => m.openExperimentDefinition(def)),
+    captureSnapshot: () => lazySnapshot().then((m) => m.captureLabSnapshot()),
+    restoreSnapshot: (state) => lazySnapshot().then((m) => m.restoreLabSnapshot(state))
   };
   window.lab = api;
   installLabFileDrop();

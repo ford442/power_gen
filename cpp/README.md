@@ -76,6 +76,7 @@ buffer packing
 ./build/sim_core_test --mode catalog     # print id → wasmMode; fail on holes/dupes
 ./build/sim_core_test --mode bench       # print bench_seg_steps_per_sec / bench_particle_steps_per_sec
 ./build/sim_core_test --mode golden      # dual-plant telemetry goldens (see below)
+./build/sim_core_test --mode snapshots   # plantSave → plantLoad → step bit-identical, every mode
 ```
 
 `--mode golden` replays every **dual** device — one with a `wasmMode` *and*
@@ -282,6 +283,28 @@ Return a `value_object` (plain JS object) rather than a vector — e.g.
 `src/public/wasm/sim_core.{js,wasm}` in Node and calls every binding listed in
 `sim_core_embind.cpp`; a new binding without a call spec there fails the test.
 
+### Plant snapshots (`plantSave` / `plantLoad`)
+
+Every mode's plant can be saved to and restored from a float vector —
+`[_time, _drive, …fields]`, the fields listed by the device's `state` block in
+`physics/devices.json` (#224 §2, [`docs/SNAPSHOTS.md`](../docs/SNAPSHOTS.md)).
+The methods are codegen'd into `generated/plant-state-impl.h` and compiled by
+`src/plant/plant_state.cpp`, so a layout change is a catalog edit plus
+`npm run codegen:catalog`, never a hand-written serializer.
+
+| Method | Contract |
+|--------|----------|
+| `int plantStateSize(int mode) const` | floats in `mode`'s vector (`PLANT_STATE_SIZES`; 0 if unknown) |
+| `int plantSave(int mode)` | writes the vector into the float scratch (`getScratchPtr`), returns its length |
+| `bool plantLoad(int mode, int count, uint32_t layoutHash)` | reads `count` scratch floats; refuses a `layoutHash` ≠ `PLANT_STATE_LAYOUT_HASH`, a wrong `count`, a too-small scratch or any non-finite value — the plant is left untouched |
+
+Embind: the three class methods plus the free `plant_state_layout_hash()`. The
+same scratch pattern as the energy bus (table above): `plantSave(m)` →
+`getScratchPtr(n)` → read `HEAPF32`; or `HEAPF32.set(v, ptr >> 2)` →
+`plantLoad(m, n, hash)`. `--mode snapshots` (in the default native run) and
+`npm run test:snapshots` (shipped WASM, in Node) hold every mode to a
+bit-identical save → load → step, compared every frame.
+
 ### Release build flags — what maps to what
 
 The release (`make wasm` / `npm run wasm:build`) target passes flags beyond `emscripten.flags`
@@ -396,6 +419,7 @@ cpp/
       seg_plant.cpp         ← magnetic-field utilities + SEG roller RK4
       chores_reduce.cpp     ← GPU-chores CPU reduce fallback
       particles.cpp         ← mode-aware particle seed/step + accessors
+      plant_state.cpp       ← compiles generated/plant-state-impl.h (plantSave / plantLoad)
   CMakeLists.txt     ← CMake / Emscripten + CMAKE_EXPORT_COMPILE_COMMANDS
   Makefile           ← make wasm / native / native-san / tidy / compile-db /
                        compile-db-wasm ($(wildcard src/plant/*.cpp); native

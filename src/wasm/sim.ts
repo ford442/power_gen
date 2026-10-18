@@ -531,6 +531,14 @@ export class SEGSim {
     return this.getNetworkSummary();
   }
 
+  /**
+   * The Embind instance, for lazy chunks that drive a binding this wrapper
+   * does not (plant snapshots: src/wasm/plant-state-io.ts).
+   */
+  get raw(): SEGSimulatorInstance | null {
+    return this._sim;
+  }
+
   getNetworkSummary(): SEGNetworkSummary {
     const s = this._sim?.getNetworkSummary?.();
     if (!s) {

@@ -2476,3 +2476,62 @@ test.describe('LabConfig share links v2 (#224 §1)', () => {
     expect(pageErrors).toEqual([]);
   });
 });
+
+test.describe('Plant snapshots (#224 §2)', () => {
+  test('restoreSnapshot of a steady operating point: telemetry is at steady state at once (no spin-up)', async ({ page }) => {
+    // Boot + the lazy snapshot chunk; SwiftShader can starve module loads.
+    test.setTimeout(300_000);
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.lab?.restoreSnapshot && !!window.multiVisualizer?.devices?.vdg
+      && !!window.telemetryHub, { timeout: 120_000 });
+
+    // A saved operating point, as a .lab.json `state` carries it (JSON). SEG
+    // at full drive and excitation balances drive torque against eddy +
+    // viscous drag at exactly ω = 1 (1.33/1.4 + 0.05), i.e. OPERATIONAL; a
+    // fresh START would spend seconds spinning up to it. The VdG sphere comes
+    // back charged too. No C++ vector: this lab runs the JS plants.
+    const restored = await page.evaluate(async () => {
+      const snapshot = {
+        format: 'seg-plant-snapshot', version: 1, layoutHash: 0, catalogHash: '', backend: 'js',
+        focus: 'seg', view: window.multiVisualizer.currentView, t: 600, seed: null, config: {},
+        operator: {
+          status: 'operational', isRunning: true, targetDrive: 1, magneticFieldStrength: 1, loadResistance: 100,
+          totalEnergy: 0, efficiency: 90, displayRpm: 3000, displayField: 0.7,
+          physics: { segOmega: 1, corona: 1, energyLevel: 1, magneticFieldStrength: 1 }
+        },
+        devices: { vdg: { vdgChargeC: 2e-6, vdgVoltage: 150000 } }
+      };
+      const ok = await window.lab.restoreSnapshot(JSON.parse(JSON.stringify(snapshot)));
+      const seg = window.telemetryHub.getSnapshot().seg;
+      return {
+        ok,
+        status: seg.status,
+        segOmega: seg.segOmega,
+        rpmInner: seg.rpmInner,
+        simT: window.telemetryHub.getSimTimeS(),
+        vdgV: window.multiVisualizer.devices.vdg.physicsState?.vdgVoltage
+      };
+    });
+    expect(restored.ok).toBe(true);
+    // Straight away — no spin-up ramp from rest.
+    expect(restored.status).toBe('operational');
+    expect(restored.segOmega).toBe(1);
+    expect(restored.rpmInner).toBe(3000);
+    expect(restored.simT).toBe(600);
+    expect(restored.vdgV).toBe(150000);
+
+    // Live stepping resumes from the restored point and stays on it.
+    await waitForEval(page, () => window.telemetryHub.getSimTimeS() > 600.5, { timeout: 120_000 });
+    const live = await page.evaluate(() => ({
+      status: window.segOperator.status,
+      segOmega: window.segOperator.physics.segOmega
+    }));
+    expect(live.status).toBe('operational');
+    expect(Math.abs(live.segOmega - 1)).toBeLessThan(1e-3);
+
+    // Not a snapshot: refused, nothing thrown.
+    expect(await page.evaluate(() => window.lab.restoreSnapshot({ format: 'nope' }))).toBe(false);
+    expect(pageErrors).toEqual([]);
+  });
+});

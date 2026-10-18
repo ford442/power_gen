@@ -14,6 +14,7 @@ import {
   type SEGDevicePower,
   type SEGStepResult
 } from './sim';
+import type { SEGSimulatorInstance } from './types';
 import { wasmModeForDevice } from '../../generated/device-catalog';
 import { labConfig, persistLabConfig } from '../config/lab-config';
 
@@ -75,6 +76,8 @@ export interface SegWasmBridge {
   setKelvinSeedV(seedV: number): boolean;
   setLorentzFieldT(fieldT: number): void;
   getModePlant(): unknown;
+  /** This thread's Embind instance (null before init / without WASM) — see SEGSim.raw. */
+  rawSim(): SEGSimulatorInstance | null;
 
   getParticles(maxCount?: number): unknown[];
   getParticleFloatView(): Float32Array | null;
@@ -284,6 +287,10 @@ export const segWasm: SegWasmBridge = {
   getModePlant() {
     if (_remotePlant) return _remotePlant;
     return _instance?.getModePlant?.() ?? null;
+  },
+
+  rawSim() {
+    return _instance?.raw ?? null;
   },
 
   getParticles(maxCount = -1) {

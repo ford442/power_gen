@@ -281,6 +281,7 @@ never calls `requestAdapter`).
 | Message protocol + packed snapshot | `src/session/plant-worker-protocol.ts` |
 | Worker entry | `src/workers/plant-worker.ts` |
 | Contract test (Node `worker_threads`) | `scripts/test-plant-worker.mjs` → `npm run test:plant-worker` |
+| Plant snapshot calls (`plantSave` / `plantLoad`, lazy) | `src/session/plant-worker-snapshot.ts` — [`SNAPSHOTS.md`](./SNAPSHOTS.md) |
 
 - **One frame of latency (by design).** Frame N applies batch N−1's result,
   then posts frame N's substeps. The plant the renderer draws is one frame
@@ -619,6 +620,7 @@ Manual / agent checks (WebGPU needs a real GPU):
 | [`TELEMETRY.md`](./TELEMETRY.md) | TelemetryHub |
 | [`ANALYSIS.md`](./ANALYSIS.md) | Analysis panel: recorded runs, fits, FFT chore, exports ("Simulated — not metrology") |
 | [`EXPERIMENTS.md`](./EXPERIMENTS.md) | Scripted experiments: format, knobs, live vs offline clock, sweeps, tour `run`, reference experiments |
+| [`SNAPSHOTS.md`](./SNAPSHOTS.md) | Plant snapshots: `state` blocks, `plantSave` / `plantLoad`, `window.lab.captureSnapshot`, replay take-over |
 | [`LIGHTING_RIG.md`](./LIGHTING_RIG.md) | Lighting looks + post quality gates |
 | [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) | SceneNode + glTF CAD props |
 | [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) | Devices & plugins |

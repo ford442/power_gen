@@ -146,4 +146,10 @@ export interface ExperimentDef {
   summary?: SweepSummary;
   /** Verdicts over the sweep's summary table (one row per run). */
   summaryExpect?: ExpectDef[];
+  /**
+   * Start from a saved operating point: a §2 plant snapshot
+   * (`window.lab.captureSnapshot()`, docs/SNAPSHOTS.md). Offline it loads
+   * into the fresh bench; live it restores the lab before the steps run.
+   */
+  snapshot?: unknown;
 }

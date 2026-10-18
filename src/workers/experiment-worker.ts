@@ -19,6 +19,7 @@ export interface ExperimentWorkerRequest {
 
 export type ExperimentWorkerResponse =
   | { type: 'progress'; fraction: number }
+  | { type: 'warning'; message: string }
   | { type: 'done'; run: RecordedRun; wasmAvailable: boolean }
   | { type: 'error'; error: string };
 
@@ -39,7 +40,8 @@ ctx.onmessage = async (e) => {
     const run = runExperimentSync(v, {
       cpp: sim,
       sweepPoint,
-      onProgress: (fraction) => ctx.postMessage({ type: 'progress', fraction })
+      onProgress: (fraction) => ctx.postMessage({ type: 'progress', fraction }),
+      onWarning: (message) => ctx.postMessage({ type: 'warning', message })
     });
     ctx.postMessage({ type: 'done', run, wasmAvailable: !!sim });
   } catch (err) {

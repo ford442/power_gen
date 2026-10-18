@@ -64,7 +64,8 @@ const FREE_ARGS = {
   chores_scratch_ptr: [3],
   chores_reduce_f32_scratch: [3],
   chores_map_scale_f32_scratch: [3, 2, 1],
-  chores_fft_db_scratch: [3, true, -120]
+  chores_fft_db_scratch: [3, true, -120],
+  plant_state_layout_hash: []
 };
 
 /** SEGSimulator methods that take arguments; anything else is called with none. */
@@ -91,7 +92,11 @@ const METHOD_ARGS = {
   getScratchPtr: [2 * MODE_COUNT],
   updateEnergyNetworkFromScratch: [true, 100, 50, MODE_COUNT],
   getNetworkEdgeAllocatedW: [0],
-  getNetworkDevicePower: [0]
+  getNetworkDevicePower: [0],
+  plantStateSize: [1],
+  plantSave: [1],
+  // Wrong hash on purpose: the call must be refused, not throw.
+  plantLoad: [1, 8, 0]
 };
 
 console.log('\n1. Binding inventory');
@@ -190,6 +195,25 @@ check('updateEnergyNetworkFromScratch allocates against a budget',
 mod.HEAPF32[eb + MODE_COUNT] = 0; // disable SEG (source of the only edge)
 sim.updateEnergyNetworkFromScratch(true, 100, 50, MODE_COUNT);
 check('enabled flags are read from scratch[modeCount…]', sim.getNetworkEdgeAllocatedW(0) === 0);
+
+// Plant snapshots (#224 §2) ride the same scratch: plantSave → read n floats,
+// write n floats → plantLoad. test:snapshots does the per-mode exactness.
+const hash = mod.plant_state_layout_hash();
+sim.setMode(1);
+sim.setDrive(0.8);
+for (let i = 0; i < 30; i++) sim.step(1 / 60, 0);
+const n = sim.plantSave(1);
+const at = Number(sim.getScratchPtr(n)) >> 2;
+const saved = Array.from(mod.HEAPF32.subarray(at, at + n));
+check('plantSave(heron) count = plantStateSize, head > 0', n === sim.plantStateSize(1) && n > 2 && saved[2] > 0, `n=${n} head=${saved[2]}`);
+const fresh = new mod.SEGSimulator();
+fresh.setMode(1);
+scratchWrite((k) => fresh.getScratchPtr(k), saved);
+check('plantLoad refuses a layout-hash mismatch', fresh.plantLoad(1, n, (hash ^ 1) >>> 0) === false && fresh.getHeronHead() === 0);
+scratchWrite((k) => fresh.getScratchPtr(k), saved);
+check('plantLoad(own hash) restores the plant', fresh.plantLoad(1, n, hash) === true && fresh.getHeronHead() === sim.getHeronHead(),
+  `${fresh.getHeronHead()} vs ${sim.getHeronHead()}`);
+fresh.delete();
 sim.delete();
 
 // ── 4. TS wrappers on the same binary ─────────────────────────────────────

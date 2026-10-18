@@ -155,10 +155,10 @@ class LiveRun implements LabExperimentClock {
 }
 
 /**
- * Apply the experiment's live config, START the plant if it is idle, and run
- * the steps on the session clock. A live run starts from the lab as it stands
- * (an offline run starts from a fresh bench), so set every knob the result
- * depends on. Boot-only fields (`wasmPhysics`, …) cannot change mid-session:
+ * Restore the experiment's snapshot (if any), apply its live config, START
+ * the plant if it is idle, and run the steps on the session clock. Without a
+ * snapshot a live run starts from the lab as it stands (an offline run starts
+ * from a fresh bench), so set every knob the result depends on. Boot-only fields (`wasmPhysics`, …) cannot change mid-session:
  * they are reported in `warnings` and the run's `backend` says what actually
  * stepped.
  */
@@ -172,6 +172,11 @@ export async function runLive(v: ValidatedExperiment, opts: LiveRunOpts = {}): P
     (k) => `${k} is chosen at boot — this run uses the page's ${JSON.stringify((labConfig() as unknown as Record<string, unknown>)[k])}; reload with the experiment's config to change it`
   );
   const live = Object.fromEntries(Object.entries(v.config).filter(([k]) => !BOOT_ONLY.has(k)));
+  // A saved operating point first, so the experiment's config and steps act on it.
+  if (v.snapshot) {
+    const { restoreLabSnapshot } = await import('../session/lab-snapshot');
+    if (!(await restoreLabSnapshot(v.snapshot))) throw new Error('the lab could not restore the experiment\'s snapshot');
+  }
   const { applyLabConfig } = await import('../seg-explainer/lab-url');
   await applyLabConfig(live);
   if (session.plantFocus() !== v.focus) throw new Error(`could not switch to ${v.focus}`);

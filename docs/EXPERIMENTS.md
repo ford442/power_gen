@@ -78,6 +78,7 @@ the panel.
 | `steps` | Each has `at` (s on the run clock) and exactly one of `set`, `ramp`, `record`, `expect` |
 | `plots` | Hints for the analysis panel (`x`, `y`, optional `fit`) |
 | `sweep`, `summary`, `summaryExpect` | See [Sweeps](#sweeps) |
+| `snapshot` | Start from a saved operating point — a [plant snapshot](./SNAPSHOTS.md) object (`await window.lab.captureSnapshot()`). Offline it loads into the fresh bench (every device it steps, the operator — STARTed if it was idle — and the C++ focus plant, exactly when the snapshot was taken on that mode, else cross-loaded from the device keys); live it restores the lab before the config and steps apply. Without a `seed` in `config` the run takes the snapshot's. A snapshot that does not parse is an error; a C++ plant that refuses the vector (another build) keeps its own state and the run reports a warning |
 
 ### Steps
 

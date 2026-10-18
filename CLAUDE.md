@@ -97,6 +97,7 @@ npm run codegen:lab-config # config/lab-config.json → generated/lab-config.ts 
 npm run check:lab-config # drift + no raw location.search/hash/localStorage outside src/config/
 npm run test:lab-config  # parser, precedence, #lab=v1 mapping, #lab2= round-trip
 npm run test:experiments # reference experiments headless on wasm + js (docs/EXPERIMENTS.md)
+npm run test:snapshots   # plant snapshots: native + shipped WASM + TS save→load→step bit-identical, JS→C++ cross-load
 npm run validate      # constants + catalog + typecheck + native C++ + check:post + WGSL
 npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline

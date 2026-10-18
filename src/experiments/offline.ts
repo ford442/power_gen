@@ -16,10 +16,15 @@ import { knobSpec } from './knobs';
 import { readRecordKey } from './readers';
 import type { StatKind } from './types';
 import type { ValidatedExperiment } from './validate';
+import type { SimCoreModule } from '../wasm/types';
 
 export interface OfflineRunOpts {
   /** One fresh simulator for this run, or null for the JS plants. */
   cpp: CppPlant | null;
+  /** The sim_core module `cpp` lives in, when not the loaded global one (Node). */
+  cppModule?: Pick<SimCoreModule, 'HEAPF32'> | null;
+  /** Called with anything worth telling the user (e.g. a refused snapshot). */
+  onWarning?: (message: string) => void;
   sweepPoint?: Record<string, number>;
   /** 0..1, at most every ~2 % of the run. */
   onProgress?: (fraction: number) => void;
@@ -27,10 +32,13 @@ export interface OfflineRunOpts {
 }
 
 export function runExperimentSync(v: ValidatedExperiment, opts: OfflineRunOpts): RecordedRun {
-  const seed = typeof v.config.seed === 'number' ? v.config.seed : LAB_CONFIG_DEFAULTS.seed;
+  // The experiment's own seed wins; else the snapshot's, so a resumed run
+  // draws what the captured one would have.
+  const seed = typeof v.config.seed === 'number' ? v.config.seed : (v.snapshot?.seed ?? LAB_CONFIG_DEFAULTS.seed);
   if (typeof seed === 'number') setSimulationSeed(seed, false);
 
-  const bench = new ExperimentBench(v.focus, v.devices, v.config, opts.cpp);
+  const bench = new ExperimentBench(v.focus, v.devices, v.config, opts.cpp, opts.cppModule ?? null);
+  if (v.snapshot) for (const w of bench.restore(v.snapshot)) opts.onWarning?.(w);
   const interp = new ExperimentInterpreter(v, opts.sweepPoint);
   const host = {
     write: (k: string, value: number) => { knobSpec(k)?.write(bench, value); },

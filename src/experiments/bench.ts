@@ -15,17 +15,37 @@
  *
  * Each bench owns its own operator, devices and buses — nothing touches the
  * page's singletons, so a sweep can run many benches side by side.
+ *
+ * `capture()` / `restore()` speak the §2 `PlantSnapshot` format, so an
+ * experiment can start from a saved operating point (`"snapshot"` in its
+ * definition) and a bench's state can be handed to the live lab.
  */
 import '../devices/register-plugins';
 import { WASM_MODE_BY_ID } from '../../generated/device-catalog';
-import { SEGOperatorState } from '../seg-operator-state';
+import { OPERATOR_STATUS, SEGOperatorState } from '../seg-operator-state';
 import { applyModePlantToDevices, type SessionDeviceMap, type WasmModePlant } from '../session/apply-wasm-plant';
 import { createDevicePhysicsState, stepDevicePhysics } from '../renderers/shared/device-physics';
 import { ChargeNetwork } from '../renderers/shared/charge-network';
 import { FieldNetwork } from '../renderers/shared/field-network';
 import type { RunBackend } from '../analysis/run-types';
 import type { SegOperatorTelemetry } from '../telemetry/types';
+import {
+  DEVICE_CATALOG_HASH,
+  PLANT_STATE_LAYOUT_HASH,
+  SNAPSHOT_FORMAT,
+  SNAPSHOT_VERSION,
+  captureOperatorState,
+  cppStateFromKeys,
+  loadDeviceState,
+  restoreOperatorState,
+  saveDeviceState,
+  type PlantSnapshot
+} from '../session/plant-snapshot';
+import { loadPlantState, savePlantState } from '../wasm/plant-state-io';
+import type { SEGSimulatorInstance, SimCoreModule } from '../wasm/types';
 import type { PlantView } from './readers';
+
+const STATUSES = Object.values(OPERATOR_STATUS) as string[];
 
 /** The slice of `SEGSim` a bench drives (one simulator per bench). */
 export interface CppPlant {
@@ -39,6 +59,8 @@ export interface CppPlant {
   setKelvinSeedV(seedV: number): boolean;
   setLorentzFieldT(fieldT: number): void;
   getRollerStateFloatView?(): Float32Array | null;
+  /** The Embind simulator (`SEGSim.raw`), for `plantSave` / `plantLoad`. */
+  readonly raw?: SEGSimulatorInstance | null;
 }
 
 export class ExperimentBench implements PlantView {
@@ -56,7 +78,9 @@ export class ExperimentBench implements PlantView {
     readonly focus: string,
     readonly deviceIds: readonly string[],
     config: Record<string, unknown>,
-    private readonly cpp: CppPlant | null
+    private readonly cpp: CppPlant | null,
+    /** The sim_core module `cpp` lives in, when it is not the loaded global one (Node tests). */
+    private readonly cppModule: Pick<SimCoreModule, 'HEAPF32'> | null = null
   ) {
     const heronLayoutId = typeof config.heronLayout === 'string' ? config.heronLayout : undefined;
     for (const id of deviceIds) {
@@ -92,6 +116,59 @@ export class ExperimentBench implements PlantView {
 
   segTelemetry(): SegOperatorTelemetry | null {
     return this.seg;
+  }
+
+  /** This bench as a §2 snapshot: every device, the operator, the C++ focus vector. */
+  capture(t: number, seed: number | null): PlantSnapshot {
+    const mode = WASM_MODE_BY_ID[this.focus];
+    const cppValues = this.cppFocus && !this.jsFallback ? savePlantState(this.cpp!.raw ?? null, mode, this.cppModule) : null;
+    return {
+      format: SNAPSHOT_FORMAT,
+      version: SNAPSHOT_VERSION,
+      layoutHash: PLANT_STATE_LAYOUT_HASH,
+      catalogHash: DEVICE_CATALOG_HASH,
+      backend: cppValues ? 'wasm' : 'js',
+      focus: this.focus,
+      t,
+      seed,
+      config: {},
+      devices: Object.fromEntries(Object.entries(this.devices).flatMap(([id, d]) =>
+        d?.physicsState ? [[id, saveDeviceState(id, d.physicsState)]] : [])),
+      ...(cppValues ? { wasm: { mode, values: Array.from(cppValues) } } : {}),
+      view: this.focus,
+      operator: captureOperatorState(this.operator)
+    };
+  }
+
+  /**
+   * Start from a snapshot: every device it carries that this bench steps, the
+   * operator (STARTed again if it was idle — an experiment is a running
+   * plant), and the C++ focus plant — exactly from the snapshot's vector when
+   * it was taken on this mode, else cross-loaded from the device's keys.
+   * Returns warnings (a C++ plant that refused the vector keeps its own).
+   */
+  restore(snap: PlantSnapshot): string[] {
+    const warnings: string[] = [];
+    for (const [id, values] of Object.entries(snap.devices)) {
+      const state = this.devices[id]?.physicsState;
+      if (state) loadDeviceState(id, state, values);
+    }
+    if (snap.operator) restoreOperatorState(this.operator, snap.operator, STATUSES);
+    if (!this.operator.isRunning) this.operator.start();
+    if (this.cppFocus) {
+      const mode = WASM_MODE_BY_ID[this.focus];
+      const raw = this.cpp!.raw ?? null;
+      const values = snap.wasm?.mode === mode
+        ? snap.wasm.values
+        : cppStateFromKeys(this.focus, snap.devices[this.focus] ?? {}, savePlantState(raw, mode, this.cppModule), {
+          time: snap.t,
+          drive: this.operator.getDrive()
+        });
+      if (!values || !loadPlantState(raw, mode, values, PLANT_STATE_LAYOUT_HASH, this.cppModule)) {
+        warnings.push(`the C++ ${this.focus} plant refused the snapshot (another build?) — it starts from its own state`);
+      }
+    }
+    return warnings;
   }
 
   step(dt: number): void {
