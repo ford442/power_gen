@@ -6,6 +6,9 @@
  *   generated/device-catalog.ts
  *   generated/device-catalog.h
  *   generated/device-catalog.wgsl
+ *   generated/device-state.ts        (plant snapshot layout, #224 §2 — lazy chunk)
+ *   generated/plant-state.h          (PLANT_STATE_LAYOUT_HASH + sizes)
+ *   generated/plant-state-impl.h     (SEGSimulator::plantSave / plantLoad bodies)
  *   src/shaders/generated/device-catalog.wgsl
  *   docs/MODE_MATRIX.md
  *
@@ -29,6 +32,7 @@ const TELEMETRY_TYPES = join(ROOT, 'src', 'telemetry', 'types.ts');
 const TELEMETRY_HUB = join(ROOT, 'src', 'telemetry-hub.ts');
 const APPLY_WASM_PLANT = join(ROOT, 'src', 'session', 'apply-wasm-plant.ts');
 const TELEMETRY_SCHEMA = join(ROOT, 'src', 'telemetry', 'telemetry-schema.ts');
+const DEVICE_PHYSICS = join(ROOT, 'src', 'renderers', 'shared', 'device-physics.ts');
 
 /**
  * 'seg' publishes its telemetryKeys across SegOperatorTelemetry (rpm/voltage/
@@ -150,6 +154,310 @@ function validateSetpoints(devices) {
     }
   }
   return errors;
+}
+
+/**
+ * Per-device `state` — what a plant snapshot (#224 §2) saves and restores.
+ *
+ *   { "plant": "_heron" | null, "clearOnLoad"?: ["<key>"…], "fields": [
+ *       { "key": "heronHead", "cpp": "head" },          // both sides
+ *       { "key": "energyLevel", "cpp": null },          // TS physicsState only
+ *       { "cpp": "drive" },                              // C++ plant struct only
+ *       { "cpp": "@_rollers[].omega", "count": 66 } ] } // SEGSimulator member array
+ *
+ * `key` is a DevicePhysicsState field; `cpp` is a field of the SEGSimulator
+ * member named by `plant`, or (leading `@`) a SEGSimulator member itself. The
+ * order is the wire order on both sides. `type` (default number) says how a
+ * non-number value becomes a float: bool → 0/1, enum → index into `values`,
+ * nullable → -1 for null on the TS side and `cppNull` (default -1) in C++.
+ * The list has to cover every field a step reads before it writes, or a
+ * restored plant diverges — `npm run test:snapshots` is what proves it.
+ */
+const STATE_TYPES = new Set(['number', 'bool', 'enum', 'nullable']);
+const STATE_CPP_RE = /^@?[A-Za-z_]\w*(\[\])?(\.[A-Za-z_]\w*)?$/;
+const STATE_KEY_RE = /^[a-z][A-Za-z0-9]*$/;
+
+function validateState(devices) {
+  const errors = [];
+  let physicsText = '';
+  try {
+    physicsText = readFileSync(DEVICE_PHYSICS, 'utf8');
+  } catch (e) {
+    return [`state key check: ${e.message}`];
+  }
+  for (const d of devices) {
+    const s = d.state;
+    if (!s || typeof s !== 'object' || !Array.isArray(s.fields) || s.fields.length === 0) {
+      errors.push(`${d.id}: state.fields[] required (what a plant snapshot saves — see docs/SNAPSHOTS.md)`);
+      continue;
+    }
+    const wasm = d.wasmMode != null;
+    if (s.plant != null && (typeof s.plant !== 'string' || !/^_[a-z]\w*$/.test(s.plant))) {
+      errors.push(`${d.id}: state.plant must be a SEGSimulator member name like "_heron", or null`);
+    }
+    if (!wasm && s.plant != null) errors.push(`${d.id}: state.plant set on a JS-only device (wasmMode null)`);
+    const keys = new Set();
+    const cpps = new Set();
+    for (const [i, f] of s.fields.entries()) {
+      const where = `${d.id}.state.fields[${i}]`;
+      const hasKey = f.key != null;
+      const hasCpp = f.cpp != null;
+      if (!hasKey && !hasCpp) errors.push(`${where}: needs a key, a cpp field, or both`);
+      if (hasKey) {
+        if (typeof f.key !== 'string' || !STATE_KEY_RE.test(f.key)) errors.push(`${where}: key must be a camelCase identifier`);
+        else if (keys.has(f.key)) errors.push(`${where}: duplicate key "${f.key}"`);
+        else if (!fileContainsKey(physicsText, f.key)) errors.push(`${where}: "${f.key}" is not a DevicePhysicsState field (${DEVICE_PHYSICS})`);
+        keys.add(f.key);
+      }
+      if (hasCpp) {
+        if (!wasm) errors.push(`${where}: cpp field on a JS-only device`);
+        if (typeof f.cpp !== 'string' || !STATE_CPP_RE.test(f.cpp)) errors.push(`${where}: cpp "${f.cpp}" is not field / @member / @member[].field`);
+        else if (cpps.has(f.cpp)) errors.push(`${where}: duplicate cpp "${f.cpp}"`);
+        else if (!f.cpp.startsWith('@') && s.plant == null) errors.push(`${where}: cpp "${f.cpp}" needs state.plant (or an @member path)`);
+        cpps.add(f.cpp);
+        const isArray = typeof f.cpp === 'string' && f.cpp.includes('[]');
+        if (isArray !== (f.count != null)) errors.push(`${where}: count goes with (and only with) a [] cpp path`);
+        if (f.count != null && (!Number.isInteger(f.count) || f.count < 1)) errors.push(`${where}: count must be a positive integer`);
+        if (isArray && hasKey) errors.push(`${where}: an array cpp field cannot map to a single key`);
+      }
+      const type = f.type ?? 'number';
+      if (!STATE_TYPES.has(type)) errors.push(`${where}: type must be one of ${[...STATE_TYPES].join(', ')}`);
+      if (type === 'enum' && (!Array.isArray(f.values) || f.values.length < 2 || !f.values.every((v) => typeof v === 'string'))) {
+        errors.push(`${where}: an enum needs values: [≥2 strings]`);
+      }
+      if (type !== 'enum' && f.values != null) errors.push(`${where}: values only goes with type enum`);
+      if (f.cppNull != null && (type !== 'nullable' || !Number.isFinite(f.cppNull))) errors.push(`${where}: cppNull is a finite number on a nullable field`);
+      const known = new Set(['key', 'cpp', 'type', 'values', 'count', 'cppNull']);
+      for (const k of Object.keys(f)) if (!known.has(k)) errors.push(`${where}: unknown property "${k}"`);
+    }
+    for (const k of s.clearOnLoad ?? []) {
+      if (typeof k !== 'string' || !fileContainsKey(physicsText, k)) errors.push(`${d.id}: state.clearOnLoad "${k}" is not a DevicePhysicsState field`);
+    }
+  }
+  return errors;
+}
+
+/** Saved before every mode's own fields: the simulator clock and drive setpoint. */
+const STATE_CPP_PREFIX = [{ cpp: '@_time' }, { cpp: '@_drive' }];
+
+/** 32-bit FNV-1a — a stable number C++ and JS can both compare. */
+function fnv1a32(text) {
+  let h = 0x811c9dc5;
+  for (const b of Buffer.from(text, 'utf8')) {
+    h ^= b;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/**
+ * Wire layouts derived from the `state` blocks: TS keys in order, and for
+ * each wasm plant the C++ float vector `[prefix…, cpp fields…]` with offsets.
+ */
+function stateLayout(devices) {
+  const rows = devices.map((d) => {
+    const fields = d.state.fields.map((f) => ({
+      key: f.key ?? null,
+      cpp: f.cpp ?? null,
+      type: f.type ?? 'number',
+      values: f.values ?? null,
+      count: f.count ?? 1,
+      cppNull: f.type === 'nullable' ? (f.cppNull ?? -1) : null,
+      offset: -1,
+    }));
+    let cppSize = 0;
+    if (d.wasmMode != null) {
+      cppSize = STATE_CPP_PREFIX.length;
+      for (const f of fields) {
+        if (f.cpp == null) continue;
+        f.offset = cppSize;
+        cppSize += f.count;
+      }
+    }
+    return { id: d.id, wasmMode: d.wasmMode, plant: d.state.plant ?? null, clearOnLoad: d.state.clearOnLoad ?? [], fields, cppSize };
+  });
+  const canonical = JSON.stringify({
+    prefix: STATE_CPP_PREFIX.map((f) => f.cpp),
+    devices: rows.map((r) => [r.id, r.wasmMode, r.plant, r.fields.map((f) => [f.key, f.cpp, f.type, f.values, f.count, f.cppNull])]),
+  });
+  return { rows, hash: fnv1a32(canonical) };
+}
+
+/** C++ lvalue for a cpp path (`i` is the loop index of an array path). */
+function cppLvalue(plant, path) {
+  const expr = path.startsWith('@') ? path.slice(1) : `${plant}.${path}`;
+  return expr.replace('[]', '[i]');
+}
+
+function emitPlantStateH(layout) {
+  const wasmRows = layout.rows.filter((r) => r.wasmMode != null).sort((a, b) => a.wasmMode - b.wasmMode);
+  const sizes = wasmRows.map((r) => `    ${r.cppSize}, // ${simEnum(r.id)}`).join('\n');
+  const hex = `0x${layout.hash.toString(16).padStart(8, '0')}u`;
+  const catalogHash = sha256(readFileSync(SRC_JSON, 'utf8')).slice(0, 12);
+  return `${HEADER_H}
+// Plant snapshot layout (#224 §2), from each device's \`state\` block.
+// Every mode saves [_time, _drive, <its state.fields with a cpp path>…] as
+// floats into the SEGSimulator scratch (getScratchPtr) — see
+// SEGSimulator::plantSave / plantLoad and docs/SNAPSHOTS.md.
+
+#include <cstdint>
+
+static constexpr uint32_t PLANT_STATE_LAYOUT_HASH = ${hex};
+static constexpr const char* DEVICE_CATALOG_HASH = "${catalogHash}";
+
+static constexpr int PLANT_STATE_SIZES[] = {
+${sizes}
+};
+
+static_assert(sizeof(PLANT_STATE_SIZES) / sizeof(PLANT_STATE_SIZES[0]) == ${wasmRows.length},
+              "PLANT_STATE_SIZES must cover every SimMode");
+`;
+}
+
+function emitPlantStateImplH(layout) {
+  const wasmRows = layout.rows.filter((r) => r.wasmMode != null).sort((a, b) => a.wasmMode - b.wasmMode);
+  const prefixSave = STATE_CPP_PREFIX.map((f, i) => `    s[${i}] = ${cppLvalue(null, f.cpp)};`).join('\n');
+  const prefixLoad = STATE_CPP_PREFIX.map((f, i) => `    ${cppLvalue(null, f.cpp)} = s[${i}];`).join('\n');
+  // An array path's count must be the member array's length, or a resized
+  // array would silently save a prefix (or read past the end).
+  const arrayAsserts = new Map();
+  const cases = (load) => wasmRows.map((r) => {
+    const lines = [];
+    for (const f of r.fields) {
+      if (f.cpp == null) continue;
+      const lv = cppLvalue(r.plant, f.cpp);
+      const isBool = f.type === 'bool' || f.type === 'enum';
+      if (f.cpp.includes('[]')) {
+        const arr = cppLvalue(r.plant, f.cpp.split('[]')[0]);
+        if (!load && !arrayAsserts.has(`${arr}#${f.count}`)) {
+          arrayAsserts.set(`${arr}#${f.count}`, `    static_assert(sizeof(${arr}) / sizeof(${arr}[0]) == ${f.count},\n`
+            + `                  "physics/devices.json ${r.id} state: ${f.cpp} count must match the array length");`);
+        }
+        lines.push(load
+          ? `            for (int i = 0; i < ${f.count}; ++i) ${lv} = s[${f.offset} + i];`
+          : `            for (int i = 0; i < ${f.count}; ++i) s[${f.offset} + i] = ${lv};`);
+      } else if (isBool) {
+        lines.push(load ? `            ${lv} = s[${f.offset}] != 0.f;` : `            s[${f.offset}] = ${lv} ? 1.f : 0.f;`);
+      } else {
+        lines.push(load ? `            ${lv} = s[${f.offset}];` : `            s[${f.offset}] = ${lv};`);
+      }
+    }
+    return `        case ${simEnum(r.id)}:\n${lines.join('\n')}\n            break;`;
+  }).join('\n');
+  const saveCases = cases(false);
+  const loadCases = cases(true);
+  return `// AUTO-GENERATED from physics/devices.json — do not edit.
+// Regenerate: npm run codegen:catalog
+//
+// SEGSimulator::plantSave / plantLoad bodies (#224 §2). Included once, by
+// cpp/src/plant/plant_state.cpp; the layout is in generated/plant-state.h.
+
+int SEGSimulator::plantStateSize(int mode) const {
+    return (mode >= 0 && mode < SIM_MODE_COUNT) ? PLANT_STATE_SIZES[mode] : 0;
+}
+
+int SEGSimulator::plantSave(int mode) {
+${[...arrayAsserts.values()].join('\n')}
+    const int n = plantStateSize(mode);
+    if (n <= 0) return 0;
+    float* s = reinterpret_cast<float*>(getScratchPtr(n));
+${prefixSave}
+    switch (mode) {
+${saveCases}
+        default:
+            break;
+    }
+    return n;
+}
+
+bool SEGSimulator::plantLoad(int mode, int count, uint32_t layoutHash) {
+    const int n = plantStateSize(mode);
+    if (layoutHash != PLANT_STATE_LAYOUT_HASH || n <= 0 || count != n) return false;
+    if (static_cast<int>(_scratch.size()) < n) return false;
+    const float* s = _scratch.data();
+    for (int i = 0; i < n; ++i) {
+        if (!std::isfinite(s[i])) return false;
+    }
+${prefixLoad}
+    switch (mode) {
+${loadCases}
+        default:
+            break;
+    }
+    packRollerState();
+    return true;
+}
+`;
+}
+
+function emitDeviceStateTs(layout) {
+  const hash = layout.hash;
+  const catalogHash = sha256(readFileSync(SRC_JSON, 'utf8')).slice(0, 12);
+  const rows = layout.rows.map((r) => {
+    const fields = r.fields.map((f) => {
+      const parts = [`key: ${JSON.stringify(f.key)}`, `cpp: ${JSON.stringify(f.cpp)}`, `type: '${f.type}'`];
+      if (f.values) parts.push(`values: ${JSON.stringify(f.values)}`);
+      if (f.count !== 1) parts.push(`count: ${f.count}`);
+      if (f.cppNull != null) parts.push(`cppNull: ${f.cppNull}`);
+      parts.push(`offset: ${f.offset}`);
+      return `      { ${parts.join(', ')} }`;
+    }).join(',\n');
+    const clear = r.clearOnLoad.length ? `\n    clearOnLoad: ${JSON.stringify(r.clearOnLoad)},` : '';
+    return `  '${r.id}': {
+    wasmMode: ${r.wasmMode == null ? 'null' : r.wasmMode},
+    cppSize: ${r.cppSize},${clear}
+    fields: [
+${fields}
+    ]
+  }`;
+  }).join(',\n');
+  return `${HEADER_TS}
+/**
+ * Plant snapshot layout (#224 §2) — each device's \`state\` block in
+ * physics/devices.json. Imported only by the lazy snapshot chunk
+ * (src/session/plant-snapshot.ts); the entry chunk never loads it.
+ */
+
+export type DeviceStateFieldType = 'number' | 'bool' | 'enum' | 'nullable';
+
+export interface DeviceStateField {
+  /** DevicePhysicsState key (null: C++-only). */
+  key: string | null;
+  /** C++ path: a field of the mode's plant struct, or \`@member\` (null: TS-only). */
+  cpp: string | null;
+  type: DeviceStateFieldType;
+  /** enum: the value for index 0, 1, … */
+  values?: readonly string[];
+  /** Floats this cpp path takes (arrays only). */
+  count?: number;
+  /** nullable: what the C++ plant stores for "none". */
+  cppNull?: number;
+  /** Index into the C++ float vector (-1 when there is no cpp path). */
+  offset: number;
+}
+
+export interface DeviceStateLayout {
+  wasmMode: number | null;
+  /** C++ vector length — \`SEGSimulator::plantStateSize(wasmMode)\` (0 for JS-only). */
+  cppSize: number;
+  /** physicsState keys set to null after a load (derived geometry the next step rebuilds). */
+  clearOnLoad?: readonly string[];
+  fields: readonly DeviceStateField[];
+}
+
+/** C++ vector indices every mode saves first: [simulator time, drive setpoint]. */
+export const PLANT_STATE_PREFIX = { time: 0, drive: 1, length: ${STATE_CPP_PREFIX.length} } as const;
+
+/** FNV-1a of every state block — \`PLANT_STATE_LAYOUT_HASH\` in generated/plant-state.h. */
+export const PLANT_STATE_LAYOUT_HASH = 0x${hash.toString(16).padStart(8, '0')};
+
+/** First 12 hex of sha256(physics/devices.json) — which catalog wrote a snapshot. */
+export const DEVICE_CATALOG_HASH = '${catalogHash}';
+
+export const DEVICE_STATE_LAYOUT: Readonly<Record<string, DeviceStateLayout>> = {
+${rows}
+};
+`;
 }
 
 /**
@@ -695,8 +1003,14 @@ ${lines.join('\n')}
 `;
 }
 
-function emitModeMatrix(devices, reserved) {
+function emitModeMatrix(devices, reserved, layout) {
   const reservedText = reserved.length ? reserved.join(', ') : 'none';
+  const stateRows = layout.rows.map((r) => {
+    const keys = r.fields.filter((f) => f.key).length;
+    const shared = r.fields.filter((f) => f.key && f.cpp).length;
+    const cpp = r.wasmMode == null ? '—' : `${r.cppSize} floats`;
+    return `| \`${r.id}\` | ${keys} | ${cpp} | ${r.wasmMode == null ? '—' : shared} |`;
+  });
   const rows = devices.map((d) => {
     const wasm =
       d.wasmMode == null
@@ -733,12 +1047,23 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 |---|---|---|---|---|
 ${rows.join('\n')}
 
+## Snapshot state
+
+Each device's \`state\` block lists what a plant snapshot saves (see
+[\`SNAPSHOTS.md\`](SNAPSHOTS.md)). The C++ vector is \`[_time, _drive, …]\`
+followed by the block's \`cpp\` fields; layout hash
+\`0x${layout.hash.toString(16).padStart(8, '0')}\` (\`PLANT_STATE_LAYOUT_HASH\`).
+
+| Device \`id\` | TS keys | C++ \`plantStateSize\` | Keys shared with C++ |
+|---|---|---|---|
+${stateRows.join('\n')}
+
 ## How to add a device
 
-1. Add a row to \`physics/devices.json\` (new unused \`shaderMode\`; \`wasmMode\` next reserved or \`null\`), including a \`telemetry\` entry (label / unit / digits) for every \`telemetryKeys\` entry.
+1. Add a row to \`physics/devices.json\` (new unused \`shaderMode\`; \`wasmMode\` next reserved or \`null\`), including a \`telemetry\` entry (label / unit / digits) for every \`telemetryKeys\` entry, and a \`state\` block listing every field the plant's step reads before it writes.
 2. Register a plugin that spreads \`catalogIdentity('id')\`.
 3. Add a C++ plant + \`case\` **only if** \`wasmMode\` is set.
-4. \`npm run codegen:catalog\` (and nameplates in \`physics/constants.json\` if the energy bus needs a watt rating).
+4. \`npm run codegen:catalog\` (and nameplates in \`physics/constants.json\` if the energy bus needs a watt rating), then \`npm run test:snapshots\`.
 
 ## Source of truth pointers
 
@@ -784,11 +1109,17 @@ function main() {
   const telemetrySchemaErrors = checkTelemetrySchemaUsesCatalog();
   const chromeErrors = validateChrome(devices);
   const setpointErrors = validateSetpoints(devices);
+  const stateErrors = validateState(devices);
+  if (stateErrors.length) {
+    for (const e of stateErrors) console.error(`[catalog] ${e}`);
+    process.exit(1);
+  }
+  const layout = stateLayout(devices);
 
   const ts = emitTs(data, devices, reserved, wasmCount);
   const h = emitH(devices, reserved, wasmCount);
   const wgsl = emitWgsl(devices);
-  const md = emitModeMatrix(devices, reserved);
+  const md = emitModeMatrix(devices, reserved, layout);
 
   const wgslErrors = checkWgslNamedConstants(devices, wgsl);
   const errors = [...pluginErrors, ...(CHECK || true ? wgslErrors : [])];
@@ -818,6 +1149,9 @@ function main() {
     [join(OUT_DIR, 'device-catalog.ts'), ts],
     [join(OUT_DIR, 'device-catalog.h'), h],
     [join(OUT_DIR, 'device-catalog.wgsl'), wgsl],
+    [join(OUT_DIR, 'device-state.ts'), emitDeviceStateTs(layout)],
+    [join(OUT_DIR, 'plant-state.h'), emitPlantStateH(layout)],
+    [join(OUT_DIR, 'plant-state-impl.h'), emitPlantStateImplH(layout)],
     [SHADER_OUT, wgsl],
     [MODE_MATRIX, md],
   ];
