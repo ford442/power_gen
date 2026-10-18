@@ -99,7 +99,19 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
         segPartModes: (this.devices.seg as { segPartModes?: () => Record<string, number> } | undefined)?.segPartModes?.() ?? {},
         textureCompression: this.webgpu.textureCompressionUsed !== 'none'
           ? this.webgpu.textureCompressionUsed
-          : this.webgpu.textureCompression
+          : this.webgpu.textureCompression,
+        colorPipeline: this.webgpu.colorTargets
+          ? {
+              mode: this.webgpu.colorTargets.mode,
+              canvasFormat: this.webgpu.colorTargets.canvasFormat,
+              outputFormat: this.webgpu.colorTargets.outputFormat,
+              sceneFormat: this.webgpu.colorTargets.sceneFormat,
+              bloomFormat: this.webgpu.colorTargets.bloomFormat,
+              hdrOutput: this.webgpu.colorTargets.hdrOutput,
+              bloomLevels: this.bloomChain?.levels ?? 0
+            }
+          : undefined,
+        gpuMemory: this.profiler?.gpuMemoryEstimate()
       });
 
       window.runSEGSpeedTest = (speeds?: number[], durationMs?: number) => this.runSpeedTest(speeds, durationMs);
@@ -225,7 +237,7 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
   async _bootGpuState() {
       // Explicit bind-group / pipeline layouts + shared device pipelines (once)
       this.pipelineCache = new PipelineLayoutCache(this.device, {
-        canvasFormat: this.webgpu.canvasFormat || navigator.gpu.getPreferredCanvasFormat(),
+        colorTargets: this.webgpu.colorTargets!,
         depthFormat: this.depthFormat
       });
       await this.pipelineCache.ensureDevicePipelines(this.shaders);

@@ -26,6 +26,9 @@ export const renderLoopMethods: ThisType<Host> & {
       this.canvas.clientWidth < 1 ||
       this.canvas.clientHeight < 1 ||
       !this.depthAttachmentView ||
+      // Every scene pipeline targets the scene format, which is not the
+      // canvas format on the linear colour pipeline — no scene target, no frame.
+      !this.bloomSceneTexture ||
       !this.profiler ||
       !this.cameraController ||
       !this.globalUniformBuffer ||

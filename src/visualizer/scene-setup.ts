@@ -224,6 +224,13 @@ export const sceneSetupMethods: ThisType<Host> & {
       this._syncCanvasSize();
     });
     this._canvasResizeObserver.observe(target);
+    // Exact device pixels for the backing store (canvasPixelSize prefers
+    // them). Also fires on a DPR change — dragging the window to another
+    // monitor — which the layout observer above does not see.
+    this._canvasDprObserver?.disconnect();
+    this._canvasDprObserver = WebGPUManager.observeDevicePixelSize(this.canvas, () => {
+      this._syncCanvasSize();
+    });
   },
 
   async _syncCanvasSize() {

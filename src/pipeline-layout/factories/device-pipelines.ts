@@ -25,7 +25,7 @@ export async function ensureDevicePipelines(
   shaders: MultiDeviceShaders,
   opts: DevicePipelineOptions = {}
 ): Promise<void> {
-  const fmt = cache.canvasFormat;
+  const fmt = cache.sceneFormat;
   const depthWrite = cache.depthStencil(true, 'less');
   const depthRead = cache.depthStencil(false, 'less');
   const sampleCount = opts.sampleCount ?? 1;
