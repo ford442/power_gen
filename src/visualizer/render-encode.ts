@@ -7,6 +7,7 @@ import { MAX_ROLLERS } from '../seg-layout';
 import { packPostUniforms } from '../seg-lighting-presets';
 import { writeQueueBuffer } from '../gpu-buffer-write';
 import { getPostQualityGates } from '../post-processing-config';
+import { postOutputTransfer } from '../webgpu-init/color-pipeline';
 import { SSR_PARAMS_BYTES, TAA_PARAMS_BYTES } from './scene-setup.js';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { DeviceInstance } from '../device-instance.js';
@@ -205,10 +206,13 @@ export const renderEncodeMethods: ThisType<Host> & {
     fdtdSlice: ReturnType<Host['updateFdtdSlice']>
   ) {
     // Begin command encoding
-    const encoder = this.device.createCommandEncoder();
+    const encoder = this.device.createCommandEncoder({ label: 'frame' });
 
     // ─── COMPUTE PASS: animate particles on GPU ───
-    const computePass = encoder.beginComputePass({ label: 'particle-compute' });
+    const computePass = encoder.beginComputePass({
+      label: 'particle-compute',
+      timestampWrites: profiler.passTimestampWrites('begin')
+    });
 
     // Overview frustum cull → draw-indirect. Runs first: the instance render
     // pass below consumes the draw args this dispatch writes.
@@ -261,8 +265,6 @@ export const renderEncodeMethods: ThisType<Host> & {
     }
     computePass.end();
 
-    profiler.writeTimestamp(encoder, 0);
-
     // 4x MSAA (ADR-0005 WS2 showroom pass): `high` tier + focus mode only.
     // `'ultra'` is defined in config/docs but the auto-quality system never
     // assigns it (performance-profiler.ts only ever picks
@@ -290,15 +292,14 @@ export const renderEncodeMethods: ThisType<Host> & {
       device.pipelineManager?.applyMsaaState?.(msaaActive);
     }
 
-    const sceneView = (this.bloomSceneTexture)
-      ? this.bloomSceneTexture.createView()
-      : gpuContext.getCurrentTexture().createView();
+    // render() does not reach here without a scene target.
+    const sceneView = this.bloomSceneTexture!.createView();
 
     // Color 1: metalness (r) / roughness (g) G-buffer (ADR-0005 WS2). Cleared
     // to metallic=0, roughness=1 ("non-metal, fully rough") so any pipeline
-    // below that declares a `null` second target — everything except
-    // seg-enhanced/roller — reads back as non-reflective by default; only
-    // those two actually write real values.
+    // below whose second target is MATERIAL_GBUFFER_NO_WRITE (writeMask 0) —
+    // everything except seg-enhanced/roller — reads back as non-reflective by
+    // default; only those two actually write real values.
     const gbufferView = this.materialGBufferView;
     const gbufferClear = { r: 0.0, g: 1.0, b: 0.0, a: 0.0 };
     let colorAttachments: GPURenderPassColorAttachment[];
@@ -341,6 +342,7 @@ export const renderEncodeMethods: ThisType<Host> & {
     }
 
     const renderPass = encoder.beginRenderPass({
+      label: 'scene',
       colorAttachments,
       depthStencilAttachment: WebGPUManager.depthStencilAttachment(
         msaaActive ? this.depthMsaaAttachmentView! : this.depthAttachmentView!,
@@ -396,6 +398,7 @@ export const renderEncodeMethods: ThisType<Host> & {
     // which read a single-sample depth texture. See passes/depth-resolve.wgsl.
     if (msaaActive) {
       const resolvePass = encoder.beginRenderPass({
+        label: 'depth-resolve',
         colorAttachments: [],
         depthStencilAttachment: WebGPUManager.depthStencilAttachment(this.depthResolvedAttachmentView!, {
           format: this.depthFormat
@@ -434,8 +437,12 @@ export const renderEncodeMethods: ThisType<Host> & {
     }
 
     // ── Bloom post-processing ─────────────────────────────────────────────
-    if (this.bloomExtractPipeline && this.bloomBlurPipeline && this.bloomCompositePipeline &&
-        this.bloomSceneTexture && this.bloomBlurTexture && this.bloomTempTexture && this.prevSceneTexture && this.depthTexture) {
+    const colorTargets = this.pipelineCache!.colorTargets;
+    const chain = this.bloomChain && this.bloomChainPipelines ? this.bloomChain : null;
+    const legacyBloomReady = !!(this.bloomExtractPipeline && this.bloomBlurPipeline
+      && this.bloomBlurTexture && this.bloomTempTexture);
+    if (this.bloomCompositePipeline && (chain || legacyBloomReady) &&
+        this.bloomSceneTexture && this.prevSceneTexture && this.depthTexture) {
       // Update bloom parameters dynamically based on current speed + quality tier
       if (this.bloomParamsBuffer) {
         const w = this.canvas.width || 1;
@@ -464,22 +471,32 @@ export const renderEncodeMethods: ThisType<Host> & {
             motionBlur,
             qualityGates: postGates,
             ssrEnabled: this._ssrActive,
-            outputLinearHdr: this.webgpu?.toneMappingMode === 'extended'
+            outputLinearHdr: colorTargets.hdrOutput,
+            bloomChainLevels: chain?.levels ?? 0,
+            outputTransfer: postOutputTransfer(colorTargets)
           })
         );
       }
 
-      // Skip extract + blur when bloom gate is off (composite still tonemaps).
-      if (postGates.bloom > 0) {
+      // Skip the bloom passes when the gate is off (composite still tonemaps;
+      // bloomStrength packs to 0, so a stale chain / temp target is unread).
+      if (postGates.bloom > 0 && chain) {
+        // Linear pipeline: half-res mip chain — prefilter, down × N, up × N.
+        chain.encode(encoder, this.bloomChainPipelines!, this._taaActive);
+      } else if (postGates.bloom > 0) {
+        // Legacy (?color=legacy): full-res extract → blurX → blurY.
+        const bloomTemp = this.bloomTempTexture!;
+        const bloomBlur = this.bloomBlurTexture!;
         // Pass 1: extract bright areas → bloomTempTexture
         const extractPass = encoder.beginRenderPass({
+          label: 'bloom-extract',
           colorAttachments: [{
-            view: this.bloomTempTexture.createView(),
+            view: bloomTemp.createView(),
             clearValue: { r: 0, g: 0, b: 0, a: 1 },
             loadOp: 'clear', storeOp: 'store'
           }]
         });
-        extractPass.setPipeline(this.bloomExtractPipeline);
+        extractPass.setPipeline(this.bloomExtractPipeline!);
         const extractBindGroup = this._taaActive
           ? (this.bloomExtractBindGroupTaa || this.bloomExtractBindGroup)
           : this.bloomExtractBindGroup;
@@ -491,13 +508,14 @@ export const renderEncodeMethods: ThisType<Host> & {
 
         // Pass 2: horizontal blur bloomTemp → bloomBlur
         const blurXPass = encoder.beginRenderPass({
+          label: 'bloom-blur-x',
           colorAttachments: [{
-            view: this.bloomBlurTexture.createView(),
+            view: bloomBlur.createView(),
             clearValue: { r: 0, g: 0, b: 0, a: 1 },
             loadOp: 'clear', storeOp: 'store'
           }]
         });
-        blurXPass.setPipeline(this.bloomBlurPipeline);
+        blurXPass.setPipeline(this.bloomBlurPipeline!);
         if (this.bloomBlurXBindGroup) {
           blurXPass.setBindGroup(0, this.bloomBlurXBindGroup);
         }
@@ -506,13 +524,14 @@ export const renderEncodeMethods: ThisType<Host> & {
 
         // Pass 3: vertical blur bloomBlur → bloomTemp
         const blurYPass = encoder.beginRenderPass({
+          label: 'bloom-blur-y',
           colorAttachments: [{
-            view: this.bloomTempTexture.createView(),
+            view: bloomTemp.createView(),
             clearValue: { r: 0, g: 0, b: 0, a: 1 },
             loadOp: 'clear', storeOp: 'store'
           }]
         });
-        blurYPass.setPipeline(this.bloomBlurPipeline);
+        blurYPass.setPipeline(this.bloomBlurPipeline!);
         if (this.bloomBlurYBindGroup) {
           blurYPass.setBindGroup(0, this.bloomBlurYBindGroup);
         }
@@ -520,13 +539,20 @@ export const renderEncodeMethods: ThisType<Host> & {
         blurYPass.end();
       }
 
-      // Pass 4: composite scene + bloom → canvas with tonemap/post FX
+      // Composite scene + bloom → canvas with tonemap/post FX. The view
+      // format is what does the sRGB encode on the linear SDR path
+      // (`-srgb`); legacy and the HDR float canvas use the texture's own.
       const compositePass = encoder.beginRenderPass({
+        label: 'composite',
         colorAttachments: [{
-          view: gpuContext.getCurrentTexture().createView(),
+          view: gpuContext.getCurrentTexture().createView({
+            label: 'canvas-output',
+            format: colorTargets.outputFormat
+          }),
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
           loadOp: 'clear', storeOp: 'store'
-        }]
+        }],
+        timestampWrites: profiler.passTimestampWrites('end')
       });
       compositePass.setPipeline(this.bloomCompositePipeline);
       // Two independent axes, so four variants, most specific first:
@@ -569,11 +595,9 @@ export const renderEncodeMethods: ThisType<Host> & {
       }
     }
 
-    profiler.writeTimestamp(encoder, 1);
-
     profiler.endFrameCpu();
 
-    this.device.queue.submit([encoder.finish()]);
+    this.device.queue.submit([encoder.finish({ label: 'frame' })]);
 
     // Resolve timestamps asynchronously (guarded against overlapping map/submit)
     if (profiler.timingEnabled) {

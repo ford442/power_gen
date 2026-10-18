@@ -149,6 +149,16 @@ export interface UpdateSimInput {
   simCurrent?: number;
 }
 
+/** Payloads for {@link HardwareBridge.on}. */
+export interface HardwareBridgeEvents {
+  status: HardwareBridgeStatus;
+  sensor: SensorSnapshot;
+  twinMode: TwinMode;
+  error: Error;
+}
+export type HardwareBridgeEvent = keyof HardwareBridgeEvents;
+type BridgeListener<K extends HardwareBridgeEvent> = (value: HardwareBridgeEvents[K]) => void;
+
 export class HardwareBridge {
   baudRate: number;
   /** Live throttle — a slow link (BLE) may widen it on connect. */
@@ -208,6 +218,17 @@ export class HardwareBridge {
   onSensorData: ((snapshot: SensorSnapshot) => void) | null;
   onError: ((err: Error) => void) | null;
   onTwinModeChange: ((mode: TwinMode) => void) | null;
+
+  /**
+   * Multi-subscriber events. The `on*` callback slots above hold one owner each
+   * (whoever constructed the bridge — LabSession), so the panel subscribes here.
+   */
+  private _listeners: { [K in HardwareBridgeEvent]: Set<BridgeListener<K>> } = {
+    status: new Set(),
+    sensor: new Set(),
+    twinMode: new Set(),
+    error: new Set()
+  };
 
   static sanitizeRpm = clampRpm;
   static clampPwmDuty = clampPwmDuty;
@@ -276,6 +297,43 @@ export class HardwareBridge {
     this.onSensorData = options.onSensorData || null;
     this.onError = options.onError || null;
     this.onTwinModeChange = options.onTwinModeChange || null;
+  }
+
+  /** Subscribe to a bridge event; returns the unsubscribe function. */
+  on<K extends HardwareBridgeEvent>(event: K, fn: BridgeListener<K>): () => void {
+    const set = this._listeners[event] as Set<BridgeListener<K>>;
+    set.add(fn);
+    return () => { set.delete(fn); };
+  }
+
+  /** True when anyone would receive `event` (skips building unused snapshots). */
+  _hasListeners(event: HardwareBridgeEvent): boolean {
+    return !!this._ownerCallback(event) || this._listeners[event].size > 0;
+  }
+
+  private _ownerCallback<K extends HardwareBridgeEvent>(event: K): BridgeListener<K> | null {
+    const slot = event === 'status' ? this.onStatusChange
+      : event === 'sensor' ? this.onSensorData
+        : event === 'twinMode' ? this.onTwinModeChange
+          : this.onError;
+    return slot as BridgeListener<K> | null;
+  }
+
+  /**
+   * Deliver to the owner callback, then every subscriber. A throwing UI
+   * listener is logged and skipped — it must not tear down the link.
+   */
+  // Not `private`: called from hardware-bridge-protocol.ts's mixin methods too.
+  _emit<K extends HardwareBridgeEvent>(event: K, value: HardwareBridgeEvents[K]): void {
+    const slot = this._ownerCallback(event);
+    const fns = [...(slot ? [slot] : []), ...(this._listeners[event] as Set<BridgeListener<K>>)];
+    for (const fn of fns) {
+      try {
+        fn(value);
+      } catch (e) {
+        console.error(`[HardwareBridge] ${event} listener threw:`, e);
+      }
+    }
   }
 
   /** Explicit connection kind for UI: disconnected | mock | serial | bluetooth | usb */
@@ -380,7 +438,7 @@ export class HardwareBridge {
       const err = new Error(`${kind} transport unavailable in this browser`);
       this.lastError = err.message;
       this._setStatus('error');
-      if (this.onError) this.onError(err);
+      this._emit('error', err);
       return;
     }
 
@@ -413,7 +471,7 @@ export class HardwareBridge {
       this.lastError = (err as Error).message;
       this._setStatus('error');
       console.error(`[HardwareBridge] ${kind} connection failed:`, err);
-      if (this.onError) this.onError(err as Error);
+      this._emit('error', err as Error);
     }
   }
 
@@ -479,7 +537,7 @@ export class HardwareBridge {
     this._setStatus('error');
     console.warn('[HardwareBridge] Link dropped —', this.lastError,
       '(firmware watchdog coasts the coils)');
-    if (err && this.onError) this.onError(err);
+    if (err) this._emit('error', err);
   }
 
   /**
@@ -550,7 +608,7 @@ export class HardwareBridge {
   _setStatus(newStatus: HardwareBridgeStatus): void {
     if (this.status === newStatus) return;
     this.status = newStatus;
-    if (this.onStatusChange) this.onStatusChange(newStatus);
+    this._emit('status', newStatus);
   }
 }
 

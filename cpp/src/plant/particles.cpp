@@ -101,15 +101,6 @@ SimParticle SEGSimulator::getParticle(int i) const {
     return _particles[i];
 }
 
-std::vector<SimParticle> SEGSimulator::getParticles(int maxCount) const {
-    int n = _numParticles;
-    if (maxCount >= 0 && maxCount < n) n = maxCount;
-    std::vector<SimParticle> out;
-    out.reserve(n);
-    for (int i = 0; i < n; ++i) out.push_back(_particles[i]);
-    return out;
-}
-
 uintptr_t SEGSimulator::getParticleBufferPtr() const {
     return reinterpret_cast<uintptr_t>(_particles);
 }

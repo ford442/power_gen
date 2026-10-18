@@ -328,7 +328,7 @@ same numbers plus queue depth and dropped results. Compare against
 `?plantWorker=0`. Golden JS ⇄ C++ parity (`npm run test:golden`) stays
 in-process and does not involve the worker.
 
-**WebGPU context (high level):** one adapter/device in `WebGPUManager` (`featureLevel: core` with compatibility retry); depth `depth24plus` or `depth32float` when SSR is on; canvas preferred format, `alphaMode: 'opaque'`, explicit `colorSpace` + `toneMapping`. Full matrix: [`WEBGPU.md`](./WEBGPU.md). WebGL2 gaps: [`WEBGL2.md`](./WEBGL2.md).
+**WebGPU context (high level):** one adapter/device in `WebGPUManager` (`featureLevel: core` only — compat-only browsers hard-fail with an explicit message); depth `depth24plus` or `depth32float` when SSR is on; canvas preferred format, `alphaMode: 'opaque'`, explicit `colorSpace` + `toneMapping`. Full matrix: [`WEBGPU.md`](./WEBGPU.md). WebGL2 gaps: [`WEBGL2.md`](./WEBGL2.md).
 
 Architecture decisions: [`docs/adr/`](./adr/).
 
@@ -347,7 +347,9 @@ All params are on the page URL search string (e.g. `?renderer=webgl2&wasmPhysics
 | `gpuPower` | `low` \| `low-power` | `high-performance` | Adapter / WebGL2 context `powerPreference: 'low-power'` (tablet / projector carts). Unset or any other value keeps the default boot |
 | `gpuTiming` | `1` | off | Request `timestamp-query` feature; enable queries in debug panel after reload |
 | `p3` | `1` | off | WebGPU canvas `colorSpace: 'display-p3'` (default `srgb` for CI screenshots) |
-| `hdr` | `1` | off | Canvas `toneMapping.mode: 'extended'` **only if** the display reports `(dynamic-range: high)`; bloom composite then outputs linear HDR (`outputLinearHdr`) instead of ACES |
+| `hdr` | `1` | off | `rgba16float` canvas with `toneMapping.mode: 'extended'` **only if** the display reports `(dynamic-range: high)`; bloom composite then outputs linear HDR (`outputLinearHdr`, extended sRGB encode in-shader) instead of ACES. Ignored with `color=legacy` |
+| `color` | `linear` \| `legacy` | **linear** | WebGPU colour pipeline (#223): float scene / TAA / bloom mip chain, composite through the canvas `-srgb` view, authored colours decoded to linear, retuned look presets. `legacy` keeps the old 8-bit, no-encode path for one release. `getRendererInfo().colorPipeline` reports the formats — [`LIGHTING_RIG.md`](./LIGHTING_RIG.md#colour-pipeline-color-223) |
+| `renderScale` | `0.5`–`1` | `1` | WebGPU backbuffer scale vs exact device pixels (`devicePixelContentBoxSize`); the canvas is also clamped to `maxTextureDimension2D` — [`WEBGPU.md`](./WEBGPU.md) |
 | `capture` | `1` | off | WebGL2 `preserveDrawingBuffer: true` (also on when `navigator.webdriver`) |
 | `layout` | `searl` \| `roschin` \| `legacy` | preset default | SEG layout pack |
 | `heronLayout` | preset id | stored / default | Heron vessel layout |

@@ -110,6 +110,13 @@ export class LabSession {
     wasmInWorker: false
   };
 
+  /**
+   * First in-loop WASM plant exception. Once set, the plant steps in JS for the
+   * rest of the session (not persisted): a plant error must not stop the frame.
+   */
+  wasmPlantError: string | null = null;
+  private _busErrorLogged = false;
+
   constructor() {
     this.hardwareBridge = new HardwareBridge({
       onError: (e: unknown) => console.error('[HardwareBridge]', e)
@@ -163,7 +170,7 @@ export class LabSession {
     const simSteps = this.simRateController.tick(deltaTime, speed, load);
     const replayLocked = !!(segOperator.replayMode || telemetryHub.isReplayMode?.());
     this.replayLocked = replayLocked;
-    const useWasm = segWasm.enabled && !replayLocked;
+    const useWasm = segWasm.enabled && !replayLocked && this.wasmPlantError === null;
     const drive = segOperator.getDrive();
     const focus = this.plantFocus();
 
@@ -187,9 +194,17 @@ export class LabSession {
       worker.step({ devices: this.devices, focus, simSteps, drive, useWasm });
     } else {
       worker?.cancel();
+      let stepJs = !useWasm && !replayLocked;
       if (useWasm) {
-        applyWasmPlant({ devices: this.devices, focus, simSteps, drive });
-      } else if (!replayLocked) {
+        try {
+          applyWasmPlant({ devices: this.devices, focus, simSteps, drive });
+        } catch (err) {
+          this.wasmPlantError = err instanceof Error ? err.message : String(err);
+          console.warn('[LabSession] WASM plant step failed — JS plant for the rest of the session:', err);
+          stepJs = true;
+        }
+      }
+      if (stepJs) {
         for (const subDt of simSteps) {
           if (subDt > 0) segOperator.step(subDt);
         }
@@ -323,13 +338,21 @@ export class LabSession {
       ...extraScientific
     };
     const segTelemetry = segOperator.computeTelemetry(dt);
-    const netSnap = this.energyNetwork.update({
-      devices: this.devices,
-      devicesEnabled: this.devicesEnabled,
-      segPowerW: segTelemetry.power,
-      segEfficiencyPct: segTelemetry.efficiency,
-      deltaTime: dt
-    });
+    // EnergyNetwork already drops a failing WASM bus to JS (energyBus breadcrumb);
+    // this only keeps an unexpected JS-bus bug from stopping the frame loop.
+    let netSnap: ReturnType<EnergyNetwork['update']> | null = null;
+    try {
+      netSnap = this.energyNetwork.update({
+        devices: this.devices,
+        devicesEnabled: this.devicesEnabled,
+        segPowerW: segTelemetry.power,
+        segEfficiencyPct: segTelemetry.efficiency,
+        deltaTime: dt
+      });
+    } catch (err) {
+      if (!this._busErrorLogged) console.error('[LabSession] energy bus update failed:', err);
+      this._busErrorLogged = true;
+    }
     if (netSnap) {
       syncEnergyCouplingDisclaimer(netSnap.couplingEnabled, netSnap);
     }

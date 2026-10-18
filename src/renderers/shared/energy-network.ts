@@ -230,14 +230,25 @@ export class EnergyNetwork {
   private readonly _pipeFlows = new Map<string, number>();
   private readonly _devicePower = new Map<string, DevicePowerReading>();
   private _wasmEdgesSynced = false;
+  /**
+   * Set once when the WASM bus throws; from then on the JS bus runs for the
+   * rest of the session. A bus error must never take the frame loop down.
+   */
+  wasmFallbackReason: string | null = null;
 
   constructor(couplingEnabled?: boolean) {
     this.couplingEnabled = couplingEnabled ?? readEnergyCouplingPref();
   }
 
   private _useWasmBus(): boolean {
+    if (this.wasmFallbackReason !== null) return false;
     const bus = getSegWasmBus();
     return this.couplingEnabled && !!bus?.enabled;
+  }
+
+  /** Which allocator ran last frame — `getRendererInfo().energyBus`. */
+  busStatus(): { backend: 'wasm' | 'js'; fallbackReason: string | null } {
+    return { backend: this._useWasmBus() ? 'wasm' : 'js', fallbackReason: this.wasmFallbackReason };
   }
 
   private _syncWasmEdges(): void {
@@ -255,7 +266,12 @@ export class EnergyNetwork {
 
   update(input: EnergyNetworkUpdateInput): EnergyNetworkSnapshot {
     if (this._useWasmBus()) {
-      return this._updateWasm(input);
+      try {
+        return this._updateWasm(input);
+      } catch (err) {
+        this.wasmFallbackReason = err instanceof Error ? err.message : String(err);
+        console.warn('[EnergyNetwork] WASM energy bus failed — JS bus for the rest of the session:', err);
+      }
     }
     return this._updateJs(input);
   }

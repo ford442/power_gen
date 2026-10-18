@@ -146,6 +146,8 @@ export interface RendererInfoSnapshot {
     adoptedDevice: boolean;
     lastOp?: string | null;
     lastCount?: number;
+    lastBackend?: string | null;
+    wasmError?: string | null;
   };
   /** WebGPU: bc | etc2 | astc | none. WebGL2 is always none. */
   textureCompression?: string;
@@ -159,6 +161,40 @@ export interface RendererInfoSnapshot {
     pendingSteps: number;
     droppedResults: number;
     wasmInWorker: boolean;
+  };
+  /**
+   * Lab energy allocator. `fallbackReason` is set once if the WASM bus threw and
+   * the JS bus took over; `wasmPlantError` likewise for the in-loop WASM plant.
+   */
+  /**
+   * WebGPU only: renderMode each SEG part's segEnhanced draw bound last frame
+   * (read from its uniform slot) — base/labBench 1, stator 2, wiring 3, rest 0.
+   */
+  segPartModes?: Record<string, number>;
+  energyBus?: {
+    backend: 'wasm' | 'js';
+    fallbackReason: string | null;
+    wasmPlantError: string | null;
+  };
+  /** WebGPU only: formats picked by webgpu-init/color-pipeline.ts (`?color=`, `?hdr=1`). */
+  colorPipeline?: {
+    mode: 'linear' | 'legacy';
+    canvasFormat: string;
+    outputFormat: string;
+    sceneFormat: string;
+    bloomFormat: string;
+    hdrOutput: boolean;
+    /** Mip-chain bloom depth; 0 on ?color=legacy (separable blur). */
+    bloomLevels: number;
+  };
+  /**
+   * WebGPU only: bytes of render targets / buffers the profiler tracks — an
+   * estimate (drivers pad, compress and alias), useful for before/after diffs.
+   */
+  gpuMemory?: {
+    textureBytes: number;
+    bufferBytes: number;
+    textures: Record<string, number>;
   };
 }
 
@@ -208,6 +244,11 @@ declare global {
     setMode?(mode: string): void;
     /** WebGL2-only diagnostic snapshot (agent / e2e hooks); absent on the WebGPU path. */
     getRendererInfo?(): RendererInfoSnapshot;
+    /**
+     * WebGPU-only debug / e2e hook: destroy the device as a flagged test loss so
+     * the device-lost recovery path runs. Returns false when there is no live device.
+     */
+    simulateDeviceLost?(): boolean;
     /** WebGL2-only canvas readback (agent / e2e hooks); absent on the WebGPU path. */
     captureCanvasFrame?(opts?: CaptureCanvasFrameOptions): CanvasFrameCapture;
 

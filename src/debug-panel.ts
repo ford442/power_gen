@@ -21,6 +21,8 @@ export class DebugPanel {
   _refreshChargeNetworkStatus?: () => void;
   _wireChargeNetworkControls!: () => void;
   _wasmRefreshStatus?: () => void;
+  /** Every DOM listener/timer the panel wires (debug-panel-dom.ts); `destroy()` aborts them. */
+  _abort = new AbortController();
 
   constructor(profiler: PerformanceProfiler) {
     this.profiler = profiler;
@@ -45,6 +47,12 @@ export class DebugPanel {
   toggle(): void {
     if (this.visible) this.hide();
     else this.show();
+  }
+
+  destroy(): void {
+    this.hide();
+    this._abort.abort();
+    this.panel?.remove();
   }
 
   startUpdateLoop(): void {
@@ -241,9 +249,14 @@ export class DebugPanel {
     }, 1000);
 
     // Wait for benchmark to complete
-    setTimeout(() => {
+    const done = setTimeout(() => {
       this.showBenchmarkResults();
     }, (duration + 1) * 1000);
+    // After destroy() #benchmarkResults is gone; the results callback would throw.
+    this._abort.signal.addEventListener('abort', () => {
+      clearInterval(countdown);
+      clearTimeout(done);
+    }, { once: true });
   }
 
   showBenchmarkResults(): void {

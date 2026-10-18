@@ -5,6 +5,7 @@
  */
 
 import type { MultiDeviceShaders } from '../multi-device-shaders.js';
+import type { ColorTargets } from '../webgpu-init/color-pipeline.js';
 import type { BindGroupLayoutName, LayoutRegistrar, PipelineLayoutName } from './types.js';
 import { registerParticleLayouts } from './layouts/particle.js';
 import { registerCullLayouts } from './layouts/cull.js';
@@ -53,7 +54,14 @@ export {
 
 export class PipelineLayoutCache implements LayoutRegistrar {
   readonly device: GPUDevice;
-  readonly canvasFormat: GPUTextureFormat;
+  /** Session colour formats — see webgpu-init/color-pipeline.ts. */
+  readonly colorTargets: ColorTargets;
+  /** Every scene-pass pipeline's first color target (and MSAA / TAA / history). */
+  readonly sceneFormat: GPUTextureFormat;
+  /** Bloom extract / blur / mip-chain target. */
+  readonly bloomFormat: GPUTextureFormat;
+  /** The composite's target: the canvas view it renders through. */
+  readonly outputFormat: GPUTextureFormat;
   readonly depthFormat: GPUTextureFormat;
 
   readonly bindGroupLayouts = new Map<string, GPUBindGroupLayout>();
@@ -69,10 +77,13 @@ export class PipelineLayoutCache implements LayoutRegistrar {
 
   constructor(
     device: GPUDevice,
-    formats: { canvasFormat: GPUTextureFormat; depthFormat: GPUTextureFormat }
+    formats: { colorTargets: ColorTargets; depthFormat: GPUTextureFormat }
   ) {
     this.device = device;
-    this.canvasFormat = formats.canvasFormat;
+    this.colorTargets = formats.colorTargets;
+    this.sceneFormat = formats.colorTargets.sceneFormat;
+    this.bloomFormat = formats.colorTargets.bloomFormat;
+    this.outputFormat = formats.colorTargets.outputFormat;
     this.depthFormat = formats.depthFormat;
 
     this.stats = {

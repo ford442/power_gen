@@ -6,6 +6,8 @@ import { WebGPUManager, DEPTH_FORMAT } from '../webgpu-manager';
 import { packPostUniforms } from '../seg-lighting-presets';
 import { SSR_FORMAT, MATERIAL_GBUFFER_FORMAT, type BindGroupLayoutName } from '../pipeline-layout-cache';
 import { writeQueueBuffer } from '../gpu-buffer-write';
+import { postOutputTransfer } from '../webgpu-init/color-pipeline';
+import { BloomChain } from './bloom-chain';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 
 type Host = MultiDeviceVisualizer;
@@ -36,12 +38,7 @@ export const scenePostBufferMethods: ThisType<Host> & {
     if (!this.profiler) return;
     const { width, height } = WebGPUManager.canvasPixelSize(this.canvas);
     const depthFormat = this.depthFormat || this.webgpu.depthFormat || DEPTH_FORMAT;
-    if (this.depthTexture) {
-      this.profiler.textureAllocations = this.profiler.textureAllocations.filter(
-        (t: { name: string }) => !t.name.includes('depth')
-      );
-      this.depthTexture.destroy();
-    }
+    if (this.depthTexture) this.depthTexture.destroy();
     if (this.depthMsaaTexture) this.depthMsaaTexture.destroy();
     if (this.depthResolvedTexture) this.depthResolvedTexture.destroy();
 
@@ -189,9 +186,13 @@ export const scenePostBufferMethods: ThisType<Host> & {
 
   setupBloomTextures() {
     const { width: w, height: h } = WebGPUManager.canvasPixelSize(this.canvas);
-    const fmt = navigator.gpu.getPreferredCanvasFormat();
-    const bloomFmt = WebGPUManager.bloomIntermediateFormat(this.device, fmt);
-    this.bloomIntermediateFormat = bloomFmt;
+    // Scene colour, its MSAA twin, TAA resolve and history share one format:
+    // float on the linear colour pipeline, the canvas format on ?color=legacy
+    // (webgpu-init/color-pipeline.ts). Every scene pipeline targets it too.
+    const cache = this.pipelineCache!;
+    const fmt = cache.sceneFormat;
+    const bloomFmt = cache.bloomFormat;
+    const legacyBloom = cache.colorTargets.mode === 'legacy';
 
     if (this.bloomSceneTexture) this.bloomSceneTexture.destroy();
     if (this.materialGBufferTexture) this.materialGBufferTexture.destroy();
@@ -201,20 +202,24 @@ export const scenePostBufferMethods: ThisType<Host> & {
     if (this.bloomTempTexture)  this.bloomTempTexture.destroy();
     if (this.prevSceneTexture)  this.prevSceneTexture.destroy();
     if (this.taaResolveTexture) this.taaResolveTexture.destroy();
+    this.bloomBlurTexture = null;
+    this.bloomTempTexture = null;
+    this.profiler?.untrackTextures(['bloomBlur', 'bloomTemp', 'bloomChain']);
 
     this.bloomSceneTexture = this.device.createTexture(
       WebGPUManager.offscreenColorDescriptor({
-        label: 'bloom-scene',
+        label: 'scene-color',
         size: [w, h],
         format: fmt,
         sampleCount: 1
       })
     );
+    this.profiler?.trackTexture?.('bloomScene', w, h, fmt);
     // Metalness/roughness G-buffer (ADR-0005 WS2): second color target on the
     // scene pass, written only by seg-enhanced/roller (chrome/nickel + CAD
     // housing), read by SSR to weight reflections by material instead of a
-    // Fresnel-only grazing term. Every other pass declares a `null` second
-    // target, so its texels keep the render pass's clear value below —
+    // Fresnel-only grazing term. Every other scene pipeline masks its second
+    // target (MATERIAL_GBUFFER_NO_WRITE), so its texels keep the clear value —
     // metallic=0 / roughness=1, i.e. "non-metal" by default.
     this.materialGBufferTexture = this.device.createTexture(
       WebGPUManager.offscreenColorDescriptor({
@@ -251,19 +256,39 @@ export const scenePostBufferMethods: ThisType<Host> & {
     this.profiler?.trackTexture?.('sceneMsaa', w, h, fmt, 4);
     this.profiler?.trackTexture?.('materialGBufferMsaa', w, h, MATERIAL_GBUFFER_FORMAT, 4);
 
-    this.bloomBlurTexture = this.device.createTexture({
-      size: [w, h], format: bloomFmt,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
-    });
-    this.bloomTempTexture = this.device.createTexture({
-      size: [w, h], format: bloomFmt,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
-    });
+    if (legacyBloom) {
+      // Legacy (?color=legacy) full-resolution extract → blurX → blurY.
+      this.bloomChain?.destroy();
+      this.bloomChain = null;
+      this.bloomBlurTexture = this.device.createTexture({
+        label: 'bloom-blur',
+        size: [w, h], format: bloomFmt,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      });
+      this.bloomTempTexture = this.device.createTexture({
+        label: 'bloom-temp',
+        size: [w, h], format: bloomFmt,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      });
+      this.profiler?.trackTexture?.('bloomBlur', w, h, bloomFmt);
+      this.profiler?.trackTexture?.('bloomTemp', w, h, bloomFmt);
+    } else {
+      // Linear pipeline: half-resolution mip chain (visualizer/bloom-chain.ts).
+      if (!this.bloomChain || this.bloomChain.format !== bloomFmt) {
+        this.bloomChain?.destroy();
+        this.bloomChain = new BloomChain(this.device, bloomFmt);
+      }
+      this.bloomChain.resize(w, h);
+      const mip0 = this.bloomChain.sizes[0];
+      this.profiler?.trackTexture?.('bloomChain', mip0.width, mip0.height, bloomFmt, 1,
+        this.bloomChain.byteSize);
+    }
     this.prevSceneTexture = this.device.createTexture({
       label: 'prev-scene',
       size: [w, h], format: fmt,
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
     });
+    this.profiler?.trackTexture?.('prevScene', w, h, fmt);
     // TAA resolve target (ADR-0005 WS2). Kept allocated at every tier because
     // the bloom bind groups reference it; the pass is simply not encoded when
     // the tier / mode / `?taa=0` gate is off, and bloom then reads the raw
@@ -290,7 +315,9 @@ export const scenePostBufferMethods: ThisType<Host> & {
           height: h,
           preset: this.postPreset,
           ssrEnabled: this.ssrEnabled !== false,
-          outputLinearHdr: this.webgpu?.toneMappingMode === 'extended'
+          outputLinearHdr: cache.colorTargets.hdrOutput,
+          bloomChainLevels: this.bloomChain?.levels ?? 0,
+          outputTransfer: postOutputTransfer(cache.colorTargets)
         })
       );
     }
@@ -302,96 +329,96 @@ export const scenePostBufferMethods: ThisType<Host> & {
 
   /** Cached bloom bind groups — recreated when bloom textures resize. */
   _rebuildBloomBindGroups() {
-    if (!this.pipelineCache || !this.bloomSceneTexture || !this.bloomBlurTexture
-        || !this.bloomTempTexture || !this.prevSceneTexture || !this.bloomSampler
-        || !this.bloomParamsBuffer || !this.depthSampleView || !this.ssrTextureView) {
+    if (!this.pipelineCache || !this.bloomSceneTexture || !this.prevSceneTexture
+        || !this.bloomSampler || !this.bloomParamsBuffer || !this.depthSampleView
+        || !this.ssrTextureView) {
       return;
     }
     const cache = this.pipelineCache;
     const paramsBuf = this.bloomParamsBuffer;
-    const dirX = this.bloomBlurDirXBuffer;
-    const dirY = this.bloomBlurDirYBuffer;
-    if (!paramsBuf || !dirX || !dirY) return;
+    const sampler = this.bloomSampler;
     const mk = (name: BindGroupLayoutName, entries: GPUBindGroupEntry[], label: string) =>
       cache.createBindGroup(name, entries, label);
+    const sceneView = this.bloomSceneTexture.createView();
 
-    this.bloomExtractBindGroup = mk('bloomExtract', [
-      { binding: 0, resource: this.bloomSceneTexture.createView() },
-      { binding: 1, resource: this.bloomSampler },
-      { binding: 2, resource: { buffer: paramsBuf } }
-    ], 'bloom-extract-bg');
+    // What the composite reads as "bloom": the legacy blurred temp target, or
+    // mip 0 of the linear pipeline's chain (the sum of every level).
+    let bloomView: GPUTextureView;
+    if (this.bloomChain) {
+      if (!this.bloomChain.outputView) return;
+      bloomView = this.bloomChain.outputView;
+      this.bloomChain.rebuildBindGroups(cache, {
+        sampler,
+        paramsBuffer: paramsBuf,
+        sceneView,
+        taaView: this.taaResolveView ?? null
+      });
+    } else {
+      const dirX = this.bloomBlurDirXBuffer;
+      const dirY = this.bloomBlurDirYBuffer;
+      if (!this.bloomBlurTexture || !this.bloomTempTexture || !dirX || !dirY) return;
+      bloomView = this.bloomTempTexture.createView();
 
-    this.bloomBlurXBindGroup = mk('bloomBlur', [
-      { binding: 0, resource: this.bloomTempTexture.createView() },
-      { binding: 1, resource: this.bloomSampler },
-      { binding: 2, resource: { buffer: paramsBuf } },
-      { binding: 3, resource: { buffer: dirX } }
-    ], 'bloom-blur-x-bg');
-
-    this.bloomBlurYBindGroup = mk('bloomBlur', [
-      { binding: 0, resource: this.bloomBlurTexture.createView() },
-      { binding: 1, resource: this.bloomSampler },
-      { binding: 2, resource: { buffer: paramsBuf } },
-      { binding: 3, resource: { buffer: dirY } }
-    ], 'bloom-blur-y-bg');
-
-    this.bloomCompositeBindGroup = mk('bloomComposite', [
-      { binding: 0, resource: this.bloomSceneTexture.createView() },
-      { binding: 1, resource: this.bloomTempTexture.createView() },
-      { binding: 2, resource: this.bloomSampler },
-      { binding: 3, resource: { buffer: paramsBuf } },
-      { binding: 4, resource: this.depthSampleView },
-      { binding: 5, resource: this.prevSceneTexture.createView() },
-      { binding: 6, resource: this.ssrTextureView }
-    ], 'bloom-composite-bg');
-
-    // TAA variants — identical except that the scene input is the TAA resolve
-    // target instead of the raw scene. Picked per frame in render-loop.ts when
-    // the TAA pass actually ran, so a gated-off frame cannot read a target
-    // nothing wrote. Same shape as the `*Resolved` MSAA variants below.
-    if (this.taaResolveView) {
-      this.bloomExtractBindGroupTaa = mk('bloomExtract', [
-        { binding: 0, resource: this.taaResolveView },
-        { binding: 1, resource: this.bloomSampler },
+      this.bloomExtractBindGroup = mk('bloomExtract', [
+        { binding: 0, resource: sceneView },
+        { binding: 1, resource: sampler },
         { binding: 2, resource: { buffer: paramsBuf } }
-      ], 'bloom-extract-bg-taa');
+      ], 'bloom-extract-bg');
 
-      this.bloomCompositeBindGroupTaa = mk('bloomComposite', [
-        { binding: 0, resource: this.taaResolveView },
-        { binding: 1, resource: this.bloomTempTexture.createView() },
-        { binding: 2, resource: this.bloomSampler },
-        { binding: 3, resource: { buffer: paramsBuf } },
-        { binding: 4, resource: this.depthSampleView },
-        { binding: 5, resource: this.prevSceneTexture.createView() },
-        { binding: 6, resource: this.ssrTextureView }
-      ], 'bloom-composite-bg-taa');
+      this.bloomBlurXBindGroup = mk('bloomBlur', [
+        { binding: 0, resource: this.bloomTempTexture.createView() },
+        { binding: 1, resource: sampler },
+        { binding: 2, resource: { buffer: paramsBuf } },
+        { binding: 3, resource: { buffer: dirX } }
+      ], 'bloom-blur-x-bg');
 
-      if (this.depthResolvedSampleView) {
-        this.bloomCompositeBindGroupResolvedTaa = mk('bloomComposite', [
+      this.bloomBlurYBindGroup = mk('bloomBlur', [
+        { binding: 0, resource: this.bloomBlurTexture.createView() },
+        { binding: 1, resource: sampler },
+        { binding: 2, resource: { buffer: paramsBuf } },
+        { binding: 3, resource: { buffer: dirY } }
+      ], 'bloom-blur-y-bg');
+
+      // TAA variant of the extract — identical except that the scene input is
+      // the TAA resolve target. Picked per frame in render-encode.ts when the
+      // TAA pass actually ran, so a gated-off frame cannot read a target
+      // nothing wrote.
+      if (this.taaResolveView) {
+        this.bloomExtractBindGroupTaa = mk('bloomExtract', [
           { binding: 0, resource: this.taaResolveView },
-          { binding: 1, resource: this.bloomTempTexture.createView() },
-          { binding: 2, resource: this.bloomSampler },
-          { binding: 3, resource: { buffer: paramsBuf } },
-          { binding: 4, resource: this.depthResolvedSampleView },
-          { binding: 5, resource: this.prevSceneTexture.createView() },
-          { binding: 6, resource: this.ssrTextureView }
-        ], 'bloom-composite-bg-resolved-taa');
+          { binding: 1, resource: sampler },
+          { binding: 2, resource: { buffer: paramsBuf } }
+        ], 'bloom-extract-bg-taa');
       }
     }
 
-    // MSAA variant (ADR-0005 WS2) — binds depthResolvedTexture instead of
-    // the regular depth for the contact-shadow term. Picked per frame in
-    // render-loop.ts alongside ssrBindGroupResolved.
-    if (this.depthResolvedSampleView) {
-      this.bloomCompositeBindGroupResolved = mk('bloomComposite', [
-        { binding: 0, resource: this.bloomSceneTexture.createView() },
-        { binding: 1, resource: this.bloomTempTexture.createView() },
-        { binding: 2, resource: this.bloomSampler },
+    // Composite: two independent axes (scene = raw | TAA, depth = plain |
+    // MSAA-resolved), so up to four variants. Picked per frame in
+    // render-encode.ts; each falls back towards the plain one.
+    const composite = (scene: GPUTextureView, depth: GPUTextureView, label: string) =>
+      mk('bloomComposite', [
+        { binding: 0, resource: scene },
+        { binding: 1, resource: bloomView },
+        { binding: 2, resource: sampler },
         { binding: 3, resource: { buffer: paramsBuf } },
-        { binding: 4, resource: this.depthResolvedSampleView },
-        { binding: 5, resource: this.prevSceneTexture.createView() },
-        { binding: 6, resource: this.ssrTextureView }
-      ], 'bloom-composite-bg-resolved');
+        { binding: 4, resource: depth },
+        { binding: 5, resource: this.prevSceneTexture!.createView() },
+        { binding: 6, resource: this.ssrTextureView! }
+      ], label);
+
+    this.bloomCompositeBindGroup = composite(sceneView, this.depthSampleView, 'bloom-composite-bg');
+    if (this.taaResolveView) {
+      this.bloomCompositeBindGroupTaa = composite(this.taaResolveView, this.depthSampleView, 'bloom-composite-bg-taa');
+    }
+    // MSAA variants (ADR-0005 WS2) bind depthResolvedTexture for the
+    // contact-shadow term: the single-sample depth was never written.
+    if (this.depthResolvedSampleView) {
+      this.bloomCompositeBindGroupResolved = composite(
+        sceneView, this.depthResolvedSampleView, 'bloom-composite-bg-resolved');
+      if (this.taaResolveView) {
+        this.bloomCompositeBindGroupResolvedTaa = composite(
+          this.taaResolveView, this.depthResolvedSampleView, 'bloom-composite-bg-resolved-taa');
+      }
     }
   },
 
@@ -400,6 +427,7 @@ export const scenePostBufferMethods: ThisType<Host> & {
     if (!cache) return;
 
     this.bloomSampler = this.device.createSampler({
+      label: 'post-linear-clamp',
       magFilter: 'linear', minFilter: 'linear',
       addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge'
     });
@@ -411,17 +439,26 @@ export const scenePostBufferMethods: ThisType<Host> & {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.bloomBlurDirXBuffer = this.device.createBuffer({
+      label: 'bloom-blur-dir-x',
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.bloomBlurDirYBuffer = this.device.createBuffer({
+      label: 'bloom-blur-dir-y',
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
     await cache.ensureBloomPipelines(this.shaders);
-    this.bloomExtractPipeline = cache.getPipeline('bloomExtract') as GPURenderPipeline;
-    this.bloomBlurPipeline = cache.getPipeline('bloomBlur') as GPURenderPipeline;
+    // Legacy pair or mip-chain trio, depending on ?color= — the others stay null.
+    this.bloomExtractPipeline = cache.getPipeline('bloomExtract') as GPURenderPipeline | null;
+    this.bloomBlurPipeline = cache.getPipeline('bloomBlur') as GPURenderPipeline | null;
+    const prefilter = cache.getPipeline('bloomPrefilter') as GPURenderPipeline | null;
+    const downsample = cache.getPipeline('bloomDownsample') as GPURenderPipeline | null;
+    const upsample = cache.getPipeline('bloomUpsample') as GPURenderPipeline | null;
+    this.bloomChainPipelines = prefilter && downsample && upsample
+      ? { prefilter, downsample, upsample }
+      : null;
     this.bloomCompositePipeline = cache.getPipeline('bloomComposite') as GPURenderPipeline;
 
     this.device.queue.writeBuffer(this.bloomBlurDirXBuffer, 0, new Float32Array([1, 0, 0, 0]));
@@ -433,7 +470,8 @@ export const scenePostBufferMethods: ThisType<Host> & {
   /**
    * Temporal AA resolve pipeline (ADR-0005 WS2). Must run after
    * `setupBloomPipeline`, which allocates the scene / prev-scene / TAA
-   * textures the bind groups reference.
+   * textures the bind groups reference. Targets the scene format: history
+   * must not clip on the linear colour pipeline.
    *
    * A failure here only costs TAA: `taaPipeline` stays null and render-loop's
    * gate never opens, so the frame composites straight off the raw scene.
@@ -450,10 +488,7 @@ export const scenePostBufferMethods: ThisType<Host> & {
     this.profiler.trackBuffer('taa-params', TAA_PARAMS_BYTES, GPUBufferUsage.UNIFORM);
 
     try {
-      this.taaPipeline = await cache.ensureTaaResolvePipeline(
-        this.shaders,
-        navigator.gpu.getPreferredCanvasFormat()
-      );
+      this.taaPipeline = await cache.ensureTaaResolvePipeline(this.shaders, cache.sceneFormat);
     } catch (e) {
       console.warn('[MultiDeviceVisualizer] TAA pipeline unavailable — temporal AA disabled:', e);
       this.taaPipeline = null;

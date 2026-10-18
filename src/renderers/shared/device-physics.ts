@@ -82,6 +82,7 @@ export interface HalbachVizPhysicsExtension {
   /** Pinned N from the catalog setpoint slider; null/undefined = drive-swept. */
   halbachSegmentSetpoint?: number | null;
   halbachMagAngleDeg?: number;
+  /** Set once from `?halbachLinear=1` at creation, or by a `#lab=…;hlin=1` link. */
   halbachLayout?: 'ring' | 'linear';
   halbachPeakBT?: number;
   halbachPeriodM?: number;

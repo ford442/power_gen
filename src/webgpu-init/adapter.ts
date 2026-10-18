@@ -45,33 +45,30 @@ export interface AdapterInfoSnapshot {
   featureLevel: AdapterFeatureLevel | null;
 }
 
-/** Device feature required for HDR bloom blur/extract intermediates. */
-export const BLOOM_HDR_FEATURE = 'rg11b10ufloat-renderable';
-
-/** GPUTextureFormat used for bloom extract/blur when {@link BLOOM_HDR_FEATURE} is enabled. */
-export const BLOOM_HDR_FORMAT: GPUTextureFormat = 'rg11b10ufloat';
-
 /**
  * Soft preferred limits: only requested when the adapter can satisfy them.
- * Defaults already cover current particle compute (workgroup 64); raise here as needed.
+ *
+ * Empty on purpose (#223). Every limit the renderer depends on fits the
+ * WebGPU core defaults, and asking for more than a pass uses only narrows the
+ * set of adapters that boot (#171's "never ask for what no pass uses" rule).
+ * The five keys that used to live here were the defaults themselves, except
+ * `maxStorageBuffersPerShaderStage: 10` — the schema peaks at 4
+ * (fdtdSlice / fdtdCompute), under the default 8; check:bindings asserts it.
+ * The scene pass's color-attachment cost is merged in separately by
+ * {@link sceneColorAttachmentLimit}. Matrix: docs/WEBGPU.md.
  */
-export const PREFERRED_LIMITS: Partial<Record<keyof GPUSupportedLimits, number>> = {
-  maxStorageBuffersPerShaderStage: 10,
-  maxComputeWorkgroupStorageSize: 16384,
-  maxBufferSize: 256 * 1024 * 1024,
-  maxStorageBufferBindingSize: 128 * 1024 * 1024,
-  maxComputeInvocationsPerWorkgroup: 256
-};
+export const PREFERRED_LIMITS: Partial<Record<keyof GPUSupportedLimits, number>> = {};
 
 export { DEFAULT_COLOR_ATTACHMENT_BYTES_PER_SAMPLE, colorAttachmentBytesPerSample };
 
 /**
- * Color targets of the scene render pass: canvas-format scene color plus the
- * metalness/roughness G-buffer (ADR-0005 WS2). The MSAA showroom variant
- * attaches the same two formats at sampleCount 4.
+ * Color targets of the scene render pass: scene color (a float format on the
+ * linear colour pipeline, the canvas format on `?color=legacy` — see
+ * color-pipeline.ts) plus the metalness/roughness G-buffer (ADR-0005 WS2). The
+ * MSAA showroom variant attaches the same two formats at sampleCount 4.
  */
-export function sceneColorAttachmentFormats(canvasFormat: GPUTextureFormat): GPUTextureFormat[] {
-  return [canvasFormat, MATERIAL_GBUFFER_FORMAT];
+export function sceneColorAttachmentFormats(sceneFormat: GPUTextureFormat): GPUTextureFormat[] {
+  return [sceneFormat, MATERIAL_GBUFFER_FORMAT];
 }
 
 /**
@@ -86,9 +83,9 @@ export function sceneColorAttachmentFormats(canvasFormat: GPUTextureFormat): GPU
  * device instead of a `requestDevice` rejection.
  */
 export function sceneColorAttachmentLimit(
-  canvasFormat: GPUTextureFormat
+  sceneFormat: GPUTextureFormat
 ): Partial<Record<keyof GPUSupportedLimits, number>> {
-  const need = colorAttachmentBytesPerSample(sceneColorAttachmentFormats(canvasFormat));
+  const need = colorAttachmentBytesPerSample(sceneColorAttachmentFormats(sceneFormat));
   if (need <= DEFAULT_COLOR_ATTACHMENT_BYTES_PER_SAMPLE) return {};
   return { maxColorAttachmentBytesPerSample: need };
 }
@@ -120,7 +117,14 @@ export function gpuPowerPreference(
 }
 
 /**
- * Prefer core feature level; retry compatibility for mobile/Safari.
+ * Request a core feature-level adapter, or null.
+ *
+ * There is deliberately no compatibility-mode retry. The renderer needs
+ * vertex-stage storage buffers (instance data), `-srgb` view formats on the
+ * canvas, and `textureLoad` on depth textures (bloom-composite contact
+ * shadows); compatibility mode lacks all three, so a compat device used to
+ * boot into a black canvas. Null here reaches the explicit hard-fail page —
+ * {@link compatibilityOnlyAdapter} lets the probe say why.
  * Does not request a device — probe and session still own their requestDevice calls.
  */
 export async function requestPreferredAdapter(
@@ -166,13 +170,24 @@ export async function requestPreferredAdapter(
     console.log('[WebGPU] requestAdapter featureLevel=core');
     return { adapter: core.adapter, featureLevel: 'core' };
   }
-
-  const compat = await withLevel('compatibility');
-  if (compat.adapter) {
-    console.log('[WebGPU] requestAdapter featureLevel=compatibility (core returned null)');
-    return { adapter: compat.adapter, featureLevel: 'compatibility' };
-  }
   return null;
+}
+
+/**
+ * Diagnostics only, after {@link requestPreferredAdapter} returned null: true
+ * when the browser would hand out a compatibility-mode adapter. That adapter is
+ * never used (see above) — it only turns "No adapter" into an actionable message.
+ */
+export async function compatibilityOnlyAdapter(gpu: GPU = navigator.gpu): Promise<boolean> {
+  try {
+    const adapter = await gpu.requestAdapter({
+      powerPreference: gpuPowerPreference(),
+      featureLevel: 'compatibility'
+    } as GPURequestAdapterOptions);
+    return !!adapter;
+  } catch {
+    return false;
+  }
 }
 
 export function negotiateFeatures(adapter: GPUAdapter, opts: { gpuTiming?: boolean } = {}): string[] {
@@ -206,13 +221,6 @@ export function negotiateLimits(
   return out;
 }
 
-export function bloomIntermediateFormat(device: GPUDevice, canvasFormat: GPUTextureFormat): GPUTextureFormat {
-  if (device?.features?.has(BLOOM_HDR_FEATURE)) {
-    return BLOOM_HDR_FORMAT;
-  }
-  return canvasFormat;
-}
-
 export function readAdapterInfo(
   adapter: GPUAdapter,
   featureLevel: AdapterFeatureLevel | null = null
@@ -242,8 +250,8 @@ export function readAdapterInfo(
  * {@link sceneColorAttachmentLimit} — the pass would fail validation on the
  * first frame, which is much harder to read than this line.
  */
-export function checkColorAttachmentBudget(device: GPUDevice, canvasFormat: GPUTextureFormat): void {
-  const need = colorAttachmentBytesPerSample(sceneColorAttachmentFormats(canvasFormat));
+export function checkColorAttachmentBudget(device: GPUDevice, sceneFormat: GPUTextureFormat): void {
+  const need = colorAttachmentBytesPerSample(sceneColorAttachmentFormats(sceneFormat));
   const granted = device.limits.maxColorAttachmentBytesPerSample
     ?? DEFAULT_COLOR_ATTACHMENT_BYTES_PER_SAMPLE;
   if (need > granted) {

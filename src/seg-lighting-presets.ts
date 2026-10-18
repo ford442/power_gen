@@ -4,6 +4,8 @@
 // Central look definitions: studio (default), lab, drama.
 // Toggle via ?look=studio|lab|drama or debug panel / setLightingLook().
 
+import type { ColorPipelineMode } from './webgpu-init/color-pipeline';
+
 export type LightingLook = 'studio' | 'lab' | 'drama';
 
 export const LIGHTING_LOOKS: Record<LightingLook, LightingLook> = {
@@ -151,8 +153,79 @@ export function parseLightingLook(params: URLSearchParams = new URLSearchParams(
   return LIGHTING_LOOKS.studio;
 }
 
-export function getLightingPreset(look: LightingLook = LIGHTING_LOOKS.studio): LightingPreset {
-  return PRESETS[look] ?? PRESETS.studio;
+/** sRGB-encoded → linear, one channel (IEC 61966-2-1). */
+export function srgbToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+const linearRgb = (rgb: number[]): number[] => rgb.map(srgbToLinear);
+
+/**
+ * An authored colour (albedo table, device base colour, glTF prop tint — all
+ * picked as on-screen sRGB values against the legacy output) in the working
+ * space of `colorMode`: decoded to linear on the linear colour pipeline,
+ * untouched on `legacy` / WebGL2.
+ */
+export function authoredColor(rgb: readonly number[], colorMode: ColorPipelineMode | undefined): number[] {
+  return colorMode === 'linear' ? rgb.map(srgbToLinear) : [...rgb];
+}
+
+/**
+ * Linear colour pipeline retune (#223). The presets above were tuned by eye
+ * on the legacy output — tonemapped linear values shown with no sRGB encode,
+ * bloom thresholded on an 8-bit scene that clipped at 1.0 — and that is what
+ * WebGL2 and `?color=legacy` keep using.
+ *
+ * On the linear path the bloom threshold is in scene-referred units (scene
+ * radiance before exposure; 1.0 ≈ a white diffuse surface under the key
+ * light), so only real highlights — corona, emissive plasma, specular — bloom
+ * instead of the whole grey backdrop. Colours (light tints, sky dome for the
+ * IBL bake) were picked as sRGB values on screen; they are decoded to linear
+ * in getLightingPreset(). Exposure drops ~15%: the sRGB encode lifts
+ * mid-tones, and at the old exposure saturated albedos rolled off to pastel
+ * in the filmic shoulder. See docs/LIGHTING_RIG.md → Colour pipeline.
+ */
+const LINEAR_RETUNE: Record<LightingLook, {
+  post: Partial<PostPreset>;
+  lighting?: Partial<Pick<LightingRig, 'ambient' | 'envMapStrength'>>;
+}> = {
+  studio: {
+    post: { exposure: 0.85, bloomThreshold: 1.0, bloomKnee: 0.5, bloomStrength: 0.8 }
+  },
+  lab: {
+    post: { exposure: 0.9, bloomThreshold: 1.1, bloomKnee: 0.5, bloomStrength: 0.6 }
+  },
+  drama: {
+    post: { exposure: 0.85, bloomThreshold: 0.8, bloomKnee: 0.45, bloomStrength: 1.1 }
+  }
+};
+
+/**
+ * Lighting + post look. `colorMode` defaults to `legacy` so callers that
+ * never heard of the linear pipeline (WebGL2, ADR-0001) keep the values they
+ * were tuned with; the WebGPU path passes its session mode.
+ */
+export function getLightingPreset(
+  look: LightingLook = LIGHTING_LOOKS.studio,
+  colorMode: ColorPipelineMode = 'legacy'
+): LightingPreset {
+  const base = PRESETS[look] ?? PRESETS.studio;
+  if (colorMode !== 'linear') return base;
+  const retune = LINEAR_RETUNE[look] ?? LINEAR_RETUNE.studio;
+  const arm = (a: LightArm): LightArm => ({ ...a, color: linearRgb(a.color) });
+  return {
+    name: base.name,
+    lighting: {
+      ...base.lighting,
+      ...retune.lighting,
+      key: arm(base.lighting.key),
+      fill: arm(base.lighting.fill),
+      rim: arm(base.lighting.rim),
+      ground: arm(base.lighting.ground)
+    },
+    post: { ...base.post, ...retune.post },
+    sky: { ...base.sky, top: linearRgb(base.sky.top), horizon: linearRgb(base.sky.horizon) }
+  };
 }
 
 export interface PostQualityGates {
@@ -174,6 +247,13 @@ export interface PackPostUniformsOpts {
   ssrEnabled?: boolean;
   /** 1 when canvas toneMapping is `extended` (?hdr=1 + HDR display). */
   outputLinearHdr?: boolean;
+  /**
+   * Mip-chain bloom levels on the linear colour pipeline (the composite scales
+   * the summed chain by 1 / levels); 0 = legacy 3-pass bloom.
+   */
+  bloomChainLevels?: number;
+  /** Composite → canvas transfer: 0 legacy (no encode), 1 `-srgb` view, 2 shader OETF. */
+  outputTransfer?: 0 | 1 | 2;
 }
 
 /**
@@ -191,7 +271,9 @@ export function packPostUniforms(opts: PackPostUniformsOpts): Float32Array {
     motionBlur = 0,
     qualityGates = null,
     ssrEnabled = true,
-    outputLinearHdr = false
+    outputLinearHdr = false,
+    bloomChainLevels = 0,
+    outputTransfer = 0
   } = opts;
 
   const p = preset?.post ?? PRESETS.studio.post;
@@ -228,7 +310,7 @@ export function packPostUniforms(opts: PackPostUniformsOpts): Float32Array {
     preset?.sky?.mode ?? 1,
     (p.ssrStrength ?? 0) * ssrMul,
     outputLinearHdr ? 1 : 0,
-    0,
-    0
+    bloomChainLevels > 0 ? 1 / bloomChainLevels : 0,
+    outputTransfer
   ]);
 }

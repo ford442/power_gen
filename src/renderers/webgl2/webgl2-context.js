@@ -2,6 +2,7 @@
  * WebGL2 context initialization with extension checks.
  * Maps to WebGPU device/context acquisition in webgpu-manager.js.
  */
+import { showDeviceLostUI } from '../../webgpu-init/device-lost';
 
 /** Anisotropy ceiling for procedural meshes on the fallback renderer. */
 export const MAX_ANISOTROPY_CAP = 8;
@@ -11,6 +12,8 @@ export class WebGL2Context {
     this.canvas = canvas;
     this.gl = null;
     this.extensions = {};
+    /** True between webglcontextlost and a reload; GL calls are no-ops meanwhile. */
+    this.contextLost = false;
   }
 
   init() {
@@ -39,13 +42,15 @@ export class WebGL2Context {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0.02, 0.02, 0.05, 1.0);
 
+    // Depth textures are core in WebGL2 — WEBGL_depth_texture is a WebGL1
+    // extension and getExtension() always returned null for it here.
     this.extensions = {
       instancedArrays: true, // core in WebGL2
       vao: true,
       floatTextures: gl.getExtension('EXT_color_buffer_float'),
-      depthTexture: gl.getExtension('WEBGL_depth_texture'),
       anisotropic: gl.getExtension('EXT_texture_filter_anisotropic')
     };
+    this._watchContextLoss();
     // 0 = extension missing → applyAnisotropy() is a no-op.
     this.maxAnisotropy = this.extensions.anisotropic
       ? Math.min(MAX_ANISOTROPY_CAP, gl.getParameter(this.extensions.anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1)
@@ -53,6 +58,36 @@ export class WebGL2Context {
 
     this.resize();
     return gl;
+  }
+
+  /**
+   * A lost context (GPU reset, driver update, too many contexts) takes every
+   * buffer, texture and program with it, and this renderer has no rebuild
+   * path — so say so and offer a reload instead of rendering black silently.
+   * preventDefault() keeps restoration possible; on restore we still reload
+   * because the resources are gone.
+   */
+  _watchContextLoss() {
+    if (this._lossWatched) return;
+    this._lossWatched = true;
+    this.canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.contextLost = true;
+      console.error('[WebGL2] context lost');
+      showDeviceLostUI({
+        title: 'WebGL2 context lost',
+        reason: 'webglcontextlost',
+        message: 'The browser dropped the WebGL2 context (GPU reset or too many contexts). Reload to rebuild the scene.'
+      });
+    }, false);
+    this.canvas.addEventListener('webglcontextrestored', () => {
+      console.warn('[WebGL2] context restored — GL resources are gone; reload required');
+      showDeviceLostUI({
+        title: 'WebGL2 context restored',
+        reason: 'webglcontextrestored',
+        message: 'The context came back, but the scene\'s GPU resources did not. Reload to rebuild it.'
+      });
+    }, false);
   }
 
   /**

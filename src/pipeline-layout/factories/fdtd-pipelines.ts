@@ -57,7 +57,7 @@ export async function ensureFdtdSlicePipeline(
         module,
         entryPoint: 'fsMain',
         targets: [
-          { format: cache.canvasFormat, blend: ALPHA_BLEND },
+          { format: cache.sceneFormat, blend: ALPHA_BLEND },
           { format: MATERIAL_GBUFFER_FORMAT, writeMask: 0 }
         ]
       },

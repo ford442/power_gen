@@ -38,6 +38,10 @@ export interface ChoresBreadcrumb {
   adoptedDevice: boolean;
   lastOp: string | null;
   lastCount: number;
+  /** Backend that actually produced the last result (a failed wasm op shows 'js'). */
+  lastBackend: ChoresBackend | null;
+  /** First WASM chore failure, if any — the reason `lastBackend` fell back. */
+  wasmError: string | null;
 }
 
 export interface ChoresAdoptOpts {

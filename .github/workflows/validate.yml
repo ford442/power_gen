@@ -52,11 +52,17 @@ jobs:
       - name: FDTD slice contracts + CPU kernel
         run: npm run test:fdtd
 
+      - name: WASM ABI (every Embind export on the shipped sim_core.wasm)
+        run: npm run test:wasm-abi
+
       - name: Plant worker protocol (host ⇄ worker_threads)
         run: npm run test:plant-worker
 
       - name: Lab coupling buses (field, charge, energy graph)
         run: npm run test:coupling
+
+      - name: Lab share links (#lab= finite/clamped, setpoints survive steps)
+        run: npm run test:lab-url
 
       - name: Build site (no WASM rebuild)
         run: npm run build:site
