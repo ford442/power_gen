@@ -1,0 +1,87 @@
+{
+  "tourVersion": 1,
+  "id": "heron-intro",
+  "title": "Heron's Fountain Tour",
+  "description": "Guided walkthrough of driving head, Bernoulli exit speed, pipe friction, and what the build-shape presets change — and which sealed-vessel physics this model leaves out.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 7,
+      "view": "heron",
+      "cameraOffset": [0, 5, 14],
+      "cameraTargetY": 2,
+      "title": "Height in, jet out",
+      "body": "A Heron's fountain spends a height of water to throw a jet. This bench keeps that trade as one number — the driving head, in metres — and turns it into an exit speed with Bernoulli's equation and pipe friction. Raise the drive slider and watch the head, the jet and the mist rise together.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "head",
+      "durationSec": 9,
+      "view": "heron",
+      "cameraOffset": [-3.5, 3, 7],
+      "cameraTargetY": 3,
+      "title": "Step 1 — the driving head",
+      "body": "Head h is bounded by the preset (4.5 m on the Classic stack). The drive slider tops it up through a pump term; the jet drains it again in proportion to the exit speed. It settles where the two balance, which is why the jet does not simply grow with the slider. The pressure readout is hydrostatic, p = ρ g h — about 44 kPa at 4.5 m — not an air pressure measured inside a vessel.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "heron-head"
+    },
+    {
+      "id": "bernoulli",
+      "durationSec": 9,
+      "view": "heron",
+      "cameraOffset": [0, 4, 8],
+      "cameraTargetY": 5,
+      "title": "Step 2 — Bernoulli at the nozzle",
+      "body": "With no losses the head would give v = √(2 g h): about 9.4 m/s from 4.5 m. The model then applies the nozzle's discharge coefficient (0.35 on Classic), so the exit speed v_exit and the flow Q = A·v_exit read well below that ceiling. Nothing in the plant can make the jet faster than the ideal figure for the head it has.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "bernoulli-exit"
+    },
+    {
+      "id": "friction",
+      "durationSec": 9,
+      "view": "heron",
+      "cameraOffset": [2.5, 1.5, 6],
+      "cameraTargetY": 0,
+      "title": "Step 3 — friction in the plumbing",
+      "body": "Before the water reaches the nozzle it loses head to the pipe: h_loss = f · (L/D) · v²/2g, with f from the Swamee–Jain fit at the flow's Reynolds number. The Classic run is 4.0 m of 80 mm pipe. Longer, thinner plumbing eats more of the head, so the same height gives a weaker jet.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "swamee-jain"
+    },
+    {
+      "id": "presets",
+      "durationSec": 10,
+      "view": "heron",
+      "cameraOffset": [0, 4, 12],
+      "cameraTargetY": 2,
+      "title": "Step 4 — build shapes trade head for friction",
+      "body": "Try the Heron Build Shape buttons. Compact has 2.8 m of head over 2.4 m of pipe; Tall Tower has 6.5 m of head but 7.2 m of 50 mm pipe; Spiral has the longest run, 8.0 m. Each preset changes the head limit, pipe length, pipe diameter, nozzle and discharge coefficient together, so more height is not automatically a better jet. The glass-vessel CAD (lids, tie rods, basin rim, nozzle) is baked for the Classic preset only; the other four re-route the plumbing and keep the procedural vessels.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null,
+      "layoutHint": "Switching preset here frees the Classic CAD instead of leaving it hanging in a different layout."
+    },
+    {
+      "id": "honesty",
+      "durationSec": 9,
+      "view": "heron",
+      "cameraOffset": [0, 6, 15],
+      "cameraTargetY": 2,
+      "title": "What this model is not",
+      "body": "A lumped head with Bernoulli and a friction factor — not the sealed-air fountain itself. The lids in the CAD mark which vessels are sealed, but there is no air volume here: nothing compresses, no pressure is passed from one vessel to the next, and there is no priming transient or cavitation. The pump term is a stand-in for the reservoir, and the jet and mist are particles driven by the exit speed, not a free-surface simulation. A classroom picture of head, speed and friction — not a plumbing design tool.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

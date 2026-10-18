@@ -16,7 +16,32 @@ export interface ExplainerUIHandle {
   applyLabFromHash: () => Promise<void>;
 }
 
+const TOUR_ROW_ID = 'explainerTourRow';
+
+/**
+ * One button per `LAB_TOURS` row, so a new tour script needs no markup edit.
+ * Buttons go in front of whatever the row already holds (the Lab Link button)
+ * and keep their registry ids. Idempotent.
+ */
+function renderTourButtons(): void {
+  const row = document.getElementById(TOUR_ROW_ID);
+  if (!row) return;
+  const buttons: HTMLButtonElement[] = [];
+  for (const def of LAB_TOURS) {
+    if (document.getElementById(def.buttonId)) continue;
+    const btn = document.createElement('button');
+    btn.className = 'ctrl-btn';
+    btn.id = def.buttonId;
+    btn.type = 'button';
+    btn.style.fontSize = '0.68rem';
+    btn.textContent = def.label;
+    buttons.push(btn);
+  }
+  row.prepend(...buttons);
+}
+
 export function initExplainerUI(): ExplainerUIHandle {
+  renderTourButtons();
   const tours = initLabTours();
   const tour = tours.segTour;
 

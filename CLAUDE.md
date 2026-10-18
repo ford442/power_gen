@@ -32,6 +32,7 @@ npm run dev          # http://localhost:5173/  (https: false; localhost is fine 
 | WASM plant | `?wasmPhysics=1` |
 | Mock hardware | `?mockHardware=1` |
 | Lab audio | `?audio=1` (silent until your first click/keypress; header badge mutes) |
+| Showroom / Lab / Twin | `?labMode=showroom\|lab\|twin` (header buttons; remembered). Explicit flags win: kiosk `?labMode=showroom&look=drama&audio=1`, class `?labMode=lab&class=1`, bench `?labMode=twin` |
 
 Default boot no longer falls back to WebGL2. Probe: `window.webgpuProbe`.
 
@@ -90,6 +91,7 @@ npm run check:post    # post uniform contracts
 npm run test:transports # twin transport framing + coast-on-disconnect
 npm run test:audio    # sonification mapping bounds (silent by default)
 npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switches
+npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement
 npm run generate:gltf # regenerate every placeholder GLB (seg + quanta + lab)
 ```
 

@@ -1181,6 +1181,13 @@ test.describe('Lab charge coupling', () => {
 // Explainer tours that ship their own script (LAB_TOURS registry).
 test.describe('Device explainer tours', () => {
 
+  // Every LAB_TOURS handle on window; the "only one plays" checks read this.
+  const ALL_TOUR_KEYS = [
+    'segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour',
+    'jumpingRingTour', 'heronTour', 'pulseCoilTour', 'homopolarTour', 'halbachTour',
+    'peltierTour', 'mhdTour', 'maglevTour', 'solarTour'
+  ];
+
   for (const { mode, startFn, key, firstTitle } of [
     { mode: 'hall', startFn: 'startHallTour', key: 'hallTour', firstTitle: /strip, a current/i },
     { mode: 'transformer', startFn: 'startTransformerTour', key: 'transformerTour', firstTitle: /never touch/i },
@@ -1190,6 +1197,44 @@ test.describe('Device explainer tours', () => {
       startFn: 'startJumpingRingTour',
       key: 'jumpingRingTour',
       firstTitle: /Lenz's law you can watch/i
+    },
+    { mode: 'heron', startFn: 'startHeronTour', key: 'heronTour', firstTitle: /height in, jet out/i },
+    {
+      mode: 'pulse-coil',
+      startFn: 'startPulseCoilTour',
+      key: 'pulseCoilTour',
+      firstTitle: /cannot change its current/i
+    },
+    {
+      mode: 'homopolar',
+      startFn: 'startHomopolarTour',
+      key: 'homopolarTour',
+      firstTitle: /no commutator/i
+    },
+    {
+      mode: 'halbach-viz',
+      startFn: 'startHalbachTour',
+      key: 'halbachTour',
+      firstTitle: /push the field one way/i
+    },
+    {
+      mode: 'peltier',
+      startFn: 'startPeltierTour',
+      key: 'peltierTour',
+      firstTitle: /heat in, a little electricity/i
+    },
+    { mode: 'mhd', startFn: 'startMhdTour', key: 'mhdTour', firstTitle: /flows through a field/i },
+    {
+      mode: 'maglev',
+      startFn: 'startMaglevTour',
+      key: 'maglevTour',
+      firstTitle: /floating over a ring of magnets/i
+    },
+    {
+      mode: 'solar',
+      startFn: 'startSolarTour',
+      key: 'solarTour',
+      firstTitle: /recharge its own battery/i
     }
   ]) {
     test(`${mode} tour plays via window.${startFn}() and focuses its device`, async ({ page }) => {
@@ -1242,13 +1287,12 @@ test.describe('Device explainer tours', () => {
     });
     await waitForEval(page, () => window.kelvinTour?.playing === true, { timeout: 15_000 });
 
-    const viaHooks = await page.evaluate(() => ({
-      playing: ['segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour',
-        'jumpingRingTour']
+    const viaHooks = await page.evaluate((keys) => ({
+      playing: keys
         .filter((k) => window[k]?.playing),
       visibleOverlays: [...document.querySelectorAll('#seg-tour-overlay')]
         .filter((el) => el.style.display !== 'none').length
-    }));
+    }), ALL_TOUR_KEYS);
 
     expect(viaHooks.playing).toEqual(['kelvinTour']);
     expect(viaHooks.visibleOverlays).toBe(1);
@@ -1257,13 +1301,12 @@ test.describe('Device explainer tours', () => {
     await page.evaluate(() => window.transformerTour.goToStep(1));
     await waitForEval(page, () => window.transformerTour?.playing === true, { timeout: 10_000 });
 
-    const viaLabHash = await page.evaluate(() => ({
-      playing: ['segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour',
-        'jumpingRingTour']
+    const viaLabHash = await page.evaluate((keys) => ({
+      playing: keys
         .filter((k) => window[k]?.playing),
       visibleOverlays: [...document.querySelectorAll('#seg-tour-overlay')]
         .filter((el) => el.style.display !== 'none').length
-    }));
+    }), ALL_TOUR_KEYS);
 
     expect(viaLabHash.playing).toEqual(['transformerTour']);
     expect(viaLabHash.visibleOverlays).toBe(1);
@@ -1306,6 +1349,9 @@ test.describe('Device explainer tours', () => {
 
   test('#lab= share link reopens a device tour on its step', async ({ page }) => {
     trackPageErrors(page);
+    // Reduced motion stops the tour auto-advancing, so a slow frame cannot
+    // carry it past the step under test.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     // Navigated directly (not via gotoWebGL2 + a hash append): a hash-only
     // change would not reload, and the lab hash is applied at boot.
     await page.goto('/?renderer=webgl2#lab=v1;mode=hall;tour=1;step=2', {
@@ -1326,6 +1372,59 @@ test.describe('Device explainer tours', () => {
     expect(snap.playing).toBe(true);
     expect(snap.step).toBe(2);
     expect(snap.view).toBe('hall');
+  });
+
+  for (const { mode, key } of [
+    { mode: 'heron', key: 'heronTour' },
+    { mode: 'pulse-coil', key: 'pulseCoilTour' },
+    { mode: 'homopolar', key: 'homopolarTour' },
+    { mode: 'halbach-viz', key: 'halbachTour' }
+  ]) {
+    test(`#lab= share link reopens the ${mode} tour on its step`, async ({ page }) => {
+      trackPageErrors(page);
+      // Reduced motion stops the tour auto-advancing, so a slow frame cannot
+      // carry it past step 2 and the resume step is checked exactly.
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto(`/?renderer=webgl2#lab=v1;mode=${mode};tour=1;step=2`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60_000
+      });
+
+      await page.evaluate((k) => { window.__tourUnderTest = k; }, key);
+      await waitForEval(page,
+        () => window[window.__tourUnderTest]?.playing === true
+          && window[window.__tourUnderTest]?.stepIndex === 2,
+        { timeout: 60_000 }
+      );
+
+      const snap = await page.evaluate((k) => ({
+        step: window[k]?.stepIndex,
+        view: window.multiVisualizer?.currentView,
+        hash: location.hash
+      }), key);
+      expect(snap.step).toBe(2);
+      expect(snap.view).toBe(mode);
+      // The tour writes its own state back, so the link stays shareable.
+      expect(snap.hash).toContain(`mode=${mode}`);
+      expect(snap.hash).toContain('tour=1');
+    });
+  }
+
+  test('every registry tour has a generated button that starts it', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    const ids = await page.evaluate(() =>
+      [...document.querySelectorAll('#explainerTourRow button')].map((b) => b.id));
+    expect(ids).toContain('explainerTourBtn');
+    expect(ids).toContain('explainerHeronTourBtn');
+    expect(ids).toContain('explainerSolarTourBtn');
+    expect(ids).toContain('explainerShareBtn');
+
+    await page.evaluate(() => document.getElementById('explainerPulseCoilTourBtn').click());
+    await waitForEval(page, () => window.pulseCoilTour?.playing === true, { timeout: 15_000 });
+    const view = await page.evaluate(() => window.multiVisualizer?.currentView);
+    expect(view).toBe('pulse-coil');
   });
 });
 
@@ -1772,5 +1871,334 @@ test.describe('FDTD micro-grid heatmap (WebGL2 stand-in)', () => {
     expect(state.enabled).toBe(false);
     expect(state.active).toBe(false);
     expect(state.mounted).toBe(false);
+  });
+});
+
+// Showroom / Lab / Twin preset bundle (src/lab-mode.ts) — one switch over the
+// flags ADR-0005 scattered. The bundle is the default; an explicit flag wins.
+test.describe('Lab mode', () => {
+  test('no labMode anywhere → no bundle applied, no button pressed', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!document.getElementById('labmode-lab'), { timeout: 30_000 });
+    const s = await page.evaluate(() => ({
+      mode: window.getLabMode?.() ?? null,
+      body: document.body.dataset.labMode ?? null,
+      pressed: [...document.querySelectorAll('[data-lab-mode-btn]')]
+        .filter((b) => b.getAttribute('aria-pressed') === 'true').length,
+      buttons: [...document.querySelectorAll('[data-lab-mode-btn]')].map((b) => b.dataset.labModeBtn)
+    }));
+    expect(s.mode).toBeNull();
+    expect(s.body).toBeNull();
+    expect(s.pressed).toBe(0);
+    expect(s.buttons).toEqual(['showroom', 'lab', 'twin']);
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('?labMode=showroom strips teaching chrome, folds the twin, turns buses off', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=showroom');
+    await waitForEval(page, () => window.getLabMode?.() === 'showroom', { timeout: 60_000 });
+    const s = await page.evaluate(() => ({
+      pressed: document.getElementById('labmode-showroom')?.getAttribute('aria-pressed'),
+      explainer: getComputedStyle(document.getElementById('seg-explainer-section')).display,
+      fieldSec: getComputedStyle(document.getElementById('field-coupling-section')).display,
+      chargeSec: getComputedStyle(document.getElementById('charge-coupling-section')).display,
+      hwCollapsed: document.getElementById('hardware-panel')?.dataset.collapsed ?? null,
+      look: window.multiVisualizer?.lightingLook,
+      fieldOn: window.multiVisualizer?.fieldNetwork?.couplingEnabled,
+      stored: localStorage.getItem('seg-lab-mode')
+    }));
+    expect(s.pressed).toBe('true');
+    expect(s.explainer).toBe('none');
+    expect(s.fieldSec).toBe('none');
+    expect(s.chargeSec).toBe('none');
+    expect(s.hwCollapsed).toBe('true');
+    expect(s.look).toBe('studio');
+    expect(s.fieldOn).toBe(false);
+    // `?labMode=` at boot is a URL choice, not a click: nothing is remembered yet.
+    expect(s.stored).toBeNull();
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('?labMode=lab shows the explainer and coupling controls, and the lab look', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=lab');
+    await waitForEval(page, () => window.getLabMode?.() === 'lab', { timeout: 60_000 });
+    const s = await page.evaluate(() => ({
+      explainer: getComputedStyle(document.getElementById('seg-explainer-section')).display,
+      fieldSec: getComputedStyle(document.getElementById('field-coupling-section')).display,
+      chargeSec: getComputedStyle(document.getElementById('charge-coupling-section')).display,
+      hwCollapsed: document.getElementById('hardware-panel')?.dataset.collapsed ?? null,
+      look: window.multiVisualizer?.lightingLook,
+      fieldOn: window.multiVisualizer?.fieldNetwork?.couplingEnabled
+    }));
+    expect(s.explainer).not.toBe('none');
+    expect(s.fieldSec).not.toBe('none');
+    expect(s.chargeSec).not.toBe('none');
+    expect(s.hwCollapsed).toBe('false');
+    expect(s.look).toBe('lab');
+    // Controls visible, buses still default-off until the user enables one.
+    expect(s.fieldOn).toBe(false);
+  });
+
+  test('an explicit flag beats the bundle (look, class, a bus)', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=showroom&look=drama&class=1&fieldCoupling=1');
+    await waitForEval(page, () => window.getLabMode?.() === 'showroom', { timeout: 60_000 });
+    const s = await page.evaluate(() => ({
+      look: window.multiVisualizer?.lightingLook,
+      classroom: window.explainerState?.classroomMode,
+      explainer: getComputedStyle(document.getElementById('seg-explainer-section')).display,
+      fieldOn: window.multiVisualizer?.fieldNetwork?.couplingEnabled,
+      fieldSec: getComputedStyle(document.getElementById('field-coupling-section')).display,
+      chargeOn: window.multiVisualizer?.chargeNetwork?.couplingEnabled
+    }));
+    expect(s.look).toBe('drama');
+    expect(s.classroom).toBe(true);
+    expect(s.explainer).not.toBe('none');
+    expect(s.fieldOn).toBe(true);
+    // A live bus must keep its switch on screen.
+    expect(s.fieldSec).not.toBe('none');
+    // Unmentioned buses are still the bundle's to turn off.
+    expect(s.chargeOn).toBeFalsy();
+  });
+
+  test('header buttons apply the whole bundle, remember it, and write ?labMode=', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=lab&look=drama');
+    await waitForEval(page, () => window.getLabMode?.() === 'lab', { timeout: 60_000 });
+    // Boot honoured the explicit look…
+    expect(await page.evaluate(() => window.multiVisualizer?.lightingLook)).toBe('drama');
+
+    // …but a click is an explicit choice of the whole bundle.
+    await page.evaluate(() => document.getElementById('labmode-showroom').click());
+    await waitForEval(page, () => window.getLabMode?.() === 'showroom', { timeout: 30_000 });
+    const s = await page.evaluate(() => ({
+      look: window.multiVisualizer?.lightingLook,
+      stored: localStorage.getItem('seg-lab-mode'),
+      param: new URL(location.href).searchParams.get('labMode'),
+      pressed: ['showroom', 'lab', 'twin'].filter(
+        (m) => document.getElementById(`labmode-${m}`).getAttribute('aria-pressed') === 'true'),
+      explainer: getComputedStyle(document.getElementById('seg-explainer-section')).display
+    }));
+    expect(s.look).toBe('studio');
+    expect(s.stored).toBe('showroom');
+    expect(s.param).toBe('showroom');
+    expect(s.pressed).toEqual(['showroom']);
+    expect(s.explainer).toBe('none');
+
+    // Back to Lab restores the chrome showroom hid.
+    await page.evaluate(() => document.getElementById('labmode-lab').click());
+    await waitForEval(page, () => window.getLabMode?.() === 'lab', { timeout: 30_000 });
+    const back = await page.evaluate(() => ({
+      explainer: getComputedStyle(document.getElementById('seg-explainer-section')).display,
+      fieldSec: getComputedStyle(document.getElementById('field-coupling-section')).display,
+      look: window.multiVisualizer?.lightingLook
+    }));
+    expect(back.explainer).not.toBe('none');
+    expect(back.fieldSec).not.toBe('none');
+    expect(back.look).toBe('lab');
+  });
+
+  test('the remembered mode applies on a bare reload', async ({ page }) => {
+    trackPageErrors(page);
+    await page.addInitScript(() => {
+      try { localStorage.setItem('seg-lab-mode', 'showroom'); } catch (_) { /* ignore */ }
+    });
+    await gotoWebGL2(page);
+    await waitForEval(page, () => window.getLabMode?.() === 'showroom', { timeout: 60_000 });
+    expect(await page.evaluate(() => document.body.dataset.labMode)).toBe('showroom');
+  });
+
+  test('showroom forces a bus off for the session without rewriting the stored preference', async ({ page }) => {
+    trackPageErrors(page);
+    await page.addInitScript(() => {
+      try { localStorage.setItem('seg-field-coupling', 'true'); } catch (_) { /* ignore */ }
+    });
+    await gotoWebGL2(page, 'labMode=showroom');
+    await waitForEval(page, () => window.getLabMode?.() === 'showroom', { timeout: 60_000 });
+    const s = await page.evaluate(() => ({
+      on: window.multiVisualizer?.fieldNetwork?.couplingEnabled,
+      stored: localStorage.getItem('seg-field-coupling')
+    }));
+    expect(s.on).toBe(false);
+    expect(s.stored).toBe('true');
+  });
+
+  test('twin opens the residual gauges; leaving it coasts a live link without disconnecting', async ({ page }) => {
+    test.setTimeout(300_000);
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=twin&mockHardware=1');
+    await waitForEval(page, () => window.getLabMode?.() === 'twin'
+      && window.multiVisualizer?.hardwareBridge?.isConnected === true, { timeout: 90_000 });
+    const open = await page.evaluate(() => ({
+      sci: window.sciUI?.isVisible,
+      hwCollapsed: document.getElementById('hardware-panel')?.dataset.collapsed ?? null
+    }));
+    expect(open.sci).toBe(true);
+    expect(open.hwCollapsed).toBe('false');
+
+    await page.evaluate(() => window.multiVisualizer.hardwareBridge.setManualCoils(0b11, 0.75));
+    await page.evaluate(() => document.getElementById('labmode-lab').click());
+    await waitForEval(page, () => window.getLabMode?.() === 'lab', { timeout: 30_000 });
+    const left = await page.evaluate(() => {
+      const b = window.multiVisualizer.hardwareBridge;
+      return { connected: b.isConnected, manual: b.manualMode, duty: b.manualPwmDuty, sci: window.sciUI?.isVisible };
+    });
+    expect(left.connected).toBe(true);
+    expect(left.manual).toBe(false);
+    expect(left.duty).toBe(0);
+    // The gauges Twin opened close again; a panel the user opened themselves would stay.
+    expect(left.sci).toBe(false);
+  });
+
+  test('catalog mode buttons still switch bench', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=lab');
+    await waitForEval(page, () => window.getLabMode?.() === 'lab' && !!document.getElementById('btn-heron'),
+      { timeout: 60_000 });
+    await page.evaluate(() => document.getElementById('btn-heron').click());
+    await waitForEval(page, () => window.getRendererInfo()?.view === 'heron'
+      && document.getElementById('btn-heron').classList.contains('active'), { timeout: 30_000 });
+  });
+
+  test('focus change is announced: mode + bench + one number, in a polite live region', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=lab');
+    await waitForEval(page, () => window.getLabMode?.() === 'lab', { timeout: 60_000 });
+    await page.evaluate(() => window.setMode('pulse-coil'));
+    await waitForEval(page,
+      () => /Pulse Coil/.test(document.getElementById('focusLiveRegion')?.textContent ?? ''),
+      { timeout: 30_000 });
+    const s = await page.evaluate(() => {
+      const el = document.getElementById('focusLiveRegion');
+      return {
+        role: el.getAttribute('role'),
+        live: el.getAttribute('aria-live'),
+        text: el.textContent,
+        readoutName: document.getElementById('device-readout')?.getAttribute('aria-label') ?? null
+      };
+    });
+    expect(s.role).toBe('status');
+    expect(s.live).toBe('polite');
+    expect(s.text).toMatch(/^Lab mode\. Pulse Coil/);
+    expect(s.text).not.toMatch(/NaN/);
+    expect(s.text).toMatch(/\d/);
+    expect(s.readoutName).toMatch(/Pulse Coil/);
+  });
+});
+
+// Catalog `setpoints` → generated sliders (src/setpoint-sliders.ts). The page
+// carries no per-device slider markup; the panel only writes, the plant steps.
+test.describe('Catalog setpoint sliders', () => {
+  test('each declared setpoint gets a slider with catalog bounds, shown only for its bench', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!document.getElementById('lorentzFieldSlider'), { timeout: 60_000 });
+    const dom = await page.evaluate(() => ['lorentzFieldSlider', 'halbachSegmentsSlider', 'pulseCoilChargeSlider'].map((id) => {
+      const el = document.getElementById(id);
+      return { id, min: el?.min, max: el?.max, step: el?.step, label: el?.getAttribute('aria-label') };
+    }));
+    expect(dom).toEqual([
+      expect.objectContaining({ id: 'lorentzFieldSlider', min: '0', max: '1.2', step: '0.05' }),
+      expect.objectContaining({ id: 'halbachSegmentsSlider', min: '4', max: '24', step: '1' }),
+      expect.objectContaining({ id: 'pulseCoilChargeSlider', min: '0', max: '48', step: '1' })
+    ]);
+    for (const d of dom) expect(d.label).toBeTruthy();
+
+    const shown = async (mode) => {
+      await page.evaluate((m) => window.setMode(m), mode);
+      return page.evaluate(() => [...document.querySelectorAll('[data-setpoint-device]')]
+        .filter((el) => !el.hidden).map((el) => el.dataset.setpointDevice));
+    };
+    expect(await shown('halbach-viz')).toEqual(['halbach-viz']);
+    expect(await shown('pulse-coil')).toEqual(['pulse-coil']);
+    expect(await shown('lorentz-sled')).toEqual(['lorentz-sled']);
+    expect(await shown('overview')).toEqual([]);
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('Lorentz slider still writes setLorentzFieldT (local B), clamped by the plant', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!document.getElementById('lorentzFieldSlider')
+      && !!window.multiVisualizer?.devices?.['lorentz-sled'], { timeout: 60_000 });
+    await page.evaluate(() => window.setMode('lorentz-sled'));
+    await page.evaluate(() => {
+      const s = document.getElementById('lorentzFieldSlider');
+      s.value = '0.35';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const s = await page.evaluate(() => {
+      const d = window.multiVisualizer.devices['lorentz-sled'];
+      const ph = d.physicsState ?? d.physics;
+      return { local: ph.lorentzFieldLocalT, B: ph.lorentzFieldT, label: document.getElementById('lorentzFieldValue').textContent };
+    });
+    expect(s.local).toBeCloseTo(0.35, 5);
+    expect(s.B).toBeCloseTo(0.35, 5);
+    expect(s.label).toBe('0.35 T');
+  });
+
+  test('Halbach N pins against the drive sweep, and Auto hands it back', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.multiVisualizer?.devices?.['halbach-viz'], { timeout: 60_000 });
+    await page.evaluate(() => window.setMode('halbach-viz'));
+    await page.evaluate(() => {
+      const s = document.getElementById('halbachSegmentsSlider');
+      s.value = '7';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const n = () => page.evaluate(() => {
+      const d = window.multiVisualizer.devices['halbach-viz'];
+      const ph = d.physicsState ?? d.physics;
+      return { count: ph.halbachSegmentCount, set: ph.halbachSegmentSetpoint };
+    });
+    // The plant must keep honouring the pin on frames after the input event.
+    await waitForEval(page, () => {
+      const ph = window.multiVisualizer.devices['halbach-viz'];
+      return (ph.physicsState ?? ph.physics).halbachSegmentCount === 7;
+    }, { timeout: 30_000 });
+    await page.waitForTimeout(500);
+    expect(await n()).toEqual({ count: 7, set: 7 });
+
+    await page.evaluate(() => document.getElementById('halbachSegmentsRelease').click());
+    expect((await n()).set).toBeNull();
+  });
+
+  test('pulse-coil charge target pins the bank and is clamped to the catalog range', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.multiVisualizer?.devices?.['pulse-coil'], { timeout: 60_000 });
+    await page.evaluate(() => window.setMode('pulse-coil'));
+    await page.evaluate(() => {
+      const s = document.getElementById('pulseCoilChargeSlider');
+      s.value = '30';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const set = await page.evaluate(() => {
+      const d = window.multiVisualizer.devices['pulse-coil'];
+      return (d.physicsState ?? d.physics).pulseCoilChargeSetpointV;
+    });
+    expect(set).toBe(30);
+  });
+
+  test('#lab= pcap / hseg / lfield share links pin through the same setpoints', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.multiVisualizer?.devices?.['halbach-viz']
+      && !!window.multiVisualizer?.devices?.['pulse-coil'], { timeout: 60_000 });
+    await page.evaluate(async () => {
+      const { applyLabState, decodeLabHash } = await import('/seg-explainer/lab-url.ts');
+      await applyLabState(decodeLabHash('#lab=v1;mode=halbach-viz;hseg=12'));
+      await applyLabState(decodeLabHash('#lab=v1;mode=pulse-coil;pcap=0.5'));
+    });
+    const s = await page.evaluate(() => {
+      const ph = (id) => window.multiVisualizer.devices[id].physicsState ?? window.multiVisualizer.devices[id].physics;
+      return { hseg: ph('halbach-viz').halbachSegmentSetpoint, pcap: ph('pulse-coil').pulseCoilChargeSetpointV };
+    });
+    expect(s.hseg).toBe(12);
+    expect(s.pcap).toBe(24);
   });
 });

@@ -21,6 +21,9 @@ import { probeWebGPU, showWebGPUHardFail, type WebGPUProbeResult } from './rende
 import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 import { initSEGOperatorPanel } from './seg-operator-panel';
 import { renderModeButtons } from './mode-buttons';
+import { initLabMode, setLabMode, getLabMode } from './lab-mode';
+import { initFocusLiveRegion } from './focus-live-region';
+import { renderSetpointPanels, showSetpointPanel, paintFocusedSetpoints } from './setpoint-sliders';
 import { initSEGDiagram2D } from './seg-diagram-2d';
 import { initTelemetryExportPanel } from './telemetry/telemetry-export-panel';
 import { initReplayUI } from './telemetry/replay-ui';
@@ -114,6 +117,7 @@ window.setMode = (mode: string): void => {
   if (sledPanel) sledPanel.style.display = mode === 'lorentz-sled' ? 'block' : 'none';
   const ringPanel = document.getElementById('jumping-ring-controls');
   if (ringPanel) ringPanel.style.display = mode === 'jumping-ring' ? 'block' : 'none';
+  showSetpointPanel(mode);
   syncFieldCouplingUI();
 };
 
@@ -190,6 +194,22 @@ function wireFieldCouplingControls(): void {
     syncFieldCouplingUI();
   }, { immediate: false });
   syncFieldCouplingUI();
+}
+
+/**
+ * Keep the generated setpoint sliders honest about the plant (a released Halbach
+ * N follows the drive sweep, a coupled Lorentz B follows the bus). Same "hub
+ * publishes, panel paints" path as the coupling readouts, ~4 Hz.
+ */
+function wireSetpointRepaint(): void {
+  let lastPaintMs = 0;
+  telemetryHub.subscribe(() => {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - lastPaintMs < 250) return;
+    lastPaintMs = now;
+    paintFocusedSetpoints(window.multiVisualizer?.currentView ?? 'overview');
+  }, { immediate: false });
+  showSetpointPanel(window.multiVisualizer?.currentView ?? 'overview');
 }
 
 /**
@@ -535,6 +555,7 @@ function bootApp(): void {
   restoreSimulationSeedFromStorage();
   initWasm();
   renderModeButtons();
+  renderSetpointPanels();
 
   initSEGOperatorPanel({
     onParticleCountChange(count: number) {
@@ -567,6 +588,7 @@ function bootApp(): void {
     initReplayUI();
     wireFieldCouplingControls();
     wireChargeCouplingControls();
+    wireSetpointRepaint();
     const explainer = initExplainerUI();
     await explainer.applyLabFromHash();
 
@@ -601,6 +623,13 @@ function bootApp(): void {
     } catch (e) {
       console.warn('[main] lab audio init skipped:', e);
     }
+
+    // After the explainer, audio and hardware panel exist: the mode bundle
+    // reaches into all three.
+    window.setLabMode = (mode) => setLabMode(mode, 'user');
+    window.getLabMode = getLabMode;
+    initLabMode();
+    initFocusLiveRegion(getLabMode);
 
     const anomalyToggle = document.getElementById('anomalyToggle') as HTMLInputElement | null;
     const v = window.multiVisualizer;

@@ -49,6 +49,17 @@ bounds, …) as well as the SI parameters. Those shaping numbers appear in
 both plants' step functions, so leaving them as literals is the same drift
 risk as leaving out a resistance.
 
+## Physical anchors (codegen refuses a wrong μ0)
+
+`npm run codegen:constants` (and so `check:constants`) fails unless
+`physical.MU_0` is 4π×10⁻⁷ H/m to 1e-6, `EPSILON_0` agrees with 1/(μ0 c²), and
+`segMagnet.magnetizationAm` equals Br/(μ0 μr). μ0 was once committed as
+1.2566e-**7**; every dipole field and energy density derived from it was 10× off
+and nothing failed, because the plants, the shaders and the golden all agreed
+with the typo. The anchor ties the JSON to a value checkable from first
+principles. After changing it the prebuilt `src/public/wasm/sim_core.*` is stale
+until CI rebuilds it (`build-wasm.yml` commits it back on `main`).
+
 ## JS ⇄ WASM golden
 
 `npm run test:golden` (in `npm run validate`) is what keeps the two plants

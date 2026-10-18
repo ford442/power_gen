@@ -110,6 +110,49 @@ function validateChrome(devices) {
 }
 
 /**
+ * Optional per-device `setpoints[]` — the sliders the operator panel generates
+ * at boot (src/setpoint-sliders.ts). `id` also names the DOM ids
+ * (`<id>Slider`, `<id>Value`, `<id>Source`), so it must be unique catalog-wide
+ * and a plain identifier. START/STOP/drive are session-level and never listed.
+ */
+function validateSetpoints(devices) {
+  const errors = [];
+  const seen = new Map();
+  for (const d of devices) {
+    const list = d.setpoints;
+    if (list == null) continue;
+    if (!Array.isArray(list)) {
+      errors.push(`${d.id}: setpoints must be an array`);
+      continue;
+    }
+    for (const sp of list) {
+      const where = `${d.id}.setpoints[${sp && sp.id}]`;
+      if (typeof sp.id !== 'string' || !/^[a-z][A-Za-z0-9]*$/.test(sp.id)) {
+        errors.push(`${where}: id must be a camelCase identifier`);
+        continue;
+      }
+      if (seen.has(sp.id)) errors.push(`${where}: id also used by ${seen.get(sp.id)}`);
+      seen.set(sp.id, d.id);
+      if (typeof sp.label !== 'string' || !sp.label) errors.push(`${where}: label required`);
+      if (![sp.min, sp.max, sp.step].every(Number.isFinite)) {
+        errors.push(`${where}: min/max/step must be finite numbers`);
+      } else {
+        if (!(sp.min < sp.max)) errors.push(`${where}: min must be < max`);
+        if (!(sp.step > 0) || sp.step > sp.max - sp.min) errors.push(`${where}: step must be in (0, max-min]`);
+      }
+      if (typeof sp.unit !== 'string') errors.push(`${where}: unit required (use "" for dimensionless)`);
+      if (!Number.isInteger(sp.digits) || sp.digits < 0 || sp.digits > 6) errors.push(`${where}: digits must be 0..6`);
+      if (typeof sp.stateKey !== 'string' || !sp.stateKey) errors.push(`${where}: stateKey required`);
+      for (const opt of ['liveKey', 'api', 'note']) {
+        if (sp[opt] != null && (typeof sp[opt] !== 'string' || !sp[opt])) errors.push(`${where}: ${opt} must be a non-empty string`);
+      }
+      if (sp.releasable != null && typeof sp.releasable !== 'boolean') errors.push(`${where}: releasable must be boolean`);
+    }
+  }
+  return errors;
+}
+
+/**
  * Every telemetryKey must carry label/unit/digits in `telemetry` so operator
  * chrome, the generic gauge strip and CSV headers all read the same schema.
  */
@@ -398,6 +441,25 @@ ${meta},
     `  { id: '${d.id}', emoji: ${JSON.stringify(d.chrome.emoji)}, label: ${JSON.stringify(d.chrome.label)}, sort: ${d.chrome.sort} }`
   ).join(',\n');
 
+  const setpointRows = devices.flatMap((d) => (d.setpoints || []).map((sp) => {
+    const parts = [
+      `deviceId: '${d.id}'`,
+      `id: '${sp.id}'`,
+      `label: ${JSON.stringify(sp.label)}`,
+      `min: ${sp.min}`,
+      `max: ${sp.max}`,
+      `step: ${sp.step}`,
+      `unit: ${JSON.stringify(sp.unit)}`,
+      `digits: ${sp.digits}`,
+      `stateKey: '${sp.stateKey}'`,
+    ];
+    if (sp.liveKey) parts.push(`liveKey: '${sp.liveKey}'`);
+    if (sp.api) parts.push(`api: '${sp.api}'`);
+    if (sp.releasable) parts.push('releasable: true');
+    if (sp.note) parts.push(`note: ${JSON.stringify(sp.note)}`);
+    return `  { ${parts.join(', ')} }`;
+  })).join(',\n');
+
   const snapDevices = devices.filter((d) => !TELEMETRY_SNAP_EXEMPT_IDS.has(d.id));
   const fieldRows = snapDevices.flatMap((d) =>
     (d.telemetryKeys || []).map((k) => {
@@ -458,6 +520,37 @@ ${entries},
 /** Mode-button chrome for devices that have one, in display order. */
 export const MODE_BUTTON_CHROME: readonly { id: string; emoji: string; label: string; sort: number }[] = [
 ${chromeRows},
+];
+
+/**
+ * One operator setpoint slider (physics/devices.json \`setpoints\`). The panel
+ * generates the control; it only ever *writes* \`api(value)\` or
+ * \`physicsState[stateKey] = value\` — the plant clock reads it on its next step.
+ */
+export interface DeviceSetpoint {
+  deviceId: string;
+  /** camelCase; also the DOM id stem (\`<id>Slider\`, \`<id>Value\`, \`<id>Source\`). */
+  id: string;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  unit: string;
+  digits: number;
+  /** \`physicsState\` field the slider writes (when no \`api\`). */
+  stateKey: string;
+  /** \`physicsState\` field shown while the setpoint is unset. */
+  liveKey?: string;
+  /** \`window\` function that already owns this write (e.g. setLorentzFieldT). */
+  api?: string;
+  /** Show a release control that hands the quantity back to the plant. */
+  releasable?: boolean;
+  note?: string;
+}
+
+/** Catalog-declared setpoint sliders, in catalog order. */
+export const DEVICE_SETPOINTS: readonly DeviceSetpoint[] = [
+${setpointRows},
 ];
 
 /** One catalog telemetry key bound to its device, CSV column and display schema. */
@@ -689,6 +782,7 @@ function main() {
   const telemetryMetaErrors = validateTelemetryMeta(devices);
   const telemetrySchemaErrors = checkTelemetrySchemaUsesCatalog();
   const chromeErrors = validateChrome(devices);
+  const setpointErrors = validateSetpoints(devices);
 
   const ts = emitTs(data, devices, reserved, wasmCount);
   const h = emitH(devices, reserved, wasmCount);
@@ -708,6 +802,7 @@ function main() {
     ...wasmPlantUsageErrors,
     ...telemetrySchemaErrors,
     ...chromeErrors,
+    ...setpointErrors,
   ];
   if (CHECK) hard.push(...wgslErrors);
 

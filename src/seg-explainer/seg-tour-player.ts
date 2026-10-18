@@ -5,6 +5,14 @@ import jumpingRingTourScript from './jumping-ring-tour.json';
 import hallTourScript from './hall-tour.json';
 import transformerTourScript from './transformer-tour.json';
 import kelvinTourScript from './kelvin-tour.json';
+import heronTourScript from './heron-tour.json';
+import pulseCoilTourScript from './pulse-coil-tour.json';
+import homopolarTourScript from './homopolar-tour.json';
+import halbachVizTourScript from './halbach-viz-tour.json';
+import peltierTourScript from './peltier-tour.json';
+import mhdTourScript from './mhd-tour.json';
+import maglevTourScript from './maglev-tour.json';
+import solarTourScript from './solar-tour.json';
 import { explainerState } from './explainer-state';
 import { glossaryForHighlight, SEG_GLOSSARY } from './seg-glossary';
 import { getMergedDeviceConfig } from '../devices/device-registry';
@@ -338,6 +346,8 @@ export interface LabTourDefinition {
   mode: string | null;
   /** Explainer-panel button id. */
   buttonId: string;
+  /** Explainer-panel button text (the panel builds one button per row). */
+  label: string;
   /** Status line shown while playing. */
   status: string;
   script: TourScript;
@@ -345,7 +355,9 @@ export interface LabTourDefinition {
 
 export type LabTourKey =
   | 'segTour' | 'vdgTour' | 'lorentzTour' | 'hallTour' | 'transformerTour' | 'kelvinTour'
-  | 'jumpingRingTour';
+  | 'jumpingRingTour'
+  | 'heronTour' | 'pulseCoilTour' | 'homopolarTour' | 'halbachTour'
+  | 'peltierTour' | 'mhdTour' | 'maglevTour' | 'solarTour';
 
 export const LAB_TOURS: readonly LabTourDefinition[] = [
   {
@@ -354,6 +366,7 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToSEGStep',
     mode: null,
     buttonId: 'explainerTourBtn',
+    label: '▶ Guided Tour',
     status: 'Tour playing — Space to pause sim',
     script: tourScript
   },
@@ -363,6 +376,7 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToVdgStep',
     mode: 'vdg',
     buttonId: 'explainerVdgTourBtn',
+    label: '▶ Van de Graaff Tour',
     status: 'Van de Graaff tour playing',
     script: vdgTourScript
   },
@@ -372,6 +386,7 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToLorentzStep',
     mode: 'lorentz-sled',
     buttonId: 'explainerLorentzTourBtn',
+    label: '▶ Lorentz Sled Tour',
     status: 'Lorentz sled tour playing',
     script: lorentzTourScript
   },
@@ -381,6 +396,7 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToJumpingRingStep',
     mode: 'jumping-ring',
     buttonId: 'explainerJumpingRingTourBtn',
+    label: '▶ Jumping Ring Tour',
     status: 'Jumping ring tour playing',
     script: jumpingRingTourScript
   },
@@ -390,6 +406,7 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToHallStep',
     mode: 'hall',
     buttonId: 'explainerHallTourBtn',
+    label: '▶ Hall-Effect Tour',
     status: 'Hall-effect tour playing',
     script: hallTourScript
   },
@@ -399,6 +416,7 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToTransformerStep',
     mode: 'transformer',
     buttonId: 'explainerTransformerTourBtn',
+    label: '▶ Mutual Induction Tour',
     status: 'Mutual-induction tour playing',
     script: transformerTourScript
   },
@@ -408,8 +426,89 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToKelvinStep',
     mode: 'kelvin',
     buttonId: 'explainerKelvinTourBtn',
+    label: '▶ Kelvin Dropper Tour',
     status: 'Kelvin dropper tour playing',
     script: kelvinTourScript
+  },
+  {
+    key: 'heronTour',
+    startFn: 'startHeronTour',
+    stepFn: 'goToHeronStep',
+    mode: 'heron',
+    buttonId: 'explainerHeronTourBtn',
+    label: '▶ Heron Fountain Tour',
+    status: 'Heron fountain tour playing',
+    script: heronTourScript
+  },
+  {
+    key: 'pulseCoilTour',
+    startFn: 'startPulseCoilTour',
+    stepFn: 'goToPulseCoilStep',
+    mode: 'pulse-coil',
+    buttonId: 'explainerPulseCoilTourBtn',
+    label: '▶ Pulse Coil Tour',
+    status: 'Pulse coil tour playing',
+    script: pulseCoilTourScript
+  },
+  {
+    key: 'homopolarTour',
+    startFn: 'startHomopolarTour',
+    stepFn: 'goToHomopolarStep',
+    mode: 'homopolar',
+    buttonId: 'explainerHomopolarTourBtn',
+    label: '▶ Homopolar Generator Tour',
+    status: 'Homopolar generator tour playing',
+    script: homopolarTourScript
+  },
+  {
+    key: 'halbachTour',
+    startFn: 'startHalbachTour',
+    stepFn: 'goToHalbachStep',
+    mode: 'halbach-viz',
+    buttonId: 'explainerHalbachTourBtn',
+    label: '▶ Halbach Array Tour',
+    status: 'Halbach array tour playing',
+    script: halbachVizTourScript
+  },
+  {
+    key: 'peltierTour',
+    startFn: 'startPeltierTour',
+    stepFn: 'goToPeltierStep',
+    mode: 'peltier',
+    buttonId: 'explainerPeltierTourBtn',
+    label: '▶ Thermoelectric Tour',
+    status: 'Thermoelectric stack tour playing',
+    script: peltierTourScript
+  },
+  {
+    key: 'mhdTour',
+    startFn: 'startMhdTour',
+    stepFn: 'goToMhdStep',
+    mode: 'mhd',
+    buttonId: 'explainerMhdTourBtn',
+    label: '▶ MHD Channel Tour',
+    status: 'MHD channel tour playing',
+    script: mhdTourScript
+  },
+  {
+    key: 'maglevTour',
+    startFn: 'startMaglevTour',
+    stepFn: 'goToMaglevStep',
+    mode: 'maglev',
+    buttonId: 'explainerMaglevTourBtn',
+    label: '▶ Magnetic Levitation Tour',
+    status: 'Magnetic levitation tour playing',
+    script: maglevTourScript
+  },
+  {
+    key: 'solarTour',
+    startFn: 'startSolarTour',
+    stepFn: 'goToSolarStep',
+    mode: 'solar',
+    buttonId: 'explainerSolarTourBtn',
+    label: '▶ LED & Solar Loop Tour',
+    status: 'LED and solar loop tour playing',
+    script: solarTourScript
   }
 ];
 

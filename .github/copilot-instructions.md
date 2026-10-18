@@ -1,6 +1,6 @@
 # Copilot Instructions
 
-**Canonical map:** [`docs/AGENTS.md`](../docs/AGENTS.md) · **Short checklist:** [`claude.md`](../claude.md) · **ADRs:** [`docs/adr/`](../docs/adr/)
+**Canonical map:** [`docs/AGENTS.md`](../docs/AGENTS.md) · **Short checklist:** [`CLAUDE.md`](../CLAUDE.md) · **ADRs:** [`docs/adr/`](../docs/adr/)
 
 ## Build, run, and validation
 

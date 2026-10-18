@@ -1,0 +1,99 @@
+{
+  "tourVersion": 1,
+  "id": "pulse-coil-intro",
+  "title": "Pulse Coil Tour",
+  "description": "Guided walkthrough of a capacitor discharging through a coil: the L/R time constant, the ring-down, what the wave slice actually pictures, and why this is not a projectile model.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 7,
+      "view": "pulse-coil",
+      "cameraOffset": [0, 3, 10],
+      "cameraTargetY": 0.3,
+      "title": "A coil cannot change its current instantly",
+      "body": "A capacitor bank, a copper coil and a soft-iron slug. Charge the bank, let it discharge through the coil, and the only thing that matters is how fast the current is allowed to change. Everything else on this bench — the field, the pull on the slug, the wave slice — follows from that one limit.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "charge",
+      "durationSec": 8,
+      "view": "pulse-coil",
+      "cameraOffset": [3, 1.4, 4.6],
+      "cameraTargetY": 0.2,
+      "title": "Step 1 — charging the bank",
+      "body": "Idle, the bank relaxes toward drive × 48 V with a 0.35 s time constant, and the cans brighten as it fills. Once the bank passes 85% of its target — and the drive is above about 8% — the model fires it. Watch V_cap climb in the readout and the cyan trace in the footer scope.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "capacitor-discharge"
+    },
+    {
+      "id": "rl",
+      "durationSec": 10,
+      "view": "pulse-coil",
+      "cameraOffset": [0, 1.8, 4.4],
+      "cameraTargetY": 0.2,
+      "title": "Step 2 — the L/R time constant",
+      "body": "The coil is 1.2 mH in series with 0.18 Ω, so L/R is about 6.7 ms. At the instant of firing the current is zero, so the whole bank voltage drops across the inductance and the slope is dI/dt = V/L: 40 A per millisecond at 48 V. The current ramps; it never jumps. That ramp is the first half of the orange trace.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "rl-time-constant"
+    },
+    {
+      "id": "ring",
+      "durationSec": 10,
+      "view": "pulse-coil",
+      "cameraOffset": [-2.4, 1.6, 4.4],
+      "cameraTargetY": 0.2,
+      "title": "Step 3 — the discharge rings down",
+      "body": "With a 2.2 mF bank in the loop the circuit is a damped LC: ω₀ = 1/√(LC) ≈ 615 rad/s, a period near 10 ms, with the amplitude dying at R/2L ≈ 75 per second. So the current rises, falls through zero, reverses and decays while V_cap swings negative. The lossless ceiling on the first peak is V/√(L/C), about 65 A from 48 V; the model fires at 85% of its target and the 75-per-second damping takes its share, so at full drive the first peak is nearer 46 A. The readout latches its peak so a millisecond spike stays readable.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "ring-down"
+    },
+    {
+      "id": "wave",
+      "durationSec": 11,
+      "view": "pulse-coil",
+      "cameraOffset": [0, 2.2, 6.5],
+      "cameraTargetY": 0.3,
+      "title": "Step 4 — the wave slice is a picture of dI/dt",
+      "body": "In WebGPU focus at the high quality tier, a 2D wave slice runs beside the coil (WebGL2 shows a small corner readout of the same kernel). Its source strength is the displayed coil current, smoothed over a few frames — so it launches a front when the current changes and has nothing new to say when it holds steady. Light is slowed by many orders of magnitude so you can see the front travel. It is a picture of how a changing current radiates, not of the circuit equations: nothing in the circuit reads the field back.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "wave-slice"
+    },
+    {
+      "id": "slug",
+      "durationSec": 9,
+      "view": "pulse-coil",
+      "cameraOffset": [1.2, 1.5, 4.2],
+      "cameraTargetY": 0.5,
+      "title": "Step 5 — the pull on the slug",
+      "body": "The 85 g slug feels an attraction proxy F = 0.035 · I² against a spring and damping, with 0.12 m of travel. Because the force goes as the square of the current, the sign of the ringing does not matter: the slug is pulled on every half-cycle of the ringing. B_pk ≈ μ₀ N I / 2R from the amp-turns is the other readout, an order-of-magnitude figure.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "honesty",
+      "durationSec": 9,
+      "view": "pulse-coil",
+      "cameraOffset": [0, 4, 12],
+      "cameraTargetY": 0.3,
+      "title": "What this model is not",
+      "body": "A series R–L–C loop with fixed inductance. The slug's position never changes L, so there is no motional back-EMF, no saturation, no eddy currents and no heating. The pull is a proxy, not a force calculation, and this is a low-voltage classroom bank: not a projectile model, not a coilgun, not a weapons simulation. The wave slice is a qualitative 2D picture in normalized units, not a field solution for this coil.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

@@ -153,10 +153,15 @@ export function refreshHalbachFieldGeometry(state: Partial<DevicePhysicsState>):
  * @param drive 0..1 from speed slider
  */
 export const stepHalbachVizPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
+  // A pinned N (the catalog `halbachSegments` setpoint) replaces the drive
+  // sweep; the magnetisation angle below still follows the drive.
+  const pinned = state.halbachSegmentSetpoint;
+  const swept = HALBACH_VIZ.segmentMin + Math.round(drive * HALBACH_VIZ.segmentSpan);
   const segmentCount = Math.max(
     HALBACH_VIZ.segmentMin,
-    Math.min(HALBACH_VIZ.segmentMax,
-      HALBACH_VIZ.segmentMin + Math.round(drive * HALBACH_VIZ.segmentSpan))
+    Math.min(HALBACH_VIZ.segmentMax, typeof pinned === 'number' && Number.isFinite(pinned)
+      ? Math.round(pinned)
+      : swept)
   );
   const idealStep = 360 / segmentCount;
   const magAngleDeg = idealStep * (HALBACH_VIZ.magAngleBase + drive * HALBACH_VIZ.magAngleSpan);
