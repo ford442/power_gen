@@ -17,6 +17,8 @@ import { LAB_CONFIG_FIELDS, LAB_CONFIG_SCHEMA_HASH, type LabConfigKey } from '..
 import { labConfig, primeShareHash, sanitizeFields, type LabConfig } from './lab-config';
 import { adoptShareUrl, nonDefaultShareFields } from './share-url';
 import { encodeShareHash } from './share-link';
+import { addRun, listRuns } from '../analysis/run-store';
+import type { RecordedRun } from '../analysis/run-types';
 
 export const LAB_FILE_FORMAT = 'seg-lab';
 export const LAB_FILE_VERSION = 1;
@@ -47,13 +49,43 @@ export interface LabLoadResult {
   runsAdded: number;
 }
 
-/** Hooks other chunks install on `window.lab` (snapshots, experiments, runs). */
+/** Hooks other chunks install on `window.lab` (snapshots, experiments). */
 interface LabFileHooks {
   captureSnapshot?: () => Promise<unknown> | unknown;
   restoreSnapshot?: (state: unknown) => Promise<boolean> | boolean;
-  openExperimentDef?: (def: unknown) => void;
-  exportRuns?: () => unknown[];
-  importRuns?: (runs: unknown[]) => number;
+  openExperimentDef?: (def: unknown) => Promise<void> | void;
+}
+
+/** A file's run is trusted only as far as its shape: id, string columns, equal-width numeric rows. */
+function asRecordedRun(x: unknown): RecordedRun | null {
+  const r = x as Partial<RecordedRun> | null;
+  if (!r || typeof r !== 'object' || typeof r.id !== 'string' || !Array.isArray(r.columns) || !Array.isArray(r.rows)) return null;
+  if (!r.columns.every((c) => typeof c === 'string')) return null;
+  const w = r.columns.length;
+  if (!r.rows.every((row) => Array.isArray(row) && row.length === w && row.every((v) => typeof v === 'number' || v === null))) return null;
+  return {
+    experimentId: null,
+    title: r.id,
+    startedAt: '',
+    runner: 'offline',
+    backend: 'js',
+    hz: 0,
+    ...r,
+    // JSON has no NaN: a gap round-trips as null.
+    rows: r.rows.map((row) => row.map((v) => (typeof v === 'number' ? v : Number.NaN)))
+  } as RecordedRun;
+}
+
+/** Add a file's runs to the analysis store, oldest first so its newest ends on top. */
+export function importRuns(runs: readonly unknown[]): number {
+  let n = 0;
+  for (const x of [...runs].reverse()) {
+    const run = asRecordedRun(x);
+    if (!run) continue;
+    addRun(run);
+    n++;
+  }
+  return n;
 }
 
 function hooks(): LabFileHooks {
@@ -118,8 +150,8 @@ export async function loadLabConfig(obj: unknown): Promise<LabLoadResult> {
   if (file?.state !== undefined && h.restoreSnapshot) {
     result.stateRestored = !!(await h.restoreSnapshot(file.state));
   }
-  if (file?.experiment !== undefined) h.openExperimentDef?.(file.experiment);
-  if (Array.isArray(file?.runs) && h.importRuns) result.runsAdded = h.importRuns(file.runs);
+  if (file?.experiment !== undefined) await h.openExperimentDef?.(file.experiment);
+  if (Array.isArray(file?.runs)) result.runsAdded = importRuns(file.runs);
   return result;
 }
 
@@ -134,7 +166,12 @@ export async function loadLabFile(f: File): Promise<LabLoadResult> {
   return loadLabConfig(obj);
 }
 
-export async function exportLabFile(): Promise<LabFile> {
+/** What goes in an export beyond the config; `runs` replaces the run store's list. */
+export interface LabFileExportOpts {
+  runs?: unknown[];
+}
+
+export async function exportLabFile(opts: LabFileExportOpts = {}): Promise<LabFile> {
   const { captureShareConfig } = await import('../seg-explainer/lab-url');
   const out: LabFile = {
     format: LAB_FILE_FORMAT,
@@ -146,13 +183,13 @@ export async function exportLabFile(): Promise<LabFile> {
   const h = hooks();
   const state = await h.captureSnapshot?.();
   if (state !== undefined && state !== null) out.state = state;
-  const runs = h.exportRuns?.();
-  if (runs?.length) out.runs = runs;
+  const runs = opts.runs ?? listRuns();
+  if (runs.length) out.runs = [...runs];
   return out;
 }
 
-export async function downloadLabFile(name = 'seg-lab'): Promise<void> {
-  const file = await exportLabFile();
+export async function downloadLabFile(name = 'seg-lab', opts: LabFileExportOpts = {}): Promise<void> {
+  const file = await exportLabFile(opts);
   const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

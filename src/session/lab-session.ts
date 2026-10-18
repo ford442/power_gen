@@ -16,7 +16,7 @@ import {
 } from '../heron-layout';
 import { isDeviceActive as isDeviceVisible } from '../renderers/shared/device-view';
 import { EnergyNetwork, syncEnergyCouplingDisclaimer } from '../renderers/shared/energy-network';
-import { FieldNetwork, syncFieldCouplingDisclaimer } from '../renderers/shared/field-network';
+import { FIELD_COUPLING_EDGES, FieldNetwork, syncFieldCouplingDisclaimer } from '../renderers/shared/field-network';
 import {
   CHARGE_COUPLING_EDGES,
   ChargeNetwork,
@@ -57,6 +57,21 @@ export interface LabSessionQuality {
   qualityTier?: string;
   frameTimeMs?: number;
   gpuTimeMs?: number;
+}
+
+/**
+ * A live scripted experiment riding the session clock (src/experiments/
+ * live-runner.ts). Typed here so the entry chunk never imports the runner.
+ */
+export interface LabExperimentClock {
+  /**
+   * Before the plant steps this frame's substeps (knob writes land here).
+   * Returns the substeps to step instead — a batch cut short so the run never
+   * steps past its next step or sample — or null to keep the frame's own.
+   */
+  beforeStep(simSteps: readonly number[], replayLocked: boolean): number[] | null;
+  /** After the frame's device physics and hub publish (samples are read here). */
+  afterPublish(): void;
 }
 
 export class LabSession {
@@ -118,6 +133,9 @@ export class LabSession {
   wasmPlantError: string | null = null;
   private _busErrorLogged = false;
 
+  /** The running live experiment, if any — see {@link LabExperimentClock}. */
+  experimentClock: LabExperimentClock | null = null;
+
   constructor() {
     this.hardwareBridge = new HardwareBridge({
       onError: (e: unknown) => console.error('[HardwareBridge]', e)
@@ -167,9 +185,13 @@ export class LabSession {
       frameTimeMs: quality.frameTimeMs,
       gpuTimeMs: quality.gpuTimeMs
     };
-    const simSteps = this.simRateController.tick(deltaTime, speed, load);
+    const frameSteps = this.simRateController.tick(deltaTime, speed, load);
     const replayLocked = !!(segOperator.replayMode || telemetryHub.isReplayMode?.());
     this.replayLocked = replayLocked;
+    // Experiment knobs first, so the buses, the C++ knob sync and the JS
+    // plants all step from the values written for this batch (which a live
+    // run may cut short at its next step or sample).
+    const simSteps = this.experimentClock?.beforeStep(frameSteps, replayLocked) ?? frameSteps;
     const useWasm = segWasm.enabled && !replayLocked && this.wasmPlantError === null;
     const drive = segOperator.getDrive();
     const focus = this.plantFocus();
@@ -181,7 +203,7 @@ export class LabSession {
     // classroom it has always been. The two buses write disjoint keys and
     // neither reads the other's output. Energy accounting stays in
     // publishFrame, after the step — it reads plants, it never writes them.
-    if (!replayLocked) this.stepOffFocusChargeSources(simSteps, drive);
+    if (!replayLocked) this.stepOffFocusCouplingSources(simSteps, drive);
     this.chargeNetwork.update({ devices: this.devices, devicesEnabled: this.devicesEnabled });
     this.fieldNetwork.update({ devices: this.devices, devicesEnabled: this.devicesEnabled });
 
@@ -226,24 +248,33 @@ export class LabSession {
   }
 
   /**
-   * Keep a charge-bus source charging while you look at its destination.
+   * Keep a coupling source live while you look at its destination.
    *
    * In a focus view the backends only step the focused bench, so with Kelvin
    * focused the VdG sphere would sit at whatever voltage it held when the view
    * changed — usually the 0 it was created with — and the "coupled" seed would
-   * be a frozen number. While charge coupling is on and a destination is
-   * focused, step each live source's JS plant **physics only** (no particles,
-   * mesh or GPU work) over the same substeps. No double-stepping: the source is
-   * never the focused device here, and in overview the backend loop owns it.
-   * The JS VdG plant is golden-matched to the C++ one, so this holds under
-   * `?wasmPhysics=1` too, where the C++ plant is busy with the focused bench.
+   * be a frozen number; likewise a Halbach array whose segment count you change
+   * while the Hall strip is focused would never update the coupled B. While a
+   * bus is on and a destination is focused, step each live source's JS plant
+   * **physics only** (no particles, mesh or GPU work) over the same substeps.
+   * No double-stepping: the source is never the focused device here, and in
+   * overview the backend loop owns it. The JS plants are golden-matched to the
+   * C++ ones, so this holds under `?wasmPhysics=1` too, where the C++ plant is
+   * busy with the focused bench. The headless experiment bench
+   * (src/experiments/bench.ts) runs the same rule.
    */
-  private stepOffFocusChargeSources(simSteps: number[], drive: number): void {
-    if (!this.chargeNetwork.couplingEnabled || this.isOverviewMode()) return;
-    for (const edge of CHARGE_COUPLING_EDGES) {
-      if (edge.to !== this.currentView || edge.from === this.currentView) continue;
-      if (this.devicesEnabled[edge.from] === false) continue;
-      const src = this.devices[edge.from];
+  private stepOffFocusCouplingSources(simSteps: number[], drive: number): void {
+    if (this.isOverviewMode()) return;
+    const sources = new Set<string>();
+    if (this.chargeNetwork.couplingEnabled) {
+      for (const edge of CHARGE_COUPLING_EDGES) if (edge.to === this.currentView) sources.add(edge.from);
+    }
+    if (this.fieldNetwork.couplingEnabled) {
+      for (const edge of FIELD_COUPLING_EDGES) if (edge.to === this.currentView) sources.add(edge.from);
+    }
+    for (const id of sources) {
+      if (id === this.currentView || this.devicesEnabled[id] === false) continue;
+      const src = this.devices[id];
       const state = src?.physicsState ?? src?.physics;
       if (!state) continue;
       for (const subDt of simSteps) {
@@ -383,6 +414,7 @@ export class LabSession {
       chargeNetwork: chargeSnap,
       hardwareTwin: this.hardwareTwinTelemetry ?? null
     });
+    this.experimentClock?.afterPublish();
     return scientific;
   }
 

@@ -489,6 +489,7 @@ switch; `#device-readout` is named `"<bench> readout"`.
 | `src/sim-rate-controller.ts` | Speed mult / substeps; couples to quality under load |
 | `src/telemetry-hub.ts` | Single telemetry write path for gauges / operator |
 | `src/analysis/*` | Recorded runs → analysis panel: run store + button in the entry chunk; uPlot panel (time / X–Y / spectrum, fits, CSV / PNG export) lazy-loaded by `window.openAnalysis()`; FFT chore in `src/gpu-chores/fft*.ts` — [`ANALYSIS.md`](./ANALYSIS.md) |
+| `src/experiments/*` | Scripted experiments (`*.experiment.json`): validator, knobs, one interpreter for the live runner (`LabSession.experimentClock`, session clock) and the offline bench (worker / Node, every plant), sweeps on a worker pool, panel + `window.lab.runExperiment` — [`EXPERIMENTS.md`](./EXPERIMENTS.md) |
 | `src/lab-mode.ts` | Showroom / Lab / Twin preset bundle: `planLabMode()` (pure, tested) + header control |
 | `src/setpoint-sliders.ts` | Generates per-bench setpoint sliders from the catalog `setpoints` block |
 | `src/focus-live-region.ts` | Polite live region: lab mode + one headline number on focus change |
@@ -532,7 +533,7 @@ npm run typecheck     # tsc --noEmit
 npm run check:wgsl    # extract includes → naga
 npm run check:post    # CPU↔WGSL post contracts
 npm run validate      # codegen/catalog checks + typecheck + wasm:native + test:* (chores, mixins, fdtd,
-                      #   transports, audio, props, golden, plant-worker, coupling, analysis) + check:post/wgsl/bindings
+                      #   transports, audio, props, golden, plant-worker, coupling, analysis, experiments) + check:post/wgsl/bindings
 npm run wasm:native   # g++ smoke test, no Emscripten
 npm run wasm:native:san  # sim_core_test under ASan + UBSan (skips if no sanitizer runtime)
 npm run test:plant-worker # LabSession ⇄ plant worker contract (Node worker_threads)
@@ -609,6 +610,7 @@ Manual / agent checks (WebGPU needs a real GPU):
 | [`WEBGL2.md`](./WEBGL2.md) | Fallback parity gaps |
 | [`TELEMETRY.md`](./TELEMETRY.md) | TelemetryHub |
 | [`ANALYSIS.md`](./ANALYSIS.md) | Analysis panel: recorded runs, fits, FFT chore, exports ("Simulated — not metrology") |
+| [`EXPERIMENTS.md`](./EXPERIMENTS.md) | Scripted experiments: format, knobs, live vs offline clock, sweeps, tour `run`, reference experiments |
 | [`LIGHTING_RIG.md`](./LIGHTING_RIG.md) | Lighting looks + post quality gates |
 | [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) | SceneNode + glTF CAD props |
 | [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) | Devices & plugins |

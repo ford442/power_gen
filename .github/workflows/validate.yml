@@ -70,6 +70,12 @@ jobs:
       - name: LabConfig parser, precedence, #lab2= share links
         run: npm run test:lab-config
 
+      - name: Analysis fits + FFT chore golden (JS ⇄ shipped WASM)
+        run: npm run test:analysis
+
+      - name: Reference experiments headless (expect blocks, wasm + js)
+        run: npm run test:experiments
+
       - name: Build site (no WASM rebuild)
         run: npm run build:site
 

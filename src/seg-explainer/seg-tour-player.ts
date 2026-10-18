@@ -46,6 +46,13 @@ interface TourStep {
   glossaryTerm?: string | null;
   startPlant?: boolean;
   layoutHint?: string;
+  /**
+   * Run an experiment live while this step shows (#224 §3): a shipped
+   * experiment id, or an inline snippet (`steps`, optional `config` / `id` /
+   * `title`; the mode defaults to the step's `view`). The tour holds the step
+   * until the run finishes, then prints its verdicts; leaving the step stops it.
+   */
+  run?: string | Record<string, unknown>;
 }
 
 interface TourScript {
@@ -69,6 +76,8 @@ export class SEGTourPlayer {
   private _stepStart = 0;
   private _raf: number | null = null;
   private _onStepEnd: (() => void) | null = null;
+  /** The step's live experiment, while it runs. */
+  private _run: AbortController | null = null;
 
   private _el!: HTMLDivElement;
   private _title!: HTMLDivElement;
@@ -209,6 +218,7 @@ export class SEGTourPlayer {
   }
 
   stop(): void {
+    this._cancelRun();
     this.playing = false;
     explainerState.tourActive = false;
     explainerState.setHighlight(null);
@@ -236,6 +246,7 @@ export class SEGTourPlayer {
 
   private _enterStep(step: TourStep | undefined): void {
     if (!step) return;
+    this._cancelRun();
     this._stepStart = performance.now();
     const v = this.getViz?.();
 
@@ -292,6 +303,32 @@ export class SEGTourPlayer {
 
     this._progress.textContent = `Step ${this.stepIndex + 1} / ${this.steps.length} · ${step.durationSec || 6}s`;
     this._syncLabHash();
+    if (step.run) this._startRun(step);
+  }
+
+  private _cancelRun(): void {
+    this._run?.abort();
+    this._run = null;
+  }
+
+  private _startRun(step: TourStep): void {
+    if (!step.run) return;
+    const ctrl = new AbortController();
+    this._run = ctrl;
+    const note = document.createElement('div');
+    note.className = 'seg-tour-run';
+    note.style.marginTop = '6px';
+    note.textContent = '🧪 Running the experiment on the live plant…';
+    this._body.append(note);
+    import('../experiments/tour-run')
+      .then((m) => m.runTourStep(step.run!, step, this.script.id ?? 'tour', this.stepIndex, note, ctrl.signal))
+      .catch((err: unknown) => { note.textContent = `🧪 ${err instanceof Error ? err.message : String(err)}`; })
+      .finally(() => {
+        if (this._run !== ctrl) return;
+        this._run = null;
+        // The step's own duration counts from the result, so there is time to read it.
+        this._stepStart = performance.now();
+      });
   }
 
   private _loop(): void {
@@ -300,7 +337,7 @@ export class SEGTourPlayer {
     const elapsed = (performance.now() - this._stepStart) / 1000;
     const dur = step?.durationSec || 6;
 
-    if (elapsed >= dur && !explainerState.reducedMotion) {
+    if (elapsed >= dur && !this._run && !explainerState.reducedMotion) {
       this.next();
       if (!this.playing) return;
     }

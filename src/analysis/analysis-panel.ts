@@ -63,7 +63,7 @@ const FIT_LABELS: Record<FitChoice, string> = {
 
 /** §1 LabConfig installs `window.lab`; the .lab.json button only shows when it has the exporter. */
 interface LabJsonApi {
-  exportLabJson?: (opts: { runs: RecordedRun[] }) => unknown;
+  downloadLabFile?: (name?: string, opts?: { runs?: RecordedRun[] }) => Promise<void>;
 }
 
 function h<K extends keyof HTMLElementTagNameMap>(
@@ -313,7 +313,7 @@ class AnalysisPanel {
     const run = this.runId ? getRun(this.runId) : undefined;
     const ref = this.refId ? getRun(this.refId) ?? null : null;
     const lab = (window as unknown as { lab?: LabJsonApi }).lab;
-    this.labBtn.hidden = typeof lab?.exportLabJson !== 'function';
+    this.labBtn.hidden = typeof lab?.downloadLabFile !== 'function';
     this.csvBtn.disabled = this.pngBtn.disabled = this.labBtn.disabled = !run;
     if (!run) {
       this.destroyPlots();
@@ -542,8 +542,8 @@ class AnalysisPanel {
   private exportLabJson(): void {
     const lab = (window as unknown as { lab?: LabJsonApi }).lab;
     const runs = this.selectedRuns();
-    if (!runs.length || typeof lab?.exportLabJson !== 'function') return;
-    lab.exportLabJson({ runs });
+    if (!runs.length || typeof lab?.downloadLabFile !== 'function') return;
+    void lab.downloadLabFile(`seg-run-${runs[0].id}`, { runs });
   }
 }
 

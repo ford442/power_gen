@@ -235,6 +235,13 @@ default ones, and the JS fallback is stepped with the same setpoints seeded.
 }
 ```
 
+While a destination is focused, the session keeps every field source into it
+stepping (JS plant, physics only), as it does for the charge bus below — so
+changing the Halbach segment count with the Hall strip focused moves the
+coupled B, rather than leaving it at whatever the array held when the view
+changed. The headless experiment bench applies the same rule
+(docs/EXPERIMENTS.md).
+
 ## Charge coupling (lab **V** bus)
 
 The third bus, on its own switch again: `?chargeCoupling=1` (or `localStorage

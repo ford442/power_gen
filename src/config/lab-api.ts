@@ -2,9 +2,9 @@
  * `window.lab` — the console / agent / embed surface for LabConfig (#224 §1).
  *
  * The entry chunk carries only this table of lazy hooks plus a drop listener
- * for `.lab.json` files; loading, exporting and the share dialog are their own
- * chunks. Experiments (§3) and snapshots (§2) add their methods here when
- * their chunks install.
+ * for `.lab.json` files; loading, exporting, the share dialog and the
+ * experiment runner / panel are their own chunks. Snapshots (§2) add their
+ * methods here when their chunk installs.
  */
 import {
   labConfig,
@@ -13,7 +13,10 @@ import {
   type LabConfigKey,
   type LabConfigSource
 } from './lab-config';
-import type { LabFile, LabLoadResult } from './lab-file';
+import type { LabFile, LabFileExportOpts, LabLoadResult } from './lab-file';
+import type { RecordedRun } from '../analysis/run-types';
+import type { RunExperimentOpts } from '../experiments/run';
+import type { ExperimentSummary } from '../experiments/registry';
 
 export interface LabApi {
   /** Resolved config for this page load (URL > share hash > storage > default). */
@@ -33,15 +36,27 @@ export interface LabApi {
   /** Share dialog: link, QR code, `.lab.json` download. */
   openShareDialog(): Promise<void>;
   /** The running lab as a `.lab.json` object (config, plus snapshot/runs when available). */
-  exportLabFile(): Promise<LabFile>;
-  /** Download {@link exportLabFile} as `<name>.lab.json`. */
-  downloadLabFile(name?: string): Promise<void>;
-  /** Installed by the experiments chunk (§3): show / run an experiment by id. */
-  openExperiment?: (id: string) => void;
+  exportLabFile(opts?: LabFileExportOpts): Promise<LabFile>;
+  /** Download {@link exportLabFile} as `<name>.lab.json` (`opts.runs` picks the runs). */
+  downloadLabFile(name?: string, opts?: LabFileExportOpts): Promise<void>;
+  /**
+   * Run an experiment (a shipped id or a definition object, docs/EXPERIMENTS.md).
+   * Offline by default (a worker, faster than real time); `{ runner: 'live' }`
+   * rides the session clock. A sweep resolves with its summary run. Every run
+   * is added to the analysis panel.
+   */
+  runExperiment(idOrDef: unknown, opts?: RunExperimentOpts): Promise<RecordedRun>;
+  /** The shipped reference experiments. */
+  listExperiments(): Promise<ExperimentSummary[]>;
+  /** Open the experiment panel, optionally on one experiment. */
+  openExperiment(id?: string): Promise<void>;
+  /** Add an experiment definition (e.g. from a `.lab.json`) and open it in the panel. */
+  openExperimentDef(def: unknown): Promise<void>;
   [extra: string]: unknown;
 }
 
 const lazyFile = (): Promise<typeof import('./lab-file')> => import('./lab-file');
+const lazyPanel = (): Promise<typeof import('../experiments/experiment-panel')> => import('../experiments/experiment-panel');
 
 /** True for a drag that carries at least one file (we cannot see names until drop). */
 function dragHasFiles(e: DragEvent): boolean {
@@ -81,9 +96,32 @@ export function installLabApi(): void {
     loadFile: (file) => lazyFile().then((m) => m.loadLabFile(file)),
     shareLink: () => import('../seg-explainer/lab-url').then((m) => m.shareLabLink()),
     openShareDialog: () => import('./share-dialog').then((m) => m.openShareDialog()),
-    exportLabFile: () => lazyFile().then((m) => m.exportLabFile()),
-    downloadLabFile: (name) => lazyFile().then((m) => m.downloadLabFile(name))
+    exportLabFile: (opts) => lazyFile().then((m) => m.exportLabFile(opts)),
+    downloadLabFile: (name, opts) => lazyFile().then((m) => m.downloadLabFile(name, opts)),
+    runExperiment: (idOrDef, opts) => import('../experiments/run').then((m) => m.runExperiment(idOrDef, opts)),
+    listExperiments: () => import('../experiments/registry').then((m) => m.listReferenceExperiments()),
+    openExperiment: (id) => lazyPanel().then((m) => m.openExperimentPanel(id)),
+    openExperimentDef: (def) => lazyPanel().then((m) => m.openExperimentDefinition(def))
   };
   window.lab = api;
   installLabFileDrop();
+  installExperimentsButton();
+}
+
+/** "Experiments" beside the Analysis button in the Telemetry Export row. */
+function installExperimentsButton(): void {
+  if (typeof document === 'undefined' || document.getElementById('experimentsOpenBtn')) return;
+  const row = document.getElementById('telemetryBenchExportBtn')?.parentElement;
+  if (!row) return;
+  const btn = Object.assign(document.createElement('button'), {
+    type: 'button',
+    id: 'experimentsOpenBtn',
+    className: 'ctrl-btn',
+    textContent: 'Experiments',
+    title: 'Scripted experiments and sweeps (simulated, not metrology)',
+    onclick: () => { void window.lab?.openExperiment().catch((err: unknown) => console.warn('[experiments] panel failed to load', err)); }
+  });
+  btn.style.fontSize = '0.68rem';
+  btn.setAttribute('aria-haspopup', 'dialog');
+  row.append(btn);
 }
