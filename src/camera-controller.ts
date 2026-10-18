@@ -1,3 +1,5 @@
+import type { FocusPicker, TouchInput } from './camera-touch';
+
 export interface CameraState {
   position: [number, number, number];
   target: [number, number, number];
@@ -12,6 +14,9 @@ export interface CameraState {
 }
 
 export type ViewMode = 'seg' | 'heron' | 'kelvin' | 'solar';
+
+/** Radians of orbit per pointer pixel — mouse and finger drags share it. */
+export const ORBIT_RAD_PER_PX = 0.01;
 
 /** Keyboard shortcuts must not fire while the user is typing or using a control. */
 function isTypingTarget(t: EventTarget | null): boolean {
@@ -52,46 +57,84 @@ export class CameraController {
     this.mouseButtons = 0;
   }
 
-  setupInteraction(canvas: HTMLCanvasElement, onModeChange: (mode: ViewMode) => void): void {
+  /**
+   * Pointer + keyboard input. Mouse is handled here (left-drag orbit, wheel
+   * zoom); touch and pen go to camera-touch.ts (orbit / pan / pinch /
+   * double-tap). `getFocus` lets double-tap focus a device — see that file.
+   */
+  setupInteraction(
+    canvas: HTMLCanvasElement,
+    onModeChange: (mode: string) => void,
+    getFocus?: () => FocusPicker | null | undefined
+  ): void {
     // Re-setup (device-loss rebuild, renderer re-init) must not stack handlers.
     this._interactionAbort?.abort();
     this._interactionAbort = new AbortController();
     const { signal } = this._interactionAbort;
-    // Touch drags orbit instead of scrolling the page (and cancelling the pointer).
+    // Touch drags orbit instead of scrolling the page (and cancelling the
+    // pointer). The stylesheet says the same for #gpuCanvas before boot.
     canvas.style.touchAction = 'none';
+
+    // Touch and pen: a lazy chunk, so desktop boots never fetch it (touch
+    // devices prefetch it now). Events that arrive while it loads are queued
+    // and replayed in order, so the first gesture is not lost.
+    let touch: TouchInput | null = null;
+    let pending: PointerEvent[] | null = null;
+    const toTouch = (e: PointerEvent): void => {
+      if (touch) touch.handle(e);
+      else if (pending) pending.push(e);
+      else if (e.type === 'pointerdown') {
+        pending = [e];
+        import('./camera-touch')
+          .then((m) => {
+            if (signal.aborted) return;
+            touch = m.createTouchInput(this, canvas, onModeChange, getFocus);
+            for (const q of pending!) touch.handle(q);
+          })
+          .catch((err) => console.warn('[camera] touch input unavailable:', err))
+          .finally(() => { pending = null; });
+      }
+    };
+    if (navigator.maxTouchPoints > 0) import('./camera-touch').catch(() => { /* retried on first touch */ });
 
     // Pointer Events + capture: a drag that leaves the canvas (or the window)
     // keeps orbiting and always sees its pointerup, so it can't get stuck
-    // "down". Covers mouse, pen and touch with one code path.
+    // "down". Every pointer type is captured; non-mouse ones go to toTouch.
     canvas.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+      if (e.pointerType !== 'mouse') return toTouch(e);
       this.mouseDown = true;
       this.lastMouseX = e.clientX;
       this.lastMouseY = e.clientY;
       this.mouseButtons = e.buttons;
-      try { canvas.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     }, { signal });
 
     const release = (e: PointerEvent) => {
-      this.mouseDown = false;
-      this.mouseButtons = 0;
+      if (e.pointerType !== 'mouse') toTouch(e);
+      else {
+        this.mouseDown = false;
+        this.mouseButtons = 0;
+      }
       if (canvas.hasPointerCapture?.(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     };
     canvas.addEventListener('pointerup', release, { signal });
     canvas.addEventListener('pointercancel', release, { signal });
-    canvas.addEventListener('lostpointercapture', () => {
+    canvas.addEventListener('lostpointercapture', (e) => {
+      if (e.pointerType !== 'mouse') return toTouch(e);
       this.mouseDown = false;
       this.mouseButtons = 0;
     }, { signal });
 
     canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse') return toTouch(e);
       if (!this.mouseDown) return;
 
       const deltaX = e.clientX - this.lastMouseX;
       const deltaY = e.clientY - this.lastMouseY;
 
-      if (this.mouseButtons & 1) { // Primary button / touch - orbit
-        this.orbit(deltaX * 0.01, deltaY * 0.01);
+      if (this.mouseButtons & 1) { // Primary button - orbit
+        this.orbit(deltaX * ORBIT_RAD_PER_PX, deltaY * ORBIT_RAD_PER_PX);
       }
 
       this.lastMouseX = e.clientX;

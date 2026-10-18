@@ -218,7 +218,7 @@ export class WebGL2MultiDeviceVisualizer {
       this.energyPipeRenderer = new EnergyPipeRenderer(gl, { energyNetwork: this.energyNetwork });
       this.halbachFieldRenderer = new HalbachFieldRenderer(gl);
       this.cameraController = new MultiDeviceCamera(this.canvas, this.camera.camera, this);
-      this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
+      this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode), () => this.cameraController);
 
       for (const [id, config] of Object.entries(getMergedDeviceConfig())) {
         this.devices[id] = new WebGL2DeviceState(id, config, this);
