@@ -134,7 +134,8 @@ export function initReplayUI(): void {
     dragDepth = 0;
     dropTarget.classList.remove('replay-drop-active');
     const file = e.dataTransfer?.files?.[0];
-    if (file) void loadFile(file);
+    // A `.lab.json` is a lab, not a recording: the page-wide drop (lab-api.ts) loads it.
+    if (file && !/\.lab\.json$/i.test(file.name)) void loadFile(file);
   });
 
   let scrubbing = false;

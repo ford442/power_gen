@@ -1,11 +1,12 @@
 /**
  * `window.lab` — the console / agent / embed surface for LabConfig (#224 §1).
  *
- * The entry chunk carries only this table of lazy hooks; loading, exporting,
- * the share dialog, plant snapshots (§2, session/lab-snapshot.ts), the
- * experiment runner / panel (§3), the teacher console (§5) and the post-boot
- * extras — `.lab.json` drop target, Experiments button, classroom channel,
- * embed endpoint (lab-post-boot.ts) — are their own chunks.
+ * The entry chunk carries only this table of lazy hooks and the `.lab.json`
+ * drop listener (so a file dropped during boot is not lost); loading,
+ * exporting, the share dialog, plant snapshots (§2, session/lab-snapshot.ts),
+ * the experiment runner / panel (§3), the teacher console (§5) and the
+ * post-boot extras — Experiments button, classroom channel, embed endpoint
+ * (lab-post-boot.ts) — are their own chunks.
  */
 import {
   labConfig,
@@ -69,6 +70,24 @@ const lazyFile = (): Promise<typeof import('./lab-file')> => import('./lab-file'
 const lazyPanel = (): Promise<typeof import('../experiments/experiment-panel')> => import('../experiments/experiment-panel');
 const lazySnapshot = (): Promise<typeof import('../session/lab-snapshot')> => import('../session/lab-snapshot');
 
+/** True for a drag that carries at least one file (we cannot see names until drop). */
+function dragHasFiles(e: DragEvent): boolean {
+  return !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
+}
+
+/** Drop a `.lab.json` anywhere on the page; the loader is the lazy lab-file chunk. */
+function installLabFileDrop(): void {
+  document.addEventListener('dragover', (e) => {
+    if (dragHasFiles(e)) e.preventDefault();
+  });
+  document.addEventListener('drop', (e) => {
+    const file = Array.from(e.dataTransfer?.files ?? []).find((f) => /\.lab\.json$/i.test(f.name));
+    if (!file) return;
+    e.preventDefault();
+    void lazyFile().then((m) => m.loadDroppedLabFile(file));
+  });
+}
+
 export function installLabApi(): void {
   if (typeof window === 'undefined') return;
   const prior = (window.lab ?? {}) as Partial<LabApi>;
@@ -91,6 +110,7 @@ export function installLabApi(): void {
     openTeacherConsole: () => import('../embed/teacher-console').then((m) => void m.openTeacherConsole())
   };
   window.lab = api;
+  installLabFileDrop();
   // Before first paint, so an embedded lab never flashes the dashboard chrome.
   if (labConfig().embed) document.documentElement.dataset.labEmbed = '';
 }

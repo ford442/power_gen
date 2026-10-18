@@ -594,7 +594,7 @@ Covers page boot, START → telemetry, mode focus, `captureCanvasFrame`, and opt
 plus touch gestures and recording (`e2e/classroom.spec.js`). The offline PWA needs a
 production build: `npm run test:e2e:offline` runs `e2e/*.preview.js` against `vite preview`
 on port 4183 ([`CLASSROOM.md`](./CLASSROOM.md#tests)).
-CI: `validate.yml` job **Playwright (WebGL2)** on PRs.
+CI: `validate.yml` job **Playwright (WebGL2)** on PRs (both suites).
 
 Manual / agent checks (WebGPU needs a real GPU):
 

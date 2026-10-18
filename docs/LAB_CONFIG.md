@@ -101,7 +101,7 @@ over it.
   "state": { "…plant snapshot (§2)…" }, "runs": [ "…RecordedRun (§4)…" ] }
 ```
 
-- **Import:** drop a `*.lab.json` anywhere on the page once the lab has booted, or
+- **Import:** drop a `*.lab.json` anywhere on the page, or
   `await window.lab.loadConfig(obj)` / `window.lab.loadFile(file)`. A bare
   config object (`{ "look": "lab" }`) works too. Live fields apply in place
   and the address bar becomes the matching `#lab2=` link (query params that

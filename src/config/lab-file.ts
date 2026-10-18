@@ -17,6 +17,7 @@ import { LAB_CONFIG_FIELDS, LAB_CONFIG_SCHEMA_HASH, type LabConfigKey } from '..
 import { labConfig, primeShareHash, sanitizeFields, type LabConfig } from './lab-config';
 import { adoptShareUrl, nonDefaultShareFields } from './share-url';
 import { encodeShareHash } from './share-link';
+import { setLabStatus } from './lab-status';
 import { addRun, listRuns } from '../analysis/run-store';
 import type { RecordedRun } from '../analysis/run-types';
 
@@ -153,6 +154,16 @@ export async function loadLabConfig(obj: unknown): Promise<LabLoadResult> {
   if (file?.experiment !== undefined) await h.openExperimentDef?.(file.experiment);
   if (Array.isArray(file?.runs)) result.runsAdded = importRuns(file.runs);
   return result;
+}
+
+/** A `.lab.json` dropped on the page (lab-api.ts): load it and say how it went. */
+export async function loadDroppedLabFile(f: File): Promise<void> {
+  try {
+    const r = await loadLabFile(f);
+    setLabStatus(`Loaded ${f.name}: ${r.applied.length} setting(s)${r.reloading ? ' — reloading' : ''}`);
+  } catch (err) {
+    setLabStatus(`Could not load ${f.name}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function loadLabFile(f: File): Promise<LabLoadResult> {

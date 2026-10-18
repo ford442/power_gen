@@ -2412,6 +2412,8 @@ test.describe('Catalog setpoint sliders', () => {
 
 test.describe('LabConfig share links v2 (#224 §1)', () => {
   test('window.lab.loadConfig applies live fields and writes a #lab2= link that boots back', async ({ page }) => {
+    // Two boots plus the lab-file / lab-url / share chunks; SwiftShader can starve module loads.
+    test.setTimeout(480_000);
     const { pageErrors } = trackPageErrors(page);
     await gotoWebGL2(page);
     await waitForEval(page, () => !!window.multiVisualizer?.devices?.hall && !!window.lab, { timeout: 120_000 });
@@ -2458,6 +2460,7 @@ test.describe('LabConfig share links v2 (#224 §1)', () => {
   });
 
   test('a dropped .lab.json loads; a junk #lab2= is ignored, not fatal', async ({ page }) => {
+    test.setTimeout(300_000);
     const { pageErrors } = trackPageErrors(page);
     await page.goto('/?renderer=webgl2#lab2=zNOT-A-REAL-PAYLOAD', { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await waitForEval(page, () => window.currentRenderer === 'webgl2' && !!window.multiVisualizer?.devices?.transformer
@@ -2471,8 +2474,9 @@ test.describe('LabConfig share links v2 (#224 §1)', () => {
       dt.items.add(file);
       document.body.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
     });
+    // The drop listener is there from boot; the loader is a lazy chunk.
     await waitForEval(page, () => window.multiVisualizer?.currentView === 'transformer'
-      && window.multiVisualizer?.heronLayoutPreset === 'tower', { timeout: 60_000 });
+      && window.multiVisualizer?.heronLayoutPreset === 'tower', { timeout: 150_000 });
     expect(pageErrors).toEqual([]);
   });
 });
@@ -2532,6 +2536,80 @@ test.describe('Plant snapshots (#224 §2)', () => {
 
     // Not a snapshot: refused, nothing thrown.
     expect(await page.evaluate(() => window.lab.restoreSnapshot({ format: 'nope' }))).toBe(false);
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('replay "Take over" restores the keyframe at or before the cursor and runs live from it', async ({ page }) => {
+    test.setTimeout(300_000);
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page, 'replay=1');
+    await waitForEval(page, () => typeof window.applyReplayFile === 'function' && !!window.replayPlayer
+      && !!window.telemetryHub && !!window.multiVisualizer?.session, { timeout: 120_000 });
+
+    // Samples start at time_s = 10 (keyframe `t` is on that clock). Two
+    // keyframes of the same steady SEG point, told apart by their sim clock.
+    await page.evaluate(() => {
+      const steady = (simT) => ({
+        format: 'seg-plant-snapshot', version: 1, layoutHash: 0, catalogHash: '', backend: 'js',
+        focus: 'seg', view: window.multiVisualizer.currentView, t: simT, seed: null, config: {},
+        operator: {
+          status: 'operational', isRunning: true, targetDrive: 1, magneticFieldStrength: 1, loadResistance: 100,
+          totalEnergy: 0, efficiency: 90, displayRpm: 3000, displayField: 0.7,
+          physics: { segOmega: 1, corona: 1, energyLevel: 1, magneticFieldStrength: 1 }
+        },
+        devices: {}
+      });
+      const row = (t) => ({
+        time_s: t, frame_id: t, view: 'seg', mode: 'seg', status: 'operational',
+        rpm_inner: 3000, seg_omega: 1, corona: 1, voltage_v: 100, current_a: 1, power_w: 100,
+        field_sim_t: 0.7, energy_density_j_m3: 2e5, drive: 1, excitation_pct: 100, temperature_c: 30,
+        efficiency_pct: 90, particle_flux: 20, load_ohm: 100, hw_connected: 0,
+        hw_connection_state: 'disconnected', phase_error_deg: '', rpm_error: '', voltage_error_v: '',
+        current_error_a: '', energy_residual_w: '', energy_coupled: 0
+      });
+      window.applyReplayFile({
+        replayVersion: 1, createdAt: new Date().toISOString(), seed: null,
+        segLayoutPreset: 'searl', heronLayoutPreset: 'classic', renderer: 'webgl2',
+        speedCurve: [{ t: 10, drive: 1, simRate: 1 }, { t: 12, drive: 1, simRate: 1 }],
+        config: { loadOhm: 100, magneticFieldStrength: 1, sampleHz: 1 },
+        samples: [row(10), row(11), row(12)],
+        keyframes: [{ t: 10, snapshot: steady(50_000) }, { t: 11, snapshot: steady(100_000) }]
+      });
+      window.replayPlayer.pause();
+      window.replayPlayer.seek(1.5);
+    });
+    await waitForEval(page, () => window.segOperator?.replayMode === true, { timeout: 60_000 });
+    await expect(page.locator('#replayTakeOverBtn')).toBeEnabled();
+
+    await page.locator('#replayTakeOverBtn').click();
+    // The click lazy-loads the snapshot chunk; slow in dev mode on SwiftShader.
+    await expect(page.locator('#replayStatus')).toHaveText(/Took over from the t = 11\.00 s keyframe/, { timeout: 120_000 });
+
+    const after = await page.evaluate(() => {
+      window.__takeOverT = window.telemetryHub.getSimTimeS();
+      return {
+        replayMode: window.segOperator.replayMode,
+        hubReplay: window.telemetryHub.isReplayMode(),
+        loaded: window.replayPlayer.state.loaded,
+        simT: window.__takeOverT
+      };
+    });
+    expect(after.replayMode).toBe(false);
+    expect(after.hubReplay).toBe(false);
+    expect(after.loaded).toBe(false);
+    // The t = 11 keyframe's clock, not the t = 10 one (50 000 s) or the boot clock.
+    expect(after.simT).toBeGreaterThanOrEqual(100_000);
+
+    // Live from there: the plant steps on and holds the steady point.
+    await waitForEval(page, () => window.telemetryHub.getSimTimeS() > window.__takeOverT + 0.5, { timeout: 120_000 });
+    const live = await page.evaluate(() => ({
+      status: window.segOperator.status,
+      running: window.segOperator.isRunning,
+      segOmega: window.segOperator.physics.segOmega
+    }));
+    expect(live.status).toBe('operational');
+    expect(live.running).toBe(true);
+    expect(Math.abs(live.segOmega - 1)).toBeLessThan(1e-3);
     expect(pageErrors).toEqual([]);
   });
 });

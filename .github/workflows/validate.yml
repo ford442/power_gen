@@ -178,3 +178,8 @@ jobs:
 
       - name: E2E tests (WebGL2)
         run: npm run test:e2e
+
+      # Service worker only exists in a production build: vite preview of a
+      # fresh build:site, its own port (docs/CLASSROOM.md).
+      - name: E2E offline PWA (precache, offline reload, prompt-based update)
+        run: npm run test:e2e:offline
