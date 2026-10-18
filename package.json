@@ -50,7 +50,8 @@
     "test:lab-mode": "node scripts/test-lab-mode.mjs",
     "test:lab-url": "node scripts/test-lab-url.mjs",
     "test:lab-config": "node scripts/test-lab-config.mjs",
-    "validate": "npm run codegen:constants && npm run check:constants && npm run codegen:catalog && npm run check:catalog && npm run codegen:lab-config && npm run check:lab-config && npm run typecheck && npm run wasm:native && npm run test:chores && npm run test:device-mixins && npm run test:fdtd && npm run test:transports && npm run test:audio && npm run test:props && npm run test:golden && npm run test:wasm-abi && npm run test:plant-worker && npm run test:coupling && npm run test:pulse-coil && npm run test:drop-tube && npm run test:lab-mode && npm run test:lab-url && npm run test:lab-config && npm run check:post && npm run check:wgsl && npm run check:bindings",
+    "test:analysis": "node scripts/test-analysis.mjs",
+    "validate": "npm run codegen:constants && npm run check:constants && npm run codegen:catalog && npm run check:catalog && npm run codegen:lab-config && npm run check:lab-config && npm run typecheck && npm run wasm:native && npm run test:chores && npm run test:device-mixins && npm run test:fdtd && npm run test:transports && npm run test:audio && npm run test:props && npm run test:golden && npm run test:wasm-abi && npm run test:plant-worker && npm run test:coupling && npm run test:pulse-coil && npm run test:drop-tube && npm run test:lab-mode && npm run test:lab-url && npm run test:lab-config && npm run check:post && npm run check:wgsl && npm run check:bindings && npm run test:analysis",
     "deploy": "npm run build:site && python deploy.py",
     "wasm:build": "bash scripts/build-wasm.sh",
     "wasm:build-debug": "bash scripts/build-wasm.sh --debug",
@@ -89,6 +90,7 @@
   "homepage": "https://ford442.github.io/power_gen/",
   "dependencies": {
     "ktx-parse": "^2.0.0",
-    "qrcode-generator": "1.4.4"
+    "qrcode-generator": "1.4.4",
+    "uplot": "1.6.32"
   }
 }

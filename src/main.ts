@@ -55,6 +55,7 @@ import { initLabAudioBadge } from './audio/lab-audio-badge';
 import { syncFieldCouplingDisclaimer } from './renderers/shared/field-network';
 import { wireChargeCouplingControls } from './charge-coupling-ui';
 import { ScientificUIManager } from './scientific-ui/index';
+import { installAnalysisEntry } from './analysis/entry';
 import './multi-device-window-api';
 
 // Agent / e2e hooks
@@ -625,6 +626,14 @@ function bootApp(): void {
       initLabAudioBadge(labAudio);
     } catch (e) {
       console.warn('[main] lab audio init skipped:', e);
+    }
+
+    try {
+      // Analysis panel (#224 §4): a button + window.openAnalysis; uPlot and the
+      // panel are a lazy chunk fetched on first open.
+      installAnalysisEntry();
+    } catch (e) {
+      console.warn('[main] analysis panel entry skipped:', e);
     }
 
     // After the explainer, audio and hardware panel exist: the mode bundle
