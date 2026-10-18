@@ -116,6 +116,9 @@ export const sceneSetupMethods: ThisType<Host> & {
    * compute pipeline is already built by now, so this stays synchronous.
    */
   refreshIblPrefilter() {
+    // Fallback/software adapters hold only the 1×1 placeholder; a bake would
+    // set iblLevels > 0 and switch them off the analytic path.
+    if (this.webgpu?.adapterInfo?.fallback || this.webgpu?.adapterInfo?.software) return;
     if (!this.iblResources || !this.device) return;
     this._bakeIbl();
   },

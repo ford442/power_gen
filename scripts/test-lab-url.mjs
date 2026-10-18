@@ -69,11 +69,20 @@ const m = await import(`data:text/javascript;base64,${Buffer.from(built.outputFi
   check(wide.lorentzFieldT === R.lorentzFieldT[1], `lfield clamps to fieldTMax (got ${wide.lorentzFieldT})`);
   check(wide.step === 0, `step clamps to 0 (got ${wide.step})`);
 
+  // parseInt('1e9') is 1 — the whole value must reach the clamp.
+  const exp = m.decodeLabHash('#lab=v1;hseg=1e9;step=2e3');
+  check(exp.halbachSegments === m.HALBACH_VIZ.segmentMax, `hseg=1e9 clamps to segmentMax (got ${exp.halbachSegments})`);
+  check(exp.step === R.step[1], `step=2e3 clamps to ${R.step[1]} (got ${exp.step})`);
+  const frac = m.decodeLabHash('#lab=v1;hseg=4.5;step=1.5');
+  check(frac.halbachSegments === undefined && frac.step === undefined, 'non-integer hseg/step decode as absent');
+
   const opts = { mode: 'halbach-viz', drive: 0.25, field: 0.75, bmult: 1.5, halbachSegments: 12, halbachLinear: true, step: 3 };
   const round = m.decodeLabHash(m.encodeLabHash(opts));
   for (const [k, v] of Object.entries(opts)) {
     check(round[k] === v, `round-trip ${k}: expected ${v}, got ${round[k]}`);
   }
+  const ring = m.decodeLabHash(m.encodeLabHash({ mode: 'halbach-viz', halbachLinear: false }));
+  check(ring.halbachLinear === false, `a ring layout is encoded too (got ${ring.halbachLinear})`);
 }
 
 // ── 2–4. apply against a stub dashboard ──────────────────────────────────
@@ -111,11 +120,17 @@ globalThis.document = { getElementById: () => null };
 
 {
   check(halbach.halbachLayout === 'ring', 'default layout is ring');
+  const ringLines = JSON.stringify(halbach.halbachFieldLines);
   await m.applyLabState(m.decodeLabHash('#lab=v1;mode=halbach-viz;hlin=1'));
   for (let i = 0; i < 3; i++) m.stepHalbachVizPhysics(halbach, 1 / 60, 0.6);
   check(halbach.halbachLayout === 'linear', `hlin=1 must stick across steps (got ${halbach.halbachLayout})`);
   check(Array.isArray(halbach.halbachFieldLines) || halbach.halbachFieldLines != null,
     'linear layout rebuilds the field lines');
+  check(JSON.stringify(halbach.halbachFieldLines) !== ringLines, 'linear field lines differ from the ring ones');
+
+  await m.applyLabState(m.decodeLabHash('#lab=v1;mode=halbach-viz;hlin=0'));
+  for (let i = 0; i < 3; i++) m.stepHalbachVizPhysics(halbach, 1 / 60, 0.6);
+  check(halbach.halbachLayout === 'ring', `hlin=0 returns a linear recipient to ring (got ${halbach.halbachLayout})`);
 }
 
 if (failures.length) {

@@ -249,9 +249,14 @@ export class DebugPanel {
     }, 1000);
 
     // Wait for benchmark to complete
-    setTimeout(() => {
+    const done = setTimeout(() => {
       this.showBenchmarkResults();
     }, (duration + 1) * 1000);
+    // After destroy() #benchmarkResults is gone; the results callback would throw.
+    this._abort.signal.addEventListener('abort', () => {
+      clearInterval(countdown);
+      clearTimeout(done);
+    }, { once: true });
   }
 
   showBenchmarkResults(): void {

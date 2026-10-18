@@ -48,7 +48,7 @@ export function encodeLabHash(opts: LabHashOptions = {}): string {
   if (opts.step != null && opts.step >= 0) parts.push(`step=${opts.step}`);
   if (opts.renderer) parts.push(`renderer=${opts.renderer}`);
   if (opts.halbachSegments != null) parts.push(`hseg=${opts.halbachSegments}`);
-  if (opts.halbachLinear) parts.push('hlin=1');
+  if (opts.halbachLinear != null) parts.push(`hlin=${opts.halbachLinear ? 1 : 0}`);
   if (opts.pulseCoilCharge != null) parts.push(`pcap=${Number(opts.pulseCoilCharge).toFixed(2)}`);
   if (opts.lorentzFieldT != null) parts.push(`lfield=${Number(opts.lorentzFieldT).toFixed(2)}`);
   return `#lab=${parts.join(';')}`;
@@ -78,6 +78,12 @@ function finiteIn(raw: number, [lo, hi]: readonly [number, number]): number | un
   return Number.isFinite(raw) ? Math.max(lo, Math.min(hi, raw)) : undefined;
 }
 
+/** Integer fields: the whole value (`1e9`, not parseInt's `1`); `4.5` → undefined. */
+function intIn(v: string, range: readonly [number, number]): number | undefined {
+  const raw = v.trim() === '' ? NaN : Number(v);
+  return Number.isInteger(raw) ? finiteIn(raw, range) : undefined;
+}
+
 export function decodeLabHash(hash: string = typeof location !== 'undefined' ? location.hash : ''): LabHashState | null {
   const m = hash.match(/#lab=([^&]+)/);
   if (!m) return null;
@@ -100,9 +106,9 @@ export function decodeLabHash(hash: string = typeof location !== 'undefined' ? l
     else if (k === 'class') out.classroom = v === '1';
     else if (k === 'tour') out.tour = v === '1';
     else if (k === 'hi') out.hi = v;
-    else if (k === 'step') out.step = finiteIn(parseInt(v, 10), LAB_PARAM_RANGES.step);
+    else if (k === 'step') out.step = intIn(v, LAB_PARAM_RANGES.step);
     else if (k === 'renderer') out.renderer = v;
-    else if (k === 'hseg') out.halbachSegments = finiteIn(parseInt(v, 10), LAB_PARAM_RANGES.halbachSegments);
+    else if (k === 'hseg') out.halbachSegments = intIn(v, LAB_PARAM_RANGES.halbachSegments);
     else if (k === 'hlin') out.halbachLinear = v === '1';
     else if (k === 'pcap') out.pulseCoilCharge = finiteIn(parseFloat(v), LAB_PARAM_RANGES.pulseCoilCharge);
     else if (k === 'lfield') out.lorentzFieldT = finiteIn(parseFloat(v), LAB_PARAM_RANGES.lorentzFieldT);
@@ -164,9 +170,12 @@ export async function applyLabState(lab: LabHashState | null | undefined): Promi
     halbach.halbachSegmentSetpoint = lab.halbachSegments;
     halbach.halbachSetpointDrive = null;
   }
-  if (lab.halbachLinear && halbach && halbach.halbachLayout !== 'linear') {
-    halbach.halbachLayout = 'linear';
-    halbach.halbachFieldLines = null; // forces a geometry refresh next step
+  if (lab.halbachLinear != null && halbach) {
+    const layout = lab.halbachLinear ? 'linear' : 'ring';
+    if ((halbach.halbachLayout ?? 'ring') !== layout) {
+      halbach.halbachLayout = layout;
+      halbach.halbachFieldLines = null; // forces a geometry refresh next step
+    }
   }
   if (lab.mode === 'pulse-coil' && lab.pulseCoilCharge != null && window.multiVisualizer) {
     const dev = window.multiVisualizer.devices?.['pulse-coil'];
@@ -257,7 +266,7 @@ export function captureLabState(): LabHashOptions {
       : undefined,
     lorentzFieldT: sled?.lorentzFieldT,
     halbachSegments: v?.currentView === 'halbach-viz' ? halbach?.halbachSegmentCount : undefined,
-    halbachLinear: halbach?.halbachLayout === 'linear' || undefined
+    halbachLinear: halbach ? halbach.halbachLayout === 'linear' : undefined
   };
 }
 
