@@ -13,7 +13,8 @@ import type {
 } from './types';
 import { ValidatedConstants, formatUncertainValue } from './ValidatedConstants';
 import { FallbackPhysics, validatePhysics, UNCERTAINTY_LEVELS } from './fallback-physics';
-import { LEDSolarSimulation, LEDSolarSystemState, DEFAULT_BATTERY_CAPACITY } from './led-solar-integration';
+import { LEDSolarSimulation, DEFAULT_BATTERY_CAPACITY } from './led-solar-integration';
+import type { LEDSolarSystemState } from './led-solar-integration';
 
 // ============================================
 // Physics Uniform Buffer Layout (matches WGSL)
