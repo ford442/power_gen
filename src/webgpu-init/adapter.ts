@@ -120,7 +120,14 @@ export function gpuPowerPreference(
 }
 
 /**
- * Prefer core feature level; retry compatibility for mobile/Safari.
+ * Request a core feature-level adapter, or null.
+ *
+ * There is deliberately no compatibility-mode retry. The renderer needs
+ * vertex-stage storage buffers (instance data), `-srgb` view formats on the
+ * canvas, and `textureLoad` on depth textures (bloom-composite contact
+ * shadows); compatibility mode lacks all three, so a compat device used to
+ * boot into a black canvas. Null here reaches the explicit hard-fail page —
+ * {@link compatibilityOnlyAdapter} lets the probe say why.
  * Does not request a device — probe and session still own their requestDevice calls.
  */
 export async function requestPreferredAdapter(
@@ -166,13 +173,24 @@ export async function requestPreferredAdapter(
     console.log('[WebGPU] requestAdapter featureLevel=core');
     return { adapter: core.adapter, featureLevel: 'core' };
   }
-
-  const compat = await withLevel('compatibility');
-  if (compat.adapter) {
-    console.log('[WebGPU] requestAdapter featureLevel=compatibility (core returned null)');
-    return { adapter: compat.adapter, featureLevel: 'compatibility' };
-  }
   return null;
+}
+
+/**
+ * Diagnostics only, after {@link requestPreferredAdapter} returned null: true
+ * when the browser would hand out a compatibility-mode adapter. That adapter is
+ * never used (see above) — it only turns "No adapter" into an actionable message.
+ */
+export async function compatibilityOnlyAdapter(gpu: GPU = navigator.gpu): Promise<boolean> {
+  try {
+    const adapter = await gpu.requestAdapter({
+      powerPreference: gpuPowerPreference(),
+      featureLevel: 'compatibility'
+    } as GPURequestAdapterOptions);
+    return !!adapter;
+  } catch {
+    return false;
+  }
 }
 
 export function negotiateFeatures(adapter: GPUAdapter, opts: { gpuTiming?: boolean } = {}): string[] {

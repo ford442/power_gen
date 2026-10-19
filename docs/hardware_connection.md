@@ -200,6 +200,12 @@ disconnect, host watchdog, NaN-safe closed loop, PWM clamp). A transport only
 moves framed lines and reports drops, so adding one cannot invent a new way to
 leave coils energised. That is what `npm run test:transports` pins down.
 
+**Events:** `LabSession` constructs the bridge and owns its single `onError`
+slot, so UI listens with `bridge.on('status' | 'sensor' | 'twinMode' | 'error', fn)`,
+which returns an unsubscribe function. A throwing listener is logged and skipped.
+`HardwarePanel.attach()` is idempotent (one subscription set, one set of button
+handlers). The DOM E2E "hardware panel DOM follows the bridge" covers it.
+
 ### Happy path (mock — CI / demos)
 
 1. Open `/?renderer=webgl2&mockHardware=1` (or WebGPU with the same flag).

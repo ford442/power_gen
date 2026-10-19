@@ -163,6 +163,7 @@ export class WebGL2MultiDeviceVisualizer {
         devicesEnabled: { ...this.devicesEnabled },
         wasmPhysics: !!(typeof window !== 'undefined' && window.segWasm?.enabled),
         plant: { ...this.session.plantStats },
+        energyBus: { ...this.session.energyNetwork.busStatus(), wasmPlantError: this.session.wasmPlantError },
         telemetry: snap?.seg
           ? {
               rpm: snap.seg.rpmDisplay,

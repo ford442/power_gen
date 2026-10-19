@@ -266,6 +266,22 @@ radius, height. `getRollerStateFloatCount()` returns `_numRollers × 4` (default
 stale after the WASM heap grows — `sim.ts` re-fetches `mod.HEAPF32` on each
 `getParticleFloatView()` / `getRollerStateFloatView()` call.
 
+**No `std::vector` across the Embind boundary.** `register_vector<float>` makes a
+`std::vector<float>` parameter accept *only* a `FloatVector` handle, never a JS array
+(`BindingError: Cannot pass "0,1,…" as a FloatVector`), and every handle returned to
+JS needs a manual `.delete()`. `sim_core` 1.4.0 shipped three such bindings and the
+energy bus froze the lab's frame loop. Array input instead goes through:
+
+| Rate | Pattern | Bindings |
+|------|---------|----------|
+| Low (once per enable) | `emscripten::val` + `convertJSArrayToNumberVector<float>()` | `setNetworkEdges` |
+| Per frame | C++-owned scratch: `getScratchPtr(n)` → `HEAPF32.set(arr, ptr >> 2)` → `…FromScratch(n)` (re-read `HEAPF32` *after* the ptr call — the resize may grow the heap) | `updateEnergyNetworkFromScratch`; `chores_scratch_ptr` + `chores_reduce_f32_scratch` / `chores_map_scale_f32_scratch` |
+
+Return a `value_object` (plain JS object) rather than a vector — e.g.
+`ChoresReduceResult`. **`npm run test:wasm-abi`** loads the shipped
+`src/public/wasm/sim_core.{js,wasm}` in Node and calls every binding listed in
+`sim_core_embind.cpp`; a new binding without a call spec there fails the test.
+
 ### Release build flags — what maps to what
 
 The release (`make wasm` / `npm run wasm:build`) target passes flags beyond `emscripten.flags`
@@ -439,11 +455,10 @@ serve them without a separate npm build step.
 
 Recent non-breaking expansions (SEGSimulator API and all prior bindings preserved):
 
-- **Particle buffer export**: `getParticles(maxCount?)` returns a JS array of
-  `SimParticle` objects (full or prefix). Complements the existing single
-  `getParticle(i)`. JavaScript side (via `seg-physics-bridge.ts` and `sim.ts`)
-  can now pull the high-precision CPU particle state for seeding or diffing
-  against the WebGPU side.
+- **Particle buffer export**: the zero-copy `getParticleFloatView()` (8 floats per
+  `SimParticle`) or `getParticle(i)`. The old `getParticles()` returned an
+  unregistered `std::vector<SimParticle>` and could never be called; it was removed
+  in 1.5.0 (`SEGSim.getParticles()` in TS loops `getParticle`).
 - **Multi-mode plants**: `setMode(0..11)` / `getMode()` (see `wasmMode` in
   `physics/devices.json`). 0 = SEG (full RK4 roller path), 1 = Heron (Bernoulli /
   Swamee–Jain), 2 = Kelvin (capacitive + spark), 3 = Solar (battery SOC),

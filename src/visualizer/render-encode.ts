@@ -208,7 +208,10 @@ export const renderEncodeMethods: ThisType<Host> & {
     const encoder = this.device.createCommandEncoder();
 
     // ─── COMPUTE PASS: animate particles on GPU ───
-    const computePass = encoder.beginComputePass({ label: 'particle-compute' });
+    const computePass = encoder.beginComputePass({
+      label: 'particle-compute',
+      timestampWrites: profiler.passTimestampWrites('begin')
+    });
 
     // Overview frustum cull → draw-indirect. Runs first: the instance render
     // pass below consumes the draw args this dispatch writes.
@@ -261,8 +264,6 @@ export const renderEncodeMethods: ThisType<Host> & {
     }
     computePass.end();
 
-    profiler.writeTimestamp(encoder, 0);
-
     // 4x MSAA (ADR-0005 WS2 showroom pass): `high` tier + focus mode only.
     // `'ultra'` is defined in config/docs but the auto-quality system never
     // assigns it (performance-profiler.ts only ever picks
@@ -296,9 +297,9 @@ export const renderEncodeMethods: ThisType<Host> & {
 
     // Color 1: metalness (r) / roughness (g) G-buffer (ADR-0005 WS2). Cleared
     // to metallic=0, roughness=1 ("non-metal, fully rough") so any pipeline
-    // below that declares a `null` second target — everything except
-    // seg-enhanced/roller — reads back as non-reflective by default; only
-    // those two actually write real values.
+    // below whose second target is MATERIAL_GBUFFER_NO_WRITE (writeMask 0) —
+    // everything except seg-enhanced/roller — reads back as non-reflective by
+    // default; only those two actually write real values.
     const gbufferView = this.materialGBufferView;
     const gbufferClear = { r: 0.0, g: 1.0, b: 0.0, a: 0.0 };
     let colorAttachments: GPURenderPassColorAttachment[];
@@ -526,7 +527,8 @@ export const renderEncodeMethods: ThisType<Host> & {
           view: gpuContext.getCurrentTexture().createView(),
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
           loadOp: 'clear', storeOp: 'store'
-        }]
+        }],
+        timestampWrites: profiler.passTimestampWrites('end')
       });
       compositePass.setPipeline(this.bloomCompositePipeline);
       // Two independent axes, so four variants, most specific first:
@@ -568,8 +570,6 @@ export const renderEncodeMethods: ThisType<Host> & {
         if (this._taaActive) this._taaHistoryValid = true;
       }
     }
-
-    profiler.writeTimestamp(encoder, 1);
 
     profiler.endFrameCpu();
 

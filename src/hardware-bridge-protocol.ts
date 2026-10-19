@@ -73,8 +73,8 @@ export const protocolMethods: ThisType<HardwareBridge> & {
         this.shadow.voltageError = this.actualVoltage - this.shadow.simVoltage;
         this.shadow.currentError = this.actualCurrent - this.shadow.simCurrent;
 
-        if (this.onSensorData) {
-          this.onSensorData(this.getSensorSnapshot());
+        if (this._hasListeners('sensor')) {
+          this._emit('sensor', this.getSensorSnapshot());
         }
       }
     } else if (line.startsWith('E')) {
@@ -195,7 +195,7 @@ export const protocolMethods: ThisType<HardwareBridge> & {
     if (!Object.values(TWIN_MODES).includes(mode as TwinMode)) return;
     this.twinMode = mode as TwinMode;
     this.mirrorEnabled = mode === TWIN_MODES.CLOSED;
-    if (this.onTwinModeChange) this.onTwinModeChange(this.twinMode);
+    this._emit('twinMode', this.twinMode);
   },
 
   setTarget(phase: number, speed: number, mode: number = MODE_RUN): void {

@@ -1,67 +1,80 @@
 /**
  * WASM reduce — free functions on sim_core (not a SimMode / not a GPU device).
+ *
+ * Zero-copy: the input is written into a C++-owned scratch through HEAPF32,
+ * then reduced (or mapped in place) there — see chores_scratch_ptr.
  */
 
 import { getSimCore } from '../wasm/index';
+import type { SimCoreModule } from '../wasm/types';
 import { finalizeReduce, reduceF32Js } from './reduce-js';
 import type { MapScaleOpts, ReduceResult } from './types';
 
-interface ChoresWasmModule {
-  chores_reduce_f32?: (data: number[] | Float32Array) => number[] | { size: () => number; get: (i: number) => number };
-  chores_map_scale_f32?: (
-    data: number[] | Float32Array,
-    scale: number,
-    bias: number
-  ) => number[] | { size: () => number; get: (i: number) => number };
+type ChoresWasmModule = Pick<
+  SimCoreModule,
+  'HEAPF32' | 'chores_scratch_ptr' | 'chores_reduce_f32_scratch' | 'chores_map_scale_f32_scratch'
+>;
+
+function choresModule(): ChoresWasmModule | null {
+  const mod = getSimCore() as ChoresWasmModule | null;
+  return typeof mod?.chores_scratch_ptr === 'function' ? mod : null;
 }
 
-function toArray(raw: unknown): number[] | null {
-  if (!raw) return null;
-  if (Array.isArray(raw)) return raw.map(Number);
-  const vec = raw as { size?: () => number; get?: (i: number) => number };
-  if (typeof vec.size === 'function' && typeof vec.get === 'function') {
-    const n = vec.size();
-    const out = new Array<number>(n);
-    for (let i = 0; i < n; i++) out[i] = vec.get(i);
-    return out;
-  }
-  return null;
+/** Copy `data` into the chores scratch; returns the HEAPF32 float index, or -1. */
+function writeScratch(mod: ChoresWasmModule, data: ArrayLike<number>): number {
+  const ptr = Number(mod.chores_scratch_ptr!(data.length));
+  // Read HEAPF32 only after the call: a scratch resize can grow the heap.
+  const heap = mod.HEAPF32;
+  if (!heap || !ptr) return -1;
+  const base = ptr >> 2;
+  heap.set(data, base);
+  return base;
+}
+
+/** Last WASM failure (first one only) — surfaced in the chores breadcrumb. */
+export let wasmChoresError: string | null = null;
+
+function noteError(err: unknown): void {
+  if (wasmChoresError !== null) return;
+  wasmChoresError = err instanceof Error ? err.message : String(err);
+  console.warn('[gpu-chores] WASM chore failed, falling back to JS:', err);
 }
 
 export function wasmChoresAvailable(): boolean {
-  const mod = getSimCore() as ChoresWasmModule | null;
-  return typeof mod?.chores_reduce_f32 === 'function';
+  const mod = choresModule();
+  return !!mod && typeof mod.chores_reduce_f32_scratch === 'function';
 }
 
 export function reduceF32Wasm(data: ArrayLike<number>): ReduceResult | null {
-  const mod = getSimCore() as ChoresWasmModule | null;
-  if (typeof mod?.chores_reduce_f32 !== 'function') return null;
+  const mod = choresModule();
+  if (!mod?.chores_reduce_f32_scratch) return null;
   try {
-    const packed = data instanceof Float32Array ? Array.from(data) : Array.from(data as ArrayLike<number>);
-    const raw = toArray(mod.chores_reduce_f32(packed));
-    if (!raw || raw.length < 5) return null;
+    if (writeScratch(mod, data) < 0) return null;
+    const raw = mod.chores_reduce_f32_scratch(data.length);
     return finalizeReduce({
-      sum: raw[0],
-      min: raw[1],
-      max: raw[2],
-      sumSq: raw[3],
-      count: raw[4]
+      sum: raw.sum,
+      min: raw.min,
+      max: raw.max,
+      sumSq: raw.sumSq,
+      count: raw.count
     }, 'wasm');
   } catch (err) {
-    console.warn('[gpu-chores] WASM reduce failed, caller should fall back', err);
+    noteError(err);
     return null;
   }
 }
 
 export function mapScaleF32Wasm(data: ArrayLike<number>, opts: MapScaleOpts = {}): Float32Array | null {
-  const mod = getSimCore() as ChoresWasmModule | null;
-  if (typeof mod?.chores_map_scale_f32 !== 'function') return null;
+  const mod = choresModule();
+  if (!mod?.chores_map_scale_f32_scratch) return null;
   try {
-    const packed = data instanceof Float32Array ? Array.from(data) : Array.from(data as ArrayLike<number>);
-    const raw = toArray(mod.chores_map_scale_f32(packed, opts.scale ?? 1, opts.bias ?? 0));
-    if (!raw) return null;
-    return Float32Array.from(raw);
-  } catch {
+    const base = writeScratch(mod, data);
+    if (base < 0) return null;
+    mod.chores_map_scale_f32_scratch(data.length, opts.scale ?? 1, opts.bias ?? 0);
+    // The map does not allocate, so the view taken in writeScratch is still live.
+    return mod.HEAPF32!.slice(base, base + data.length);
+  } catch (err) {
+    noteError(err);
     return null;
   }
 }

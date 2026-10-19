@@ -79,9 +79,10 @@ export interface HomopolarPhysicsExtension {
 /** Quanta Halbach field visualizer extension fields. */
 export interface HalbachVizPhysicsExtension {
   halbachSegmentCount?: number;
-  /** Pinned N from the catalog setpoint slider; null/undefined = drive-swept. */
+  /** Pinned N from the catalog setpoint or a `#lab=…;hseg=N` link; null = drive-swept. */
   halbachSegmentSetpoint?: number | null;
   halbachMagAngleDeg?: number;
+  /** Set once from `?halbachLinear=1` at creation, or by a `#lab=…;hlin=1` link. */
   halbachLayout?: 'ring' | 'linear';
   halbachPeakBT?: number;
   halbachPeriodM?: number;

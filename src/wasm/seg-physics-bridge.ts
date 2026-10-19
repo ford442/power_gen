@@ -33,7 +33,13 @@ function isWasmEnabled(): boolean {
   const params = new URLSearchParams(window.location.search);
   if (params.get('wasmPhysics') === '1') return true;
   if (params.get('wasm') === '1') return true;
-  return localStorage.getItem('useWasmPhysics') === 'true';
+  // Storage can be absent or throw (private mode, blocked site data, sandboxed
+  // iframe); that must mean "not opted in", not a boot-time exception.
+  try {
+    return localStorage.getItem('useWasmPhysics') === 'true';
+  } catch {
+    return false;
+  }
 }
 
 export interface SegWasmStepResult extends SEGStepResult {
@@ -197,9 +203,9 @@ export const segWasm: SegWasmBridge = {
 
   setEnabled(enabled: boolean) {
     _enabled = !!enabled;
-    if (typeof localStorage !== 'undefined') {
+    try {
       localStorage.setItem('useWasmPhysics', _enabled ? 'true' : 'false');
-    }
+    } catch { /* storage unavailable — the choice lasts this session only */ }
     console.log(`[seg-physics-bridge] WASM physics ${_enabled ? 'ENABLED' : 'disabled'}`);
   },
 

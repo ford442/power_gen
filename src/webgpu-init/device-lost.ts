@@ -6,6 +6,8 @@
 export interface DeviceLostInfo {
   reason?: string;
   message?: string;
+  /** Overlay heading; defaults to "WebGPU device lost" (the WebGL2 path passes its own). */
+  title?: string;
 }
 
 export interface DeviceHookHandlers {
@@ -67,7 +69,7 @@ export function showDeviceLostUI(info: DeviceLostInfo = {}): void {
   const detail = info.message || 'The GPU device was lost.';
   el.innerHTML = `
       <div style="max-width:420px">
-        <h2 style="margin:0 0 12px;font-size:1.25rem;color:#0ff">WebGPU device lost</h2>
+        <h2 style="margin:0 0 12px;font-size:1.25rem;color:#0ff">${escapeHtml(info.title || 'WebGPU device lost')}</h2>
         <p style="margin:0 0 8px;opacity:0.9;font-size:0.95rem">${escapeHtml(detail)}</p>
         <p style="margin:0 0 20px;opacity:0.65;font-size:0.8rem">Reason: ${escapeHtml(reason)}</p>
         <button type="button" id="webgpu-device-lost-reload"

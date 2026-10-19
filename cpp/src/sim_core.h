@@ -95,8 +95,20 @@ void mhd_particle_step(SimParticle& p, float flowU, float bField, float dt, floa
 /// gpu-chores: packed f32 reduce. out[5] = {sum, min, max, sumSq, count}.
 void chores_reduce_f32(const float* data, int count, float out[5]);
 void chores_map_scale_f32(const float* in, float* out, int count, float scale, float bias);
-std::vector<float> chores_reduce_f32_vec(const std::vector<float>& data);
-std::vector<float> chores_map_scale_f32_vec(const std::vector<float>& data, float scale, float bias);
+
+struct ChoresReduceResult {
+    float sum, min, max, sumSq, count;
+};
+
+/// gpu-chores WASM path (zero-copy, same idiom as getRollerStatePtr): JS asks
+/// for a C++-owned scratch of `count` floats, writes them through HEAPF32 at
+/// the returned byte offset, then calls a *_scratch(count) op. The offset is
+/// valid until the next chores_scratch_ptr call (it may grow the heap, so read
+/// HEAPF32 again after it).
+uintptr_t chores_scratch_ptr(int count);
+ChoresReduceResult chores_reduce_f32_scratch(int count);
+/// In place: scratch[i] = scale * scratch[i] + bias (non-finite → 0).
+void chores_map_scale_f32_scratch(int count, float scale, float bias);
 
 // SimMode comes from generated/device-catalog.h (physics/devices.json).
 // Plant structs live beside their .cpp files (not defined here).
@@ -232,7 +244,7 @@ public:
     float getRPM()          const { return _rollers[0].omega * 60.f / PhysicsConstants::TAU; }
     double getOmegaF64()    const { return static_cast<double>(_rollers[0].omega); }
     double getRPMF64()      const { return static_cast<double>(getRPM()); }
-    float getAngle(int i)   const { return _rollers[i].angle; }
+    float getAngle(int i)   const { return (i >= 0 && i < _numRollers) ? _rollers[i].angle : 0.f; }
     int   numRollers()      const { return _numRollers; }
     int   numParticles()    const { return _numParticles; }
     float getTime()         const { return _time; }
@@ -243,7 +255,6 @@ public:
     float magneticEnergyDensity() const;
 
     SimParticle getParticle(int i) const;
-    std::vector<SimParticle> getParticles(int maxCount = -1) const;
 
     // ── Zero-copy buffer views (WASM HEAPF32) ──────────────────
     /// Byte offset of particle array in WASM heap (use with HEAPF32).
@@ -270,6 +281,17 @@ public:
         float segEfficiencyPct,
         const std::vector<float>& energyLevels,
         const std::vector<int>& enabledFlags);
+    /// WASM per-frame path: JS writes energy levels at [0, modeCount) and
+    /// enabled flags (0/1) at [modeCount, 2*modeCount) of the scratch returned
+    /// by getScratchPtr(2*modeCount), then calls this. No JS-side vectors.
+    void updateEnergyNetworkFromScratch(
+        bool couplingEnabled,
+        float segPowerW,
+        float segEfficiencyPct,
+        int modeCount);
+    /// Byte offset of a C++-owned float scratch of at least `count` floats
+    /// (use with HEAPF32; re-read HEAPF32 afterwards, the resize may grow it).
+    uintptr_t getScratchPtr(int count);
     EnergyNetworkSummary getNetworkSummary() const { return _networkSummary; }
     float getNetworkEdgeAllocatedW(int edgeIndex) const;
     EnergyNetworkDevicePower getNetworkDevicePower(int mode) const;
@@ -311,7 +333,14 @@ private:
     std::vector<float>                 _networkEdgeAllocatedW;
     EnergyNetworkDevicePower           _networkDevicePower[ENERGY_NETWORK_MODE_COUNT]{};
     EnergyNetworkSummary               _networkSummary{};
+    std::vector<float>                 _scratch;
 
+    void _updateEnergyNetwork(
+        bool couplingEnabled,
+        float segPowerW,
+        float segEfficiencyPct,
+        const float* energyLevels, int levelCount,
+        const float* enabledFlags, int flagCount);
     void _initRollers();
     void _stepHeron(float dt);
     void _stepKelvin(float dt);

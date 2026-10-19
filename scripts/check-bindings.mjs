@@ -105,7 +105,10 @@ function parseWgsl(file) {
 const mappedPasses = new Set();
 let checked = 0;
 for (const [name, layout] of Object.entries(layouts)) {
-  const entries = new Map(layout.entries.map(([b, , kind, format]) => [b, { kind, format }]));
+  // WGSL cannot tell a dynamic-offset uniform from a plain one.
+  const entries = new Map(layout.entries.map(([b, , kind, format]) => [
+    b, { kind: kind === 'uniform-dynamic' ? 'uniform' : kind, format }
+  ]));
   const used = new Set();
   const before = failures;
   for (const files of layout.pipelines) {

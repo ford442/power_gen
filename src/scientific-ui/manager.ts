@@ -59,6 +59,8 @@ export class ScientificUIManager {
   isVisible: boolean;
   cache: Map<string, unknown>;
   private _unsubHub: (() => void) | null;
+  /** DOM listeners added by this manager; `destroy()` aborts them. */
+  private _abort = new AbortController();
 
   constructor(options: ScientificUIManagerOptions = {}) {
     this.options = {
@@ -121,7 +123,7 @@ export class ScientificUIManager {
 
     this.panel.querySelector('#sci-collapse-btn')!.addEventListener('click', () => {
       this.hide();
-    });
+    }, { signal: this._abort.signal });
 
     this.setupDrag();
   }
@@ -132,16 +134,22 @@ export class ScientificUIManager {
     toggle.className = 'sci-panel-toggle';
     toggle.innerHTML = '⊞';
     toggle.title = 'Show Scientific Panel';
-    toggle.addEventListener('click', () => this.show());
+    toggle.addEventListener('click', () => this.show(), { signal: this._abort.signal });
     document.body.appendChild(toggle);
   }
 
   setupDrag(): void {
     const header = this.panel!.querySelector('.sci-panel-header') as HTMLElement;
+    const { signal } = this._abort;
     let isDragging = false;
     let startX: number, startY: number, startLeft: number, startTop: number;
 
-    header.addEventListener('mousedown', (e: MouseEvent) => {
+    // Pointer capture keeps the drag on the header, so no window-level
+    // mousemove/mouseup listeners outlive the panel (and touch works too).
+    header.style.touchAction = 'none';
+    header.addEventListener('pointerdown', (e: PointerEvent) => {
+      // Capturing on a header button would retarget its click to the header.
+      if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
       isDragging = true;
       startX = e.clientX;
       startY = e.clientY;
@@ -149,23 +157,27 @@ export class ScientificUIManager {
       startLeft = rect.left;
       startTop = rect.top;
       this.panel!.classList.add('dragging');
-    });
+      try { header.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+    }, { signal });
 
-    window.addEventListener('mousemove', (e: MouseEvent) => {
+    header.addEventListener('pointermove', (e: PointerEvent) => {
       if (!isDragging) return;
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
       this.panel!.style.left = (startLeft + dx) + 'px';
       this.panel!.style.top = (startTop + dy) + 'px';
       this.panel!.style.right = 'auto';
-    });
+    }, { signal });
 
-    window.addEventListener('mouseup', () => {
+    const end = () => {
       if (isDragging) {
         isDragging = false;
         this.panel!.classList.remove('dragging');
       }
-    });
+    };
+    header.addEventListener('pointerup', end, { signal });
+    header.addEventListener('pointercancel', end, { signal });
+    header.addEventListener('lostpointercapture', end, { signal });
   }
 
   initGauges(): void {
@@ -362,6 +374,7 @@ export class ScientificUIManager {
       this._unsubHub();
       this._unsubHub = null;
     }
+    this._abort.abort();
     this.hide();
     this.panel?.remove();
     document.getElementById('sci-panel-toggle')?.remove();

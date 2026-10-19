@@ -127,7 +127,7 @@ export class DeviceGeometry {
     }
 
     if (instanceParts.length > 0) {
-      this._writeRollerInstances(instanceParts);
+      this.writeRollerInstances(instanceParts);
     }
 
     await this.setupDeviceFlowPaths();
@@ -144,7 +144,7 @@ export class DeviceGeometry {
     this.heronFlow = mesh.flow;
     this.heronLayoutId = presetId;
 
-    this._writeRollerInstances([mesh.cylinders]);
+    this.writeRollerInstances([mesh.cylinders]);
     this.meshCylinderCount = countInstances(mesh.cylinders.flat());
 
     if (mesh.tubes?.length) {
@@ -168,9 +168,15 @@ export class DeviceGeometry {
     await this.setupDeviceFlowPaths();
   }
 
-  private _writeRollerInstances(instanceParts: InstanceArray[]): void {
+  /**
+   * Upload mesh instances, reallocating when they outgrow the buffer.
+   * Returns true on reallocation: bind groups over the old buffer are stale.
+   */
+  writeRollerInstances(instanceParts: InstanceArray[]): boolean {
     const data = instancesToBufferData(instanceParts);
+    let grew = false;
     if (!this.rollerInstances || this.rollerInstances.size < data.byteLength) {
+      grew = true;
       this.rollerInstances?.destroy?.();
       this.rollerInstances = this.device.createBuffer({
         size: data.byteLength,
@@ -183,6 +189,7 @@ export class DeviceGeometry {
       );
     }
     writeQueueBuffer(this.device, this.rollerInstances, data);
+    return grew;
   }
 
   /** Local-space flow visualization paths (siphon, electrostatic, photon beams). */

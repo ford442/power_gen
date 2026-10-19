@@ -68,6 +68,16 @@ jobs:
           test -f src/public/wasm/sim_core.js   || (echo "sim_core.js missing" && exit 1)
           test -f src/public/wasm/sim_core.wasm || (echo "sim_core.wasm missing" && exit 1)
 
+      # ── 6a. ABI: every Embind export callable from JS on the fresh build
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: WASM ABI test
+        run: npm ci && npm run test:wasm-abi
+
       # ── 6b. Size / bench note ─────────────────────────────────
       #    Logs sim_core.js/.wasm raw+gzip bytes and the native
       #    sim_core_test step rate on every run, so a future compile-flag

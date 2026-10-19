@@ -202,9 +202,12 @@ duplicated in three generator templates plus `bloom-composite.wgsl`;
   second color attachment — `rg8unorm`, full canvas resolution, r=metallic
   g=roughness — written only by `seg-enhanced-frag.wgsl` and `roller-frag.wgsl`
   (chrome/nickel rollers, and the CAD housing/frame, which is drawn with the
-  same segEnhanced pipeline). Every other pass in the scene declares a `null`
-  second target, so its pixels keep the pass's clear value (metallic=0,
-  roughness=1 — "non-metal") by default. `ssr-compute.wgsl` samples this at
+  same segEnhanced pipeline). Every other pipeline in the scene pass declares
+  `MATERIAL_GBUFFER_NO_WRITE` (`rg8unorm`, `writeMask: 0`) as its second
+  target, so its pixels keep the pass's clear value (metallic=0,
+  roughness=1 — "non-metal") by default. It must not be `null`: a null target
+  is incompatible with a pass that has an attachment in that slot, and the
+  validation error invalidates the whole scene command buffer (black canvas). `ssr-compute.wgsl` samples this at
   binding 5, at the *reflecting* pixel's own UV, and weights each reflection by
   `hitConfidence * fresnel * metallic * (1 - roughness)^2` — a painted/plastic
   surface (near-zero metalness) now contributes ~0 regardless of viewing

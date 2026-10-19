@@ -140,8 +140,12 @@ class EnergyPipe {
       size: this.particleCount * PARTICLE_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
+    // sizeof(PipeUniforms) = 32 (pipe-particle.wgsl: vec3f+flow, pulse, vec2f
+    // pad at 24). A 16 B buffer failed the draw's min-binding-size check,
+    // which invalidated the whole frame.
     this.uniformBuffer = this.device.createBuffer({
-      size: 16,
+      label: `energy-pipe-uniforms-${this._colorKey}`,
+      size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.visualizer?.profiler?.trackBuffer(
@@ -232,7 +236,7 @@ class EnergyPipe {
     if (!this.uniformBuffer) return;
     this.device.queue.writeBuffer(
       this.uniformBuffer, 0,
-      new Float32Array([...this._color, this.flowLevel, pulse, 0, 0])
+      new Float32Array([...this._color, this.flowLevel, pulse, 0, 0, 0])
     );
   }
 
