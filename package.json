@@ -63,14 +63,14 @@
   "author": "ford442",
   "license": "MIT",
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
+    "@playwright/test": "^1.64.1",
     "@types/w3c-web-serial": "^1.0.8",
     "@types/w3c-web-usb": "^1.0.14",
     "@types/web-bluetooth": "^0.0.21",
-    "@webgpu/types": "^0.1.71",
-    "esbuild": "^0.21.5",
+    "@webgpu/types": "^0.1.74",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
-    "vite": "^5.0.0"
+    "vite": "^8.3.4"
   },
   "directories": {
     "doc": "docs"
