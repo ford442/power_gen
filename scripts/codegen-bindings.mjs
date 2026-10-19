@@ -27,6 +27,7 @@ const STAGE_BITS = { V: 1, F: 2, C: 4 };
 
 export const KINDS = {
   uniform: () => `buffer: { type: 'uniform' }`,
+  'uniform-dynamic': () => `buffer: { type: 'uniform', hasDynamicOffset: true }`,
   storage: () => `buffer: { type: 'storage' }`,
   'storage-ro': () => `buffer: { type: 'read-only-storage' }`,
   texture: () => `texture: { sampleType: 'float', viewDimension: '2d' }`,

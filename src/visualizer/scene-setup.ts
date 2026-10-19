@@ -46,6 +46,11 @@ export const sceneSetupMethods: ThisType<Host> & {
     const fallbackSoft = !!(this.webgpu?.adapterInfo?.fallback || this.webgpu?.adapterInfo?.software);
     if (fallbackSoft) {
       this.iblLevels = 0;
+      // iblLevels = 0 selects the analytic path, but every segEnhanced bind group
+      // still binds @binding(7): without a texture the first SEG draw threw
+      // "iblResources missing" and WebGPU hard-failed on every software adapter.
+      // 1×1 texels, never sampled for lighting.
+      this.iblResources ??= await createIblResources(this.device, { size: 1, storage: false });
       console.log('[MultiDeviceVisualizer] IBL prefilter skipped (fallback/software adapter)');
       return { levels: 0, cached: true, ms: 0, path: 'skipped' as const };
     }
@@ -111,6 +116,9 @@ export const sceneSetupMethods: ThisType<Host> & {
    * compute pipeline is already built by now, so this stays synchronous.
    */
   refreshIblPrefilter() {
+    // Fallback/software adapters hold only the 1×1 placeholder; a bake would
+    // set iblLevels > 0 and switch them off the analytic path.
+    if (this.webgpu?.adapterInfo?.fallback || this.webgpu?.adapterInfo?.software) return;
     if (!this.iblResources || !this.device) return;
     this._bakeIbl();
   },
@@ -216,6 +224,13 @@ export const sceneSetupMethods: ThisType<Host> & {
       this._syncCanvasSize();
     });
     this._canvasResizeObserver.observe(target);
+    // Exact device pixels for the backing store (canvasPixelSize prefers
+    // them). Also fires on a DPR change — dragging the window to another
+    // monitor — which the layout observer above does not see.
+    this._canvasDprObserver?.disconnect();
+    this._canvasDprObserver = WebGPUManager.observeDevicePixelSize(this.canvas, () => {
+      this._syncCanvasSize();
+    });
   },
 
   async _syncCanvasSize() {

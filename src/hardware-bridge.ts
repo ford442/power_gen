@@ -2,8 +2,8 @@
  * HardwareBridge — hardware-twin link for SEG electromagnet control.
  *
  * Protocol: docs/hardware_connection.md / firmware/seg-driver/protocol.h
- *   App → Arduino: P phase, C coils, CONF geometry
- *   Arduino → App: S sensor stream
+ *   App → Arduino: P phase, C coils, CONF geometry, V2 hello request
+ *   Arduino → App: S sensor stream, I info (a v2 board's `I v=2 …` hello)
  *
  * Twin modes:
  *   open   — sim → hardware (visualize sim)
@@ -26,7 +26,17 @@
  */
 import { MockSerialTransport } from './mock-serial-transport';
 import { protocolMethods } from './hardware-bridge-protocol';
-import { TWIN_MODES, type TwinMode, MODE_RUN, MODE_COAST, clampRpm, clampPwmDuty } from './hardware-protocol-shared';
+import {
+  TWIN_MODES,
+  type TwinMode,
+  type FirmwareHello,
+  MODE_RUN,
+  MODE_COAST,
+  HELLO_ATTEMPTS,
+  HELLO_RETRY_MS,
+  clampRpm,
+  clampPwmDuty
+} from './hardware-protocol-shared';
 import {
   isBluetoothSupported,
   isSerialSupported,
@@ -38,9 +48,10 @@ import {
 import { SerialLineTransport } from './serial-line-transport';
 import { BluetoothUartTransport } from './bluetooth-uart-transport';
 import { WebUsbCdcTransport } from './webusb-cdc-transport';
+import { labConfig } from './config/lab-config';
 
 export { MockSerialTransport } from './mock-serial-transport';
-export { TWIN_MODES, type TwinMode } from './hardware-protocol-shared';
+export { TWIN_MODES, type TwinMode, type FirmwareHello, parseFirmwareHello } from './hardware-protocol-shared';
 export type { HardwareTransport, HardwareTransportKind } from './hardware-transport';
 
 import type { FiringPattern } from './electromagnet-controller';
@@ -139,6 +150,16 @@ export interface UpdateSimInput {
   simCurrent?: number;
 }
 
+/** Payloads for {@link HardwareBridge.on}. */
+export interface HardwareBridgeEvents {
+  status: HardwareBridgeStatus;
+  sensor: SensorSnapshot;
+  twinMode: TwinMode;
+  error: Error;
+}
+export type HardwareBridgeEvent = keyof HardwareBridgeEvents;
+type BridgeListener<K extends HardwareBridgeEvent> = (value: HardwareBridgeEvents[K]) => void;
+
 export class HardwareBridge {
   baudRate: number;
   /** Live throttle — a slow link (BLE) may widen it on connect. */
@@ -183,7 +204,12 @@ export class HardwareBridge {
 
   config: HardwareBridgeConfig;
 
+  /** The board's v2 hello, or null (not yet, or a v1 sketch). Cleared with the link. */
+  firmware: FirmwareHello | null;
+
   // Not `private`: read/written from hardware-bridge-protocol.ts's mixin methods too.
+  _helloAttempts: number;
+  _lastHelloAt: number;
   _lastCommandTime: number;
   _lastUpdateCall: number;
   _commandQueue: string[];
@@ -193,6 +219,17 @@ export class HardwareBridge {
   onSensorData: ((snapshot: SensorSnapshot) => void) | null;
   onError: ((err: Error) => void) | null;
   onTwinModeChange: ((mode: TwinMode) => void) | null;
+
+  /**
+   * Multi-subscriber events. The `on*` callback slots above hold one owner each
+   * (whoever constructed the bridge — LabSession), so the panel subscribes here.
+   */
+  private _listeners: { [K in HardwareBridgeEvent]: Set<BridgeListener<K>> } = {
+    status: new Set(),
+    sensor: new Set(),
+    twinMode: new Set(),
+    error: new Set()
+  };
 
   static sanitizeRpm = clampRpm;
   static clampPwmDuty = clampPwmDuty;
@@ -249,6 +286,9 @@ export class HardwareBridge {
       firingPattern: 'overlap'
     };
 
+    this.firmware = null;
+    this._helloAttempts = 0;
+    this._lastHelloAt = -Infinity;
     this._lastCommandTime = 0;
     this._lastUpdateCall = 0;
     this._commandQueue = [];
@@ -260,6 +300,43 @@ export class HardwareBridge {
     this.onTwinModeChange = options.onTwinModeChange || null;
   }
 
+  /** Subscribe to a bridge event; returns the unsubscribe function. */
+  on<K extends HardwareBridgeEvent>(event: K, fn: BridgeListener<K>): () => void {
+    const set = this._listeners[event] as Set<BridgeListener<K>>;
+    set.add(fn);
+    return () => { set.delete(fn); };
+  }
+
+  /** True when anyone would receive `event` (skips building unused snapshots). */
+  _hasListeners(event: HardwareBridgeEvent): boolean {
+    return !!this._ownerCallback(event) || this._listeners[event].size > 0;
+  }
+
+  private _ownerCallback<K extends HardwareBridgeEvent>(event: K): BridgeListener<K> | null {
+    const slot = event === 'status' ? this.onStatusChange
+      : event === 'sensor' ? this.onSensorData
+        : event === 'twinMode' ? this.onTwinModeChange
+          : this.onError;
+    return slot as BridgeListener<K> | null;
+  }
+
+  /**
+   * Deliver to the owner callback, then every subscriber. A throwing UI
+   * listener is logged and skipped — it must not tear down the link.
+   */
+  // Not `private`: called from hardware-bridge-protocol.ts's mixin methods too.
+  _emit<K extends HardwareBridgeEvent>(event: K, value: HardwareBridgeEvents[K]): void {
+    const slot = this._ownerCallback(event);
+    const fns = [...(slot ? [slot] : []), ...(this._listeners[event] as Set<BridgeListener<K>>)];
+    for (const fn of fns) {
+      try {
+        fn(value);
+      } catch (e) {
+        console.error(`[HardwareBridge] ${event} listener threw:`, e);
+      }
+    }
+  }
+
   /** Explicit connection kind for UI: disconnected | mock | serial | bluetooth | usb */
   get connectionKind(): HardwareConnectionKind {
     return connectionKindForStatus(this.status);
@@ -268,6 +345,22 @@ export class HardwareBridge {
   /** Short label of the live link (panel badge). */
   get transportLabel(): string {
     return this.transport?.label ?? '';
+  }
+
+  /** What the board said it is: `fw v2 · uno · 6 coils`, or why there is no answer. */
+  get firmwareLabel(): string {
+    if (!this.isConnected) return '';
+    const fw = this.firmware;
+    if (fw) return `fw v${fw.protocol} · ${fw.board}` + (fw.coils !== null ? ` · ${fw.coils} coils` : '');
+    const gaveUp = this._helloAttempts >= HELLO_ATTEMPTS
+      && performance.now() - this._lastHelloAt >= HELLO_RETRY_MS;
+    return gaveUp ? 'no hello (v1 firmware)' : 'fw …';
+  }
+
+  private _forgetFirmware(): void {
+    this.firmware = null;
+    this._helloAttempts = 0;
+    this._lastHelloAt = -Infinity;
   }
 
   static isSerialSupported = isSerialSupported;
@@ -296,8 +389,7 @@ export class HardwareBridge {
   async connect(opts: HardwareConnectOptions = {}): Promise<void> {
     if (opts.transport) return this.connectTransport(opts.transport);
 
-    const wantMock = opts.mock === true
-      || (typeof location !== 'undefined' && new URLSearchParams(location.search).get('mockHardware') === '1');
+    const wantMock = opts.mock === true || labConfig().mockHardware;
     if (wantMock) return this.connectTransport('mock');
     if (!isSerialSupported()) {
       console.info('[HardwareBridge] Web Serial unavailable — using mock');
@@ -346,11 +438,12 @@ export class HardwareBridge {
       const err = new Error(`${kind} transport unavailable in this browser`);
       this.lastError = err.message;
       this._setStatus('error');
-      if (this.onError) this.onError(err);
+      this._emit('error', err);
       return;
     }
 
     this._setStatus('connecting');
+    this._forgetFirmware();
     const transport = preBuilt ?? this._createTransport(kind);
     try {
       this._unsubTransport = [
@@ -378,7 +471,7 @@ export class HardwareBridge {
       this.lastError = (err as Error).message;
       this._setStatus('error');
       console.error(`[HardwareBridge] ${kind} connection failed:`, err);
-      if (this.onError) this.onError(err as Error);
+      this._emit('error', err as Error);
     }
   }
 
@@ -411,6 +504,7 @@ export class HardwareBridge {
     this.manualPwmDuty = 0;
     this.targetSpeed = 0;
     this.controlMode = MODE_COAST;
+    this._forgetFirmware();
     this._setStatus('disconnected');
     console.log('[HardwareBridge] Disconnected (coils coasted)');
   }
@@ -438,11 +532,12 @@ export class HardwareBridge {
     this.manualPwmDuty = 0;
     this.targetSpeed = 0;
     this.controlMode = MODE_COAST;
+    this._forgetFirmware();
     this.lastError = err?.message ?? 'link closed';
     this._setStatus('error');
     console.warn('[HardwareBridge] Link dropped —', this.lastError,
       '(firmware watchdog coasts the coils)');
-    if (err && this.onError) this.onError(err);
+    if (err) this._emit('error', err);
   }
 
   /**
@@ -513,7 +608,7 @@ export class HardwareBridge {
   _setStatus(newStatus: HardwareBridgeStatus): void {
     if (this.status === newStatus) return;
     this.status = newStatus;
-    if (this.onStatusChange) this.onStatusChange(newStatus);
+    this._emit('status', newStatus);
   }
 }
 

@@ -81,6 +81,9 @@
       width: 100%;
       height: 100%;
     }
+    /* The camera owns every touch on the scene (orbit / pan / pinch /
+       double-tap — docs/CLASSROOM.md); no page scroll or browser zoom. */
+    #gpuCanvas { touch-action: none; }
 
     /* Corner overlays */
     .corner-label {

@@ -6,12 +6,14 @@ import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts';
 import { createDevicePhysicsState } from './renderers/shared/device-physics';
 import type { DevicePhysicsState, HeronLayout } from './renderers/shared/device-physics';
 import { getHeronLayout } from './heron-layout';
+import { DEVICE_BY_ID } from '../generated/device-catalog';
 
 import {
   getDeviceModeIndex,
   getPluginMeshLayouts
 } from './devices/device-registry.js';
 import type { MergedDeviceConfigEntry } from './devices/device-registry.js';
+import type { SegPartSlot } from './devices/device-render';
 import { DeviceSetupMixin } from './devices/device-setup';
 import { DeviceRenderMixin } from './devices/device-render';
 import { DeviceUpdateMixin } from './devices/device-update';
@@ -98,7 +100,10 @@ export interface DeviceInstance {
     instanceBuffer: GPUBuffer,
     keySuffix?: string
   ): GPUBindGroup;
-  _ensureRingUniformBuffers(): void;
+  _ensureSegPartUniformBuffer(): GPUBuffer;
+  _writeSegPartUniforms(): void;
+  _segPartOffset(slot: SegPartSlot, part: string): number;
+  segPartModes(): Record<string, number>;
   renderDeviceMesh(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
   render(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer, skipEffects?: boolean): void;
   renderBase(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
@@ -416,7 +421,8 @@ export class DeviceInstance {
    * Reset simulation accumulators when the user enters this device's focused view.
    */
   resetForModeEntry(): void {
-    if (['heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'halbach-viz', 'pulse-coil', 'transformer', 'vdg', 'hall', 'lorentz-sled', 'jumping-ring'].includes(this.id)) {
+    // Every catalog bench but SEG, whose plant is the operator's.
+    if (this.id !== 'seg' && DEVICE_BY_ID[this.id]) {
       const heronLayout: HeronLayout | undefined = this.id === 'heron'
         ? ((this.visualizer.heronLayout as HeronLayout | undefined) ||
           getHeronLayout(this.visualizer.heronLayoutPreset))

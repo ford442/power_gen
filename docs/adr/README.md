@@ -17,5 +17,7 @@ Lightweight ADRs for the SEG WebGPU Visualizer. Each file is a short record of a
 | [0011](./0011-field-coupling.md) | Lab field coupling (optional cross-device B) |
 | [0012](./0012-fdtd-materials.md) | FDTD material cells (μ_r / σ), still 2D, still not FEM |
 | [0013](./0013-charge-coupling.md) | Lab charge coupling (optional VdG → Kelvin seed) |
+| [0014](./0014-linear-hdr-colour.md) | Linear-HDR colour pipeline (float scene, `-srgb` composite, `?color=legacy`) |
+| [0015](./0015-plant-snapshots.md) | Plant snapshots from the device catalog (`state` blocks, layout hash, bit-identical restore) |
 
 Status values: **Accepted** · **Superseded** · **Proposed**

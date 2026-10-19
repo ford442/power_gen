@@ -17,7 +17,9 @@ import {
   RENDERER_WEBGPU,
   RENDERER_WEBGL2
 } from './renderers/renderer-selector';
-import { probeWebGPU, showWebGPUHardFail, type WebGPUProbeResult } from './renderers/webgpu-probe';
+import { initLabConfig, labConfig, persistLabConfig } from './config/lab-config';
+import { installLabApi } from './config/lab-api';
+import { probeWebGPU, showWebGPUHardFail, showBootWarning, type WebGPUProbeResult } from './renderers/webgpu-probe';
 import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 import { initSEGOperatorPanel } from './seg-operator-panel';
 import { renderModeButtons } from './mode-buttons';
@@ -29,7 +31,7 @@ import { initTelemetryExportPanel } from './telemetry/telemetry-export-panel';
 import { initReplayUI } from './telemetry/replay-ui';
 import { replayPlayer } from './telemetry/replay-player';
 import { initExplainerUI } from './seg-explainer/explainer-ui';
-import { restoreSimulationSeedFromStorage } from './telemetry/deterministic-rng';
+import { restoreSimulationSeed } from './telemetry/deterministic-rng';
 import { applyReplay, type ReplayFile } from './telemetry/replay-format';
 import { telemetryHub } from './telemetry-hub';
 import { gpuChores } from './gpu-chores';
@@ -53,6 +55,7 @@ import { initLabAudioBadge } from './audio/lab-audio-badge';
 import { syncFieldCouplingDisclaimer } from './renderers/shared/field-network';
 import { wireChargeCouplingControls } from './charge-coupling-ui';
 import { ScientificUIManager } from './scientific-ui/index';
+import { installAnalysisEntry } from './analysis/entry';
 import './multi-device-window-api';
 
 // Agent / e2e hooks
@@ -86,7 +89,8 @@ const MODE_DESCRIPTIONS: Record<string, string> = {
   vdg: 'Quanta Magnetics — Van de Graaff Generator: belt-charged isolated sphere with leakage and a spark gap. Watch sphere voltage, belt speed, charge, and spark rate. Educational model — classroom electrostatics, not a high-voltage engineering design. JS charge/voltage fallback; `?wasmPhysics=1` uses the C++ belt-charge ODE.',
   hall: 'Quanta Magnetics — Hall-Effect Bench: current-carrying strip in a transverse B field. Toggle semiconductor vs. metal carrier density; watch Hall voltage, current, field, and Hall coefficient. Educational model — not a calibrated metrology instrument. JS algebraic fallback; `?wasmPhysics=1` uses the C++ plant.',
   'lorentz-sled': 'Quanta Magnetics — Lorentz Rail Sled: a sliding armature bridges two rails in a transverse B field, so the drive current pushes it with F = I ℓ × B against friction and its own back-EMF. Set the bench field with the B slider; watch sled speed, armature current, force, and position. Educational Lorentz-force model — a low-voltage bench rail motor, not a railgun design tool. JS fallback mirrors the C++ plant; `?wasmPhysics=1` uses the C++ ODE.',
-  'jumping-ring': 'Quanta Magnetics — Thomson Jumping Ring: an aluminium ring sits on an AC-driven iron core as a shorted single turn. The induced ring current opposes the primary (Lenz), the two repel, and the ring jumps — then hovers, because the coupling k(h) and so the lift fall off with height. Watch ring height, induced ring current, primary current, net force, and k(h). Educational Thomson-ring model — no projectile, and no thermal state at all: this ring never heats, glows or melts. JS fallback mirrors the C++ plant; `?wasmPhysics=1` uses the C++ coupled L–M(h) ODE.'
+  'jumping-ring': 'Quanta Magnetics — Thomson Jumping Ring: an aluminium ring sits on an AC-driven iron core as a shorted single turn. The induced ring current opposes the primary (Lenz), the two repel, and the ring jumps — then hovers, because the coupling k(h) and so the lift fall off with height. Watch ring height, induced ring current, primary current, net force, and k(h). Educational Thomson-ring model — no projectile, and no thermal state at all: this ring never heats, glows or melts. JS fallback mirrors the C++ plant; `?wasmPhysics=1` uses the C++ coupled L–M(h) ODE.',
+  'drop-tube': 'Quanta Magnetics — Lenz Drop Tube: a strong magnet falls down a copper tube. Every slice of the wall sees the falling flux change, carries a current that opposes the change (Lenz), and pushes back — so the drag grows with speed until it equals the weight, and the magnet falls at a constant terminal velocity v_t = m·g/k. The drive slider opens the release clamp and sets its height; the σ slider swaps copper for aluminium, brass, stainless or plastic. Watch speed, v_t, eddy drag, the eddy loop current, and depth. Educational point-dipole model — not a brake-design tool or a launcher, and no thermal state: the heat the drag puts into the tube is not tracked. JS plant only (algebraic; no WASM SimMode).'
 };
 
 window.setMode = (mode: string): void => {
@@ -117,6 +121,8 @@ window.setMode = (mode: string): void => {
   if (sledPanel) sledPanel.style.display = mode === 'lorentz-sled' ? 'block' : 'none';
   const ringPanel = document.getElementById('jumping-ring-controls');
   if (ringPanel) ringPanel.style.display = mode === 'jumping-ring' ? 'block' : 'none';
+  const tubePanel = document.getElementById('drop-tube-controls');
+  if (tubePanel) tubePanel.style.display = mode === 'drop-tube' ? 'block' : 'none';
   showSetpointPanel(mode);
   syncFieldCouplingUI();
 };
@@ -538,11 +544,7 @@ window.setRenderer = (name: string): void => {
     console.warn('Use setRenderer("webgpu") or setRenderer("webgl2")');
     return;
   }
-  try {
-    localStorage.setItem('seg-renderer', n);
-  } catch (_) {
-    /* ignore */
-  }
+  persistLabConfig('renderer', n);
   window.DEBUG_RENDERER = n;
   location.reload();
 };
@@ -552,7 +554,7 @@ window.setRenderer = (name: string): void => {
  * Optional WASM/assets can delay `load`; agent hooks and sciUI must still start.
  */
 function bootApp(): void {
-  restoreSimulationSeedFromStorage();
+  restoreSimulationSeed();
   initWasm();
   renderModeButtons();
   renderSetpointPanels();
@@ -581,6 +583,8 @@ function bootApp(): void {
   }
 
   bootstrapVisualizer().then(async () => {
+    // Hard-fail page (no renderer): nothing to wire, and no rAF loop to leak.
+    if (!window.currentRenderer) return;
     wireSEGLayoutControls();
     wireHeronLayoutControls();
     syncLayoutPanelsVisibility();
@@ -624,6 +628,27 @@ function bootApp(): void {
       console.warn('[main] lab audio init skipped:', e);
     }
 
+    try {
+      // Analysis panel (#224 §4): a button + window.openAnalysis; uPlot and the
+      // panel are a lazy chunk fetched on first open.
+      installAnalysisEntry();
+    } catch (e) {
+      console.warn('[main] analysis panel entry skipped:', e);
+    }
+
+    // Offline PWA + Record control (#224 §5, docs/CLASSROOM.md) — a lazy chunk;
+    // registers a service worker only on production http(s) boots.
+    const { offline, recordControl } = labConfig();
+    import('./classroom/install')
+      .then((m) => m.installClassroom({ serviceWorker: offline, recordControl }))
+      .catch((e) => console.warn('[main] classroom init skipped:', e));
+
+    // ?experiment=<id> (also carried by a #lab2= link) opens its panel.
+    const experimentId = labConfig().experiment;
+    if (experimentId) {
+      window.lab?.openExperiment(experimentId).catch((e: unknown) => console.warn('[main] experiment panel skipped:', e));
+    }
+
     // After the explainer, audio and hardware panel exist: the mode bundle
     // reaches into all three.
     window.setLabMode = (mode) => setLabMode(mode, 'user');
@@ -664,9 +689,19 @@ function bootApp(): void {
       } else if (wrap) {
         wrap.style.display = 'none';
       }
-      requestAnimationFrame(tickClassroomUi);
+      // Stops once the renderer is gone (showWebGPUHardFail clears it).
+      if (window.currentRenderer) requestAnimationFrame(tickClassroomUi);
     };
     requestAnimationFrame(tickClassroomUi);
+
+    // `.lab.json` drop + classroom (student listener, ?embed=1, ?teacher=1). Lazy.
+    import('./config/lab-post-boot').then((m) => m.startLabPostBoot())
+      .catch((e: unknown) => console.warn('[main] lab extras skipped:', e));
+  }).catch((e) => {
+    // Renderer failures hard-fail inside bootstrapVisualizer; this is the UI
+    // wiring after it (bad #lab= link, panel init throw) — report, don't swallow.
+    console.error('[main] post-boot UI wiring failed:', e);
+    showBootWarning(`Some controls failed to initialise: ${e instanceof Error ? e.message : String(e)}`);
   });
 }
 
@@ -681,11 +716,21 @@ function fdtdSliceNote(vis: NonNullable<typeof window.multiVisualizer>): string 
   return 'Wave slice: starting…';
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', bootApp);
-} else {
-  bootApp();
+/**
+ * A `#lab2=` share link inflates asynchronously (CompressionStream); every
+ * boot-time reader must already see it, so the boot waits for that one
+ * decode. Without a #lab2= hash this resolves on the next microtask.
+ */
+function bootWhenConfigReady(): void {
+  initLabConfig().catch(() => undefined).then(bootApp);
 }
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootWhenConfigReady);
+} else {
+  bootWhenConfigReady();
+}
+installLabApi();
 
 // ── Telemetry / replay agent API ─────────────────────────────
 window.exportTelemetryCsv = () => {

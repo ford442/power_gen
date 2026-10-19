@@ -91,13 +91,16 @@ fn main(input: FragInput) -> @location(0) vec4f {
     for (var dx = -1; dx <= 1; dx++) {
       if (dx == 0 && dy == 0) { continue; }
       let offset = vec2f(f32(dx), f32(dy)) * taa.texelSize;
-      let c = textureSample(taaSceneTex, taaSampler, input.uv + offset).rgb;
+      let c = textureSampleLevel(taaSceneTex, taaSampler, input.uv + offset, 0.0).rgb;
       boxMin = min(boxMin, c);
       boxMax = max(boxMax, c);
     }
   }
 
-  let history = textureSample(taaHistoryTex, taaSampler, prevUv).rgb;
+  // Explicit LOD: after the depth-dependent early return above, control flow
+  // is non-uniform and implicit-derivative textureSample is a WGSL error
+  // (Tint rejected the module, so TAA silently never ran). Single-mip targets.
+  let history = textureSampleLevel(taaHistoryTex, taaSampler, prevUv, 0.0).rgb;
   let clamped = clamp(history, boxMin, boxMax);
 
   // How far the clamp had to move the sample is a good disocclusion signal:
@@ -106,5 +109,14 @@ fn main(input: FragInput) -> @location(0) vec4f {
   let rejection = length(clamped - history) / max(length(boxMax - boxMin), 1e-4);
   let alpha = taa.alpha * (1.0 - clamp(rejection, 0.0, 1.0));
 
-  return vec4f(mix(current.rgb, clamped, alpha), current.a);
+  // Luminance-weighted blend (Karis, "High Quality Temporal Supersampling",
+  // 2014). The linear colour pipeline (#223) stores unclipped HDR, where a
+  // plain lerp lets one 40.0 specular texel dominate the accumulation and
+  // flicker as it enters and leaves the neighbourhood box. Weighting each side
+  // by 1 / (1 + luma) blends roughly in tonemapped space; for [0,1] input the
+  // result stays close to the plain mix.
+  let wc = (1.0 - alpha) / (1.0 + dot(current.rgb, vec3f(0.2126, 0.7152, 0.0722)));
+  let wh = alpha / (1.0 + dot(clamped, vec3f(0.2126, 0.7152, 0.0722)));
+  let blended = (current.rgb * wc + clamped * wh) / max(wc + wh, 1e-5);
+  return vec4f(blended, current.a);
 }

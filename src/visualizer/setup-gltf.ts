@@ -34,6 +34,7 @@ import { computeFrameDimensions } from '../seg-frame-model';
 import type { SceneAnchor, SceneMaterial } from '../assets/scene/scene-node.js';
 import type { MultiDeviceVisualizer, GltfPickable } from '../multi-device-visualizer.js';
 import { bindHostMethods } from './bind-host-methods.js';
+import { authoredColor } from '../seg-lighting-presets';
 
 type Host = MultiDeviceVisualizer;
 
@@ -263,7 +264,8 @@ export const gltfSetupMethods: ThisType<Host> & {
       const uploaded = uploadGltfCompressedAlbedo(
         this.device,
         doc,
-        this.webgpu?.adapterInfo
+        this.webgpu?.adapterInfo,
+        this.pipelineCache?.colorTargets.mode !== 'legacy'
       );
       if (uploaded) {
         albedoTexture = uploaded.texture;
@@ -364,7 +366,7 @@ export const gltfSetupMethods: ThisType<Host> & {
       const instanceBuffer = createGltfInstanceBuffer(this.device, {
         position: [0, 0, 0],
         ringIndex: mat.ringIndex,
-        color: mat.color,
+        color: authoredColor(mat.color, this.pipelineCache?.colorTargets.mode) as [number, number, number],
         emissive: 0
       });
       this.gltfHousingDrawables!.push({

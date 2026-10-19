@@ -32,12 +32,13 @@ export function labAudioBadgeState(audio: Pick<LabAudio, 'started' | 'muted'>): 
 }
 
 /** Mount the badge and keep it in sync. No-op when audio is disabled. */
-export function initLabAudioBadge(audio: LabAudio): void {
-  if (!audio.enabled || typeof document === 'undefined') return;
-  if (document.getElementById('lab-audio-badge')) return;
+/** Returns a dispose function (listeners + poll), or null when no badge was added. */
+export function initLabAudioBadge(audio: LabAudio): (() => void) | null {
+  if (!audio.enabled || typeof document === 'undefined') return null;
+  if (document.getElementById('lab-audio-badge')) return null;
 
   const host = document.querySelector('.header-right');
-  if (!host) return;
+  if (!host) return null;
 
   const el = document.createElement('button');
   el.type = 'button';
@@ -83,15 +84,17 @@ export function initLabAudioBadge(audio: LabAudio): void {
   // click is the one that starts things, and let that click do only that.
   // The same reasoning covers the keyboard: this is a <button>, so Enter/Space
   // dispatch a synthetic click, and `LabAudio` arms a window `keydown` too.
+  const abort = new AbortController();
+  const { signal } = abort;
   let startingFromThisClick = false;
   el.addEventListener('pointerdown', () => {
     startingFromThisClick = !audio.started;
-  });
+  }, { signal });
   el.addEventListener('keydown', (event) => {
     if ((event.key === 'Enter' || event.key === ' ') && !audio.started) {
       startingFromThisClick = true;
     }
-  });
+  }, { signal });
   el.addEventListener('click', () => {
     if (startingFromThisClick) {
       startingFromThisClick = false;
@@ -103,10 +106,17 @@ export function initLabAudioBadge(audio: LabAudio): void {
     }
     audio.toggleMuted();
     sync();
-  });
+  }, { signal });
 
   host.insertBefore(el, host.firstElementChild);
   // The arming gesture may land anywhere on the page, so poll the state cheaply
   // rather than threading a callback through LabAudio for one chip of text.
-  setInterval(sync, 500);
+  // The poll stops with dispose() or once the chip leaves the DOM.
+  const dispose = (): void => abort.abort();
+  const poll = setInterval(() => {
+    if (!el.isConnected) dispose();
+    else sync();
+  }, 500);
+  signal.addEventListener('abort', () => clearInterval(poll), { once: true });
+  return dispose;
 }

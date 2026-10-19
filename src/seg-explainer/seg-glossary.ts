@@ -4,7 +4,8 @@
 
 import { SEG_DATA, PHYSICAL_CONSTANTS } from '../scientific-data';
 import { SEG_SPEC } from '../seg-operator-state';
-import { HOMOPOLAR, MAGLEV, MHD, PELTIER, PULSE_COIL_CORE } from '../../generated/physics-constants';
+import { DROP_TUBE, HOMOPOLAR, MAGLEV, MHD, PELTIER, PULSE_COIL_CORE } from '../../generated/physics-constants';
+import { dropTubeDragCoeff, dropTubeTerminalVelocity } from '../devices/quanta/drop-tube';
 
 export interface GlossaryEntry {
   title: string;
@@ -281,6 +282,31 @@ export const SEG_GLOSSARY: Record<string, GlossaryEntry> = {
     unit: 'N\u00b7s/m',
     value: `c = ${MAGLEV.cDampNsm} N\u00b7s/m`,
     source: 'physics/constants.json maglev'
+  },
+  'induced-current': {
+    title: 'Induced current',
+    body: 'A changing magnetic flux through a closed conductor drives a current round it: EMF = −dΦ/dt, I = EMF/R. A shorted ring — or one slice of a copper tube’s wall — has almost no resistance, so a modest EMF drives amps. On the jumping ring the flux changes because the supply alternates; in the drop tube it changes because the magnet moves.',
+    unit: 'A',
+    source: 'Faraday’s law of induction'
+  },
+  'lenz-force': {
+    title: 'Lenz’s law',
+    body: 'An induced current always flows in the sense that opposes the change of flux that drives it, so the force it feels opposes the motion or the change behind it. On the jumping ring that opposition is a repulsion that lifts the ring; in the drop tube it is a drag that brakes the magnet. Either way it costs energy, which is why neither is a perpetual motion.',
+    source: 'H. F. E. Lenz (1834)'
+  },
+  'terminal-velocity': {
+    title: 'Terminal velocity',
+    body: 'When a drag grows with speed, a falling body speeds up only until the drag equals its weight. For eddy drag F = k·v that speed is v_t = m·g/k, reached on the time scale τ = m/k — and it does not depend on how fast the body was going when the drag took hold.',
+    unit: 'm/s',
+    value: `v_t = ${dropTubeTerminalVelocity(DROP_TUBE.tubeSigmaMSm).toFixed(3)} m/s (copper tube)`,
+    source: 'physics/constants.json dropTube'
+  },
+  'eddy-drag': {
+    title: 'Eddy-current drag',
+    body: 'For a point dipole falling on the axis of a thin-walled tube, summing the force on every slice of wall gives F = (45/1024)·(B_r·V)²·σ·w·v/a⁴: proportional to speed and to the wall’s conductivity σ, and very sensitive to the bore radius a. A thinner, worse-conducting or wider tube brakes less.',
+    unit: 'N·s/m',
+    value: `k = ${dropTubeDragCoeff(DROP_TUBE.tubeSigmaMSm).toFixed(3)} N·s/m (copper tube)`,
+    source: 'Levin, da Silveira & Rizzato, Am. J. Phys. (2006)'
   },
   soc: {
     title: 'State of charge',

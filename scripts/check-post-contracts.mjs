@@ -19,6 +19,10 @@
  *      workgroup size and environment constants match ibl-prefilter.ts.
  *   6. Every attachable color format is priced, and the scene pass's
  *      bytes-per-sample either fits the default limit or is negotiated.
+ *   7. Colour pipeline (#223): resolveColorTargets picks a float scene and an
+ *      -srgb output on the linear path, a float canvas for ?hdr=1, the canvas
+ *      format everywhere on ?color=legacy; BloomParams' output fields sit
+ *      where packPostUniforms writes them; BloomLevel matches bloom-chain.ts.
  *
  * Usage: node scripts/check-post-contracts.mjs   (exit 1 on drift)
  */
@@ -31,9 +35,25 @@ const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 
 /** Transpile a .ts module (via the esbuild Vite already depends on) and import it directly — no ts-node/tsx dep, works on plain Node. */
+/** Bundled, so a module may import LabConfig (or anything else) like the app does. */
 async function importTs(rel) {
-  const { code } = await esbuild.transform(read(rel), { loader: 'ts', format: 'esm' });
-  return import(`data:text/javascript,${encodeURIComponent(code)}`);
+  const result = await esbuild.build({
+    entryPoints: [join(ROOT, rel)],
+    bundle: true,
+    format: 'esm',
+    platform: 'neutral',
+    mainFields: ['module', 'main'],
+    write: false,
+    logLevel: 'silent',
+    plugins: [{
+      name: 'vite-raw-stub',
+      setup(b) {
+        b.onResolve({ filter: /\?raw$/ }, (a) => ({ path: a.path, namespace: 'raw-stub' }));
+        b.onLoad({ filter: /.*/, namespace: 'raw-stub' }, () => ({ contents: 'export default "";', loader: 'js' }));
+      }
+    }]
+  });
+  return import(`data:text/javascript,${encodeURIComponent(result.outputFiles[0].text)}`);
 }
 
 const failures = [];
@@ -264,12 +284,11 @@ function check(label, condition, detail) {
 
   // Every format that can land on a color target must be priced explicitly;
   // an unlisted one silently falls back to the 16-byte worst case.
-  const manager = read('src/webgpu-init/adapter.ts');
-  const bloomFmt = /BLOOM_HDR_FORMAT:\s*GPUTextureFormat\s*=\s*'([\w-]+)'/.exec(manager);
   const attachable = [
     'bgra8unorm', 'rgba8unorm',            // getPreferredCanvasFormat() candidates
-    gbuf ? gbuf[1] : null,                 // metalness/roughness G-buffer
-    bloomFmt ? bloomFmt[1] : null          // bloom extract/blur intermediates
+    'bgra8unorm-srgb', 'rgba8unorm-srgb',  // linear pipeline's composite view
+    'rg11b10ufloat', 'rgba16float',        // linear scene / bloom; HDR canvas
+    gbuf ? gbuf[1] : null                  // metalness/roughness G-buffer
   ].filter(Boolean);
   const table = read('src/color-attachment-cost.ts');
   for (const fmt of attachable) {
@@ -280,16 +299,17 @@ function check(label, condition, detail) {
     );
   }
 
-  // The scene pass declares [canvasFormat, MATERIAL_GBUFFER_FORMAT] (ADR-0005
+  // The scene pass declares [sceneFormat, MATERIAL_GBUFFER_FORMAT] (ADR-0005
   // WS2). Its cost must either fit the guaranteed default or be requested.
+  const manager = read('src/webgpu-init/adapter.ts');
   if (gbuf) {
     const need = Math.max(
-      colorAttachmentBytesPerSample(['bgra8unorm', gbuf[1]]),
-      colorAttachmentBytesPerSample(['rgba8unorm', gbuf[1]])
+      ...['bgra8unorm', 'rgba8unorm', 'rg11b10ufloat', 'rgba16float']
+        .map((scene) => colorAttachmentBytesPerSample([scene, gbuf[1]]))
     );
     const requests = /sceneColorAttachmentLimit[\s\S]*?maxColorAttachmentBytesPerSample/.test(manager);
     check(
-      `scene pass costs ${need} B/sample (default ${DEFAULT_BPS} B)`,
+      `scene pass costs ≤ ${need} B/sample (default ${DEFAULT_BPS} B)`,
       need <= DEFAULT_BPS || requests,
       `exceeds the default and webgpu-init/adapter.ts does not request the limit`
     );
@@ -306,6 +326,72 @@ function check(label, condition, detail) {
     colorAttachmentBytesPerSample(['rg8unorm', null]) === 2,
     `expected 2, got ${colorAttachmentBytesPerSample(['rg8unorm', null])}`
   );
+}
+
+// ── 7. Colour pipeline (#223) ───────────────────────────────────────────────
+{
+  const { resolveColorTargets, postOutputTransfer } = await importTs('src/webgpu-init/color-pipeline.ts');
+  const feats = (...names) => new Set(names);
+  const rg = 'rg11b10ufloat-renderable';
+
+  const lin = resolveColorTargets({ mode: 'linear', preferredCanvasFormat: 'bgra8unorm', features: feats(rg), hdrRequested: false });
+  check('linear: rg11b10ufloat scene when renderable', lin.sceneFormat === 'rg11b10ufloat', lin.sceneFormat);
+  check('linear: composite writes the -srgb view', lin.outputFormat === 'bgra8unorm-srgb'
+    && lin.canvasViewFormats.includes('bgra8unorm-srgb') && !lin.shaderEncodesOutput,
+    JSON.stringify(lin));
+  check('linear: outputTransfer 1 (hardware encode)', postOutputTransfer(lin) === 1, String(postOutputTransfer(lin)));
+
+  const lin16 = resolveColorTargets({ mode: 'linear', preferredCanvasFormat: 'rgba8unorm', features: feats(), hdrRequested: false });
+  check('linear: rgba16float scene without rg11b10ufloat-renderable',
+    lin16.sceneFormat === 'rgba16float' && lin16.bloomFormat === 'rgba16float', lin16.sceneFormat);
+  check('linear: rgba8unorm canvas → rgba8unorm-srgb view', lin16.outputFormat === 'rgba8unorm-srgb', lin16.outputFormat);
+
+  const hdr = resolveColorTargets({ mode: 'linear', preferredCanvasFormat: 'bgra8unorm', features: feats(rg), hdrRequested: true });
+  check('hdr: rgba16float canvas, extended, shader-encoded',
+    hdr.canvasFormat === 'rgba16float' && hdr.outputFormat === 'rgba16float'
+      && hdr.hdrOutput && hdr.shaderEncodesOutput && postOutputTransfer(hdr) === 2,
+    JSON.stringify(hdr));
+
+  const leg = resolveColorTargets({ mode: 'legacy', preferredCanvasFormat: 'bgra8unorm', features: feats(rg), hdrRequested: true });
+  check('legacy: everything in the canvas format, no HDR, no encode',
+    leg.sceneFormat === 'bgra8unorm' && leg.outputFormat === 'bgra8unorm' && !leg.hdrOutput
+      && postOutputTransfer(leg) === 0 && leg.bloomFormat === 'rg11b10ufloat',
+    JSON.stringify(leg));
+
+  // BloomParams field order ↔ the indices packPostUniforms writes.
+  const { packPostUniforms, getLightingPreset } = await importTs('src/seg-lighting-presets.ts');
+  const fields = [...read('src/shaders/common/bloom-params.wgsl')
+    .matchAll(/^\s*(\w+)\s*:\s*f32\s*,/gm)].map((m) => m[1]);
+  const packed = packPostUniforms({
+    preset: getLightingPreset('studio'), outputLinearHdr: true, bloomChainLevels: 4, outputTransfer: 2
+  });
+  const at = (name) => packed[fields.indexOf(name)];
+  check('BloomParams.outputLinearHdr packed', at('outputLinearHdr') === 1, String(at('outputLinearHdr')));
+  check('BloomParams.bloomChainScale = 1 / levels', at('bloomChainScale') === 0.25, String(at('bloomChainScale')));
+  check('BloomParams.outputTransfer packed', at('outputTransfer') === 2, String(at('outputTransfer')));
+  const legacyPacked = packPostUniforms({ preset: getLightingPreset('studio') });
+  check('legacy defaults: chain scale 0, transfer 0',
+    legacyPacked[fields.indexOf('bloomChainScale')] === 0 && legacyPacked[fields.indexOf('outputTransfer')] === 0,
+    'packPostUniforms defaults changed');
+
+  // BloomLevel ↔ bloom-chain.ts.
+  const { BLOOM_LEVEL_FLOATS, BLOOM_LEVEL_STRIDE, bloomChainSizes, packBloomLevel } =
+    await importTs('src/visualizer/bloom-chain.ts');
+  const lvl = /struct BloomLevel \{([\s\S]*?)\n\}/.exec(read('src/shaders/common/bloom-level.wgsl'));
+  check('bloom-level.wgsl: has BloomLevel', !!lvl, 'struct not found');
+  if (lvl) {
+    const floats = [...lvl[1].matchAll(/:\s*vec2f\s*,/g)].length * 2 + [...lvl[1].matchAll(/:\s*f32\s*,/g)].length;
+    check(`BloomLevel is ${floats} floats`, floats === BLOOM_LEVEL_FLOATS && packBloomLevel(
+      { width: 4, height: 4 }, { width: 2, height: 2 }).length === BLOOM_LEVEL_FLOATS,
+      `WGSL ${floats}, BLOOM_LEVEL_FLOATS ${BLOOM_LEVEL_FLOATS}`);
+  }
+  check('BloomLevel slots honour the 256 B uniform offset alignment', BLOOM_LEVEL_STRIDE % 256 === 0,
+    String(BLOOM_LEVEL_STRIDE));
+  const sizes1080 = bloomChainSizes(1920, 1080);
+  check(`1080p chain: ${sizes1080.length} levels from ${sizes1080[0].width}×${sizes1080[0].height}`,
+    sizes1080.length === 6 && sizes1080[0].width === 960 && sizes1080[0].height === 540,
+    JSON.stringify(sizes1080));
+  check('tiny canvas still gets one level', bloomChainSizes(3, 3).length === 1, JSON.stringify(bloomChainSizes(3, 3)));
 }
 
 for (const line of ok) console.log(`  ok: ${line}`);

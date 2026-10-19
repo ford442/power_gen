@@ -11,12 +11,14 @@
  *   2. Precedence: an explicit flag beats the bundle (look, audio, class, each
  *      bus separately); an explicit-on bus or classroom keeps its controls on
  *      screen; a hand-set look never gets overwritten.
- *   3. Resolution: `?labMode=` beats the remembered mode; junk is ignored.
+ *   3. Resolution: `?labMode=` beats the remembered mode; junk is ignored;
+ *      values go through the one LabConfig parser (src/config/lab-config.ts).
  *   4. Setpoints: catalog rows validate, their ranges match the plant constants
  *      they stand in for, writes clamp, `api` is preferred over `stateKey`, and
  *      a releasable setpoint returns control to the plant.
- *   5. Plants: a pinned Halbach N / pulse-coil target is honoured, an unset one
- *      changes nothing, and the drive still decides what it always decided.
+ *   5. Plants: a pinned Halbach N / pulse-coil target / drop-tube σ is honoured,
+ *      an unset one changes nothing, and the drive still decides what it always
+ *      decided.
 
  *   6. Live region: one sentence, mode + one number, never NaN.
  *   7. Structure: no UI framework and no new runtime dependency.
@@ -63,6 +65,9 @@ function check(label, condition, detail) {
 }
 
 const lm = await importTsBundle('src/lab-mode.ts');
+const shareUrl = await importTsBundle('src/config/share-url.ts');
+/** A share hash as boot sees it: decoded (both codecs are a lazy chunk). */
+const hashFields = (h) => shareUrl.decodeHashFields(h);
 const MODES = lm.LAB_MODES;
 
 // ── 1. Presets ─────────────────────────────────────────────────────────────
@@ -99,26 +104,27 @@ const MODES = lm.LAB_MODES;
 
   const drama = lm.planLabMode('showroom', { look: 'drama' });
   check('?look=drama beats the showroom look', drama.look === null, String(drama.look));
+  // Overrides are parsed LabConfig values: an unknown look never becomes one.
   check('an invalid ?look= does not suppress the preset look',
-    lm.planLabMode('showroom', { look: 'neon' }).look === 'studio', 'invalid look swallowed the preset');
+    lm.planLabMode('showroom', lm.readLabModeOverrides('?look=neon')).look === 'studio', 'invalid look swallowed the preset');
 
-  check('?audio=1 keeps showroom from muting', lm.planLabMode('showroom', { audio: '1' }).muteAudio === false, 'muted anyway');
+  check('?audio=1 keeps showroom from muting', lm.planLabMode('showroom', { audio: true }).muteAudio === false, 'muted anyway');
   check('showroom without ?audio mutes (it never starts audio)', plain.muteAudio === true, 'not muted');
 
-  const fieldOn = lm.planLabMode('showroom', { fieldCoupling: '1' });
+  const fieldOn = lm.planLabMode('showroom', { fieldCoupling: true });
   check('?fieldCoupling=1 is not forced off by showroom, the other buses still are',
     !fieldOn.forceOff.fieldCoupling && fieldOn.forceOff.chargeCoupling && fieldOn.forceOff.energyCoupling,
     JSON.stringify(fieldOn.forceOff));
   check('an explicit-on bus keeps its controls on screen in showroom',
     fieldOn.showCouplingControls === true, 'live bus with hidden switch');
-  const fieldOff = lm.planLabMode('showroom', { fieldCoupling: '0' });
+  const fieldOff = lm.planLabMode('showroom', { fieldCoupling: false });
   check('an explicit-off bus is left alone and does not reveal the controls',
     !fieldOff.forceOff.fieldCoupling && fieldOff.showCouplingControls === false, JSON.stringify(fieldOff));
 
-  const cls = lm.planLabMode('showroom', { classroom: '1' });
+  const cls = lm.planLabMode('showroom', { classroom: true });
   check('?class=1 keeps classroom on and the explainer visible in showroom',
     !cls.classroomOff && cls.showExplainer === true, JSON.stringify(cls));
-  check('?class=0 does not reveal the explainer', lm.planLabMode('showroom', { classroom: '0' }).showExplainer === false, 'revealed');
+  check('?class=0 does not reveal the explainer', lm.planLabMode('showroom', { classroom: false }).showExplainer === false, 'revealed');
 
   for (const m of ['lab', 'twin']) {
     const p = lm.planLabMode(m, {});
@@ -137,16 +143,22 @@ const MODES = lm.LAB_MODES;
   check('no param and nothing stored → no mode', lm.resolveBootLabMode('?renderer=webgl2', null) === null, 'invented a mode');
   check('junk ?labMode= falls back to the remembered mode', lm.resolveBootLabMode('?labMode=disco', 'lab') === 'lab', 'junk accepted');
   check('junk everywhere → no mode', lm.resolveBootLabMode('?labMode=disco', 'disco') === null, 'junk accepted');
-  check('mode names are case-sensitive and exact', lm.resolveBootLabMode('?labMode=Lab', null) === null, 'Lab accepted');
+  // One tolerant LabConfig parser: enum values match case-insensitively.
+  check('mode names match case-insensitively', lm.resolveBootLabMode('?labMode=Lab', null) === 'lab', 'Lab rejected');
+  check('a remembered mode is parsed the same way', lm.resolveBootLabMode('', 'TWIN') === 'twin', 'stored TWIN rejected');
 
   const o = lm.readLabModeOverrides('?look=drama&audio=1&class=1&fieldCoupling=0&chargeCoupling=1&renderer=webgl2');
   check('overrides read look/audio/class/buses and nothing else',
-    o.look === 'drama' && o.audio === '1' && o.classroom === '1' && o.fieldCoupling === '0'
-      && o.chargeCoupling === '1' && o.energyCoupling === undefined && !('renderer' in o), JSON.stringify(o));
+    o.look === 'drama' && o.audio === true && o.classroom === true && o.fieldCoupling === false
+      && o.chargeCoupling === true && o.energyCoupling === undefined && !('renderer' in o), JSON.stringify(o));
+  check('an unparsable flag is not an override', !('audio' in lm.readLabModeOverrides('?audio=maybe')), 'audio=maybe counted');
+  check('booleans take on/off/yes/no', lm.readLabModeOverrides('?fieldCoupling=on&chargeCoupling=no').chargeCoupling === false
+    && lm.readLabModeOverrides('?fieldCoupling=on').fieldCoupling === true, 'tolerant booleans lost');
   check('?lighting= is the same override as ?look=', lm.readLabModeOverrides('?lighting=lab').look === 'lab', 'alias lost');
   check('a #lab= share link with class=1 is an explicit classroom',
-    lm.readLabModeOverrides('', '#lab=v1;mode=seg;class=1;tour=1').classroom === '1', 'hash class lost');
-  check('a #lab= link without class=1 is not', lm.readLabModeOverrides('', '#lab=v1;mode=seg').classroom === undefined, 'hash class invented');
+    lm.readLabModeOverrides('', await hashFields('#lab=v1;mode=seg;class=1;tour=1')).classroom === true, 'hash class lost');
+  check('the URL outranks the share link', lm.readLabModeOverrides('?class=0', await hashFields('#lab=v1;class=1')).classroom === false, 'hash beat URL');
+  check('a #lab= link without class=1 is not', lm.readLabModeOverrides('', await hashFields('#lab=v1;mode=seg')).classroom === undefined, 'hash class invented');
   check('storage key is seg-lab-mode', lm.LAB_MODE_STORAGE_KEY === 'seg-lab-mode', lm.LAB_MODE_STORAGE_KEY);
 }
 
@@ -158,8 +170,8 @@ const consts = JSON.parse(read('physics/constants.json'));
   const rows = [];
   for (const d of cat.devices) for (const s of d.setpoints || []) rows.push({ ...s, deviceId: d.id });
   const ids = rows.map((r) => r.id);
-  check('catalog declares the Lorentz, Halbach and pulse-coil setpoints',
-    ['lorentzField', 'halbachSegments', 'pulseCoilCharge'].every((i) => ids.includes(i)), ids.join());
+  check('catalog declares the Lorentz, Halbach, pulse-coil and drop-tube setpoints',
+    ['lorentzField', 'halbachSegments', 'pulseCoilCharge', 'dropTubeSigma'].every((i) => ids.includes(i)), ids.join());
   check('setpoint ids are unique', new Set(ids).size === ids.length, ids.join());
   check('generated DEVICE_SETPOINTS matches the catalog row for row',
     sp.setpointsForDevice('lorentz-sled').length === 1 && sp.setpointById('halbachSegments')?.deviceId === 'halbach-viz'
@@ -178,6 +190,10 @@ const consts = JSON.parse(read('physics/constants.json'));
     `${hal.min}..${hal.max} vs ${findKey(consts, 'segmentMin')}..${findKey(consts, 'segmentMax')}`);
   const pc = sp.setpointById('pulseCoilCharge');
   check('pulse-coil slider max == vChargeMax', pc.max === findKey(consts, 'vChargeMax'), `${pc.max} vs ${findKey(consts, 'vChargeMax')}`);
+  const tube = sp.setpointById('dropTubeSigma');
+  check('drop-tube σ slider spans 0..sigmaMaxMSm and reaches the catalog tube',
+    tube?.min === 0 && tube?.max === consts.dropTube.sigmaMaxMSm && consts.dropTube.tubeSigmaMSm <= tube?.max,
+    `${tube?.min}..${tube?.max} vs 0..${consts.dropTube.sigmaMaxMSm}`);
 
   // Write semantics against a fake window.
   const calls = [];
@@ -260,6 +276,21 @@ function findKey(obj, key) {
     zero.pulseCoilVCap < 1, `${zero.pulseCoilVCap}`);
   const nanPc = settle({ pulseCoilVCap: 0, pulseCoilChargeSetpointV: Number.NaN }, 0.05);
   check('pulse-coil NaN setpoint falls back to drive × V_max', Math.abs(nanPc.pulseCoilVCap - noSet.pulseCoilVCap) < 1e-9, `${nanPc.pulseCoilVCap}`);
+
+  // Drop tube: a pinned σ sets the terminal velocity; unset / NaN is the catalog copper.
+  const dtm = await importTsBundle('src/devices/quanta/drop-tube.ts');
+  const midTube = (extra) => {
+    const st = { ...dtm.createDropTubePhysicsState(), ...extra };
+    for (let i = 0; i < 6000 && !(st.dropTubeDepthM > dtm.TUBE.tubeLengthM / 2); i++) dtm.stepDropTubePhysics(st, 1 / 60, 0.5);
+    return st;
+  };
+  const cu = midTube({});
+  check('drop-tube unset: falls at the catalog tube\'s v_t', Math.abs(cu.dropTubeVMps - dtm.dropTubeTerminalVelocity(dtm.TUBE.tubeSigmaMSm)) < 1e-3 * cu.dropTubeVMps,
+    `${cu.dropTubeVMps}`);
+  const half = midTube({ dropTubeSigmaSetpointMSm: dtm.TUBE.tubeSigmaMSm / 2 });
+  check('drop-tube pinned at half σ: twice the terminal velocity', Math.abs(half.dropTubeVMps / cu.dropTubeVMps - 2) < 2e-3, `${half.dropTubeVMps / cu.dropTubeVMps}`);
+  const nanTube = midTube({ dropTubeSigmaSetpointMSm: Number.NaN });
+  check('drop-tube NaN σ falls back to the catalog tube', nanTube.dropTubeSigmaMSm === dtm.TUBE.tubeSigmaMSm, String(nanTube.dropTubeSigmaMSm));
 }
 
 // ── 6. Live region ─────────────────────────────────────────────────────────
@@ -281,6 +312,26 @@ function findKey(obj, key) {
     lr.headlineFor({ view: 'pulse-coil', seg: null, devices: {} }) === 'Pulse Coil (R–L)', lr.headlineFor({ view: 'pulse-coil', seg: null, devices: {} }));
 }
 
+// ── 6b. Tours: every glossary term a step names exists ─────────────────────
+{
+  const tp = await importTsBundle('src/seg-explainer/seg-tour-player.ts');
+  const ts = await importTsBundle('src/seg-explainer/tour-scripts.ts');
+  const gl = await importTsBundle('src/seg-explainer/seg-glossary.ts');
+  const missing = [];
+  check('every LAB_TOURS row has a script (tour-scripts.ts)', tp.LAB_TOURS.every((d) => ts.TOUR_SCRIPTS[d.key]?.steps?.length),
+    tp.LAB_TOURS.filter((d) => !ts.TOUR_SCRIPTS[d.key]).map((d) => d.key).join(', '));
+  for (const def of tp.LAB_TOURS) {
+    for (const step of ts.TOUR_SCRIPTS[def.key]?.steps || []) {
+      if (step.glossaryTerm && !gl.SEG_GLOSSARY[step.glossaryTerm]) missing.push(`${def.key}:${step.id}→${step.glossaryTerm}`);
+    }
+  }
+  check('every tour step\'s glossaryTerm resolves (a missing one silently shows nothing)', missing.length === 0, missing.join(', '));
+  const tube = tp.LAB_TOURS.find((t) => t.mode === 'drop-tube');
+  const last = tube && ts.TOUR_SCRIPTS[tube.key].steps.at(-1);
+  check('drop-tube tour closes on what the model is not', /not/i.test(last?.title ?? '') && /thermal/i.test(last?.body ?? '')
+    && /not a brake-design tool/i.test(last?.body ?? ''), last?.title ?? 'no drop-tube tour');
+}
+
 // ── 7. Structure ───────────────────────────────────────────────────────────
 {
   const pkg = JSON.parse(read('package.json'));
@@ -290,7 +341,8 @@ function findKey(obj, key) {
   const idx = read('src/index.html');
   check('index.html carries only the header host + setpoint host, no per-device slider markup',
     idx.includes('id="lab-mode-switch"') && idx.includes('id="device-setpoints"') && !idx.includes('id="lorentzFieldSlider"')
-      && !idx.includes('id="halbachSegmentsSlider"') && !idx.includes('id="pulseCoilChargeSlider"'), 'hand-wired slider crept back');
+      && !idx.includes('id="halbachSegmentsSlider"') && !idx.includes('id="pulseCoilChargeSlider"')
+      && !idx.includes('id="dropTubeSigmaSlider"'), 'hand-wired slider crept back');
 }
 
 for (const line of ok) console.log(`  ok: ${line}`);

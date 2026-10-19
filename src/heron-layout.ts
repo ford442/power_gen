@@ -5,6 +5,7 @@
  * dimensions used by Swamee–Jain friction + Bernoulli exit velocity.
  */
 import type { HeronLayout } from './renderers/shared/device-physics';
+import { labConfigFor } from './config/lab-config';
 
 export type HeronLayoutPresetId = 'classic' | 'compact' | 'tower' | 'wide' | 'spiral';
 
@@ -355,9 +356,14 @@ export function buildHeronMesh(presetId: string): HeronMeshBundle {
   };
 }
 
-export function parseHeronLayoutPreset(params: URLSearchParams = new URLSearchParams()): HeronLayoutPresetId {
-  const p = params.get('heronLayout');
-  if (p && p in PRESET_DEFS) return p as HeronLayoutPresetId;
+/**
+ * `?heronLayout=` (or a share link, or the remembered choice — LabConfig
+ * precedence, URL first); `params` (tests) is the whole query. A window
+ * override applies only when none of those chose a preset.
+ */
+export function parseHeronLayoutPreset(params?: URLSearchParams): HeronLayoutPresetId {
+  const r = labConfigFor(params);
+  if (r.sources.heronLayout !== 'default') return r.config.heronLayout;
   const win = typeof window !== 'undefined' ? (window as unknown as { HERON_LAYOUT_PRESET?: string }) : undefined;
   if (win?.HERON_LAYOUT_PRESET && win.HERON_LAYOUT_PRESET in PRESET_DEFS) {
     return win.HERON_LAYOUT_PRESET as HeronLayoutPresetId;

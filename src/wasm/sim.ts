@@ -3,7 +3,7 @@
 // =============================================================
 
 import { loadSimCore, getSimCore } from './index';
-import type { SEGSimulatorInstance, Vec3, SimParticle } from './types';
+import type { SEGSimulatorInstance, SimCoreModule, Vec3, SimParticle } from './types';
 import { WASM_MODE_BY_ID, WASM_DEVICE_IDS } from '../../generated/device-catalog';
 
 export interface SEGNetworkSummary {
@@ -67,19 +67,30 @@ export class SEGSim {
   private _sim: SEGSimulatorInstance | null = null;
   private _simTimeS = 0;
   private _heapF32: Float32Array | null = null;
+  /** Module this simulator came from when not the page's cached one (Node, tests). */
+  private _mod: SimCoreModule | null = null;
 
   get wasmAvailable(): boolean {
     return this._sim !== null;
   }
 
-  private constructor(sim: SEGSimulatorInstance | null) {
+  private constructor(sim: SEGSimulatorInstance | null, mod: SimCoreModule | null = null) {
     this._sim = sim;
+    this._mod = mod;
     this._refreshHeap();
   }
 
   private _refreshHeap() {
-    const mod = getSimCore() as { HEAPF32?: Float32Array } | null;
+    const mod = (this._mod ?? getSimCore()) as { HEAPF32?: Float32Array } | null;
     this._heapF32 = mod?.HEAPF32 ?? null;
+  }
+
+  /**
+   * A simulator on an already-instantiated module — the headless experiment
+   * runner in Node loads `sim_core.js` itself (no fetch, no `<script>`).
+   */
+  static fromModule(mod: SimCoreModule): SEGSim {
+    return new SEGSim(new mod.SEGSimulator(), mod);
   }
 
   static async create(): Promise<SEGSim> {
@@ -406,10 +417,6 @@ export class SEGSim {
 
   getParticles(maxCount = -1): SimParticle[] {
     if (!this._sim) return [];
-    if (typeof this._sim.getParticles === 'function') {
-      const arr = this._sim.getParticles(maxCount);
-      return Array.isArray(arr) ? arr : [];
-    }
     const total = this._sim.numParticles();
     const n = maxCount >= 0 && maxCount < total ? maxCount : total;
     const out: SimParticle[] = [];
@@ -493,20 +500,43 @@ export class SEGSim {
     );
   }
 
+  /**
+   * Per-frame: levels then enabled flags go straight into the C++ scratch via
+   * HEAPF32 (no JS→vector marshalling, nothing to .delete()).
+   */
   updateEnergyNetwork(input: SEGNetworkUpdateInput): SEGNetworkSummary {
-    if (!this._sim?.updateEnergyNetwork) {
-      return { couplingEnabled: false, labBudgetW: 0, totalAllocatedW: 0, residualW: 0 };
+    const sim = this._sim;
+    // Throw, not a zero summary: a stale (< 1.5.0) sim_core has no scratch
+    // exports, and EnergyNetwork only falls back to the JS bus on a throw.
+    if (!sim?.updateEnergyNetworkFromScratch || !sim.getScratchPtr) {
+      throw new Error('sim_core has no updateEnergyNetworkFromScratch (stale binary?)');
     }
-    const energyLevels = WASM_DEVICE_IDS.map((id) => input.energyByDevice[id] ?? 0);
-    const enabledFlags = WASM_DEVICE_IDS.map((id) => (input.enabledByDevice[id] !== false ? 1 : 0));
-    this._sim.updateEnergyNetwork(
+    const n = WASM_DEVICE_IDS.length;
+    const ptr = Number(sim.getScratchPtr(2 * n));
+    this._refreshHeap();
+    const heap = this._heapF32;
+    if (!heap || !ptr) throw new Error('sim_core scratch unavailable (no HEAPF32)');
+    const base = ptr >> 2;
+    for (let i = 0; i < n; i++) {
+      const id = WASM_DEVICE_IDS[i];
+      heap[base + i] = input.energyByDevice[id] ?? 0;
+      heap[base + n + i] = input.enabledByDevice[id] !== false ? 1 : 0;
+    }
+    sim.updateEnergyNetworkFromScratch(
       input.couplingEnabled,
       input.segPowerW,
       input.segEfficiencyPct,
-      energyLevels,
-      enabledFlags
+      n
     );
     return this.getNetworkSummary();
+  }
+
+  /**
+   * The Embind instance, for lazy chunks that drive a binding this wrapper
+   * does not (plant snapshots: src/wasm/plant-state-io.ts).
+   */
+  get raw(): SEGSimulatorInstance | null {
+    return this._sim;
   }
 
   getNetworkSummary(): SEGNetworkSummary {

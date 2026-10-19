@@ -36,7 +36,9 @@ export interface VisualizerInitMethods {
    */
   _bootGpuState(): Promise<void>;
   /**
-   * `onDeviceLost` handler (ADR-0007: same adapter, no second device). Re-runs
+   * `onDeviceLost` handler (ADR-0007: one live device — the lost one is dead;
+   * `WebGPUManager.reinit()` re-requests the adapter, which the first
+   * `requestDevice` consumed). Re-runs
    * {@link _bootGpuState} on the freshly re-created device. `LabSession` and
    * the module-level plant singletons it reads (`segOperator`, `segWasm`) are
    * never touched here, so the sim keeps running through the outage instead
@@ -61,7 +63,9 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
 
       // Pointer/wheel listeners on the canvas — one-time only. _bootGpuState()
       // re-runs on device-lost recovery and must not double-register these.
-      this.camera.setupInteraction(this.canvas, (mode: string) => this.switchMode(mode));
+      // Double-tap focus reads cameraController through a getter: device-lost
+      // recovery rebuilds it, and these listeners outlive that.
+      this.camera.setupInteraction(this.canvas, (mode: string) => this.switchMode(mode), () => this.cameraController);
 
       this.render(0);
 
@@ -93,12 +97,28 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
         hardwareTwin: telemetryHub.getSnapshot()?.hardwareTwin ?? null,
         chores: gpuChores.breadcrumb(),
         plant: { ...this.session.plantStats },
+        energyBus: { ...this.session.energyNetwork.busStatus(), wasmPlantError: this.session.wasmPlantError },
+        segPartModes: (this.devices.seg as { segPartModes?: () => Record<string, number> } | undefined)?.segPartModes?.() ?? {},
         textureCompression: this.webgpu.textureCompressionUsed !== 'none'
           ? this.webgpu.textureCompressionUsed
-          : this.webgpu.textureCompression
+          : this.webgpu.textureCompression,
+        colorPipeline: this.webgpu.colorTargets
+          ? {
+              mode: this.webgpu.colorTargets.mode,
+              canvasFormat: this.webgpu.colorTargets.canvasFormat,
+              outputFormat: this.webgpu.colorTargets.outputFormat,
+              sceneFormat: this.webgpu.colorTargets.sceneFormat,
+              bloomFormat: this.webgpu.colorTargets.bloomFormat,
+              hdrOutput: this.webgpu.colorTargets.hdrOutput,
+              bloomLevels: this.bloomChain?.levels ?? 0
+            }
+          : undefined,
+        gpuMemory: this.profiler?.gpuMemoryEstimate()
       });
 
       window.runSEGSpeedTest = (speeds?: number[], durationMs?: number) => this.runSpeedTest(speeds, durationMs);
+      // Debug / e2e: destroy the device as a flagged test loss → recoverFromDeviceLoss.
+      window.simulateDeviceLost = () => this.webgpu.simulateDeviceLost();
 
       try {
         this.segAnnotations = initSEGAnnotations(() => this);
@@ -158,7 +178,7 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
   },
 
   async recoverFromDeviceLoss(info) {
-    console.error('[MultiDeviceVisualizer] GPU device lost — attempting re-init on existing adapter', info);
+    console.error('[MultiDeviceVisualizer] GPU device lost — re-requesting adapter + device', info);
     this._deviceRecovering = true;
 
     const reinitOk = await this.webgpu.reinit();
@@ -177,6 +197,23 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
       // GPU objects unconditionally and just overwrites the dead references.
       this.iblResources = null;
       this.iblCompute = undefined;
+      // _syncCanvasSize skips the depth/bloom rebuild when the size is unchanged
+      // and a depth texture exists, and setupSsrTexture memoises on size — both
+      // would keep the dead device's textures, and every post bind group built
+      // from them fails validation (no frame ever draws after recovery).
+      this.depthTexture = null;
+      this._lastCanvasWidth = 0;
+      this._lastCanvasHeight = 0;
+      this.ssrTexture = null;
+      // Post params + sampler: _syncCanvasSize rebuilds the bloom/SSR/TAA bind
+      // groups *before* setup{Bloom,Ssr,Taa}Pipeline recreate these, so live
+      // dead-device handles meant one burst of "associated with [Device]"
+      // validation errors per recovery. Null → the rebuilders' guards skip
+      // until the setup calls create fresh ones and rebuild again.
+      this.bloomSampler = null;
+      this.bloomParamsBuffer = null;
+      this.ssrParamsBuffer = null;
+      this.taaParamsBuffer = null;
       this.fdtdSlice?.destroy();
       this.fdtdSlice = undefined;
       this._fdtdSliceInit = null;
@@ -202,7 +239,7 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
   async _bootGpuState() {
       // Explicit bind-group / pipeline layouts + shared device pipelines (once)
       this.pipelineCache = new PipelineLayoutCache(this.device, {
-        canvasFormat: this.webgpu.canvasFormat || navigator.gpu.getPreferredCanvasFormat(),
+        colorTargets: this.webgpu.colorTargets!,
         depthFormat: this.depthFormat
       });
       await this.pipelineCache.ensureDevicePipelines(this.shaders);

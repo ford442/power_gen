@@ -20,6 +20,14 @@
  *      flushes before the link closes; a transport switch coasts the old link
  *      first; and a dropped link clears the manual override.
  *   7. BLE asks for a throttle the firmware watchdog can live with.
+ *   8. Protocol v2 hello: the host parses what seg_safety.h prints, asks with
+ *      `V2` (after the P, at most five times), gives up on a v1 board and still
+ *      drives and coasts it with v1 lines only, forgets the hello with the link,
+ *      and its version / watchdog match firmware/seg-driver/protocol.h.
+ *   9. A WebUSB read pump from a previous open cannot report a drop on, or
+ *      read alongside, the next open (generation counter + awaited loop).
+ *  10. `bridge.on(...)` delivers to every subscriber, unsubscribes, and a
+ *      throwing listener does not stop the others.
  *
  * Usage: node scripts/test-hardware-transports.mjs   (exit 1 on failure)
  */
@@ -350,6 +358,259 @@ class FakeTransport extends LineTransport {
   await bridge.disconnect();
   check('closing the link restores the configured period',
     bridge.commandThrottleMs === defaultThrottle, `${bridge.commandThrottleMs} ms`);
+}
+
+// ── 8. Protocol v2 hello (firmware/seg-driver, #217 WS C) ──────────────────
+{
+  const shared = await importTsBundle('src/hardware-protocol-shared.ts');
+  const twin = await importTsBundle('src/visualizer/hardware-twin.ts');
+  const { parseFirmwareHello, HOST_PROTOCOL_VERSION, HELLO_COMMAND, HELLO_ATTEMPTS } = shared;
+  const { MockSerialTransport } = bridgeMod;
+
+  // The firmware's own numbers, read from the header the sketch compiles.
+  const protocolH = read('firmware/seg-driver/protocol.h');
+  const define = (name) => Number(protocolH.match(new RegExp(`#define\\s+${name}\\s+(\\d+)`))?.[1]);
+  const fwVersion = define('PROTOCOL_VERSION');
+  const fwWatchdog = define('WATCHDOG_TIMEOUT_MS');
+  const fwBrake = `${define('BRAKE_PWM_MAX')}/${define('BRAKE_MAX_MS')}`;
+  check(`host protocol v${HOST_PROTOCOL_VERSION} = protocol.h PROTOCOL_VERSION`,
+    HOST_PROTOCOL_VERSION === fwVersion, `host ${HOST_PROTOCOL_VERSION}, firmware ${fwVersion}`);
+  check(`host watchdogMs = protocol.h WATCHDOG_TIMEOUT_MS (${fwWatchdog} ms)`,
+    new HardwareBridge().watchdogMs === fwWatchdog, `host ${new HardwareBridge().watchdogMs}`);
+  check('hello request is "V2"', HELLO_COMMAND === 'V2', HELLO_COMMAND);
+
+  // Parse what the firmware actually prints: fill seg_safety.h's format string.
+  const safetyH = read('firmware/seg-driver/seg_safety.h');
+  const fmt = safetyH.match(/"(I v=%u[^"]*)"/)?.[1] ?? '';
+  const args = [String(fwVersion), 'uno', 'serial', '6', '2', String(fwWatchdog), ...fwBrake.split('/')];
+  let ai = 0;
+  const printed = fmt.replace(/%[us]/g, () => args[ai++]);
+  check('seg_safety.h hello format found (8 fields)', fmt !== '' && ai === 8, `format ${JSON.stringify(fmt)}, ${ai} fields`);
+  const hello = parseFirmwareHello(printed);
+  check('firmware hello parses', hello?.protocol === fwVersion && hello.firmware === 'seg-driver'
+    && hello.board === 'uno' && hello.link === 'serial' && hello.coils === 6 && hello.halls === 2
+    && hello.watchdogMs === fwWatchdog && `${hello.brakePwmMax}/${hello.brakeMaxMs}` === fwBrake,
+  `${printed} → ${JSON.stringify(hello)}`);
+  check('hello parses without the leading I', parseFirmwareHello('v=2 board=mega')?.board === 'mega',
+    JSON.stringify(parseFirmwareHello('v=2 board=mega')));
+
+  for (const [label, line] of [
+    ['ordinary info line', 'ISEG Driver Ready'],
+    ['mock config ack', 'Iconfig_ack:8,0.0,67.5,0.0'],
+    ['v=1 (v1 never says hello)', 'I v=1 fw=seg-driver'],
+    ['non-numeric version', 'I v=two board=uno'],
+    ['signed version', 'I v=+2 board=uno'],
+    ['key not first', 'I fw=seg-driver v=2']
+  ]) {
+    check(`not a hello: ${label}`, parseFirmwareHello(line) === null, JSON.stringify(parseFirmwareHello(line)));
+  }
+  const hostile = parseFirmwareHello('I v=2 board=<img/src=x> link=serial coils=-3 wd=1e9 brake=128');
+  check('hostile hello fields are sanitised',
+    hostile?.board === 'unknown' && hostile.coils === null && hostile.watchdogMs === null
+      && hostile.brakePwmMax === 128 && hostile.brakeMaxMs === null && hostile.firmware === 'unknown',
+    JSON.stringify(hostile));
+
+  /** Lines the host may ever put on the wire: v1 commands plus the hello. */
+  const WIRE = /^(P\d+(\.\d+)?,-?\d+(\.\d+)?,[012]|C\d+,\d+,\d+|CONF\d+,-?\d+\.\d,-?\d+\.\d,-?\d+\.\d|V2)$/;
+  const sent = (t) => t.written.map((w) => w.trim());
+  const helloCount = (t) => sent(t).filter((l) => l === HELLO_COMMAND).length;
+  /** Make the next update() eligible to send both a command and a hello. */
+  const rewind = (b) => { b._lastCommandTime = -Infinity; b._lastHelloAt = -Infinity; };
+
+  // A v1 board: never answers. The host retries, gives up, and drives it anyway.
+  {
+    const bridge = new HardwareBridge();
+    const v1 = new FakeTransport();
+    await bridge.connectTransport(v1);
+    bridge.setTarget(90, 60);
+    bridge.update();
+    const first = sent(v1);
+    check('connect asks for the hello', helloCount(v1) === 1, first.join(' | '));
+    check('the hello goes after this frame\'s P (never delays a watchdog feed)',
+      first.findIndex((l) => l.startsWith('P')) < first.indexOf(HELLO_COMMAND), first.join(' | '));
+    bridge._lastCommandTime = -Infinity;
+    bridge.update();
+    check('no second hello inside a second', helloCount(v1) === 1, `${helloCount(v1)} hellos`);
+    check('waiting label', bridge.firmwareLabel === 'fw …', bridge.firmwareLabel);
+    for (let i = 0; i < HELLO_ATTEMPTS + 3; i++) { rewind(bridge); bridge.update(); }
+    check(`hello retried at most ${HELLO_ATTEMPTS} times`, helloCount(v1) === HELLO_ATTEMPTS,
+      `${helloCount(v1)} hellos`);
+    bridge._lastHelloAt = performance.now() - 1001;
+    check('v1 board is reported as such', bridge.firmwareLabel === 'no hello (v1 firmware)', bridge.firmwareLabel);
+    check('v1 board: firmware stays null', bridge.firmware === null, JSON.stringify(bridge.firmware));
+    check('v1 board: telemetry firmwareProtocol is null',
+      twin.buildHardwareTwinTelemetry(bridge)?.firmwareProtocol === null,
+      JSON.stringify(twin.buildHardwareTwinTelemetry(bridge)));
+    bridge.setManualCoils(0b1000, 1);
+    rewind(bridge);
+    bridge.update();
+    v1.log.length = 0;
+    await bridge.disconnect();
+    check('v1 board still coasts on disconnect',
+      v1.log.includes('write:P0,0,2') && v1.log.includes('write:C0,0,0'), v1.log.join(' '));
+    const bad = sent(v1).filter((l) => !WIRE.test(l));
+    check('every line sent to a v1 board is P / C / CONF / V2', bad.length === 0, bad.join(' | '));
+  }
+
+  // A v2 board: answers the first request; the host stops asking.
+  {
+    class V2Board extends FakeTransport {
+      writeBytes(bytes) {
+        super.writeBytes(bytes);
+        if (new TextDecoder().decode(bytes).startsWith('V')) this.feed(`${printed}\n`);
+      }
+    }
+    const bridge = new HardwareBridge();
+    const board = new V2Board();
+    await bridge.connectTransport(board);
+    bridge.update();
+    check('v2 hello stored on the bridge', bridge.firmware?.protocol === fwVersion && bridge.firmware.coils === 6,
+      JSON.stringify(bridge.firmware));
+    check('panel label names the board', bridge.firmwareLabel === `fw v${fwVersion} · uno · 6 coils`, bridge.firmwareLabel);
+    check('hub publishes firmwareProtocol',
+      twin.buildHardwareTwinTelemetry(bridge)?.firmwareProtocol === fwVersion,
+      JSON.stringify(twin.buildHardwareTwinTelemetry(bridge)?.firmwareProtocol));
+    for (let i = 0; i < 4; i++) { rewind(bridge); bridge.update(); }
+    check('no hello requests after an answer', helloCount(board) === 1, `${helloCount(board)} hellos`);
+    board.log.length = 0;
+    await bridge.disconnect();
+    check('v2 board coasts on disconnect too',
+      board.log.includes('write:P0,0,2') && board.log.includes('write:C0,0,0'), board.log.join(' '));
+    check('disconnect forgets the hello', bridge.firmware === null && bridge.firmwareLabel === '',
+      `${JSON.stringify(bridge.firmware)} / ${bridge.firmwareLabel}`);
+
+    // The next board on the same bridge must not inherit the old hello.
+    const next = new FakeTransport();
+    await bridge.connectTransport(next);
+    bridge._lastCommandTime = -Infinity; // the old link's last frame was microseconds ago
+    bridge.update();
+    check('a new link starts without a hello and asks again',
+      bridge.firmware === null && helloCount(next) === 1, `${JSON.stringify(bridge.firmware)}, ${helloCount(next)}`);
+    next.feed(`${printed}\n`);
+    next.die(new Error('unplugged'));
+    check('a dropped link forgets the hello', bridge.firmware === null, JSON.stringify(bridge.firmware));
+  }
+
+  // A board that says hello at boot (before the host asks) is never asked.
+  {
+    const bridge = new HardwareBridge();
+    const boot = new FakeTransport();
+    await bridge.connectTransport(boot);
+    boot.feed(`${printed}\n`);
+    bridge.update();
+    check('boot hello is enough — no request sent', bridge.firmware?.protocol === fwVersion && helloCount(boot) === 0,
+      `${JSON.stringify(bridge.firmware)}, ${helloCount(boot)} hellos`);
+    await bridge.disconnect();
+  }
+
+  // The mock answers like a v2 board, with the firmware's limits.
+  {
+    const mock = new MockSerialTransport();
+    const lines = [];
+    mock.onLine((l) => lines.push(l));
+    mock.writeLine('V2');
+    const mh = parseFirmwareHello(lines[0] ?? '');
+    check('mock answers V2 with a hello', mh?.protocol === HOST_PROTOCOL_VERSION && mh.board === 'mock',
+      JSON.stringify(lines));
+    check('mock hello carries the firmware watchdog and brake caps',
+      mh?.watchdogMs === fwWatchdog && `${mh.brakePwmMax}/${mh.brakeMaxMs}` === fwBrake, JSON.stringify(mh));
+    lines.length = 0;
+    mock.writeLine('CONF8,0.0,67.5,0.0');
+    check('mock reaches its CONF branch (was shadowed by C)',
+      lines.length === 1 && lines[0] === 'Iconfig_ack:8,0.0,67.5,0.0', JSON.stringify(lines));
+    mock.writeLine('C8,255,0');
+    check('mock C override still arms', mock._manual === true, String(mock._manual));
+    mock.writeLine('C0,0,0');
+    check('mock C0 releases', mock._manual === false, String(mock._manual));
+  }
+}
+
+// ── 9. Stale WebUSB pump vs a fast reconnect ───────────────────────────────
+{
+  const cdcConfig = {
+    interfaces: [{
+      interfaceNumber: 1,
+      alternates: [{
+        interfaceClass: 0x0a,
+        endpoints: [
+          { direction: 'out', type: 'bulk', endpointNumber: 2 },
+          { direction: 'in', type: 'bulk', endpointNumber: 3 }
+        ]
+      }]
+    }]
+  };
+  const pending = new Set();
+  const device = {
+    configuration: cdcConfig,
+    async open() {},
+    // Real USB stacks settle in-flight transfers after close() returns.
+    async close() {
+      const stale = [...pending];
+      pending.clear();
+      setTimeout(() => { for (const p of stale) p.reject(new Error('device closed')); }, 5);
+    },
+    async selectConfiguration() {},
+    async claimInterface() {},
+    async releaseInterface() {},
+    async controlTransferOut() {},
+    async transferOut() { return { status: 'ok' }; },
+    transferIn() {
+      return new Promise((resolve, reject) => { pending.add({ resolve, reject }); });
+    },
+    feed(text) {
+      const p = [...pending][0];
+      pending.delete(p);
+      p.resolve({ status: 'ok', data: new DataView(new TextEncoder().encode(text).buffer) });
+    }
+  };
+  const nav = globalThis.navigator;
+  const hadUsb = nav && 'usb' in nav;
+  if (nav) Object.defineProperty(nav, 'usb', { value: { requestDevice: async () => device }, configurable: true });
+
+  const t = new usb.WebUsbCdcTransport(device);
+  const drops = [];
+  const lines = [];
+  t.onDrop((err) => drops.push(err));
+  t.onLine((line) => lines.push(line));
+  await t.open();
+  await t.close();
+  await t.open();
+  await new Promise((r) => setTimeout(r, 20)); // let any stale rejection land
+  check('stale pump reports no drop on the next open', drops.length === 0,
+    `drops: ${drops.map((d) => d?.message).join(', ')}`);
+  check('exactly one pump reads after a reconnect', pending.size === 1, `${pending.size} transfers in flight`);
+  device.feed('I hello\n');
+  await new Promise((r) => setTimeout(r, 0));
+  check('the live pump delivers lines', lines.length === 1 && lines[0] === 'I hello', JSON.stringify(lines));
+  await t.close();
+  if (nav && !hadUsb) delete nav.usb;
+}
+
+// ── 10. Bridge events: multi-subscriber, unsubscribe, isolation ─────────────
+{
+  const bridge = new HardwareBridge();
+  const seen = { a: [], b: [] };
+  const offA = bridge.on('status', (st) => seen.a.push(st));
+  bridge.on('status', () => { throw new Error('panel bug'); });
+  bridge.on('status', (st) => seen.b.push(st));
+  const origError = console.error;
+  console.error = () => {};
+  try {
+    bridge._setStatus('connecting');
+    offA();
+    bridge._setStatus('disconnected');
+  } finally {
+    console.error = origError;
+  }
+  check('every status subscriber hears the change', seen.a[0] === 'connecting' && seen.b[0] === 'connecting',
+    JSON.stringify(seen));
+  check('a throwing listener does not starve later ones', seen.b.length === 2, JSON.stringify(seen.b));
+  check('unsubscribe stops delivery', seen.a.length === 1, JSON.stringify(seen.a));
+
+  const twin = [];
+  bridge.on('twinMode', (m) => twin.push(m));
+  bridge.setTwinMode('shadow');
+  check('twinMode event fires', twin[0] === 'shadow', JSON.stringify(twin));
 }
 
 for (const line of ok) console.log(`  ok: ${line}`);

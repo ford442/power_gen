@@ -44,7 +44,9 @@ import {
   getBloomVertShader,
   getBloomExtractShader,
   getBloomBlurShader,
-  getBloomCompositeShader
+  getBloomCompositeShader,
+  getBloomDownsampleShader,
+  getBloomUpsampleShader
 } from './shaders/generators/bloom-shaders.js';
 
 export class MultiDeviceShaders {
@@ -184,6 +186,14 @@ export class MultiDeviceShaders {
 
   get bloomCompositeShader() {
     return getBloomCompositeShader();
+  }
+
+  get bloomDownsampleShader() {
+    return getBloomDownsampleShader();
+  }
+
+  get bloomUpsampleShader() {
+    return getBloomUpsampleShader();
   }
 
   /** Screen-space reflections compute pass (ADR-0005 WS2). */

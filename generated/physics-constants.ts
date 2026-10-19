@@ -262,6 +262,30 @@ export const HALBACH_VIZ = {
   magAngleSpan: 0.7,
 } as const;
 
+/**
+ * Lenz drop tube — JS-only plant (wasmMode null), so TS is the only target.
+ * Conductivities are in MS/m (the setpoint slider's unit); the plant scales by
+ * 1e6. No nameplate: the bench's only source is gravity, so there is no pipe.
+ */
+export const DROP_TUBE = {
+  magnetBrT: 1.2,
+  magnetRadiusM: 0.006,
+  magnetLengthM: 0.01,
+  magnetDensityKgM3: 7500,
+  tubeMeanRadiusM: 0.01,
+  tubeWallM: 0.001,
+  tubeLengthM: 0.6,
+  tubeSigmaMSm: 59.6,
+  sigmaMaxMSm: 60,
+  releaseMinM: 0.08,
+  releaseMaxM: 0.3,
+  catchBelowM: 0.08,
+  holdS: 0.6,
+  dwellS: 1,
+  iEddyMaxA: 20,
+  vRefMps: 2.5,
+} as const;
+
 export const ENERGY_NETWORK_NAMEPLATES = {
   simulatedOrderOfMagnitude: true,
   deviceNameplateWatts: {

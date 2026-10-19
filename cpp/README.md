@@ -76,6 +76,7 @@ buffer packing
 ./build/sim_core_test --mode catalog     # print id → wasmMode; fail on holes/dupes
 ./build/sim_core_test --mode bench       # print bench_seg_steps_per_sec / bench_particle_steps_per_sec
 ./build/sim_core_test --mode golden      # dual-plant telemetry goldens (see below)
+./build/sim_core_test --mode snapshots   # plantSave → plantLoad → step bit-identical, every mode
 ```
 
 `--mode golden` replays every **dual** device — one with a `wasmMode` *and*
@@ -266,6 +267,44 @@ radius, height. `getRollerStateFloatCount()` returns `_numRollers × 4` (default
 stale after the WASM heap grows — `sim.ts` re-fetches `mod.HEAPF32` on each
 `getParticleFloatView()` / `getRollerStateFloatView()` call.
 
+**No `std::vector` across the Embind boundary.** `register_vector<float>` makes a
+`std::vector<float>` parameter accept *only* a `FloatVector` handle, never a JS array
+(`BindingError: Cannot pass "0,1,…" as a FloatVector`), and every handle returned to
+JS needs a manual `.delete()`. `sim_core` 1.4.0 shipped three such bindings and the
+energy bus froze the lab's frame loop. Array input instead goes through:
+
+| Rate | Pattern | Bindings |
+|------|---------|----------|
+| Low (once per enable) | `emscripten::val` + `convertJSArrayToNumberVector<float>()` | `setNetworkEdges` |
+| Per frame | C++-owned scratch: `getScratchPtr(n)` → `HEAPF32.set(arr, ptr >> 2)` → `…FromScratch(n)` (re-read `HEAPF32` *after* the ptr call — the resize may grow the heap) | `updateEnergyNetworkFromScratch`; `chores_scratch_ptr` + `chores_reduce_f32_scratch` / `chores_map_scale_f32_scratch` |
+
+Return a `value_object` (plain JS object) rather than a vector — e.g.
+`ChoresReduceResult`. **`npm run test:wasm-abi`** loads the shipped
+`src/public/wasm/sim_core.{js,wasm}` in Node and calls every binding listed in
+`sim_core_embind.cpp`; a new binding without a call spec there fails the test.
+
+### Plant snapshots (`plantSave` / `plantLoad`)
+
+Every mode's plant can be saved to and restored from a float vector —
+`[_time, _drive, …fields]`, the fields listed by the device's `state` block in
+`physics/devices.json` (#224 §2, [`docs/SNAPSHOTS.md`](../docs/SNAPSHOTS.md)).
+The methods are codegen'd into `generated/plant-state-impl.h` and compiled by
+`src/plant/plant_state.cpp`, so a layout change is a catalog edit plus
+`npm run codegen:catalog`, never a hand-written serializer.
+
+| Method | Contract |
+|--------|----------|
+| `int plantStateSize(int mode) const` | floats in `mode`'s vector (`PLANT_STATE_SIZES`; 0 if unknown) |
+| `int plantSave(int mode)` | writes the vector into the float scratch (`getScratchPtr`), returns its length |
+| `bool plantLoad(int mode, int count, uint32_t layoutHash)` | reads `count` scratch floats; refuses a `layoutHash` ≠ `PLANT_STATE_LAYOUT_HASH`, a wrong `count`, a too-small scratch or any non-finite value — the plant is left untouched |
+
+Embind: the three class methods plus the free `plant_state_layout_hash()`. The
+same scratch pattern as the energy bus (table above): `plantSave(m)` →
+`getScratchPtr(n)` → read `HEAPF32`; or `HEAPF32.set(v, ptr >> 2)` →
+`plantLoad(m, n, hash)`. `--mode snapshots` (in the default native run) and
+`npm run test:snapshots` (shipped WASM, in Node) hold every mode to a
+bit-identical save → load → step, compared every frame.
+
 ### Release build flags — what maps to what
 
 The release (`make wasm` / `npm run wasm:build`) target passes flags beyond `emscripten.flags`
@@ -380,6 +419,7 @@ cpp/
       seg_plant.cpp         ← magnetic-field utilities + SEG roller RK4
       chores_reduce.cpp     ← GPU-chores CPU reduce fallback
       particles.cpp         ← mode-aware particle seed/step + accessors
+      plant_state.cpp       ← compiles generated/plant-state-impl.h (plantSave / plantLoad)
   CMakeLists.txt     ← CMake / Emscripten + CMAKE_EXPORT_COMPILE_COMMANDS
   Makefile           ← make wasm / native / native-san / tidy / compile-db /
                        compile-db-wasm ($(wildcard src/plant/*.cpp); native
@@ -439,11 +479,10 @@ serve them without a separate npm build step.
 
 Recent non-breaking expansions (SEGSimulator API and all prior bindings preserved):
 
-- **Particle buffer export**: `getParticles(maxCount?)` returns a JS array of
-  `SimParticle` objects (full or prefix). Complements the existing single
-  `getParticle(i)`. JavaScript side (via `seg-physics-bridge.ts` and `sim.ts`)
-  can now pull the high-precision CPU particle state for seeding or diffing
-  against the WebGPU side.
+- **Particle buffer export**: the zero-copy `getParticleFloatView()` (8 floats per
+  `SimParticle`) or `getParticle(i)`. The old `getParticles()` returned an
+  unregistered `std::vector<SimParticle>` and could never be called; it was removed
+  in 1.5.0 (`SEGSim.getParticles()` in TS loops `getParticle`).
 - **Multi-mode plants**: `setMode(0..11)` / `getMode()` (see `wasmMode` in
   `physics/devices.json`). 0 = SEG (full RK4 roller path), 1 = Heron (Bernoulli /
   Swamee–Jain), 2 = Kelvin (capacitive + spark), 3 = Solar (battery SOC),

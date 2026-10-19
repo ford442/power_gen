@@ -8,6 +8,7 @@ import { CameraController } from '../camera-controller';
 import { HardwareBridge, TWIN_MODES } from '../hardware-bridge';
 import type { MultiDeviceCamera } from '../multi-device-camera';
 import { getAllSimDeviceIds } from '../devices/device-registry';
+import { WASM_DEVICE_IDS } from '../../generated/device-catalog';
 import {
   getHeronLayout,
   HERON_LAYOUT_PRESETS,
@@ -16,7 +17,7 @@ import {
 } from '../heron-layout';
 import { isDeviceActive as isDeviceVisible } from '../renderers/shared/device-view';
 import { EnergyNetwork, syncEnergyCouplingDisclaimer } from '../renderers/shared/energy-network';
-import { FieldNetwork, syncFieldCouplingDisclaimer } from '../renderers/shared/field-network';
+import { FIELD_COUPLING_EDGES, FieldNetwork, syncFieldCouplingDisclaimer } from '../renderers/shared/field-network';
 import {
   CHARGE_COUPLING_EDGES,
   ChargeNetwork,
@@ -43,6 +44,7 @@ import {
   type SessionDeviceMap
 } from './apply-wasm-plant';
 import { PlantWorkerHost, type PlantStats } from './plant-worker-host';
+import { coerceLabField, labConfig, persistLabConfig, setLabUrlParam } from '../config/lab-config';
 
 export type { SessionDevice, SessionDeviceMap } from './apply-wasm-plant';
 export type { PlantStats } from './plant-worker-host';
@@ -58,7 +60,25 @@ export interface LabSessionQuality {
   gpuTimeMs?: number;
 }
 
+/**
+ * A live scripted experiment riding the session clock (src/experiments/
+ * live-runner.ts). Typed here so the entry chunk never imports the runner.
+ */
+export interface LabExperimentClock {
+  /**
+   * Before the plant steps this frame's substeps (knob writes land here).
+   * Returns the substeps to step instead — a batch cut short so the run never
+   * steps past its next step or sample — or null to keep the frame's own.
+   */
+  beforeStep(simSteps: readonly number[], replayLocked: boolean): number[] | null;
+  /** After the frame's device physics and hub publish (samples are read here). */
+  afterPublish(): void;
+}
+
 export class LabSession {
+  /** The page's session (the last one constructed) — lazy chunks such as plant snapshots reach it here. */
+  static active: LabSession | null = null;
+
   rendererId: LabRendererId = 'webgpu';
 
   currentView = 'overview';
@@ -110,17 +130,27 @@ export class LabSession {
     wasmInWorker: false
   };
 
+  /**
+   * First in-loop WASM plant exception. Once set, the plant steps in JS for the
+   * rest of the session (not persisted): a plant error must not stop the frame.
+   */
+  wasmPlantError: string | null = null;
+  private _busErrorLogged = false;
+
+  /** The running live experiment, if any — see {@link LabExperimentClock}. */
+  experimentClock: LabExperimentClock | null = null;
+
   constructor() {
+    LabSession.active = this;
     this.hardwareBridge = new HardwareBridge({
       onError: (e: unknown) => console.error('[HardwareBridge]', e)
     });
 
-    const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-    this.prototypePreset = parsePrototypePreset(params);
+    this.prototypePreset = parsePrototypePreset();
     this.anomalousEffectsEnabled = parseAnomalousEffects(this.prototypePreset);
-    this.segLayoutPreset = parseSegLayoutPreset(params, this.prototypePreset);
-    this.heronLayoutPreset = parseHeronLayoutPreset(params);
-    applyStoredHeronLayout(this);
+    this.segLayoutPreset = parseSegLayoutPreset(undefined, this.prototypePreset);
+    this.heronLayoutPreset = parseHeronLayoutPreset();
+    applyResolvedHeronLayout(this);
     publishHeronLayoutPreset(this.heronLayoutPreset);
   }
 
@@ -160,10 +190,14 @@ export class LabSession {
       frameTimeMs: quality.frameTimeMs,
       gpuTimeMs: quality.gpuTimeMs
     };
-    const simSteps = this.simRateController.tick(deltaTime, speed, load);
+    const frameSteps = this.simRateController.tick(deltaTime, speed, load);
     const replayLocked = !!(segOperator.replayMode || telemetryHub.isReplayMode?.());
     this.replayLocked = replayLocked;
-    const useWasm = segWasm.enabled && !replayLocked;
+    // Experiment knobs first, so the buses, the C++ knob sync and the JS
+    // plants all step from the values written for this batch (which a live
+    // run may cut short at its next step or sample).
+    const simSteps = this.experimentClock?.beforeStep(frameSteps, replayLocked) ?? frameSteps;
+    const useWasm = segWasm.enabled && !replayLocked && this.wasmPlantError === null;
     const drive = segOperator.getDrive();
     const focus = this.plantFocus();
 
@@ -174,7 +208,7 @@ export class LabSession {
     // classroom it has always been. The two buses write disjoint keys and
     // neither reads the other's output. Energy accounting stays in
     // publishFrame, after the step — it reads plants, it never writes them.
-    if (!replayLocked) this.stepOffFocusChargeSources(simSteps, drive);
+    if (!replayLocked) this.stepOffFocusCouplingSources(simSteps, drive);
     this.chargeNetwork.update({ devices: this.devices, devicesEnabled: this.devicesEnabled });
     this.fieldNetwork.update({ devices: this.devices, devicesEnabled: this.devicesEnabled });
 
@@ -187,9 +221,17 @@ export class LabSession {
       worker.step({ devices: this.devices, focus, simSteps, drive, useWasm });
     } else {
       worker?.cancel();
+      let stepJs = !useWasm && !replayLocked;
       if (useWasm) {
-        applyWasmPlant({ devices: this.devices, focus, simSteps, drive });
-      } else if (!replayLocked) {
+        try {
+          applyWasmPlant({ devices: this.devices, focus, simSteps, drive });
+        } catch (err) {
+          this.wasmPlantError = err instanceof Error ? err.message : String(err);
+          console.warn('[LabSession] WASM plant step failed — JS plant for the rest of the session:', err);
+          stepJs = true;
+        }
+      }
+      if (stepJs) {
         for (const subDt of simSteps) {
           if (subDt > 0) segOperator.step(subDt);
         }
@@ -211,24 +253,33 @@ export class LabSession {
   }
 
   /**
-   * Keep a charge-bus source charging while you look at its destination.
+   * Keep a coupling source live while you look at its destination.
    *
    * In a focus view the backends only step the focused bench, so with Kelvin
    * focused the VdG sphere would sit at whatever voltage it held when the view
    * changed — usually the 0 it was created with — and the "coupled" seed would
-   * be a frozen number. While charge coupling is on and a destination is
-   * focused, step each live source's JS plant **physics only** (no particles,
-   * mesh or GPU work) over the same substeps. No double-stepping: the source is
-   * never the focused device here, and in overview the backend loop owns it.
-   * The JS VdG plant is golden-matched to the C++ one, so this holds under
-   * `?wasmPhysics=1` too, where the C++ plant is busy with the focused bench.
+   * be a frozen number; likewise a Halbach array whose segment count you change
+   * while the Hall strip is focused would never update the coupled B. While a
+   * bus is on and a destination is focused, step each live source's JS plant
+   * **physics only** (no particles, mesh or GPU work) over the same substeps.
+   * No double-stepping: the source is never the focused device here, and in
+   * overview the backend loop owns it. The JS plants are golden-matched to the
+   * C++ ones, so this holds under `?wasmPhysics=1` too, where the C++ plant is
+   * busy with the focused bench. The headless experiment bench
+   * (src/experiments/bench.ts) runs the same rule.
    */
-  private stepOffFocusChargeSources(simSteps: number[], drive: number): void {
-    if (!this.chargeNetwork.couplingEnabled || this.isOverviewMode()) return;
-    for (const edge of CHARGE_COUPLING_EDGES) {
-      if (edge.to !== this.currentView || edge.from === this.currentView) continue;
-      if (this.devicesEnabled[edge.from] === false) continue;
-      const src = this.devices[edge.from];
+  private stepOffFocusCouplingSources(simSteps: number[], drive: number): void {
+    if (this.isOverviewMode()) return;
+    const sources = new Set<string>();
+    if (this.chargeNetwork.couplingEnabled) {
+      for (const edge of CHARGE_COUPLING_EDGES) if (edge.to === this.currentView) sources.add(edge.from);
+    }
+    if (this.fieldNetwork.couplingEnabled) {
+      for (const edge of FIELD_COUPLING_EDGES) if (edge.to === this.currentView) sources.add(edge.from);
+    }
+    for (const id of sources) {
+      if (id === this.currentView || this.devicesEnabled[id] === false) continue;
+      const src = this.devices[id];
       const state = src?.physicsState ?? src?.physics;
       if (!state) continue;
       for (const subDt of simSteps) {
@@ -323,13 +374,21 @@ export class LabSession {
       ...extraScientific
     };
     const segTelemetry = segOperator.computeTelemetry(dt);
-    const netSnap = this.energyNetwork.update({
-      devices: this.devices,
-      devicesEnabled: this.devicesEnabled,
-      segPowerW: segTelemetry.power,
-      segEfficiencyPct: segTelemetry.efficiency,
-      deltaTime: dt
-    });
+    // EnergyNetwork already drops a failing WASM bus to JS (energyBus breadcrumb);
+    // this only keeps an unexpected JS-bus bug from stopping the frame loop.
+    let netSnap: ReturnType<EnergyNetwork['update']> | null = null;
+    try {
+      netSnap = this.energyNetwork.update({
+        devices: this.devices,
+        devicesEnabled: this.devicesEnabled,
+        segPowerW: segTelemetry.power,
+        segEfficiencyPct: segTelemetry.efficiency,
+        deltaTime: dt
+      });
+    } catch (err) {
+      if (!this._busErrorLogged) console.error('[LabSession] energy bus update failed:', err);
+      this._busErrorLogged = true;
+    }
     if (netSnap) {
       syncEnergyCouplingDisclaimer(netSnap.couplingEnabled, netSnap);
     }
@@ -360,6 +419,7 @@ export class LabSession {
       chargeNetwork: chargeSnap,
       hardwareTwin: this.hardwareTwinTelemetry ?? null
     });
+    this.experimentClock?.afterPublish();
     return scientific;
   }
 
@@ -398,11 +458,8 @@ export class LabSession {
 
   persistSegLayoutPreset(presetName: string): void {
     this.segLayoutPreset = presetName;
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('layout', presetName);
-      window.history.replaceState(null, '', url);
-    } catch (_) { /* ignore */ }
+    const layout = coerceLabField('layout', presetName);
+    if (layout) setLabUrlParam('layout', layout);
   }
 
   persistHeronLayoutPreset(presetName: string): HeronLayoutWithMeta | null {
@@ -417,18 +474,17 @@ export class LabSession {
       phys.heronHeadMax = this.heronLayout.headMaxM;
       phys.heronHead = Math.min(phys.heronHead, this.heronLayout.headMaxM);
     }
-    try { localStorage.setItem('heron-layout', presetName); } catch (_) { /* ignore */ }
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('heronLayout', presetName);
-      window.history.replaceState(null, '', url);
-    } catch (_) { /* ignore */ }
+    const preset = coerceLabField('heronLayout', presetName);
+    if (preset) {
+      persistLabConfig('heronLayout', preset);
+      setLabUrlParam('heronLayout', preset);
+    }
     return this.heronLayout;
   }
 
   async maybeConnectMockHardware(): Promise<void> {
     try {
-      if (new URLSearchParams(location.search).get('mockHardware') === '1') {
+      if (labConfig().mockHardware) {
         await this.hardwareBridge.connectMock();
         this.hardwareBridge.setTwinMode(TWIN_MODES.SHADOW);
       }
@@ -439,33 +495,23 @@ export class LabSession {
 /**
  * Publish the preset the lab actually resolved.
  *
- * The query string alone is not the answer: `applyStoredHeronLayout()` lets a
- * `localStorage` preset override `?heronLayout=` at boot, so anything reading
- * the URL would see the wrong layout until the user switched preset by hand.
- * Consumers that cannot reach the session — `parseHeronLayoutPreset()`, and the
- * `heronVessels` CAD prop, whose GLB is baked for `classic` only — read this
- * instead, so the prop cannot disagree with the geometry on screen.
+ * The query string alone is not the answer: LabConfig resolves `?heronLayout=`
+ * over a share link and the remembered `heron-layout`, and a window override
+ * sits under all three. Consumers that cannot reach the session —
+ * `parseHeronLayoutPreset()`, and the `heronVessels` CAD prop, whose GLB is
+ * baked for `classic` only — read this instead, so the prop cannot disagree
+ * with the geometry on screen.
  */
 function publishHeronLayoutPreset(presetName: string): void {
   if (typeof window === 'undefined') return;
   window.HERON_LAYOUT_PRESET = presetName;
 }
 
-function applyStoredHeronLayout(session: LabSession): void {
-  try {
-    const storedHeron = localStorage.getItem('heron-layout');
-    const presets: string[] = Object.values(HERON_LAYOUT_PRESETS);
-    if (storedHeron && presets.includes(storedHeron)) {
-      session.heronLayoutPreset = storedHeron;
-    }
-  } catch (_) { /* ignore */ }
+function applyResolvedHeronLayout(session: LabSession): void {
   session.heronLayout = getHeronLayout(session.heronLayoutPreset as HeronLayoutPresetId);
 }
 
+/** Devices with a C++ plant mode (catalog `wasmMode`). */
 function isWasmPlantModeSafe(id: string): boolean {
-  return [
-    'seg', 'heron', 'kelvin', 'solar', 'peltier', 'mhd',
-    'maglev', 'homopolar', 'transformer', 'vdg', 'hall', 'lorentz-sled',
-    'jumping-ring'
-  ].includes(id);
+  return (WASM_DEVICE_IDS as readonly string[]).includes(id);
 }

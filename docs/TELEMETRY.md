@@ -95,6 +95,7 @@ CSV column names live with the key in
 | `hall` | `hallVoltage` (V), `hallCurrent` (A), `hallFieldT` (T), `hallCoeff` (m³/C) | `hall_voltage`, … |
 | `lorentz-sled` | `lorentzSledVms` (m/s), `lorentzCurrentA` (A), `lorentzFieldT` (T), `lorentzForceN` (N), `lorentzPositionM` (m) | `lorentz_sled_vms`, … |
 | `jumping-ring` | `ringHeightM` (m), `ringCurrentA` (A), `ringPrimaryIA` (A), `ringForceN` (N), `ringCouplingK` | `ring_height_m`, … |
+| `drop-tube` | `dropTubeVMps` (m/s), `dropTubeTerminalVMps` (m/s; `NaN` at σ = 0), `dropTubeDragN` (N), `dropTubeEddyIA` (A), `dropTubeDepthM` (m) | `drop_tube_v_mps`, … |
 
 `seg` is the one exception: its `telemetryKeys` (`rpm`, `omega`, `voltage`, …)
 live on `SegOperatorTelemetry` (`snap.seg`), not on `snap.devices.seg` — the two
@@ -234,6 +235,13 @@ default ones, and the JS fallback is stepped with the same setpoints seeded.
 }
 ```
 
+While a destination is focused, the session keeps every field source into it
+stepping (JS plant, physics only), as it does for the charge bus below — so
+changing the Halbach segment count with the Hall strip focused moves the
+coupled B, rather than leaving it at whatever the array held when the view
+changed. The headless experiment bench applies the same rule
+(docs/EXPERIMENTS.md).
+
 ## Charge coupling (lab **V** bus)
 
 The third bus, on its own switch again: `?chargeCoupling=1` (or `localStorage
@@ -294,10 +302,11 @@ Ring-buffer sampling lives on `telemetryHub.sampler` (1–60 Hz). UI: left sideb
 | Download CSV | `window.exportTelemetryCsv()` — columns in `src/telemetry/telemetry-schema.ts`: the SEG/lab-bus base set (including optional `phase_error_deg`, `rpm_error`, `voltage_error_v`, `current_error_a`, `energy_residual_w`, `hw_connection_state`) followed by every catalog device column (`hall_voltage`, `lorentz_sled_vms`, …) |
 | Config JSON | `window.exportConfigJson()` — constants + layout + operator setpoints |
 | WASM offline 10s | **WASM 10s** — worker runs `SEGSimulator` headless, same CSV schema |
-| Replay file | v1 JSON: seed, layout presets, speed curve + samples (`src/telemetry/replay-format.ts`). Samples are CSV v2 rows, so a replay round-trips plugin telemetry, not only SEG RPM |
+| Replay file | v1 JSON: seed, layout presets, speed curve + samples (`src/telemetry/replay-format.ts`). Samples are CSV v2 rows, so a replay round-trips plugin telemetry, not only SEG RPM. Optional `keyframes: [{ t, snapshot }]` — plant snapshots taken every 2 s while recording ([SNAPSHOTS.md](SNAPSHOTS.md)) |
 | Replay scrubber | `?replay=1` or debug **Show replay scrubber** — drag-drop / file picker, play-pause-step. Parses in `src/workers/replay-worker.ts`. CSV load reconstructs a minimal replay. Live `publishFrame` and `segOperator.step()` are bypassed; gauges read injected hub snapshots. |
 | Benchmark pack | `window.exportBenchmarkPack()` — profiler FPS/memory snapshot |
 | Particle readback | `window.captureParticleSubset({ deviceId, maxCount })` (WebGPU, debug) |
+| Analyse a recording | **Analysis** button or `window.openAnalysis()` → **+ Current recording** turns the sampler rows into a run (`time_s` → `t`, CSV columns → catalog keys) for time / X–Y / spectrum plots, fits and CSV / PNG export — [`ANALYSIS.md`](./ANALYSIS.md) |
 
 `TELEMETRY_CSV_VERSION` is **2** — v2 appended the per-device catalog columns
 after the base set. A v1 file still loads: `csvToRows` matches columns by name
@@ -321,6 +330,10 @@ Deterministic particles: set **RNG seed** in export panel or `localStorage seg-s
 2. Open `?replay=1` (or the debug-panel button) and load the file — parse runs in a Web Worker.
 3. Scrub / play / step. The header shows a **REPLAY** badge; `telemetryHub.getSnapshot().replay` is set; the sampler does not record replay frames. Device columns in the samples are fed back through `publishFrame({ devicePhysics })`, so `snap.devices.hall` / `vdg` / `lorentz-sled` restore alongside SEG.
 4. **×** exits replay and live plant / telemetry resume.
+5. **Take over** (files recorded with snapshot keyframes) restores the keyframe
+   at or before the cursor and runs the plant live from there — see
+   [SNAPSHOTS.md → Replay take-over](SNAPSHOTS.md#replay-take-over). Older files
+   have no keyframes and replay as before.
 
 ```js
 await window.loadReplayFile(file);          // JSON or CSV

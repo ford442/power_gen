@@ -14,7 +14,9 @@ import {
   type SEGDevicePower,
   type SEGStepResult
 } from './sim';
+import type { SEGSimulatorInstance } from './types';
 import { wasmModeForDevice } from '../../generated/device-catalog';
+import { labConfig, persistLabConfig } from '../config/lab-config';
 
 let _instance: SEGSim | null = null;
 let _enabled = false;
@@ -28,12 +30,13 @@ let _lastRollerMeanOmega = 0;
  */
 let _remotePlant: { mode?: string } | null = null;
 
+/**
+ * `?wasmPhysics=1` / `?wasm=1`, a share link, or the remembered choice. Absent
+ * or blocked storage means "not opted in" (LabConfig never throws on it).
+ */
 function isWasmEnabled(): boolean {
   if (typeof window === 'undefined') return false;
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('wasmPhysics') === '1') return true;
-  if (params.get('wasm') === '1') return true;
-  return localStorage.getItem('useWasmPhysics') === 'true';
+  return labConfig().wasmPhysics;
 }
 
 export interface SegWasmStepResult extends SEGStepResult {
@@ -73,6 +76,8 @@ export interface SegWasmBridge {
   setKelvinSeedV(seedV: number): boolean;
   setLorentzFieldT(fieldT: number): void;
   getModePlant(): unknown;
+  /** This thread's Embind instance (null before init / without WASM) — see SEGSim.raw. */
+  rawSim(): SEGSimulatorInstance | null;
 
   getParticles(maxCount?: number): unknown[];
   getParticleFloatView(): Float32Array | null;
@@ -197,9 +202,7 @@ export const segWasm: SegWasmBridge = {
 
   setEnabled(enabled: boolean) {
     _enabled = !!enabled;
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('useWasmPhysics', _enabled ? 'true' : 'false');
-    }
+    persistLabConfig('wasmPhysics', _enabled);
     console.log(`[seg-physics-bridge] WASM physics ${_enabled ? 'ENABLED' : 'disabled'}`);
   },
 
@@ -284,6 +287,10 @@ export const segWasm: SegWasmBridge = {
   getModePlant() {
     if (_remotePlant) return _remotePlant;
     return _instance?.getModePlant?.() ?? null;
+  },
+
+  rawSim() {
+    return _instance?.raw ?? null;
   },
 
   getParticles(maxCount = -1) {

@@ -2,7 +2,12 @@
  * Canvas sizing, URL-driven canvas options, and `context.configure()` — the
  * canvas half of WebGPU init. Split out of webgpu-manager.ts; `WebGPUManager`
  * keeps its static entry points as thin delegates.
+ *
+ * The URL-driven options read LabConfig (`src/config/lab-config.ts`); each
+ * takes an optional query string so tests can ask about one in isolation.
  */
+import { labConfigFor } from '../config/lab-config';
+import type { ColorPipelineMode } from './color-pipeline';
 
 /** Depth-only format — stencil is unused; saves memory vs depth24plus-stencil8. */
 export const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
@@ -25,26 +30,89 @@ export interface DepthStencilAttachmentOpts {
 
 export type CanvasToneMappingMode = 'standard' | 'extended';
 
-export function canvasPixelSize(canvas: HTMLCanvasElement): CanvasPixelSize {
+/**
+ * Exact device-pixel size per canvas, from a `device-pixel-content-box`
+ * ResizeObserver ({@link observeDevicePixelSize}). `clientWidth × dpr` rounds:
+ * at a fractional DPR (1.25, 1.5 on Windows laptops) it can land a pixel off,
+ * and the compositor then resamples the whole frame — a soft blur on every
+ * line and label.
+ */
+const devicePixelSizes = new WeakMap<HTMLCanvasElement, { width: number; height: number }>();
+
+/** `device.limits.maxTextureDimension2D` — every post target is canvas-sized. */
+let maxCanvasDimension = 8192;
+
+export function setMaxCanvasDimension(max: number): void {
+  if (Number.isFinite(max) && max >= 1) maxCanvasDimension = Math.floor(max);
+}
+
+/**
+ * `?renderScale=0.5..1`: render at a fraction of device pixels and let the
+ * browser upscale — classroom projectors and integrated GPUs. Clamped;
+ * anything unparsable is 1.
+ */
+export function renderScale(search?: string): number {
+  return labConfigFor(search).config.renderScale;
+}
+
+/**
+ * Observe `canvas`'s exact device-pixel content box. Falls back to `null`
+ * (and canvasPixelSize keeps using `clientWidth × dpr`) where the browser does
+ * not support the `device-pixel-content-box` option (Safari).
+ */
+export function observeDevicePixelSize(
+  canvas: HTMLCanvasElement,
+  onChange: () => void
+): ResizeObserver | null {
+  if (typeof ResizeObserver === 'undefined') return null;
+  const ro = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const box = entry.devicePixelContentBoxSize?.[0];
+      if (!box) continue;
+      devicePixelSizes.set(canvas, {
+        width: Math.round(box.inlineSize),
+        height: Math.round(box.blockSize)
+      });
+    }
+    onChange();
+  });
+  try {
+    ro.observe(canvas, { box: 'device-pixel-content-box' });
+  } catch {
+    ro.disconnect();
+    return null;
+  }
+  return ro;
+}
+
+export function canvasPixelSize(
+  canvas: HTMLCanvasElement,
+  scale = renderScale()
+): CanvasPixelSize {
   const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
   const clientWidth = canvas.clientWidth;
   const clientHeight = canvas.clientHeight;
   const layoutReady = clientWidth >= 1 && clientHeight >= 1;
-  const cssWidth = layoutReady ? clientWidth : Math.max(canvas.width / dpr, 1);
-  const cssHeight = layoutReady ? clientHeight : Math.max(canvas.height / dpr, 1);
+  let width: number;
+  let height: number;
+  const exact = layoutReady ? devicePixelSizes.get(canvas) : undefined;
+  if (exact && exact.width >= 1 && exact.height >= 1) {
+    width = exact.width;
+    height = exact.height;
+  } else {
+    const cssWidth = layoutReady ? clientWidth : Math.max(canvas.width / dpr, 1);
+    const cssHeight = layoutReady ? clientHeight : Math.max(canvas.height / dpr, 1);
+    width = cssWidth * dpr;
+    height = cssHeight * dpr;
+  }
+  // Render scale, then the device's texture limit — one factor for both axes
+  // so the aspect ratio (and the projection built from it) is unchanged.
+  const fit = Math.min(scale, maxCanvasDimension / Math.max(width, height, 1));
   return {
-    width: Math.max(1, Math.floor(cssWidth * dpr)),
-    height: Math.max(1, Math.floor(cssHeight * dpr)),
+    width: Math.max(1, Math.floor(width * fit)),
+    height: Math.max(1, Math.floor(height * fit)),
     layoutReady
   };
-}
-
-export function searchParams(search = typeof location !== 'undefined' ? location.search : ''): URLSearchParams {
-  try {
-    return new URLSearchParams(search);
-  } catch {
-    return new URLSearchParams();
-  }
 }
 
 /**
@@ -52,39 +120,34 @@ export function searchParams(search = typeof location !== 'undefined' ? location
  * Opt-in only: writing timestamps into the main render encoder blanks the canvas
  * on some D3D12/ANGLE stacks (60 FPS, no validation errors).
  */
-export function wantsGpuTiming(search = typeof location !== 'undefined' ? location.search : ''): boolean {
-  try {
-    return new URLSearchParams(search).get('gpuTiming') === '1';
-  } catch {
-    return false;
-  }
+export function wantsGpuTiming(search?: string): boolean {
+  return labConfigFor(search).config.gpuTiming;
 }
 
-export function wantsDisplayP3(search = typeof location !== 'undefined' ? location.search : ''): boolean {
-  return searchParams(search).get('p3') === '1';
+export function wantsDisplayP3(search?: string): boolean {
+  return labConfigFor(search).config.p3;
+}
+
+/** `?color=legacy` keeps the pre-#223 8-bit path (color-pipeline.ts); default linear. */
+export function parseColorPipelineMode(search?: string): ColorPipelineMode {
+  return labConfigFor(search).config.color;
 }
 
 /**
  * Canvas toneMapping. Default `standard` because bloom composite ACES-maps to [0,1]
- * for SDR. `extended` only with `?hdr=1` and an HDR display; composite then
- * outputs linear HDR (`outputLinearHdr`) so the canvas compositor is not double-tonemapped.
+ * for SDR. `extended` only with `?hdr=1` and an HDR display; the canvas is then
+ * configured `rgba16float` (extended range has no effect on an 8-bit canvas) and
+ * the composite skips the filmic curve (`outputLinearHdr`) so the compositor is
+ * not double-tonemapped. See color-pipeline.ts.
  */
-export function canvasToneMappingMode(
-  search = typeof location !== 'undefined' ? location.search : ''
-): CanvasToneMappingMode {
-  if (searchParams(search).get('hdr') !== '1') return 'standard';
+export function canvasToneMappingMode(search?: string): CanvasToneMappingMode {
+  if (!labConfigFor(search).config.hdr) return 'standard';
   try {
     if (typeof matchMedia === 'function' && matchMedia('(dynamic-range: high)').matches) {
       return 'extended';
     }
   } catch { /* ignore */ }
   return 'standard';
-}
-
-export function canvasViewFormats(format: GPUTextureFormat): GPUTextureFormat[] {
-  if (format === 'bgra8unorm') return ['bgra8unorm', 'bgra8unorm-srgb'];
-  if (format === 'rgba8unorm') return ['rgba8unorm', 'rgba8unorm-srgb'];
-  return [format];
 }
 
 export function resolveDepthFormat(ssrEnabled: boolean): GPUTextureFormat {
@@ -146,6 +209,7 @@ export function configureCanvasContext(
   device: GPUDevice,
   cfg: {
     format: GPUTextureFormat;
+    viewFormats: GPUTextureFormat[];
     alphaMode: GPUCanvasAlphaMode;
     colorSpace: PredefinedColorSpace;
     toneMappingMode: CanvasToneMappingMode;
@@ -159,7 +223,7 @@ export function configureCanvasContext(
     alphaMode: cfg.alphaMode,
     colorSpace: cfg.colorSpace,
     toneMapping: { mode: cfg.toneMappingMode } as GPUCanvasToneMapping,
-    viewFormats: canvasViewFormats(cfg.format),
+    viewFormats: cfg.viewFormats,
     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
   } as GPUCanvasConfiguration);
   return context;

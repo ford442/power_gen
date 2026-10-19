@@ -158,6 +158,7 @@ Vec3 SEGSimulator::sampleBField(Vec3 worldPos) const {
 }
 
 Vec3 SEGSimulator::rollerWorldPos(int i) const {
+    if (i < 0 || i >= _numRollers) return {};
     const SEGRollerState& r = _rollers[i];
     return { std::cos(r.angle) * r.radius, r.height, std::sin(r.angle) * r.radius };
 }

@@ -12,6 +12,18 @@
       "wasmMode": 0,
       "telemetryKeys": ["rpm", "omega", "corona", "voltage", "current", "power", "fieldSim", "energyDensity"],
       "fidelity": "WASM RK4 (full plant)",
+      "state": {
+        "plant": null,
+        "fields": [
+          { "key": "segOmega", "cpp": null },
+          { "key": "corona", "cpp": null },
+          { "key": "energyLevel", "cpp": null },
+          { "key": "magneticFieldStrength", "cpp": null },
+          { "cpp": "@_rollers[].omega", "count": 66 },
+          { "cpp": "@_rollers[].angle", "count": 66 },
+          { "cpp": "@_ringLoadTorques[]", "count": 3 }
+        ]
+      },
       "telemetry": {
         "rpm": {
           "label": "RPM",
@@ -65,6 +77,19 @@
       "wasmMode": 1,
       "telemetryKeys": ["heronHead", "heronHeadMax", "heronVExit", "heronFlowRateLmin", "heronPressureKPa"],
       "fidelity": "WASM (Bernoulli/Swamee–Jain)",
+      "state": {
+        "plant": "_heron",
+        "fields": [
+          { "key": "heronHead", "cpp": "head" },
+          { "key": "heronVExit", "cpp": "vExit" },
+          { "key": "heronFlowRateLmin", "cpp": "flowLmin" },
+          { "key": "heronPressureKPa", "cpp": "pressureKPa" },
+          { "key": "heronReynolds", "cpp": "reynolds" },
+          { "key": "heronHeadMax", "cpp": null },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "drive" }
+        ]
+      },
       "telemetry": {
         "heronHead": {
           "label": "Head",
@@ -102,6 +127,18 @@
       "wasmMode": 2,
       "telemetryKeys": ["kelvinV", "kelvinVoltageN", "kelvinVbreak", "kelvinE", "kelvinSparkTimer"],
       "fidelity": "WASM (capacitive + spark)",
+      "state": {
+        "plant": "_kelvin",
+        "fields": [
+          { "key": "kelvinV", "cpp": "voltage" },
+          { "key": "kelvinSparkTimer", "cpp": "sparkTimer" },
+          { "key": "kelvinVoltageN", "cpp": "voltageN" },
+          { "key": "kelvinE", "cpp": "E" },
+          { "key": "kelvinSeedCoupledV", "cpp": "seedV", "type": "nullable", "cppNull": 0 },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "drive" }
+        ]
+      },
       "telemetry": {
         "kelvinV": {
           "label": "V",
@@ -141,6 +178,14 @@
       "wasmMode": 3,
       "telemetryKeys": ["batteryCharge"],
       "fidelity": "WASM (battery SOC)",
+      "state": {
+        "plant": "_solar",
+        "fields": [
+          { "key": "batteryCharge", "cpp": "batteryCharge" },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "ledPower" }
+        ]
+      },
       "telemetry": {
         "batteryCharge": {
           "label": "SOC",
@@ -159,6 +204,20 @@
       "wasmMode": 4,
       "telemetryKeys": ["peltierHotK", "peltierColdK", "peltierDeltaT", "peltierVoltage", "peltierCurrent", "peltierPowerW", "peltierCOP"],
       "fidelity": "WASM (two-node Seebeck/Peltier stack)",
+      "state": {
+        "plant": "_peltier",
+        "fields": [
+          { "key": "peltierHotK", "cpp": "hotK" },
+          { "key": "peltierColdK", "cpp": "coldK" },
+          { "key": "peltierDeltaT", "cpp": "deltaTK" },
+          { "key": "peltierVoltage", "cpp": "voltageV" },
+          { "key": "peltierCurrent", "cpp": "currentA" },
+          { "key": "peltierPowerW", "cpp": "powerW" },
+          { "key": "peltierCOP", "cpp": "cop" },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "drive" }
+        ]
+      },
       "telemetry": {
         "peltierHotK": {
           "label": "T_h",
@@ -206,6 +265,19 @@
       "wasmMode": 5,
       "telemetryKeys": ["mhdFlowU", "mhdBFieldT", "mhdHartmann", "mhdVoltage", "mhdCurrent", "mhdPowerW"],
       "fidelity": "WASM (Hartmann channel)",
+      "state": {
+        "plant": "_mhd",
+        "fields": [
+          { "key": "mhdFlowU", "cpp": "flowU" },
+          { "key": "mhdBFieldT", "cpp": "bFieldT" },
+          { "key": "mhdHartmann", "cpp": "hartmann" },
+          { "key": "mhdVoltage", "cpp": "voltageV" },
+          { "key": "mhdCurrent", "cpp": "currentA" },
+          { "key": "mhdPowerW", "cpp": "powerW" },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "drive" }
+        ]
+      },
       "telemetry": {
         "mhdFlowU": {
           "label": "U",
@@ -248,6 +320,19 @@
       "wasmMode": 6,
       "telemetryKeys": ["maglevGapMm", "maglevFieldT", "maglevLiftN", "maglevRpm"],
       "fidelity": "WASM (spring–damper gap ODE), JS fallback mirrors it",
+      "state": {
+        "plant": "_maglev",
+        "fields": [
+          { "key": "maglevGap", "cpp": "gap" },
+          { "key": "maglevGapVel", "cpp": "gapVel" },
+          { "key": "maglevGapMm", "cpp": "gapMm" },
+          { "key": "maglevFieldT", "cpp": "fieldT" },
+          { "key": "maglevLiftN", "cpp": "liftN" },
+          { "key": "maglevRpm", "cpp": "rpm" },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "drive" }
+        ]
+      },
       "telemetry": {
         "maglevGapMm": {
           "label": "gap",
@@ -280,6 +365,23 @@
       "wasmMode": null,
       "telemetryKeys": ["pulseCoilCurrentA", "pulseCoilVCap", "pulseCoilBPeakT", "pulseCoilArmatureMm"],
       "fidelity": "JS-only (fallback-physics for pulseCoilBPeakT)",
+      "state": {
+        "plant": null,
+        "fields": [
+          { "key": "pulseCoilVCap", "cpp": null },
+          { "key": "pulseCoilChargeSetpointV", "cpp": null, "type": "nullable" },
+          { "key": "pulseCoilCurrent", "cpp": null },
+          { "key": "pulseCoilCurrentA", "cpp": null },
+          { "key": "pulseCoilPeakIA", "cpp": null },
+          { "key": "pulseCoilBPeakT", "cpp": null },
+          { "key": "pulseCoilArmatureM", "cpp": null },
+          { "key": "pulseCoilArmatureMm", "cpp": null },
+          { "key": "pulseCoilArmatureVel", "cpp": null },
+          { "key": "pulseCoilPulseT", "cpp": null },
+          { "key": "pulseCoilFiring", "cpp": null, "type": "bool" },
+          { "key": "energyLevel", "cpp": null }
+        ]
+      },
       "setpoints": [
         {
           "id": "pulseCoilCharge",
@@ -327,6 +429,20 @@
       "wasmMode": 7,
       "telemetryKeys": ["homopolarRpm", "homopolarEmfV", "homopolarCurrentA", "homopolarFieldT"],
       "fidelity": "WASM (Faraday disc L–R + back-EMF)",
+      "state": {
+        "plant": "_homopolar",
+        "fields": [
+          { "key": "homopolarOmega", "cpp": "omega" },
+          { "key": "homopolarAngle", "cpp": "angle" },
+          { "key": "homopolarRpm", "cpp": "rpm" },
+          { "key": "homopolarEmfV", "cpp": "emfV" },
+          { "key": "homopolarCurrentA", "cpp": "currentA" },
+          { "key": "homopolarCurrent", "cpp": null },
+          { "key": "homopolarFieldT", "cpp": "fieldT" },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "drive" }
+        ]
+      },
       "telemetry": {
         "homopolarRpm": {
           "label": "RPM",
@@ -360,6 +476,20 @@
       "wasmMode": null,
       "telemetryKeys": ["halbachSegmentCount", "halbachMagAngleDeg", "halbachPeakBT", "halbachPeriodM", "halbachDipoleForceN"],
       "fidelity": "JS-only (CPU field-line viz); estimateHalbachFieldT is a free WASM helper, not a plant",
+      "state": {
+        "plant": null,
+        "clearOnLoad": ["halbachFieldLines"],
+        "fields": [
+          { "key": "halbachSegmentCount", "cpp": null },
+          { "key": "halbachSegmentSetpoint", "cpp": null, "type": "nullable" },
+          { "key": "halbachMagAngleDeg", "cpp": null },
+          { "key": "halbachLayout", "cpp": null, "type": "enum", "values": ["ring", "linear"] },
+          { "key": "halbachPeakBT", "cpp": null },
+          { "key": "halbachPeriodM", "cpp": null },
+          { "key": "halbachDipoleForceN", "cpp": null },
+          { "key": "energyLevel", "cpp": null }
+        ]
+      },
       "setpoints": [
         {
           "id": "halbachSegments",
@@ -414,6 +544,21 @@
       "wasmMode": 8,
       "telemetryKeys": ["transformerVp", "transformerVs", "transformerIpA", "transformerIsA", "transformerK", "transformerFluxN"],
       "fidelity": "WASM coupled-inductor RK4 ODE (?wasmPhysics=1); JS fallback mirrors it",
+      "state": {
+        "plant": "_transformer",
+        "fields": [
+          { "key": "transformerPhase", "cpp": "phase" },
+          { "key": "transformerLeakage", "cpp": "leakage", "type": "bool" },
+          { "key": "transformerVp", "cpp": "v1" },
+          { "key": "transformerVs", "cpp": "v2" },
+          { "key": "transformerIpA", "cpp": "i1" },
+          { "key": "transformerIsA", "cpp": "i2" },
+          { "key": "transformerK", "cpp": "k" },
+          { "key": "transformerFluxN", "cpp": "fluxN" },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "drive" }
+        ]
+      },
       "telemetry": {
         "transformerVp": {
           "label": "V_p",
@@ -457,6 +602,20 @@
       "wasmMode": 9,
       "telemetryKeys": ["vdgVoltage", "vdgBeltMps", "vdgChargeC", "vdgSparkHz"],
       "fidelity": "WASM belt-charge/sphere-capacitance/spark-gap ODE (?wasmPhysics=1); JS fallback",
+      "state": {
+        "plant": "_vdg",
+        "fields": [
+          { "key": "vdgChargeC", "cpp": "chargeC" },
+          { "key": "vdgVoltage", "cpp": "voltage" },
+          { "key": "vdgBeltMps", "cpp": "beltMps" },
+          { "key": "vdgSparkTimer", "cpp": "sparkTimer" },
+          { "key": "vdgSparkAccum", "cpp": "sparkAccum" },
+          { "key": "vdgSparkWindowT", "cpp": "sparkWindowT" },
+          { "key": "vdgSparkHz", "cpp": "sparkHz" },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "drive" }
+        ]
+      },
       "telemetry": {
         "vdgVoltage": {
           "label": "V",
@@ -490,6 +649,19 @@
       "wasmMode": 10,
       "telemetryKeys": ["hallVoltage", "hallCurrent", "hallFieldT", "hallCoeff"],
       "fidelity": "WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback",
+      "state": {
+        "plant": "_hall",
+        "fields": [
+          { "key": "hallCurrent", "cpp": "current" },
+          { "key": "hallFieldT", "cpp": "fieldT" },
+          { "key": "hallVoltage", "cpp": "voltage" },
+          { "key": "hallCoeff", "cpp": "coeff" },
+          { "key": "hallCarrierType", "cpp": "carrierMetal", "type": "enum", "values": ["semiconductor", "metal"] },
+          { "key": "hallFieldCoupledT", "cpp": "fieldCoupledT", "type": "nullable", "cppNull": -1 },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "drive" }
+        ]
+      },
       "telemetry": {
         "hallVoltage": {
           "label": "V_H",
@@ -524,6 +696,19 @@
       "wasmMode": 11,
       "telemetryKeys": ["lorentzSledVms", "lorentzCurrentA", "lorentzFieldT", "lorentzForceN", "lorentzPositionM"],
       "fidelity": "WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it",
+      "state": {
+        "plant": "_lorentz",
+        "fields": [
+          { "key": "lorentzSledVms", "cpp": "velocityMps" },
+          { "key": "lorentzCurrentA", "cpp": "currentA" },
+          { "key": "lorentzPositionM", "cpp": "positionM" },
+          { "key": "lorentzForceN", "cpp": "forceN" },
+          { "key": "lorentzFieldT", "cpp": "fieldT" },
+          { "key": "lorentzFieldLocalT", "cpp": null },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "drive" }
+        ]
+      },
       "setpoints": [
         {
           "id": "lorentzField",
@@ -574,6 +759,20 @@
       "wasmMode": 12,
       "telemetryKeys": ["ringHeightM", "ringCurrentA", "ringPrimaryIA", "ringForceN", "ringCouplingK"],
       "fidelity": "WASM coupled L–M(h) RK4 ODE with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it",
+      "state": {
+        "plant": "_thomson",
+        "fields": [
+          { "key": "ringPrimaryIA", "cpp": "primaryIA" },
+          { "key": "ringCurrentA", "cpp": "ringCurrentA" },
+          { "key": "ringVelocityMps", "cpp": "velocityMps" },
+          { "key": "ringHeightM", "cpp": "heightM" },
+          { "key": "ringPhase", "cpp": "phase" },
+          { "key": "ringForceN", "cpp": "forceN" },
+          { "key": "ringCouplingK", "cpp": "couplingK" },
+          { "key": "energyLevel", "cpp": null },
+          { "cpp": "drive" }
+        ]
+      },
       "telemetry": {
         "ringHeightM": {
           "label": "h",
@@ -598,6 +797,76 @@
         "ringCouplingK": {
           "label": "k(h)",
           "unit": "",
+          "digits": 3
+        }
+      }
+    },
+    {
+      "id": "drop-tube",
+      "label": "Lenz Drop Tube",
+      "category": "quanta",
+      "chrome": { "emoji": "⏬", "label": "Drop Tube", "sort": 15 },
+      "shaderMode": 16,
+      "wasmMode": null,
+      "telemetryKeys": ["dropTubeVMps", "dropTubeTerminalVMps", "dropTubeDragN", "dropTubeEddyIA", "dropTubeDepthM"],
+      "fidelity": "JS-only algebraic eddy drag (point dipole, thin-walled tube): v_t = m·g/k, exact exponential step",
+      "state": {
+        "plant": null,
+        "fields": [
+          { "key": "dropTubeDepthM", "cpp": null },
+          { "key": "dropTubeVMps", "cpp": null },
+          { "key": "dropTubeStage", "cpp": null },
+          { "key": "dropTubeTimerS", "cpp": null },
+          { "key": "dropTubeClampDepthM", "cpp": null },
+          { "key": "dropTubeSigmaMSm", "cpp": null },
+          { "key": "dropTubeSigmaSetpointMSm", "cpp": null, "type": "nullable" },
+          { "key": "dropTubeInTube", "cpp": null },
+          { "key": "dropTubeTerminalVMps", "cpp": null },
+          { "key": "dropTubeDragN", "cpp": null },
+          { "key": "dropTubeEddyIA", "cpp": null },
+          { "key": "dropTubeEddyTrailIA", "cpp": null },
+          { "key": "energyLevel", "cpp": null }
+        ]
+      },
+      "setpoints": [
+        {
+          "id": "dropTubeSigma",
+          "label": "Tube conductivity σ",
+          "min": 0,
+          "max": 60,
+          "step": 0.1,
+          "unit": "MS/m",
+          "digits": 1,
+          "stateKey": "dropTubeSigmaSetpointMSm",
+          "liveKey": "dropTubeSigmaMSm",
+          "releasable": true,
+          "note": "Copper 59.6 · aluminium 37.7 · brass ≈ 16 · stainless ≈ 1.4 · plastic 0. Drag ∝ σ, so v_t ∝ 1/σ; at 0 there is no terminal velocity and the magnet free-falls. Auto returns to copper."
+        }
+      ],
+      "telemetry": {
+        "dropTubeVMps": {
+          "label": "v",
+          "unit": "m/s",
+          "digits": 3
+        },
+        "dropTubeTerminalVMps": {
+          "label": "v_t",
+          "unit": "m/s",
+          "digits": 3
+        },
+        "dropTubeDragN": {
+          "label": "F_drag",
+          "unit": "N",
+          "digits": 3
+        },
+        "dropTubeEddyIA": {
+          "label": "I_eddy",
+          "unit": "A",
+          "digits": 1
+        },
+        "dropTubeDepthM": {
+          "label": "depth",
+          "unit": "m",
           "digits": 3
         }
       }

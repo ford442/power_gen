@@ -10,6 +10,7 @@ import { simRandom } from '../../telemetry/deterministic-rng.js';
 import { VDG_V_BREAK } from '../../devices/quanta/van-de-graaff';
 import { HALL } from '../../devices/quanta/hall-effect';
 import { RING } from '../../devices/quanta/jumping-ring';
+import { dropTubeParticleUniforms } from '../../devices/quanta/drop-tube';
 
 const GRAV = 9.81;
 const TAU = Math.PI * 2;
@@ -68,6 +69,11 @@ export interface ParticleUniforms {
   ringHeightM?: number;
   ringCurrentA?: number;
   ringCouplingK?: number;
+  /** Lenz drop tube (mode 16) */
+  dropTubeDepthM?: number;
+  dropTubeVMps?: number;
+  dropTubeEddyIA?: number;
+  dropTubeEddyTrailIA?: number;
 }
 
 interface SpawnParticle {
@@ -411,6 +417,56 @@ function integrateJumpingRing(
   return [Math.cos(a) * radius, y, Math.sin(a) * radius];
 }
 
+const fract = (x: number): number => ((x % 1) + 1) % 1;
+
+/** Mirrors posDropTube in particle-compute.wgsl. */
+function integrateDropTube(
+  p: ParticlePhase,
+  idx: number,
+  t: number,
+  travelN = 0,
+  vN = 0,
+  aheadN = 0,
+  behindN = 0
+): [number, number, number] {
+  const phase = p.phase;
+  // 9.6 / -6.08 / 2.6 / 1.25 / 1.8 mirror DROP_Y_TOP / DROP_Y_BOTTOM /
+  // hoopRadiusU / magnetHalfU / loopOffsetU in devices/quanta/drop-tube.ts
+  // (device-local render units, not metres).
+  const yMag = 9.6 + (-6.08 - 9.6) * Math.max(0, Math.min(1, travelN));
+  const hoopR = 2.6;
+  const magHalf = 1.25;
+  const loopOff = 1.8;
+  const kind = idx % 8;
+
+  if (kind < 4) {
+    const ahead = kind < 2;
+    const s = ahead ? aheadN : behindN;
+    if (s < 0.02) {
+      const a0 = phase * 6.28318;
+      return [Math.cos(a0) * 0.3, yMag + (fract(phase * 7.0) - 0.5) * 1.6, Math.sin(a0) * 0.3];
+    }
+    const dir = ahead ? 1 : -1;
+    const a = (phase * 6.28318 + t * (1.0 + s * 5.0)) * dir;
+    const r = hoopR + (fract(idx * 0.37) - 0.5) * 0.5;
+    const y = yMag + (ahead ? -loopOff : loopOff) + (fract(idx * 0.73) - 0.5) * 0.6 * s;
+    return [Math.cos(a) * r, y, Math.sin(a) * r];
+  }
+
+  if (kind < 7) {
+    const u = fract(phase + t * (0.6 + 2.0 * vN));
+    const a = phase * 43.98;
+    const r = 0.25 + 0.35 * u;
+    return [Math.cos(a) * r, yMag + magHalf + u * (0.6 + vN * 7.0), Math.sin(a) * r];
+  }
+
+  const th = fract(phase + t * 0.15) * 3.14159;
+  const ph = fract(idx * 0.618) * 6.28318;
+  const st = Math.sin(th);
+  const rr = 3.4 * st * st;
+  return [rr * st * Math.cos(ph), yMag + rr * Math.cos(th), rr * st * Math.sin(ph)];
+}
+
 /**
  * Advance particle buffer in-place (8 floats per particle).
  */
@@ -541,6 +597,10 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
       const flowN = Math.min(1, (u.mhdFlowU ?? 1) / 3.5);
       const bN = Math.min(1, (u.mhdBFieldT ?? 0.4) / 1.0);
       const pos = integrateMHD({ phase }, idx, u.time, flowN, bN);
+      px = pos[0]; py = pos[1]; pz = pos[2];
+    } else if (mode >= 16.0) {
+      const [travelN, vN, aheadN, behindN] = dropTubeParticleUniforms(u);
+      const pos = integrateDropTube({ phase }, idx, u.time, travelN, vN, aheadN, behindN);
       px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode >= 15.0) {
       const irN = Math.min(1, Math.abs(u.ringCurrentA ?? 0) / RING.iRingMaxA);

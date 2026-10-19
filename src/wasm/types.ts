@@ -1,6 +1,12 @@
 // =============================================================
 // types.ts  –  TypeScript declarations for the sim_core WASM module
 // =============================================================
+//
+// Mirrors cpp/src/sim_core_embind.cpp exactly. No binding takes or returns a
+// std::vector: array input goes through emscripten::val (setNetworkEdges) or a
+// C++-owned scratch written via HEAPF32 (get*ScratchPtr → *FromScratch).
+// `npm run test:wasm-abi` calls every binding on the shipped .wasm.
+// =============================================================
 
 export interface Vec3 {
   x: number;
@@ -17,6 +23,14 @@ export interface SimParticle {
   vy: number;
   vz: number;
   aux: number;
+}
+
+export interface ChoresReduceRaw {
+  sum: number;
+  min: number;
+  max: number;
+  sumSq: number;
+  count: number;
 }
 
 export interface SEGSimulatorInstance {
@@ -36,7 +50,6 @@ export interface SEGSimulatorInstance {
   estimatePower(loadTorque: number): number;
   magneticEnergyDensity(): number;
   getParticle(i: number): SimParticle;
-  getParticles(maxCount?: number): SimParticle[];
   setRingLoadTorque(ring: number, torque: number): void;
   setRingLoadTorques(t0: number, t1: number, t2: number): void;
   stepWithPerRingTorques(dt: number): void;
@@ -113,14 +126,20 @@ export interface SEGSimulatorInstance {
   getRingCouplingK?(): number;
   getRingVelocityMps?(): number;
   getEnergyLevel?(): number;
-  setNetworkEdges?(flatEdges: number[] | Float32Array): void;
+  /** Low-rate: emscripten::val, so any JS array / typed array is accepted. */
+  setNetworkEdges?(flatEdges: ArrayLike<number>): void;
   getNetworkEdgeCount?(): number;
-  updateEnergyNetwork?(
+  /** Byte offset of a C++-owned scratch of ≥ count floats. Re-read HEAPF32 after (may grow). */
+  getScratchPtr?(count: number): number;
+  /**
+   * Per-frame energy bus: levels at scratch[0, modeCount), enabled flags (0/1)
+   * at scratch[modeCount, 2·modeCount) — see getScratchPtr.
+   */
+  updateEnergyNetworkFromScratch?(
     couplingEnabled: boolean,
     segPowerW: number,
     segEfficiencyPct: number,
-    energyLevels: number[] | Float32Array,
-    enabledFlags: number[] | Int32Array
+    modeCount: number
   ): void;
   getNetworkSummary?(): {
     couplingEnabled: boolean;
@@ -134,6 +153,12 @@ export interface SEGSimulatorInstance {
     powerOutW: number;
     efficiency: number;
   };
+  /** Plant snapshot (#224 §2): floats in `mode`'s state vector. */
+  plantStateSize?(mode: number): number;
+  /** Writes `mode`'s state into the scratch; returns the float count. */
+  plantSave?(mode: number): number;
+  /** Reads `count` scratch floats into `mode`'s plant; false on a layout / count / NaN refusal. */
+  plantLoad?(mode: number, count: number, layoutHash: number): boolean;
   /** Byte offset into WASM heap (use with HEAPF32) */
   getParticleBufferPtr?(): number;
   getParticleFloatCount?(): number;
@@ -157,12 +182,19 @@ export interface SimCoreModule {
   axialBField(z: number, radius: number, height: number, Br: number): number;
   estimateHalbachFieldT?(gapM: number, remanenceT?: number): number;
   sim_core_version(): string;
-  chores_reduce_f32?(data: number[] | Float32Array): number[] | { size: () => number; get: (i: number) => number };
-  chores_map_scale_f32?(
-    data: number[] | Float32Array,
-    scale: number,
-    bias: number
-  ): number[] | { size: () => number; get: (i: number) => number };
+  /** Byte offset of the chores scratch (≥ count floats). Re-read HEAPF32 after (may grow). */
+  chores_scratch_ptr?(count: number): number;
+  chores_reduce_f32_scratch?(count: number): ChoresReduceRaw;
+  /** In place over the first `count` scratch floats. */
+  chores_map_scale_f32_scratch?(count: number, scale: number, bias: number): void;
+  /**
+   * Hann-windowed (optional) one-sided amplitude spectrum in dB of the first
+   * `count` scratch floats, zero-padded to the next power of two N; writes the
+   * N/2 + 1 bins over the head of the scratch and returns that count (0 = bad input).
+   */
+  chores_fft_db_scratch?(count: number, hann: boolean, floorDb: number): number;
+  /** PLANT_STATE_LAYOUT_HASH this binary was built with. */
+  plant_state_layout_hash?(): number;
 }
 
 export type SimCoreFactory = (opts?: Record<string, unknown>) => Promise<SimCoreModule>;

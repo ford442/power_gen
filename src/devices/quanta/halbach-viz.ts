@@ -25,6 +25,7 @@ import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
 import { HALBACH_VIZ } from '../../../generated/physics-constants';
+import { labConfig } from '../../config/lab-config';
 
 export { HALBACH_VIZ };
 
@@ -165,19 +166,14 @@ export const stepHalbachVizPhysics: NonNullable<DevicePlugin['stepPhysics']> = (
   );
   const idealStep = 360 / segmentCount;
   const magAngleDeg = idealStep * (HALBACH_VIZ.magAngleBase + drive * HALBACH_VIZ.magAngleSpan);
-
-  const layoutParam = typeof window !== 'undefined'
-    && new URLSearchParams(window.location.search).get('halbachLinear') === '1'
-    ? 'linear'
-    : 'ring';
+  const layout = state.halbachLayout ?? 'ring';
 
   const changed = segmentCount !== state.halbachSegmentCount
-    || Math.abs(magAngleDeg - (state.halbachMagAngleDeg ?? 0)) > 0.05
-    || layoutParam !== state.halbachLayout;
+    || Math.abs(magAngleDeg - (state.halbachMagAngleDeg ?? 0)) > 0.05;
 
   state.halbachSegmentCount = segmentCount;
   state.halbachMagAngleDeg = magAngleDeg;
-  state.halbachLayout = layoutParam;
+  state.halbachLayout = layout;
 
   if (changed || !state.halbachFieldLines) {
     refreshHalbachFieldGeometry(state);
@@ -186,11 +182,17 @@ export const stepHalbachVizPhysics: NonNullable<DevicePlugin['stepPhysics']> = (
   state.energyLevel = Math.min(1, drive * 0.5 + (state.halbachPeakBT ?? 0) * 0.5);
 };
 
+/** `?halbachLinear=1` (or a share link), read once when the state is created. */
+function halbachLayoutFromUrl(): 'ring' | 'linear' {
+  return labConfig().halbachLinear ? 'linear' : 'ring';
+}
+
 export function createHalbachVizPhysicsState(): Partial<DevicePhysicsState> {
   const state: Partial<DevicePhysicsState> = {
     halbachSegmentCount: 8,
+    halbachSegmentSetpoint: null,
     halbachMagAngleDeg: 45,
-    halbachLayout: 'ring',
+    halbachLayout: halbachLayoutFromUrl(),
     halbachPeakBT: 0,
     halbachPeriodM: 0,
     halbachDipoleForceN: 0,

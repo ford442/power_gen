@@ -35,7 +35,8 @@ Overview mode places SEG, Heron, Kelvin, solar, Peltier, MHD (and plugins) in on
 ### Phase B details
 
 - C++ `EnergyNetworkEdgeSpec` / `updateEnergyNetwork()` mirrors JS budget clamp (source power / total requested).
-- Bridge: `segWasm.setNetworkEdges(edges)`, `updateEnergyNetwork({...})`, `getNetworkSummary()`.
+- Bridge: `segWasm.setNetworkEdges(edges)`, `updateEnergyNetwork({...})`, `getNetworkSummary()`. The per-frame update reaches C++ through a HEAPF32 scratch (`updateEnergyNetworkFromScratch`), not a `std::vector` binding — see cpp/README.md → WASM ABI.
+- A throw from the WASM bus drops `EnergyNetwork` to the JS bus for the rest of the session, once; the reason is in `getRendererInfo().energyBus.fallbackReason`.
 - Native smoke: `sim_core_test --mode energy-network` steps a 9-edge bus for ≥1 s without NaNs.
 - Residual: `labBudgetW - totalAllocatedW` (unallocated simulated source watts, not a conservation law).
 

@@ -3,6 +3,14 @@
 ## Overview
 This document defines the protocol, wiring, and configuration for connecting the SEG WebGPU Visualizer to an Arduino-driven electromagnet array.
 
+**Line protocol v2.** v2 keeps every v1 line byte for byte and adds one
+exchange — the host sends `V2`, a v2 board answers with an `I v=2 …` hello (and
+prints it once at boot). A v1 sketch drops `V2` as an unknown command, so a v2
+host still drives *and coasts* old boards with v1 lines. Everything else v2
+changes is inside the board (stricter parsing, bounded brake, a per-coil DC cap).
+Firmware, pin maps, hardware rules and the lock-on test:
+[`firmware/seg-driver/README.md`](../firmware/seg-driver/README.md).
+
 ## Communication Protocol
 
 ### Physical Layer
@@ -70,6 +78,9 @@ C{coilMask},{pwmDuty},{durationMs}\n
 | durationMs | int | 0 – 65535 | How long to hold (0 = infinite until next command) |
 
 Immediately overrides automatic commutation. Send `C0,0,0` to release override.
+The override applies in RUN only. v2 honours `durationMs` (v1 parsed and
+ignored it) and, like v1, treats `C` as a watchdog feed — the host sends only
+`C` lines while it holds an override.
 
 #### `CONF` - Coil Geometry Configuration
 ```
@@ -81,6 +92,18 @@ CONF{numCoils},{offsetAngle},{dwellAngle},{advanceAngle}\n
 | offsetAngle | float | Mechanical offset for coil 0 in degrees |
 | dwellAngle | float | Angular width each coil stays active |
 | advanceAngle | float | Lead angle for torque optimization |
+
+v2 clamps `numCoils` to the coils actually wired (v1 accepted up to 24 and drove
+unset pin slots) and does not treat `CONF` as a watchdog feed. (v1 matched `CONF`
+by its first letter as a `C` override, so it never applied.)
+
+#### `V` - Hello (v2)
+```
+V2\n
+```
+Sent by the host on connect, and up to four more times a second apart until a
+hello arrives (an Uno resets when the port opens and can miss the first). A v1
+sketch ignores it. Never a watchdog feed.
 
 ### Arduino → App State Stream
 
@@ -105,13 +128,31 @@ Streamed at 100–200Hz or on every hall state change.
 ```
 E{message}\n
 ```
-Forwarded to browser console as an error.
+Forwarded to browser console as an error. v2 also reports its own safety cuts
+here: watchdog trip, a coil hitting the DC cap, a clamped `CONF`.
 
 #### `I` - Info/Debug
 ```
 I{message}\n
 ```
 Forwarded to browser console as a log.
+
+**Hello (v2):** an `I` line that starts with `v=`:
+```
+I v=2 fw=seg-driver board=uno link=serial coils=6 halls=2 wd=100 brake=128/1000
+```
+| Key | Meaning |
+|-----|---------|
+| `v` | Line protocol version (`PROTOCOL_VERSION`) |
+| `board` / `link` | Pin map compiled in (`uno` / `mega` / `esp32`) and the link it is answering on |
+| `coils` / `halls` | Wired coils and hall sensors — `CONF` cannot exceed `coils` |
+| `wd` | Firmware watchdog, ms (still 100) |
+| `brake` | BRAKE duty cap / time cap, ms |
+
+The host stores it as `bridge.firmware` (`parseFirmwareHello()`), shows it in the
+Hardware Twin panel and publishes `hardwareTwin.firmwareProtocol` on the hub.
+No hello after every retry means a v1 sketch (or a board that is not this one);
+it is still driven with v1 lines and still coasts.
 
 ## Coil Configuration Reference
 
@@ -143,13 +184,16 @@ Forwarded to browser console as a log.
 | 4    | D10 | PWM capable |
 | 5    | D11 | PWM capable |
 
-For >6 coils, use a Mega (D2–D13, D44–D46) or ESP32 (GPIO 0–33).
+For >6 coils, use a Mega (12 coils on D4–D12, D44–D46) or an ESP32 (6 coils on
+GPIO 25, 26, 27, 32, 33, 4). Not "any GPIO": strapping, flash and boot-pulsing
+pins can switch a coil on during reset. Full per-board maps and the reasons for
+each choice: [`firmware/seg-driver/README.md` → Pin maps](../firmware/seg-driver/README.md#pin-maps).
 
 #### Hall Effect Sensors
 | Sensor | Pin | Notes |
 |--------|-----|-------|
-| H0     | D2  | External interrupt |
-| H1     | D3  | External interrupt |
+| H0     | D2  | External interrupt (INT0) |
+| H1     | D4  | Polled — D3 is coil 0 (this table used to say D3, which collided) |
 
 More sensors can use pin-change interrupts on other digital pins.
 
@@ -163,11 +207,17 @@ More sensors can use pin-change interrupts on other digital pins.
 
 ### Power
 - **Logic**: Arduino USB or 7–12V barrel jack.
-- **Coils**: Separate 12V–24V supply, common ground with Arduino.
+- **Coils**: Separate 12V–24V DC supply, common ground with Arduino. Never mains.
 - **Flyback diode**: Required across every coil.
+- **Gate pull-down** (10 kΩ gate–source) on every MOSFET, a **fuse** on the coil
+  supply and a reachable **switch** — the parts of "cannot lock a coil on" that
+  firmware cannot provide (README → Hardware rules).
 
 ## Safety Rules
-1. **Watchdog (firmware)**: If no `P` command for >100ms, Arduino disables all coils.
+1. **Watchdog (firmware)**: If no valid `P` or `C` command for >100 ms, the board
+   disables all coils. (A held `C` override counts as a feed — the host sends
+   only `C` while it holds one.) Unchanged in v2; v2 makes it unconditional and
+   stops malformed lines from feeding it.
 2. **Browser disconnect**: `HardwareBridge.disconnect()` sends `P0,0,2` (coast)
    then `C0,0,0` before closing the link — on **every** transport, and on a
    transport *switch* too. Queued links (BLE, WebUSB) are flushed first so those
@@ -178,7 +228,15 @@ More sensors can use pin-change interrupts on other digital pins.
 3. **Host timeout**: If `update()` is not called for >200ms while connected, the bridge forces coast + coils off.
 4. **Current limiting**: Use PWM or series resistors to stay within driver/coil ratings.
 5. **Thermal**: Monitor coil temperature; duty cycle should not exceed ratings.
+   v2 adds a backstop — no coil on for more than 2 s at a stretch, then 2 s off
+   — so a static hold (RUN at ~0 RPM, a held `C`) can never become DC.
 6. **Back-EMF**: Flyback diodes mandatory. Without them, MOSFETs will fail.
+7. **Defined modes only (v2)**: a `P` with a mode other than 0/1/2, or any `P`/`C`
+   that does not parse whole, coasts. BRAKE is ≤ 50 % duty for ≤ 1 s, then off
+   until the host leaves brake. (v1 left the coils frozen in both cases.)
+8. **The lock-on test**: `npm run test:firmware-safety` checks 1, 5 and 7 on every
+   simulated millisecond against the real sketch. Not a CI job — run it before
+   flashing a changed sketch.
 
 ## Browser digital twin UI
 
@@ -192,13 +250,21 @@ More sensors can use pin-change interrupts on other digital pins.
 | Mock link | `src/mock-serial-transport.ts` |
 | Panel | `src/hardware-panel.ts` (left sidebar) |
 | Commutation preview | `src/electromagnet-controller.js` |
-| Hub field | `TelemetryHub` → `hardwareTwin.shadowResidual` |
+| Hub field | `TelemetryHub` → `hardwareTwin.shadowResidual`, `hardwareTwin.firmwareProtocol` |
+| Hello parse | `parseFirmwareHello()` in `src/hardware-protocol-shared.ts` → `bridge.firmware` |
 | Contract test | `npm run test:transports` |
+| Firmware lock-on test | `npm run test:firmware-safety` (host C++, by hand, not CI) |
 
 **Layering rule:** the bridge owns the protocol *and every safety rule* (coast on
 disconnect, host watchdog, NaN-safe closed loop, PWM clamp). A transport only
 moves framed lines and reports drops, so adding one cannot invent a new way to
 leave coils energised. That is what `npm run test:transports` pins down.
+
+**Events:** `LabSession` constructs the bridge and owns its single `onError`
+slot, so UI listens with `bridge.on('status' | 'sensor' | 'twinMode' | 'error', fn)`,
+which returns an unsubscribe function. A throwing listener is logged and skipped.
+`HardwarePanel.attach()` is idempotent (one subscription set, one set of button
+handlers). The DOM E2E "hardware panel DOM follows the bridge" covers it.
 
 ### Happy path (mock — CI / demos)
 
@@ -215,9 +281,14 @@ telemetryHub.getSnapshot().hardwareTwin
 //   twinMode: 'shadow',
 //   sensorRpm, sensorPhase,
 //   shadowResidual: { phaseErrorDeg, rpmError, voltageError, currentError }
-//   connectionState: 'mock' | 'serial' | 'bluetooth' | 'usb'
+//   connectionState: 'mock' | 'serial' | 'bluetooth' | 'usb',
+//   firmwareProtocol: 2    // from the board's hello; null for a v1 sketch
 // }
 ```
+
+The panel's status row shows the hello under the link (`fw v2 · mock · 8 coils`;
+hover for the watchdog and brake caps), `fw …` while asking, or
+`no hello (v1 firmware)` once five requests went unanswered.
 
 5. Open **Scientific UI** (`Ctrl+Shift+S`) — **Shadow Twin Residual** chart shows ΔRPM / ΔV / ΔI time series.
 6. Header badge: `Twin mock` / `Twin serial` / `Twin BLE` / `Twin USB` / `Twin off` (`#hw-twin-badge`).
@@ -274,6 +345,8 @@ Disconnect always sends coast (`P0,0,2`) + coils off (`C0,0,0`) and clears manua
 - Magnetometer / hall fusion is firmware-side; the web app trusts the `S` stream.
 - Do not treat mock lag as calibrated metrology — residuals are for twin debugging only.
 - Optional `firmware/seg-driver/` is **experimental** and never blocks web-only users.
+  On-board BLE (ESP32 + Nordic UART) is **deferred**, with the reason and the
+  contract a BLE build must meet, in its README.
 
 ### Mock / demos / CI
 ```

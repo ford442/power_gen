@@ -18,6 +18,7 @@ import { buildVdgMesh, VDG_V_BREAK } from '../../devices/quanta/van-de-graaff';
 import { buildHallMesh } from '../../devices/quanta/hall-effect';
 import { buildLorentzSledMesh, LORENTZ } from '../../devices/quanta/lorentz-sled';
 import { buildJumpingRingMesh, RING } from '../../devices/quanta/jumping-ring';
+import { dropTubeMeshFromState } from '../../devices/quanta/drop-tube';
 import { buildPeltierMesh } from '../../devices/core/peltier-mesh';
 import { buildMhdMesh } from '../../devices/core/mhd-mesh';
 import { stepParticles } from '../shared/particle-physics';
@@ -165,6 +166,10 @@ export const renderMethods = {
           ringHeightM: device.physics.ringHeightM,
           ringCurrentA: device.physics.ringCurrentA,
           ringCouplingK: device.physics.ringCouplingK,
+          dropTubeDepthM: device.physics.dropTubeDepthM,
+          dropTubeVMps: device.physics.dropTubeVMps,
+          dropTubeEddyIA: device.physics.dropTubeEddyIA,
+          dropTubeEddyTrailIA: device.physics.dropTubeEddyTrailIA,
           simClock: this.simClock,
           speedMult: speed
         });
@@ -350,6 +355,10 @@ if (device.id === 'seg') {
     const kNorm = Math.min(1, (device.physics.ringCouplingK ?? RING.couplingK0) / RING.couplingK0);
     this.meshRenderer.drawPluginDevice(
       viewProj, pos, buildJumpingRingMesh(heightNorm, ringNorm, primaryNorm, kNorm).cylinders(), renderOpts
+    );
+  } else if (drawMeshes && device.id === 'drop-tube') {
+    this.meshRenderer.drawPluginDevice(
+      viewProj, pos, dropTubeMeshFromState(device.physics).cylinders(), renderOpts
     );
   }
 

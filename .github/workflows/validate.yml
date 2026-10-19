@@ -43,6 +43,9 @@ jobs:
       - name: Device catalog codegen (CI check)
         run: npm run check:catalog
 
+      - name: LabConfig codegen + raw URL/storage access gate (CI check)
+        run: npm run check:lab-config
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -52,11 +55,32 @@ jobs:
       - name: FDTD slice contracts + CPU kernel
         run: npm run test:fdtd
 
+      - name: WASM ABI (every Embind export on the shipped sim_core.wasm)
+        run: npm run test:wasm-abi
+
       - name: Plant worker protocol (host ⇄ worker_threads)
         run: npm run test:plant-worker
 
       - name: Lab coupling buses (field, charge, energy graph)
         run: npm run test:coupling
+
+      - name: Lab share links (#lab= finite/clamped, setpoints survive steps)
+        run: npm run test:lab-url
+
+      - name: LabConfig parser, precedence, #lab2= share links
+        run: npm run test:lab-config
+
+      - name: Analysis fits + FFT chore golden (JS ⇄ shipped WASM)
+        run: npm run test:analysis
+
+      - name: Reference experiments headless (expect blocks, wasm + js)
+        run: npm run test:experiments
+
+      - name: Classroom (PWA precache, recorder helpers) + touch camera gestures
+        run: npm run test:classroom && npm run test:camera-gestures
+
+      - name: Embed postMessage protocol, origin allowlist, classroom channel
+        run: npm run test:embed
 
       - name: Build site (no WASM rebuild)
         run: npm run build:site
@@ -73,6 +97,20 @@ jobs:
 
       - name: Native sim_core smoke test
         run: npm run wasm:native
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Needs the native binary above: native + shipped-wasm + TS plant
+      # snapshot round trips (bit-identical) and the JS → C++ cross-load.
+      - name: Plant snapshots (save → load → step, every backend)
+        run: npm run test:snapshots
 
       # Probes for a compiler whose ASan/UBSan runtimes link and run; skips
       # (exit 0) on images without them, so this never reds a gcc-only job.
@@ -140,3 +178,8 @@ jobs:
 
       - name: E2E tests (WebGL2)
         run: npm run test:e2e
+
+      # Service worker only exists in a production build: vite preview of a
+      # fresh build:site, its own port (docs/CLASSROOM.md).
+      - name: E2E offline PWA (precache, offline reload, prompt-based update)
+        run: npm run test:e2e:offline

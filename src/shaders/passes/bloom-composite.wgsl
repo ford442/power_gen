@@ -1,4 +1,5 @@
 #include "common/bloom-params.wgsl"
+#include "common/color.wgsl"
 
 @group(0) @binding(0) var sceneTexC  : texture_2d<f32>;
 @group(0) @binding(1) var bloomTexC  : texture_2d<f32>;
@@ -70,6 +71,7 @@ fn ssao(uv: vec2f, depth: f32) -> f32 {
   return clamp(ao, 0.45, 1.0);
 }
 
+/** Legacy 3-pass bloom target: widen it here with five taps. */
 fn wideBloom(uv: vec2f) -> vec3f {
   let o = vec2f(params.texelSizeX, params.texelSizeY) * params.radius * 2.5;
   var s = textureSample(bloomTexC, compSampler, uv).rgb * 0.40;
@@ -78,6 +80,15 @@ fn wideBloom(uv: vec2f) -> vec3f {
   s += textureSample(bloomTexC, compSampler, uv + vec2f(0.0, o.y)).rgb * 0.15;
   s += textureSample(bloomTexC, compSampler, uv - vec2f(0.0, o.y)).rgb * 0.15;
   return s;
+}
+
+fn bloomAt(uv: vec2f) -> vec3f {
+  // Mip-chain bloom (linear pipeline) is already wide: mip 0 holds the sum of
+  // every level, so one bilinear tap from half res is the whole glow.
+  if (params.bloomChainScale > 0.0) {
+    return textureSample(bloomTexC, compSampler, uv).rgb * params.bloomChainScale;
+  }
+  return wideBloom(uv);
 }
 
 @fragment
@@ -108,7 +119,7 @@ fn main(input: FragInput) -> @location(0) vec4f {
     scene += refl.rgb * params.ssrStrength * ao;
   }
 
-  let bloom = wideBloom(input.uv);
+  let bloom = bloomAt(input.uv);
   var combined = scene + bloom * params.strength * (0.85 + params.power * 0.35);
   // Exposure from lighting preset (studio/lab/drama) + debug slider override.
   let exposure = max(params.exposure, 0.05);
@@ -120,14 +131,36 @@ fn main(input: FragInput) -> @location(0) vec4f {
   let vignette = 1.0 - smoothstep(0.52, 1.05, vigDist);
   let pulse = 1.0 + params.vignette * params.power * 0.35 * (1.0 - radial);
 
-  // Linear HDR for canvas `toneMapping.extended` (?hdr=1 + HDR display).
-  // Skip ACES so the compositor is not double-tonemapped.
+  let vig = mix(0.28, 1.0, vignette * pulse);
+
+  // Scene-referred linear HDR for canvas `toneMapping.extended` (?hdr=1 + HDR
+  // display, rgba16float canvas). Skip the filmic curve so the compositor is
+  // not double-tonemapped; 1.0 is SDR white. The canvas is `srgb`-tagged, so
+  // the value still has to be encoded — there is no -srgb view of a float
+  // canvas to do it in hardware.
   if (params.outputLinearHdr > 0.5) {
-    let gradedHdr = (combined + vec3f(grain)) * mix(0.28, 1.0, vignette * pulse);
-    return vec4f(max(gradedHdr, vec3f(0.0)), 1.0);
+    let gradedHdr = max((combined + vec3f(grain * 0.25)) * vig, vec3f(0.0));
+    if (params.outputTransfer > 1.5) {
+      return vec4f(linearToSrgb(gradedHdr), 1.0);
+    }
+    return vec4f(gradedHdr, 1.0);
   }
 
   let tm = filmicTonemap(combined);
-  let graded = (tm + vec3f(grain)) * mix(0.28, 1.0, vignette * pulse);
-  return vec4f(clamp(graded, vec3f(0.0), vec3f(1.0)), 1.0);
+
+  // Legacy (?color=legacy): the pre-#223 output, tonemapped linear values
+  // written straight to a UNORM canvas with no sRGB encode.
+  if (params.outputTransfer < 0.5) {
+    let graded = (tm + vec3f(grain)) * vig;
+    return vec4f(clamp(graded, vec3f(0.0), vec3f(1.0)), 1.0);
+  }
+
+  // Grain and vignette are grading, tuned by eye on encoded values: apply
+  // them in display space so they read the same as before, then hand the
+  // result back as linear for the -srgb view to encode.
+  let display = clamp((linearToSrgb(tm) + vec3f(grain)) * vig, vec3f(0.0), vec3f(1.0));
+  if (params.outputTransfer > 1.5) {
+    return vec4f(display, 1.0);
+  }
+  return vec4f(srgbToLinear(display), 1.0);
 }

@@ -33,7 +33,10 @@ Foundation issues (WASM flags, TS Wave 2, device strategies, LED-solar naga, Ene
    one does **and** ride the existing catalog pipeline (ADR-0008) rather than
    adding a fourth magic number. `jumping-ring` (15th, Lenz's law as motion —
    the only bench where induction moves a conductor) is the worked example;
-   see the device gallery's cross-device-coupling note, which still prefers
+   `drop-tube` (16th, Lenz's law as braking, #217) is the second, admitted
+   with `wasmMode: null` because its answer is algebraic, and with a mesh LOD
+   prefix ordered so a cut overview draw drops tube rings, never the magnet.
+   See the device gallery's cross-device-coupling note, which still prefers
    depth over the next bench.
 
 ### Explicit non-goals
@@ -175,6 +178,45 @@ marker while the path is active.
 - [x] Catalog `setpoints` generate the Lorentz B / Halbach N / pulse-coil charge
       sliders (they only write; the plant clock still steps the plants).
 - [x] Focus-change live region (lab mode + one headline number).
+
+### Workstream 6 — Museum north star (#217)
+
+Gated on Wave 10, bind-group codegen, the plant Worker and the charge bus
+(#212–#215) being closed, which they are. One PR per workstream.
+
+- [x] **Lenz drop tube** (`drop-tube`, 16th bench) — JS-only point-dipole eddy
+      drag, `v_t = m·g/k`, exact exponential step, σ setpoint slider, 7-step
+      tour closing on what it is not. Particle budget 2400/1500/900/450; the
+      overview mesh prefix keeps magnet + pad first. Pinned by
+      `npm run test:drop-tube`; see `docs/DEVICE_GALLERY.md` → *drop-tube*.
+      No FEM, no thermal model, not a brake-design tool or launcher.
+- [x] meshopt decode documented as **not needed yet** with a byte comparison
+      (`docs/GLTF_ASSETS.md` → *meshopt decode — measured, not needed yet*):
+      38.8 KB gzip across all nine GLBs today, 25.7 KB welded with no
+      extension, 16.6 KB with meshopt + quantization — 9.1 KB saved overall
+      against a 7.8 KB decoder, and under 2.5 KB per focused bench. Measuring
+      also found every committed GLB spec-invalid (accessors overran their
+      bufferViews; cgltf refused them all); the writers are fixed and
+      `npm run test:props` now checks spec structure. **No artist GLB yet** —
+      the SEG housing and coil former are still the first candidates, now
+      starting from files external tools accept. Still no Three.js / Babylon /
+      PlayCanvas, no UASTC; WebGL2 still skips glTF.
+- [x] Firmware line protocol `v=2`: v1 lines byte for byte plus a `V2` → `I v=2 …`
+      hello, so a v2 host still drives and coasts a v1 sketch. The host asks on
+      connect (≤ 5 tries), shows the board in the panel and publishes
+      `hardwareTwin.firmwareProtocol`; the mock answers like a v2 board.
+      Watchdog unchanged at 100 ms (and the host's value is pinned to
+      `protocol.h`); the sketch is stricter — malformed / undefined commands
+      coast, BRAKE ≤ 50 % for ≤ 1 s, no coil on > 2 s at a stretch, `CONF`
+      clamped to wired pins. "We will not ship firmware that can lock a coil
+      on" is `npm run test:firmware-safety` (host C++, by hand, **not CI**);
+      writing it found the v1 lock-on paths the README tabulates. Pin maps for
+      Uno / Mega / ESP32 in `firmware/seg-driver/README.md`. **ESP32 BLE NUS
+      on the board is deferred** there with reasons (no board or toolchain to
+      bench it, ESP32 BLE APIs differ by core version, a radio path into a coil
+      driver is not where untested code goes) and the contract a BLE build
+      must meet. Disconnect → coast on every transport, pinned by
+      `npm run test:transports` against v1 and v2 boards.
 
 ### Acceptance (epic-level)
 
