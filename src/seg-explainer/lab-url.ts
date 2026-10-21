@@ -8,8 +8,8 @@
  */
 
 import { LAB_TOURS, type LabTourKey, type SEGTourPlayer } from './seg-tour-player';
-import { HALBACH_VIZ, LORENTZ_SLED } from '../../generated/physics-constants';
 import { applySetpoint, readSetpoint, setpointById } from '../setpoint-sliders';
+import { HALBACH_VIZ, LORENTZ_SLED } from '../../generated/physics-constants';
 
 export const LAB_URL_VERSION = 1;
 
@@ -169,10 +169,6 @@ export async function applyLabState(lab: LabHashState | null | undefined): Promi
   if (lab.mode === 'halbach-viz' && lab.halbachSegments != null && halbach) {
     const sp = setpointById('halbachSegments');
     if (sp) applySetpoint(sp, lab.halbachSegments);
-    // A restored share-link setpoint hands control back to the drive slider
-    // when it moves; catalog slider pins remain until explicitly released.
-    halbach.halbachSegmentSetpointSource = 'link';
-    halbach.halbachSetpointDrive = null;
   }
   if (lab.halbachLinear != null && halbach) {
     const layout = lab.halbachLinear ? 'linear' : 'ring';

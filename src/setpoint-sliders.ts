@@ -63,7 +63,6 @@ export function applySetpoint(
     const phys = physicsOf(sp, w);
     if (!phys) return false;
     phys[sp.stateKey] = null;
-    if (sp.id === 'halbachSegments') phys.halbachSegmentSetpointSource = null;
     return true;
   }
   const v = clampSetpoint(sp, value);
@@ -75,7 +74,6 @@ export function applySetpoint(
   const phys = physicsOf(sp, w);
   if (!phys) return false;
   phys[sp.stateKey] = v;
-  if (sp.id === 'halbachSegments') phys.halbachSegmentSetpointSource = 'slider';
   return true;
 }
 

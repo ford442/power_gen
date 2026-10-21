@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Real-time WebGPU simulation of the Searl Effect Generator with extensible architecture",
   "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
   "main": "src/main.ts",
   "scripts": {
     "dev": "vite",
@@ -42,10 +45,10 @@
     "test:wasm-abi": "node scripts/test-wasm-abi.mjs",
     "test:plant-worker": "node scripts/test-plant-worker.mjs",
     "test:coupling": "node scripts/test-lab-coupling.mjs",
-    "test:lab-url": "node scripts/test-lab-url.mjs",
     "test:pulse-coil": "node scripts/test-pulse-coil.mjs",
     "test:lab-mode": "node scripts/test-lab-mode.mjs",
-    "validate": "npm run codegen:constants && npm run check:constants && npm run codegen:catalog && npm run check:catalog && npm run typecheck && npm run wasm:native && npm run test:chores && npm run test:device-mixins && npm run test:fdtd && npm run test:transports && npm run test:audio && npm run test:props && npm run test:golden && npm run test:wasm-abi && npm run test:plant-worker && npm run test:coupling && npm run test:lab-url && npm run test:pulse-coil && npm run test:lab-mode && npm run check:post && npm run check:wgsl && npm run check:bindings",
+    "test:lab-url": "node scripts/test-lab-url.mjs",
+    "validate": "npm run codegen:constants && npm run check:constants && npm run codegen:catalog && npm run check:catalog && npm run typecheck && npm run wasm:native && npm run test:chores && npm run test:device-mixins && npm run test:fdtd && npm run test:transports && npm run test:audio && npm run test:props && npm run test:golden && npm run test:wasm-abi && npm run test:plant-worker && npm run test:coupling && npm run test:pulse-coil && npm run test:lab-mode && npm run test:lab-url && npm run check:post && npm run check:wgsl && npm run check:bindings",
     "deploy": "npm run build:site && python deploy.py",
     "wasm:build": "bash scripts/build-wasm.sh",
     "wasm:build-debug": "bash scripts/build-wasm.sh --debug",
@@ -62,14 +65,14 @@
   "author": "ford442",
   "license": "MIT",
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
+    "@playwright/test": "^1.64.1",
     "@types/w3c-web-serial": "^1.0.8",
     "@types/w3c-web-usb": "^1.0.14",
     "@types/web-bluetooth": "^0.0.21",
-    "@webgpu/types": "^0.1.71",
-    "esbuild": "^0.21.5",
-    "typescript": "^5.9.3",
-    "vite": "^5.0.0"
+    "@webgpu/types": "^0.1.74",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
   },
   "directories": {
     "doc": "docs"

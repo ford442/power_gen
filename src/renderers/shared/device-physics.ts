@@ -79,15 +79,8 @@ export interface HomopolarPhysicsExtension {
 /** Quanta Halbach field visualizer extension fields. */
 export interface HalbachVizPhysicsExtension {
   halbachSegmentCount?: number;
-  /**
-   * Segment count restored from a `#lab=…;hseg=N` link. Held over the
-   * drive-derived count until the drive slider moves off `halbachSetpointDrive`.
-   */
+  /** Pinned N from the catalog setpoint or a `#lab=…;hseg=N` link; null = drive-swept. */
   halbachSegmentSetpoint?: number | null;
-  /** Drive at the first step after the setpoint was applied (null = not yet seen). */
-  halbachSetpointDrive?: number | null;
-  /** Whether a pinned N came from a share link (released by moving the drive). */
-  halbachSegmentSetpointSource?: 'link' | 'slider' | null;
   halbachMagAngleDeg?: number;
   /** Set once from `?halbachLinear=1` at creation, or by a `#lab=…;hlin=1` link. */
   halbachLayout?: 'ring' | 'linear';
