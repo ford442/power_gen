@@ -495,8 +495,10 @@ export class SEGSim {
    */
   updateEnergyNetwork(input: SEGNetworkUpdateInput): SEGNetworkSummary {
     const sim = this._sim;
+    // Throw, not a zero summary: a stale (< 1.5.0) sim_core has no scratch
+    // exports, and EnergyNetwork only falls back to the JS bus on a throw.
     if (!sim?.updateEnergyNetworkFromScratch || !sim.getScratchPtr) {
-      return { couplingEnabled: false, labBudgetW: 0, totalAllocatedW: 0, residualW: 0 };
+      throw new Error('sim_core has no updateEnergyNetworkFromScratch (stale binary?)');
     }
     const n = WASM_DEVICE_IDS.length;
     const ptr = Number(sim.getScratchPtr(2 * n));

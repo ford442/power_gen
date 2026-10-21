@@ -176,6 +176,26 @@ export interface RendererInfoSnapshot {
     fallbackReason: string | null;
     wasmPlantError: string | null;
   };
+  /** WebGPU only: formats picked by webgpu-init/color-pipeline.ts (`?color=`, `?hdr=1`). */
+  colorPipeline?: {
+    mode: 'linear' | 'legacy';
+    canvasFormat: string;
+    outputFormat: string;
+    sceneFormat: string;
+    bloomFormat: string;
+    hdrOutput: boolean;
+    /** Mip-chain bloom depth; 0 on ?color=legacy (separable blur). */
+    bloomLevels: number;
+  };
+  /**
+   * WebGPU only: bytes of render targets / buffers the profiler tracks — an
+   * estimate (drivers pad, compress and alias), useful for before/after diffs.
+   */
+  gpuMemory?: {
+    textureBytes: number;
+    bufferBytes: number;
+    textures: Record<string, number>;
+  };
 }
 
 /** Canvas readback returned by window.captureCanvasFrame() (WebGL2 fallback + agent/e2e hooks). */

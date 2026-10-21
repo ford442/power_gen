@@ -64,10 +64,16 @@ writeFileSync(bootstrap, `
 import { parentPort } from 'node:worker_threads';
 globalThis.self = globalThis;
 globalThis.postMessage = (msg, transfer) => parentPort.postMessage(msg, transfer);
-parentPort.on('message', (data) => globalThis.onmessage?.({ data }));
+// A browser Worker queues messages until its script has run; without this the
+// host's 'init' can land before the bundle sets onmessage (seen on Node 20).
+const queued = [];
+let deliver = (data) => queued.push(data);
+parentPort.on('message', (data) => deliver(data));
 console.info = () => {};
 console.log = () => {};
 await import(${JSON.stringify(pathToFileURL(workerBundle).href)});
+deliver = (data) => globalThis.onmessage?.({ data });
+for (const data of queued.splice(0)) deliver(data);
 `);
 
 /** Browser `Worker` facade over worker_threads for the host. */

@@ -39,6 +39,8 @@ export declare class MultiDeviceShaders {
   readonly bloomExtractShader: string;
   readonly bloomBlurShader: string;
   readonly bloomCompositeShader: string;
+  readonly bloomDownsampleShader: string;
+  readonly bloomUpsampleShader: string;
   readonly iblPrefilterComputeShader: string;
   readonly taaResolveShader: string;
   readonly ssrComputeShader: string;

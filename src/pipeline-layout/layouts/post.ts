@@ -23,6 +23,11 @@ export function registerPostLayouts(r: LayoutRegistrar): void {
   r.bgl('bloomBlur', BGL.bloomBlur);
   r.pl('bloomBlur', ['bloomBlur']);
 
+  // Mip-chain bloom (linear colour pipeline, #223): prefilter / downsample /
+  // upsample all share one shape — source mip, sampler, BloomParams, BloomLevel.
+  r.bgl('bloomMip', BGL.bloomMip);
+  r.pl('bloomMip', ['bloomMip']);
+
   r.bgl('bloomComposite', BGL.bloomComposite);
   r.pl('bloomComposite', ['bloomComposite']);
 

@@ -71,13 +71,67 @@ texture** at startup (segEnhanced bindings 7–8):
 
 ## Post-processing pipeline (WebGPU)
 
-Scene renders to an HDR-ish offscreen target (`bloomSceneTexture`). Passes:
+Scene renders to a linear float offscreen target (`bloomSceneTexture`, label
+`scene-color`; format per the colour pipeline below). Passes:
 
 0. **TAA resolve** (high/ultra tier, focus mode only) — `passes/taa-resolve.wgsl`
 0. **SSR** (compute, high/ultra tier only) — `passes/ssr-compute.wgsl`
-1. **Extract** — luminance threshold with **corona boost** (green/cyan plasma weighted higher than bare metal specular)
-2. **Blur H / V** — 5-tap Gaussian
-3. **Composite** — scene + SSR + wide bloom + **filmic tonemap** (SDR) or **linear HDR** (`?hdr=1` + HDR display) + vignette + film grain
+1. **Bloom** — a mip chain on the default linear path, the old separable blur
+   on `?color=legacy`:
+   - **Prefilter** (`bloom-downsample.wgsl` `prefilter`) — scene (or TAA
+     resolve) → mip 0 at half resolution: 13-tap Jimenez downsample with a
+     Karis average (fireflies cannot dominate), then the soft-knee threshold
+     with **corona boost** (green/cyan plasma weighted higher than bare metal
+     specular).
+   - **Downsample** (`downsample`) — 13 taps per level, down to ~6 levels
+     (`BLOOM_CHAIN_MAX_LEVELS`; stops at a 4 px edge).
+   - **Upsample** (`bloom-upsample.wgsl`) — 3×3 tent from the smallest level
+     back up, additively blended onto each larger mip, so mip 0 ends holding
+     the sum of every level.
+   - Legacy: **Extract** (threshold + corona boost) then **Blur H / V**
+     (5-tap Gaussian) at full resolution.
+2. **Composite** — scene + SSR + bloom + **filmic tonemap** (SDR) or **linear HDR** (`?hdr=1` + HDR display) + vignette + film grain
+
+Host: `src/visualizer/bloom-chain.ts` owns the chain texture (one `texture_2d`
+with a mip per level), per-mip views, and a 256-byte-strided `BloomLevel`
+uniform slot per pass (`common/bloom-level.wgsl`: src / dst texel, tent radius).
+`npm run check:post` asserts the struct size, the stride and the level sizes.
+
+Every full-screen pass (TAA, legacy extract / blur, composite) shares
+`passes/bloom-vert.wgsl`, whose `uv` is **texture space** — (0,0) top-left,
+v down — so sampling an input at `uv` writes it back unflipped. Until #223 it
+emitted `pos * 0.5 + 0.5`, which flipped the image once per pass: the
+composite came out upside down whenever TAA was off, TAA's history was
+registered against a flipped copy, and the legacy bloom was mirrored against
+the scene. The mip-chain passes derive UVs from `@builtin(position)` instead.
+
+### Colour pipeline (`?color=`, #223)
+
+| | `linear` (default) | `legacy` (one release) |
+|---|---|---|
+| Scene / MSAA / TAA / history | `rg11b10ufloat` (else `rgba16float`) | canvas format (8-bit) |
+| Bloom | mip chain in the scene format | extract + separable blur |
+| Composite output | canvas `-srgb` view — hardware sRGB encode | canvas format, no encode |
+| Authored colours | decoded sRGB → linear (sky, light tints, material table, device base colours, glTF tints) | used as-is |
+| Presets | `LINEAR_RETUNE` merged over each look | original values |
+
+Formats are resolved once at boot in `src/webgpu-init/color-pipeline.ts` and
+exposed as `getRendererInfo().colorPipeline`. `BloomParams.outputTransfer` tells
+the composite which encode applies: `0` legacy, `1` the `-srgb` view encodes,
+`2` the shader encodes (the `?hdr=1` float canvas, which has no `-srgb` view but
+still expects sRGB-encoded values — WebGPU textures are not colour-managed).
+The legacy path keeps the pre-#223 formats, passes, presets and composite
+branch; the only shared change is TAA's luminance-weighted blend (below).
+
+**Bloom threshold is scene-referred.** On the linear path `threshold` /
+`knee` are in the same linear units the lit shaders write, *before* exposure:
+`1.0` is a diffuse white surface under the key light, so only highlights,
+plasma and emissive corona — values that can only exist in a float target —
+bloom. The legacy path keeps its display-referred 0–1 threshold.
+
+Known gaps: colour literals baked into WGSL (some particle / energy-pipe
+tints) are not decoded and read slightly brighter on the linear path; WebGL2
+is unchanged (`docs/WEBGL2.md`).
 
 Composite also applies:
 
@@ -94,14 +148,14 @@ Mesh shaders output **linear HDR** (no per-object tonemap); tonemapping happens 
 - Curve: ACES fitted (Narkowicz) with a soft shoulder (`filmicTonemap` in `bloom-composite.wgsl`) to reduce hard clip on SEG metals / corona.
 - **Exposure** comes from the active lighting preset (`studio` / `lab` / `drama` → `post.exposure`) via `packPostUniforms()`, overridable by the debug **Exposure** slider (`postExposure`).
 - Applied **before** the filmic curve: `combined *= exposure`.
-- **HDR canvas:** when `toneMapping.mode` is `extended` (`?hdr=1` and `(dynamic-range: high)`), `BloomParams.outputLinearHdr` is 1 and composite **skips** ACES / clamp-to-1 so the browser compositor is not double-tonemapped. Default SDR / CI screenshots stay on `standard` + ACES.
+- **HDR canvas:** when `?hdr=1` and `(dynamic-range: high)`, the canvas is `rgba16float` with `toneMapping: { mode: 'extended' }`, `BloomParams.outputLinearHdr` is 1 and composite **skips** ACES / clamp-to-1 so the browser compositor is not double-tonemapped; it applies the extended (sign-mirrored) sRGB OETF itself. Default SDR / CI screenshots stay on `standard` + ACES. `?hdr=1` is ignored on `?color=legacy`.
 
 ### Quality gates (auto-quality ↔ post cost)
 
 `qualityTier` from `PerformanceProfiler` maps to multipliers in
 `src/post-processing-config.ts` (`POST_QUALITY_GATES` → `getPostQualityGates`):
 
-| Tier | Bloom extract/blur | SSAO | Contact shadow | Motion blur | SSR | TAA |
+| Tier | Bloom | SSAO | Contact shadow | Motion blur | SSR | TAA |
 |------|--------------------|------|----------------|-------------|-----|-----|
 | `ultra` | on | 100% | 100% | 100% | on | on |
 | `high` | on | 100% | 100% | 100% | on | on |
@@ -131,6 +185,9 @@ bloom, so everything downstream sees the stabilised image.
   runs, the copy at the end of the frame takes the *resolved* image rather than
   the raw scene, so the blend accumulates exponentially
   (`TAA_HISTORY_WEIGHT = 0.9`) instead of reaching back only one frame.
+- **Luminance-weighted blend** (Karis): current and history are weighted by
+  `1 / (1 + luma)` before mixing, so one HDR highlight cannot ghost or flicker
+  through the float history the way it would in a plain linear lerp.
 - **Reset** (`_resetTaaHistory()`) on mode switch, SEG layout preset, lighting
   look, and any resize that reallocates the targets. A reset frame returns the
   current frame untouched, so there is no ghosting across the transition.
@@ -144,12 +201,12 @@ bloom, so everything downstream sees the stabilised image.
 - **WebGL2 does not implement TAA** — see `docs/WEBGL2.md`.
 
 `packPostUniforms({ qualityGates })` scales strengths. When `bloom: 0`, the render
-loop skips extract + blur passes (composite still runs for exposure / filmic).
+loop skips the bloom passes (composite still runs for exposure / filmic).
 Debug panel shows **Post Quality** summary next to the quality tier.
 
 | Gate | Rule |
 |------|------|
-| Feature negotiate | HDR bloom intermediates only when `rg11b10ufloat-renderable` (or equivalent) is present — else canvas format |
+| Feature negotiate | Scene + bloom in `rg11b10ufloat` when `rg11b10ufloat-renderable` is present, else `rgba16float` (legacy: canvas format, bloom `rg11b10ufloat` when available) |
 | Auto-quality | Particles / mesh LOD first; **post cost follows** via the table above (ADR-0005) |
 | WebGL2 | No bloom chain — mild Reinhard + vignette in mesh shaders only (`docs/WEBGL2.md`) |
 | Offline | `npm run check:wgsl` must pass on extracted bloom generators |
@@ -180,11 +237,12 @@ See prior sections in this doc — 48 floats CPU / WGSL `LightData` × 4 + ambie
 | 15 | skyMode |
 | 16 | ssrStrength |
 | 17 | outputLinearHdr (1 = linear HDR for canvas `extended`) |
-| 18–19 | padding (16-byte alignment) |
+| 18 | bloomChainScale (0 = legacy separable blur; else 1 / chain levels) |
+| 19 | outputTransfer (0 legacy, 1 `-srgb` view encodes, 2 shader encodes) |
 
-Packed by `packPostUniforms()` in `seg-lighting-presets.ts`. The struct is
-duplicated in three generator templates plus `bloom-composite.wgsl`;
-`npm run check:post` asserts all four match the packer's float count.
+Packed by `packPostUniforms()` in `seg-lighting-presets.ts`. The struct lives
+in `common/bloom-params.wgsl`; `npm run check:post` asserts it matches the
+packer's float count and the field indices above.
 
 ## Screen-space reflections (WebGPU, high/ultra only)
 

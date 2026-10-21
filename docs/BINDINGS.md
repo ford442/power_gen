@@ -239,6 +239,7 @@ gate could open.
 | `anomalyWall` | 0 global, 1 wall params |
 | `bloomExtract` | 0 scene tex, 1 sampler, 2 params |
 | `bloomBlur` | 0 tex, 1 sampler, 2 params, 3 direction |
+| `bloomMip` | 0 source mip (or scene), 1 sampler, 2 params, 3 `BloomLevel` (256-byte-strided slots) — prefilter / downsample / upsample of the linear-path mip chain |
 | `bloomComposite` | 0 scene, 1 bloom, 2 sampler, 3 params, 4 depth, 5 prev scene, 6 SSR reflection |
 | `ssr` | 0 depth, 1 scene, 2 sampler, 3 SsrParams, 4 reflection out (storage), 5 material G-buffer |
 | `iblPrefilter` | 0 IblPrefilterParams, 1 IBL array out (storage, 2d-array) |

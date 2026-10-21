@@ -1,8 +1,7 @@
 import type { MultiDeviceShaders } from '../../multi-device-shaders.js';
 import type { PipelineLayoutCache } from '../pipeline-layout-cache.js';
-import { VB_GRID, VB_POS_NORMAL_UV, ALPHA_BLEND, ADDITIVE_SRC_ALPHA, MATERIAL_GBUFFER_NO_WRITE, hashString } from '../helpers.js';
+import { VB_GRID, VB_POS_NORMAL_UV, ALPHA_BLEND, ADDITIVE_BLEND, ADDITIVE_SRC_ALPHA, MATERIAL_GBUFFER_NO_WRITE, hashString } from '../helpers.js';
 import type { DevicePipelineOptions } from './device-pipelines.js';
-import { bloomIntermediateFormat } from '../../webgpu-init/adapter.js';
 
 export async function ensureEnergyPipePipeline(
   cache: PipelineLayoutCache,
@@ -25,7 +24,7 @@ export async function ensureEnergyPipePipeline(
         entryPoint: 'main',
         // No material G-buffer write — a masked target keeps this compatible with the
         // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
-        targets: [{ format: cache.canvasFormat, blend: ADDITIVE_SRC_ALPHA }, MATERIAL_GBUFFER_NO_WRITE]
+        targets: [{ format: cache.sceneFormat, blend: ADDITIVE_SRC_ALPHA }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'triangle-strip' },
       depthStencil: cache.depthStencil(false, 'less'),
@@ -95,7 +94,7 @@ export async function ensureSkyPipeline(
         entryPoint: 'main',
         // No material G-buffer write — a masked target keeps this compatible with the
         // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
-        targets: [{ format: cache.canvasFormat }, MATERIAL_GBUFFER_NO_WRITE]
+        targets: [{ format: cache.sceneFormat }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'triangle-list' },
       depthStencil: cache.depthStencil(false, 'always'),
@@ -125,7 +124,7 @@ export async function ensureGridPipeline(
         entryPoint: 'main',
         // No material G-buffer write — a masked target keeps this compatible with the
         // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
-        targets: [{ format: cache.canvasFormat, blend: ALPHA_BLEND }, MATERIAL_GBUFFER_NO_WRITE]
+        targets: [{ format: cache.sceneFormat, blend: ALPHA_BLEND }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'triangle-list' },
       depthStencil: cache.depthStencil(false, 'less'),
@@ -156,7 +155,7 @@ export async function ensureAnomalyWallPipeline(
         entryPoint: 'fsMain',
         // No material G-buffer write — a masked target keeps this compatible with the
         // scene pass's second color attachment (ADR-0005 WS2 G-buffer).
-        targets: [{ format: cache.canvasFormat, blend: ALPHA_BLEND }, MATERIAL_GBUFFER_NO_WRITE]
+        targets: [{ format: cache.sceneFormat, blend: ALPHA_BLEND }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: cache.depthStencil(false, 'less'),
@@ -194,64 +193,58 @@ export async function ensureDepthResolvePipeline(
   );
 }
 
+/**
+ * Bloom post stack. The composite renders into the canvas view
+ * (`cache.outputFormat`: `-srgb` on the linear SDR path, `rgba16float` with
+ * `?hdr=1`); every other bloom pass renders into `cache.bloomFormat`.
+ *
+ * Which intermediate passes exist depends on the colour mode:
+ *   linear  prefilter → downsample × N → upsample × N (mip chain, #223)
+ *   legacy  extract → blur X → blur Y (full resolution, pre-#223)
+ */
 export async function ensureBloomPipelines(
   cache: PipelineLayoutCache,
   shaders: MultiDeviceShaders
 ): Promise<void> {
-  const fmt = cache.canvasFormat;
-  // Extract + blur render into the bloom temp/blur textures, which are
-  // rg11b10ufloat whenever the device has rg11b10ufloat-renderable
-  // (setupBloomTextures); only the composite writes the canvas. Targeting the
-  // canvas format here invalidated every frame's command buffer on such GPUs.
-  const bloomFmt = bloomIntermediateFormat(cache.device, fmt);
+  const bloomFmt = cache.bloomFormat;
   const vertModule = cache.shaderModule('bloom-vert', shaders.bloomVertShader);
-
-  await cache.getOrCreatePipeline('bloomExtract', () =>
+  const fullscreen = (
+    key: string,
+    layout: 'bloomExtract' | 'bloomBlur' | 'bloomMip' | 'bloomComposite',
+    module: GPUShaderModule,
+    entryPoint: string,
+    target: GPUColorTargetState
+  ) => cache.getOrCreatePipeline(key, () =>
     cache.device.createRenderPipeline({
-      label: 'bloomExtract',
-      layout: cache.getPipelineLayout('bloomExtract'),
+      label: key,
+      layout: cache.getPipelineLayout(layout),
       vertex: { module: vertModule, entryPoint: 'main' },
-      fragment: {
-        module: cache.shaderModule('bloom-extract', shaders.bloomExtractShader),
-        entryPoint: 'main',
-        targets: [{ format: bloomFmt }]
-      },
+      fragment: { module, entryPoint, targets: [target] },
       primitive: { topology: 'triangle-list' }
     })
   );
 
-  await cache.getOrCreatePipeline('bloomBlur', () =>
-    cache.device.createRenderPipeline({
-      label: 'bloomBlur',
-      layout: cache.getPipelineLayout('bloomBlur'),
-      vertex: { module: vertModule, entryPoint: 'main' },
-      fragment: {
-        module: cache.shaderModule('bloom-blur', shaders.bloomBlurShader),
-        entryPoint: 'main',
-        targets: [{ format: bloomFmt }]
-      },
-      primitive: { topology: 'triangle-list' }
-    })
-  );
+  if (cache.colorTargets.mode === 'legacy') {
+    const extract = cache.shaderModule('bloom-extract', shaders.bloomExtractShader);
+    const blur = cache.shaderModule('bloom-blur', shaders.bloomBlurShader);
+    await fullscreen('bloomExtract', 'bloomExtract', extract, 'main', { format: bloomFmt });
+    await fullscreen('bloomBlur', 'bloomBlur', blur, 'main', { format: bloomFmt });
+  } else {
+    const down = cache.shaderModule('bloom-downsample', shaders.bloomDownsampleShader);
+    const up = cache.shaderModule('bloom-upsample', shaders.bloomUpsampleShader);
+    await fullscreen('bloomPrefilter', 'bloomMip', down, 'prefilter', { format: bloomFmt });
+    await fullscreen('bloomDownsample', 'bloomMip', down, 'downsample', { format: bloomFmt });
+    // Additive onto the mip's own downsample — see passes/bloom-upsample.wgsl.
+    await fullscreen('bloomUpsample', 'bloomMip', up, 'main', { format: bloomFmt, blend: ADDITIVE_BLEND });
+  }
 
-  await cache.getOrCreatePipeline('bloomComposite', () =>
-    cache.device.createRenderPipeline({
-      label: 'bloomComposite',
-      layout: cache.getPipelineLayout('bloomComposite'),
-      vertex: { module: vertModule, entryPoint: 'main' },
-      fragment: {
-        module: cache.shaderModule('bloom-composite', shaders.bloomCompositeShader),
-        entryPoint: 'main',
-        targets: [{ format: fmt }]
-      },
-      primitive: { topology: 'triangle-list' }
-    })
-  );
+  const composite = cache.shaderModule('bloom-composite', shaders.bloomCompositeShader);
+  await fullscreen('bloomComposite', 'bloomComposite', composite, 'main', { format: cache.outputFormat });
 }
 
 /**
  * Temporal AA resolve pipeline (ADR-0005 WS2). Draws the shared full-screen
- * triangle from `bloom-vert.wgsl`; `format` is the canvas format the resolve
+ * triangle from `bloom-vert.wgsl`; `format` is the scene format the resolve
  * target was allocated with, and is part of the cache key so a format change
  * cannot reuse a stale pipeline.
  */

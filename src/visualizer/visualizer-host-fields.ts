@@ -13,6 +13,7 @@ import type { createIblResources } from '../ibl-prefilter';
 import type { IblPrefilterCompute } from '../ibl-prefilter-gpu';
 import type { FdtdSlicePass } from '../devices/quanta/fdtd-slice-pass';
 import type { getPostQualityGates } from '../post-processing-config';
+import type { BloomChain, BloomChainPipelines } from './bloom-chain';
 import type {
   MeshBuffers,
   VertexOnlyBuffers,
@@ -160,10 +161,12 @@ export interface VisualizerHostFields {
   /** Metalness/roughness G-buffer (ADR-0005 WS2) — second color target on the scene pass, read by SSR. */
   materialGBufferTexture?: GPUTexture | null;
   materialGBufferView?: GPUTextureView | null;
+  /** Linear colour pipeline's mip-chain bloom (null on ?color=legacy) — visualizer/bloom-chain.ts. */
+  bloomChain?: BloomChain | null;
+  bloomChainPipelines?: BloomChainPipelines | null;
   bloomBlurTexture?: GPUTexture | null;
   bloomTempTexture?: GPUTexture | null;
   prevSceneTexture?: GPUTexture | null;
-  bloomIntermediateFormat?: GPUTextureFormat;
   bloomExtractPipeline?: GPURenderPipeline | null;
   bloomBlurPipeline?: GPURenderPipeline | null;
   bloomCompositePipeline?: GPURenderPipeline | null;
@@ -192,6 +195,8 @@ export interface VisualizerHostFields {
   _taaActive?: boolean;
 
   _canvasResizeObserver?: ResizeObserver | null;
+  /** device-pixel-content-box observer on the canvas itself — see webgpu-init/canvas.ts. */
+  _canvasDprObserver?: ResizeObserver | null;
   _lastCanvasWidth?: number;
   _lastCanvasHeight?: number;
 
