@@ -231,6 +231,9 @@ function findKey(obj, key) {
   check('Halbach pinned: the magnetisation angle still follows the drive',
     Math.abs(pinned.halbachMagAngleDeg - (360 / 6) * (hv.HALBACH_VIZ.magAngleBase + 0.5 * hv.HALBACH_VIZ.magAngleSpan)) < 1e-9,
     String(pinned.halbachMagAngleDeg));
+  const sliderPinned = { halbachSegmentSetpoint: 6 };
+  stepHalbach(sliderPinned, 0.016, 0.8);
+  check('Halbach slider pin survives drive changes', sliderPinned.halbachSegmentCount === 6, String(sliderPinned.halbachSegmentCount));
   const wild = { halbachSegmentSetpoint: 1e9 };
   stepHalbach(wild, 0.016, 0);
   check('Halbach pinned: out-of-range clamps to segmentMax', wild.halbachSegmentCount === hv.HALBACH_VIZ.segmentMax, String(wild.halbachSegmentCount));

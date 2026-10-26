@@ -49,7 +49,7 @@ export function encodeLabHash(opts: LabHashOptions = {}): string {
   if (opts.step != null && opts.step >= 0) parts.push(`step=${opts.step}`);
   if (opts.renderer) parts.push(`renderer=${opts.renderer}`);
   if (opts.halbachSegments != null) parts.push(`hseg=${opts.halbachSegments}`);
-  if (opts.halbachLinear) parts.push('hlin=1');
+  if (opts.halbachLinear != null) parts.push(`hlin=${opts.halbachLinear ? 1 : 0}`);
   if (opts.pulseCoilCharge != null) parts.push(`pcap=${Number(opts.pulseCoilCharge).toFixed(2)}`);
   if (opts.lorentzFieldT != null) parts.push(`lfield=${Number(opts.lorentzFieldT).toFixed(2)}`);
   return `#lab=${parts.join(';')}`;
@@ -79,6 +79,12 @@ function finiteIn(raw: number, [lo, hi]: readonly [number, number]): number | un
   return Number.isFinite(raw) ? Math.max(lo, Math.min(hi, raw)) : undefined;
 }
 
+/** Integer fields: the whole value (`1e9`, not parseInt's `1`); `4.5` → undefined. */
+function intIn(v: string, range: readonly [number, number]): number | undefined {
+  const raw = v.trim() === '' ? NaN : Number(v);
+  return Number.isInteger(raw) ? finiteIn(raw, range) : undefined;
+}
+
 export function decodeLabHash(hash: string = typeof location !== 'undefined' ? location.hash : ''): LabHashState | null {
   const m = hash.match(/#lab=([^&]+)/);
   if (!m) return null;
@@ -101,9 +107,9 @@ export function decodeLabHash(hash: string = typeof location !== 'undefined' ? l
     else if (k === 'class') out.classroom = v === '1';
     else if (k === 'tour') out.tour = v === '1';
     else if (k === 'hi') out.hi = v;
-    else if (k === 'step') out.step = finiteIn(parseInt(v, 10), LAB_PARAM_RANGES.step);
+    else if (k === 'step') out.step = intIn(v, LAB_PARAM_RANGES.step);
     else if (k === 'renderer') out.renderer = v;
-    else if (k === 'hseg') out.halbachSegments = finiteIn(parseInt(v, 10), LAB_PARAM_RANGES.halbachSegments);
+    else if (k === 'hseg') out.halbachSegments = intIn(v, LAB_PARAM_RANGES.halbachSegments);
     else if (k === 'hlin') out.halbachLinear = v === '1';
     else if (k === 'pcap') out.pulseCoilCharge = finiteIn(parseFloat(v), LAB_PARAM_RANGES.pulseCoilCharge);
     else if (k === 'lfield') out.lorentzFieldT = finiteIn(parseFloat(v), LAB_PARAM_RANGES.lorentzFieldT);
@@ -158,16 +164,18 @@ export async function applyLabState(lab: LabHashState | null | undefined): Promi
     window.setMode(lab.mode);
   }
 
-  // Setpoints go through the same catalog path as the sliders, so a shared link
-  // pins exactly what the slider would (and shows on it).
-  if (lab.mode === 'halbach-viz' && lab.halbachSegments != null) {
+  const halbachDevice = window.multiVisualizer?.devices?.['halbach-viz'];
+  const halbach = halbachDevice?.physicsState ?? halbachDevice?.physics;
+  if (lab.mode === 'halbach-viz' && lab.halbachSegments != null && halbach) {
     const sp = setpointById('halbachSegments');
     if (sp) applySetpoint(sp, lab.halbachSegments);
   }
-  const halbach = window.multiVisualizer?.devices?.['halbach-viz']?.physicsState;
-  if (lab.halbachLinear && halbach && halbach.halbachLayout !== 'linear') {
-    halbach.halbachLayout = 'linear';
-    halbach.halbachFieldLines = null; // forces a geometry refresh next step
+  if (lab.halbachLinear != null && halbach) {
+    const layout = lab.halbachLinear ? 'linear' : 'ring';
+    if ((halbach.halbachLayout ?? 'ring') !== layout) {
+      halbach.halbachLayout = layout;
+      halbach.halbachFieldLines = null; // forces a geometry refresh next step
+    }
   }
   // `pcap` is a charge *fraction* of the bank. Links captured before pcap was a
   // pinned target carry the instantaneous cap voltage (often 0), so 0 means
@@ -245,7 +253,8 @@ export function captureLabState(): LabHashOptions {
   const v = window.multiVisualizer;
   const op = window.segOperator;
   const es = window.explainerState;
-  const halbach = v?.devices?.['halbach-viz']?.physicsState;
+  const halbachDevice = v?.devices?.['halbach-viz'];
+  const halbach = halbachDevice?.physicsState ?? halbachDevice?.physics;
   const sled = v?.devices?.['lorentz-sled']?.physicsState || v?.devices?.['lorentz-sled']?.physics;
   // Capture whichever tour is actually running, so a shared link reopens on the
   // same step of the same device tour rather than always the SEG one.
@@ -266,7 +275,7 @@ export function captureLabState(): LabHashOptions {
     pulseCoilCharge: pinnedFraction('pulseCoilCharge'),
     halbachSegments: pinnedValue('halbachSegments'),
     lorentzFieldT: sled?.lorentzFieldT,
-    halbachLinear: halbach?.halbachLayout === 'linear' || undefined
+    halbachLinear: halbach ? halbach.halbachLayout === 'linear' : undefined
   };
 }
 

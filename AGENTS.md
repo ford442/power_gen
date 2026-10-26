@@ -42,7 +42,7 @@ No backend, database, or server-side service.
 Core: `cpp/src/sim_core_*.cpp` + per-device plants in `cpp/src/plant/`. Bridge:
 `src/wasm/seg-physics-bridge.ts`. Enable: `?wasmPhysics=1` (or `?wasm=1`).
 Zero-copy views via `HEAPF32`. The interactive plant step runs in a Worker
-(`src/workers/plant-worker.ts`); `?plantWorker=0` keeps it on the main thread.  
+(`src/workers/plant-worker.ts`); `?plantWorker=0` keeps it on the main thread.
 Docs: `cpp/README.md`, ADR-0002.
 
 ### Hardware digital twin (experimental)

@@ -24,6 +24,7 @@ export type SchemaBindGroupLayoutName =
   | 'anomalyWall'
   | 'bloomExtract'
   | 'bloomBlur'
+  | 'bloomMip'
   | 'bloomComposite'
   | 'ssr'
   | 'iblPrefilter'
@@ -131,6 +132,12 @@ export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGro
     { binding: 2, visibility: 2, buffer: { type: 'uniform' } },
   ],
   bloomBlur: [
+    { binding: 0, visibility: 2, texture: { sampleType: 'float', viewDimension: '2d' } },
+    { binding: 1, visibility: 2, sampler: { type: 'filtering' } },
+    { binding: 2, visibility: 2, buffer: { type: 'uniform' } },
+    { binding: 3, visibility: 2, buffer: { type: 'uniform' } },
+  ],
+  bloomMip: [
     { binding: 0, visibility: 2, texture: { sampleType: 'float', viewDimension: '2d' } },
     { binding: 1, visibility: 2, sampler: { type: 'filtering' } },
     { binding: 2, visibility: 2, buffer: { type: 'uniform' } },

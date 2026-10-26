@@ -66,9 +66,14 @@ export class HardwarePanel {
     if (!visualizer.emController) {
       visualizer.emController = new ElectromagnetController(bridge.config);
     }
-    const injected = this._inject();
+    const injected = this._inject(bridge);
     if (this.bridge === bridge && this._unsub.length) {
-      if (injected) this._wire(); // panel DOM was rebuilt; its buttons need handlers
+      if (injected) {
+        // Panel DOM was rebuilt: its buttons need handlers, and the new select
+        // starts on 'open' whatever mode the bridge is in.
+        this._wire();
+        this._syncTwinUI(bridge.twinMode);
+      }
       this._renderStatus(bridge.status);
       return;
     }
@@ -96,7 +101,7 @@ export class HardwarePanel {
   }
 
   /** Returns true when it created the panel element (false if present or no host). */
-  private _inject(): boolean {
+  private _inject(bridge: HardwareBridge): boolean {
     const left = document.getElementById('left-panel');
     if (!left || document.getElementById('hardware-panel')) return false;
 
@@ -165,7 +170,8 @@ export class HardwarePanel {
 
     // Coil pad buttons
     const pad = el.querySelector('#hwCoilPad');
-    const n = this.bridge?.config?.numCoils || 8;
+    // `bridge`, not `this.bridge`: on first attach the field is not set yet.
+    const n = bridge.config?.numCoils || 8;
     for (let i = 0; i < n; i++) {
       const b = document.createElement('button');
       b.type = 'button';
