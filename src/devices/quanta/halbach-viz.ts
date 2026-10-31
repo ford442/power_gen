@@ -25,6 +25,7 @@ import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
 import { HALBACH_VIZ } from '../../../generated/physics-constants';
+import { labConfig } from '../../config/lab-config';
 
 export { HALBACH_VIZ };
 
@@ -182,16 +183,9 @@ export const stepHalbachVizPhysics: NonNullable<DevicePlugin['stepPhysics']> = (
   state.energyLevel = Math.min(1, drive * 0.5 + (state.halbachPeakBT ?? 0) * 0.5);
 };
 
-/** `?halbachLinear=1`, read once when the state is created (not every step). */
+/** `?halbachLinear=1` (or a share link), read once when the state is created. */
 function halbachLayoutFromUrl(): 'ring' | 'linear' {
-  try {
-    return typeof window !== 'undefined'
-      && new URLSearchParams(window.location.search).get('halbachLinear') === '1'
-      ? 'linear'
-      : 'ring';
-  } catch {
-    return 'ring';
-  }
+  return labConfig().halbachLinear ? 'linear' : 'ring';
 }
 
 export function createHalbachVizPhysicsState(): Partial<DevicePhysicsState> {

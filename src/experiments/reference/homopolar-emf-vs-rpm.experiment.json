@@ -1,0 +1,16 @@
+{
+  "id": "homopolar-emf-vs-rpm",
+  "title": "Faraday disc: EMF vs rotation speed",
+  "description": "Ramp the drive on the homopolar disc and plot its EMF against RPM. For a disc of radius r in an axial field B, EMF = ½·B·ω·r², a straight line through the origin with slope ½·B·r²·2π/60 per RPM (≈ 5.64e-4 V/RPM for the bench's 0.55 T, 0.14 m disc). The disc drives its own current through an 8 mΩ loop, which brakes it hard: full drive settles near 54 RPM, so the ramp spans roughly 5–54 RPM. Simulated, not metrology.",
+  "config": { "mode": "homopolar", "wasmPhysics": true, "seed": 42 },
+  "steps": [
+    { "at": 0, "set": { "drive": 0.1 } },
+    { "at": 1, "ramp": { "drive": [0.1, 1] }, "over": 12 },
+    { "at": 1, "record": ["drive", "homopolarRpm", "homopolarEmfV", "homopolarFieldT"], "hz": 30, "until": 14 },
+    { "at": 14, "expect": [
+      { "fit": { "x": "homopolarRpm", "y": "homopolarEmfV", "model": "proportional", "r2": { "gt": 0.999 }, "slope": { "approx": 5.6447e-4, "rel": 0.02 } } },
+      { "stat": { "key": "homopolarRpm", "of": "p2p", "gt": 30 } }
+    ] }
+  ],
+  "plots": [{ "x": "homopolarRpm", "y": "homopolarEmfV", "fit": "linear" }]
+}

@@ -6,6 +6,7 @@ import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts';
 import { createDevicePhysicsState } from './renderers/shared/device-physics';
 import type { DevicePhysicsState, HeronLayout } from './renderers/shared/device-physics';
 import { getHeronLayout } from './heron-layout';
+import { DEVICE_BY_ID } from '../generated/device-catalog';
 
 import {
   getDeviceModeIndex,
@@ -419,7 +420,8 @@ export class DeviceInstance {
    * Reset simulation accumulators when the user enters this device's focused view.
    */
   resetForModeEntry(): void {
-    if (['heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'halbach-viz', 'pulse-coil', 'transformer', 'vdg', 'hall', 'lorentz-sled', 'jumping-ring'].includes(this.id)) {
+    // Every catalog bench but SEG, whose plant is the operator's.
+    if (this.id !== 'seg' && DEVICE_BY_ID[this.id]) {
       const heronLayout: HeronLayout | undefined = this.id === 'heron'
         ? ((this.visualizer.heronLayout as HeronLayout | undefined) ||
           getHeronLayout(this.visualizer.heronLayoutPreset))

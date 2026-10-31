@@ -306,6 +306,9 @@ declare global {
     solarTour?: SEGTourPlayer;
     startSolarTour?: () => void;
     goToSolarStep?: (id: string) => void;
+    dropTubeTour?: SEGTourPlayer;
+    startDropTubeTour?: () => void;
+    goToDropTubeStep?: (id: string) => void;
     captureParticleSubset?: (opts?: { deviceId?: string; maxCount?: number }) => Promise<unknown>;
     captureOverviewCull?: () => Promise<unknown>;
     runSEGSpeedTest?: (speeds?: number[], durationMs?: number) => Promise<unknown>;
@@ -331,6 +334,8 @@ declare global {
     startSEGTour?: () => void;
     startVdgTour?: () => void;
     shareLabLink?: () => Promise<unknown>;
+    /** LabConfig console / agent / embed API (src/config/lab-api.ts). */
+    lab?: import('./config/lab-api').LabApi;
 
     /** URL / window overrides shared by WebGPU + WebGL2 (url-params). */
     SEG_PROTOTYPE_PRESET?: 'lab' | 'showroom';
@@ -374,7 +379,29 @@ declare global {
     /** Showroom / Lab / Twin preset bundle (lab-mode.ts); null until one is chosen. */
     setLabMode?: (mode: 'showroom' | 'lab' | 'twin') => void;
     getLabMode?: () => 'showroom' | 'lab' | 'twin' | null;
+
+    /**
+     * Classroom recorder (classroom/recorder.ts, lazy): record the lab canvas
+     * (+ audible lab audio) for `seconds` and resolve the video Blob — no
+     * download. Rejects while another recording runs. docs/CLASSROOM.md.
+     */
+    recordBench?: (seconds?: number) => Promise<Blob>;
   }
 }
 
 export {};
+
+// Analysis panel (#224 §4) — set by src/analysis/entry.ts installAnalysisEntry().
+declare global {
+  interface Window {
+    /** Open the analysis panel (lazy chunk); ids: [main run, overlay run]. */
+    openAnalysis?: (runIds?: string[]) => Promise<void>;
+    /** Run store for experiment runners, console and e2e (src/analysis/run-store.ts). */
+    analysisRuns?: {
+      addRun: typeof import('./analysis/run-store').addRun;
+      listRuns: typeof import('./analysis/run-store').listRuns;
+      getRun: typeof import('./analysis/run-store').getRun;
+      clearRuns: typeof import('./analysis/run-store').clearRuns;
+    };
+  }
+}

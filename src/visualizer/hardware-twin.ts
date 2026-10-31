@@ -25,6 +25,7 @@ export function buildHardwareTwinTelemetry(
       rpmError: hw.shadow.rpmError,
       voltageError: hw.shadow.voltageError ?? 0,
       currentError: hw.shadow.currentError ?? 0
-    }
+    },
+    firmwareProtocol: hw.firmware?.protocol ?? null
   };
 }

@@ -3,7 +3,7 @@
 // =============================================================
 
 import { loadSimCore, getSimCore } from './index';
-import type { SEGSimulatorInstance, Vec3, SimParticle } from './types';
+import type { SEGSimulatorInstance, SimCoreModule, Vec3, SimParticle } from './types';
 import { WASM_MODE_BY_ID, WASM_DEVICE_IDS } from '../../generated/device-catalog';
 
 export interface SEGNetworkSummary {
@@ -67,19 +67,30 @@ export class SEGSim {
   private _sim: SEGSimulatorInstance | null = null;
   private _simTimeS = 0;
   private _heapF32: Float32Array | null = null;
+  /** Module this simulator came from when not the page's cached one (Node, tests). */
+  private _mod: SimCoreModule | null = null;
 
   get wasmAvailable(): boolean {
     return this._sim !== null;
   }
 
-  private constructor(sim: SEGSimulatorInstance | null) {
+  private constructor(sim: SEGSimulatorInstance | null, mod: SimCoreModule | null = null) {
     this._sim = sim;
+    this._mod = mod;
     this._refreshHeap();
   }
 
   private _refreshHeap() {
-    const mod = getSimCore() as { HEAPF32?: Float32Array } | null;
+    const mod = (this._mod ?? getSimCore()) as { HEAPF32?: Float32Array } | null;
     this._heapF32 = mod?.HEAPF32 ?? null;
+  }
+
+  /**
+   * A simulator on an already-instantiated module — the headless experiment
+   * runner in Node loads `sim_core.js` itself (no fetch, no `<script>`).
+   */
+  static fromModule(mod: SimCoreModule): SEGSim {
+    return new SEGSim(new mod.SEGSimulator(), mod);
   }
 
   static async create(): Promise<SEGSim> {
@@ -518,6 +529,14 @@ export class SEGSim {
       n
     );
     return this.getNetworkSummary();
+  }
+
+  /**
+   * The Embind instance, for lazy chunks that drive a binding this wrapper
+   * does not (plant snapshots: src/wasm/plant-state-io.ts).
+   */
+  get raw(): SEGSimulatorInstance | null {
+    return this._sim;
   }
 
   getNetworkSummary(): SEGNetworkSummary {

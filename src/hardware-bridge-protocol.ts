@@ -20,7 +20,11 @@ import {
   finiteNum,
   clampRpm,
   clampPwmDuty,
-  pwmDutyToWire
+  pwmDutyToWire,
+  parseFirmwareHello,
+  HELLO_COMMAND,
+  HELLO_ATTEMPTS,
+  HELLO_RETRY_MS
 } from './hardware-protocol-shared';
 
 export const protocolMethods: ThisType<HardwareBridge> & {
@@ -80,6 +84,9 @@ export const protocolMethods: ThisType<HardwareBridge> & {
     } else if (line.startsWith('E')) {
       console.error('[Arduino Error]', line.slice(1));
     } else if (line.startsWith('I')) {
+      // A v2 board says hello at boot and in answer to `V2`; v1 never does.
+      const hello = parseFirmwareHello(line);
+      if (hello) this.firmware = hello;
       console.log('[Arduino]', line.slice(1));
     }
   },
@@ -160,6 +167,15 @@ export const protocolMethods: ThisType<HardwareBridge> & {
     const now = performance.now();
     if (now - this._lastCommandTime < this.commandThrottleMs) return;
     this._lastCommandTime = now;
+
+    // Ask for the v2 hello until one arrives. Queued behind this frame's P/C,
+    // so it never delays a watchdog feed; a v1 sketch just drops it.
+    if (!this.firmware && this._helloAttempts < HELLO_ATTEMPTS
+      && now - this._lastHelloAt >= HELLO_RETRY_MS) {
+      this._helloAttempts += 1;
+      this._lastHelloAt = now;
+      this._commandQueue.push(HELLO_COMMAND);
+    }
 
     if (this.manualMode) {
       const wirePwm = pwmDutyToWire(this.manualPwmDuty);

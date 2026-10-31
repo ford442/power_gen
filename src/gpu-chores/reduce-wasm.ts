@@ -20,8 +20,14 @@ function choresModule(): ChoresWasmModule | null {
   return typeof mod?.chores_scratch_ptr === 'function' ? mod : null;
 }
 
-/** Copy `data` into the chores scratch; returns the HEAPF32 float index, or -1. */
-function writeScratch(mod: ChoresWasmModule, data: ArrayLike<number>): number {
+/**
+ * Copy `data` into the chores scratch; returns the HEAPF32 float index, or -1.
+ * Shared with fft-wasm.ts (same scratch, same heap-growth rule).
+ */
+export function writeScratch(
+  mod: Pick<SimCoreModule, 'HEAPF32' | 'chores_scratch_ptr'>,
+  data: ArrayLike<number>
+): number {
   const ptr = Number(mod.chores_scratch_ptr!(data.length));
   // Read HEAPF32 only after the call: a scratch resize can grow the heap.
   const heap = mod.HEAPF32;
@@ -34,7 +40,8 @@ function writeScratch(mod: ChoresWasmModule, data: ArrayLike<number>): number {
 /** Last WASM failure (first one only) — surfaced in the chores breadcrumb. */
 export let wasmChoresError: string | null = null;
 
-function noteError(err: unknown): void {
+/** Record (and warn about) the first WASM chore failure — reduce, map or FFT. */
+export function noteError(err: unknown): void {
   if (wasmChoresError !== null) return;
   wasmChoresError = err instanceof Error ? err.message : String(err);
   console.warn('[gpu-chores] WASM chore failed, falling back to JS:', err);

@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SEG WebGPU Dashboard</title>
+  <!-- Offline PWA (docs/CLASSROOM.md): manifest + icons live in src/public/ -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="theme-color" content="#050a0f">
   <link rel="stylesheet" href="styles/seg-operator-panel.css">
   <link rel="stylesheet" href="styles/seg-dashboard-layout.css">
   <link rel="stylesheet" href="styles/seg-operator-chrome.css">
@@ -125,6 +130,13 @@
         <h3>Jumping ring</h3>
         <div style="font-size:0.68rem;color:#0aa;line-height:1.4;">The drive slider sets the AC supply; the ring's hover height follows it. The ring is a shorted single turn — its induced current opposes the primary (<strong>Lenz</strong>), the two repel, and the coupling <em>k(h)</em> decays as the ring rises, so the lift decays with it and the ring settles instead of leaving the pole.</div>
         <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Educational Thomson-ring demo (lumped circuit + rigid body) — <strong>not</strong> an induction-furnace or launcher model, and there is no projectile. There is also <strong>no thermal model at all</strong>: a real shorted ring heats and can glow or melt, and nothing here represents that.</div>
+      </div>
+
+      <!-- Lenz drop-tube classroom notes (σ slider is a catalog setpoint above) -->
+      <div class="panel-section" id="drop-tube-controls" style="display:none;">
+        <h3>Lenz drop tube</h3>
+        <div style="font-size:0.68rem;color:#0aa;line-height:1.4;">The drive slider opens the release clamp (0 keeps it shut) and sets how high above the mouth it lets go. Inside the tube the drag is <em>k·v</em>, so the magnet settles at <em>v_t = m·g/k</em> whatever speed it arrived with. The tube is drawn as a stack of rings because that is how the drag is derived: each slice of wall is a shorted ring the falling flux sweeps through.</div>
+        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Point dipole in a thin-walled tube — a textbook idealisation to compare a real drop against, <strong>not</strong> a brake-design tool or a maglev launcher. No FEM, no skin depth, and <strong>no thermal model</strong>: at terminal velocity all of <em>m·g·v</em> heats the wall, and nothing here tracks where it goes.</div>
       </div>
 
       <!-- Lab field bus (ADR-0011) -->
@@ -294,6 +306,7 @@
           <button type="button" class="sci-panel-btn ctrl-btn" id="replayOpenBtn" title="Open replay JSON or CSV">Open</button>
           <button type="button" class="sci-panel-btn ctrl-btn" id="replayPlayBtn" title="Play replay" disabled>▶</button>
           <button type="button" class="sci-panel-btn ctrl-btn" id="replayStepBtn" title="Step one sample" disabled>⇥</button>
+          <button type="button" class="sci-panel-btn ctrl-btn" id="replayTakeOverBtn" title="Take over: restore the plant snapshot at or before the cursor and run live from there" disabled>Take over</button>
           <button type="button" class="sci-panel-btn ctrl-btn" id="replayExitBtn" title="Exit replay mode" disabled>×</button>
           <input type="file" id="replayFileInput" accept=".json,.csv,application/json,text/csv" hidden>
         </div>

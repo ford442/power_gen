@@ -3,7 +3,7 @@ import './devices/register-plugins';
 import { MultiDeviceCamera } from './multi-device-camera';
 import { SimRateController } from './sim-rate-controller';
 import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager';
-import { parseColorPipelineMode } from './webgpu-init/color-pipeline';
+import { parseColorPipelineMode } from './webgpu-init/canvas';
 import { CameraController } from './camera-controller';
 import { PerformanceProfiler } from './performance-profiler';
 import { DebugPanel } from './debug-panel';
@@ -200,14 +200,13 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.fps = 60;
     this.globalEnergyLevel = 0.0;
 
-    const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-    this.ssrEnabled = parseSsrEnabled(params);
-    this.taaEnabled = parseTaaEnabled(params);
-    this.fdtdEnabled = parseFdtdEnabled(params);
-    this.fdtdMaterialsEnabled = parseFdtdMaterialsEnabled(params);
-    this.fdtdDriveSource = parseFdtdDriveSource(params);
+    this.ssrEnabled = parseSsrEnabled();
+    this.taaEnabled = parseTaaEnabled();
+    this.fdtdEnabled = parseFdtdEnabled();
+    this.fdtdMaterialsEnabled = parseFdtdMaterialsEnabled();
+    this.fdtdDriveSource = parseFdtdDriveSource();
 
-    this.lightingLook = parseLightingLook(params);
+    this.lightingLook = parseLightingLook();
     const lookPreset = getLightingPreset(this.lightingLook, parseColorPipelineMode());
     this.lightingConfig = { ...lookPreset.lighting };
     this.postPreset = lookPreset;
@@ -216,7 +215,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
     this.segLayout = null;
 
-    this.segFrameLevel = parseSegFrameLevel(params);
+    this.segFrameLevel = parseSegFrameLevel();
     this.segFrameBuffers = null;
     this.frameStructuralInstanceBuffer = null;
     this.frameControlInstanceBuffer = null;

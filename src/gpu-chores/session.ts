@@ -5,6 +5,7 @@
 import { finalizeReduce, mapScaleF32Js, reduceF32Js } from './reduce-js';
 import { reduceF32Wasm, mapScaleF32Wasm, wasmChoresAvailable, wasmChoresError } from './reduce-wasm';
 import { WebgpuReduce } from './reduce-webgpu';
+import { labConfigResolved } from '../config/lab-config';
 import type {
   ChoresAdoptOpts,
   ChoresBackend,
@@ -14,27 +15,17 @@ import type {
   ReduceResult
 } from './types';
 
-const KILL_PARAM = 'gpuChores';
-
+/** `?gpuChores=0|off|js`, or `seg-gpu-chores=off` remembered: JS only. */
 export function resolveChoresKillSwitch(): boolean {
   if (typeof window === 'undefined') return false;
-  const params = new URLSearchParams(window.location.search);
-  const v = params.get(KILL_PARAM);
-  if (v === '0' || v === 'off' || v === 'js') return true;
-  try {
-    return localStorage.getItem('seg-gpu-chores') === 'off';
-  } catch {
-    return false;
-  }
+  return labConfigResolved().config.gpuChores === 'js';
 }
 
+/** `?gpuChores=wasm|webgpu|js` pins a backend; `auto` (or nothing) probes. */
 export function resolveForcedBackend(): ChoresBackend | null {
   if (typeof window === 'undefined') return null;
-  const v = new URLSearchParams(window.location.search).get(KILL_PARAM);
-  if (v === 'wasm') return 'wasm';
-  if (v === 'webgpu') return 'webgpu';
-  if (v === 'js' || v === '0' || v === 'off') return 'js';
-  return null;
+  const { config, sources } = labConfigResolved();
+  return sources.gpuChores === 'url' && config.gpuChores !== 'auto' ? config.gpuChores : null;
 }
 
 class GpuChoresSession {

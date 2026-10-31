@@ -2,7 +2,12 @@
  * Canvas sizing, URL-driven canvas options, and `context.configure()` — the
  * canvas half of WebGPU init. Split out of webgpu-manager.ts; `WebGPUManager`
  * keeps its static entry points as thin delegates.
+ *
+ * The URL-driven options read LabConfig (`src/config/lab-config.ts`); each
+ * takes an optional query string so tests can ask about one in isolation.
  */
+import { labConfigFor } from '../config/lab-config';
+import type { ColorPipelineMode } from './color-pipeline';
 
 /** Depth-only format — stencil is unused; saves memory vs depth24plus-stencil8. */
 export const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
@@ -46,10 +51,8 @@ export function setMaxCanvasDimension(max: number): void {
  * browser upscale — classroom projectors and integrated GPUs. Clamped;
  * anything unparsable is 1.
  */
-export function renderScale(search = typeof location !== 'undefined' ? location.search : ''): number {
-  const raw = Number(searchParams(search).get('renderScale'));
-  if (!Number.isFinite(raw) || raw <= 0) return 1;
-  return Math.min(1, Math.max(0.5, raw));
+export function renderScale(search?: string): number {
+  return labConfigFor(search).config.renderScale;
 }
 
 /**
@@ -112,29 +115,22 @@ export function canvasPixelSize(
   };
 }
 
-export function searchParams(search = typeof location !== 'undefined' ? location.search : ''): URLSearchParams {
-  try {
-    return new URLSearchParams(search);
-  } catch {
-    return new URLSearchParams();
-  }
-}
-
 /**
  * Whether GPU timestamp queries should be requested as a device feature.
  * Opt-in only: writing timestamps into the main render encoder blanks the canvas
  * on some D3D12/ANGLE stacks (60 FPS, no validation errors).
  */
-export function wantsGpuTiming(search = typeof location !== 'undefined' ? location.search : ''): boolean {
-  try {
-    return new URLSearchParams(search).get('gpuTiming') === '1';
-  } catch {
-    return false;
-  }
+export function wantsGpuTiming(search?: string): boolean {
+  return labConfigFor(search).config.gpuTiming;
 }
 
-export function wantsDisplayP3(search = typeof location !== 'undefined' ? location.search : ''): boolean {
-  return searchParams(search).get('p3') === '1';
+export function wantsDisplayP3(search?: string): boolean {
+  return labConfigFor(search).config.p3;
+}
+
+/** `?color=legacy` keeps the pre-#223 8-bit path (color-pipeline.ts); default linear. */
+export function parseColorPipelineMode(search?: string): ColorPipelineMode {
+  return labConfigFor(search).config.color;
 }
 
 /**
@@ -144,10 +140,8 @@ export function wantsDisplayP3(search = typeof location !== 'undefined' ? locati
  * the composite skips the filmic curve (`outputLinearHdr`) so the compositor is
  * not double-tonemapped. See color-pipeline.ts.
  */
-export function canvasToneMappingMode(
-  search = typeof location !== 'undefined' ? location.search : ''
-): CanvasToneMappingMode {
-  if (searchParams(search).get('hdr') !== '1') return 'standard';
+export function canvasToneMappingMode(search?: string): CanvasToneMappingMode {
+  if (!labConfigFor(search).config.hdr) return 'standard';
   try {
     if (typeof matchMedia === 'function' && matchMedia('(dynamic-range: high)').matches) {
       return 'extended';

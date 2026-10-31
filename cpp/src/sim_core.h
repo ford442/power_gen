@@ -72,6 +72,7 @@ static constexpr int ROLLER_EXPORT_STRIDE = 4;
 
 #include "../../generated/constants.h"
 #include "../../generated/device-catalog.h"
+#include "../../generated/plant-state.h"
 
 // ─────────────────────────────────────────────────────────────
 // Free functions
@@ -109,6 +110,22 @@ uintptr_t chores_scratch_ptr(int count);
 ChoresReduceResult chores_reduce_f32_scratch(int count);
 /// In place: scratch[i] = scale * scratch[i] + bias (non-finite → 0).
 void chores_map_scale_f32_scratch(int count, float scale, float bias);
+
+/// gpu-chores FFT (analysis panel spectrum view; mirrors src/gpu-chores/fft-js.ts).
+/// Largest padded transform; longer inputs are rejected (return 0).
+constexpr int CHORES_FFT_MAX_N = 1 << 20;
+/// Next power of two ≥ count (the zero-padded transform size), or 0 when
+/// count is ≤ 0 or above CHORES_FFT_MAX_N.
+int chores_fft_size(int count);
+/// One-sided amplitude spectrum of `count` real samples in dB, N/2 + 1 bins
+/// (N = chores_fft_size(count)): optional periodic Hann over the samples, zero
+/// pad to N, |X[k]| scaled by 2/Σw (1/Σw at DC and Nyquist), 20·log10, clamped
+/// at floorDb. Non-finite samples count as 0. `out` may alias `in`. Returns
+/// the bin count (0 on bad input).
+int chores_fft_db(const float* in, int count, bool hann, float floorDb, float* out);
+/// Scratch form: reads `count` samples from the chores scratch and writes the
+/// bins back over its head (bins ≤ count). Returns the bin count.
+int chores_fft_db_scratch(int count, bool hann, float floorDb);
 
 // SimMode comes from generated/device-catalog.h (physics/devices.json).
 // Plant structs live beside their .cpp files (not defined here).
@@ -295,6 +312,19 @@ public:
     EnergyNetworkSummary getNetworkSummary() const { return _networkSummary; }
     float getNetworkEdgeAllocatedW(int edgeIndex) const;
     EnergyNetworkDevicePower getNetworkDevicePower(int mode) const;
+
+    // ── Plant snapshots (#224 §2) ─────────────────────────────
+    // Layout = physics/devices.json `state` blocks, codegen'd into
+    // generated/plant-state{,-impl}.h. Same scratch idiom as the energy bus:
+    //   save: n = plantSave(mode); ptr = getScratchPtr(n); read n floats
+    //   load: ptr = getScratchPtr(n); write n floats; plantLoad(mode, n, hash)
+    /// Floats in one mode's snapshot (0 for an unknown mode).
+    int  plantStateSize(int mode) const;
+    /// Write `mode`'s plant state into the scratch; returns the float count.
+    int  plantSave(int mode);
+    /// Restore `mode`'s plant from the scratch. Refuses (false, nothing
+    /// changed) a layout-hash or count mismatch, or a non-finite value.
+    bool plantLoad(int mode, int count, uint32_t layoutHash);
 
     static const char* version();
 

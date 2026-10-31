@@ -2,8 +2,8 @@
  * HardwareBridge — hardware-twin link for SEG electromagnet control.
  *
  * Protocol: docs/hardware_connection.md / firmware/seg-driver/protocol.h
- *   App → Arduino: P phase, C coils, CONF geometry
- *   Arduino → App: S sensor stream
+ *   App → Arduino: P phase, C coils, CONF geometry, V2 hello request
+ *   Arduino → App: S sensor stream, I info (a v2 board's `I v=2 …` hello)
  *
  * Twin modes:
  *   open   — sim → hardware (visualize sim)
@@ -26,7 +26,17 @@
  */
 import { MockSerialTransport } from './mock-serial-transport';
 import { protocolMethods } from './hardware-bridge-protocol';
-import { TWIN_MODES, type TwinMode, MODE_RUN, MODE_COAST, clampRpm, clampPwmDuty } from './hardware-protocol-shared';
+import {
+  TWIN_MODES,
+  type TwinMode,
+  type FirmwareHello,
+  MODE_RUN,
+  MODE_COAST,
+  HELLO_ATTEMPTS,
+  HELLO_RETRY_MS,
+  clampRpm,
+  clampPwmDuty
+} from './hardware-protocol-shared';
 import {
   isBluetoothSupported,
   isSerialSupported,
@@ -38,9 +48,10 @@ import {
 import { SerialLineTransport } from './serial-line-transport';
 import { BluetoothUartTransport } from './bluetooth-uart-transport';
 import { WebUsbCdcTransport } from './webusb-cdc-transport';
+import { labConfig } from './config/lab-config';
 
 export { MockSerialTransport } from './mock-serial-transport';
-export { TWIN_MODES, type TwinMode } from './hardware-protocol-shared';
+export { TWIN_MODES, type TwinMode, type FirmwareHello, parseFirmwareHello } from './hardware-protocol-shared';
 export type { HardwareTransport, HardwareTransportKind } from './hardware-transport';
 
 import type { FiringPattern } from './electromagnet-controller';
@@ -193,7 +204,12 @@ export class HardwareBridge {
 
   config: HardwareBridgeConfig;
 
+  /** The board's v2 hello, or null (not yet, or a v1 sketch). Cleared with the link. */
+  firmware: FirmwareHello | null;
+
   // Not `private`: read/written from hardware-bridge-protocol.ts's mixin methods too.
+  _helloAttempts: number;
+  _lastHelloAt: number;
   _lastCommandTime: number;
   _lastUpdateCall: number;
   _commandQueue: string[];
@@ -270,6 +286,9 @@ export class HardwareBridge {
       firingPattern: 'overlap'
     };
 
+    this.firmware = null;
+    this._helloAttempts = 0;
+    this._lastHelloAt = -Infinity;
     this._lastCommandTime = 0;
     this._lastUpdateCall = 0;
     this._commandQueue = [];
@@ -328,6 +347,22 @@ export class HardwareBridge {
     return this.transport?.label ?? '';
   }
 
+  /** What the board said it is: `fw v2 · uno · 6 coils`, or why there is no answer. */
+  get firmwareLabel(): string {
+    if (!this.isConnected) return '';
+    const fw = this.firmware;
+    if (fw) return `fw v${fw.protocol} · ${fw.board}` + (fw.coils !== null ? ` · ${fw.coils} coils` : '');
+    const gaveUp = this._helloAttempts >= HELLO_ATTEMPTS
+      && performance.now() - this._lastHelloAt >= HELLO_RETRY_MS;
+    return gaveUp ? 'no hello (v1 firmware)' : 'fw …';
+  }
+
+  private _forgetFirmware(): void {
+    this.firmware = null;
+    this._helloAttempts = 0;
+    this._lastHelloAt = -Infinity;
+  }
+
   static isSerialSupported = isSerialSupported;
   static isBluetoothSupported = isBluetoothSupported;
   static isWebUsbSupported = isWebUsbSupported;
@@ -354,8 +389,7 @@ export class HardwareBridge {
   async connect(opts: HardwareConnectOptions = {}): Promise<void> {
     if (opts.transport) return this.connectTransport(opts.transport);
 
-    const wantMock = opts.mock === true
-      || (typeof location !== 'undefined' && new URLSearchParams(location.search).get('mockHardware') === '1');
+    const wantMock = opts.mock === true || labConfig().mockHardware;
     if (wantMock) return this.connectTransport('mock');
     if (!isSerialSupported()) {
       console.info('[HardwareBridge] Web Serial unavailable — using mock');
@@ -409,6 +443,7 @@ export class HardwareBridge {
     }
 
     this._setStatus('connecting');
+    this._forgetFirmware();
     const transport = preBuilt ?? this._createTransport(kind);
     try {
       this._unsubTransport = [
@@ -469,6 +504,7 @@ export class HardwareBridge {
     this.manualPwmDuty = 0;
     this.targetSpeed = 0;
     this.controlMode = MODE_COAST;
+    this._forgetFirmware();
     this._setStatus('disconnected');
     console.log('[HardwareBridge] Disconnected (coils coasted)');
   }
@@ -496,6 +532,7 @@ export class HardwareBridge {
     this.manualPwmDuty = 0;
     this.targetSpeed = 0;
     this.controlMode = MODE_COAST;
+    this._forgetFirmware();
     this.lastError = err?.message ?? 'link closed';
     this._setStatus('error');
     console.warn('[HardwareBridge] Link dropped —', this.lastError,

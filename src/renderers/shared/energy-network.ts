@@ -10,6 +10,7 @@
 
 import { ENERGY_NETWORK_NAMEPLATES } from '../../../generated/physics-constants';
 import { ENERGY_PIPE_CATALOG } from '../../../generated/lab-coupling';
+import { labConfig, persistLabConfig } from '../../config/lab-config';
 
 interface SegWasmEnergyBus {
   enabled?: boolean;
@@ -68,8 +69,6 @@ export const DEVICE_NOMINAL_WATTS: Record<string, number> = {
 
 /** True when non-SEG nameplates are order-of-magnitude estimates (not calibrated). */
 export const DEVICE_NAMEPLATE_SIMULATED = ENERGY_NETWORK_NAMEPLATES.simulatedOrderOfMagnitude;
-
-const COUPLING_STORAGE_KEY = 'seg-energy-coupling';
 
 export interface DeviceAnchorInput {
   id?: string;
@@ -173,32 +172,14 @@ export interface EnergyNetworkSnapshot {
   devices: Record<string, DevicePowerReading>;
 }
 
-function readEnergyCouplingFromUrl(): boolean | null {
-  if (typeof location === 'undefined') return null;
-  const v = new URLSearchParams(location.search).get('energyCoupling');
-  if (v === '1') return true;
-  if (v === '0') return false;
-  return null;
-}
-
+/** Effective preference: URL (or share link) wins over stored; default off. */
 export function readEnergyCouplingPref(): boolean {
-  const fromUrl = readEnergyCouplingFromUrl();
-  if (fromUrl !== null) return fromUrl;
-  if (typeof localStorage === 'undefined') return false;
-  try {
-    return localStorage.getItem(COUPLING_STORAGE_KEY) === 'true';
-  } catch {
-    return false;
-  }
+  return labConfig().energyCoupling;
 }
 
+/** Remember the toggle across reloads; a storage failure is never fatal. */
 export function persistEnergyCouplingPref(enabled: boolean): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(COUPLING_STORAGE_KEY, enabled ? 'true' : 'false');
-  } catch {
-    /* ignore */
-  }
+  persistLabConfig('energyCoupling', enabled);
 }
 
 function deviceEnergyLevel(dev: EnergyNetworkDeviceInput | null | undefined): number {

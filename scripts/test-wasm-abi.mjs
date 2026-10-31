@@ -63,7 +63,9 @@ const FREE_ARGS = {
   sim_core_version: [],
   chores_scratch_ptr: [3],
   chores_reduce_f32_scratch: [3],
-  chores_map_scale_f32_scratch: [3, 2, 1]
+  chores_map_scale_f32_scratch: [3, 2, 1],
+  chores_fft_db_scratch: [3, true, -120],
+  plant_state_layout_hash: []
 };
 
 /** SEGSimulator methods that take arguments; anything else is called with none. */
@@ -90,7 +92,11 @@ const METHOD_ARGS = {
   getScratchPtr: [2 * MODE_COUNT],
   updateEnergyNetworkFromScratch: [true, 100, 50, MODE_COUNT],
   getNetworkEdgeAllocatedW: [0],
-  getNetworkDevicePower: [0]
+  getNetworkDevicePower: [0],
+  plantStateSize: [1],
+  plantSave: [1],
+  // Wrong hash on purpose: the call must be refused, not throw.
+  plantLoad: [1, 8, 0]
 };
 
 console.log('\n1. Binding inventory');
@@ -157,6 +163,17 @@ mod.chores_map_scale_f32_scratch(3, 2, 1);
 const mapped = Array.from(mod.HEAPF32.subarray(base, base + 3));
 check('chores_map_scale_f32_scratch(×2+1) in place = [3,5,7]', mapped.join() === '3,5,7', mapped.join());
 
+// FFT writes N/2 + 1 dB bins over the head of the same scratch (full golden: test:analysis).
+const tone = Array.from({ length: 64 }, (_, i) => Math.sin((2 * Math.PI * 5 * i) / 64));
+const fb = scratchWrite(mod.chores_scratch_ptr, tone);
+const fbins = mod.chores_fft_db_scratch(64, true, -120);
+const fdb = Array.from(mod.HEAPF32.subarray(fb, fb + fbins));
+const fpeak = fdb.indexOf(Math.max(...fdb));
+check('chores_fft_db_scratch(64-pt sine @ bin 5) → 33 bins, peak bin 5 at 0 dB',
+  fbins === 33 && fpeak === 5 && Math.abs(fdb[5]) < 1e-3, `bins ${fbins}, peak ${fpeak} @ ${fdb[fpeak]}`);
+check('chores_fft_db_scratch(0) / oversize → 0 bins',
+  mod.chores_fft_db_scratch(0, true, -120) === 0 && mod.chores_fft_db_scratch((1 << 20) + 1, true, -120) === 0);
+
 const heapBefore = mod.HEAPF32.buffer.byteLength;
 const big = new Float32Array(8 * 1024 * 1024).fill(0.5); // 32 MB > INITIAL_MEMORY
 scratchWrite(mod.chores_scratch_ptr, big);
@@ -178,6 +195,25 @@ check('updateEnergyNetworkFromScratch allocates against a budget',
 mod.HEAPF32[eb + MODE_COUNT] = 0; // disable SEG (source of the only edge)
 sim.updateEnergyNetworkFromScratch(true, 100, 50, MODE_COUNT);
 check('enabled flags are read from scratch[modeCount…]', sim.getNetworkEdgeAllocatedW(0) === 0);
+
+// Plant snapshots (#224 §2) ride the same scratch: plantSave → read n floats,
+// write n floats → plantLoad. test:snapshots does the per-mode exactness.
+const hash = mod.plant_state_layout_hash();
+sim.setMode(1);
+sim.setDrive(0.8);
+for (let i = 0; i < 30; i++) sim.step(1 / 60, 0);
+const n = sim.plantSave(1);
+const at = Number(sim.getScratchPtr(n)) >> 2;
+const saved = Array.from(mod.HEAPF32.subarray(at, at + n));
+check('plantSave(heron) count = plantStateSize, head > 0', n === sim.plantStateSize(1) && n > 2 && saved[2] > 0, `n=${n} head=${saved[2]}`);
+const fresh = new mod.SEGSimulator();
+fresh.setMode(1);
+scratchWrite((k) => fresh.getScratchPtr(k), saved);
+check('plantLoad refuses a layout-hash mismatch', fresh.plantLoad(1, n, (hash ^ 1) >>> 0) === false && fresh.getHeronHead() === 0);
+scratchWrite((k) => fresh.getScratchPtr(k), saved);
+check('plantLoad(own hash) restores the plant', fresh.plantLoad(1, n, hash) === true && fresh.getHeronHead() === sim.getHeronHead(),
+  `${fresh.getHeronHead()} vs ${sim.getHeronHead()}`);
+fresh.delete();
 sim.delete();
 
 // ── 4. TS wrappers on the same binary ─────────────────────────────────────

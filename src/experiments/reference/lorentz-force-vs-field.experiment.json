@@ -1,0 +1,16 @@
+{
+  "id": "lorentz-force-vs-field",
+  "title": "Force on a current-carrying rail vs B",
+  "description": "Ramp the bench field under the rail sled at full supply and watch the Lorentz force F = I·ℓ·B grow with B. The back-EMF B·ℓ·v trims the current as the sled speeds up, so F is close to — not exactly — proportional to B. Simulated, not metrology.",
+  "config": { "mode": "lorentz-sled", "wasmPhysics": true, "seed": 42 },
+  "steps": [
+    { "at": 0, "set": { "drive": 1, "lorentz-sled.fieldT": 0.05 } },
+    { "at": 1, "ramp": { "lorentz-sled.fieldT": [0.05, 0.6] }, "over": 10 },
+    { "at": 1, "record": ["lorentzFieldT", "lorentzCurrentA", "lorentzForceN", "lorentzSledVms"], "hz": 30, "until": 11 },
+    { "at": 11, "expect": [
+      { "fit": { "x": "lorentzFieldT", "y": "lorentzForceN", "model": "linear", "r2": { "gt": 0.98 }, "slope": { "gt": 0 } } },
+      { "stat": { "key": "lorentzForceN", "of": "max", "gt": 1 } }
+    ] }
+  ],
+  "plots": [{ "x": "lorentzFieldT", "y": "lorentzForceN", "fit": "linear" }]
+}

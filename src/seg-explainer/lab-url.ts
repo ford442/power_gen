@@ -1,120 +1,39 @@
 /**
- * Shareable lab links — encode mode, layout, and experiment params in the URL hash.
+ * Shareable lab links — capture the running lab as LabConfig share fields and
+ * apply them back (#224 §1).
  *
- * Format: #lab=v1;mode=seg;layout=searl;drive=0.5;field=0.5;bmult=1;class=0;tour=0
+ * New links are `#lab2=` (src/config/share-link.ts: deflate-raw + base64url of
+ * the non-default share fields, so seed, coupling flags, look, layouts, mode,
+ * setpoints and tour step all ride along). Legacy `#lab=v1;…` links still load:
+ * they decode in src/config/lab-hash-v1.ts and enter the same LabConfig
+ * precedence. Both arrive here as `Partial<LabConfig>` — one apply path.
  *
- * `tour=1` plays the tour that belongs to `mode` (see TOUR_BY_MODE) — the SEG
+ * `tour` plays the tour that belongs to `mode` (see TOUR_BY_MODE) — the SEG
  * tour unless the device has one of its own.
  */
 
 import { LAB_TOURS, type LabTourKey, type SEGTourPlayer } from './seg-tour-player';
 import { applySetpoint, readSetpoint, setpointById } from '../setpoint-sliders';
-import { HALBACH_VIZ, LORENTZ_SLED } from '../../generated/physics-constants';
+import { DEVICE_SETPOINTS } from '../../generated/device-catalog';
+import { labConfig, primeShareHash, sanitizeFields, type LabConfig } from '../config/lab-config';
+import { currentShareHash, pageUrlWithoutHash, replacePageHash } from '../config/share-url';
+import { decodeLabHashV1, labHashV1ToConfig, type LabHashState } from '../config/lab-hash-v1';
+import { encodeShareHash } from '../config/share-link';
+import { getSimulationSeed, setSimulationSeed } from '../telemetry/deterministic-rng';
 
-export const LAB_URL_VERSION = 1;
+export {
+  LAB_URL_VERSION,
+  LAB_PARAM_RANGES,
+  encodeLabHash,
+  type LabHashState,
+  type LabHashOptions
+} from '../config/lab-hash-v1';
+export { decodeShareHash, encodeShareHash } from '../config/share-link';
+export { bootLiveFields } from '../config/lab-config';
 
-/** Decoded/encodable `#lab=` state. All fields besides `version` are optional. */
-export interface LabHashState {
-  version: number;
-  mode?: string;
-  layout?: string;
-  heronLayout?: string;
-  drive?: number;
-  field?: number;
-  bmult?: number;
-  classroom?: boolean;
-  tour?: boolean;
-  hi?: string;
-  step?: number;
-  renderer?: string;
-  halbachSegments?: number;
-  halbachLinear?: boolean;
-  pulseCoilCharge?: number;
-  lorentzFieldT?: number;
-}
-
-export type LabHashOptions = Partial<Omit<LabHashState, 'version'>>;
-
-export function encodeLabHash(opts: LabHashOptions = {}): string {
-  const parts = [`v${LAB_URL_VERSION}`];
-  if (opts.mode) parts.push(`mode=${opts.mode}`);
-  if (opts.layout) parts.push(`layout=${opts.layout}`);
-  if (opts.heronLayout) parts.push(`heron=${opts.heronLayout}`);
-  if (opts.drive != null) parts.push(`drive=${Number(opts.drive).toFixed(2)}`);
-  if (opts.field != null) parts.push(`field=${Number(opts.field).toFixed(2)}`);
-  if (opts.bmult != null && opts.bmult !== 1) parts.push(`bmult=${Number(opts.bmult).toFixed(2)}`);
-  if (opts.classroom) parts.push('class=1');
-  if (opts.tour) parts.push('tour=1');
-  if (opts.hi) parts.push(`hi=${opts.hi}`);
-  if (opts.step != null && opts.step >= 0) parts.push(`step=${opts.step}`);
-  if (opts.renderer) parts.push(`renderer=${opts.renderer}`);
-  if (opts.halbachSegments != null) parts.push(`hseg=${opts.halbachSegments}`);
-  if (opts.halbachLinear != null) parts.push(`hlin=${opts.halbachLinear ? 1 : 0}`);
-  if (opts.pulseCoilCharge != null) parts.push(`pcap=${Number(opts.pulseCoilCharge).toFixed(2)}`);
-  if (opts.lorentzFieldT != null) parts.push(`lfield=${Number(opts.lorentzFieldT).toFixed(2)}`);
-  return `#lab=${parts.join(';')}`;
-}
-
-/**
- * Ranges a decoded value is clamped into — the dashboard controls' own ranges
- * (drive/field sliders 0–100 %, the explainer B× slider) and the catalog
- * constants for the plugin benches.
- */
-export const LAB_PARAM_RANGES = {
-  drive: [0, 1],
-  field: [0, 1],
-  bmult: [0.5, 2],
-  halbachSegments: [HALBACH_VIZ.segmentMin, HALBACH_VIZ.segmentMax],
-  pulseCoilCharge: [0, 1],
-  lorentzFieldT: [0, LORENTZ_SLED.fieldTMax],
-  step: [0, 999]
-} as const satisfies Record<string, readonly [number, number]>;
-
-/**
- * A hand-edited or truncated link (`drive=abc`, `hseg=1e9`) must not push NaN
- * or an out-of-range value into the plant: non-finite → undefined, so the
- * field is simply absent and the live control keeps its previous value.
- */
-function finiteIn(raw: number, [lo, hi]: readonly [number, number]): number | undefined {
-  return Number.isFinite(raw) ? Math.max(lo, Math.min(hi, raw)) : undefined;
-}
-
-/** Integer fields: the whole value (`1e9`, not parseInt's `1`); `4.5` → undefined. */
-function intIn(v: string, range: readonly [number, number]): number | undefined {
-  const raw = v.trim() === '' ? NaN : Number(v);
-  return Number.isInteger(raw) ? finiteIn(raw, range) : undefined;
-}
-
-export function decodeLabHash(hash: string = typeof location !== 'undefined' ? location.hash : ''): LabHashState | null {
-  const m = hash.match(/#lab=([^&]+)/);
-  if (!m) return null;
-  const out: LabHashState = { version: LAB_URL_VERSION };
-  for (const seg of m[1].split(';')) {
-    if (seg === 'v1' || seg.startsWith('v')) {
-      out.version = parseInt(seg.slice(1), 10) || 1;
-      continue;
-    }
-    const eq = seg.indexOf('=');
-    if (eq < 0) continue;
-    const k = seg.slice(0, eq);
-    const v = seg.slice(eq + 1);
-    if (k === 'mode') out.mode = v;
-    else if (k === 'layout') out.layout = v;
-    else if (k === 'heron') out.heronLayout = v;
-    else if (k === 'drive') out.drive = finiteIn(parseFloat(v), LAB_PARAM_RANGES.drive);
-    else if (k === 'field') out.field = finiteIn(parseFloat(v), LAB_PARAM_RANGES.field);
-    else if (k === 'bmult') out.bmult = finiteIn(parseFloat(v), LAB_PARAM_RANGES.bmult);
-    else if (k === 'class') out.classroom = v === '1';
-    else if (k === 'tour') out.tour = v === '1';
-    else if (k === 'hi') out.hi = v;
-    else if (k === 'step') out.step = intIn(v, LAB_PARAM_RANGES.step);
-    else if (k === 'renderer') out.renderer = v;
-    else if (k === 'hseg') out.halbachSegments = intIn(v, LAB_PARAM_RANGES.halbachSegments);
-    else if (k === 'hlin') out.halbachLinear = v === '1';
-    else if (k === 'pcap') out.pulseCoilCharge = finiteIn(parseFloat(v), LAB_PARAM_RANGES.pulseCoilCharge);
-    else if (k === 'lfield') out.lorentzFieldT = finiteIn(parseFloat(v), LAB_PARAM_RANGES.lorentzFieldT);
-  }
-  return out;
+/** Legacy `#lab=` decode (defaults to this page's hash, for older callers). */
+export function decodeLabHash(hash: string = currentShareHash()): LabHashState | null {
+  return decodeLabHashV1(hash);
 }
 
 /**
@@ -133,158 +52,232 @@ function livePlayers(): SEGTourPlayer[] {
   return LAB_TOURS.map((t) => w[t.key]).filter((p): p is SEGTourPlayer => !!p);
 }
 
-function tourForMode(mode?: string): SEGTourPlayer | null {
+function tourForMode(mode?: string | null): SEGTourPlayer | null {
   const key = mode ? TOUR_BY_MODE[mode] : undefined;
   const w = window as Window & Partial<Record<LabTourKey, SEGTourPlayer>>;
   return (key && w[key]) || window.segTour || null;
 }
 
 /**
- * Apply decoded lab state to the live dashboard.
+ * Apply share fields to the live dashboard. Every field is optional and
+ * idempotent: what is already on screen is left alone (no layout rebuild for
+ * the layout that is showing). The order matters — the lab-mode bundle first,
+ * so the link's own flags then win over it; mode before the bench setpoints
+ * and the tour that belong to it.
  */
-export async function applyLabState(lab: LabHashState | null | undefined): Promise<void> {
-  if (!lab) return;
-
-  if (lab.renderer && typeof window.setRenderer === 'function') {
-    // Renderer requires reload — only apply if already on page without mismatch
-  }
-
+export async function applyLabConfig(c: Partial<LabConfig>): Promise<void> {
   const v = window.multiVisualizer;
-  if (lab.layout && v?.setSEGLayoutPreset) {
-    await v.setSEGLayoutPreset(lab.layout);
-  } else if (lab.layout && typeof window.setSEGLayout === 'function') {
-    await window.setSEGLayout(lab.layout);
+
+  if (c.labMode && typeof window.setLabMode === 'function' && window.getLabMode?.() !== c.labMode) {
+    window.setLabMode(c.labMode);
   }
 
-  if (lab.heronLayout && v?.setHeronLayoutPreset) {
-    v.setHeronLayoutPreset(lab.heronLayout);
+  if (c.layout) {
+    const current = v?.getSEGLayoutPreset?.() ?? v?.segLayoutPreset;
+    if (current !== c.layout) {
+      if (v?.setSEGLayoutPreset) await v.setSEGLayoutPreset(c.layout);
+      else if (typeof window.setSEGLayout === 'function') await window.setSEGLayout(c.layout);
+    }
   }
 
-  if (lab.mode && typeof window.setMode === 'function') {
-    window.setMode(lab.mode);
+  if (c.heronLayout && v?.setHeronLayoutPreset && v.heronLayoutPreset !== c.heronLayout) {
+    v.setHeronLayoutPreset(c.heronLayout);
   }
 
-  const halbachDevice = window.multiVisualizer?.devices?.['halbach-viz'];
+  if (c.look && typeof window.setLightingLook === 'function' && v?.lightingLook !== c.look) {
+    window.setLightingLook(c.look);
+  }
+  if (c.frame && typeof window.setSegFrameLevel === 'function' && v?.segFrameLevel !== c.frame) {
+    window.setSegFrameLevel(c.frame);
+  }
+
+  if (c.fieldCoupling != null) window.setFieldCoupling?.(c.fieldCoupling);
+  if (c.chargeCoupling != null) window.setChargeCoupling?.(c.chargeCoupling);
+  if (c.energyCoupling != null) v?.energyNetwork?.setCouplingEnabled?.(c.energyCoupling);
+
+  if (c.seed != null && getSimulationSeed() !== c.seed) setSimulationSeed(c.seed, false);
+
+  if (c.mode && typeof window.setMode === 'function') {
+    window.setMode(c.mode);
+  }
+
+  // Setpoints go through the same catalog path as the sliders, so a shared link
+  // pins exactly what the slider would (and shows on it).
+  for (const [id, value] of Object.entries(c.setpoints ?? {})) {
+    const sp = setpointById(id);
+    if (sp) applySetpoint(sp, value);
+  }
+  // WebGL2 keeps a `.physics` alias of `physicsState`.
+  const halbachDevice = v?.devices?.['halbach-viz'];
   const halbach = halbachDevice?.physicsState ?? halbachDevice?.physics;
-  if (lab.mode === 'halbach-viz' && lab.halbachSegments != null && halbach) {
-    const sp = setpointById('halbachSegments');
-    if (sp) applySetpoint(sp, lab.halbachSegments);
-  }
-  if (lab.halbachLinear != null && halbach) {
-    const layout = lab.halbachLinear ? 'linear' : 'ring';
+  if (c.halbachLinear != null && halbach) {
+    const layout = c.halbachLinear ? 'linear' : 'ring';
     if ((halbach.halbachLayout ?? 'ring') !== layout) {
       halbach.halbachLayout = layout;
       halbach.halbachFieldLines = null; // forces a geometry refresh next step
     }
   }
-  // `pcap` is a charge *fraction* of the bank. Links captured before pcap was a
-  // pinned target carry the instantaneous cap voltage (often 0), so 0 means
-  // "unset" rather than "pin the target to 0 V".
-  if (lab.mode === 'pulse-coil' && lab.pulseCoilCharge != null && lab.pulseCoilCharge > 0) {
-    const sp = setpointById('pulseCoilCharge');
-    if (sp) applySetpoint(sp, Math.max(0, Math.min(1, lab.pulseCoilCharge)) * sp.max);
-  }
-  if (lab.mode === 'lorentz-sled' && lab.lorentzFieldT != null) {
-    const sp = setpointById('lorentzField');
-    if (sp) applySetpoint(sp, lab.lorentzFieldT);
-  }
 
   const op = window.segOperator;
   if (op) {
-    if (lab.drive != null) {
-      op.targetDrive = lab.drive;
+    if (c.drive != null) {
+      op.targetDrive = c.drive;
       const dc = document.getElementById('driveControl') as HTMLInputElement | null;
       const dv = document.getElementById('driveVal');
-      if (dc) dc.value = String(Math.round(lab.drive * 100));
-      if (dv) dv.textContent = `${Math.round(lab.drive * 100)}%`;
+      if (dc) dc.value = String(Math.round(c.drive * 100));
+      if (dv) dv.textContent = `${Math.round(c.drive * 100)}%`;
     }
-    if (lab.field != null) {
-      window.explainerState?.setBaseFieldStrength(lab.field);
+    if (c.field != null) {
+      window.explainerState?.setBaseFieldStrength(c.field);
       const fc = document.getElementById('fieldControl') as HTMLInputElement | null;
-      if (fc) fc.value = String(Math.round(lab.field * 100));
+      if (fc) fc.value = String(Math.round(c.field * 100));
     }
   }
 
-  if (lab.bmult != null && window.explainerState) {
-    window.explainerState.setFieldMultiplier(lab.bmult);
+  if (c.bmult != null && window.explainerState) {
+    window.explainerState.setFieldMultiplier(c.bmult);
     const el = document.getElementById('explainerBMult') as HTMLInputElement | null;
-    if (el) el.value = String(lab.bmult);
+    if (el) el.value = String(c.bmult);
   }
 
-  if (lab.classroom && window.explainerState) {
-    window.explainerState.setClassroomMode(true);
+  if (c.classroom != null && window.explainerState && window.explainerState.classroomMode !== c.classroom) {
+    window.explainerState.setClassroomMode(c.classroom);
     const cb = document.getElementById('explainerClassroom') as HTMLInputElement | null;
-    if (cb) cb.checked = true;
+    if (cb) cb.checked = c.classroom;
   }
 
-  if (lab.hi && window.explainerState) {
-    window.explainerState.setHighlight(lab.hi);
+  if (c.highlight && window.explainerState) {
+    window.explainerState.setHighlight(c.highlight);
     window.segAnnotations?.setEnabled(true);
   }
 
-  const tour = tourForMode(lab.mode);
-  if (lab.tour && tour) {
-    const step = Number.isFinite(lab.step) ? (lab.step as number) : 0;
-    if (lab.hi) {
-      const idx = tour._findStepForHighlight(lab.hi);
-      tour.goToStep(idx >= 0 ? idx : step);
+  const tour = tourForMode(c.mode);
+  const step = c.tourStep ?? null;
+  // The scripts are a lazy chunk; the step lookup below needs this one's.
+  if (tour && (c.tour || c.highlight || step != null)) await tour.ready().catch(() => undefined);
+  if (c.tour && tour) {
+    if (c.highlight) {
+      const idx = tour._findStepForHighlight(c.highlight);
+      tour.goToStep(idx >= 0 ? idx : (step ?? 0));
     } else {
-      tour.goToStep(step);
+      tour.goToStep(step ?? 0);
     }
-  } else if (lab.hi && tour) {
-    tour.goToStepForHighlight(lab.hi);
-  } else if (Number.isFinite(lab.step) && tour) {
-    tour.goToStep(lab.step as number);
+  } else if (c.highlight && tour) {
+    tour.goToStepForHighlight(c.highlight);
+  } else if (step != null && tour) {
+    tour.goToStep(step);
   }
+
+  if (c.experiment) window.lab?.openExperiment?.(c.experiment);
 }
 
-function pinnedValue(id: string): number | undefined {
-  const sp = setpointById(id);
-  return (sp && readSetpoint(sp)) ?? undefined;
+/** Legacy entry point: apply a decoded `#lab=v1` state. */
+export async function applyLabState(lab: LabHashState | null | undefined): Promise<void> {
+  if (!lab) return;
+  await applyLabConfig(sanitizeFields(labHashV1ToConfig(lab), true));
 }
 
-function pinnedFraction(id: string): number | undefined {
-  const sp = setpointById(id);
-  const v = sp ? readSetpoint(sp) : null;
-  return sp && v != null ? Math.max(0, Math.min(1, v / sp.max)) : undefined;
+/** Only *pinned* targets are shareable; a free-running live value is a transient. */
+function pinnedSetpoints(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const sp of DEVICE_SETPOINTS) {
+    const value = readSetpoint(sp);
+    if (value != null) out[sp.id] = value;
+  }
+  return out;
 }
 
-export function captureLabState(): LabHashOptions {
+/**
+ * The running lab as share fields: what is on screen (live state) plus the
+ * boot choices that shape the run (backend, prototype, seed). Defaults are
+ * dropped by the encoder, so this can be generous.
+ */
+export function captureShareConfig(): Partial<LabConfig> {
   const v = window.multiVisualizer;
   const op = window.segOperator;
   const es = window.explainerState;
+  const boot = labConfig();
   const halbachDevice = v?.devices?.['halbach-viz'];
   const halbach = halbachDevice?.physicsState ?? halbachDevice?.physics;
-  const sled = v?.devices?.['lorentz-sled']?.physicsState || v?.devices?.['lorentz-sled']?.physics;
   // Capture whichever tour is actually running, so a shared link reopens on the
   // same step of the same device tour rather than always the SEG one.
   const activeTour = livePlayers().find((t) => t.playing) ?? window.segTour;
-  return {
-    mode: v?.currentView === 'overview' ? 'overview' : (v?.currentView || 'seg'),
-    layout: v?.getSEGLayoutPreset?.() ?? v?.segLayoutPreset ?? 'searl',
+  const setpoints = pinnedSetpoints();
+  const raw: Record<string, unknown> = {
+    wasmPhysics: boot.wasmPhysics,
+    prototype: boot.prototype,
+    seed: getSimulationSeed(),
+    labMode: window.getLabMode?.() ?? boot.labMode,
+    mode: v?.currentView || 'seg',
+    layout: v?.getSEGLayoutPreset?.() ?? v?.segLayoutPreset,
     heronLayout: v?.heronLayoutPreset,
+    look: v?.lightingLook ?? boot.look,
+    frame: v?.segFrameLevel ?? boot.frame,
+    fieldCoupling: v?.fieldNetwork?.couplingEnabled ?? boot.fieldCoupling,
+    chargeCoupling: v?.chargeNetwork?.couplingEnabled ?? boot.chargeCoupling,
+    energyCoupling: v?.energyNetwork?.couplingEnabled ?? boot.energyCoupling,
     drive: op?.targetDrive ?? 0.5,
     field: es?.baseFieldStrength ?? op?.magneticFieldStrength ?? 0.5,
     bmult: es?.fieldMultiplier ?? 1,
-    classroom: es?.classroomMode ?? false,
-    hi: es?.highlightId || undefined,
-    step: activeTour?.playing ? activeTour.stepIndex : undefined,
-    tour: activeTour?.playing ?? false,
+    classroom: es?.classroomMode || undefined,
+    highlight: es?.highlightId || undefined,
+    tour: activeTour?.playing || undefined,
+    tourStep: activeTour?.playing ? activeTour.stepIndex : undefined,
+    halbachLinear: halbach ? halbach.halbachLayout === 'linear' : undefined,
+    experiment: boot.experiment,
+    setpoints
+  };
+  return sanitizeFields(raw, true);
+}
+
+/** @deprecated v1 field names; kept for callers of the old capture. */
+export function captureLabState(): Partial<LabHashState> {
+  const c = captureShareConfig();
+  const setpoints = c.setpoints ?? {};
+  const pulseMax = DEVICE_SETPOINTS.find((s) => s.id === 'pulseCoilCharge')?.max;
+  const pulseV = setpoints.pulseCoilCharge;
+  return {
+    mode: c.mode ?? undefined,
+    layout: c.layout ?? undefined,
+    heronLayout: c.heronLayout,
+    drive: c.drive ?? undefined,
+    field: c.field ?? undefined,
+    bmult: c.bmult ?? undefined,
+    classroom: c.classroom ?? false,
+    hi: c.highlight ?? undefined,
+    step: c.tourStep ?? undefined,
+    tour: c.tour ?? false,
     renderer: window.currentRenderer ?? undefined,
-    // Only a *pinned* target is shareable; the live cap voltage is a transient.
-    pulseCoilCharge: pinnedFraction('pulseCoilCharge'),
-    halbachSegments: pinnedValue('halbachSegments'),
-    lorentzFieldT: sled?.lorentzFieldT,
-    halbachLinear: halbach ? halbach.halbachLayout === 'linear' : undefined
+    // v1 `pcap` is a charge fraction; only a pinned target is shareable.
+    pulseCoilCharge: pulseMax && pulseV != null ? Math.max(0, Math.min(1, pulseV / pulseMax)) : undefined,
+    halbachSegments: setpoints.halbachSegments,
+    lorentzFieldT: setpoints.lorentzField,
+    halbachLinear: c.halbachLinear
   };
 }
 
-export function shareLabLink(): string {
-  const hash = encodeLabHash(captureLabState());
-  const url = `${location.origin}${location.pathname}${location.search}${hash}`;
+/** Put `fields` in the address bar as `#lab2=` (no reload); returns the hash. */
+export async function writeShareHash(fields: Partial<LabConfig>): Promise<string> {
+  const hash = await encodeShareHash(fields);
+  primeShareHash(hash, fields);
+  replacePageHash(hash);
+  return hash;
+}
+
+/**
+ * Tours keep the address bar on the step they are showing, so a copied URL
+ * reopens there.
+ */
+export async function syncTourShareHash(patch: Partial<LabConfig>): Promise<void> {
+  await writeShareHash({ ...captureShareConfig(), ...patch });
+}
+
+/** Build a `#lab2=` link for the running lab, copy it, and return it. */
+export async function shareLabLink(): Promise<string> {
+  const hash = await writeShareHash(captureShareConfig());
+  const url = `${pageUrlWithoutHash()}${hash}`;
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(url).catch(() => {});
   }
-  history.replaceState(null, '', hash);
   return url;
 }

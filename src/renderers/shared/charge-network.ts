@@ -29,8 +29,7 @@
 
 import { CHARGE_COUPLING, VDG } from '../../../generated/physics-constants';
 import type { DevicePhysicsState } from './device-physics';
-
-const COUPLING_STORAGE_KEY = 'seg-charge-coupling';
+import { labConfig, persistLabConfig } from '../../config/lab-config';
 
 /** Physics-state keys a charge edge may read or write (all volts). */
 type ChargeKey = keyof Pick<DevicePhysicsState, 'vdgVoltage' | 'kelvinSeedCoupledV' | 'kelvinVbreak'>;
@@ -132,35 +131,14 @@ export interface ChargeNetworkUpdateInput {
   devicesEnabled: Record<string, boolean>;
 }
 
-/** `?chargeCoupling=1|0`, or null when the param is absent so storage decides. */
-function readChargeCouplingFromUrl(): boolean | null {
-  if (typeof location === 'undefined') return null;
-  const v = new URLSearchParams(location.search).get('chargeCoupling');
-  if (v === '1') return true;
-  if (v === '0') return false;
-  return null;
-}
-
-/** Effective preference: URL wins over stored, and both default to off. */
+/** Effective preference: URL (or share link) wins over stored; default off. */
 export function readChargeCouplingPref(): boolean {
-  const fromUrl = readChargeCouplingFromUrl();
-  if (fromUrl !== null) return fromUrl;
-  if (typeof localStorage === 'undefined') return false;
-  try {
-    return localStorage.getItem(COUPLING_STORAGE_KEY) === 'true';
-  } catch {
-    return false;
-  }
+  return labConfig().chargeCoupling;
 }
 
 /** Remember the toggle across reloads; a storage failure is never fatal. */
 export function persistChargeCouplingPref(enabled: boolean): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(COUPLING_STORAGE_KEY, enabled ? 'true' : 'false');
-  } catch {
-    /* ignore */
-  }
+  persistLabConfig('chargeCoupling', enabled);
 }
 
 /** WebGPU exposes `physicsState`, WebGL2 aliases it as `physics`. */
