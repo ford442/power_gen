@@ -14,16 +14,12 @@
 
 import { LAB_TOURS, type LabTourKey, type SEGTourPlayer } from './seg-tour-player';
 import { applySetpoint, readSetpoint, setpointById } from '../setpoint-sliders';
-<<<<<<< HEAD
 import { DEVICE_SETPOINTS } from '../../generated/device-catalog';
 import { labConfig, primeShareHash, sanitizeFields, type LabConfig } from '../config/lab-config';
 import { currentShareHash, pageUrlWithoutHash, replacePageHash } from '../config/share-url';
 import { decodeLabHashV1, labHashV1ToConfig, type LabHashState } from '../config/lab-hash-v1';
 import { encodeShareHash } from '../config/share-link';
 import { getSimulationSeed, setSimulationSeed } from '../telemetry/deterministic-rng';
-=======
-import { HALBACH_VIZ, LORENTZ_SLED } from '../../generated/physics-constants';
->>>>>>> origin/main
 
 export {
   LAB_URL_VERSION,
@@ -88,16 +84,8 @@ export async function applyLabConfig(c: Partial<LabConfig>): Promise<void> {
     v.setHeronLayoutPreset(c.heronLayout);
   }
 
-<<<<<<< HEAD
   if (c.look && typeof window.setLightingLook === 'function' && v?.lightingLook !== c.look) {
     window.setLightingLook(c.look);
-=======
-  const halbachDevice = window.multiVisualizer?.devices?.['halbach-viz'];
-  const halbach = halbachDevice?.physicsState ?? halbachDevice?.physics;
-  if (lab.mode === 'halbach-viz' && lab.halbachSegments != null && halbach) {
-    const sp = setpointById('halbachSegments');
-    if (sp) applySetpoint(sp, lab.halbachSegments);
->>>>>>> origin/main
   }
   if (c.frame && typeof window.setSegFrameLevel === 'function' && v?.segFrameLevel !== c.frame) {
     window.setSegFrameLevel(c.frame);
@@ -119,27 +107,15 @@ export async function applyLabConfig(c: Partial<LabConfig>): Promise<void> {
     const sp = setpointById(id);
     if (sp) applySetpoint(sp, value);
   }
-  const halbach = v?.devices?.['halbach-viz']?.physicsState;
+  // WebGL2 keeps a `.physics` alias of `physicsState`.
+  const halbachDevice = v?.devices?.['halbach-viz'];
+  const halbach = halbachDevice?.physicsState ?? halbachDevice?.physics;
   if (c.halbachLinear != null && halbach) {
     const layout = c.halbachLinear ? 'linear' : 'ring';
     if ((halbach.halbachLayout ?? 'ring') !== layout) {
       halbach.halbachLayout = layout;
       halbach.halbachFieldLines = null; // forces a geometry refresh next step
     }
-<<<<<<< HEAD
-=======
-  }
-  // `pcap` is a charge *fraction* of the bank. Links captured before pcap was a
-  // pinned target carry the instantaneous cap voltage (often 0), so 0 means
-  // "unset" rather than "pin the target to 0 V".
-  if (lab.mode === 'pulse-coil' && lab.pulseCoilCharge != null && lab.pulseCoilCharge > 0) {
-    const sp = setpointById('pulseCoilCharge');
-    if (sp) applySetpoint(sp, Math.max(0, Math.min(1, lab.pulseCoilCharge)) * sp.max);
-  }
-  if (lab.mode === 'lorentz-sled' && lab.lorentzFieldT != null) {
-    const sp = setpointById('lorentzField');
-    if (sp) applySetpoint(sp, lab.lorentzFieldT);
->>>>>>> origin/main
   }
 
   const op = window.segOperator;
@@ -220,14 +196,9 @@ export function captureShareConfig(): Partial<LabConfig> {
   const v = window.multiVisualizer;
   const op = window.segOperator;
   const es = window.explainerState;
-<<<<<<< HEAD
   const boot = labConfig();
-  const halbach = v?.devices?.['halbach-viz']?.physicsState;
-=======
   const halbachDevice = v?.devices?.['halbach-viz'];
   const halbach = halbachDevice?.physicsState ?? halbachDevice?.physics;
-  const sled = v?.devices?.['lorentz-sled']?.physicsState || v?.devices?.['lorentz-sled']?.physics;
->>>>>>> origin/main
   // Capture whichever tour is actually running, so a shared link reopens on the
   // same step of the same device tour rather than always the SEG one.
   const activeTour = livePlayers().find((t) => t.playing) ?? window.segTour;
@@ -248,7 +219,6 @@ export function captureShareConfig(): Partial<LabConfig> {
     drive: op?.targetDrive ?? 0.5,
     field: es?.baseFieldStrength ?? op?.magneticFieldStrength ?? 0.5,
     bmult: es?.fieldMultiplier ?? 1,
-<<<<<<< HEAD
     classroom: es?.classroomMode || undefined,
     highlight: es?.highlightId || undefined,
     tour: activeTour?.playing || undefined,
@@ -263,6 +233,9 @@ export function captureShareConfig(): Partial<LabConfig> {
 /** @deprecated v1 field names; kept for callers of the old capture. */
 export function captureLabState(): Partial<LabHashState> {
   const c = captureShareConfig();
+  const setpoints = c.setpoints ?? {};
+  const pulseMax = DEVICE_SETPOINTS.find((s) => s.id === 'pulseCoilCharge')?.max;
+  const pulseV = setpoints.pulseCoilCharge;
   return {
     mode: c.mode ?? undefined,
     layout: c.layout ?? undefined,
@@ -274,19 +247,12 @@ export function captureLabState(): Partial<LabHashState> {
     hi: c.highlight ?? undefined,
     step: c.tourStep ?? undefined,
     tour: c.tour ?? false,
-    halbachLinear: c.halbachLinear
-=======
-    classroom: es?.classroomMode ?? false,
-    hi: es?.highlightId || undefined,
-    step: activeTour?.playing ? activeTour.stepIndex : undefined,
-    tour: activeTour?.playing ?? false,
     renderer: window.currentRenderer ?? undefined,
-    // Only a *pinned* target is shareable; the live cap voltage is a transient.
-    pulseCoilCharge: pinnedFraction('pulseCoilCharge'),
-    halbachSegments: pinnedValue('halbachSegments'),
-    lorentzFieldT: sled?.lorentzFieldT,
-    halbachLinear: halbach ? halbach.halbachLayout === 'linear' : undefined
->>>>>>> origin/main
+    // v1 `pcap` is a charge fraction; only a pinned target is shareable.
+    pulseCoilCharge: pulseMax && pulseV != null ? Math.max(0, Math.min(1, pulseV / pulseMax)) : undefined,
+    halbachSegments: setpoints.halbachSegments,
+    lorentzFieldT: setpoints.lorentzField,
+    halbachLinear: c.halbachLinear
   };
 }
 
