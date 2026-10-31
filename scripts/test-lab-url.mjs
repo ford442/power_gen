@@ -7,8 +7,9 @@
  *      ones are clamped into LAB_PARAM_RANGES; encode → decode round-trips.
  *   2. apply: `drive=abc` leaves the operator's previous finite drive alone.
  *   3. Halbach: a restored `hseg` pins the catalog `halbachSegments` setpoint —
- *      it survives steps and a drive change; releasing it (the slider's Auto)
- *      hands N back to the drive sweep.
+ *      it survives steps and a drive change (the drive still sets the
+ *      magnetisation angle). Releasing it (the slider's Auto) hands N back
+ *      to the drive sweep.
  *   4. Halbach: `hlin=1` sets the layout once and stepping does not revert it
  *      (the step no longer re-parses `location.search`).
  *
@@ -115,6 +116,7 @@ globalThis.document = { getElementById: () => null };
   m.stepHalbachVizPhysics(halbach, 1 / 60, 0.6);
   check(halbach.halbachSegmentCount === restored,
     `a pinned N survives a drive change (got ${halbach.halbachSegmentCount}, want ${restored})`);
+  check(halbach.halbachSegmentSetpoint === restored, 'setpoint stays pinned when the drive moves');
 
   halbach.halbachSegmentSetpoint = null; // the slider's Auto button
   m.stepHalbachVizPhysics(halbach, 1 / 60, 0.6);

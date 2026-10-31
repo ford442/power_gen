@@ -123,7 +123,6 @@ export interface DeviceInstance {
   renderWires(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
 
   update(deltaTime: number, qualityScale: number): void;
-  updateDeviceFlowPaths(deltaTime: number): void;
   _computeEnergyLevel(deltaTime: number): void;
   _buildDeviceUniformData(renderMode: number, yOffset?: number): Float32Array<ArrayBuffer>;
   updateEmitterEffects(deltaTime: number, qualityScale: number): void;

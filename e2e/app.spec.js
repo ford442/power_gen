@@ -1488,7 +1488,7 @@ test.describe('Device explainer tours', () => {
   test('#lab= share link reopens a device tour on its step', async ({ page }) => {
     trackPageErrors(page);
     // Steps auto-advance every ~6 s, which is shorter than a SwiftShader boot,
-    // so the first poll could already see step 3. Reduced motion disables
+    // so the first poll could already see a later step. Reduced motion disables
     // auto-advance (seg-tour-player `_loop`), which pins the restored step.
     await page.emulateMedia({ reducedMotion: 'reduce' });
     // Navigated directly (not via gotoWebGL2 + a hash append): a hash-only
