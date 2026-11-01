@@ -9,6 +9,7 @@
 import './devices/register-plugins';
 import { assertParticleLayouts } from '../generated/physics-constants.js';
 import { SEGSim } from './wasm/sim';
+import { getSimCoreStatus } from './wasm/index';
 import { MultiDeviceVisualizer } from './multi-device-visualizer.js';
 import { LabSession } from './session/lab-session';
 import {
@@ -407,27 +408,30 @@ function wireSEGLayoutControls(): void {
 
 let wasmSim: SEGSim | null = null;
 
-function updateWasmBadge(state: string, text: string): void {
+function updateWasmBadge(state: string, text: string, tooltip = ''): void {
   const dot = document.getElementById('wasmDot');
   const span = document.getElementById('wasmStatus');
   if (!dot || !span) return;
   dot.className = `wasm-dot ${state}`;
   span.textContent = text;
+  const badge = document.getElementById('wasm-badge');
+  if (badge) badge.title = tooltip;
 }
 
 async function initWasm(): Promise<void> {
-  updateWasmBadge('loading', 'WASM…');
+  updateWasmBadge('loading', 'WASM…', 'Loading sim_core.wasm…');
   try {
     wasmSim = await SEGSim.create();
-    if (wasmSim.wasmAvailable) {
-      updateWasmBadge('loaded', 'WASM ✓');
+    const st = getSimCoreStatus();
+    if (st.state === 'ready' && wasmSim.wasmAvailable) {
+      updateWasmBadge('loaded', 'WASM ✓', 'sim_core.wasm instantiated');
       gpuChores.refreshBackend();
     } else {
-      updateWasmBadge('missing', 'WASM –');
+      updateWasmBadge('missing', 'WASM failed', st.error ?? 'sim_core.wasm unavailable');
     }
   } catch (err) {
     console.warn('[main] WASM init failed:', err);
-    updateWasmBadge('missing', 'WASM –');
+    updateWasmBadge('missing', 'WASM failed', err instanceof Error ? err.message : String(err));
   }
 
   const benchBtn = document.getElementById('wasmBenchBtn') as HTMLButtonElement | null;

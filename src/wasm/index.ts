@@ -22,6 +22,25 @@ const WASM_WASM_URL = new URL('../public/wasm/sim_core.wasm', import.meta.url).h
 let _module: SimCoreModule | null = null;
 let _loading: Promise<SimCoreModule | null> | null = null;
 
+export interface SimCoreStatus {
+  state: 'idle' | 'loading' | 'ready' | 'failed';
+  /** Human-readable failure reason (set when `state === 'failed'`). */
+  error: string | null;
+}
+let _status: SimCoreStatus = { state: 'idle', error: null };
+
+/** Real load result: 'ready' only after the factory resolved (i.e. `WebAssembly.instantiate` succeeded). */
+export function getSimCoreStatus(): SimCoreStatus {
+  return _status;
+}
+
+function fail(msg: string): null {
+  _status = { state: 'failed', error: msg };
+  return null;
+}
+
+const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
 /**
  * Load and initialise the sim_core WASM module.
  *
@@ -34,6 +53,7 @@ export async function loadSimCore(): Promise<SimCoreModule | null> {
   if (_module) return _module;
   if (_loading) return _loading;
 
+  _status = { state: 'loading', error: null };
   _loading = (async () => {
     // 1. Check that the WASM binary is reachable before injecting the script.
     try {
@@ -44,13 +64,13 @@ export async function loadSimCore(): Promise<SimCoreModule | null> {
           '– run `make wasm` in cpp/ to build them.',
           'Falling back to JS-only physics.'
         );
-        return null;
+        return fail(`HTTP ${probe.status} fetching ${WASM_WASM_URL}`);
       }
-    } catch {
+    } catch (err) {
       console.info(
         '[sim_core] Could not reach WASM binary – falling back to JS-only physics.'
       );
-      return null;
+      return fail(`Could not fetch ${WASM_WASM_URL}: ${errText(err)}`);
     }
 
     // 2. Load Emscripten MODULARIZE factory via dynamic import (works in Vite bundles
@@ -58,17 +78,18 @@ export async function loadSimCore(): Promise<SimCoreModule | null> {
     const factory = await loadSimCoreFactory();
     if (!factory) {
       console.info('[sim_core] SimCore factory not found – WASM benchmark unavailable.');
-      return null;
+      return fail('sim_core.js glue failed to load');
     }
 
     // 4. Instantiate the module, pointing Emscripten at the correct .wasm URL.
     try {
       _module = await factory({ locateFile: () => WASM_WASM_URL });
       console.info('[sim_core] WASM module loaded –', _module.sim_core_version());
+      _status = { state: 'ready', error: null };
       return _module;
     } catch (err) {
       console.error('[sim_core] Failed to instantiate WASM module:', err);
-      return null;
+      return fail(`Instantiate failed: ${errText(err)}`);
     }
   })();
 
