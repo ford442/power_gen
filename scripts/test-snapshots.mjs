@@ -10,7 +10,7 @@
  *      plantSave, plantLoad into a fresh B, step both → bit-identical
  *      (standalone_snapshots.cpp; also refuses a wrong hash / short vector /
  *      NaN).
- *   2. wasm    the *shipped* src/public/wasm/sim_core — the same round trip
+ *   2. wasm    the *shipped* src/wasm/sim-core/sim_core — the same round trip
  *      through the Embind scratch ABI for all 13 modes, bit-identical, plus
  *      `plantLoad` refusing a layout-hash mismatch and leaving B untouched.
  *   3. TS      every JS device plant (10 dual + seg / heron / solar + the
@@ -31,12 +31,12 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const NATIVE = join(ROOT, 'cpp', 'build', 'sim_core_test');
-const WASM_DIR = process.env.SIM_CORE_DIR ?? join(ROOT, 'src/public/wasm');
+const WASM_DIR = process.env.SIM_CORE_DIR ?? join(ROOT, 'src/wasm/sim-core');
 
 const DT = Math.fround(1 / 60);
 const DRIVE = 0.73;
@@ -234,10 +234,11 @@ function checkTsRoundTrip(id, plant, saveAt) {
 }
 
 // ── 2. shipped wasm: round trip all 13 modes ──────────────────────────────
-const SimCore = new Function(`${readFileSync(join(WASM_DIR, 'sim_core.js'), 'utf8')}\n;return SimCore;`)();
+// ES-module glue (EXPORT_ES6): a plain import, like the page and workers.
+const { default: SimCore } = await import(pathToFileURL(join(WASM_DIR, 'sim_core.js')).href);
 const mod = await SimCore({ wasmBinary: readFileSync(join(WASM_DIR, 'sim_core.wasm')) });
 if ((mod.plant_state_layout_hash() >>> 0) !== PLANT_STATE_LAYOUT_HASH) {
-  fail(`wasm: plant_state_layout_hash ${mod.plant_state_layout_hash()} ≠ generated ${PLANT_STATE_LAYOUT_HASH} — rebuild src/public/wasm`);
+  fail(`wasm: plant_state_layout_hash ${mod.plant_state_layout_hash()} ≠ generated ${PLANT_STATE_LAYOUT_HASH} — rebuild src/wasm/sim-core`);
 }
 
 function save(sim, mode) {

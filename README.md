@@ -109,7 +109,7 @@ npm run dev         # http://localhost:5173/  (Vite https: false; localhost is O
 
 | Command | When to use |
 |---------|-------------|
-| `npm run build:site` | **Default** — Vite → `dist/` using committed WASM under `src/public/wasm/` |
+| `npm run build:site` | **Default** — Vite → `dist/` using committed WASM under `src/wasm/sim-core/` |
 | `npm run build` | Full rebuild: recompile WASM (needs `emcc`) then site |
 | `npm run wasm:build` | WASM only via `scripts/build-wasm.sh` (`emcc` on PATH or `EMSDK=...`) |
 | `npm run wasm:native` | C++ smoke test (g++, no Emscripten) |

@@ -14,10 +14,17 @@
 
 import type { SimCoreModule, SimCoreFactory } from './types';
 
-// Served from src/public/wasm/ → dist/wasm/ at build time.
-// Use import.meta.url so bundled paths resolve correctly on GitHub Pages subpaths.
-const WASM_JS_URL   = new URL('../public/wasm/sim_core.js', import.meta.url).href;
-const WASM_WASM_URL = new URL('../public/wasm/sim_core.wasm', import.meta.url).href;
+// Built by `make -C cpp wasm` into ./sim-core/ (see its README). Vite emits the
+// .wasm under a content-hashed name for this `new URL(…, import.meta.url)`
+// pattern and bundles the ES-module glue as its own lazy chunk, so the page and
+// every module worker load it with a plain `import()` — no `<script>`,
+// `importScripts` or `new Function`, and a rebuilt plant busts the HTTP cache.
+const WASM_WASM_URL = new URL('./sim-core/sim_core.wasm', import.meta.url).href;
+
+/** Site-build hash of the C++ sources (vite.config.js); unset in Node harnesses. */
+declare const __SIM_CORE_SOURCE_HASH__: string | undefined;
+const EXPECTED_SOURCE_HASH: string | null =
+  typeof __SIM_CORE_SOURCE_HASH__ === 'string' ? __SIM_CORE_SOURCE_HASH__ : null;
 
 let _module: SimCoreModule | null = null;
 let _loading: Promise<SimCoreModule | null> | null = null;
@@ -26,8 +33,21 @@ export interface SimCoreStatus {
   state: 'idle' | 'loading' | 'ready' | 'failed';
   /** Human-readable failure reason (set when `state === 'failed'`). */
   error: string | null;
+  /**
+   * Set when the loaded binary was built from different sources than this site
+   * build (`sim_core_source_hash()` ≠ `__SIM_CORE_SOURCE_HASH__`) — e.g. Pages
+   * deployed before CI committed the rebuild. The module still runs.
+   */
+  stale?: string | null;
 }
 let _status: SimCoreStatus = { state: 'idle', error: null };
+
+/** Non-null when `mod` was built from other sources than this site build. */
+export function staleBinaryReason(mod: Pick<SimCoreModule, 'sim_core_source_hash'>, expected = EXPECTED_SOURCE_HASH): string | null {
+  if (!expected) return null;
+  const got = typeof mod.sim_core_source_hash === 'function' ? mod.sim_core_source_hash() : 'none (pre-hash binary)';
+  return got === expected ? null : `sim_core.wasm built from sources ${got}, site expects ${expected} — stale binary`;
+}
 
 /** Real load result: 'ready' only after the factory resolved (i.e. `WebAssembly.instantiate` succeeded). */
 export function getSimCoreStatus(): SimCoreStatus {
@@ -45,9 +65,8 @@ const errText = (e: unknown): string => (e instanceof Error ? e.message : String
  * Load and initialise the sim_core WASM module.
  *
  * The function is idempotent – subsequent calls return the cached module.
- * Returns `null` (with a console warning) if the WASM artefacts have not
- * been built yet or cannot be fetched (e.g. during development before
- * running `make wasm` / the CI pipeline has produced them).
+ * Returns `null` (with a console message) if the glue or the binary cannot be
+ * loaded or instantiated; callers fall back to the JS plants.
  */
 export async function loadSimCore(): Promise<SimCoreModule | null> {
   if (_module) return _module;
@@ -55,42 +74,26 @@ export async function loadSimCore(): Promise<SimCoreModule | null> {
 
   _status = { state: 'loading', error: null };
   _loading = (async () => {
-    // 1. Check that the WASM binary is reachable before injecting the script.
+    let factory: SimCoreFactory;
     try {
-      const probe = await fetch(WASM_WASM_URL, { method: 'HEAD' });
-      if (!probe.ok) {
-        console.info(
-          '[sim_core] WASM artefacts not found at', WASM_WASM_URL,
-          '– run `make wasm` in cpp/ to build them.',
-          'Falling back to JS-only physics.'
-        );
-        return fail(`HTTP ${probe.status} fetching ${WASM_WASM_URL}`);
-      }
+      factory = (await import('./sim-core/sim_core.js')).default;
     } catch (err) {
-      console.info(
-        '[sim_core] Could not reach WASM binary – falling back to JS-only physics.'
-      );
-      return fail(`Could not fetch ${WASM_WASM_URL}: ${errText(err)}`);
+      console.info('[sim_core] sim_core.js glue failed to load – falling back to JS-only physics.', err);
+      return fail(`sim_core.js glue failed to load: ${errText(err)}`);
     }
+    if (typeof factory !== 'function') return fail('sim_core.js has no default-exported factory');
 
-    // 2. Load Emscripten MODULARIZE factory via dynamic import (works in Vite bundles
-    //    and avoids classic-script global leakage issues on GitHub Pages).
-    const factory = await loadSimCoreFactory();
-    if (!factory) {
-      console.info('[sim_core] SimCore factory not found – WASM benchmark unavailable.');
-      return fail('sim_core.js glue failed to load');
-    }
-
-    // 4. Instantiate the module, pointing Emscripten at the correct .wasm URL.
     try {
       _module = await factory({ locateFile: () => WASM_WASM_URL });
-      console.info('[sim_core] WASM module loaded –', _module.sim_core_version());
-      _status = { state: 'ready', error: null };
-      return _module;
     } catch (err) {
       console.error('[sim_core] Failed to instantiate WASM module:', err);
       return fail(`Instantiate failed: ${errText(err)}`);
     }
+    const stale = staleBinaryReason(_module);
+    if (stale) console.warn(`[sim_core] ${stale}`);
+    console.info('[sim_core] WASM module loaded –', _module.sim_core_version());
+    _status = { state: 'ready', error: null, stale };
+    return _module;
   })();
 
   return _loading;
@@ -104,72 +107,4 @@ export function getSimCore(): SimCoreModule | null {
 /** True once the module has been successfully initialised. */
 export function isSimCoreReady(): boolean {
   return _module !== null;
-}
-
-// ─────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────
-
-async function loadSimCoreFactory(): Promise<SimCoreFactory | null> {
-  const globalFactory = (globalThis as { SimCore?: SimCoreFactory }).SimCore;
-  if (typeof globalFactory === 'function') return globalFactory;
-
-  try {
-    const mod = await import(/* @vite-ignore */ WASM_JS_URL);
-    const factory = (mod as { default?: SimCoreFactory }).default
-      ?? (mod as { SimCore?: SimCoreFactory }).SimCore
-      ?? (globalThis as { SimCore?: SimCoreFactory }).SimCore;
-    if (typeof factory === 'function') return factory;
-  } catch {
-    // Emscripten MODULARIZE output is not an ES module — fall through to script tag.
-  }
-
-  if (typeof document === 'undefined') return loadSimCoreFactoryInWorker();
-
-  return new Promise((resolve) => {
-    const script = document.createElement('script');
-    script.src = WASM_JS_URL;
-    script.async = true;
-    script.onload = () => {
-      const factory = (globalThis as { SimCore?: SimCoreFactory }).SimCore;
-      resolve(typeof factory === 'function' ? factory : null);
-    };
-    script.onerror = () => resolve(null);
-    document.head.appendChild(script);
-  });
-}
-
-/**
- * Dedicated worker (plant / offline workers). There is no `<script>` tag, and
- * the `ENVIRONMENT=web` MODULARIZE glue is a classic script, so the dynamic
- * import above loads it as a module whose `var SimCore` never escapes module
- * scope. The glue itself only needs `fetch` + `WebAssembly`, both present in a
- * dedicated worker, so no `ENVIRONMENT=worker` build is required:
- *
- *   1. classic worker → `importScripts` (throws in module workers);
- *   2. module worker  → fetch the glue text and evaluate it as a function
- *      body that returns the factory it declares.
- */
-async function loadSimCoreFactoryInWorker(): Promise<SimCoreFactory | null> {
-  const g = globalThis as { importScripts?: (...urls: string[]) => void; SimCore?: SimCoreFactory };
-  if (typeof g.importScripts === 'function') {
-    try {
-      g.importScripts(WASM_JS_URL);
-      if (typeof g.SimCore === 'function') return g.SimCore;
-    } catch {
-      // Module worker: importScripts is defined but always throws.
-    }
-  }
-  try {
-    const res = await fetch(WASM_JS_URL);
-    if (!res.ok) return null;
-    const source = await res.text();
-    const factory = new Function(
-      `${source}\n;return typeof SimCore === 'function' ? SimCore : null;`
-    )() as SimCoreFactory | null;
-    return typeof factory === 'function' ? factory : null;
-  } catch (err) {
-    console.warn('[sim_core] Could not evaluate SimCore glue in worker:', err);
-    return null;
-  }
 }

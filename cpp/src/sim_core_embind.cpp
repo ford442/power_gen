@@ -18,6 +18,13 @@
 #include <emscripten/val.h>
 #include <string>
 
+// Hash of every compiled input (scripts/sim-core-source-hash.mjs), passed by
+// `make wasm`. The site build defines the same value; a mismatch means the
+// shipped binary predates its sources (src/wasm/index.ts reports it).
+#ifndef SIM_CORE_SOURCE_HASH
+#define SIM_CORE_SOURCE_HASH "unknown"
+#endif
+
 using namespace emscripten;
 
 EMSCRIPTEN_BINDINGS(sim_core) {
@@ -62,6 +69,9 @@ EMSCRIPTEN_BINDINGS(sim_core) {
     }));
     function("sim_core_version", optional_override([]() -> std::string {
         return std::string(sim_core_version());
+    }));
+    function("sim_core_source_hash", optional_override([]() -> std::string {
+        return std::string(SIM_CORE_SOURCE_HASH);
     }));
     function("chores_scratch_ptr", optional_override([](int count) -> double {
         return static_cast<double>(chores_scratch_ptr(count));

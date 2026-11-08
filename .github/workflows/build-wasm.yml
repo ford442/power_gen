@@ -8,7 +8,10 @@
 #
 # Artefacts:
 #   • sim_core.js + sim_core.wasm  (uploaded as GitHub artefact)
-#   • Optionally committed back to src/public/wasm/ on the main branch
+#   • Committed back to src/wasm/sim-core/ on the main branch
+#
+# emsdk: cpp/emsdk-version is the one pin (scripts/build-wasm.sh warns on a
+# mismatch; cpp/README.md points at it).
 # =============================================================
 
 name: Build WASM (sim_core)
@@ -53,11 +56,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. Install emsdk ─────────────────────────────────────
+      # ── 2. Install emsdk (version from cpp/emsdk-version) ────
+      - name: Read emsdk pin
+        id: emsdk
+        run: echo "version=$(tr -d '[:space:]' < cpp/emsdk-version)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Emscripten SDK
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: 3.1.61   # pinned for reproducibility
+          version: ${{ steps.emsdk.outputs.version }}
           actions-cache-folder: '.emsdk-cache'
 
       # ── 3. Verify emcc ───────────────────────────────────────
@@ -75,9 +82,9 @@ jobs:
       # ── 6. Verify output ─────────────────────────────────────
       - name: Verify artefacts
         run: |
-          ls -lh src/public/wasm/
-          test -f src/public/wasm/sim_core.js   || (echo "sim_core.js missing" && exit 1)
-          test -f src/public/wasm/sim_core.wasm || (echo "sim_core.wasm missing" && exit 1)
+          ls -lh src/wasm/sim-core/
+          test -f src/wasm/sim-core/sim_core.js   || (echo "sim_core.js missing" && exit 1)
+          test -f src/wasm/sim-core/sim_core.wasm || (echo "sim_core.wasm missing" && exit 1)
 
       # ── 6a. ABI: every Embind export callable from JS on the fresh build
       - name: Setup Node
@@ -89,10 +96,14 @@ jobs:
       # validate.yml tests the *committed* binary; these run on the one just
       # built, so a physics/ or generated/ edit cannot pass against a stale
       # sim_core.wasm.
+      # SIM_CORE_REQUIRE_FRESH: the binary's sim_core_source_hash() must equal
+      # the hash of the sources it was just built from.
       - name: WASM ABI test (fresh build)
+        env:
+          SIM_CORE_REQUIRE_FRESH: '1'
         run: npm ci && npm run test:wasm-abi
 
-      # Every suite that loads src/public/wasm/sim_core.{js,wasm}. (test:golden
+      # Every suite that loads src/wasm/sim-core/sim_core.{js,wasm}. (test:golden
       # compares the TS plant against the *native* binary built in step 4, so
       # it runs too, but it does not exercise the .wasm.)
       - name: Fresh-build WASM suites (snapshots, analysis, experiments) + golden
@@ -114,7 +125,7 @@ jobs:
             echo
             echo "| Artefact | Raw bytes | Gzip bytes |"
             echo "|---|---|---|"
-            for f in src/public/wasm/sim_core.js src/public/wasm/sim_core.wasm; do
+            for f in src/wasm/sim-core/sim_core.js src/wasm/sim-core/sim_core.wasm; do
               raw=$(stat -c%s "$f")
               gz=$(gzip -9 -c "$f" | wc -c)
               echo "| $f | $raw | $gz |"
@@ -131,8 +142,8 @@ jobs:
         with:
           name: sim_core-wasm
           path: |
-            src/public/wasm/sim_core.js
-            src/public/wasm/sim_core.wasm
+            src/wasm/sim-core/sim_core.js
+            src/wasm/sim-core/sim_core.wasm
           retention-days: 30
 
       # ── 8. Commit built files back on main (optional) ────────
@@ -143,7 +154,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add src/public/wasm/sim_core.js src/public/wasm/sim_core.wasm
+          git add src/wasm/sim-core/sim_core.js src/wasm/sim-core/sim_core.wasm
           git diff --cached --quiet || \
             git commit -m "ci: update sim_core WASM artefacts [skip ci]" && \
             git push

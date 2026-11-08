@@ -165,7 +165,7 @@ Part of `npm run validate` and the `native-cpp` CI job.
 1. **Native** `sim_core_test --mode snapshots`: every C++ mode — run A 90
    frames, save, load into a fresh B, step both 90 more → bit-identical every
    frame; a wrong hash, short vector and NaN are refused and leave B as it was.
-2. **Shipped WASM** (`src/public/wasm`, in Node): the same for all 13 modes
+2. **Shipped WASM** (`src/wasm/sim-core`, in Node): the same for all 13 modes
    through the scratch ABI, plus the hash-mismatch refusal.
 3. **TS plants** (all 16): save → JSON → load into a fresh state → step →
    every scalar field bit-identical, compared every frame (a missed spark

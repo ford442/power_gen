@@ -176,12 +176,13 @@ export interface SEGSimulatorConstructor {
 export interface SimCoreModule {
   SEGSimulator: SEGSimulatorConstructor;
   HEAPF32?: Float32Array;
-  HEAPU8?: Uint8Array;
   magneticDipoleField(r: Vec3, m: Vec3): Vec3;
   magneticDipoleForce(pos1: Vec3, m1: Vec3, pos2: Vec3, m2: Vec3): Vec3;
   axialBField(z: number, radius: number, height: number, Br: number): number;
   estimateHalbachFieldT?(gapM: number, remanenceT?: number): number;
   sim_core_version(): string;
+  /** Hash of the sources this binary was built from (scripts/sim-core-source-hash.mjs). Absent before 2026-11. */
+  sim_core_source_hash?(): string;
   /** Byte offset of the chores scratch (≥ count floats). Re-read HEAPF32 after (may grow). */
   chores_scratch_ptr?(count: number): number;
   chores_reduce_f32_scratch?(count: number): ChoresReduceRaw;

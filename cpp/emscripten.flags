@@ -4,16 +4,29 @@
 # Release-only flags (-g0, --closure 1) live in the `wasm` Makefile target /
 # CMakeLists.txt instead of here, since `wasm-dbg` needs the opposite
 # (debug symbols, unminified JS) — see cpp/README.md for the full mapping.
+#
+# ES module glue (`export default SimCore`), loadable by the page and by the
+# module workers (vite.config.js `worker.format: 'es'`) with a plain
+# `import()` — no `<script>`, `importScripts` or `new Function`.
+# DYNAMIC_EXECUTION=0 keeps eval / new Function out of the glue too (embind
+# then builds its invokers without them), so a strict CSP holds.
+# Dropped as emscripten defaults: WASM=1, NO_EXIT_RUNTIME=1,
+# DISABLE_EXCEPTION_CATCHING=1 (the default once -fno-exceptions is set).
+# HEAPF32 is the scratch ABI (src/wasm/sim.ts, gpu-chores/reduce-wasm.ts);
+# nothing outside the glue calls ccall / cwrap / HEAPU8.
 --bind
--s WASM=1
 -s MODULARIZE=1
+-s EXPORT_ES6=1
 -s EXPORT_NAME=SimCore
--s EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPF32','HEAPU8']
+-s ENVIRONMENT=web,worker
+-s DYNAMIC_EXECUTION=0
+-s EXPORTED_RUNTIME_METHODS=['HEAPF32']
+# 4 MiB, growing on demand: the particle buffer is a std::vector sized at
+# seedParticles() (it used to be a 1.6 MB inline array in every
+# SEGSimulator), so most realms never grow. The page, the plant worker and
+# the offline worker each instantiate one; 16 MiB × 3 was the old floor.
 -s ALLOW_MEMORY_GROWTH=1
--s INITIAL_MEMORY=16777216
--s ENVIRONMENT=web
--s NO_EXIT_RUNTIME=1
+-s INITIAL_MEMORY=4194304
 -s MALLOC=emmalloc
 -s FILESYSTEM=0
 -fno-exceptions
--s DISABLE_EXCEPTION_CATCHING=1

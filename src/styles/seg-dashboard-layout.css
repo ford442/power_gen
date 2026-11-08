@@ -275,6 +275,7 @@
       background: #444;
     }
     .wasm-dot.loaded  { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
+    .wasm-dot.loaded.stale { background: #ffcc00; box-shadow: 0 0 6px #ffcc00; }
     .wasm-dot.loading { background: #ffcc00; box-shadow: 0 0 6px #ffcc00; animation: blink 1s infinite; }
     .wasm-dot.missing { background: #ff6600; }
 

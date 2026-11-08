@@ -100,7 +100,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 |-------|------|
 | App / UI | JavaScript ES modules, `src/index.html` |
 | Typed physics / integration | TypeScript (`@webgpu/types`) |
-| High-precision plant | C++17 → Emscripten WASM (`cpp/`, prebuilt under `src/public/wasm/`) |
+| High-precision plant | C++17 → Emscripten WASM (`cpp/`, prebuilt under `src/wasm/sim-core/`) |
 | Primary GPU | WebGPU + **WGSL** |
 | Fallback GPU | WebGL2 + **GLSL** (`renderers/webgl2/`) |
 | Build | **Vite 5**, `root: 'src'`, `outDir: '../dist'`, `server.https: false` |
@@ -247,8 +247,8 @@ power_gen/
 │   │   └── webgl2/               # GLSL fallback (stays JS)
 │   ├── shaders/                  # WGSL common/ + passes/ + generators/
 │   ├── wasm/                     # Typed bridge + sim.ts → sim_core
-│   ├── *.ts                      # Typed physics / integration
-│   └── public/wasm/              # Committed sim_core.js + .wasm
+│   │   └── sim-core/             # Committed sim_core.js (ES module) + .wasm — imported, content-hashed
+│   └── *.ts                      # Typed physics
 ├── cpp/                          # Native + Emscripten sources
 ├── firmware/seg-driver/          # Experimental MCU sketch (see below)
 ├── docs/                         # This guide + ADRs + domain docs

@@ -4,7 +4,7 @@
  *
  * A file past the line is a module asking to be split. Skipped:
  *   - any `generated/` directory (codegen output)
- *   - `src/public/**` (Emscripten glue, static assets)
+ *   - `src/public/**` (static assets), `src/wasm/sim-core/**` (Emscripten glue)
  *   - non-source extensions (json, md, images, …)
  *
  * ALLOWLIST pins a file that is over the line today at its current length so
@@ -22,7 +22,7 @@ const MAX_LINES = 700;
 const ROOTS = ['src', 'cpp/src'];
 const EXTENSIONS = new Set(['.ts', '.js', '.mjs', '.cpp', '.h', '.hpp', '.wgsl', '.glsl', '.css', '.html']);
 const SKIP_DIRS = new Set(['generated', 'node_modules']);
-const SKIP_PREFIXES = ['src/public/'];
+const SKIP_PREFIXES = ['src/public/', 'src/wasm/sim-core/'];
 
 /** path → max lines. Keep empty; a row here is debt with a ceiling. */
 const ALLOWLIST = {};
