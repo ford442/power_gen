@@ -19,7 +19,6 @@ import { initHardwarePanel } from '../hardware-panel';
 import { initSEGAnnotations } from '../seg-annotations';
 import { gpuChores } from '../gpu-chores';
 import { showWebGPUHardFail, type WebGPUProbeResult } from '../renderers/webgpu-probe';
-import { SEGIntegrationManager, PHYSICS_UNIFORM_BYTES } from '../integration';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 
 type Host = MultiDeviceVisualizer;
@@ -254,28 +253,6 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
         `(shared across all devices)`
       );
 
-      // Typed physics hub (ValidatedConstants + fallback formulas → GPU uniforms)
-      try {
-        this.integration = new SEGIntegrationManager(this.device, this.canvas, {
-          enableScientificOverlay: false
-        });
-        this.physicsUniformBuffer = this.integration.getPhysicsUniformBuffer();
-        if (typeof window !== 'undefined') {
-          window.SEGIntegration = window.SEGIntegration || {
-            manager: null,
-            initialize: () => {
-              throw new Error('[MultiDeviceVisualizer] window.SEGIntegration.initialize is not wired for this bootstrap path');
-            }
-          };
-          window.SEGIntegration.manager = this.integration;
-        }
-        console.log('[MultiDeviceVisualizer] SEGIntegrationManager attached (typed physics uniforms)');
-      } catch (e) {
-        console.warn('[MultiDeviceVisualizer] SEGIntegrationManager init failed:', e);
-        this.integration = null;
-        this.physicsUniformBuffer = null;
-      }
-
       // Profiler reuses the single adapter from WebGPUManager (no second requestAdapter)
       this.profiler = new PerformanceProfiler(this.device, this.canvas, {
         adapter: this.webgpu.adapter,
@@ -283,9 +260,6 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
         textureCompression: this.webgpu.textureCompression
       });
       await this.profiler.init();
-      if (this.integration) {
-        this.profiler.trackBuffer('physicsUniforms', PHYSICS_UNIFORM_BYTES, GPUBufferUsage.UNIFORM);
-      }
 
       // Initialize debug panel
       this.debugPanel = new DebugPanel(this.profiler);

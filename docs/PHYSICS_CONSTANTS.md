@@ -118,7 +118,7 @@ Device **identity** (shader vs WASM mode numbers) is a separate catalog:
 |---------------------|---------------------------|
 | CODATA μ₀, ε₀, G, k_B, e, c, π | Layout ring counts / radii presets → `src/seg-layout.ts` `PRESET_DEFS` |
 | SEG NdFeB Br, μ_r, reference roller geometry | Per-preset world scale, flux-line counts → `seg-layout.ts` + `SEGLayoutUniforms` |
-| Kelvin / Heron / LED–solar core efficiencies | LED spectral wavelengths, IV curve UI metadata → `led-solar-constants.ts` |
+| Kelvin / Heron / LED–solar core efficiencies | Solar bench render-only tuning → catalog `solar` device |
 | Every classroom plant's ODE defaults + drive shaping | Scene/render scales (e.g. halbach-viz `SCENE_SCALE`, `LORENTZ_SCENE`) — device-local render units, not physics |
 | Particle byte strides (16 / 32 B) | WGSL struct definitions → `src/shaders/common/*.wgsl` |
 

@@ -48,7 +48,6 @@ import {
   fdtdSliceGateOpen,
   type FdtdDriveSource
 } from './physics/fdtd-tmz';
-import type { SEGIntegrationManager } from './integration';
 import { generateCylinder } from './visualizer/primitives.js';
 import { SharedGeometryFactory } from './visualizer/setup-geometry.js';
 import { PostStack } from './visualizer/scene-setup.js';
@@ -123,10 +122,6 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   // Hardware digital twin (Web Serial / mock) — coil GPU viz stays on this backend
   emController: ElectromagnetController;
 
-  integration: SEGIntegrationManager | null;
-  /** Manager-owned physics uniform buffer (alias). */
-  physicsUniformBuffer: GPUBuffer | null;
-
   time: number;
   lastFrameTime: number;
   fps: number;
@@ -191,9 +186,6 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.energyPipes = [];
 
     this.emController = new ElectromagnetController();
-
-    this.integration = null;
-    this.physicsUniformBuffer = null;
 
     this.time = 0;
     this.lastFrameTime = 0;
