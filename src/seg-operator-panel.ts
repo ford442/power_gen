@@ -70,7 +70,6 @@ export class SEGOperatorPanel {
   state: SEGOperatorState;
   onParticleCountChange: ((count: number) => void) | null;
   els!: PanelElements;
-  private _rafPending: boolean;
   private _lastTelemetry: TelemetrySnapshot['seg'];
   private _schematicVisible: boolean;
   private _unsubHub: (() => void) | null;
@@ -82,7 +81,6 @@ export class SEGOperatorPanel {
   constructor(options: SEGOperatorPanelOptions = {}) {
     this.state = options.state || segOperator;
     this.onParticleCountChange = options.onParticleCountChange || null;
-    this._rafPending = false;
     this._lastTelemetry = null;
     this._schematicVisible = false;
     this._unsubHub = null;
@@ -348,24 +346,6 @@ export class SEGOperatorPanel {
     if (this.els.stopBtn) {
       this.els.stopBtn.classList.toggle('latched', s.status === OPERATOR_STATUS.ESTOP);
     }
-  }
-
-  /**
-   * Legacy per-frame hook. Prefer visualizers calling telemetryHub.publishFrame().
-   * If the hub was not updated this frame, publishes SEG-only telemetry so gauges move.
-   */
-  tick(deltaTime: number): void {
-    if (this._rafPending) return;
-    this._rafPending = true;
-    requestAnimationFrame(() => {
-      this._rafPending = false;
-      // Fallback publish when a renderer forgot to call the hub (keeps START→RPM working)
-      const snap = telemetryHub.getSnapshot();
-      const stale = !snap.seg || (performance.now() - (snap.timeMs || 0)) > 100;
-      if (stale) {
-        telemetryHub.publishFrame({ dt: deltaTime, view: snap.view || 'overview' });
-      }
-    });
   }
 
   /** Apply a TelemetryHub snapshot to the dashboard DOM (SEG primary gauges). */

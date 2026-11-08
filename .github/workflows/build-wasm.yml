@@ -92,8 +92,15 @@ jobs:
       - name: WASM ABI test (fresh build)
         run: npm ci && npm run test:wasm-abi
 
-      - name: JS ⇄ WASM golden (fresh build, ADR-0002)
-        run: npm run test:golden
+      # Every suite that loads src/public/wasm/sim_core.{js,wasm}. (test:golden
+      # compares the TS plant against the *native* binary built in step 4, so
+      # it runs too, but it does not exercise the .wasm.)
+      - name: Fresh-build WASM suites (snapshots, analysis, experiments) + golden
+        run: |
+          npm run test:snapshots
+          npm run test:analysis
+          npm run test:experiments
+          npm run test:golden
 
       # ── 6b. Size / bench note ─────────────────────────────────
       #    Logs sim_core.js/.wasm raw+gzip bytes and the native

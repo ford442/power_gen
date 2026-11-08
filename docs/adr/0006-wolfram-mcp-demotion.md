@@ -30,3 +30,7 @@ In practice:
 ## Related
 
 - ADR-0002 (WASM RK4 plant / constants provenance), `physics/constants.json`, `src/ValidatedConstants.ts`, `src/integration.ts`
+
+## Update (2026-11)
+
+`SEGIntegrationManager` (`src/integration.ts`) was deleted with the LED/solar twin it pulled in. Its physics uniform buffer was written every frame but bound by no pipeline, so the "typed physics uniform buffer owner" role above no longer exists. `src/fallback-physics.ts` stays (`ValidatedConstants` uses it).

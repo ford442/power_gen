@@ -25,10 +25,7 @@ const SKIP_DIRS = new Set(['generated', 'node_modules']);
 const SKIP_PREFIXES = ['src/public/'];
 
 /** path → max lines. Keep empty; a row here is debt with a ceiling. */
-const ALLOWLIST = {
-  // Not imported; removed with the rest of src/shaders/archive/** (dead-code PR).
-  'src/shaders/archive/led-solar/led-solar-physics.wgsl': 707
-};
+const ALLOWLIST = {};
 
 function* walk(dir) {
   for (const ent of readdirSync(dir, { withFileTypes: true })) {

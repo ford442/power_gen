@@ -10,6 +10,7 @@
 import { HardwareBridge, TWIN_MODES, type SensorSnapshot } from './hardware-bridge';
 import { syncHardwareTwinBadgeFromBridge } from './hardware-twin-badge';
 import { ElectromagnetController } from './electromagnet-controller';
+import { onFrame } from './frame-clock';
 
 function bits(mask: number, n: number): number[] {
   const out: number[] = [];
@@ -35,7 +36,8 @@ export class HardwarePanel {
   private _unsub: Array<() => void>;
   /** Aborts every DOM listener `_wire` added — on re-attach and destroy. */
   private _wireAbort: AbortController | null;
-  private _raf: number;
+  /** Frame-clock unsubscribe: set while a bridge is attached and the panel is open. */
+  private _offFrame: (() => void) | null;
   private _collapsed: boolean;
 
   constructor(options: HardwarePanelOptions = {}) {
@@ -44,7 +46,7 @@ export class HardwarePanel {
     this._root = null;
     this._unsub = [];
     this._wireAbort = null;
-    this._raf = 0;
+    this._offFrame = null;
     this._collapsed = false;
   }
 
@@ -96,8 +98,8 @@ export class HardwarePanel {
     this._unsub = [];
     this._wireAbort?.abort();
     this._wireAbort = null;
-    cancelAnimationFrame(this._raf);
-    this._raf = 0;
+    this._offFrame?.();
+    this._offFrame = null;
   }
 
   /** Returns true when it created the panel element (false if present or no host). */
@@ -197,6 +199,8 @@ export class HardwarePanel {
     if (!root) return;
     root.dataset.collapsed = String(collapsed);
     root.querySelector('#hwTitle')?.setAttribute('aria-expanded', String(!collapsed));
+    // Folded: stop the repaint; unfolded with a bridge: resume it.
+    if (this.bridge && this._unsub.length) this._loop();
   }
 
   private _injectStyles(): void {
@@ -426,17 +430,23 @@ export class HardwarePanel {
     if (el) el.textContent = msg || '';
   }
 
+  /**
+   * Keep the readouts fresh even if the sensor callback is quiet: 10 Hz on the
+   * frame clock while a bridge is attached and the panel is open (it used to
+   * repaint every frame, folded or not).
+   */
   private _loop(): void {
-    // Keep UI fresh even if sensor callback is quiet
-    cancelAnimationFrame(this._raf);
-    const tick = () => {
+    this._offFrame?.();
+    this._offFrame = null;
+    if (!this.bridge || this._collapsed) return;
+    const tick = (): void => {
       if (this.bridge?.isConnected && this.bridge.lastSensorUpdate) {
         this._renderSensors(this.bridge.getSensorSnapshot());
       }
       this._renderFirmware();
-      this._raf = requestAnimationFrame(tick);
     };
-    this._raf = requestAnimationFrame(tick);
+    tick();
+    this._offFrame = onFrame(tick, { hz: 10 });
   }
 
   destroy(): void {
