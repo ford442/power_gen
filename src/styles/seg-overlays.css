@@ -92,7 +92,11 @@
       color: #cde;
       font-family: 'Segoe UI', system-ui, sans-serif;
     }
+    #webgpu-hard-fail[hidden] { display: none; }
     .webgpu-hard-fail-card {
+      position: relative;
+      max-height: 100%;
+      overflow: auto;
       max-width: 640px;
       width: 100%;
       border: 1px solid #f64;
@@ -123,6 +127,37 @@
       word-break: break-word;
     }
     .webgpu-hard-fail-foot { font-size: 0.75rem; color: #889; }
+    .webgpu-hard-fail-close {
+      position: absolute; top: 10px; right: 12px;
+      background: none; border: 0; color: #f88; font-size: 1.1rem; cursor: pointer;
+    }
+    .webgpu-hard-fail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 6px; }
+    .webgpu-hard-fail-card h3 { margin: 14px 0 6px; font-size: 0.85rem; color: #fc8; }
+    .webgpu-hard-fail-tips { margin: 0 0 12px; padding-left: 18px; font-size: 0.8rem; line-height: 1.5; color: #bcd; }
+    .webgpu-hard-fail-details summary { cursor: pointer; font-size: 0.8rem; color: #9ab; }
+
+    #renderer-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border: 1px solid #0cf;
+      border-radius: 12px;
+      font: inherit;
+      font-size: 0.72rem;
+      letter-spacing: 1px;
+      color: #6df;
+      background: rgba(0, 40, 60, 0.55);
+    }
+    #renderer-badge[hidden] { display: none !important; }
+    #renderer-badge:not(:disabled) { cursor: pointer; }
+    #renderer-badge[data-state="webgpu-unavailable"] {
+      border-color: #f64; color: #f88; background: rgba(60, 10, 10, 0.55);
+    }
+    .renderer-badge-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: currentColor; box-shadow: 0 0 6px currentColor;
+    }
     body.webgpu-hard-fail #canvas-wrapper { pointer-events: none; opacity: 0.25; }
 
     #energyNetworkDisclaimer {

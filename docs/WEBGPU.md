@@ -5,6 +5,14 @@ Primary path: `src/webgpu-manager.ts` → `MultiDeviceVisualizer`.
 (`src/renderers/webgpu-probe.ts`, `window.webgpuProbe`).  
 WebGL2 stays in-tree for explicit `?renderer=webgl2` only (`docs/WEBGL2.md`).
 
+The hard-fail card is **dismissible** (✕, Esc, backdrop click) so the static
+About / Reference / Learning content stays readable; the sim stays off
+(`body.webgpu-hard-fail`) and the header badge ("WebGPU unavailable") reopens
+it. It offers an explicit **Reload with WebGL2** button (the only route to
+WebGL2 — never automatic), troubleshooting tips, and the raw probe JSON behind
+a collapsed *Details* toggle. While WebGL2 is active the header shows a
+persistent **WebGL2 mode** badge (`#renderer-badge`, set from `exposeRenderer`).
+
 ## Boot probe (required)
 
 | Step | Module |

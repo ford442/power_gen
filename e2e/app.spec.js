@@ -1606,6 +1606,43 @@ test.describe('WebGPU required boot', () => {
     expect(snap.canvasWebgpuFail).toBe('1');
     expect(snap.hasWebglAttr).toBe('');
   });
+
+  test('hard-fail card is dismissible, keeps the sim off, and offers opt-in WebGL2', async ({ page }) => {
+    trackPageErrors(page);
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    const card = page.locator('#webgpu-hard-fail');
+    await expect(card).toBeVisible({ timeout: 30_000 });
+
+    // Probe JSON is behind a collapsed Details toggle; troubleshooting is visible.
+    await expect(card.locator('details.webgpu-hard-fail-details')).not.toHaveAttribute('open', '');
+    await expect(card.locator('.webgpu-hard-fail-tips')).toBeVisible();
+
+    // The WebGL2 button is a link to an explicit opt-in, never automatic.
+    expect(await page.evaluate(() => window.currentRenderer)).toBeFalsy();
+    await expect(card.locator('[data-hard-fail-action="webgl2"]')).toBeVisible();
+
+    // Esc dismisses; sim stays disabled; header badge reopens the card.
+    await page.keyboard.press('Escape');
+    await expect(card).toBeHidden();
+    expect(await page.evaluate(() => document.body.classList.contains('webgpu-hard-fail'))).toBe(true);
+    const badge = page.locator('#renderer-badge');
+    await expect(badge).toBeVisible();
+    await badge.click();
+    await expect(card).toBeVisible();
+
+    // Close button dismisses too.
+    await card.locator('.webgpu-hard-fail-close').click();
+    await expect(card).toBeHidden();
+
+    // Opt-in reload lands on ?renderer=webgl2 and shows the persistent badge.
+    await badge.click();
+    await Promise.all([
+      page.waitForURL(/renderer=webgl2/),
+      card.locator('[data-hard-fail-action="webgl2"]').click()
+    ]);
+    await waitForEval(page, () => window.currentRenderer === 'webgl2', { timeout: 30_000 });
+    await expect(page.locator('#renderer-badge')).toHaveText(/WebGL2 mode/);
+  });
 });
 
 test.describe('gpu-chores exclusive session', () => {
