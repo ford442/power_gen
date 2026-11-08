@@ -176,7 +176,8 @@ default smoke, `--mode golden`, `--mode jumping-ring` and
 Ubuntu's `clang` package does not pull `libclang-rt-*-dev`) fails the link and
 is skipped in favour of g++ with libasan/libubsan. If no toolchain passes, the
 script prints why and exits 0, so gcc-only / minimal CI images are not turned
-red; `validate.yml` runs it after the native smoke.
+red; `validate.yml` runs it in its `native-san` job (the native smoke itself
+runs inside `npm run validate`).
 
 ### clang-tidy (advisory)
 

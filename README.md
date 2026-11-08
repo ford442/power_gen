@@ -124,7 +124,7 @@ The live demo is deployed automatically on every push to `main` via [`.github/wo
 1. `npm ci`, `npm run typecheck`, `npm run build:site` (Vite → `dist/`)
 2. GitHub Actions uploads `dist/` and publishes to Pages
 
-Non-deploy validation (typecheck, native C++, WGSL) runs on PRs via
+Non-deploy validation (the whole `npm run validate` suite, plus Playwright) runs on PRs via
 [`.github/workflows/validate.yml`](.github/workflows/validate.yml).
 **Demo URL:** https://ford442.github.io/power_gen/ (repo name is `power_gen`; the old `seg-webgpu-visualizer` path no longer applies.)
 

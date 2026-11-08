@@ -552,8 +552,8 @@ npm run wasm:build    # scripts/build-wasm.sh
 | Workflow | What |
 |----------|------|
 | `.github/workflows/static.yml` | typecheck + `build:site` → Pages |
-| `.github/workflows/validate.yml` | typecheck, plant-worker contract, lab coupling buses, site build, native C++ (+ ASan/UBSan when the runner has the runtimes), WGSL (`REQUIRE_NAGA=1`) |
-| `.github/workflows/build-wasm.yml` | WASM rebuild when enabled |
+| `.github/workflows/validate.yml` | `npm run validate` in full (`REQUIRE_NAGA=1`; fails on a dirty tree after codegen), site build, ASan/UBSan native job, Playwright. New gates go in the `validate` script, never as a separate workflow step |
+| `.github/workflows/build-wasm.yml` | WASM rebuild when `cpp/`, `src/wasm/`, `generated/*.h`, `physics/` or the build/codegen scripts change; `test:wasm-abi` + `test:golden` on the **fresh** binary |
 
 ---
 
