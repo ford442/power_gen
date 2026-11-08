@@ -7,7 +7,7 @@ import type { BindGroupLayoutName } from './pipeline-layout-cache';
  * are created once on visualizer.pipelineCache and shared across devices.
  *
  * Each render pipeline also has a `_msaa4` variant (ADR-0005 WS2 showroom
- * MSAA — `high` tier + focus mode, see render-loop.ts `msaaActive`), created
+ * MSAA — `high` tier + focus mode, see render-encode.ts `frameContext()`), created
  * eagerly alongside the base variant in `ensureDevicePipelines()`.
  * `applyMsaaState()` swaps the active `xPipeline` reference between the two
  * once per frame; device-render.ts / device-instance.ts never need to know

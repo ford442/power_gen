@@ -116,7 +116,7 @@ Negotiated in `WebGPUManager.negotiateFeatures()` when the adapter supports them
 
 | Feature | Status | When enabled | Notes |
 |---------|--------|----------------|-------|
-| `timestamp-query` | **used** | URL has `?gpuTiming=1` | Default **off**. Written via pass-descriptor `timestampWrites` (start of the first compute pass → end of the composite pass); the removed `GPUCommandEncoder.writeTimestamp` is not used. Profiler keeps `timingEnabled = false` until the debug panel toggle. |
+| `timestamp-query` | **used** | URL has `?gpuTiming=1` | Default **off**. Written via pass-descriptor `timestampWrites`, one begin/end pair per frame-graph pass (see GPU timing); the removed `GPUCommandEncoder.writeTimestamp` and `timestamp-query-inside-passes` are not used. Profiler keeps `timingEnabled = false` until the debug panel toggle. |
 | `rg11b10ufloat-renderable` | **used** | Always if present | Linear colour pipeline: scene colour, its MSAA twin, TAA resolve/history and the bloom mip chain (4 B/px instead of `rgba16float`'s 8). Legacy: the bloom extract/blur intermediates only. See **Colour pipeline**. |
 | `texture-compression-bc` / `etc2` / `astc` | **used** | If the adapter supports them (skipped on fallback/software) | Requested at `requestDevice`. Stand GLB KTX2 albedo uploads BC1 / ASTC / ETC2 via `ktx2-gpu.ts`. F3 / `getRendererInfo().textureCompression` reports `bc` \| `etc2` \| `astc` \| `none`. |
 | `float32-filterable` | **not requested** | — | No sampled `rgba32float` targets (scene / bloom are `rg11b10ufloat` or `rgba16float`; SSR is `rgba16float`). |
@@ -235,13 +235,61 @@ window.simulateDeviceLost();
 - Logged as `[WebGPU] uncapturederror: …` (validation / OOM / internal).
 - Optional `onUncapturedError` callback on `WebGPUManager` options.
 
+## Frame graph
+
+`src/visualizer/frame-graph.ts` (a few hundred lines, no library — ADR-0003)
+orders the WebGPU frame. `src/visualizer/render-encode.ts` is the pass list;
+the bodies are in `render-passes.ts`. WebGL2 does not use it (ADR-0001).
+
+```
+compute → scene (1× | 4× MSAA) → depth-resolve → taa → ssr → bloom → composite → history
+```
+
+Each pass declares `reads` / `writes` (static or a function of the frame
+context) and an `enabled` gate. The gates are evaluated once per frame in
+`frameContext()`; a pass that bails returns `false` and clears its gate, so a
+later pass's reads switch input (e.g. the composite reads `sceneColor` instead
+of `taaColor`).
+
+- **Order.** A read with no earlier writer this frame (and no `imported`
+  declaration — only `history` is) throws `FrameGraphOrderError` in dev
+  (`import.meta.env.DEV`). In production the pass is skipped with a one-time
+  warning.
+- **Lifetimes.** The MSAA set (4× scene colour + G-buffer, 4× depth, resolved
+  depth), the SSR target, the TAA resolve target and the history are allocated
+  by `src/visualizer/post-targets.ts` the first frame a pass touches them and
+  destroyed after `POST_TARGET_RELEASE_FRAMES` (120) frames without one. So mid
+  tier and overview never allocate the MSAA set, and leaving the showroom view
+  frees it within about two seconds. The MSAA colour pair adds
+  `GPUTextureUsage.TRANSIENT_ATTACHMENT` where the implementation exposes it.
+  Bind groups that would sample a released SSR / history target bind a 1×1
+  placeholder instead; the composite only weights them when they ran. A resize
+  or device loss destroys every lazy target, and the next frame reallocates what
+  it uses.
+- **History.** Copied only when TAA runs or motion blur has a non-zero mix
+  (sim speed ≥ 7×). A frame that skips the copy marks the history stale, and
+  motion blur waits for one fresh copy before it blends.
+- **Labels.** One debug group per pass on the `frame` encoder; every GPU pass,
+  view and lazy texture is labelled.
+- **Diagnostics.** `getRendererInfo().frameGraph` = `{ passes, ran, allocated,
+  timed }`; `gpuMemory.postTargetBytes` sums the post-stack textures the
+  profiler tracks (an estimate).
+
+`npm run test:frame-graph` covers the order check, lifetimes and timestamp slots
+on a mock encoder, then runs the real pass list on a mock host for every tier ×
+view. It asserts which passes run and which lazy targets exist.
+
 ## GPU timing
 
-Timestamps go on pass descriptors (`profiler.passTimestampWrites('begin' | 'end')`):
-query 0 at the beginning of the `particle-compute` pass, query 1 at the end of
-the composite pass. `GPUCommandEncoder.writeTimestamp` was removed from the
-spec; calling it is what used to blank the canvas. Frames without a composite
-pass skip the resolve, and a non-increasing pair is dropped rather than read as 0 ms.
+Timestamps go on pass descriptors, one pair per frame-graph pass: pass slot `i`
+writes query `2i` at the beginning and `2i + 1` at the end
+(`profiler.gpuTimestampTarget()`, 16 slots). A pass that records several GPU
+passes (bloom) puts `begin` on its first and `end` on its last. The history
+copy is not a pass and is not timed. `GPUCommandEncoder.writeTimestamp` was
+removed from the spec; calling it is what used to blank the canvas.
+`timestamp-query-inside-passes` is not requested. A non-increasing pair is
+dropped rather than read as 0 ms. F3 lists milliseconds per pass under
+**GPU Timing**; the headline number is first begin → last end.
 
 1. Default: `timestamp-query` **not** requested → no query sets.
 2. Profiling: load with `?gpuTiming=1` (reload required to re-request the feature).
@@ -259,5 +307,8 @@ See **`docs/BINDINGS.md`**. Layouts live in `src/pipeline-layout-cache.ts`; devi
 - `src/pipeline-layout-cache.ts` — explicit layouts + shared pipelines  
 - `src/performance-profiler.ts` — timing + tier (consumes adapter info)  
 - `src/debug-panel.ts` — GPU timing toggle  
-- `src/multi-device-visualizer.ts` — depth textures, render pass attachment  
+- `src/visualizer/frame-graph.ts` — pass ordering, lazy-target lifetimes, timestamp slots  
+- `src/visualizer/render-encode.ts` / `render-passes.ts` — the pass list and pass bodies  
+- `src/visualizer/post-targets.ts` — lazily allocated MSAA / SSR / TAA / history targets  
+- `src/visualizer/scene-post-buffers.ts` — always-on scene / G-buffer / depth / bloom targets, bind-group rebuilds  
 - `src/device-pipeline-manager.ts` — attaches shared pipelines per device  

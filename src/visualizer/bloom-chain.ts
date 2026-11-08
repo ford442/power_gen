@@ -7,6 +7,7 @@
 // Owns its texture, per-level views, level-uniform buffer and bind groups.
 // Pipelines live in the PipelineLayoutCache (ensureBloomPipelines).
 import type { PipelineLayoutCache } from '../pipeline-layout-cache';
+import type { PassResources } from './frame-graph';
 
 export const BLOOM_CHAIN_MAX_LEVELS = 6;
 
@@ -165,11 +166,21 @@ export class BloomChain {
    * upsample (additive) back to mip 0. `taa` picks the TAA-resolved scene as
    * the prefilter source, mirroring the composite's bind-group choice.
    */
-  encode(encoder: GPUCommandEncoder, pipelines: BloomChainPipelines, taa: boolean): void {
+  encode(encoder: GPUCommandEncoder, pipelines: BloomChainPipelines, taa: boolean,
+    res?: PassResources): boolean {
     const source = taa ? (this.prefilterGroupTaa ?? this.prefilterGroup) : this.prefilterGroup;
-    if (!source || !this.mipViews.length) return;
+    if (!source || !this.mipViews.length) return false;
+    const total = 2 * this.sizes.length - 1;
+    let index = 0;
+    // Frame-graph timing: begin on the first GPU pass, end on the last.
+    const edge = (): 'begin' | 'end' | 'both' | null => {
+      const i = index++;
+      if (total === 1) return 'both';
+      return i === 0 ? 'begin' : i === total - 1 ? 'end' : null;
+    };
     const pass = (label: string, view: GPUTextureView, load: GPULoadOp,
       pipeline: GPURenderPipeline, bindGroup: GPUBindGroup) => {
+      const e = edge();
       const p = encoder.beginRenderPass({
         label,
         colorAttachments: [{
@@ -177,7 +188,8 @@ export class BloomChain {
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
           loadOp: load,
           storeOp: 'store'
-        }]
+        }],
+        timestampWrites: e && res ? res.timestamps(e) : undefined
       });
       p.setPipeline(pipeline);
       p.setBindGroup(0, bindGroup);
@@ -194,6 +206,7 @@ export class BloomChain {
       const dst = n - 2 - k;
       pass(`bloom-up${dst}`, this.mipViews[dst], 'load', pipelines.upsample, this.upGroups[k]);
     }
+    return true;
   }
 
   destroy(): void {

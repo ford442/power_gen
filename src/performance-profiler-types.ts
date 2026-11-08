@@ -88,6 +88,8 @@ export interface ProfilerStats {
   frameTimeMs: number;
   frameCpuMs: number;
   lastGpuTimeMs: number;
+  /** GPU ms per frame-graph pass from the last resolved frame (empty unless `?gpuTiming=1` + toggle). */
+  gpuPassTimesMs: Record<string, number>;
   deviceTimes: { id: string; ms: number }[];
   deviceTimesMs: Record<string, number>;
   bufferMemoryMB: string;

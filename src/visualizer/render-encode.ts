@@ -1,14 +1,26 @@
-// GPU command encoding: compute dispatch, scene/sky/grid/device draws, MSAA
-// depth resolve, TAA, SSR, bloom, and frame history. Split out of
-// render-loop.ts (simulation tick vs GPU encode) to keep that file under the
-// repo's 700-line cap.
-import { WebGPUManager } from '../webgpu-manager';
-import { MAX_ROLLERS } from '../seg-layout';
-import { packPostUniforms } from '../seg-lighting-presets';
-import { writeQueueBuffer } from '../gpu-buffer-write';
+// The WebGPU frame as a pass list (#225 PR2). Each pass declares what it
+// reads and writes and when it is enabled; frame-graph.ts checks the order,
+// allocates / releases the lazy post targets (post-targets.ts) and hands out
+// per-pass timestamps. Pass bodies live in render-passes.ts, except TAA and
+// SSR, whose parameter uploads stay here next to their gates.
+//
+//   compute → scene (1× | 4× MSAA) → depth-resolve → taa → ssr → bloom
+//           → composite → history
+//
+// WebGL2 does not use the graph (ADR-0001).
 import { getPostQualityGates } from '../post-processing-config';
-import { postOutputTransfer } from '../webgpu-init/color-pipeline';
+import { writeQueueBuffer } from '../gpu-buffer-write';
 import { SSR_PARAMS_BYTES, TAA_PARAMS_BYTES } from './scene-setup.js';
+import { FrameGraph, type FrameGraphReport } from './frame-graph';
+import {
+  encodeBloom,
+  encodeComposite,
+  encodeCompute,
+  encodeDepthResolve,
+  encodeHistoryCopy,
+  encodeScene,
+  speedMotionBlur
+} from './render-passes';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { DeviceInstance } from '../device-instance.js';
 import type { PerformanceProfiler } from '../performance-profiler';
@@ -16,7 +28,7 @@ import type { PerformanceProfiler } from '../performance-profiler';
 type Host = MultiDeviceVisualizer;
 
 /** DeviceInstance plus optional plugin layout flags used by cull / budgets. */
-type RenderDevice = DeviceInstance & {
+export type RenderDevice = DeviceInstance & {
   config: DeviceInstance['config'] & { cullRadius?: number; plugin?: boolean };
 };
 
@@ -28,9 +40,195 @@ type RenderDevice = DeviceInstance & {
  */
 const TAA_HISTORY_WEIGHT = 0.9;
 
-function smoothstep(edge0: number, edge1: number, x: number) {
-  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
-  return t * t * (3 - 2 * t);
+/**
+ * Frames a lazy target may go unused before it is destroyed. Long enough that
+ * the auto-quality controller nudging a tier back and forth, or a quick
+ * focus → overview → focus, does not reallocate; short enough that leaving
+ * the showroom view frees the MSAA set within a couple of seconds.
+ */
+export const POST_TARGET_RELEASE_FRAMES = 120;
+
+/** Per-frame inputs and gates. Passes may clear a gate when they bail. */
+export interface FrameCtx {
+  profiler: PerformanceProfiler;
+  globalUniforms: GPUBuffer;
+  gpuContext: GPUCanvasContext;
+  cull: Host['overviewCull'];
+  cullActive: boolean;
+  isDeviceVisible: (device: RenderDevice) => boolean;
+  fdtdSlice: ReturnType<Host['updateFdtdSlice']>;
+  overview: boolean;
+  postGates: ReturnType<typeof getPostQualityGates>;
+  /** 4× MSAA scene: `high` tier + focus (`'ultra'` is never assigned by auto-quality). */
+  msaa: boolean;
+  taa: boolean;
+  ssr: boolean;
+  /** Which bloom encode runs, or null when gated off (the composite still tonemaps). */
+  bloom: 'chain' | 'legacy' | null;
+  composite: boolean;
+  /** Motion blur is on this frame (gate and sim speed); the composite reads history. */
+  motionBlur: boolean;
+  /** Copy this frame into the history (TAA or motion blur needs it next frame). */
+  history: boolean;
+  /** Single-sample depth downstream passes read this frame. */
+  depth: 'depth' | 'depthResolved';
+}
+
+/** Evaluate every gate once, before any pass encodes. */
+function frameContext(
+  host: Host,
+  base: Pick<FrameCtx, 'profiler' | 'globalUniforms' | 'gpuContext' | 'cull' | 'cullActive'
+    | 'isDeviceVisible' | 'fdtdSlice'>
+): FrameCtx {
+  const { profiler } = base;
+  const overview = host.isOverviewMode();
+  // Auto-quality post gates (ADR-0005) — critical skips bloom extract/blur.
+  const postGates = getPostQualityGates(profiler.postQualityTier || 'high');
+  host._postQualityGates = postGates;
+
+  const msaa = profiler.qualityTier === 'high' && !overview
+    && !!host.depthResolvePipeline && !!host.bloomSceneTexture;
+
+  // TAA: high/ultra tier, focus only, `?taa=0` forces it off. Reprojects with
+  // the camera's own matrices (no velocity buffer — see passes/taa-resolve.wgsl).
+  const taa = !!postGates.taa && !overview && host.taaEnabled !== false
+    && !!host.taaPipeline && !!host.taaParamsBuffer && !!host.cameraController
+    && !!host.bloomSceneTexture && !!host.bloomSampler && !!host.depthSampleView;
+  if (!taa) {
+    // Whatever is in the history belongs to a frame the next TAA frame cannot
+    // trust, so make the first frame back a reset.
+    host._taaHistoryValid = false;
+    host._taaPrevViewProj = null;
+  }
+
+  // SSR: high/ultra tier; `?ssr=0` forces it off.
+  const ssr = host.ssrEnabled !== false && postGates.ssr > 0
+    && !!host.ssrPipeline && !!host.ssrParamsBuffer && !!host.materialGBufferView
+    && !!host.bloomSceneTexture && !!host.bloomSampler && !!host.depthSampleView;
+
+  const chainReady = !!(host.bloomChain && host.bloomChainPipelines);
+  const legacyReady = !!(host.bloomExtractPipeline && host.bloomBlurPipeline
+    && host.bloomBlurTexture && host.bloomTempTexture);
+  const composite = !!host.bloomCompositePipeline && (chainReady || legacyReady)
+    && !!host.bloomSceneTexture && !!host.depthTexture;
+  const bloom = composite && postGates.bloom > 0 ? (chainReady ? 'chain' : 'legacy') : null;
+
+  // History: TAA always, motion blur only while it has a non-zero mix (high
+  // sim speed). A frame that skips the copy leaves a stale history behind, so
+  // the next blur frame waits one copy before blending (motionBlurAmount).
+  const motionBlur = postGates.motionBlur > 0.01 && speedMotionBlur(host) > 0;
+  const history = taa || motionBlur;
+  if (!history) host._historyValid = false;
+
+  return {
+    ...base,
+    overview,
+    postGates,
+    msaa,
+    taa,
+    ssr,
+    bloom,
+    composite,
+    motionBlur,
+    history,
+    depth: msaa ? 'depthResolved' : 'depth'
+  };
+}
+
+/** Build the pass list once per visualizer; lifetimes call back into the host. */
+export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
+  const life = host._postTargetLifetimes();
+  const graph = new FrameGraph<FrameCtx>({
+    label: 'webgpu-frame',
+    strict: !!import.meta.env?.DEV,
+    releaseAfterFrames: POST_TARGET_RELEASE_FRAMES
+  });
+  const sceneOut = (ctx: FrameCtx) => (ctx.taa ? 'taaColor' : 'sceneColor');
+
+  graph
+    .addResource('simBuffers')
+    .addResource('sceneColor')
+    .addResource('gbuffer')
+    .addResource('depth')
+    .addResource('sceneColorMsaa', { lifetime: life.msaa })
+    .addResource('gbufferMsaa', { lifetime: life.msaa })
+    .addResource('depthMsaa', { lifetime: life.msaa })
+    .addResource('depthResolved', { lifetime: life.msaa })
+    .addResource('taaColor', { lifetime: life.taa })
+    .addResource('ssrColor', { lifetime: life.ssr })
+    // Last frame's image: valid at frame start, written at the end.
+    .addResource('history', { imported: true, lifetime: life.history })
+    .addResource('bloom')
+    .addResource('canvas');
+
+  graph.addPass('compute', {
+    writes: ['simBuffers'],
+    encode: (encoder, res, ctx) => encodeCompute(host, encoder, ctx, res)
+  });
+  graph.addPass('scene', {
+    reads: ['simBuffers'],
+    // MSAA resolves colour + G-buffer into the single-sample targets; depth
+    // has no resolveTarget, so the plain depth is not written on those frames.
+    writes: (ctx) => (ctx.msaa
+      ? ['sceneColorMsaa', 'gbufferMsaa', 'depthMsaa', 'sceneColor', 'gbuffer']
+      : ['sceneColor', 'gbuffer', 'depth']),
+    encode: (encoder, res, ctx) => encodeScene(host, encoder, ctx, res)
+  });
+  graph.addPass('depth-resolve', {
+    enabled: (ctx) => ctx.msaa,
+    reads: ['depthMsaa'],
+    writes: ['depthResolved'],
+    encode: (encoder, res) => encodeDepthResolve(host, encoder, res)
+  });
+  // Before SSR and bloom, so everything downstream sees the stabilised image.
+  graph.addPass('taa', {
+    enabled: (ctx) => ctx.taa,
+    reads: (ctx) => ['sceneColor', ctx.depth, 'history'],
+    writes: ['taaColor'],
+    encode: (encoder, res, ctx) => {
+      ctx.taa = host._encodeTaaResolve(encoder, ctx.msaa, res.timestamps('both'));
+      return ctx.taa;
+    }
+  });
+  graph.addPass('ssr', {
+    enabled: (ctx) => ctx.ssr,
+    reads: (ctx) => ['sceneColor', 'gbuffer', ctx.depth],
+    writes: ['ssrColor'],
+    encode: (encoder, res, ctx) => {
+      // The composite must not weight a reflection nothing wrote this frame.
+      ctx.ssr = host._dispatchSsr(encoder, ctx.msaa, res.timestamps('both'));
+      return ctx.ssr;
+    }
+  });
+  graph.addPass('bloom', {
+    enabled: (ctx) => ctx.bloom !== null,
+    reads: (ctx) => [sceneOut(ctx)],
+    writes: ['bloom'],
+    encode: (encoder, res, ctx) => {
+      const ok = encodeBloom(host, encoder, ctx, res);
+      if (!ok) ctx.bloom = null;
+      return ok;
+    }
+  });
+  graph.addPass('composite', {
+    enabled: (ctx) => ctx.composite,
+    reads: (ctx) => [
+      sceneOut(ctx),
+      ctx.depth,
+      ...(ctx.bloom ? ['bloom'] : []),
+      ...(ctx.ssr ? ['ssrColor'] : []),
+      ...(ctx.motionBlur ? ['history'] : [])
+    ],
+    writes: ['canvas'],
+    encode: (encoder, res, ctx) => encodeComposite(host, encoder, ctx, res)
+  });
+  graph.addPass('history', {
+    enabled: (ctx) => ctx.history,
+    reads: (ctx) => [sceneOut(ctx)],
+    writes: ['history'],
+    encode: (encoder, _res, ctx) => encodeHistoryCopy(host, encoder, ctx)
+  });
+  return graph;
 }
 
 export const renderEncodeMethods: ThisType<Host> & {
@@ -39,8 +237,10 @@ export const renderEncodeMethods: ThisType<Host> & {
     globalUniformBuffer: GPUBuffer | null,
     segDevice: DeviceInstance | null | undefined
   ): void;
-  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean): void;
-  _encodeTaaResolve(encoder: GPUCommandEncoder, msaaActive: boolean): boolean;
+  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean,
+    timestampWrites?: GPUComputePassTimestampWrites): boolean;
+  _encodeTaaResolve(encoder: GPUCommandEncoder, msaaActive: boolean,
+    timestampWrites?: GPURenderPassTimestampWrites): boolean;
   _encodeFrame(
     profiler: PerformanceProfiler,
     globalUniforms: GPUBuffer,
@@ -82,42 +282,23 @@ export const renderEncodeMethods: ThisType<Host> & {
   },
 
   /**
-   * Encode the temporal AA resolve pass (ADR-0005 WS2).
+   * Encode the temporal AA resolve pass (ADR-0005 WS2). The gate lives in
+   * frameContext(); this only bails when its bind group or target is missing.
    *
-   * Gated on tier (high/ultra), focus mode, `?taa=0` and the pipeline having
-   * been built. Reprojects with the camera's own view-projection and the one
-   * cached from last frame — there is no separate TAA camera and no velocity
-   * buffer; see passes/taa-resolve.wgsl for why that is sufficient here.
-   *
-   * @returns true if the pass was encoded, so the caller knows to composite
-   *   from the resolve target instead of the raw scene.
+   * @returns true if the pass was encoded, so the composite reads the resolve
+   *   target instead of the raw scene.
    */
-  _encodeTaaResolve(encoder: GPUCommandEncoder, msaaActive: boolean): boolean {
-    const gates = this._postQualityGates;
-    const gateOpen = !!gates?.taa
-      && !this.isOverviewMode()
-      && this.taaEnabled !== false
-      && !!this.taaPipeline
-      && !!this.taaParamsBuffer
-      && !!this.taaResolveView
-      && !!this.cameraController;
-    if (!gateOpen) {
-      // Whatever is in the history belongs to a frame the next TAA frame
-      // cannot trust, so make the first frame back a reset.
-      this._taaHistoryValid = false;
-      this._taaPrevViewProj = null;
-      return false;
-    }
-
+  _encodeTaaResolve(encoder, msaaActive, timestampWrites) {
     const bindGroup = msaaActive
       ? (this.taaBindGroupResolved || this.taaBindGroup)
       : this.taaBindGroup;
-    if (!bindGroup) {
+    if (!bindGroup || !this.taaResolveView || !this.taaPipeline || !this.taaParamsBuffer
+        || !this.cameraController) {
       this._taaHistoryValid = false;
       return false;
     }
 
-    const camera = this.cameraController!;
+    const camera = this.cameraController;
     const viewProj = camera.getViewProjMatrix();
     const invViewProj = camera.invertMatrix(viewProj);
     const prevViewProj = this._taaPrevViewProj;
@@ -132,17 +313,18 @@ export const renderEncodeMethods: ThisType<Host> & {
     params[33] = 1 / Math.max(this.canvas.height || 1, 1);
     params[34] = TAA_HISTORY_WEIGHT;                        // alpha
     params[35] = historyValid ? 1 : 0;
-    writeQueueBuffer(this.device, this.taaParamsBuffer!, params);
+    writeQueueBuffer(this.device, this.taaParamsBuffer, params);
 
     const pass = encoder.beginRenderPass({
       label: 'taa-resolve-pass',
       colorAttachments: [{
-        view: this.taaResolveView!,
+        view: this.taaResolveView,
         clearValue: { r: 0, g: 0, b: 0, a: 1 },
         loadOp: 'clear', storeOp: 'store'
-      }]
+      }],
+      timestampWrites
     });
-    pass.setPipeline(this.taaPipeline!);
+    pass.setPipeline(this.taaPipeline);
     pass.setBindGroup(0, bindGroup);
     pass.draw(3);
     pass.end();
@@ -158,13 +340,13 @@ export const renderEncodeMethods: ThisType<Host> & {
    * units; the camera's own projection is uploaded (plus its inverse) so the
    * shader unprojects depth exactly the way the scene pass projected it.
    */
-  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean) {
+  _dispatchSsr(encoder, msaaActive, timestampWrites) {
     // On an MSAA frame, bind the manually resolved depth (depth-resolve.wgsl
     // ran earlier this frame) instead of the regular single-sample depth —
     // see docs/LIGHTING_RIG.md / docs/BINDINGS.md.
     const bindGroup = msaaActive ? (this.ssrBindGroupResolved || this.ssrBindGroup) : this.ssrBindGroup;
     if (!this.cameraController || !this.ssrParamsBuffer || !this.ssrPipeline || !bindGroup) {
-      return;
+      return false;
     }
     const proj = this.cameraController.getProjMatrix();
     const invProj = this.cameraController.invertMatrix(proj);
@@ -185,7 +367,7 @@ export const renderEncodeMethods: ThisType<Host> & {
     params[42] = 0.85;                        // jitter
     this.device.queue.writeBuffer(this.ssrParamsBuffer, 0, params);
 
-    const pass = encoder.beginComputePass({ label: 'ssr' });
+    const pass = encoder.beginComputePass({ label: 'ssr', timestampWrites });
     pass.setPipeline(this.ssrPipeline);
     pass.setBindGroup(0, bindGroup);
     pass.dispatchWorkgroups(
@@ -193,415 +375,31 @@ export const renderEncodeMethods: ThisType<Host> & {
       Math.ceil((this.ssrHeight || 1) / 8)
     );
     pass.end();
+    return true;
   },
 
-  /** GPU command encoding for one frame: compute, scene/sky/grid/device draws, MSAA depth resolve, TAA, SSR, bloom, history copy. */
-  _encodeFrame(
-    profiler: PerformanceProfiler,
-    globalUniforms: GPUBuffer,
-    gpuContext: GPUCanvasContext,
-    cull: Host['overviewCull'],
-    cullActive: boolean,
-    isDeviceVisible: (device: RenderDevice) => boolean,
-    fdtdSlice: ReturnType<Host['updateFdtdSlice']>
-  ) {
-    // Begin command encoding
+  /** One frame: settle gates, run the graph, submit, schedule the timestamp readback. */
+  _encodeFrame(profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice) {
+    const ctx = frameContext(this, {
+      profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice
+    });
+    const graph = (this._frameGraph ??= buildFrameGraph(this));
     const encoder = this.device.createCommandEncoder({ label: 'frame' });
+    const report: FrameGraphReport = graph.execute(encoder, ctx, profiler.gpuTimestampTarget());
+    this._frameGraphReport = report;
 
-    // ─── COMPUTE PASS: animate particles on GPU ───
-    const computePass = encoder.beginComputePass({
-      label: 'particle-compute',
-      timestampWrites: profiler.passTimestampWrites('begin')
-    });
-
-    // Overview frustum cull → draw-indirect. Runs first: the instance render
-    // pass below consumes the draw args this dispatch writes.
-    if (cullActive) cull!.dispatch(computePass);
-
-    // SEG-specific compute: roller kinematics + RK4 flux line tracing.
-    // These run first so rendering reads the freshly updated buffers.
-    const segDevice = this.devices['seg'] as RenderDevice | undefined;
-    if (segDevice && isDeviceVisible(segDevice)) {
-      if (segDevice.rollerComputePipeline && segDevice.rollerComputeBindGroup) {
-        computePass.setPipeline(segDevice.rollerComputePipeline);
-        computePass.setBindGroup(0, segDevice.rollerComputeBindGroup);
-        computePass.dispatchWorkgroups(Math.ceil(MAX_ROLLERS / 64));
-      }
-      // RK4 flux line tracer: one thread per flux line (up to 108).
-      if (segDevice.fluxTracerPipeline && segDevice.fluxTracerBindGroup &&
-          profiler.qualityLevel > 0.32) {
-        computePass.setPipeline(segDevice.fluxTracerPipeline);
-        computePass.setBindGroup(0, segDevice.fluxTracerBindGroup);
-        const fluxLines = this.segLayout?.totalFluxLines ?? 168;
-        computePass.dispatchWorkgroups(Math.ceil(fluxLines / 64));
-      }
-    }
-
-    const xfmrDevice = this.devices['transformer'] as RenderDevice | undefined;
-    if (xfmrDevice && isDeviceVisible(xfmrDevice)
-        && xfmrDevice.transformerFluxPipeline && xfmrDevice.transformerFluxBindGroup
-        && profiler.qualityLevel > 0.28) {
-      computePass.setPipeline(xfmrDevice.transformerFluxPipeline);
-      computePass.setBindGroup(0, xfmrDevice.transformerFluxBindGroup);
-      computePass.dispatchWorkgroups(Math.ceil((xfmrDevice.transformerFluxLineCount || 24) / 64));
-    }
-
-    fdtdSlice?.dispatch(computePass);
-
-    for (const device of Object.values(this.devices) as RenderDevice[]) {
-      if (!isDeviceVisible(device)) continue;
-      if (device.computePipeline && device.computeBindGroup) {
-        computePass.setPipeline(device.computePipeline);
-        computePass.setBindGroup(0, device.computeBindGroup);
-        const workgroups = Math.ceil((device.scaledParticleCount || device.particleCount) / 64);
-        computePass.dispatchWorkgroups(workgroups);
-      }
-    }
-
-    if (this.isOverviewMode() && this.energyPipeComputePipeline) {
-      for (const pipe of this.energyPipes) {
-        pipe.dispatchCompute(computePass);
-      }
-    }
-    computePass.end();
-
-    // 4x MSAA (ADR-0005 WS2 showroom pass): `high` tier + focus mode only.
-    // `'ultra'` is defined in config/docs but the auto-quality system never
-    // assigns it (performance-profiler.ts only ever picks
-    // critical/low/medium/high), so gating on `'high'` is the practical
-    // ceiling today. Requires the MSAA/resolved-depth textures and both
-    // pipeline variants to exist — set up unconditionally at init, so this
-    // is just a state check, never an async wait mid-frame.
-    const msaaActive = !!(
-      profiler.qualityTier === 'high' &&
-      !this.isOverviewMode() &&
-      this.sceneMsaaView && this.materialGBufferMsaaView &&
-      this.depthMsaaAttachmentView && this.depthResolvedAttachmentView &&
-      this.depthResolvePipeline && this._depthResolveBindGroup
-    );
-    profiler.msaaActive = msaaActive;
-
-    // Swap every scene/device pipeline to its MSAA-4x variant (or back) —
-    // cheap reference reassignment, no GPU work; the pipelines themselves
-    // were created eagerly for both sample counts at init.
-    if (this.skyPipelineBase) this.skyPipeline = msaaActive ? (this.skyPipelineMsaa4 || this.skyPipelineBase) : this.skyPipelineBase;
-    if (this.gridPipelineBase) this.gridPipeline = msaaActive ? (this.gridPipelineMsaa4 || this.gridPipelineBase) : this.gridPipelineBase;
-    if (this.anomalyWallPipelineBase) this.anomalyWallPipeline = msaaActive ? (this.anomalyWallPipelineMsaa4 || this.anomalyWallPipelineBase) : this.anomalyWallPipelineBase;
-    if (this.energyPipePipelineBase) this.energyPipePipeline = msaaActive ? (this.energyPipePipelineMsaa4 || this.energyPipePipelineBase) : this.energyPipePipelineBase;
-    for (const device of Object.values(this.devices) as RenderDevice[]) {
-      device.pipelineManager?.applyMsaaState?.(msaaActive);
-    }
-
-    // render() does not reach here without a scene target.
-    const sceneView = this.bloomSceneTexture!.createView();
-
-    // Color 1: metalness (r) / roughness (g) G-buffer (ADR-0005 WS2). Cleared
-    // to metallic=0, roughness=1 ("non-metal, fully rough") so any pipeline
-    // below whose second target is MATERIAL_GBUFFER_NO_WRITE (writeMask 0) —
-    // everything except seg-enhanced/roller — reads back as non-reflective by
-    // default; only those two actually write real values.
-    const gbufferView = this.materialGBufferView;
-    const gbufferClear = { r: 0.0, g: 1.0, b: 0.0, a: 0.0 };
-    let colorAttachments: GPURenderPassColorAttachment[];
-    if (msaaActive) {
-      // MSAA color resolves automatically into the regular single-sample
-      // textures via `resolveTarget` — bloom/SSR downstream never know MSAA
-      // happened. `storeOp: 'discard'` on the multisampled view is correct
-      // here: only the resolved copy is read afterward.
-      colorAttachments = [{
-        view: this.sceneMsaaView!,
-        resolveTarget: sceneView,
-        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1 },
-        loadOp: 'clear',
-        storeOp: 'discard'
-      }];
-      if (gbufferView) {
-        colorAttachments.push({
-          view: this.materialGBufferMsaaView!,
-          resolveTarget: gbufferView,
-          clearValue: gbufferClear,
-          loadOp: 'clear',
-          storeOp: 'discard'
-        });
-      }
-    } else {
-      colorAttachments = [{
-        view: sceneView,
-        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1 },
-        loadOp: 'clear',
-        storeOp: 'store'
-      }];
-      if (gbufferView) {
-        colorAttachments.push({
-          view: gbufferView,
-          clearValue: gbufferClear,
-          loadOp: 'clear',
-          storeOp: 'store'
-        });
-      }
-    }
-
-    const renderPass = encoder.beginRenderPass({
-      label: 'scene',
-      colorAttachments,
-      depthStencilAttachment: WebGPUManager.depthStencilAttachment(
-        msaaActive ? this.depthMsaaAttachmentView! : this.depthAttachmentView!,
-        { format: this.depthFormat }
-      )
-    });
-
-    // Render sky gradient first (fullscreen, before all geometry)
-    if (this.skyPipeline && this.skyBindGroup) {
-      renderPass.setPipeline(this.skyPipeline);
-      renderPass.setBindGroup(0, this.skyBindGroup);
-      renderPass.draw(3);
-    }
-
-    // Render grid
-    if (this.gridPipeline && this.gridBindGroup) {
-      renderPass.setPipeline(this.gridPipeline);
-      renderPass.setBindGroup(0, this.gridBindGroup);
-      renderPass.setVertexBuffer(0, this.gridVertexBuffer);
-      renderPass.draw(6);
-    }
-
-    // Render devices (scaled by quality)
-    const scaledQuality = profiler.qualityLevel;
-    for (const device of Object.values(this.devices) as RenderDevice[]) {
-      if (!isDeviceVisible(device)) continue;
-      // Skip expensive VFX at low quality — keep core meshes visible.
-      const skipEffects = scaledQuality < 0.5;
-      profiler.measureDevice(`render:${device.id}`, () => {
-        device.render(renderPass, globalUniforms, skipEffects);
-      });
-    }
-
-    // Transparent panel: after the opaque device meshes it is depth-tested against.
-    fdtdSlice?.draw(renderPass, globalUniforms, msaaActive);
-
-    // Roschin–Godin magnetic wall shells (drawn after SEG so they overlay the scene).
-    if (segDevice && isDeviceVisible(segDevice)) {
-      this.renderAnomalyWalls(renderPass, globalUniforms, segDevice);
-    }
-
-    // Energy transfer pipes between devices (overview only).
-    if (this.isOverviewMode() && this.energyPipePipeline && scaledQuality > 0.35) {
-      for (const pipe of this.energyPipes) {
-        pipe.render(renderPass, globalUniforms, this.energyPipePipeline);
-      }
-    }
-
-    renderPass.end();
-
-    // Manual MSAA depth resolve (ADR-0005 WS2) — WebGPU has no automatic
-    // resolveTarget for depth. Must run before SSR/bloom below, both of
-    // which read a single-sample depth texture. See passes/depth-resolve.wgsl.
-    if (msaaActive) {
-      const resolvePass = encoder.beginRenderPass({
-        label: 'depth-resolve',
-        colorAttachments: [],
-        depthStencilAttachment: WebGPUManager.depthStencilAttachment(this.depthResolvedAttachmentView!, {
-          format: this.depthFormat
-        })
-      });
-      resolvePass.setPipeline(this.depthResolvePipeline!);
-      resolvePass.setBindGroup(0, this._depthResolveBindGroup!);
-      resolvePass.draw(3);
-      resolvePass.end();
-    }
-
-    // Auto-quality post gates (ADR-0005) — critical skips bloom extract/blur.
-    const postGates = getPostQualityGates(profiler.postQualityTier || 'high');
-    this._postQualityGates = postGates;
-
-    // ── Temporal AA (high/ultra tier, focus mode only) ───────────────────
-    // Runs before SSR and bloom so everything downstream sees the stabilised
-    // image. `?taa=0` forces it off at any tier. When it does not run, the
-    // bloom stack keeps reading the raw scene texture.
-    this._taaActive = this._encodeTaaResolve(encoder, msaaActive);
-    profiler.taaActive = this._taaActive;
-
-    // ── Screen-space reflections (high/ultra tier only) ───────────────────
-    // Runs between the scene pass and bloom so the composite can add the
-    // reflection after its SSAO term. `?ssr=0` forces this off at any tier.
-    // Tracks whether the pass actually ran: the composite must not weight a
-    // reflection texture nothing wrote this frame.
-    this._ssrActive =
-      this.ssrEnabled !== false &&
-      postGates.ssr > 0 &&
-      !!this.ssrPipeline &&
-      !!this.ssrBindGroup &&
-      !!this.ssrParamsBuffer;
-    if (this._ssrActive) {
-      this._dispatchSsr(encoder, msaaActive);
-    }
-
-    // ── Bloom post-processing ─────────────────────────────────────────────
-    const colorTargets = this.pipelineCache!.colorTargets;
-    const chain = this.bloomChain && this.bloomChainPipelines ? this.bloomChain : null;
-    const legacyBloomReady = !!(this.bloomExtractPipeline && this.bloomBlurPipeline
-      && this.bloomBlurTexture && this.bloomTempTexture);
-    if (this.bloomCompositePipeline && (chain || legacyBloomReady) &&
-        this.bloomSceneTexture && this.prevSceneTexture && this.depthTexture) {
-      // Update bloom parameters dynamically based on current speed + quality tier
-      if (this.bloomParamsBuffer) {
-        const w = this.canvas.width || 1;
-        const h = this.canvas.height || 1;
-        const speedEnergy = Math.min(1.0, this.simRateController.speedMult / 20.0);
-        const coronaBoost = (this.corona || 0) * 0.4;
-        const energy = Math.min(1.0, Math.max(speedEnergy, this.globalEnergyLevel) + coronaBoost);
-        const motionBlur = smoothstep(7.0, 20.0, this.simRateController.speedMult) * 0.12;
-        const preset = {
-          ...this.postPreset,
-          post: {
-            ...this.postPreset.post,
-            exposure: this.postExposure ?? this.postPreset.post.exposure,
-            bloomStrength: this.postBloomStrength ?? this.postPreset.post.bloomStrength
-          }
-        };
-        writeQueueBuffer(
-          this.device,
-          this.bloomParamsBuffer,
-          packPostUniforms({
-            width: w,
-            height: h,
-            preset,
-            energy,
-            speedMult: this.simRateController.speedMult,
-            motionBlur,
-            qualityGates: postGates,
-            ssrEnabled: this._ssrActive,
-            outputLinearHdr: colorTargets.hdrOutput,
-            bloomChainLevels: chain?.levels ?? 0,
-            outputTransfer: postOutputTransfer(colorTargets)
-          })
-        );
-      }
-
-      // Skip the bloom passes when the gate is off (composite still tonemaps;
-      // bloomStrength packs to 0, so a stale chain / temp target is unread).
-      if (postGates.bloom > 0 && chain) {
-        // Linear pipeline: half-res mip chain — prefilter, down × N, up × N.
-        chain.encode(encoder, this.bloomChainPipelines!, this._taaActive);
-      } else if (postGates.bloom > 0) {
-        // Legacy (?color=legacy): full-res extract → blurX → blurY.
-        const bloomTemp = this.bloomTempTexture!;
-        const bloomBlur = this.bloomBlurTexture!;
-        // Pass 1: extract bright areas → bloomTempTexture
-        const extractPass = encoder.beginRenderPass({
-          label: 'bloom-extract',
-          colorAttachments: [{
-            view: bloomTemp.createView(),
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
-            loadOp: 'clear', storeOp: 'store'
-          }]
-        });
-        extractPass.setPipeline(this.bloomExtractPipeline!);
-        const extractBindGroup = this._taaActive
-          ? (this.bloomExtractBindGroupTaa || this.bloomExtractBindGroup)
-          : this.bloomExtractBindGroup;
-        if (extractBindGroup) {
-          extractPass.setBindGroup(0, extractBindGroup);
-        }
-        extractPass.draw(3);
-        extractPass.end();
-
-        // Pass 2: horizontal blur bloomTemp → bloomBlur
-        const blurXPass = encoder.beginRenderPass({
-          label: 'bloom-blur-x',
-          colorAttachments: [{
-            view: bloomBlur.createView(),
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
-            loadOp: 'clear', storeOp: 'store'
-          }]
-        });
-        blurXPass.setPipeline(this.bloomBlurPipeline!);
-        if (this.bloomBlurXBindGroup) {
-          blurXPass.setBindGroup(0, this.bloomBlurXBindGroup);
-        }
-        blurXPass.draw(3);
-        blurXPass.end();
-
-        // Pass 3: vertical blur bloomBlur → bloomTemp
-        const blurYPass = encoder.beginRenderPass({
-          label: 'bloom-blur-y',
-          colorAttachments: [{
-            view: bloomTemp.createView(),
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
-            loadOp: 'clear', storeOp: 'store'
-          }]
-        });
-        blurYPass.setPipeline(this.bloomBlurPipeline!);
-        if (this.bloomBlurYBindGroup) {
-          blurYPass.setBindGroup(0, this.bloomBlurYBindGroup);
-        }
-        blurYPass.draw(3);
-        blurYPass.end();
-      }
-
-      // Composite scene + bloom → canvas with tonemap/post FX. The view
-      // format is what does the sRGB encode on the linear SDR path
-      // (`-srgb`); legacy and the HDR float canvas use the texture's own.
-      const compositePass = encoder.beginRenderPass({
-        label: 'composite',
-        colorAttachments: [{
-          view: gpuContext.getCurrentTexture().createView({
-            label: 'canvas-output',
-            format: colorTargets.outputFormat
-          }),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: 'clear', storeOp: 'store'
-        }],
-        timestampWrites: profiler.passTimestampWrites('end')
-      });
-      compositePass.setPipeline(this.bloomCompositePipeline);
-      // Two independent axes, so four variants, most specific first:
-      //   msaaActive  → bind depthResolvedTexture for the contact-shadow term
-      //                 (the single-sample depth was never written this frame)
-      //   _taaActive  → read the TAA resolve target instead of the raw scene
-      // Each falls back towards the plain bind group, which is always built.
-      const compositeBindGroup =
-        (msaaActive && this._taaActive ? this.bloomCompositeBindGroupResolvedTaa : null)
-        ?? (this._taaActive ? this.bloomCompositeBindGroupTaa : null)
-        ?? (msaaActive ? this.bloomCompositeBindGroupResolved : null)
-        ?? this.bloomCompositeBindGroup;
-      if (compositeBindGroup) {
-        compositePass.setBindGroup(0, compositeBindGroup);
-      }
-      compositePass.draw(3);
-      compositePass.end();
-    }
-
-    // ── History for the next frame ────────────────────────────────────────
-    // This copy must come *after* the composite: it used to run before the
-    // bloom stack, which meant prevSceneTexture held the frame currently being
-    // composited and the motion-blur mix was a no-op (scene blended with
-    // itself). Copying here is what actually makes it a previous frame.
-    //
-    // When TAA ran, the history is the *resolved* frame, so the next frame's
-    // blend accumulates exponentially instead of only reaching back one frame.
-    if (this.prevSceneTexture && (this._taaActive || postGates.motionBlur > 0.01)) {
-      const source = this._taaActive && this.taaResolveTexture
-        ? this.taaResolveTexture
-        : this.bloomSceneTexture;
-      if (source) {
-        encoder.copyTextureToTexture(
-          { texture: source },
-          { texture: this.prevSceneTexture },
-          [this.canvas.width || 1, this.canvas.height || 1, 1]
-        );
-        // Only now is there a history frame worth reprojecting.
-        if (this._taaActive) this._taaHistoryValid = true;
-      }
-    }
+    // What actually ran — passes clear their gate when they bail.
+    profiler.msaaActive = ctx.msaa;
+    profiler.taaActive = ctx.taa;
+    this._taaActive = ctx.taa;
+    this._ssrActive = ctx.ssr;
 
     profiler.endFrameCpu();
-
     this.device.queue.submit([encoder.finish({ label: 'frame' })]);
 
     // Resolve timestamps asynchronously (guarded against overlapping map/submit)
     if (profiler.timingEnabled) {
-      profiler.scheduleResolveTimestamps();
+      profiler.scheduleResolveTimestamps(report.timedPasses, report.queriesUsed);
     }
 
     requestAnimationFrame((t) => this.render(t));
