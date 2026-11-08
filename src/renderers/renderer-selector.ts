@@ -14,6 +14,7 @@
  */
 
 import { labConfigResolved, persistLabConfig } from '../config/lab-config';
+import { setRendererBadge } from './webgpu-probe';
 
 export type RendererName = 'webgpu' | 'webgl2';
 
@@ -55,6 +56,7 @@ export function setRendererPreference(renderer: RendererName): void {
  */
 export function exposeRenderer(canvas: HTMLCanvasElement | null, renderer: RendererName): void {
   window.currentRenderer = renderer;
+  setRendererBadge(renderer === RENDERER_WEBGL2 ? 'webgl2' : null);
   if (canvas) {
     canvas.dataset.renderer = renderer;
     canvas.dataset.webglVersion = renderer === RENDERER_WEBGL2 ? '2' : '';
