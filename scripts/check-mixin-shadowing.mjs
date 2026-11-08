@@ -42,7 +42,8 @@ function* walk(dir) {
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, ent.name);
     if (ent.isDirectory()) {
-      if (ent.name !== 'public' && ent.name !== 'generated') yield* walk(full);
+      // public/: static assets; generated/: codegen; sim-core/: Emscripten glue.
+      if (ent.name !== 'public' && ent.name !== 'generated' && ent.name !== 'sim-core') yield* walk(full);
     } else if (/\.(ts|js)$/.test(ent.name) && !ent.name.endsWith('.d.ts')) {
       yield full;
     }

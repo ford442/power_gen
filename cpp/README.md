@@ -21,10 +21,13 @@ Install [Emscripten](https://emscripten.org/docs/getting_started/downloads.html)
 ```bash
 git clone https://github.com/emscripten-core/emsdk.git
 cd emsdk
-./emsdk install 3.1.61
-./emsdk activate 3.1.61
+./emsdk install "$(cat ../cpp/emsdk-version)"    # the one pin: cpp/emsdk-version (3.1.61)
+./emsdk activate "$(cat ../cpp/emsdk-version)"
 source ./emsdk_env.sh
 ```
+
+`cpp/emsdk-version` is read by `scripts/build-wasm.sh` (warns when `emcc` differs) and by
+`build-wasm.yml`'s `setup-emsdk` step. Bump it there and nowhere else.
 
 ### Build WASM
 
@@ -43,7 +46,16 @@ cd cpp && make wasm
 `scripts/build-wasm.sh` resolves Emscripten in order: `emcc` on PATH →
 `$EMSDK/emsdk_env.sh` → `$HOME/emsdk/emsdk_env.sh`.
 
-Output: `src/public/wasm/sim_core.js` + `src/public/wasm/sim_core.wasm`
+Output: `src/wasm/sim-core/sim_core.js` (ES module, `export default SimCore`) +
+`src/wasm/sim-core/sim_core.wasm`. **This `make wasm` path is the only one that produces the
+committed binary** (CI and Pages ship it). `src/wasm/index.ts` imports both: Vite bundles the
+glue as a lazy chunk and emits the `.wasm` under a content-hashed name.
+
+`make wasm` also bakes `sim_core_source_hash()` — `scripts/sim-core-source-hash.mjs` over
+`cpp/src/**`, `generated/*.h`, `emscripten.flags`, `Makefile`, `emsdk-version` — into the
+binary. The site build defines the same hash, so a stale shipped binary is visible: the WASM
+header badge turns amber with the reason on hover, `test:wasm-abi` warns, and
+`build-wasm.yml`'s fresh build fails if they differ.
 
 **Site deploy does not require Emscripten** — use `npm run build:site` and the
 committed prebuilt WASM. Full `npm run build` rebuilds WASM first.
@@ -148,6 +160,12 @@ Emscripten build once (configure only — nothing compiles):
 make -C cpp compile-db-wasm     # → cpp/build-wasm/compile_commands.json
 ```
 
+The Emscripten CMake configuration is a **compile database only**. Its objects compile with the
+release `-O3` so the database matches reality, but the link step refuses to run (a `PRE_LINK`
+command fails with a pointer to `make -C cpp wasm`) and its output directory is
+`build-wasm/not-shipped/`. An unoptimised CMake build can therefore never overwrite the committed
+`sim_core.wasm`.
+
 and start clangd with `--query-driver=**/em++` (VS Code:
 `"clangd.arguments": ["--query-driver=**/em++"]`) so it takes the wasm32
 target, `__EMSCRIPTEN__` and the emsdk sysroot (`<emscripten/bind.h>`) from
@@ -224,11 +242,13 @@ without it, CMake's byte-oriented `strings`-style reader treats the em-dash in t
 header comment as a line terminator and leaks the comment's remainder in as a bogus flag.
 
 `cpp/emscripten.flags` carries the flags shared by both `wasm` and `wasm-dbg`: `--bind`,
-`MODULARIZE=1`, `EXPORT_NAME=SimCore`, the required `EXPORTED_RUNTIME_METHODS`,
-`ALLOW_MEMORY_GROWTH=1`, `INITIAL_MEMORY=16777216` (16 MB), `ENVIRONMENT=web`,
-`NO_EXIT_RUNTIME=1`, `MALLOC=emmalloc`, `FILESYSTEM=0` (this module never `fopen`s at
-runtime), and `-fno-exceptions -s DISABLE_EXCEPTION_CATCHING=1` (every plant is already
-noexcept-style) — confirmed clean of `ASSERTIONS`/`SAFE_HEAP` (those are added only by
+`MODULARIZE=1`, `EXPORT_ES6=1`, `EXPORT_NAME=SimCore`, `ENVIRONMENT=web,worker` (the page and
+the module workers import the same glue), `DYNAMIC_EXECUTION=0` (no `eval` / `new Function` in
+the glue, so a strict CSP holds), `EXPORTED_RUNTIME_METHODS=['HEAPF32']`,
+`ALLOW_MEMORY_GROWTH=1`, `INITIAL_MEMORY=4194304` (4 MiB; see below), `MALLOC=emmalloc`, `FILESYSTEM=0`
+(this module never `fopen`s at runtime), and `-fno-exceptions` (every plant is already
+noexcept-style; `DISABLE_EXCEPTION_CATCHING=1` is then the default, as are `WASM=1` and
+`NO_EXIT_RUNTIME=1`, so those three lines were dropped) — confirmed clean of `ASSERTIONS`/`SAFE_HEAP` (those are added only by
 the `wasm-dbg` / `npm run wasm:build-debug` target below, on top of `-O0 -g`, never by the
 release `wasm` / `npm run wasm:build` path, which uses `-O3`). See "SIMD, LTO,
 `FILESYSTEM=0`, exceptions — evaluated" below for what else was measured and why SIMD/LTO
@@ -236,7 +256,7 @@ didn't land.
 
 **`npm run wasm:build` vs `npm run wasm:build-debug`:** use the release build
 (`wasm:build`, `-O3`, no assertions) for anything that ships — it's what CI commits to
-`src/public/wasm/` and what `npm run build` / `build:site` consume. Use the debug build
+`src/wasm/sim-core/` and what `npm run build` / `build:site` consume. Use the debug build
 (`wasm:build-debug` → `sim_core_dbg.js`, `-O0 -g -s ASSERTIONS=1 -s SAFE_HEAP=1`, DWARF
 source maps) only locally, when tracking down a WASM-side crash or memory-safety issue —
 it is slower and never committed.
@@ -245,10 +265,9 @@ it is slower and never committed.
 
 | Method | Used for |
 |--------|----------|
-| `ccall` | Low-level C calls (legacy / tooling) |
-| `cwrap` | Low-level C calls (legacy / tooling) |
-| `HEAPF32` | Zero-copy `Float32Array` views of particle + roller buffers |
-| `HEAPU8` | Byte-level heap access when needed by bridges / future tooling |
+| `HEAPF32` | Zero-copy `Float32Array` views of particle + roller buffers, and the chores scratch ABI (`src/wasm/sim.ts`, `gpu-chores/reduce-wasm.ts`) |
+
+`ccall`, `cwrap` and `HEAPU8` were dropped (2026-11): nothing outside the glue called them.
 
 **Particle layouts** (see also `docs/PHYSICS_CONSTANTS.md`):
 
@@ -281,7 +300,7 @@ energy bus froze the lab's frame loop. Array input instead goes through:
 
 Return a `value_object` (plain JS object) rather than a vector — e.g.
 `ChoresReduceResult`. **`npm run test:wasm-abi`** loads the shipped
-`src/public/wasm/sim_core.{js,wasm}` in Node and calls every binding listed in
+`src/wasm/sim-core/sim_core.{js,wasm}` in Node and calls every binding listed in
 `sim_core_embind.cpp`; a new binding without a call spec there fails the test.
 
 ### Plant snapshots (`plantSave` / `plantLoad`)
@@ -319,7 +338,7 @@ directly on the `em++` command line, since they're release-only (the opposite of
 | `--closure 1` | Makefile `wasm` target, CMakeLists.txt | Runs Closure Compiler (`ADVANCED_OPTIMIZATIONS`) over the JS glue: dead-code elimination, renaming, whitespace removal. This is the single biggest lever on `sim_core.js` size — measured **~55% smaller raw / ~32% smaller gzip** on the glue file alone (57.0 KB → 25.7 KB raw; 14.3 KB → 9.7 KB gzip). Requires a working Closure Compiler on `PATH`/reachable via npm — `mymindstorm/setup-emsdk` (used by `.github/workflows/build-wasm.yml`) provides one; a bare distro `emscripten` package may need `npm install -g google-closure-compiler` and `CLOSURE_COMPILER` set in `~/.emscripten` |
 | `-s MALLOC=emmalloc` | `emscripten.flags` (shared — safe for both `wasm` and `wasm-dbg`) | Swaps the default `dlmalloc` for the much smaller single-threaded `emmalloc` allocator. This build is single-threaded (`ENVIRONMENT=web`, no pthreads), so emmalloc's lack of thread-safety and coarser fragmentation behavior cost nothing here. Measured **~10% smaller raw / ~9% smaller gzip** on `sim_core.wasm` alone (54.3 KB → 48.7 KB raw; 23.9 KB → 21.8 KB gzip) |
 
-**Combined effect** (measured against the previously-committed `src/public/wasm/` artefacts,
+**Combined effect** (measured against the previously-committed `src/wasm/sim-core/` artefacts,
 Emscripten 3.1.6 + a Closure Compiler build from the same era):
 
 | Artefact | Before (gzip) | After (gzip) | Δ |
@@ -367,6 +386,29 @@ Rejected for reasons unrelated to measurement, per this issue's explicit scope: 
 libraries (`Vec3` + per-plant ODEs are the right size for this codebase), and `wasm64` /
 memory64 (not ready for this ABI).
 
+### ES-module glue, `DYNAMIC_EXECUTION=0`, 4 MiB heap — measured (2026-11, emsdk 3.1.61)
+
+Node harness on the shipped files (`seg` = `SEGSimulator.step` calls/s, one JS→WASM call each;
+`particles` = 4096-particle `stepParticles` calls/s). The machine was noisy; the figures are the
+spread over three to five runs, and only the effects that repeated are claimed.
+
+| Build | `sim_core.js` raw / gzip | `sim_core.wasm` raw / gzip | `seg` steps/s | `particles` steps/s | Initial heap |
+|---|---|---|---|---|---|
+| Before (classic glue, `ENVIRONMENT=web`) | 24,518 / 9,908 B | 63,110 / 29,092 B | 275k–337k | 1,580–1,786 | 16 MiB |
+| `EXPORT_ES6` + `ENVIRONMENT=web,worker` only | 23,977 / 9,757 B | 63,127 / 29,073 B | 275k–316k | 1,697–1,824 | 16 MiB |
+| + `DYNAMIC_EXECUTION=0` (+ dropped `ccall`/`cwrap`/`HEAPU8`) | 22,582 / 9,221 B | 63,186 / 29,128 B | 239k–258k | 1,685–1,873 | 16 MiB |
+| + particle vector + `INITIAL_MEMORY=4MiB` (shipped) | 22,582 / 9,161 B | 63,271 / 28,689 B | 247k–293k | 1,756–1,952 | **4 MiB** |
+
+- **ES-module glue** is free: a little smaller, step rates unchanged.
+- **`DYNAMIC_EXECUTION=0` costs ~0.7 µs per embind call** (~15–20% on the `seg` loop, which is
+  nothing but calls); it does not touch work inside WASM (`particles` unchanged). Without it,
+  embind generates its invokers with `new Function`, which a strict CSP (`script-src 'self'
+  'wasm-unsafe-eval'`) blocks — the reason the flag ships. A frame makes on the order of tens to
+  low hundreds of embind calls, i.e. well under 0.1 ms. Revisit if a per-call hot loop appears
+  (batch it into one call instead).
+- **4 MiB initial heap**: step rates within noise of 16 MiB. Four simulators seeded with 50k
+  particles each grow the heap to 6.25 MiB correctly.
+
 ### `SINGLE_FILE` — evaluated, not enabled
 
 `-s SINGLE_FILE=1` embeds `sim_core.wasm` as a base64 data URI inside `sim_core.js`, removing
@@ -376,8 +418,8 @@ the second network request. It was evaluated and **not enabled**:
   all of that, so `SINGLE_FILE=1` produces a *larger* combined transfer than two separate
   files (measured: 39,530 B gzip as one merged file vs. 31,513 B combined gzip for the two
   files above — SINGLE_FILE is ~25% larger over the wire).
-- `src/public/wasm/` is a **prebuilt, committed** artefact (built once by CI, served statically
-  by GitHub Pages) — it is not rebuilt per request, so the "one fewer HTTP request" ergonomic
+- `src/wasm/sim-core/` is a **prebuilt, committed** artefact (built once by CI, bundled by Vite
+  under content-hashed names) — it is not rebuilt per request, so the "one fewer HTTP request" ergonomic
   win `SINGLE_FILE` targets doesn't apply to a static host the way it would to a
   server-rendered or frequently-rebuilt app.
 - Two files let the browser cache `sim_core.wasm` (which almost never changes) independently
@@ -390,7 +432,7 @@ If a future use case needs a single-file embed (e.g. a standalone offline build)
 
 ```bash
 npm run wasm:build-debug
-# → src/public/wasm/sim_core_dbg.js (with DWARF debug info)
+# → src/wasm/sim-core/sim_core_dbg.js (with DWARF debug info)
 ```
 ## File Structure
 
@@ -471,10 +513,13 @@ if (mod) {
 
 ## CI
 
-The GitHub Actions workflow `.github/workflows/build-wasm.yml` builds the WASM
-automatically on every push that touches `cpp/` or `src/wasm/`, and commits the
-artefacts back to `src/public/wasm/` on the `main` branch so GitHub Pages can
-serve them without a separate npm build step.
+The GitHub Actions workflow `.github/workflows/build-wasm.yml` builds the WASM with the
+emsdk from `cpp/emsdk-version` on every push or PR that touches anything compiled into it
+(`cpp/`, `src/wasm/`, `generated/*.h`, `physics/`, the build/codegen scripts). It runs the
+WASM suites on the fresh binary (`SIM_CORE_REQUIRE_FRESH=1` makes the source hash a hard
+check) and on `main` commits the artefacts back to `src/wasm/sim-core/`. That commit is
+`[skip ci]`, so Pages keeps the previous binary until the next deploy; the stale-binary badge
+says so meanwhile.
 
 ## Next Steps / Roadmap
 

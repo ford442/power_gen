@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import wgslInclude from './src/shaders/vite-plugin-wgsl-include.js'
 import precache from './scripts/vite-plugin-precache.mjs'
+import { simCoreSourceHash } from './scripts/sim-core-source-hash.mjs'
 
 // Relative base works on GitHub Pages (/power_gen/) and Contabo (/powergen/)
 // without hard-coding a deploy path. Override: VITE_BASE_PATH=/custom/ npm run build
@@ -11,6 +12,11 @@ export default defineConfig({
   base,
   // precache: writes dist/sw.js for offline classroom boots (docs/CLASSROOM.md).
   plugins: [wgslInclude(), precache()],
+  // Compared with sim_core_source_hash() in the loaded binary (src/wasm/index.ts):
+  // a mismatch means the shipped sim_core.wasm predates these C++ sources.
+  define: {
+    __SIM_CORE_SOURCE_HASH__: JSON.stringify(simCoreSourceHash()),
+  },
   build: {
     outDir: '../dist',
     emptyOutDir: true,
@@ -35,7 +41,7 @@ export default defineConfig({
   preview: {
     https: false,
   },
-  // Treat raw .wasm files as static assets so they can be imported
-  // with ?url (e.g. `import wasmUrl from './public/wasm/sim_core.wasm?url'`).
+  // .wasm / .glb are assets: `new URL('./sim-core/sim_core.wasm', import.meta.url)`
+  // in src/wasm/index.ts emits a content-hashed sim_core.wasm.
   assetsInclude: ['**/*.wasm', '**/*.glb'],
 })

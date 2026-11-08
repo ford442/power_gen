@@ -142,7 +142,7 @@ someone can profile it on real hardware.
 **Golden** (`npm run test:analysis`): the JS kernel against a naive DFT; sine
 at bin k (peak at k, ≈ 0 dB for amplitude 1, far bins at the floor), DC level,
 zero-pad sizes, Parseval with the window (Σ(w·x)² = Σ|X|²/N, 1e-5); then the
-**shipped** `src/public/wasm/sim_core.wasm` against JS on a bin-centred sine,
+**shipped** `src/wasm/sim-core/sim_core.wasm` against JS on a bin-centred sine,
 noise (1000 → 1024 points), a 4096-point chirp and DC with a NaN, Hann and
 rectangular: **max |ΔdB| ≤ 1e-3** (observed 0 — both run the same double
 arithmetic and round once to float). The dispatcher is checked for each

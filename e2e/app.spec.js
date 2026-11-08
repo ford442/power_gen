@@ -442,7 +442,7 @@ test.describe('WASM physics (optional)', () => {
       { timeout: 60_000 }
     );
 
-    // src/public/wasm/sim_core.wasm is a CI artefact committed on main, so a
+    // src/wasm/sim-core/sim_core.wasm is a CI artefact committed on main, so a
     // branch checkout can be running a binary built before this plant existed.
     // SEGSimulator::setMode rejects a mode past its own SIM_MODE_COUNT, so an
     // old binary simply will not take 12 — detect that rather than asserting

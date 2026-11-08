@@ -3,7 +3,7 @@
  * test-wasm-abi.mjs — call every Embind export of the *shipped* sim_core.
  *
  * `test:golden` compares native g++ against TS; nothing else loads the
- * src/public/wasm/sim_core.{js,wasm} that Pages serves. A binding can compile,
+ * src/wasm/sim-core/sim_core.{js,wasm} that Pages serves. A binding can compile,
  * pass `tsc` (types.ts is hand-written) and still be uncallable from JS — e.g.
  * a `std::vector<float>` parameter only accepts a registered FloatVector
  * handle, never a JS array. This test:
@@ -22,10 +22,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
+import { simCoreShim } from './lib/sim-core-shim.mjs';
+import { simCoreSourceHash } from './sim-core-source-hash.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // SIM_CORE_DIR: point at another build (e.g. an old artefact) to see what fails.
-const WASM_DIR = process.env.SIM_CORE_DIR ?? join(ROOT, 'src/public/wasm');
+const WASM_DIR = process.env.SIM_CORE_DIR ?? join(ROOT, 'src/wasm/sim-core');
 
 let failures = 0;
 function check(name, ok, detail = '') {
@@ -37,12 +39,33 @@ function check(name, ok, detail = '') {
 }
 const near = (a, b, eps = 1e-4) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
 
-// ENVIRONMENT=web glue is a classic script declaring `var SimCore`; with
-// `wasmBinary` it never fetches, so plain Node can instantiate it.
-const SimCore = new Function(`${readFileSync(join(WASM_DIR, 'sim_core.js'), 'utf8')}\n;return SimCore;`)();
+// With `wasmBinary` the glue never fetches, so plain Node can instantiate it.
+// ES-module glue (EXPORT_ES6): a plain import, like the page and workers.
+const { default: SimCore } = await import(pathToFileURL(join(WASM_DIR, 'sim_core.js')).href);
 const wasmBinary = readFileSync(join(WASM_DIR, 'sim_core.wasm'));
 const mod = await SimCore({ wasmBinary });
-console.log(`test-wasm-abi: ${mod.sim_core_version()} (shipped src/public/wasm)`);
+console.log(`test-wasm-abi: ${mod.sim_core_version()} (shipped src/wasm/sim-core)`);
+
+// ── 0. Glue shape + source hash ───────────────────────────────────────────
+console.log('\n0. Glue + provenance');
+const glueSrc = readFileSync(join(WASM_DIR, 'sim_core.js'), 'utf8');
+check('glue is an ES module (export default SimCore)', /\bexport\s+default\b/.test(glueSrc));
+check('glue has no new Function / eval (DYNAMIC_EXECUTION=0, strict CSP)',
+  !/\bnew Function\b|\beval\s*\(/.test(glueSrc));
+{
+  // validate tests the *committed* binary, which legitimately lags a PR that
+  // edits cpp/ until build-wasm.yml rebuilds it: warn. build-wasm.yml sets
+  // SIM_CORE_REQUIRE_FRESH=1 on its fresh build: there it must match.
+  const want = simCoreSourceHash();
+  const got = typeof mod.sim_core_source_hash === 'function' ? mod.sim_core_source_hash() : 'none';
+  if (process.env.SIM_CORE_REQUIRE_FRESH === '1') {
+    check(`sim_core_source_hash() = sources (${want})`, got === want, `binary ${got}`);
+  } else if (got === want) {
+    check(`sim_core_source_hash() = sources (${want})`, true);
+  } else {
+    console.warn(`  ! sim_core_source_hash() ${got} ≠ sources ${want}: committed binary predates the C++ sources (CI rebuilds it on main)`);
+  }
+}
 
 // ── 1. Binding inventory from the Embind source ───────────────────────────
 const embindSrc = readFileSync(join(ROOT, 'cpp/src/sim_core_embind.cpp'), 'utf8')
@@ -61,6 +84,7 @@ const FREE_ARGS = {
   axialBField: [0, 0.05, 0.025, 1.2],
   estimateHalbachFieldT: [0.01, 1.2],
   sim_core_version: [],
+  sim_core_source_hash: [],
   chores_scratch_ptr: [3],
   chores_reduce_f32_scratch: [3],
   chores_map_scale_f32_scratch: [3, 2, 1],
@@ -227,7 +251,7 @@ const viteRawStub = {
 };
 const built = await esbuild.build({
   bundle: true,
-  plugins: [viteRawStub],
+  plugins: [viteRawStub, simCoreShim(WASM_DIR)],
   format: 'esm',
   platform: 'neutral',
   target: 'es2022',
@@ -247,8 +271,8 @@ const built = await esbuild.build({
   }
 });
 
-// Browser surface the loader touches: HEAD probe, a pre-registered factory
-// (loadSimCoreFactory checks globalThis.SimCore first), ?wasmPhysics=1.
+// Browser surface the loader touches: ?wasmPhysics=1, storage. The glue import
+// is resolved to scripts/lib/sim-core-shim.mjs (wasmBinary from disk).
 const storage = new Map();
 globalThis.localStorage = {
   getItem: (k) => storage.get(k) ?? null,
@@ -258,7 +282,6 @@ globalThis.localStorage = {
 globalThis.window = globalThis;
 globalThis.location = { search: '?wasmPhysics=1', hash: '' };
 globalThis.fetch = async () => ({ ok: true });
-globalThis.SimCore = (opts) => SimCore({ ...opts, wasmBinary });
 const quiet = { info: console.info, log: console.log };
 console.info = () => {};
 console.log = () => {};

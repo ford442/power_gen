@@ -3,7 +3,7 @@
 # build-wasm.sh — portable wrapper around cpp/Makefile
 #
 # Usage (from repo root, or any cwd):
-#   scripts/build-wasm.sh           # release WASM → src/public/wasm/
+#   scripts/build-wasm.sh           # release WASM → src/wasm/sim-core/
 #   scripts/build-wasm.sh --debug   # debug WASM
 #   scripts/build-wasm.sh --native  # native smoke test (no Emscripten)
 #
@@ -12,7 +12,11 @@
 #   2. EMSDK env var pointing at an emsdk root (sources emsdk_env.sh)
 #   3. $HOME/emsdk/emsdk_env.sh if present
 #
-# Prebuilt artefacts live at src/public/wasm/ — Pages/deploy does not need
+# emsdk version: cpp/emsdk-version is the one pin (CI's setup-emsdk and
+# cpp/README.md read it too). A different emcc builds, with a warning —
+# the committed binary should come from the pinned one.
+#
+# Prebuilt artefacts live at src/wasm/sim-core/ — Pages/deploy does not need
 # this script. Prefer: npm run build:site
 # Full rebuild with WASM: npm run build  (requires emcc)
 # =============================================================
@@ -75,7 +79,7 @@ Install Emscripten (https://emscripten.org/docs/getting_started/downloads.html),
   • add emcc to PATH, or
   • export EMSDK=/path/to/emsdk  (this script sources $EMSDK/emsdk_env.sh)
 
-Prebuilt WASM is already committed under src/public/wasm/.
+Prebuilt WASM is already committed under src/wasm/sim-core/.
 For site deploy without rebuilding WASM use:
   npm run build:site
 EOF
@@ -88,7 +92,13 @@ if ! command -v emcc >/dev/null 2>&1; then
 fi
 
 echo "[build-wasm] emcc: $(emcc --version | head -1)"
-mkdir -p "$ROOT/src/public/wasm"
+PIN="$(tr -d '[:space:]' < "$ROOT/cpp/emsdk-version")"
+HAVE="$(emcc --version | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+if [[ "$HAVE" != "$PIN" ]]; then
+  echo "[build-wasm] warning: emcc $HAVE ≠ pinned $PIN (cpp/emsdk-version)." >&2
+  echo "[build-wasm]          Install it: emsdk install $PIN && emsdk activate $PIN" >&2
+fi
+mkdir -p "$ROOT/src/wasm/sim-core"
 
 case "$MODE" in
   debug)

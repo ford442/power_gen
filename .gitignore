@@ -28,7 +28,7 @@ Thumbs.db
 *.pem
 *.key
 
-# C++ build artefacts (native test binaries, CMake, clangd). WASM → src/public/wasm/
+# C++ build artefacts (native test binaries, CMake, clangd). WASM → src/wasm/sim-core/
 /compile_commands.json
 cpp/build/**
 !cpp/build/README.md
@@ -46,3 +46,6 @@ playwright/.cache/
 
 # Claude Code local session state (agent worktrees, etc.)
 .claude/
+
+# `make wasm-dbg` output (ASSERTIONS/SAFE_HEAP) — local only
+src/wasm/sim-core/sim_core_dbg.*

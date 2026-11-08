@@ -21,9 +21,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
+import { simCoreShim } from './lib/sim-core-shim.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const WASM_DIR = process.env.SIM_CORE_DIR ?? join(ROOT, 'src/public/wasm');
+const WASM_DIR = process.env.SIM_CORE_DIR ?? join(ROOT, 'src/wasm/sim-core');
 
 /** JS and WASM dB spectra agree to this on every bin (float32 output, double work). */
 const FFT_GOLDEN_TOL_DB = 1e-3;
@@ -52,7 +53,7 @@ const viteRawStub = {
 
 const built = await esbuild.build({
   bundle: true,
-  plugins: [viteRawStub],
+  plugins: [viteRawStub, simCoreShim(WASM_DIR)],
   format: 'esm',
   platform: 'neutral',
   target: 'es2022',
@@ -81,8 +82,8 @@ const built = await esbuild.build({
   }
 });
 
-// Browser surface the WASM loader touches (same stubs as test-wasm-abi):
-// HEAD probe, a pre-registered SimCore factory, a query string.
+// Browser surface the WASM loader touches (same stubs as test-wasm-abi); the
+// glue import is resolved to scripts/lib/sim-core-shim.mjs (wasmBinary from disk).
 globalThis.window = globalThis;
 globalThis.location = { search: '', hash: '' };
 const storage = new Map();
@@ -92,9 +93,9 @@ globalThis.localStorage = {
   removeItem: (k) => storage.delete(k)
 };
 globalThis.fetch = async () => ({ ok: true });
-const SimCore = new Function(`${readFileSync(join(WASM_DIR, 'sim_core.js'), 'utf8')}\n;return SimCore;`)();
+// ES-module glue (EXPORT_ES6): a plain import, like the page and workers.
+const { default: SimCore } = await import(pathToFileURL(join(WASM_DIR, 'sim_core.js')).href);
 const wasmBinary = readFileSync(join(WASM_DIR, 'sim_core.wasm'));
-globalThis.SimCore = (opts) => SimCore({ ...opts, wasmBinary });
 
 // A file, not a data: URL — src/wasm/index.ts resolves its URLs off import.meta.url.
 const TMP = mkdtempSync(join(tmpdir(), 'analysis-'));

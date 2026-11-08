@@ -12,5 +12,5 @@ ln -sfn cpp/build/compile_commands.json compile_commands.json
 
 `.clangd` at the repo root points `CompilationDatabase` at this directory.
 
-WASM `.js` / `.wasm` artefacts are written to `../src/public/wasm/`, not here.
+WASM `.js` / `.wasm` artefacts are written to `../src/wasm/sim-core/`, not here.
 CI smoke remains `make native` / `npm run wasm:native` (not this CMake build).
