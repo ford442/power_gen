@@ -159,6 +159,11 @@
       background: currentColor; box-shadow: 0 0 6px currentColor;
     }
     body.webgpu-hard-fail #canvas-wrapper { pointer-events: none; opacity: 0.25; }
+    #sim-unavailable-note {
+      margin: 0 0 8px; padding: 8px 10px; border: 1px solid #f64; border-radius: 6px;
+      background: rgba(60, 10, 10, 0.55); color: #fa9; font-size: 0.72rem; line-height: 1.4;
+    }
+    #left-panel > [inert], #lab-mode-switch[inert] { opacity: 0.45; filter: grayscale(0.6); }
 
     #energyNetworkDisclaimer {
       position: fixed;

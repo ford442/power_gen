@@ -13,6 +13,12 @@ WebGL2 — never automatic), troubleshooting tips, and the raw probe JSON behind
 a collapsed *Details* toggle. While WebGL2 is active the header shows a
 persistent **WebGL2 mode** badge (`#renderer-badge`, set from `exposeRenderer`).
 
+While the card is open it is a real modal: Tab/Shift+Tab wrap inside it and the
+page behind it is `inert`. After dismissal the left-panel controls, lab-mode
+switch and canvas wrapper stay `inert` (unfocusable, dimmed) under a
+"Simulation unavailable — …" note (`#sim-unavailable-note`), and the S/R/X
+hotkeys are ignored (`disableSimulationControls` in `webgpu-probe.ts`).
+
 ## Boot probe (required)
 
 | Step | Module |

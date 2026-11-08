@@ -244,6 +244,64 @@ export async function probeWebGPU(): Promise<WebGPUProbeResult> {
 const HARD_FAIL_ID = 'webgpu-hard-fail';
 let hardFailKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
+/** Page regions made inert while the modal card is open (the card is its own focus scope). */
+const MODAL_BACKGROUND = ['#header', '#main', '#footer'];
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
+function setModalBackgroundInert(inert: boolean): void {
+  for (const sel of MODAL_BACKGROUND) {
+    document.querySelector<HTMLElement>(sel)?.toggleAttribute('inert', inert);
+  }
+}
+
+/** Keep Tab / Shift+Tab inside the open card. */
+function trapTab(host: HTMLElement, e: KeyboardEvent): void {
+  const items = [...host.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+  if (items.length === 0) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement as HTMLElement | null;
+  if (!active || !host.contains(active)) {
+    e.preventDefault();
+    first.focus();
+  } else if (e.shiftKey && active === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+/**
+ * Without a renderer the controls drive nothing (sliders move, Spin-up is a
+ * no-op, status stays STANDBY). Make them inert — unfocusable and unclickable
+ * — and say why, in a note that is itself outside the inert subtree.
+ */
+export function disableSimulationControls(reason: string): void {
+  const message = `Simulation unavailable — ${reason}`;
+  const left = document.getElementById('left-panel');
+  if (left) {
+    let note = document.getElementById('sim-unavailable-note');
+    if (!note) {
+      note = document.createElement('div');
+      note.id = 'sim-unavailable-note';
+      note.setAttribute('role', 'status');
+      left.prepend(note);
+    }
+    note.textContent = message;
+    for (const child of Array.from(left.children)) {
+      if (child !== note) child.toggleAttribute('inert', true);
+    }
+  }
+  for (const id of ['lab-mode-switch', 'canvas-wrapper']) {
+    document.getElementById(id)?.toggleAttribute('inert', true);
+  }
+  document.body.dataset.simUnavailable = message;
+}
+
 /**
  * Show or hide the hard-fail card. Hiding only reveals the static content
  * (About / Reference / Learning); the simulation stays disabled
@@ -259,9 +317,11 @@ export function setWebGPUHardFailOpen(open: boolean): void {
     document.removeEventListener('keydown', hardFailKeyHandler);
     hardFailKeyHandler = null;
   }
+  setModalBackgroundInert(open);
   if (open) {
     hardFailKeyHandler = (e) => {
       if (e.key === 'Escape') setWebGPUHardFailOpen(false);
+      else if (e.key === 'Tab') trapTab(host, e);
     };
     document.addEventListener('keydown', hardFailKeyHandler);
     host.querySelector<HTMLElement>('[data-hard-fail-focus]')?.focus();
@@ -303,6 +363,7 @@ export function showWebGPUHardFail(probe: WebGPUProbeResult): void {
     canvas.dataset.webgpuFail = '1';
   }
   window.currentRenderer = null;
+  disableSimulationControls(probe.hasNavigatorGpu ? 'WebGPU adapter not available' : 'WebGPU not available');
 
   let host = document.getElementById(HARD_FAIL_ID);
   if (!host) {
