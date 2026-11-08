@@ -49,6 +49,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # ES2022 class fields shadow Object.assign(…prototype) mixins; typecheck
+      # cannot see it and e2e only boots WebGL2.
+      - name: No class field shadows a prototype mixin
+        run: npm run check:mixin-shadowing
+
       - name: Post uniform contracts
         run: npm run check:post
 

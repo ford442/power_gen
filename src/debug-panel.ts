@@ -17,9 +17,7 @@ export class DebugPanel {
   // prototype below (see the Object.assign call at the end of this file).
   _refreshEnergyNetworkStatus?: () => void;
   _refreshFieldNetworkStatus?: () => void;
-  _wireFieldNetworkControls!: () => void;
   _refreshChargeNetworkStatus?: () => void;
-  _wireChargeNetworkControls!: () => void;
   _wasmRefreshStatus?: () => void;
   /** Every DOM listener/timer the panel wires (debug-panel-dom.ts); `destroy()` aborts them. */
   _abort = new AbortController();
@@ -302,6 +300,8 @@ export class DebugPanel {
 export interface DebugPanel {
   createPanel(): void;
   _wireEnergyNetworkControls(): void;
+  _wireFieldNetworkControls(): void;
+  _wireChargeNetworkControls(): void;
   _wireWasmControls(): void;
   updateDevicePhysicsData(): void;
   drawFPSGraph(): void;
