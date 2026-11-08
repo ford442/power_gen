@@ -200,9 +200,9 @@ call sites.
 
 ## Archive
 
-Stale duplicates (`compute.wgsl`, `particles.wgsl`, `lightning.wgsl`, …) and
-the experimental LED/solar suite live under `src/shaders/archive/`. That tree
-is **excluded** from `npm run check:wgsl` unless explicitly opted in.
+`src/shaders/archive/` (stale `compute.wgsl` / `particles.wgsl` /
+`lightning.wgsl` duplicates and the experimental LED/solar suite) was deleted:
+nothing imported it. It is in git history if a pass needs a reference.
 
 ## Post stack (WebGPU bloom / filmic)
 

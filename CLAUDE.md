@@ -92,6 +92,7 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 
 ```bash
 npm run typecheck
+npm run check:mixin-shadowing # class field hiding an Object.assign(…prototype) method (broke WebGPU boot)
 npm run codegen:catalog  # physics/devices.json → TS/C++/WGSL/docs
 npm run codegen:lab-config # config/lab-config.json → generated/lab-config.ts + docs/AGENTS.md matrix
 npm run check:lab-config # drift + no raw location.search/hash/localStorage outside src/config/
