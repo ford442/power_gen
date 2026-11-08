@@ -13,7 +13,6 @@ scientific derived fields   ─┘
 | SEG plant (drive, ω, computeTelemetry) | `seg-operator-state.ts` |
 | Multi-device frame publish | `multi-device-visualizer.ts` (WebGPU) |
 | Multi-device frame publish | `renderers/webgl2/index.js` |
-| Optional TS physics uniforms | `integration.ts` (syncs into hub scientific fields via multi-device) |
 
 | Subscriber | Role |
 |------------|------|
@@ -354,7 +353,7 @@ import { ScientificUIManager, MagneticFieldGauge } from './scientific-ui/index';
 
 ## Removed duplicates
 
-- Floating **overlay** `ScientificUIManager` inside `integration.ts` — deleted (NoOp only).
+- `integration.ts` (`SEGIntegrationManager`) and its LED/solar twin (`led-solar-integration.ts`, `led-solar-constants.ts`) — deleted. They wrote a physics uniform buffer every frame that no bind group read; the live solar bench is the catalog `solar` device.
 - Visualizer direct DOM writes for battery/footer voltage — moved to operator panel via hub.
 - Split gauge modules (`scientific-ui.js`, `scientific-ui-gauges.js`) — consolidated under `scientific-ui/`.
 

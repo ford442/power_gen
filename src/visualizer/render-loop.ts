@@ -284,14 +284,9 @@ export const renderLoopMethods: ThisType<Host> & {
 
     // Single telemetry write path after device physics (operator panel + gauges subscribe)
     const omega = this.segOmega || 0;
-    const scientific = this.session.publishFrame(deltaTime, totalParticles, {
+    this.session.publishFrame(deltaTime, totalParticles, {
       middleRingTorque: (this.devices.seg?.energyLevel ?? omega) * 12.0
     });
-    if (this.integration) {
-      this.integration.syncFromVisualizer(scientific);
-      this.integration.update(deltaTime * 1000);
-      this.integration.writeUniformsToBuffer();
-    }
 
     if (this.isOverviewMode()) {
       const pipeLod = meshLod;

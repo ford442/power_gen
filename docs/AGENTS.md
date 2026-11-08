@@ -115,7 +115,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 | Language | Own | Do not put |
 |----------|-----|------------|
 | **JavaScript** | WebGL2 path (`renderers/webgl2/**`), procedural geometry builders (`seg-geometry/**`, `seg-geometry-generators.js`), `multi-device-shaders.js`, `shaders/generators/*` (`?raw` re-exports), `shaders/wgsl-include.js` | New authoritative physics formulas; new device plugin hooks (typed via `devices/types.ts`); dashboard layout (`DEVICE_CONFIG`) |
-| **TypeScript** | `main.ts`, `session/`, `multi-device-visualizer.ts`, device registry/config, `device-instance.ts`, visualizer GPU collaborators, WASM bridge, shared url-params/view-lod/device-view, constants (`ValidatedConstants.ts`), `integration.ts`, telemetry, `pipeline-layout-cache.ts`, `devices/types.ts`, core/Quanta strategies, `scientific-ui/**`, `scientific-data.ts`, `seg-explainer/**`, `renderers/renderer-selector.ts`, `renderers/shared/primitive-geometry.ts`, `electromagnet-controller.ts`, `devices/register-plugins.ts`, SEG focus chrome (`seg-annotations`, `seg-diagram-2d`, `seg-materials`, `seg-enhanced-geometry`, `seg-roller-model`, `seg-frame-model`) | WebGL2 GLSL path; Three.js / gl-matrix (ADR-0003) |
+| **TypeScript** | `main.ts`, `session/`, `multi-device-visualizer.ts`, device registry/config, `device-instance.ts`, visualizer GPU collaborators, WASM bridge, shared url-params/view-lod/device-view, constants (`ValidatedConstants.ts`), telemetry, `pipeline-layout-cache.ts`, `devices/types.ts`, core/Quanta strategies, `scientific-ui/**`, `scientific-data.ts`, `seg-explainer/**`, `renderers/renderer-selector.ts`, `renderers/shared/primitive-geometry.ts`, `electromagnet-controller.ts`, `devices/register-plugins.ts`, SEG focus chrome (`seg-annotations`, `seg-diagram-2d`, `seg-materials`, `seg-enhanced-geometry`, `seg-roller-model`, `seg-frame-model`) | WebGL2 GLSL path; Three.js / gl-matrix (ADR-0003) |
 | **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar/Peltier/MHD/Quanta state) | Browser DOM or GPU API calls |
 | **WGSL** | WebGPU compute + render (`src/shaders/`) | WebGL2 fallback |
 | **GLSL** | WebGL2 only (`renderers/webgl2/shaders.js`) | WebGPU path |
@@ -127,7 +127,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 - New draw/compute passes → **WGSL** in `passes/` + layout in `src/pipeline-layout/layouts/*.ts` + [`BINDINGS.md`](./BINDINGS.md); `check:wgsl` + `check:post` when CPU structs couple; document in [`SHADERS.md`](./SHADERS.md). No new `/* wgsl */` in JS.
 - New device plugins implement the `DevicePlugin` interface from `src/devices/types.ts` — the single source of truth for plugin hooks and the `DeviceInstanceLike` / `VisualizerLike` shapes. Layout defaults go on `plugin.defaults` (core devices share `DEVICE_CONFIG` from `devices/device-config.ts`).
 - `npm run typecheck` covers **`src/**/*.ts` + `generated/**/*.ts`**. `tsconfig` uses **`allowJs: true` / `checkJs: false`** so JS modules can be imported; remaining JS is not typechecked in CI. JS modules that TS imports may carry a hand-written `.d.ts`.
-- Runtime entry is **`src/main.ts`**. `index.ts` is a typed **barrel**, not the app entry.
+- Runtime entry is **`src/main.ts`**. There is no `src/index.ts` barrel (deleted — nothing imported it).
 - Physics constants SoT: `physics/constants.json` → codegen → `ValidatedConstants.ts` (ADR-0002/0006). Wolfram MCP manager was removed; do not reintroduce it on the default boot path.
 - **Import style:** JS entry paths import TypeScript modules **extensionless** (e.g. `./telemetry-hub` → `telemetry-hub.ts`). TypeScript sources may use a `.js` emit suffix for cross-file references (`moduleResolution: bundler`). Do not use `from '…ts'` in app code.
 
@@ -509,7 +509,6 @@ switch; `#device-readout` is named `"<bench> readout"`.
 | `src/classroom/*` | Classroom delivery (lazy chunk from `main.ts`): service-worker registration + "Update available" prompt, Record control, lazy recorder (`window.recordBench`) — [`CLASSROOM.md`](./CLASSROOM.md) |
 | `scripts/vite-plugin-precache.mjs` | Build step: writes `dist/sw.js` (precache list + content-hash version) from `src/classroom/sw-template.js` — [`CLASSROOM.md`](./CLASSROOM.md) |
 | `src/camera-controller.ts` + `camera-touch.ts` / `camera-gestures.ts` | Camera input: mouse inline; touch / pen (orbit, pan, pinch, double-tap focus) in a lazy chunk — [`CLASSROOM.md`](./CLASSROOM.md#touch-camera) |
-| `src/integration.ts` | Typed physics uniforms + scientific overlay hooks |
 | `src/wasm/seg-physics-bridge.ts` | Optional WASM step + zero-copy views |
 | `src/hardware-bridge.ts` / `hardware-panel.ts` | Hardware twin protocol + panel (**experimental**) |
 | `src/hardware-transport.ts` + `{serial-line,bluetooth-uart,webusb-cdc}-transport.ts` | Interchangeable twin links: mock / serial / BLE NUS / WebUSB CDC — [`hardware_connection.md`](./hardware_connection.md) |
