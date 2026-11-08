@@ -7,13 +7,18 @@
 import type { MultiDeviceShaders } from '../multi-device-shaders.js';
 import type { ColorTargets } from '../webgpu-init/color-pipeline.js';
 import type { BindGroupLayoutName, LayoutRegistrar, PipelineLayoutName } from './types.js';
+import { registerFrameLayout } from './layouts/frame.js';
 import { registerParticleLayouts } from './layouts/particle.js';
 import { registerCullLayouts } from './layouts/cull.js';
 import { registerSegEnhancedLayouts } from './layouts/seg-enhanced.js';
 import { registerDeviceMeshLayouts } from './layouts/device-mesh.js';
 import { registerPostLayouts } from './layouts/post.js';
 import { registerFdtdLayouts } from './layouts/fdtd.js';
-import { ensureDevicePipelines as ensureDevicePipelinesImpl, type DevicePipelineOptions } from './factories/device-pipelines.js';
+import {
+  ensureDevicePipelines as ensureDevicePipelinesImpl,
+  ensureShadowCasterPipelines as ensureShadowCasterPipelinesImpl,
+  type DevicePipelineOptions
+} from './factories/device-pipelines.js';
 import {
   ensureEnergyPipePipeline as ensureEnergyPipePipelineImpl,
   ensureEnergyPipeComputePipeline as ensureEnergyPipeComputePipelineImpl,
@@ -67,7 +72,9 @@ export class PipelineLayoutCache implements LayoutRegistrar {
   readonly bindGroupLayouts = new Map<string, GPUBindGroupLayout>();
   readonly pipelineLayouts = new Map<string, GPUPipelineLayout>();
   readonly pipelines = new Map<string, GPURenderPipeline | GPUComputePipeline>();
+  /** Keyed by WGSL source text — see {@link shaderModule}. */
   readonly shaderModules = new Map<string, GPUShaderModule>();
+  private readonly pendingPipelines = new Map<string, Promise<GPURenderPipeline | GPUComputePipeline>>();
 
   readonly stats: {
     pipelineCreates: number;
@@ -116,11 +123,10 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     this.pipelineLayouts.set(name, layout);
   }
 
-  setEmptyGroupsPipeline(layout: GPUPipelineLayout): void {
-    this.pipelineLayouts.set('emptyGroups', layout);
-  }
-
   private _buildLayouts(): void {
+    // The scene pass's shared @group(0) — every scene pipeline layout below
+    // starts with it (docs/BINDINGS.md → Frame group).
+    registerFrameLayout(this);
     registerParticleLayouts(this);
     registerCullLayouts(this);
     registerSegEnhancedLayouts(this);
@@ -153,8 +159,14 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     });
   }
 
+  /**
+   * One module per distinct WGSL source. Keyed by the source text, not the
+   * label: two call sites that label the same code differently share a
+   * module, and two that reuse a label for different code do not collide.
+   * The first caller's label names the module.
+   */
   shaderModule(label: string, code: string): GPUShaderModule {
-    const key = label;
+    const key = code;
     const cached = this.shaderModules.get(key);
     if (cached) return cached;
     const module = this.device.createShaderModule({ label, code });
@@ -172,6 +184,11 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     return module;
   }
 
+  /**
+   * Cached pipeline for `key`, creating it once. Concurrent callers for the
+   * same key (a tier's `Promise.all` racing a setup function) share the one
+   * in-flight compile instead of starting a second.
+   */
   async getOrCreatePipeline<T extends GPURenderPipeline | GPUComputePipeline>(
     key: string,
     factory: () => T | Promise<T>
@@ -181,10 +198,18 @@ export class PipelineLayoutCache implements LayoutRegistrar {
       this.stats.pipelineCacheHits++;
       return cached as T;
     }
-    const pipeline = await factory();
-    this.pipelines.set(key, pipeline);
-    this.stats.pipelineCreates++;
-    return pipeline;
+    const pending = this.pendingPipelines.get(key);
+    if (pending) {
+      this.stats.pipelineCacheHits++;
+      return pending as Promise<T>;
+    }
+    const promise = Promise.resolve(factory()).then((pipeline) => {
+      this.pipelines.set(key, pipeline);
+      this.stats.pipelineCreates++;
+      return pipeline;
+    }).finally(() => this.pendingPipelines.delete(key));
+    this.pendingPipelines.set(key, promise);
+    return promise;
   }
 
   depthStencil(writeEnabled: boolean, compare: GPUCompareFunction = 'less'): GPUDepthStencilState {
@@ -197,6 +222,10 @@ export class PipelineLayoutCache implements LayoutRegistrar {
 
   async ensureDevicePipelines(shaders: MultiDeviceShaders, opts?: DevicePipelineOptions): Promise<void> {
     return ensureDevicePipelinesImpl(this, shaders, opts);
+  }
+
+  async ensureShadowCasterPipelines(shaders: MultiDeviceShaders): Promise<void> {
+    return ensureShadowCasterPipelinesImpl(this, shaders);
   }
 
   getPipeline(key: string): GPURenderPipeline | GPUComputePipeline | null {

@@ -23,7 +23,7 @@ struct WallParams {
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var<uniform> params: WallParams;
+@group(1) @binding(1) var<uniform> params: WallParams;
 
 struct VertexInput {
     @location(0) position: vec3f,

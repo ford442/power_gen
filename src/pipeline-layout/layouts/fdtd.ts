@@ -14,5 +14,5 @@ export function registerFdtdLayouts(r: LayoutRegistrar): void {
 
   // passes/fdtd-slice.wgsl — reads the fields the compute pass wrote.
   r.bgl('fdtdSlice', BGL.fdtdSlice);
-  r.pl('fdtdSlice', ['fdtdSlice']);
+  r.pl('fdtdSlice', ['frame', 'fdtdSlice']);
 }

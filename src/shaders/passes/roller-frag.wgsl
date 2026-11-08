@@ -35,11 +35,16 @@ struct Uniforms {
 
       #include "common/pbr-surface.wgsl"
       #include "common/pbr-brdf.wgsl"
+      #include "common/shadow-pcf.wgsl"
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(3) @group(0) var<uniform> material: MaterialUniforms;
-      @binding(5) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
+      @binding(1) @group(1) var<uniform> device: DeviceUniforms;
+      @binding(3) @group(1) var<uniform> material: MaterialUniforms;
+      @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
+      // Key-light shadow map (#225 §4) — see common/shadow-pcf.wgsl.
+      @binding(9) @group(0) var shadowMap: texture_depth_2d;
+      @binding(10) @group(0) var shadowSampler: sampler_comparison;
+      @binding(11) @group(0) var<uniform> shadow: ShadowUniforms;
 
       struct FragmentInput {
         @location(0) worldPos: vec3f,
@@ -212,8 +217,12 @@ struct Uniforms {
         let f0 = mix(vec3f(0.04), baseColor, metallic);
         let albedo = mix(baseColor, vec3f(0.0), metallic);
 
-        // Key light (main directional)
+        // Key light (main directional). This pass keeps its own fixed rig; the
+        // shadow map is cast from the preset key, 23–36° away from L1
+        // depending on the preset, so roller-pipeline shadows fall slightly
+        // off the direction this term shades from.
         let L1 = normalize(vec3f(1.0, 1.0, 1.0));
+        let keyVis = keyLightVisibility(input.worldPos, normalize(input.normal), L1);
         let H1 = normalize(V + L1);
         let NdotL1 = max(dot(detailN, L1), 0.0);
         let NdotH1 = max(dot(detailN, H1), 0.0);
@@ -240,12 +249,12 @@ struct Uniforms {
 
         // Combine
         let diffuse = albedo * PI * (
-          kD1 * NdotL1 * vec3f(1.0, 0.95, 0.9) * 1.2 +
+          kD1 * NdotL1 * vec3f(1.0, 0.95, 0.9) * 1.2 * keyVis +
           kD2 * NdotL2 * vec3f(0.6, 0.7, 0.9) * 0.4
         );
 
         let specular = (
-          specular1 * vec3f(1.0, 0.95, 0.9) * 1.2 * NdotL1 +
+          specular1 * vec3f(1.0, 0.95, 0.9) * 1.2 * NdotL1 * keyVis +
           specular2 * vec3f(0.6, 0.7, 0.9) * 0.4 * NdotL2
         );
 

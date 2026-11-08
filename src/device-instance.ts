@@ -13,7 +13,8 @@ import {
   getPluginMeshLayouts
 } from './devices/device-registry.js';
 import type { MergedDeviceConfigEntry } from './devices/device-registry.js';
-import type { SegPartSlot } from './devices/device-render';
+import type { DevicePart } from './devices/device-render';
+import type { UniformRing } from './visualizer/uniform-ring';
 import { DeviceSetupMixin } from './devices/device-setup';
 import { DeviceRenderMixin } from './devices/device-render';
 import { DeviceUpdateMixin } from './devices/device-update';
@@ -22,6 +23,7 @@ import type {
   BindGroupLayoutName,
   DeviceGeometryLike,
   DeviceInstanceLike,
+  RenderEncoder,
   VisualizerLike
 } from './devices/types';
 
@@ -51,7 +53,6 @@ type DeviceGeometryHost = DeviceGeometryLike & {
 };
 
 type DeviceUniformManagerHost = DeviceInstanceLike['uniformManager'] & {
-  deviceUniformBuffer: GPUBuffer;
   materialUniformBuffer: GPUBuffer;
   coreMaterialBuffer: GPUBuffer | null;
   gaugeInstanceBuffer: GPUBuffer | null;
@@ -90,41 +91,32 @@ export interface DeviceInstance {
     entries: GPUBindGroupEntry[],
     label?: string
   ): GPUBindGroup;
-  _enhancedBindGroup(
-    globalUniformBuffer: GPUBuffer,
-    instanceBuffer: GPUBuffer,
-    keySuffix?: string
-  ): GPUBindGroup;
-  _rollerBindGroup(
-    globalUniformBuffer: GPUBuffer,
-    instanceBuffer: GPUBuffer,
-    keySuffix?: string
-  ): GPUBindGroup;
-  _ensureSegPartUniformBuffer(): GPUBuffer;
-  _writeSegPartUniforms(): void;
-  _segPartOffset(slot: SegPartSlot, part: string): number;
+  _enhancedBindGroup(instanceBuffer: GPUBuffer, keySuffix?: string): GPUBindGroup;
+  _rollerBindGroup(instanceBuffer: GPUBuffer, keySuffix?: string): GPUBindGroup;
+  _uniformRing(): UniformRing;
+  _deviceUniformResource(): GPUBufferBinding;
+  _deviceUniformOffset(part: DevicePart, label?: string): number;
+  _refreshDeviceUniforms(): void;
   segPartModes(): Record<string, number>;
-  renderDeviceMesh(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
-  render(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer, skipEffects?: boolean): void;
-  renderBase(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
-  renderGltfHousing(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
-  renderGltfDeviceProps(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
-  _drawGltfPropsForDevice(
-    renderPass: GPURenderPassEncoder,
-    globalUniformBuffer: GPUBuffer,
-    deviceId: string
-  ): void;
-  renderFrame(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
-  renderStatorRings(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
-  renderWiring(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
-  renderCore(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
-  renderPickupCoils(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
-  renderStand(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
-  renderWires(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
+  renderDeviceMesh(renderPass: RenderEncoder): void;
+  render(renderPass: GPURenderPassEncoder, skipEffects?: boolean): void;
+  renderBase(renderPass: RenderEncoder): void;
+  renderGltfHousing(renderPass: RenderEncoder): void;
+  renderGltfDeviceProps(renderPass: RenderEncoder): void;
+  _drawGltfPropsForDevice(renderPass: RenderEncoder, deviceId: string): void;
+  renderFrame(renderPass: RenderEncoder): void;
+  renderStatorRings(renderPass: RenderEncoder): void;
+  renderWiring(renderPass: RenderEncoder): void;
+  renderCore(renderPass: RenderEncoder): void;
+  renderPickupCoils(renderPass: RenderEncoder): void;
+  renderStand(renderPass: RenderEncoder): void;
+  renderWires(renderPass: RenderEncoder): void;
+  renderSegRollers(renderPass: RenderEncoder): void;
+  renderShadowCasters(renderPass: GPURenderPassEncoder): void;
 
   update(deltaTime: number, qualityScale: number): void;
   _computeEnergyLevel(deltaTime: number): void;
-  _buildDeviceUniformData(renderMode: number, yOffset?: number): Float32Array<ArrayBuffer>;
+  _packDeviceUniforms(out: Float32Array, base: number, renderMode: number, yOffset?: number): void;
   updateEmitterEffects(deltaTime: number, qualityScale: number): void;
   updateElectromagnetCoils(): void;
   updatePickupCoilEnergies(rollerData?: Float32Array, compact?: boolean): void;
@@ -225,7 +217,6 @@ export class DeviceInstance {
   ringPipeline!: GPURenderPipeline | null;
   fluxSegmentPipeline!: GPURenderPipeline | null;
 
-  deviceUniformBuffer!: GPUBuffer;
   materialUniformBuffer!: GPUBuffer;
   coreMaterialBuffer!: GPUBuffer | null;
   gaugeInstanceBuffer!: GPUBuffer | null;
@@ -311,10 +302,6 @@ export class DeviceInstance {
     Object.defineProperty(this, 'fluxSegmentBuffer', { get: () => this.geometry.fluxSegmentBuffer });
     Object.defineProperty(this, 'fluxSegmentPipeline', { get: () => this.pipelineManager.fluxSegmentPipeline });
 
-    Object.defineProperty(this, 'deviceUniformBuffer', {
-      get: () => this.uniformManager.deviceUniformBuffer,
-      set: (v: GPUBuffer) => { this.uniformManager.deviceUniformBuffer = v; }
-    });
     Object.defineProperty(this, 'materialUniformBuffer', {
       get: () => this.uniformManager.materialUniformBuffer,
       set: (v: GPUBuffer) => { this.uniformManager.materialUniformBuffer = v; }

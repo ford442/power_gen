@@ -31,13 +31,13 @@ struct FdtdSliceParams {
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var<uniform> slice: FdtdSliceParams;
-@group(0) @binding(2) var<uniform> params: FdtdParams;
-@group(0) @binding(3) var<storage, read> ez: array<f32>;
-@group(0) @binding(4) var<storage, read> hx: array<f32>;
-@group(0) @binding(5) var<storage, read> hy: array<f32>;
+@group(1) @binding(1) var<uniform> slice: FdtdSliceParams;
+@group(1) @binding(2) var<uniform> params: FdtdParams;
+@group(1) @binding(3) var<storage, read> ez: array<f32>;
+@group(1) @binding(4) var<storage, read> hx: array<f32>;
+@group(1) @binding(5) var<storage, read> hy: array<f32>;
 /// (1/mu_r, electric half-step loss) per cell — ADR-0012.
-@group(0) @binding(6) var<storage, read> materials: array<vec2f>;
+@group(1) @binding(6) var<storage, read> materials: array<vec2f>;
 
 struct VertexOutput {
   @builtin(position) position: vec4f,

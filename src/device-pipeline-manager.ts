@@ -2,16 +2,24 @@ import { PARTICLE_BYTES_PER_INSTANCE } from './device-geometry';
 import type { VisualizerLike } from './devices/types';
 import type { BindGroupLayoutName } from './pipeline-layout-cache';
 
+/** Which variant of the shared pipelines a pass draws with. */
+export type PassVariant = 'base' | 'msaa4' | 'shadow';
+
+const VARIANT_SUFFIX: Record<PassVariant, string> = { base: '', msaa4: '_msaa4', shadow: '_shadow' };
+
 /**
- * Per-device pipeline handles. All GPURenderPipeline / GPUComputePipeline objects
- * are created once on visualizer.pipelineCache and shared across devices.
+ * Per-device pipeline handles. All GPURenderPipeline / GPUComputePipeline
+ * objects live once on visualizer.pipelineCache and are shared across devices.
  *
- * Each render pipeline also has a `_msaa4` variant (ADR-0005 WS2 showroom
- * MSAA — `high` tier + focus mode, see render-encode.ts `frameContext()`), created
- * eagerly alongside the base variant in `ensureDevicePipelines()`.
- * `applyMsaaState()` swaps the active `xPipeline` reference between the two
- * once per frame; device-render.ts / device-instance.ts never need to know
- * which one is active — they just read `this.rollerPipeline` etc as before.
+ * Each render pipeline has variants keyed by suffix: the 1× base (built at
+ * boot), `_msaa4` (ADR-0005 WS2 showroom MSAA — `high` tier + focus) and, for
+ * the key-light casters, `_shadow` (depth-only). The non-base ones compile on
+ * first use (visualizer/pipeline-tiers.ts), so `applyPassVariant()` looks
+ * them up in the cache each time it runs instead of capturing them at setup:
+ * a reference swap per pipeline, no GPU work. device-render.ts /
+ * device-instance.ts just read `this.rollerPipeline` etc. A pipeline with no
+ * variant for the pass (every non-caster under `shadow`) reads as null, and
+ * the draw that needs it is skipped.
  */
 export class DevicePipelineManager {
   device: GPUDevice;
@@ -29,16 +37,17 @@ export class DevicePipelineManager {
   ringPipeline: GPURenderPipeline | null = null;
   corePipeline: GPURenderPipeline | null = null;
 
-  // Base (sampleCount 1) / MSAA (sampleCount 4) pairs — populated by
-  // setupPipelines(); applyMsaaState() picks between them.
-  private _base: Record<string, GPURenderPipeline | GPUComputePipeline | null> = {};
-  private _msaa4: Record<string, GPURenderPipeline | GPUComputePipeline | null> = {};
-  private _msaaActive = false;
+  private _variant: PassVariant = 'base';
 
   constructor(device: GPUDevice, id: string, visualizer: VisualizerLike) {
     this.device = device;
     this.id = id;
     this.visualizer = visualizer;
+  }
+
+  /** Current pass variant (diagnostics). */
+  get variant(): PassVariant {
+    return this._variant;
   }
 
   /**
@@ -58,35 +67,11 @@ export class DevicePipelineManager {
       );
     }
 
-    // Shared across all devices
-    this._base.roller = cache.getPipeline('roller');
-    this._msaa4.roller = cache.getPipeline('roller_msaa4');
-    this._base.particle = cache.getPipeline('particle');
-    this._msaa4.particle = cache.getPipeline('particle_msaa4');
     this.computePipeline = cache.getParticleComputePipeline();
-    this._base.coil = cache.getPipeline('coil');
-    this._msaa4.coil = cache.getPipeline('coil_msaa4');
-
-    // SEG-only
-    if (this.id === 'seg') {
-      this._base.fluxSegment = cache.getPipeline('fluxSegment');
-      this._msaa4.fluxSegment = cache.getPipeline('fluxSegment_msaa4');
-      this._base.energyArc = cache.getPipeline('energyArc');
-      this._msaa4.energyArc = cache.getPipeline('energyArc_msaa4');
-      this._base.segEnhanced = cache.getPipeline('segEnhanced');
-      this._msaa4.segEnhanced = cache.getPipeline('segEnhanced_msaa4');
-      // core uses enhanced when present; ringPipeline remains unset until a
-      // dedicated layout exists (renderPickupCoils guards on ringPipeline).
-      this.ringPipeline = null;
-    }
-
-    // Flow-path devices + SEG fallback field lines
-    if (['seg', 'heron', 'kelvin', 'solar'].includes(this.id)) {
-      this._base.fieldLine = cache.getPipeline('fieldLine');
-      this._msaa4.fieldLine = cache.getPipeline('fieldLine_msaa4');
-    }
-
-    this.applyMsaaState(this._msaaActive);
+    // core uses enhanced when present; ringPipeline remains unset until a
+    // dedicated layout exists (renderPickupCoils guards on ringPipeline).
+    this.ringPipeline = null;
+    this.applyPassVariant('base');
 
     if (!this.rollerPipeline || !this.particlePipeline || !this.computePipeline) {
       throw new Error(
@@ -95,26 +80,35 @@ export class DevicePipelineManager {
     }
   }
 
-  /**
-   * Swap every render pipeline reference between its base (sampleCount 1)
-   * and MSAA (sampleCount 4) variant. Cheap — reference assignment only, no
-   * GPU work — call once per frame per device from render-loop.ts.
-   */
-  applyMsaaState(active: boolean): void {
-    this._msaaActive = active;
-    const table = active ? this._msaa4 : this._base;
-    this.rollerPipeline = (table.roller as GPURenderPipeline | null) ?? null;
-    this.particlePipeline = (table.particle as GPURenderPipeline | null) ?? null;
-    this.coilPipeline = (table.coil as GPURenderPipeline | null) ?? null;
+  /** Point every render pipeline reference at `variant`'s pipeline (or null). */
+  applyPassVariant(variant: PassVariant): void {
+    this._variant = variant;
+    const cache = this.visualizer.pipelineCache;
+    const suffix = VARIANT_SUFFIX[variant];
+    const get = (name: string) =>
+      (cache?.getPipeline(`${name}${suffix}`) as GPURenderPipeline | null | undefined) ?? null;
+    this.rollerPipeline = get('roller');
+    this.particlePipeline = get('particle');
+    this.coilPipeline = get('coil');
     if (this.id === 'seg') {
-      this.fluxSegmentPipeline = (table.fluxSegment as GPURenderPipeline | null) ?? null;
-      this.energyArcPipeline = (table.energyArc as GPURenderPipeline | null) ?? null;
-      this.segEnhancedPipeline = (table.segEnhanced as GPURenderPipeline | null) ?? null;
+      this.fluxSegmentPipeline = get('fluxSegment');
+      this.energyArcPipeline = get('energyArc');
+      this.segEnhancedPipeline = get('segEnhanced');
       this.corePipeline = this.segEnhancedPipeline || this.rollerPipeline;
+    } else {
+      // Non-SEG benches draw their CAD props with segEnhanced too
+      // (_drawGltfPropsForDevice). Before #225 this was SEG-only, so those
+      // props never drew on WebGPU.
+      this.segEnhancedPipeline = get('segEnhanced');
     }
     if (['seg', 'heron', 'kelvin', 'solar'].includes(this.id)) {
-      this.fieldLinePipeline = (table.fieldLine as GPURenderPipeline | null) ?? null;
+      this.fieldLinePipeline = get('fieldLine');
     }
+  }
+
+  /** 1× or 4× scene variant — once per frame per device from render-passes.ts. */
+  applyMsaaState(active: boolean): void {
+    this.applyPassVariant(active ? 'msaa4' : 'base');
   }
 
   /** @deprecated Prefer visualizer.pipelineCache.createBindGroup */

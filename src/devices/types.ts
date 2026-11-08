@@ -12,7 +12,12 @@ import type { BindGroupCache } from '../renderers/shared/bind-group-cache';
 import type { DeviceMeshLayout, InstanceArray } from '../device-mesh-layouts';
 import type { OverviewCullPass } from './overview-cull';
 import type { DeviceDashboardDefaults } from './device-config';
-import type { SegPartSlot } from './device-render';
+import type { DevicePart } from './device-render';
+import type { UniformRing } from '../visualizer/uniform-ring';
+import type { StaticBundles } from '../visualizer/render-bundles';
+
+/** What a draw records into: the live scene pass, or a render bundle (render-bundles.ts). */
+export type RenderEncoder = GPURenderPassEncoder | GPURenderBundleEncoder;
 
 export type { BindGroupLayoutName };
 
@@ -203,6 +208,10 @@ export interface VisualizerLike {
     transformerFluxShader?: string;
   };
   globalUniformBuffer?: GPUBuffer | null;
+  /** Per-draw DeviceUniforms slots (visualizer/uniform-ring.ts). */
+  uniformRing?: UniformRing | null;
+  /** Static-geometry render bundles (visualizer/render-bundles.ts). */
+  staticBundles?: StaticBundles | null;
 
   heronLayout?: (HeronLayout & { name?: string; description?: string }) | null;
   heronLayoutPreset?: string;
@@ -268,6 +277,7 @@ export interface VisualizerLike {
   corePlateBuffer?: MeshBuffers | null;
   coreBoltBuffer?: MeshBuffers | null;
   connectionRingBuffer?: MeshBuffers | null;
+  connectionRingInstances?: GPUBuffer | null;
   standBuffer?: MeshBuffers | null;
   wireBuffers?: MeshBuffers[] | null;
   coilBuffer?: VertexOnlyBuffers | null;
@@ -331,12 +341,8 @@ export interface DeviceInstanceLike {
     ) => void;
   };
   uniformManager: {
-    updateUniforms: (
-      position: ArrayLike<number>,
-      rotation: ArrayLike<number>,
-      renderMode: number,
-      energyLevel: number
-    ) => void;
+    /** Per-frame material refresh (solar battery emission). */
+    updateUniforms: (energyLevel: number) => void;
     /** Solar only — mirrors instance.batteryCharge into the packed uniform. */
     batteryCharge?: number;
     updateGaugeBuffer?: (position: ArrayLike<number>, ringIndex: number) => void;
@@ -344,12 +350,13 @@ export interface DeviceInstanceLike {
   /** DevicePipelineManager instance (device-pipeline-manager.ts). */
   pipelineManager?: {
     fluxSegmentPipeline?: GPURenderPipeline | null;
-    /** Swap every render pipeline between its base/MSAA-4x variant (ADR-0005 WS2) — called once per frame from render-loop.ts. */
+    /** Swap every render pipeline between its base/MSAA-4x variant (ADR-0005 WS2) — called once per frame from render-passes.ts. */
     applyMsaaState?: (active: boolean) => void;
+    /** base / msaa4 / shadow (depth-only casters) — device-pipeline-manager.ts. */
+    applyPassVariant?: (variant: 'base' | 'msaa4' | 'shadow') => void;
   };
 
   // Buffers owned by the instance / delegated from geometry
-  deviceUniformBuffer: GPUBuffer;
   materialUniformBuffer: GPUBuffer;
   particles: GPUBuffer;
   effectsParticles: GPUBuffer | null;
@@ -378,10 +385,8 @@ export interface DeviceInstanceLike {
   _flowPathData?: Float32Array<ArrayBuffer>;
   _effectParticleData: Float32Array<ArrayBuffer>;
   _bindGroupCache?: BindGroupCache;
-  /** segEnhanced per-part uniform slots (device-render.ts SEG_PART_SLOT). */
-  _segPartUniformBuffer?: GPUBuffer;
-  _segPartMirror?: Float32Array<ArrayBuffer>;
-  _segPartSlots?: Record<string, number>;
+  /** Draw label → DEVICE_PART it bound (getRendererInfo().segPartModes). */
+  _partLabels?: Record<string, number>;
 
   // Solar energy proxies (synced from DevicePhysicsState per device)
   batteryCharge?: number;
@@ -425,41 +430,35 @@ export interface DeviceInstanceLike {
     entries: GPUBindGroupEntry[],
     label?: string
   ) => GPUBindGroup;
-  _buildDeviceUniformData: (renderMode: number, yOffset?: number) => Float32Array<ArrayBuffer>;
+  _packDeviceUniforms: (out: Float32Array, base: number, renderMode: number, yOffset?: number) => void;
   _computeEnergyLevel: (deltaTime: number) => void;
   updateDeviceFlowPaths: (deltaTime: number) => void;
   updateEmitterEffects: (deltaTime: number, qualityScale: number) => void;
-  renderDeviceMesh: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
-  renderStand: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
-  renderBase: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
-  renderGltfHousing: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
+  renderDeviceMesh: (renderPass: RenderEncoder) => void;
+  renderStand: (renderPass: RenderEncoder) => void;
+  renderBase: (renderPass: RenderEncoder) => void;
+  renderGltfHousing: (renderPass: RenderEncoder) => void;
   /** Draw a non-SEG bench's own CAD props in its focus view (ADR-0005 WS1). */
-  renderGltfDeviceProps: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
-  _drawGltfPropsForDevice: (
-    renderPass: GPURenderPassEncoder,
-    globalUniformBuffer: GPUBuffer,
-    deviceId: string
-  ) => void;
-  renderFrame: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
-  renderStatorRings: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
-  renderWiring: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
-  renderCore: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
-  renderPickupCoils: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
-  renderWires: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
-  _ensureSegPartUniformBuffer: () => GPUBuffer;
-  _writeSegPartUniforms: () => void;
-  _segPartOffset: (slot: SegPartSlot, part: string) => number;
+  renderGltfDeviceProps: (renderPass: RenderEncoder) => void;
+  _drawGltfPropsForDevice: (renderPass: RenderEncoder, deviceId: string) => void;
+  renderFrame: (renderPass: RenderEncoder) => void;
+  renderStatorRings: (renderPass: RenderEncoder) => void;
+  renderWiring: (renderPass: RenderEncoder) => void;
+  renderCore: (renderPass: RenderEncoder) => void;
+  renderPickupCoils: (renderPass: RenderEncoder) => void;
+  renderWires: (renderPass: RenderEncoder) => void;
+  renderSegRollers: (renderPass: RenderEncoder) => void;
+  /** Depth-only key-light casters (shadow pass, #225 §4). */
+  renderShadowCasters: (renderPass: GPURenderPassEncoder) => void;
+  _uniformRing: () => UniformRing;
+  /** `@group(1) @binding(1)` resource: the uniform ring, one DeviceUniforms wide. */
+  _deviceUniformResource: () => GPUBufferBinding;
+  /** Stable dynamic offset of this device's `part` slot in the uniform ring. */
+  _deviceUniformOffset: (part: DevicePart, label?: string) => number;
+  _refreshDeviceUniforms: () => void;
   segPartModes: () => Record<string, number>;
-  _enhancedBindGroup: (
-    globalUniformBuffer: GPUBuffer,
-    instanceBuffer: GPUBuffer,
-    keySuffix?: string
-  ) => GPUBindGroup;
-  _rollerBindGroup: (
-    globalUniformBuffer: GPUBuffer,
-    instanceBuffer: GPUBuffer,
-    keySuffix?: string
-  ) => GPUBindGroup;
+  _enhancedBindGroup: (instanceBuffer: GPUBuffer, keySuffix?: string) => GPUBindGroup;
+  _rollerBindGroup: (instanceBuffer: GPUBuffer, keySuffix?: string) => GPUBindGroup;
 }
 
 /** Mesh builder surface used by hot-update paths (see device-mesh-layouts). */
@@ -511,7 +510,7 @@ export interface DevicePlugin {
   /** Raw device energy 0..1 before exponential smoothing. */
   computeRawEnergy?: (instance: DeviceInstanceLike, ctx: DeviceEnergyContext) => number;
 
-  /** Extra uniform fields for _buildDeviceUniformData. */
+  /** Extra uniform fields for _packDeviceUniforms. */
   buildUniformExtras?: (instance: DeviceInstanceLike) => DeviceUniformExtras;
 
   /** Animate device-specific flow-path particles; return true if handled. */
@@ -527,7 +526,6 @@ export interface DevicePlugin {
   drawWebgpu?: (
     instance: DeviceInstanceLike,
     renderPass: GPURenderPassEncoder,
-    globalUniformBuffer: GPUBuffer,
     skipEffects: boolean
   ) => void;
 
@@ -535,7 +533,6 @@ export interface DevicePlugin {
   drawWebgpuOverlay?: (
     instance: DeviceInstanceLike,
     renderPass: GPURenderPassEncoder,
-    globalUniformBuffer: GPUBuffer,
     skipEffects: boolean
   ) => void;
 }

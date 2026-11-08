@@ -54,8 +54,8 @@ struct Uniforms {
       }
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(2) @group(0) var<storage> instances: array<InstanceData>;
+      @binding(1) @group(1) var<uniform> device: DeviceUniforms;
+      @binding(2) @group(1) var<storage> instances: array<InstanceData>;
       @binding(4) @group(0) var<uniform> segLayout: SEGLayoutUniforms;
 
       struct VertexInput {

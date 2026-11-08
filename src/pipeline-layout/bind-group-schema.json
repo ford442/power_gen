@@ -1,40 +1,65 @@
 {
-  "$comment": "Source of truth for every @group(0) bind group layout. Entry = [binding, stages, kind, storageTextureFormat?]. stages: V/F/C letters. kinds: uniform | uniform-dynamic (uniform with hasDynamicOffset; setBindGroup must pass an offset) | storage | storage-ro | texture | texture-depth | texture-depth-ms | texture-array | storage-texture | storage-texture-array | sampler. 'pipelines' lists the WGSL pass files (src/shaders/passes/) of each pipeline built on the layout. Regenerate: npm run codegen:bindings",
+  "$comment": "Source of truth for every bind group layout. 'group' is the @group() index the layout fills (default 0). 'frame' is the scene pass's shared @group(0): bound once per pass, every scene pipeline's layout is [frame, <its own group 1>]; a frame entry only has to be declared by one of its pipelines. Entry = [binding, stages, kind, storageTextureFormat?]. stages: V/F/C letters. kinds: uniform | uniform-dynamic (uniform with hasDynamicOffset; setBindGroup must pass an offset) | storage | storage-ro | texture | texture-depth | texture-depth-ms | texture-array | storage-texture | storage-texture-array | sampler | sampler-comparison. 'pipelines' lists the WGSL pass files (src/shaders/passes/) of each pipeline built on the layout. Regenerate: npm run codegen:bindings",
   "layouts": {
-    "roller": {
-      "pipelines": [["roller-vert.wgsl", "roller-frag.wgsl"]],
-      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [2, "V", "storage-ro"], [3, "F", "uniform"], [5, "F", "storage-ro"]]
-    },
-    "particle": {
-      "pipelines": [["particle-vert.wgsl", "particle-frag.wgsl"]],
-      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [3, "F", "uniform"], [4, "V", "storage-ro"]]
-    },
-    "segEnhanced": {
-      "pipelines": [["seg-enhanced-vert.wgsl", "seg-enhanced-frag.wgsl"]],
+    "frame": {
+      "group": 0,
+      "pipelines": [
+        ["sky-vert.wgsl", "sky-frag.wgsl"],
+        ["grid-vert.wgsl", "grid-frag.wgsl"],
+        ["roller-vert.wgsl", "roller-frag.wgsl"],
+        ["particle-vert.wgsl", "particle-frag.wgsl"],
+        ["seg-enhanced-vert.wgsl", "seg-enhanced-frag.wgsl"],
+        ["flux-segment-vert.wgsl", "flux-segment-frag.wgsl"],
+        ["energy-arc-vert.wgsl", "energy-arc-frag.wgsl"],
+        ["field-line-vert.wgsl", "field-line-frag.wgsl"],
+        ["coil-vert.wgsl", "coil-frag.wgsl"],
+        ["energy-pipe-vert.wgsl", "energy-pipe-frag.wgsl"],
+        ["seg-anomaly-walls.wgsl"],
+        ["fdtd-slice.wgsl"]
+      ],
       "entries": [
-        [0, "VF", "uniform"], [1, "VF", "uniform-dynamic"], [2, "V", "storage-ro"], [3, "F", "uniform"],
-        [4, "V", "uniform"], [5, "F", "uniform"], [6, "F", "storage-ro"], [7, "F", "texture-array"], [8, "F", "sampler"]
+        [0, "VF", "uniform"], [4, "V", "uniform"], [5, "F", "uniform"], [6, "F", "storage-ro"], [7, "F", "texture-array"],
+        [8, "F", "sampler"], [9, "F", "texture-depth"], [10, "F", "sampler-comparison"], [11, "F", "uniform"]
       ]
     },
+    "roller": {
+      "group": 1,
+      "pipelines": [["roller-vert.wgsl", "roller-frag.wgsl"]],
+      "entries": [[1, "VF", "uniform-dynamic"], [2, "V", "storage-ro"], [3, "F", "uniform"]]
+    },
+    "particle": {
+      "group": 1,
+      "pipelines": [["particle-vert.wgsl", "particle-frag.wgsl"]],
+      "entries": [[1, "VF", "uniform-dynamic"], [3, "F", "uniform"], [4, "V", "storage-ro"]]
+    },
+    "segEnhanced": {
+      "group": 1,
+      "pipelines": [["seg-enhanced-vert.wgsl", "seg-enhanced-frag.wgsl"]],
+      "entries": [[1, "VF", "uniform-dynamic"], [2, "V", "storage-ro"], [3, "F", "uniform"]]
+    },
     "fluxSegment": {
+      "group": 1,
       "pipelines": [["flux-segment-vert.wgsl", "flux-segment-frag.wgsl"]],
-      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [2, "V", "storage-ro"]]
+      "entries": [[1, "VF", "uniform-dynamic"], [2, "V", "storage-ro"]]
     },
     "fieldParticles": {
+      "group": 1,
       "pipelines": [["energy-arc-vert.wgsl", "energy-arc-frag.wgsl"], ["field-line-vert.wgsl", "field-line-frag.wgsl"]],
-      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [4, "V", "storage-ro"]]
+      "entries": [[1, "VF", "uniform-dynamic"], [4, "V", "storage-ro"]]
     },
     "energyPipe": {
+      "group": 1,
       "pipelines": [["energy-pipe-vert.wgsl", "energy-pipe-frag.wgsl"]],
-      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [2, "V", "storage-ro"]]
+      "entries": [[1, "VF", "uniform"], [2, "V", "storage-ro"]]
     },
     "energyPipeCompute": {
       "pipelines": [["energy-pipe-compute.wgsl"]],
       "entries": [[0, "C", "storage"], [1, "C", "uniform"]]
     },
     "coil": {
+      "group": 1,
       "pipelines": [["coil-vert.wgsl", "coil-frag.wgsl"]],
-      "entries": [[0, "VF", "uniform"], [1, "VF", "uniform"], [2, "V", "storage-ro"], [3, "F", "uniform"]]
+      "entries": [[1, "VF", "uniform-dynamic"], [2, "V", "storage-ro"], [3, "F", "uniform"]]
     },
     "particleCompute": {
       "pipelines": [["particle-compute.wgsl"]],
@@ -65,16 +90,14 @@
       "entries": [[0, "C", "storage"], [1, "C", "uniform"], [2, "C", "storage-ro"], [3, "C", "uniform"]]
     },
     "sky": {
+      "group": 1,
       "pipelines": [["sky-vert.wgsl", "sky-frag.wgsl"]],
       "entries": [[0, "F", "uniform"]]
     },
-    "empty": {
-      "pipelines": [["grid-vert.wgsl", "grid-frag.wgsl"]],
-      "entries": []
-    },
     "anomalyWall": {
+      "group": 1,
       "pipelines": [["seg-anomaly-walls.wgsl"]],
-      "entries": [[0, "VF", "uniform"], [1, "F", "uniform"]]
+      "entries": [[1, "F", "uniform"]]
     },
     "bloomExtract": {
       "pipelines": [["bloom-vert.wgsl", "bloom-extract.wgsl"]],
@@ -91,15 +114,15 @@
     "bloomComposite": {
       "pipelines": [["bloom-vert.wgsl", "bloom-composite.wgsl"]],
       "entries": [
-        [0, "F", "texture"], [1, "F", "texture"], [2, "F", "sampler"], [3, "F", "uniform"],
-        [4, "F", "texture-depth"], [5, "F", "texture"], [6, "F", "texture"]
+        [0, "F", "texture"], [1, "F", "texture"], [2, "F", "sampler"], [3, "F", "uniform"], [4, "F", "texture-depth"],
+        [5, "F", "texture"], [6, "F", "texture"]
       ]
     },
     "ssr": {
       "pipelines": [["ssr-compute.wgsl"]],
       "entries": [
-        [0, "C", "texture-depth"], [1, "C", "texture"], [2, "C", "sampler"], [3, "C", "uniform"],
-        [4, "C", "storage-texture", "rgba16float"], [5, "C", "texture"]
+        [0, "C", "texture-depth"], [1, "C", "texture"], [2, "C", "sampler"], [3, "C", "uniform"], [4, "C", "storage-texture", "rgba16float"],
+        [5, "C", "texture"]
       ]
     },
     "iblPrefilter": {
@@ -108,7 +131,9 @@
     },
     "taaResolve": {
       "pipelines": [["bloom-vert.wgsl", "taa-resolve.wgsl"]],
-      "entries": [[0, "F", "texture"], [1, "F", "texture"], [2, "F", "sampler"], [3, "F", "texture-depth"], [4, "F", "uniform"]]
+      "entries": [
+        [0, "F", "texture"], [1, "F", "texture"], [2, "F", "sampler"], [3, "F", "texture-depth"], [4, "F", "uniform"]
+      ]
     },
     "depthResolve": {
       "pipelines": [["depth-resolve.wgsl"]],
@@ -116,13 +141,16 @@
     },
     "fdtdCompute": {
       "pipelines": [["fdtd-tmz-compute.wgsl"]],
-      "entries": [[0, "C", "uniform"], [1, "C", "storage"], [2, "C", "storage"], [3, "C", "storage"], [4, "C", "storage-ro"]]
+      "entries": [
+        [0, "C", "uniform"], [1, "C", "storage"], [2, "C", "storage"], [3, "C", "storage"], [4, "C", "storage-ro"]
+      ]
     },
     "fdtdSlice": {
+      "group": 1,
       "pipelines": [["fdtd-slice.wgsl"]],
       "entries": [
-        [0, "V", "uniform"], [1, "VF", "uniform"], [2, "F", "uniform"],
-        [3, "F", "storage-ro"], [4, "F", "storage-ro"], [5, "F", "storage-ro"], [6, "F", "storage-ro"]
+        [1, "VF", "uniform"], [2, "F", "uniform"], [3, "F", "storage-ro"], [4, "F", "storage-ro"], [5, "F", "storage-ro"],
+        [6, "F", "storage-ro"]
       ]
     }
   },

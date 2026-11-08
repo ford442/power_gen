@@ -128,8 +128,8 @@ export const sceneSetupMethods: ThisType<Host> & {
   async setupFloorGrid() {
     const cache = this.pipelineCache;
     if (!cache || !this.profiler) return;
+    // 4× variants of grid / sky / walls compile with the MSAA tier (pipeline-tiers.ts).
     this.gridPipelineBase = await cache.ensureGridPipeline(this.shaders);
-    this.gridPipelineMsaa4 = await cache.ensureGridPipeline(this.shaders, { sampleCount: 4 });
     this.gridPipeline = this.gridPipelineBase;
 
     const gridVertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
@@ -139,9 +139,7 @@ export const sceneSetupMethods: ThisType<Host> & {
     });
     this.device.queue.writeBuffer(this.gridVertexBuffer, 0, gridVertices);
     this.profiler.trackBuffer('gridVertices', gridVertices.byteLength, GPUBufferUsage.VERTEX);
-
-    // Explicit empty bind group layout (grid shaders have no bindings)
-    this.gridBindGroup = cache.createBindGroup('empty', [], 'grid-bg');
+    // Grid shaders bind nothing of their own: the scene pass's frame group is enough.
   },
 
   async setupSkyGradient() {
@@ -154,7 +152,6 @@ export const sceneSetupMethods: ThisType<Host> & {
     this._uploadSkyUniforms();
 
     this.skyPipelineBase = await cache.ensureSkyPipeline(this.shaders);
-    this.skyPipelineMsaa4 = await cache.ensureSkyPipeline(this.shaders, { sampleCount: 4 });
     this.skyPipeline = this.skyPipelineBase;
 
     this.skyBindGroup = cache.createBindGroup(
@@ -168,7 +165,6 @@ export const sceneSetupMethods: ThisType<Host> & {
     const cache = this.pipelineCache;
     if (!cache || !this.profiler || !this.globalUniformBuffer) return;
     this.anomalyWallPipelineBase = await cache.ensureAnomalyWallPipeline(this.shaders);
-    this.anomalyWallPipelineMsaa4 = await cache.ensureAnomalyWallPipeline(this.shaders, { sampleCount: 4 });
     this.anomalyWallPipeline = this.anomalyWallPipelineBase;
 
     this.anomalyWallParamsBuffer = this.device.createBuffer({
@@ -180,10 +176,7 @@ export const sceneSetupMethods: ThisType<Host> & {
 
     this.anomalyWallBindGroup = cache.createBindGroup(
       'anomalyWall',
-      [
-        { binding: 0, resource: { buffer: this.globalUniformBuffer } },
-        { binding: 1, resource: { buffer: this.anomalyWallParamsBuffer } }
-      ],
+      [{ binding: 1, resource: { buffer: this.anomalyWallParamsBuffer } }],
       'anomaly-wall-bg'
     );
   },

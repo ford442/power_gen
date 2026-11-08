@@ -9,7 +9,7 @@ struct SkyParams {
         _pad1: f32,
       }
 
-      @group(0) @binding(0) var<uniform> sky: SkyParams;
+      @group(1) @binding(0) var<uniform> sky: SkyParams;
 
       struct FragmentInput {
         @location(0) uv: vec2f

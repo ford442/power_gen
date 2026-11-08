@@ -242,7 +242,7 @@ orders the WebGPU frame. `src/visualizer/render-encode.ts` is the pass list;
 the bodies are in `render-passes.ts`. WebGL2 does not use it (ADR-0001).
 
 ```
-compute → scene (1× | 4× MSAA) → depth-resolve → taa → ssr → bloom → composite → history
+compute → shadow → scene (1× | 4× MSAA) → depth-resolve → taa → ssr → bloom → composite → history
 ```
 
 Each pass declares `reads` / `writes` (static or a function of the frame
@@ -264,8 +264,9 @@ of `taaColor`).
   `GPUTextureUsage.TRANSIENT_ATTACHMENT` where the implementation exposes it.
   Bind groups that would sample a released SSR / history target bind a 1×1
   placeholder instead; the composite only weights them when they ran. A resize
-  or device loss destroys every lazy target, and the next frame reallocates what
-  it uses.
+  or device loss destroys every canvas-sized lazy target, and the next frame
+  reallocates what it uses. The shadow map is not canvas-sized: it survives a
+  resize and follows the same 120-frame release.
 - **History.** Copied only when TAA runs or motion blur has a non-zero mix
   (sim speed ≥ 7×). A frame that skips the copy marks the history stale, and
   motion blur waits for one fresh copy before it blends.
@@ -277,7 +278,64 @@ of `taaColor`).
 
 `npm run test:frame-graph` covers the order check, lifetimes and timestamp slots
 on a mock encoder, then runs the real pass list on a mock host for every tier ×
-view. It asserts which passes run and which lazy targets exist.
+view. It asserts which passes run and which lazy targets exist, that the first
+showroom frame runs without the not-yet-compiled MSAA / shadow tiers, and that
+overview never compiles or encodes them.
+
+## Key-light shadow map
+
+One shadow map (#225 §4, `src/visualizer/shadow-map.ts`):
+
+- **When.** `high` tier, focus view, the focused bench visible, and the
+  `shadow` pipeline tier compiled. Overview never encodes the pass or compiles
+  its pipelines. Other frames upload `enabled = 0` and the scene frame group
+  binds a 1×1 placeholder.
+- **What.** 2048² `depth32float` (16 MiB), allocated by the frame graph and
+  released 120 unused frames later; tracked as `shadowMap` in
+  `gpuMemory.postTargetBytes`.
+- **Light.** Orthographic from the preset key light. `pbr-eval.wgsl` treats the
+  key as directional (`normalize(key.position)`), so the map is fitted to a
+  sphere around the focused bench along that direction
+  (`fitKeyLightMatrix`). SEG's radius is the outer ring plus the stand and
+  frame; other benches use their camera offset.
+- **Casters.** The focused bench's opaque meshes: SEG rollers, plates / core,
+  frame, stand, stator rings, CAD props, and every other bench's CAD props
+  (the jumping-ring's Thomson ring included) plus its procedural mesh.
+  Not particles, field lines, arcs or glow. Caster pipelines (`*_shadow`) are
+  the scene's own vertex shaders with no fragment stage. The shadow pass binds
+  a second frame group whose `Uniforms.viewProj` is the light's matrix.
+- **Receivers.** `seg-enhanced-frag` (SEG meshes and every CAD prop) and
+  `roller-frag` sample with 3×3 PCF over a comparison sampler (each tap is
+  hardware 2×2 bilinear PCF), with a receiver bias and a normal offset scaled
+  by the slope (`common/shadow-pcf.wgsl`). Only the key light's diffuse and
+  specular terms are attenuated. `LightingConfig.shadowStrength` scales it.
+- **WebGL2** has no shadow map (`intentionalGaps`: `key-light shadow map`).
+
+`getRendererInfo().shadow` = `{ active, allocated, size }`.
+
+## Uniforms, pipelines and bundles (#225 §3)
+
+- **Uniform ring.** Per-draw `DeviceUniforms` live in one 256 B-slotted buffer
+  bound with a dynamic offset (`visualizer/uniform-ring.ts`). Slots are stable
+  per (device, part); devices repack them in place after physics and the frame
+  makes one `writeBuffer` before submit. The global, lighting, sky, gauge,
+  transformer and energy-pipe uploads reuse their staging arrays, so the frame
+  loop allocates no `Float32Array` per draw. `getRendererInfo().uniformRing` =
+  `{ slotsUsed, slotsTotal, writes }`.
+- **Frame group.** `@group(0)` (camera, lighting, materials, IBL, shadow) is
+  bound once per scene pass; draws set `@group(1)` only (`docs/BINDINGS.md`).
+- **Async tiers.** Every pipeline is built with `create*PipelineAsync`. The
+  boot set compiles in one `Promise.all`; MSAA, SSR, TAA and shadow compile the
+  first frame their gate would open and the feature stays off until they land
+  (`visualizer/pipeline-tiers.ts`, `getRendererInfo().pipelineTiers`).
+- **Render bundles.** Sky + grid (`env`), SEG's frame / stand / CAD housing
+  (`static:seg`) and each focused bench's resident CAD props
+  (`static:<id>`) are recorded once and replayed
+  (`visualizer/render-bundles.ts`). They are re-recorded when a captured
+  pipeline, buffer, frame group, view or MSAA state changes identity. Their
+  uniforms change freely, because the ring slots they recorded are stable.
+  Particles, rollers, coils, flux and the FDTD panel stay immediate.
+  `getRendererInfo().renderBundles` = `{ names, records, replays }`.
 
 ## GPU timing
 
@@ -299,7 +357,7 @@ dropped rather than read as 0 ms. F3 lists milliseconds per pass under
 ## Pipelines and bind groups
 
 See **`docs/BINDINGS.md`**. Layouts live in `src/pipeline-layout-cache.ts`; devices do not call `layout: 'auto'`.
-`npm run check:bindings` catches `@binding` drift between the FDTD/post layouts and their WGSL, before it surfaces as a runtime bind-group mismatch.
+`npm run check:bindings` catches `@group` / `@binding` drift between every layout and its WGSL, before it surfaces as a runtime bind-group mismatch.
 
 ## Related files
 
@@ -309,6 +367,8 @@ See **`docs/BINDINGS.md`**. Layouts live in `src/pipeline-layout-cache.ts`; devi
 - `src/debug-panel.ts` — GPU timing toggle  
 - `src/visualizer/frame-graph.ts` — pass ordering, lazy-target lifetimes, timestamp slots  
 - `src/visualizer/render-encode.ts` / `render-passes.ts` — the pass list and pass bodies  
-- `src/visualizer/post-targets.ts` — lazily allocated MSAA / SSR / TAA / history targets  
+- `src/visualizer/post-targets.ts` — lazily allocated MSAA / SSR / TAA / history targets
+- `src/visualizer/shadow-map.ts` / `frame-bindings.ts` — key-light shadow map, the scene + shadow frame groups
+- `src/visualizer/uniform-ring.ts` / `pipeline-tiers.ts` / `render-bundles.ts` — per-draw uniform ring, lazy compile tiers, static bundles
 - `src/visualizer/scene-post-buffers.ts` — always-on scene / G-buffer / depth / bloom targets, bind-group rebuilds  
 - `src/device-pipeline-manager.ts` — attaches shared pipelines per device  

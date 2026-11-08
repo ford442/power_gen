@@ -88,6 +88,8 @@ class EnergyPipe {
   private _bindGroups: BindGroupCache;
   private _lastWriteFrame: number;
   private _curveData: Float32Array;
+  /** PipeUniforms staging (color, flow, pulse), rewritten every update. */
+  private readonly _pipeUniformData = new Float32Array(8);
 
   constructor(device: GPUDevice, config: EnergyPipeConfig, visualizer: MultiDeviceVisualizer) {
     this.device = device;
@@ -234,10 +236,10 @@ class EnergyPipe {
     }
 
     if (!this.uniformBuffer) return;
-    this.device.queue.writeBuffer(
-      this.uniformBuffer, 0,
-      new Float32Array([...this._color, this.flowLevel, pulse, 0, 0, 0])
-    );
+    const u = this._pipeUniformData;
+    u[0] = this._color[0]; u[1] = this._color[1]; u[2] = this._color[2];
+    u[3] = this.flowLevel; u[4] = pulse;
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
   }
 
   dispatchCompute(computePass: GPUComputePassEncoder): void {
@@ -249,26 +251,26 @@ class EnergyPipe {
     computePass.dispatchWorkgroups(Math.ceil(this.activeParticleCount / 64));
   }
 
-  render(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer, pipeline: GPURenderPipeline | null | undefined): void {
+  /** Draw into the scene pass; the frame group (@group(0)) is already bound. */
+  render(renderPass: GPURenderPassEncoder, pipeline: GPURenderPipeline | null | undefined): void {
     if (!pipeline || !this.particles || this.flowLevel < 0.02) return;
 
     const cache = this.visualizer?.pipelineCache;
     const bindGroup = this._bindGroups.get('main', () => {
       const entries = [
-        { binding: 0, resource: { buffer: globalUniformBuffer } },
         { binding: 1, resource: { buffer: this.uniformBuffer! } },
         { binding: 2, resource: { buffer: this.particles! } }
       ];
       return cache
         ? cache.createBindGroup('energyPipe', entries, `energy-pipe-bg-${this._colorKey}`)
         : this.device.createBindGroup({
-            layout: pipeline.getBindGroupLayout(0),
+            layout: pipeline.getBindGroupLayout(1),
             entries
           });
     });
 
     renderPass.setPipeline(pipeline);
-    renderPass.setBindGroup(0, bindGroup);
+    renderPass.setBindGroup(1, bindGroup);
     renderPass.draw(4, this.activeParticleCount || this.particleCount);
   }
 }

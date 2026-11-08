@@ -68,7 +68,6 @@ export interface VisualizerFacadeMethods {
   render(timestamp: number): void;
   renderAnomalyWalls(
     renderPass: GPURenderPassEncoder,
-    globalUniformBuffer: GPUBuffer | null,
     segDevice: DeviceInstance | null | undefined
   ): void;
   _encodeTaaResolve(encoder: GPUCommandEncoder, msaaActive: boolean,
@@ -160,8 +159,8 @@ export const facadeMethods: ThisType<Host> & VisualizerFacadeMethods = {
   _rebuildDepthResolveBindGroup() { this.postStack._rebuildDepthResolveBindGroup(); },
 
   render(timestamp) { this.frameLoop.render(timestamp); },
-  renderAnomalyWalls(renderPass, globalUniformBuffer, segDevice) {
-    this.frameLoop.renderAnomalyWalls(renderPass, globalUniformBuffer, segDevice);
+  renderAnomalyWalls(renderPass, segDevice) {
+    this.frameLoop.renderAnomalyWalls(renderPass, segDevice);
   },
   _encodeTaaResolve(encoder, msaaActive, timestampWrites) {
     return this.frameLoop._encodeTaaResolve(encoder, msaaActive, timestampWrites);
