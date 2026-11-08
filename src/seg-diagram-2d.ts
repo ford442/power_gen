@@ -25,6 +25,7 @@ import {
   SEG_LAYOUT_PRESETS
 } from './seg-layout';
 import { explainerState } from './seg-explainer/explainer-state';
+import { onFrame } from './frame-clock';
 import type { SegLayout, SegLayoutRing } from './devices/types';
 
 // Per-ring accent colours (inner → outer). Cyan-family to match the app skin,
@@ -64,7 +65,8 @@ export class SEGDiagram2D {
   canvas!: HTMLCanvasElement;
   ctx!: CanvasRenderingContext2D;
   btn!: HTMLButtonElement;
-  private _raf: number | null;
+  /** Frame-clock unsubscribe while visible. */
+  private _offFrame: (() => void) | null;
   private _dpr: number;
   private _fallbackLayout: SegLayout;
   private _highlightId: string | null;
@@ -81,7 +83,7 @@ export class SEGDiagram2D {
     this.getViz = getVisualizer;
     this.host = opts.host || document.getElementById('canvas-wrapper') || document.body;
     this.visible = false;
-    this._raf = null;
+    this._offFrame = null;
     this._dpr = 1;
     // Fallback layout when no WebGPU visualizer is present (e.g. WebGL2 path
     // that doesn't expose segLayout).
@@ -165,19 +167,14 @@ export class SEGDiagram2D {
     this.canvas.style.display = 'block';
     this._syncBtn();
     this._resize();
-    const loop = () => {
-      if (!this.visible) return;
-      this.draw();
-      this._raf = requestAnimationFrame(loop);
-    };
-    this._raf = requestAnimationFrame(loop);
+    this._offFrame = onFrame(() => this.draw());
   }
 
   hide(): void {
     if (!this.visible) return;
     this.visible = false;
-    if (this._raf) cancelAnimationFrame(this._raf);
-    this._raf = null;
+    this._offFrame?.();
+    this._offFrame = null;
     this.canvas.style.display = 'none';
     this._syncBtn();
   }
