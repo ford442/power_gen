@@ -1643,6 +1643,41 @@ test.describe('WebGPU required boot', () => {
     await waitForEval(page, () => window.currentRenderer === 'webgl2', { timeout: 30_000 });
     await expect(page.locator('#renderer-badge')).toHaveText(/WebGL2 mode/);
   });
+
+  test('hard-fail disables the controls with a reason and traps focus in the card', async ({ page }) => {
+    trackPageErrors(page);
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    const card = page.locator('#webgpu-hard-fail');
+    await expect(card).toBeVisible({ timeout: 30_000 });
+
+    // Focus cannot leave the card: Tab a few more times than it has stops.
+    const inCard = () => page.evaluate(() => document.getElementById('webgpu-hard-fail').contains(document.activeElement));
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      expect(await inCard()).toBe(true);
+    }
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Shift+Tab');
+      expect(await inCard()).toBe(true);
+    }
+
+    // Dismissed: controls stay inert, with a visible explanation outside the inert subtree.
+    await page.keyboard.press('Escape');
+    await expect(card).toBeHidden();
+    await expect(page.locator('#sim-unavailable-note')).toContainText(/Simulation unavailable/);
+    for (const sel of ['#startBtn', '#driveControl', '#mode-button-row', '#lab-mode-switch']) {
+      expect(await page.locator(sel).evaluate((el) => !!el.closest('[inert]')), sel).toBe(true);
+    }
+    expect(await page.locator('#sim-unavailable-note').evaluate((el) => !!el.closest('[inert]'))).toBe(false);
+
+    // Hotkeys do not change state with no renderer.
+    await page.locator('#renderer-badge').focus();
+    await page.keyboard.press('s');
+    await expect(page.locator('#status')).toHaveText('STANDBY');
+
+    // Header is interactive again only because the modal closed.
+    expect(await page.locator('#header').evaluate((el) => el.hasAttribute('inert'))).toBe(false);
+  });
 });
 
 test.describe('gpu-chores exclusive session', () => {
