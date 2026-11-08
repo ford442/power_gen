@@ -2,7 +2,8 @@
 # build-wasm.yml  –  CI pipeline: compile sim_core to WebAssembly
 #
 # Triggers:
-#   • push / PR touching cpp/ or src/wasm/
+#   • push / PR touching cpp/, src/wasm/, generated/*.h, physics/, or the
+#     build/codegen scripts — everything compiled into sim_core.wasm
 #   • manual workflow_dispatch
 #
 # Artefacts:
@@ -17,11 +18,21 @@ on:
     paths:
       - 'cpp/**'
       - 'src/wasm/**'
+      # Compiled into the binary: codegen headers and their sources.
+      - 'generated/*.h'
+      - 'physics/**'
+      - 'scripts/build-wasm.sh'
+      - 'scripts/codegen-*.mjs'
       - '.github/workflows/build-wasm.yml'
   pull_request:
     paths:
       - 'cpp/**'
       - 'src/wasm/**'
+      # Compiled into the binary: codegen headers and their sources.
+      - 'generated/*.h'
+      - 'physics/**'
+      - 'scripts/build-wasm.sh'
+      - 'scripts/codegen-*.mjs'
       - '.github/workflows/build-wasm.yml'
   workflow_dispatch:
 
@@ -75,8 +86,14 @@ jobs:
           node-version-file: '.nvmrc'
           cache: 'npm'
 
-      - name: WASM ABI test
+      # validate.yml tests the *committed* binary; these run on the one just
+      # built, so a physics/ or generated/ edit cannot pass against a stale
+      # sim_core.wasm.
+      - name: WASM ABI test (fresh build)
         run: npm ci && npm run test:wasm-abi
+
+      - name: JS ⇄ WASM golden (fresh build, ADR-0002)
+        run: npm run test:golden
 
       # ── 6b. Size / bench note ─────────────────────────────────
       #    Logs sim_core.js/.wasm raw+gzip bytes and the native

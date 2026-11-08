@@ -100,7 +100,8 @@ npm run test:lab-config  # parser, precedence, #lab=v1 mapping, #lab2= round-tri
 npm run test:experiments # reference experiments headless on wasm + js (docs/EXPERIMENTS.md)
 npm run test:snapshots   # plant snapshots: native + shipped WASM + TS save→load→step bit-identical, JS→C++ cross-load
 npm run test:embed      # embed postMessage validator, origin allowlist, hz clamp, classroom channel
-npm run validate      # constants + catalog + typecheck + native C++ + check:post + WGSL
+npm run validate      # the whole suite — CI runs exactly this (validate.yml)
+npm run check:file-size # 700-line gate on src/** + cpp/src/** (generated/ skipped)
 npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline
 npm run check:post    # post uniform contracts

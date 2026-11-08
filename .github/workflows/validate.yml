@@ -1,5 +1,9 @@
 # =============================================================
-# validate.yml — non-deploy CI: typecheck, native C++ smoke (+ sanitizers), WGSL
+# validate.yml — non-deploy CI
+#
+# `validate` runs `npm run validate` — the whole package.json suite, so CI and
+# the local promise cannot drift (no hand-picked subset here). Add a step to
+# that script, not to this file.
 #
 # Runs on PRs and pushes (does not deploy Pages).
 # Pages deploy remains in static.yml (typecheck + build:site).
@@ -21,8 +25,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  js-ts:
-    name: Typecheck + site build
+  validate:
+    name: npm run validate + site build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -37,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install C++ toolchain (wasm:native, test:snapshots)
+        run: sudo apt-get update && sudo apt-get install -y g++ make
+        
       - name: Physics constants codegen (CI check)
         run: npm run check:constants
 
@@ -72,72 +79,6 @@ jobs:
       - name: Lab share links (#lab= finite/clamped, setpoints survive steps)
         run: npm run test:lab-url
 
-      - name: LabConfig parser, precedence, #lab2= share links
-        run: npm run test:lab-config
-
-      - name: Analysis fits + FFT chore golden (JS ⇄ shipped WASM)
-        run: npm run test:analysis
-
-      - name: Reference experiments headless (expect blocks, wasm + js)
-        run: npm run test:experiments
-
-      - name: Classroom (PWA precache, recorder helpers) + touch camera gestures
-        run: npm run test:classroom && npm run test:camera-gestures
-
-      - name: Embed postMessage protocol, origin allowlist, classroom channel
-        run: npm run test:embed
-
-      - name: Build site (no WASM rebuild)
-        run: npm run build:site
-
-  native-cpp:
-    name: C++ native smoke test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install toolchain
-        run: sudo apt-get update && sudo apt-get install -y g++ make
-
-      - name: Native sim_core smoke test
-        run: npm run wasm:native
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Needs the native binary above: native + shipped-wasm + TS plant
-      # snapshot round trips (bit-identical) and the JS → C++ cross-load.
-      - name: Plant snapshots (save → load → step, every backend)
-        run: npm run test:snapshots
-
-      # Probes for a compiler whose ASan/UBSan runtimes link and run; skips
-      # (exit 0) on images without them, so this never reds a gcc-only job.
-      - name: Native sim_core under ASan + UBSan
-        run: npm run wasm:native:san
-
-      - name: WASM build (only if Emscripten is on PATH)
-        run: |
-          if command -v emcc >/dev/null 2>&1; then
-            echo "emcc found ($(emcc --version | head -1)) — building sim_core WASM"
-            npm run wasm:build
-          else
-            echo "emcc not on PATH — skipping WASM build (native smoke test above already ran)"
-          fi
-
-  wgsl:
-    name: WGSL (naga)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -157,10 +98,42 @@ jobs:
           fi
           naga --version || true
 
-      - name: Check WGSL modules
+      - name: npm run validate
         env:
           REQUIRE_NAGA: '1'
-        run: npm run check:wgsl
+        run: npm run validate
+
+      # validate re-runs every codegen step; a diff means a committed
+      # generated file is stale.
+      - name: Generated files committed
+        run: git diff --exit-code
+
+      - name: Build site (no WASM rebuild)
+        run: npm run build:site
+
+  native-san:
+    name: C++ sanitizers + optional WASM build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y g++ make
+
+      # Probes for a compiler whose ASan/UBSan runtimes link and run; skips
+      # (exit 0) on images without them, so this never reds a gcc-only job.
+      - name: Native sim_core under ASan + UBSan
+        run: npm run wasm:native:san
+
+      - name: WASM build (only if Emscripten is on PATH)
+        run: |
+          if command -v emcc >/dev/null 2>&1; then
+            echo "emcc found ($(emcc --version | head -1)) — building sim_core WASM"
+            npm run wasm:build
+          else
+            echo "emcc not on PATH — skipping WASM build (validate job already ran the native smoke test)"
+          fi
 
   e2e:
     name: Playwright (WebGL2)

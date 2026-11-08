@@ -146,6 +146,12 @@ export interface DeviceInstance {
   _prevEffectBudget?: number;
 }
 
+/**
+ * Every mixin the constructor binds onto a `DeviceInstance`, in bind order.
+ * Exported so `npm run test:device-mixins` binds the same list the app does.
+ */
+export const DEVICE_MIXINS = [DeviceSetupMixin, DeviceRenderMixin, DeviceUpdateMixin] as const;
+
 export function bindMixinFunctions(target: object, mixin: Record<string, unknown>): void {
   for (const [name, value] of Object.entries(mixin)) {
     if (typeof value === 'function') {
@@ -276,7 +282,7 @@ export class DeviceInstance {
     // helpers the mixins call on `this` (`updateDeviceFlowPaths`, the bind-group
     // builders), which threw on the first frame; binding whole mixins keeps the
     // instance surface in step as the mixins grow.
-    for (const mixin of [DeviceSetupMixin, DeviceRenderMixin, DeviceUpdateMixin]) {
+    for (const mixin of DEVICE_MIXINS) {
       bindMixinFunctions(this, mixin as Record<string, unknown>);
     }
     // Static named reads so minifiers cannot DCE helpers that `update()` calls
