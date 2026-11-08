@@ -17,6 +17,7 @@ This file is the **architecture map**. Specialized topics live in linked docs; d
 | **WebGPU scene** | `src/multi-device-visualizer.ts` → `MultiDeviceVisualizer` (GPU backend; plant is `LabSession`) |
 | **WebGL2 fallback** | `src/renderers/webgl2/` → `WebGL2MultiDeviceVisualizer` |
 | **Lab session** | `src/session/lab-session.ts` — operator, WASM plant, telemetry, energy, twin |
+| **Renderer backends** | `main.ts` `await import()`s only the chosen one (`multi-device-visualizer` or `renderers/webgl2`); neither is in the entry chunk |
 | **Renderer choice** | `src/renderers/renderer-selector.ts` |
 | **Lab config** | `config/lab-config.json` → `generated/lab-config.ts`; the one URL / share-hash / storage reader is `src/config/lab-config.ts` — see [`LAB_CONFIG.md`](./LAB_CONFIG.md) |
 | **Embed / classroom** | `src/embed/` — `?embed=1` postMessage endpoint, teacher console on `BroadcastChannel('seg-lab')` — see [`EMBED.md`](./EMBED.md) |
@@ -484,6 +485,7 @@ switch; `#device-readout` is named `"<bench> readout"`.
 |--------|------|
 | `src/main.ts` | Renderer bootstrap, window control API, WASM badge, operator/diagram init |
 | `src/session/lab-session.ts` | Shared lab host: operator, WASM plant, mode, energy network, twin, telemetry |
+| `src/frame-clock.ts` | `onFrame(fn, { hz, signal })` — the one clock UI panels repaint on, ticked by `LabSession.publishFrame`. New panels subscribe here (and unsubscribe when hidden) instead of running their own `requestAnimationFrame` loop |
 | `src/multi-device-visualizer.ts` | WebGPU backend: devices, pipes, bloom, frame encode, glTF |
 | `src/visualizer/*.ts` | Named WebGPU collaborators (not prototype mixins) |
 | `src/webgpu-manager.ts` + `src/webgpu-init/*` | Single adapter/device/canvas/depth path: `adapter.ts` (request + feature/limit negotiation), `canvas.ts` (sizing + `configure`), `device-lost.ts` (hooks + reload overlay); the manager owns `init()` / `reinit()` |

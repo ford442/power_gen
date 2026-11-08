@@ -1,6 +1,7 @@
 import type { PerformanceProfiler } from './performance-profiler';
 import { domMethods } from './debug-panel-dom';
 import { paneMethods } from './debug-panel-panes';
+import { onFrame } from './frame-clock';
 
 export class DebugPanel {
   profiler: PerformanceProfiler;
@@ -9,7 +10,8 @@ export class DebugPanel {
   ctx!: CanvasRenderingContext2D;
   correlationCanvas!: HTMLCanvasElement;
   correlationCtx!: CanvasRenderingContext2D;
-  animationId: number | null;
+  /** Frame-clock unsubscribe while the panel is visible. */
+  private _offFrame: (() => void) | null;
   panel!: HTMLDivElement;
   wasmDiffEnabled?: boolean;
 
@@ -27,7 +29,7 @@ export class DebugPanel {
   constructor(profiler: PerformanceProfiler) {
     this.profiler = profiler;
     this.visible = false;
-    this.animationId = null;
+    this._offFrame = null;
     this.createPanel();
   }
 
@@ -55,20 +57,16 @@ export class DebugPanel {
     this.panel?.remove();
   }
 
+  /** Stats, graphs and readouts at 20 Hz while visible (was every frame). */
   startUpdateLoop(): void {
-    const update = () => {
-      if (!this.visible) return;
-      this.update();
-      this.animationId = requestAnimationFrame(update);
-    };
-    update();
+    this.stopUpdateLoop();
+    this.update();
+    this._offFrame = onFrame(() => this.update(), { hz: 20 });
   }
 
   stopUpdateLoop(): void {
-    if (this.animationId) {
-      cancelAnimationFrame(this.animationId);
-      this.animationId = null;
-    }
+    this._offFrame?.();
+    this._offFrame = null;
   }
 
   private async _updateWasmDiff(): Promise<void> {

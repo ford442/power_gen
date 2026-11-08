@@ -33,6 +33,7 @@ import { stepDevicePhysics, type HeronLayout } from '../renderers/shared/device-
 import { SimRateController, type SimRateLoad } from '../sim-rate-controller';
 import { segOperator } from '../seg-operator-state';
 import { telemetryHub, TelemetryHub } from '../telemetry-hub';
+import { tickFrameClock } from '../frame-clock';
 import { segWasm } from '../wasm/seg-physics-bridge';
 import { collectDeviceEnergies, meterLabEnergy, meterScalarFlux, gpuChores } from '../gpu-chores';
 import { buildHardwareTwinTelemetry } from '../visualizer/hardware-twin';
@@ -357,6 +358,15 @@ export class LabSession {
    * Energy network + hub publish. Call after backend device physics for the frame.
    */
   publishFrame(dt: number, totalParticles: number, extraScientific: PublishFrameScientific = {}): PublishFrameScientific {
+    try {
+      return this._publishFrame(dt, totalParticles, extraScientific);
+    } finally {
+      // UI on its own cadence (src/frame-clock.ts) repaints after this frame's publish.
+      tickFrameClock();
+    }
+  }
+
+  private _publishFrame(dt: number, totalParticles: number, extraScientific: PublishFrameScientific): PublishFrameScientific {
     const omega = this.segOmega || 0;
     const lab = meterLabEnergy(collectDeviceEnergies(this.devices));
     const flux = meterScalarFlux(

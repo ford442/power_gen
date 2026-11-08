@@ -1,6 +1,7 @@
 import { explainerState } from './explainer-state';
 import { glossaryForHighlight, SEG_GLOSSARY } from './seg-glossary';
 import { getMergedDeviceConfig } from '../devices/device-registry';
+import { onFrame } from '../frame-clock';
 
 interface TourCamera {
   position: number[];
@@ -69,7 +70,8 @@ export class SEGTourPlayer {
   stepIndex = 0;
   playing = false;
   private _stepStart = 0;
-  private _raf: number | null = null;
+  /** Frame-clock unsubscribe for the auto-advance check while playing. */
+  private _offFrame: (() => void) | null = null;
   private _onStepEnd: (() => void) | null = null;
   /** The step's live experiment, while it runs. */
   private _run: AbortController | null = null;
@@ -211,7 +213,9 @@ export class SEGTourPlayer {
     document.body.classList.add('seg-tour-active');
     this._enterStep(this.steps[this.stepIndex]);
     this._syncLabHash();
-    this._loop();
+    this._offFrame?.();
+    // Step durations are seconds; checking at 10 Hz is plenty (was every frame).
+    this._offFrame = onFrame(() => this._loop(), { hz: 10 });
     return Promise.resolve();
   }
 
@@ -262,7 +266,8 @@ export class SEGTourPlayer {
     this.playing = false;
     explainerState.tourActive = false;
     explainerState.setHighlight(null);
-    if (this._raf) cancelAnimationFrame(this._raf);
+    this._offFrame?.();
+    this._offFrame = null;
     this._el.style.display = 'none';
     document.body.classList.remove('seg-tour-active');
     this._syncLabHash(null);
@@ -379,10 +384,7 @@ export class SEGTourPlayer {
 
     if (elapsed >= dur && !this._run && !explainerState.reducedMotion) {
       this.next();
-      if (!this.playing) return;
     }
-
-    this._raf = requestAnimationFrame(() => this._loop());
   }
 }
 

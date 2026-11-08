@@ -45,6 +45,7 @@ import {
 } from './devices/quanta/pulse-coil';
 import { parseFdtdEnabled, parseFdtdMaterialsEnabled } from './renderers/shared/url-params';
 import { telemetryHub } from './telemetry-hub';
+import { onFrame } from './frame-clock';
 import type { TelemetrySnapshot } from './telemetry/types';
 
 /** Cells per side. 64² × 2 steps is ~30 k stencil updates/frame on one thread. */
@@ -143,7 +144,8 @@ export class FdtdHeatmapOverlay {
   private readonly frameSources: FdtdSource[];
   private readonly materialMap: Float32Array | null;
   private drive = 0;
-  private raf = 0;
+  /** Frame-clock unsubscribe while the overlay is shown (one grid step per rendered frame). */
+  private offFrame: (() => void) | null = null;
   private unsubscribe: (() => void) | null = null;
   /**
    * Drive the grid aims for, refreshed from every telemetry snapshot. Public so
@@ -203,15 +205,13 @@ export class FdtdHeatmapOverlay {
     this.steps = 0;
     if (this.root) this.root.hidden = false;
     this.active = true;
-    if (!this.raf) this.raf = requestAnimationFrame(() => this.tick());
+    if (!this.offFrame) this.offFrame = onFrame(() => this.step());
   }
 
   private hide(): void {
     this.active = false;
-    if (this.raf) {
-      cancelAnimationFrame(this.raf);
-      this.raf = 0;
-    }
+    this.offFrame?.();
+    this.offFrame = null;
     if (this.root) this.root.hidden = true;
   }
 
@@ -334,15 +334,6 @@ export class FdtdHeatmapOverlay {
       }
     }
     this.ctx.putImageData(img, 0, 0);
-  }
-
-  private tick(): void {
-    if (!this.active) {
-      this.raf = 0;
-      return;
-    }
-    this.step();
-    this.raf = requestAnimationFrame(() => this.tick());
   }
 
   destroy(): void {

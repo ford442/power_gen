@@ -3,6 +3,7 @@
  *
  * Default path: MultiDeviceVisualizer (WebGPU required).
  * WebGL2MultiDeviceVisualizer remains in-tree for explicit ?renderer=webgl2 only —
+ * each backend is a dynamic import, so a visitor downloads only the one it runs;
  * automatic WebGL2 rescue on probe failure is disabled.
  */
 
@@ -10,8 +11,9 @@ import './devices/register-plugins';
 import { assertParticleLayouts } from '../generated/physics-constants.js';
 import { SEGSim } from './wasm/sim';
 import { getSimCoreStatus } from './wasm/index';
-import { MultiDeviceVisualizer } from './multi-device-visualizer.js';
+import type { MultiDeviceVisualizer } from './multi-device-visualizer.js';
 import { LabSession } from './session/lab-session';
+import { onFrame } from './frame-clock';
 import {
   resolveRenderer,
   exposeRenderer,
@@ -21,7 +23,6 @@ import {
 import { initLabConfig, labConfig, persistLabConfig } from './config/lab-config';
 import { installLabApi } from './config/lab-api';
 import { probeWebGPU, showWebGPUHardFail, showBootWarning, type WebGPUProbeResult } from './renderers/webgpu-probe';
-import { WebGL2MultiDeviceVisualizer } from './renderers/webgl2/index.js';
 import { initSEGOperatorPanel } from './seg-operator-panel';
 import { renderModeButtons } from './mode-buttons';
 import { initLabMode, setLabMode, getLabMode } from './lab-mode';
@@ -146,6 +147,7 @@ async function bootstrapVisualizer(): Promise<void> {
       'this path is agent/CI opt-in only.'
     );
     try {
+      const { WebGL2MultiDeviceVisualizer } = await import('./renderers/webgl2/index.js');
       window.multiVisualizer = new WebGL2MultiDeviceVisualizer(session);
       exposeRenderer(canvas, RENDERER_WEBGL2);
       return;
@@ -181,6 +183,7 @@ async function bootstrapVisualizer(): Promise<void> {
   }
 
   try {
+    const { MultiDeviceVisualizer } = await import('./multi-device-visualizer.js');
     const vis = new MultiDeviceVisualizer(session);
     window.multiVisualizer = vis;
     await (vis as MultiDeviceVisualizer & { ready?: Promise<void> }).ready;
@@ -356,10 +359,9 @@ function bootApp(): void {
       } else if (wrap) {
         wrap.style.display = 'none';
       }
-      // Stops once the renderer is gone (showWebGPUHardFail clears it).
-      if (window.currentRenderer) requestAnimationFrame(tickClassroomUi);
     };
-    requestAnimationFrame(tickClassroomUi);
+    // Frame clock: ticks only while a renderer publishes frames.
+    onFrame(tickClassroomUi);
 
     // `.lab.json` drop + classroom (student listener, ?embed=1, ?teacher=1). Lazy.
     import('./config/lab-post-boot').then((m) => m.startLabPostBoot())
