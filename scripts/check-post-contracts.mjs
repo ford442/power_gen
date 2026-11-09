@@ -180,8 +180,10 @@ function check(label, condition, detail) {
   const loop = read('src/visualizer/render-encode.ts');
   check(
     'TAA gate also requires focus mode and ?taa',
-    /gates\?\.taa[\s\S]{0,200}?!this\.isOverviewMode\(\)[\s\S]{0,200}?this\.taaEnabled !== false/.test(loop),
-    'render-encode.ts gate does not check overview mode and the ?taa kill switch'
+    // frameContext(): `overview` is read once from the session, then gates TAA.
+    /const overview = host\.isOverviewMode\(\)/.test(loop)
+      && /const taa = !!postGates\.taa && !overview && host\.taaEnabled !== false/.test(loop),
+    'render-encode.ts frameContext() TAA gate does not check overview mode and the ?taa kill switch'
   );
 }
 

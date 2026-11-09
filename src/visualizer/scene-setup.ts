@@ -7,11 +7,13 @@ import { WebGPUManager } from '../webgpu-manager';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import { bindHostMethods } from './bind-host-methods.js';
 import { scenePostBufferMethods } from './scene-post-buffers.js';
+import { postTargetMethods } from './post-targets.js';
 
 // Re-exported for compatibility — other modules (e.g. render-loop.ts) import
 // these from './scene-setup.js'; the values themselves live in
 // scene-post-buffers.ts, next to the only methods that use them.
-export { SSR_RESOLUTION_SCALE, SSR_PARAMS_BYTES, TAA_PARAMS_BYTES } from './scene-post-buffers.js';
+export { SSR_PARAMS_BYTES, TAA_PARAMS_BYTES } from './scene-post-buffers.js';
+export { SSR_RESOLUTION_SCALE } from './post-targets.js';
 
 type Host = MultiDeviceVisualizer;
 
@@ -267,7 +269,6 @@ export class PostStack {
   setupDepthBuffer: typeof scenePostBufferMethods.setupDepthBuffer;
   _rebuildDepthResolveBindGroup: typeof scenePostBufferMethods._rebuildDepthResolveBindGroup;
   setupDepthResolvePipeline: typeof scenePostBufferMethods.setupDepthResolvePipeline;
-  setupSsrTexture: typeof scenePostBufferMethods.setupSsrTexture;
   _rebuildSsrBindGroup: typeof scenePostBufferMethods._rebuildSsrBindGroup;
   setupSsrPipeline: typeof scenePostBufferMethods.setupSsrPipeline;
   setupBloomTextures: typeof scenePostBufferMethods.setupBloomTextures;
@@ -275,8 +276,11 @@ export class PostStack {
   setupBloomPipeline: typeof scenePostBufferMethods.setupBloomPipeline;
   setupTaaPipeline: typeof scenePostBufferMethods.setupTaaPipeline;
   _rebuildTaaBindGroups: typeof scenePostBufferMethods._rebuildTaaBindGroups;
+  /** Lazy MSAA / SSR / TAA / history targets (post-targets.ts). */
+  readonly targets: typeof postTargetMethods;
 
   constructor(host: MultiDeviceVisualizer) {
+    this.targets = bindHostMethods(postTargetMethods, host);
     const bound = bindHostMethods(sceneSetupMethods, host);
     const boundPostBuffers = bindHostMethods(scenePostBufferMethods, host);
     this.setupIblPrefilter = bound.setupIblPrefilter;
@@ -291,7 +295,6 @@ export class PostStack {
     this.setupDepthBuffer = boundPostBuffers.setupDepthBuffer;
     this._rebuildDepthResolveBindGroup = boundPostBuffers._rebuildDepthResolveBindGroup;
     this.setupDepthResolvePipeline = boundPostBuffers.setupDepthResolvePipeline;
-    this.setupSsrTexture = boundPostBuffers.setupSsrTexture;
     this._rebuildSsrBindGroup = boundPostBuffers._rebuildSsrBindGroup;
     this.setupSsrPipeline = boundPostBuffers.setupSsrPipeline;
     this.setupBloomTextures = boundPostBuffers.setupBloomTextures;

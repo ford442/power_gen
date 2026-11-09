@@ -3,7 +3,7 @@
 // ============================================================================
 // WebGPU resolves multisampled COLOR attachments automatically via
 // `resolveTarget`, but has no equivalent for depth. When 4x MSAA is active
-// (see render-loop.ts `msaaActive`), this fullscreen-triangle pass runs right
+// (see render-encode.ts `frameContext()`), this fullscreen-triangle pass runs right
 // after the main scene pass: it reads sample 0 of the multisampled depth
 // buffer and writes it via @builtin(frag_depth) into a regular single-sample
 // depth texture. SSR (`ssr-compute.wgsl`) and bloom-composite then bind that

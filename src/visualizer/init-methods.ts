@@ -20,6 +20,7 @@ import { initSEGAnnotations } from '../seg-annotations';
 import { gpuChores } from '../gpu-chores';
 import { showWebGPUHardFail, type WebGPUProbeResult } from '../renderers/webgpu-probe';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
+import { postTargetBytes } from './post-targets.js';
 
 type Host = MultiDeviceVisualizer;
 
@@ -112,7 +113,18 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
               bloomLevels: this.bloomChain?.levels ?? 0
             }
           : undefined,
-        gpuMemory: this.profiler?.gpuMemoryEstimate()
+        gpuMemory: (() => {
+          const estimate = this.profiler?.gpuMemoryEstimate();
+          return estimate ? { ...estimate, postTargetBytes: postTargetBytes(estimate.textures) } : undefined;
+        })(),
+        frameGraph: this._frameGraph
+          ? {
+              passes: this._frameGraph.passNames(),
+              ran: this._frameGraphReport?.ran ?? [],
+              allocated: this._frameGraph.allocatedLifetimes(),
+              timed: (this._frameGraphReport?.timedPasses ?? []).map((t) => t.name)
+            }
+          : undefined
       });
 
       window.runSEGSpeedTest = (speeds?: number[], durationMs?: number) => this.runSpeedTest(speeds, durationMs);
@@ -197,13 +209,17 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
       this.iblResources = null;
       this.iblCompute = undefined;
       // _syncCanvasSize skips the depth/bloom rebuild when the size is unchanged
-      // and a depth texture exists, and setupSsrTexture memoises on size — both
-      // would keep the dead device's textures, and every post bind group built
-      // from them fails validation (no frame ever draws after recovery).
+      // and a depth texture exists, and the lazy post targets (post-targets.ts)
+      // only allocate when absent — both would keep the dead device's textures,
+      // and every post bind group built from them fails validation (no frame
+      // ever draws after recovery). The frame graph is rebuilt too, so its
+      // release clocks start fresh.
       this.depthTexture = null;
       this._lastCanvasWidth = 0;
       this._lastCanvasHeight = 0;
-      this.ssrTexture = null;
+      this._destroyAllPostTargets();
+      this._frameGraph = null;
+      this._frameGraphReport = null;
       // Post params + sampler: _syncCanvasSize rebuilds the bloom/SSR/TAA bind
       // groups *before* setup{Bloom,Ssr,Taa}Pipeline recreate these, so live
       // dead-device handles meant one burst of "associated with [Device]"
@@ -243,7 +259,7 @@ export const initMethods: ThisType<Host> & VisualizerInitMethods = {
       });
       await this.pipelineCache.ensureDevicePipelines(this.shaders);
       // 4x MSAA variants (ADR-0005 WS2 showroom pass, `high` tier + focus
-      // mode — see render-loop.ts `msaaActive`), created eagerly here rather
+      // mode — see render-encode.ts `frameContext()`), created eagerly here rather
       // than lazily on first use so the per-frame render loop never awaits
       // pipeline creation. DevicePipelineManager.applyMsaaState() picks
       // between the two per frame.

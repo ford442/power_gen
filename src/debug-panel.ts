@@ -183,6 +183,9 @@ export class DebugPanel {
 
       <div style="color: #888;">GPU Timing:</div>
       <div style="color: ${stats.timingEnabled ? '#4f4' : '#888'};">${stats.timingEnabled ? `On · ${(stats.lastGpuTimeMs || 0).toFixed(2)} ms` : 'Disabled'}</div>
+${stats.timingEnabled ? Object.entries(stats.gpuPassTimesMs || {}).map(([pass, ms]) => `
+      <div style="color: #888; padding-left: 10px;">· ${pass}</div>
+      <div style="color: #0ff;">${ms.toFixed(3)} ms</div>`).join('') : ''}
 
       <div style="color: #888;">Buffer Memory:</div>
       <div style="color: #0ff;">${stats.bufferMemoryMB} MB (${stats.bufferCount} buffers)</div>

@@ -195,6 +195,19 @@ export interface RendererInfoSnapshot {
     textureBytes: number;
     bufferBytes: number;
     textures: Record<string, number>;
+    /** Scene / G-buffer / depth / bloom plus whichever lazy targets are allocated. */
+    postTargetBytes: number;
+  };
+  /** WebGPU only: the frame graph (visualizer/frame-graph.ts) as of the last frame. */
+  frameGraph?: {
+    /** Declared passes, in order. */
+    passes: string[];
+    /** Passes that encoded last frame. */
+    ran: string[];
+    /** Lazy target groups allocated now: msaa / ssr / taa / history. */
+    allocated: string[];
+    /** Passes with GPU timestamps last frame (`?gpuTiming=1` + debug toggle). */
+    timed: string[];
   };
 }
 

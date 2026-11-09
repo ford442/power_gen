@@ -1,19 +1,19 @@
-// Depth buffer, SSR, bloom textures, and TAA — the post-stack's G-buffer /
-// MSAA render-target allocation and bind-group rebuilds. Split out of
-// scene-setup.ts (which keeps sky/floor/IBL/canvas-layout) to stay under the
-// repo's 700-line cap; see ADR-0009 for the bindHostMethods mixin pattern.
+// Depth buffer, SSR, bloom textures, and TAA — the post-stack's always-on
+// render targets (scene colour, G-buffer, single-sample depth, bloom chain) and
+// every bind-group rebuild. The lazily allocated ones (MSAA set, SSR, TAA
+// resolve, history) live in post-targets.ts and are driven by the frame graph.
+// Split out of scene-setup.ts (which keeps sky/floor/IBL/canvas-layout) to stay
+// under the repo's 700-line cap; see ADR-0009 for the bindHostMethods mixin
+// pattern.
 import { WebGPUManager, DEPTH_FORMAT } from '../webgpu-manager';
 import { packPostUniforms } from '../seg-lighting-presets';
-import { SSR_FORMAT, MATERIAL_GBUFFER_FORMAT, type BindGroupLayoutName } from '../pipeline-layout-cache';
+import { MATERIAL_GBUFFER_FORMAT, type BindGroupLayoutName } from '../pipeline-layout-cache';
 import { writeQueueBuffer } from '../gpu-buffer-write';
 import { postOutputTransfer } from '../webgpu-init/color-pipeline';
 import { BloomChain } from './bloom-chain';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 
 type Host = MultiDeviceVisualizer;
-
-/** SSR runs at half resolution; the composite samples it with linear filtering. */
-export const SSR_RESOLUTION_SCALE = 0.5;
 
 /** Bytes of the SsrParams uniform block — see passes/ssr-compute.wgsl. */
 export const SSR_PARAMS_BYTES = 176;
@@ -25,7 +25,6 @@ export const scenePostBufferMethods: ThisType<Host> & {
   setupDepthBuffer(): Promise<void>;
   _rebuildDepthResolveBindGroup(): void;
   setupDepthResolvePipeline(): Promise<void>;
-  setupSsrTexture(): void;
   _rebuildSsrBindGroup(): void;
   setupSsrPipeline(): Promise<void>;
   setupBloomTextures(): void;
@@ -39,8 +38,9 @@ export const scenePostBufferMethods: ThisType<Host> & {
     const { width, height } = WebGPUManager.canvasPixelSize(this.canvas);
     const depthFormat = this.depthFormat || this.webgpu.depthFormat || DEPTH_FORMAT;
     if (this.depthTexture) this.depthTexture.destroy();
-    if (this.depthMsaaTexture) this.depthMsaaTexture.destroy();
-    if (this.depthResolvedTexture) this.depthResolvedTexture.destroy();
+    // The MSAA set (4× depth + resolved depth) is sized with the scene: drop it
+    // and let the frame graph reallocate it the next frame that needs it.
+    this._destroyPostTarget('msaa');
 
     this.depthTexture = this.device.createTexture({
       label: 'scene-depth',
@@ -49,72 +49,23 @@ export const scenePostBufferMethods: ThisType<Host> & {
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
     });
     // Full aspect for render attachment; depth-only for shader sampling (bloom contact shadow).
-    this.depthAttachmentView = this.depthTexture.createView();
-    this.depthSampleView = this.depthTexture.createView({ aspect: 'depth-only' });
+    this.depthAttachmentView = this.depthTexture.createView({ label: 'scene-depth' });
+    this.depthSampleView = this.depthTexture.createView({ label: 'scene-depth-sample', aspect: 'depth-only' });
     this.profiler.trackTexture('depthBuffer', width, height, depthFormat);
-
-    // 4x MSAA depth (ADR-0005 WS2 showroom pass, `high` tier + focus mode
-    // only — see render-loop.ts `msaaActive`). WebGPU has no automatic
-    // resolveTarget for depth, so `depth-resolve.wgsl` manually resolves
-    // this into `depthResolvedTexture` (single-sample) each MSAA frame,
-    // which SSR/bloom then read exactly as they read `depthTexture` today.
-    this.depthMsaaTexture = this.device.createTexture({
-      label: 'scene-depth-msaa4',
-      size: [width, height, 1],
-      format: depthFormat,
-      sampleCount: 4,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
-    });
-    this.depthMsaaAttachmentView = this.depthMsaaTexture.createView();
-    this.depthMsaaSampleView = this.depthMsaaTexture.createView({ aspect: 'depth-only' });
-    this.depthResolvedTexture = this.device.createTexture({
-      label: 'scene-depth-resolved',
-      size: [width, height, 1],
-      format: depthFormat,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
-    });
-    this.depthResolvedAttachmentView = this.depthResolvedTexture.createView();
-    this.depthResolvedSampleView = this.depthResolvedTexture.createView({ aspect: 'depth-only' });
-    this.profiler.trackTexture('depthMsaa', width, height, depthFormat, 4);
-    this.profiler.trackTexture('depthResolved', width, height, depthFormat);
     this._rebuildDepthResolveBindGroup();
-  },
-
-  /**
-   * (Re)allocate the half-res SSR reflection target. Kept allocated even when
-   * the quality tier gates SSR off, because bloomComposite always binds it —
-   * the pass is simply not dispatched and `ssrStrength` packs to 0.
-   */
-  setupSsrTexture() {
-    const { width: w, height: h } = WebGPUManager.canvasPixelSize(this.canvas);
-    const sw = Math.max(1, Math.floor(w * SSR_RESOLUTION_SCALE));
-    const sh = Math.max(1, Math.floor(h * SSR_RESOLUTION_SCALE));
-
-    if (this.ssrTexture && this.ssrWidth === sw && this.ssrHeight === sh) return;
-    if (this.ssrTexture) this.ssrTexture.destroy();
-
-    this.ssrWidth = sw;
-    this.ssrHeight = sh;
-    this.ssrTexture = this.device.createTexture({
-      label: 'ssr-reflection',
-      size: [sw, sh],
-      format: SSR_FORMAT,
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
-    });
-    this.ssrTextureView = this.ssrTexture.createView();
-    this.profiler?.trackTexture?.('ssrReflection', sw, sh, SSR_FORMAT);
-    // Stale bind groups reference the destroyed texture.
-    this.ssrBindGroup = null;
   },
 
   /**
    * SSR compute bind group(s) — depend on depth + scene textures, so rebuilt
    * on resize. Two variants: `ssrBindGroup` binds the regular single-sample
    * depth; `ssrBindGroupResolved` binds `depthResolvedTexture` (ADR-0005 WS2
-   * MSAA path — see render-loop.ts `msaaActive`) so SSR never has to know
+   * MSAA path — see render-encode.ts `frameContext()`) so SSR never has to know
    * whether MSAA ran this frame, just which bind group to pick.
    */
   _rebuildSsrBindGroup() {
+    // No reflection target (SSR gated off / released): nothing to bind.
+    this.ssrBindGroup = null;
+    this.ssrBindGroupResolved = null;
     if (!this.pipelineCache || !this.ssrTextureView || !this.depthSampleView
         || !this.bloomSceneTexture || !this.bloomSampler || !this.ssrParamsBuffer
         || !this.materialGBufferView) {
@@ -143,6 +94,7 @@ export const scenePostBufferMethods: ThisType<Host> & {
 
   /** Manual MSAA depth-resolve bind group — depends on depthMsaaTexture, so rebuilt on resize. */
   _rebuildDepthResolveBindGroup() {
+    this._depthResolveBindGroup = null;
     if (!this.pipelineCache || !this.depthMsaaSampleView) return;
     this._depthResolveBindGroup = this.pipelineCache.createBindGroup('depthResolve', [
       { binding: 0, resource: this.depthMsaaSampleView }
@@ -173,7 +125,6 @@ export const scenePostBufferMethods: ThisType<Host> & {
     });
     this.profiler.trackBuffer('ssr-params', SSR_PARAMS_BYTES, GPUBufferUsage.UNIFORM);
 
-    this.setupSsrTexture();
     try {
       this.ssrPipeline = await cache.ensureSsrPipeline(this.shaders.ssrComputeShader);
     } catch (e) {
@@ -196,12 +147,12 @@ export const scenePostBufferMethods: ThisType<Host> & {
 
     if (this.bloomSceneTexture) this.bloomSceneTexture.destroy();
     if (this.materialGBufferTexture) this.materialGBufferTexture.destroy();
-    if (this.sceneMsaaTexture) this.sceneMsaaTexture.destroy();
-    if (this.materialGBufferMsaaTexture) this.materialGBufferMsaaTexture.destroy();
     if (this.bloomBlurTexture)  this.bloomBlurTexture.destroy();
     if (this.bloomTempTexture)  this.bloomTempTexture.destroy();
-    if (this.prevSceneTexture)  this.prevSceneTexture.destroy();
-    if (this.taaResolveTexture) this.taaResolveTexture.destroy();
+    // Lazy targets (MSAA, SSR, TAA, history) are sized with the scene: drop
+    // them all; the frame graph reallocates whichever next frame's passes use.
+    this._destroyAllPostTargets();
+    this._setupPostPlaceholders();
     this.bloomBlurTexture = null;
     this.bloomTempTexture = null;
     this.profiler?.untrackTextures(['bloomBlur', 'bloomTemp', 'bloomChain']);
@@ -233,29 +184,6 @@ export const scenePostBufferMethods: ThisType<Host> & {
     this.materialGBufferView = this.materialGBufferTexture.createView();
     this.profiler?.trackTexture?.('materialGBuffer', w, h, MATERIAL_GBUFFER_FORMAT);
 
-    // 4x MSAA scene color + G-buffer (`high` tier + focus mode only — see
-    // render-loop.ts `msaaActive`). Render-attachment only: both resolve
-    // automatically into bloomSceneTexture/materialGBufferTexture above via
-    // `resolveTarget`, so neither needs TEXTURE_BINDING usage.
-    this.sceneMsaaTexture = this.device.createTexture({
-      label: 'scene-color-msaa4',
-      size: [w, h],
-      format: fmt,
-      sampleCount: 4,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT
-    });
-    this.sceneMsaaView = this.sceneMsaaTexture.createView();
-    this.materialGBufferMsaaTexture = this.device.createTexture({
-      label: 'material-gbuffer-msaa4',
-      size: [w, h],
-      format: MATERIAL_GBUFFER_FORMAT,
-      sampleCount: 4,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT
-    });
-    this.materialGBufferMsaaView = this.materialGBufferMsaaTexture.createView();
-    this.profiler?.trackTexture?.('sceneMsaa', w, h, fmt, 4);
-    this.profiler?.trackTexture?.('materialGBufferMsaa', w, h, MATERIAL_GBUFFER_FORMAT, 4);
-
     if (legacyBloom) {
       // Legacy (?color=legacy) full-resolution extract → blurX → blurY.
       this.bloomChain?.destroy();
@@ -283,29 +211,6 @@ export const scenePostBufferMethods: ThisType<Host> & {
       this.profiler?.trackTexture?.('bloomChain', mip0.width, mip0.height, bloomFmt, 1,
         this.bloomChain.byteSize);
     }
-    this.prevSceneTexture = this.device.createTexture({
-      label: 'prev-scene',
-      size: [w, h], format: fmt,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
-    });
-    this.profiler?.trackTexture?.('prevScene', w, h, fmt);
-    // TAA resolve target (ADR-0005 WS2). Kept allocated at every tier because
-    // the bloom bind groups reference it; the pass is simply not encoded when
-    // the tier / mode / `?taa=0` gate is off, and bloom then reads the raw
-    // scene bind groups instead. COPY_SRC because the resolved frame becomes
-    // next frame's history in prevSceneTexture.
-    this.taaResolveTexture = this.device.createTexture({
-      label: 'taa-resolve',
-      size: [w, h], format: fmt,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT
-        | GPUTextureUsage.TEXTURE_BINDING
-        | GPUTextureUsage.COPY_SRC
-    });
-    this.taaResolveView = this.taaResolveTexture.createView();
-    this.profiler?.trackTexture?.('taaResolve', w, h, fmt);
-    // The new history is uninitialised — do not blend against it.
-    this._taaHistoryValid = false;
-
     if (this.bloomParamsBuffer) {
       writeQueueBuffer(
         this.device,
@@ -321,25 +226,32 @@ export const scenePostBufferMethods: ThisType<Host> & {
         })
       );
     }
-    this.setupSsrTexture();
-    this._rebuildBloomBindGroups();
-    this._rebuildSsrBindGroup();
-    this._rebuildTaaBindGroups();
+    this._rebindPostTargets();
   },
 
   /** Cached bloom bind groups — recreated when bloom textures resize. */
   _rebuildBloomBindGroups() {
-    if (!this.pipelineCache || !this.bloomSceneTexture || !this.prevSceneTexture
-        || !this.bloomSampler || !this.bloomParamsBuffer || !this.depthSampleView
-        || !this.ssrTextureView) {
+    // Released targets bind a 1×1 stand-in (post-targets.ts): the composite
+    // always binds history and SSR, and only weights them when they ran.
+    const historyTex = this.prevSceneTexture ?? this._postPlaceholderHistory;
+    const ssrTex = this.ssrTexture ?? this._postPlaceholderSsr;
+    if (!this.pipelineCache || !this.bloomSceneTexture || !historyTex || !ssrTex
+        || !this.bloomSampler || !this.bloomParamsBuffer || !this.depthSampleView) {
       return;
     }
+    const historyView = historyTex.createView({ label: historyTex.label });
+    const ssrView = this.ssrTextureView ?? ssrTex.createView({ label: ssrTex.label });
+    // Variants whose input is not allocated must not survive from an earlier build.
+    this.bloomExtractBindGroupTaa = null;
+    this.bloomCompositeBindGroupTaa = null;
+    this.bloomCompositeBindGroupResolved = null;
+    this.bloomCompositeBindGroupResolvedTaa = null;
     const cache = this.pipelineCache;
     const paramsBuf = this.bloomParamsBuffer;
     const sampler = this.bloomSampler;
     const mk = (name: BindGroupLayoutName, entries: GPUBindGroupEntry[], label: string) =>
       cache.createBindGroup(name, entries, label);
-    const sceneView = this.bloomSceneTexture.createView();
+    const sceneView = this.bloomSceneTexture.createView({ label: 'scene-color' });
 
     // What the composite reads as "bloom": the legacy blurred temp target, or
     // mip 0 of the linear pipeline's chain (the sum of every level).
@@ -402,8 +314,8 @@ export const scenePostBufferMethods: ThisType<Host> & {
         { binding: 2, resource: sampler },
         { binding: 3, resource: { buffer: paramsBuf } },
         { binding: 4, resource: depth },
-        { binding: 5, resource: this.prevSceneTexture!.createView() },
-        { binding: 6, resource: this.ssrTextureView! }
+        { binding: 5, resource: historyView },
+        { binding: 6, resource: ssrView }
       ], label);
 
     this.bloomCompositeBindGroup = composite(sceneView, this.depthSampleView, 'bloom-composite-bg');
@@ -503,6 +415,9 @@ export const scenePostBufferMethods: ThisType<Host> & {
    * manually resolved depth instead.
    */
   _rebuildTaaBindGroups() {
+    // TAA reads the history, so it has no bind group while history is released.
+    this.taaBindGroup = null;
+    this.taaBindGroupResolved = null;
     if (!this.pipelineCache || !this.bloomSceneTexture || !this.prevSceneTexture
         || !this.bloomSampler || !this.depthSampleView || !this.taaParamsBuffer) {
       return;

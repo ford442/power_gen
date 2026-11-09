@@ -14,6 +14,8 @@ import type { IblPrefilterCompute } from '../ibl-prefilter-gpu';
 import type { FdtdSlicePass } from '../devices/quanta/fdtd-slice-pass';
 import type { getPostQualityGates } from '../post-processing-config';
 import type { BloomChain, BloomChainPipelines } from './bloom-chain';
+import type { FrameGraph, FrameGraphReport } from './frame-graph';
+import type { FrameCtx } from './render-encode';
 import type {
   MeshBuffers,
   VertexOnlyBuffers,
@@ -124,7 +126,7 @@ export interface VisualizerHostFields {
   depthTexture?: GPUTexture | null;
   depthAttachmentView?: GPUTextureView | null;
   depthSampleView?: GPUTextureView | null;
-  /** 4x MSAA scene attachments (ADR-0005 WS2, `high` tier + focus only) — see render-loop.ts `msaaActive`. */
+  /** 4x MSAA scene attachments (ADR-0005 WS2, `high` tier + focus only) — allocated lazily by post-targets.ts. */
   sceneMsaaTexture?: GPUTexture | null;
   sceneMsaaView?: GPUTextureView | null;
   materialGBufferMsaaTexture?: GPUTexture | null;
@@ -193,6 +195,16 @@ export interface VisualizerHostFields {
   _taaPrevViewProj?: Float32Array | null;
   /** Whether the TAA pass actually ran this frame (picks the bloom bind groups). */
   _taaActive?: boolean;
+  /** False until prevSceneTexture holds a copied frame — motion blur waits for it. */
+  _historyValid?: boolean;
+
+  // ── Frame graph (visualizer/frame-graph.ts, render-encode.ts) ──────────
+  _frameGraph?: FrameGraph<FrameCtx> | null;
+  /** Last frame's report: passes run, timed slots, lifetimes allocated / released. */
+  _frameGraphReport?: FrameGraphReport | null;
+  /** 1×1 stand-ins bound in place of a released history / SSR target (post-targets.ts). */
+  _postPlaceholderHistory?: GPUTexture | null;
+  _postPlaceholderSsr?: GPUTexture | null;
 
   _canvasResizeObserver?: ResizeObserver | null;
   /** device-pixel-content-box observer on the canvas itself — see webgpu-init/canvas.ts. */

@@ -11,7 +11,7 @@ export interface DevicePipelineOptions {
   /**
    * 1 (default) or 4. The 4x variant is a second, otherwise-identical
    * GPURenderPipeline for the ADR-0005 WS2 showroom MSAA path (`high` tier +
-   * focus mode — see render-loop.ts `msaaActive`) — created eagerly here
+   * focus mode — see render-encode.ts `frameContext()`) — created eagerly here
    * rather than lazily on first use, so the per-frame render loop never has
    * to await pipeline creation mid-frame. Cache keys get a `_msaa4` suffix;
    * layouts are unaffected (only `multisample` differs).
