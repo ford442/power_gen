@@ -2,8 +2,8 @@
 #include "common/pipe-particle.wgsl"
 
 @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-@binding(1) @group(0) var<uniform> pipe: PipeUniforms;
-@binding(2) @group(0) var<storage> particles: array<PipeParticle>;
+@binding(1) @group(1) var<uniform> pipe: PipeUniforms;
+@binding(2) @group(1) var<storage> particles: array<PipeParticle>;
 
 struct VertexOutput {
   @builtin(position) position: vec4f,

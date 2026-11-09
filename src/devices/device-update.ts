@@ -97,7 +97,7 @@ export const DeviceUpdateMixin = {
     if (typeof this._computeEnergyLevel === 'function') {
       this._computeEnergyLevel(deltaTime);
     }
-    this.uniformManager.updateUniforms(this.position, this.rotation, this.renderMode, this.energyLevel);
+    this.uniformManager.updateUniforms(this.energyLevel);
     // Named helpers are bound in DeviceInstance; skip if a minified bundle dropped them.
     if (typeof this.updateDeviceFlowPaths === 'function') {
       this.updateDeviceFlowPaths(deltaTime);
@@ -158,27 +158,32 @@ export const DeviceUpdateMixin = {
     smoothEnergyLevel(this, deviceEnergy, deltaTime);
   },
 
-  _buildDeviceUniformData: function (
+  /**
+   * Pack DeviceUniforms (common/device-uniforms.wgsl, 12 × f32) for this
+   * device into `out` at float `base` — the uniform ring's mirror
+   * (device-render.ts `_deviceUniformOffset`). Writes in place: no
+   * Float32Array per draw.
+   */
+  _packDeviceUniforms: function (
     this: DeviceInstanceLike,
+    out: Float32Array,
+    base: number,
     renderMode: number,
     yOffset = 0.0
-  ): Float32Array<ArrayBuffer> {
-    const ringIndex = this.getRingIndex();
+  ): void {
     const extras = runBuildUniformExtras(this);
-    return new Float32Array([
-      renderMode,
-      this.position[0],
-      this.position[1] + yOffset,
-      this.position[2],
-      Math.sin(this.rotation[1] / 2),
-      0,
-      Math.cos(this.rotation[1] / 2),
-      1.0,
-      this.energyLevel,
-      ringIndex,
-      extras.batteryCharge ?? 0,
-      extras.solarFlag ?? 0
-    ]);
+    out[base] = renderMode;
+    out[base + 1] = this.position[0];
+    out[base + 2] = this.position[1] + yOffset;
+    out[base + 3] = this.position[2];
+    out[base + 4] = Math.sin(this.rotation[1] / 2);
+    out[base + 5] = 0;
+    out[base + 6] = Math.cos(this.rotation[1] / 2);
+    out[base + 7] = 1.0;
+    out[base + 8] = this.energyLevel;
+    out[base + 9] = this.getRingIndex();
+    out[base + 10] = extras.batteryCharge ?? 0;
+    out[base + 11] = extras.solarFlag ?? 0;
   },
 
   updateEmitterEffects: function (

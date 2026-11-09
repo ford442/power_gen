@@ -3,8 +3,8 @@
 #include "common/particle.wgsl"
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(4) @group(0) var<storage, read> particles: array<GpuParticle>;
+      @binding(1) @group(1) var<uniform> device: DeviceUniforms;
+      @binding(4) @group(1) var<storage, read> particles: array<GpuParticle>;
       
       struct VertexOutput {
         @builtin(position) position: vec4f,

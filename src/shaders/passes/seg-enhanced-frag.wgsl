@@ -30,19 +30,24 @@ struct Uniforms {
       }
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(3) @group(0) var<uniform> material: MaterialUniforms;
+      @binding(1) @group(1) var<uniform> device: DeviceUniforms;
+      @binding(3) @group(1) var<uniform> material: MaterialUniforms;
       @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
       // Prefiltered GGX environment (2D array: roughness levels + irradiance),
       // baked at startup by src/ibl-prefilter.js. Declared ahead of the PBR
       // chunks because pbr-eval.wgsl samples these globals directly.
       @binding(7) @group(0) var iblEnvTex: texture_2d_array<f32>;
       @binding(8) @group(0) var iblEnvSampler: sampler;
+      // Key-light shadow map (#225 §4) — see common/shadow-pcf.wgsl.
+      @binding(9) @group(0) var shadowMap: texture_depth_2d;
+      @binding(10) @group(0) var shadowSampler: sampler_comparison;
+      @binding(11) @group(0) var<uniform> shadow: ShadowUniforms;
 
       #include "common/pbr-lighting.wgsl"
       #include "common/pbr-surface.wgsl"
       #include "common/pbr-brdf.wgsl"
       #include "common/pbr-eval.wgsl"
+      #include "common/shadow-pcf.wgsl"
 
       // LightingConfig comes from the chunk above; the PBR helpers take it as a
       // parameter, so this binding can follow them.
@@ -288,7 +293,9 @@ struct Uniforms {
         let B = cross(N, T);
         let albedo = mix(baseColor, vec3f(0.0), metallic);
 
-        var color = evaluatePBR(N, V, albedo, metallic, roughness, T, B, lighting, useAniso);
+        let keyVis = keyLightVisibility(input.worldPos, normalize(input.normal),
+                                        lightDirFromPos(lighting.key.posOrDir));
+        var color = evaluatePBR(N, V, albedo, metallic, roughness, T, B, lighting, useAniso, keyVis);
 
         // PBR-friendly emissive / corona (additive after lighting)
         let NdotV = max(dot(N, V), 0.0);

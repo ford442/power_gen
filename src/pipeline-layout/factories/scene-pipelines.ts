@@ -11,7 +11,7 @@ export async function ensureEnergyPipePipeline(
   const sampleCount = opts.sampleCount ?? 1;
   const suffix = sampleCount === 4 ? '_msaa4' : '';
   return cache.getOrCreatePipeline(`energyPipe${suffix}`, () =>
-    cache.device.createRenderPipeline({
+    cache.device.createRenderPipelineAsync({
       label: `energyPipePipeline${suffix}`,
       layout: cache.getPipelineLayout('energyPipe'),
       vertex: {
@@ -41,7 +41,7 @@ export async function ensureEnergyPipeComputePipeline(
   const key = `energyPipeCompute_${hashString(code)}`;
   let pipeline = cache.pipelines.get(key) as GPUComputePipeline | undefined;
   if (!pipeline) {
-    pipeline = cache.device.createComputePipeline({
+    pipeline = await cache.device.createComputePipelineAsync({
       label: 'energyPipeComputePipeline',
       layout: cache.getPipelineLayout('energyPipeCompute'),
       compute: {
@@ -63,7 +63,7 @@ export async function ensureOverviewCullPipeline(
 ): Promise<GPUComputePipeline> {
   const code = shaders.overviewCullComputeShader;
   return cache.getOrCreatePipeline(`overviewCull_${hashString(code)}`, () =>
-    cache.device.createComputePipeline({
+    cache.device.createComputePipelineAsync({
       label: 'overviewCullPipeline',
       layout: cache.getPipelineLayout('overviewCull'),
       compute: {
@@ -82,7 +82,7 @@ export async function ensureSkyPipeline(
   const sampleCount = opts.sampleCount ?? 1;
   const suffix = sampleCount === 4 ? '_msaa4' : '';
   return cache.getOrCreatePipeline(`sky${suffix}`, () =>
-    cache.device.createRenderPipeline({
+    cache.device.createRenderPipelineAsync({
       label: `skyPipeline${suffix}`,
       layout: cache.getPipelineLayout('sky'),
       vertex: {
@@ -111,9 +111,9 @@ export async function ensureGridPipeline(
   const sampleCount = opts.sampleCount ?? 1;
   const suffix = sampleCount === 4 ? '_msaa4' : '';
   return cache.getOrCreatePipeline(`grid${suffix}`, () =>
-    cache.device.createRenderPipeline({
+    cache.device.createRenderPipelineAsync({
       label: `gridPipeline${suffix}`,
-      layout: cache.getPipelineLayout('empty'),
+      layout: cache.getPipelineLayout('grid'),
       vertex: {
         module: cache.shaderModule('grid-vert', shaders.gridVertShader),
         entryPoint: 'main',
@@ -142,7 +142,7 @@ export async function ensureAnomalyWallPipeline(
   const sampleCount = opts.sampleCount ?? 1;
   const suffix = sampleCount === 4 ? '_msaa4' : '';
   return cache.getOrCreatePipeline(`anomalyWall${suffix}`, () =>
-    cache.device.createRenderPipeline({
+    cache.device.createRenderPipelineAsync({
       label: `anomalyWallPipeline${suffix}`,
       layout: cache.getPipelineLayout('anomalyWall'),
       vertex: {
@@ -175,7 +175,7 @@ export async function ensureDepthResolvePipeline(
 ): Promise<GPURenderPipeline> {
   const code = shaders.depthResolveShader;
   return cache.getOrCreatePipeline('depthResolve', () =>
-    cache.device.createRenderPipeline({
+    cache.device.createRenderPipelineAsync({
       label: 'depthResolvePipeline',
       layout: cache.getPipelineLayout('depthResolve'),
       vertex: {
@@ -215,7 +215,7 @@ export async function ensureBloomPipelines(
     entryPoint: string,
     target: GPUColorTargetState
   ) => cache.getOrCreatePipeline(key, () =>
-    cache.device.createRenderPipeline({
+    cache.device.createRenderPipelineAsync({
       label: key,
       layout: cache.getPipelineLayout(layout),
       vertex: { module: vertModule, entryPoint: 'main' },

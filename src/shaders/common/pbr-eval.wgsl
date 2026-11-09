@@ -176,8 +176,13 @@ struct PBRResult {
     return (specular + diffuse) * lighting.envMapStrength * ao;
   }
 
+  /**
+   * `keyVis` scales the key light's direct terms only (1 = unshadowed) — the
+   * key-light shadow map's PCF result (common/shadow-pcf.wgsl). Fill, rim,
+   * ambient and IBL are not shadowed by it.
+   */
   fn evaluatePBR(N: vec3f, V: vec3f, albedo: vec3f, metallic: f32, roughness: f32,
-                 T: vec3f, B: vec3f, lighting: LightingConfig, aniso: bool) -> vec3f {
+                 T: vec3f, B: vec3f, lighting: LightingConfig, aniso: bool, keyVis: f32) -> vec3f {
     let f0 = mix(vec3f(0.04), albedo, metallic);
     let roughX = roughness * 0.55;
     let roughY = roughness * 1.45;
@@ -186,7 +191,7 @@ struct PBRResult {
     let Lf = lightDirFromPos(lighting.fill.posOrDir);
     let specK = specularGGX(N, V, Lk, T, B, roughness, roughX, roughY, f0, aniso);
     let specF = specularGGX(N, V, Lf, T, B, roughness, roughX, roughY, f0, aniso);
-    let specular = specK * lighting.key.color * lighting.key.intensity +
+    let specular = specK * lighting.key.color * lighting.key.intensity * keyVis +
                    specF * lighting.fill.color * lighting.fill.intensity * 0.45;
 
     let NdotLk = max(dot(N, Lk), 0.0);
@@ -196,7 +201,7 @@ struct PBRResult {
     let kDk = (vec3f(1.0) - Fk) * (1.0 - metallic);
     let kDf = (vec3f(1.0) - Ff) * (1.0 - metallic);
     let diffuse = albedo * 3.14159265 * (
-      kDk * NdotLk * lighting.key.color * lighting.key.intensity +
+      kDk * NdotLk * lighting.key.color * lighting.key.intensity * keyVis +
       kDf * NdotLf * lighting.fill.color * lighting.fill.intensity * 0.4
     );
 

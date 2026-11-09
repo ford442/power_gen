@@ -21,6 +21,10 @@
  *  6. Leaving the showroom view releases the MSAA set after the hysteresis,
  *     and the profiler's tracked bytes drop with it.
  *  7. Timing on: every encoded GPU pass gets a timestamp slot.
+ *  8. Lazy pipeline tiers (#225 §3): the first high/focus frame runs without
+ *     MSAA / shadow while they compile; overview never compiles MSAA or the
+ *     shadow casters. Key-light shadow (#225 §4): focus/high only, depth-only
+ *     casters, one 2048² depth32float map, survives a canvas resize.
  *
  * Usage: node scripts/test-frame-graph.mjs   (exit 1 on failure)
  */
@@ -53,7 +57,11 @@ const result = await esbuild.build({
       "export { renderEncodeMethods, POST_TARGET_RELEASE_FRAMES } from './src/visualizer/render-encode.ts';",
       "export { postTargetMethods, postTargetBytes } from './src/visualizer/post-targets.ts';",
       "export { scenePostBufferMethods } from './src/visualizer/scene-post-buffers.ts';",
-      "export { BloomChain } from './src/visualizer/bloom-chain.ts';"
+      "export { BloomChain } from './src/visualizer/bloom-chain.ts';",
+      "export { PipelineTiers } from './src/visualizer/pipeline-tiers.ts';",
+      "export { ShadowMap, SHADOW_MAP_SIZE } from './src/visualizer/shadow-map.ts';",
+      "export { FrameBindings } from './src/visualizer/frame-bindings.ts';",
+      "export { UniformRing } from './src/visualizer/uniform-ring.ts';"
     ].join('\n'),
     resolveDir: ROOT,
     loader: 'ts'
@@ -70,7 +78,8 @@ const result = await esbuild.build({
 });
 const {
   FrameGraph, FrameGraphOrderError, renderEncodeMethods, POST_TARGET_RELEASE_FRAMES,
-  postTargetMethods, postTargetBytes, scenePostBufferMethods, BloomChain
+  postTargetMethods, postTargetBytes, scenePostBufferMethods, BloomChain,
+  PipelineTiers, ShadowMap, SHADOW_MAP_SIZE, FrameBindings, UniformRing
 } = await import(`data:text/javascript,${encodeURIComponent(result.outputFiles[0].text)}`);
 
 const failures = [];
@@ -258,6 +267,7 @@ function mockDevice() {
     createTexture: tex,
     createBuffer: (d) => ({ label: d.label, size: d.size, destroy() {} }),
     createSampler: () => ({}),
+    createBindGroup: (d) => ({ label: d.label, entries: d.entries }),
     createCommandEncoder: () => mockEncoder(),
     /** Last data written per buffer label (post uniforms are checked below). */
     writes: new Map(),
@@ -289,15 +299,43 @@ function mockProfiler() {
   };
 }
 
-function mockHost({ tier = 'high', overview = false } = {}) {
+/** A focused bench: records what the shadow and scene passes asked of it. */
+function mockBench() {
+  const log = [];
+  const pm = {
+    variant: 'base',
+    applyPassVariant(v) { this.variant = v; log.push(`variant:${v}`); },
+    applyMsaaState(on) { this.variant = on ? 'msaa4' : 'base'; }
+  };
+  return {
+    id: 'seg', position: [0, 0, 0], config: {}, pipelineManager: pm, log,
+    render: () => log.push(`render:${pm.variant}`),
+    renderShadowCasters: () => log.push(`casters:${pm.variant}`)
+  };
+}
+
+function mockHost({ tier = 'high', overview = false, readyTiers = true } = {}) {
   const device = mockDevice();
   const profiler = mockProfiler();
   profiler.qualityTier = tier;
   profiler.postQualityTier = tier;
   const pipeline = { label: 'pipe' };
+  const compiled = [];
+  const compile = (name) => () => { compiled.push(name); return Promise.resolve({ label: name }); };
   const host = {
     device,
     profiler,
+    compiled,
+    currentView: 'seg',
+    time: 0,
+    lightingConfig: { key: { position: [6, 9, 7] }, shadowStrength: 0.6 },
+    shaders: {},
+    globalUniformBuffer: { label: 'globals' },
+    segLayoutUniformBuffer: { label: 'seg-layout' },
+    lightingUniformBuffer: { label: 'lighting' },
+    materialTableBuffer: { label: 'materials' },
+    iblResources: { view: { label: 'ibl' }, sampler: {} },
+    _rebuildDepthResolveBindGroup() {},
     canvas: { width: 64, height: 32, clientWidth: 64, clientHeight: 32 },
     webgpu: { depthFormat: 'depth24plus' },
     depthFormat: 'depth24plus',
@@ -311,7 +349,16 @@ function mockHost({ tier = 'high', overview = false } = {}) {
       sceneFormat: 'rg11b10ufloat',
       bloomFormat: 'rg11b10ufloat',
       colorTargets: { mode: 'linear', hdrOutput: false, outputFormat: 'bgra8unorm-srgb', shaderEncodesOutput: false },
-      createBindGroup: (_name, entries, label) => ({ label, entries })
+      createBindGroup: (_name, entries, label) => ({ label, entries }),
+      ensureSkyPipeline: compile('sky'),
+      ensureGridPipeline: compile('grid'),
+      ensureAnomalyWallPipeline: compile('anomaly'),
+      ensureEnergyPipePipeline: compile('energyPipe'),
+      ensureDepthResolvePipeline: compile('depthResolve'),
+      ensureDevicePipelines: (_s, o) => compile(o?.sampleCount === 4 ? 'device_msaa4' : 'device')(),
+      ensureSsrPipeline: compile('ssr'),
+      ensureTaaResolvePipeline: compile('taa'),
+      ensureShadowCasterPipelines: compile('shadowCasters')
     },
     cameraController: {
       getViewProjMatrix: () => new Float32Array(16),
@@ -320,8 +367,7 @@ function mockHost({ tier = 'high', overview = false } = {}) {
     },
     isOverviewMode: () => overview,
     render() {},
-    // Pipelines the gates check for.
-    depthResolvePipeline: pipeline,
+    // Pipelines the gates check for (the lazy tiers set the rest).
     taaPipeline: pipeline,
     ssrPipeline: pipeline,
     bloomCompositePipeline: pipeline,
@@ -332,6 +378,16 @@ function mockHost({ tier = 'high', overview = false } = {}) {
   };
   Object.assign(host, postTargetMethods, scenePostBufferMethods, renderEncodeMethods);
   host.renderAnomalyWalls = () => {};
+  host.devices = { seg: mockBench() };
+  host.uniformRing = new UniformRing(device, { slots: 8 });
+  host.pipelineTiers = new PipelineTiers(host);
+  host.shadowMap = new ShadowMap(host);
+  host.frameBindings = new FrameBindings(host);
+  // Most sections test the graph, not compile latency: mark every tier ready.
+  if (readyTiers) {
+    for (const t of ['msaa', 'ssr', 'taa', 'shadow']) host.pipelineTiers.states[t] = 'ready';
+    host.depthResolvePipeline = pipeline;
+  }
   host.setupDepthBuffer();
   host.bloomChain = new BloomChain(device, 'rg11b10ufloat');
   host.bloomChainPipelines = { prefilter: pipeline, downsample: pipeline, upsample: pipeline };
@@ -345,7 +401,7 @@ const frame = (host) => host._encodeFrame(host.profiler, { label: 'globals' }, {
 
 const matrix = [
   // tier, overview, expected passes, expected lazy targets
-  ['high', false, 'compute,scene,depth-resolve,taa,ssr,bloom,composite,history', 'msaa,ssr,taa,history'],
+  ['high', false, 'compute,shadow,scene,depth-resolve,taa,ssr,bloom,composite,history', 'msaa,shadow,ssr,taa,history'],
   ['high', true, 'compute,scene,ssr,bloom,composite', 'ssr'],
   ['medium', false, 'compute,scene,bloom,composite', ''],
   ['medium', true, 'compute,scene,bloom,composite', ''],
@@ -415,9 +471,12 @@ for (const [tier, overview, passes, lazy] of matrix) {
   // Resize drops every lazy target; the next frame brings back what it uses.
   host.setupDepthBuffer();
   host.setupBloomTextures();
-  check('resize: nothing lazy left', host._frameGraph.allocatedLifetimes().length === 0);
+  check('resize: only the (canvas-independent) shadow map is left',
+    host._frameGraph.allocatedLifetimes().join() === 'shadow', host._frameGraph.allocatedLifetimes().join());
   frame(host);
-  check('resize: next frame reallocates', host._frameGraph.allocatedLifetimes().sort().join() === 'history,msaa,ssr,taa');
+  check('resize: next frame reallocates',
+    host._frameGraph.allocatedLifetimes().sort().join() === 'history,msaa,shadow,ssr,taa',
+    host._frameGraph.allocatedLifetimes().sort().join());
 }
 
 // 7. Timing: every encoded GPU pass gets a slot.
@@ -427,8 +486,58 @@ for (const [tier, overview, passes, lazy] of matrix) {
   frame(host);
   const timed = host._frameGraphReport.timedPasses.map((t) => t.name).join();
   check('timing: every GPU pass is timed (history is a copy)',
-    timed === 'compute,scene,depth-resolve,taa,ssr,bloom,composite', timed);
+    timed === 'compute,shadow,scene,depth-resolve,taa,ssr,bloom,composite', timed);
   check('timing: profiler got the slot map', host.profiler.lastTimed?.join() === timed);
+}
+
+// 8. Lazy tiers + the key-light shadow.
+{
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  const host = mockHost({ tier: 'high', readyTiers: false });
+  frame(host);
+  check('first focus/high frame: no MSAA, no shadow while compiling',
+    !host._frameGraphReport.ran.includes('shadow') && !host._frameGraphReport.ran.includes('depth-resolve'),
+    host._frameGraphReport.ran.join());
+  check('…tiers started', ['msaa', 'shadow'].every((t) => host.pipelineTiers.state(t) === 'compiling'));
+  await settle();
+  frame(host);
+  check('after compile: shadow + MSAA run', ['shadow', 'depth-resolve'].every((p) => host._frameGraphReport.ran.includes(p)),
+    host._frameGraphReport.ran.join());
+  check('msaa tier compiled every 4× variant + depth resolve, once',
+    ['device_msaa4', 'sky', 'grid', 'anomaly', 'energyPipe', 'depthResolve'].every((n) => host.compiled.includes(n))
+    && host.compiled.filter((n) => n === 'device_msaa4').length === 1, host.compiled.join());
+
+  const bench = host.devices.seg;
+  check('casters drawn with the depth-only variant, then back to base',
+    bench.log.includes('casters:shadow') && bench.log.at(-1) !== 'variant:shadow'
+    && !bench.log.includes('render:shadow'), bench.log.join());
+  const map = [...host.device.live].find((t) => t.label === 'shadow-map');
+  check('one 2048² depth32float map', !!map && map.format === 'depth32float'
+    && [...host.device.live].filter((t) => t.label === 'shadow-map').length === 1);
+  check('map tracked as a post target', (host.profiler.tracked.get('shadowMap') ?? 0) === SHADOW_MAP_SIZE * SHADOW_MAP_SIZE * 4);
+  const su = host.device.writes.get('shadow-uniforms');
+  check('receivers see enabled = 1 and strength = lightingConfig.shadowStrength',
+    su?.[16] === 1 && Math.abs(su[19] - 0.6) < 1e-6, `${su?.[16]} / ${su?.[19]}`);
+  const sceneFrame = host.frameBindings.sceneGroup();
+  check('scene frame group samples the real map',
+    sceneFrame.entries.find((e) => e.binding === 9).resource.texture === map);
+  check('shadow-pass frame group: light Uniforms + placeholder map',
+    host.frameBindings.shadowGroup().entries.find((e) => e.binding === 0).resource.buffer.label === 'shadow-caster-uniforms'
+    && host.frameBindings.shadowGroup().entries.find((e) => e.binding === 9).resource.texture.label === 'shadow-map-placeholder');
+
+  // Medium tier focus: pass off, receivers told so.
+  host.profiler.qualityTier = 'medium';
+  frame(host);
+  check('medium: no shadow pass', !host._frameGraphReport.ran.includes('shadow'));
+  check('medium: receivers see enabled = 0', host.device.writes.get('shadow-uniforms')?.[16] === 0);
+
+  const ov = mockHost({ tier: 'high', overview: true, readyTiers: false });
+  frame(ov); await settle(); frame(ov); frame(ov);
+  check('overview/high: no shadow pass, ever', !ov._frameGraphReport.ran.includes('shadow'));
+  check('overview never compiles MSAA or shadow casters',
+    ov.pipelineTiers.state('msaa') === 'idle' && ov.pipelineTiers.state('shadow') === 'idle'
+    && !ov.compiled.includes('device_msaa4') && !ov.compiled.includes('shadowCasters'), ov.compiled.join());
+  check('overview: no shadow map texture', ![...ov.device.live].some((t) => t.label === 'shadow-map'));
 }
 
 if (failures.length) {

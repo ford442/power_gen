@@ -1,5 +1,6 @@
 /** Named bind group layouts — keep in sync with docs/BINDINGS.md. */
 export type BindGroupLayoutName =
+  | 'frame'
   | 'roller'
   | 'particle'
   | 'segEnhanced'
@@ -16,7 +17,6 @@ export type BindGroupLayoutName =
   | 'choresReduce'
   | 'fluxTracer'
   | 'sky'
-  | 'empty'
   | 'anomalyWall'
   | 'bloomExtract'
   | 'bloomBlur'
@@ -29,11 +29,14 @@ export type BindGroupLayoutName =
   | 'fdtdCompute'
   | 'fdtdSlice';
 
-export type PipelineLayoutName = BindGroupLayoutName | 'emptyGroups';
+/**
+ * Pipeline layouts share their bind group layout's name. Scene pipelines are
+ * `[frame, <own>]`; `grid` has no group of its own, so it is `[frame]` alone.
+ */
+export type PipelineLayoutName = Exclude<BindGroupLayoutName, 'frame'> | 'grid';
 
 export interface LayoutRegistrar {
   readonly device: GPUDevice;
   bgl(name: BindGroupLayoutName, entries: readonly GPUBindGroupLayoutEntry[]): void;
   pl(name: PipelineLayoutName, bglNames: BindGroupLayoutName[]): void;
-  setEmptyGroupsPipeline(layout: GPUPipelineLayout): void;
 }

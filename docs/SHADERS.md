@@ -61,6 +61,11 @@ Syntax (line-oriented, paths relative to `src/shaders/`):
   imports before the browser sees them.
 - **Node / CI:** `loadWgslFile()` / `resolveWgsl()` in `wgsl-include.js`.
 - Nested includes are allowed; cycles throw.
+- **Include guard:** a file is expanded at most once per top-level source. A
+  repeat `#include` (direct or via another chunk) becomes a
+  `// ---- include X skipped (already included) ----` marker, so two chunks may
+  both include `common/frame-uniforms.wgsl`. The Vite plugin calls the same
+  `resolveWgsl`, so the bundle and CI expand identically.
 - Include fragments without `@vertex` / `@fragment` / `@compute` are not
   validated alone (they have no entry points).
 

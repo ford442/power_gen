@@ -93,7 +93,6 @@ export class FdtdSlicePass {
   private sliceParamsBuffer: GPUBuffer | null = null;
   private computeBindGroup: GPUBindGroup | null = null;
   private sliceBindGroup: GPUBindGroup | null = null;
-  private sliceBindGroupGlobals: GPUBuffer | null = null;
 
   /** Fields hold a previous session's wave; zero them before the next open frame. */
   private needsClear = true;
@@ -247,13 +246,14 @@ export class FdtdSlicePass {
   }
 
   /** Draw the panel inside the scene pass (after opaque device meshes). */
-  draw(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer, msaaActive: boolean): void {
+  draw(renderPass: GPURenderPassEncoder, msaaActive: boolean): void {
     if (!this.active) return;
     const pipeline = msaaActive ? this.sliceMsaa4 : this.sliceBase;
-    const bindGroup = this.sliceBindGroupFor(globalUniformBuffer);
+    const bindGroup = this.sliceBindGroupFor();
     if (!pipeline || !bindGroup) return;
     renderPass.setPipeline(pipeline);
-    renderPass.setBindGroup(0, bindGroup);
+    // @group(0) is the scene's frame group, bound once by the scene pass.
+    renderPass.setBindGroup(1, bindGroup);
     renderPass.draw(6);
   }
 
@@ -269,13 +269,12 @@ export class FdtdSlicePass {
     this.sliceBindGroup = null;
   }
 
-  private sliceBindGroupFor(globals: GPUBuffer): GPUBindGroup | null {
+  private sliceBindGroupFor(): GPUBindGroup | null {
     const cache = this.host.pipelineCache;
     if (!cache || !this.ez || !this.hx || !this.hy || !this.materialBuffer
       || !this.paramsBuffer || !this.sliceParamsBuffer) return null;
-    if (this.sliceBindGroup && this.sliceBindGroupGlobals === globals) return this.sliceBindGroup;
+    if (this.sliceBindGroup) return this.sliceBindGroup;
     this.sliceBindGroup = cache.createBindGroup('fdtdSlice', [
-      { binding: 0, resource: { buffer: globals } },
       { binding: 1, resource: { buffer: this.sliceParamsBuffer } },
       { binding: 2, resource: { buffer: this.paramsBuffer } },
       { binding: 3, resource: { buffer: this.ez } },
@@ -283,7 +282,6 @@ export class FdtdSlicePass {
       { binding: 5, resource: { buffer: this.hy } },
       { binding: 6, resource: { buffer: this.materialBuffer } }
     ], 'fdtd-slice-bg');
-    this.sliceBindGroupGlobals = globals;
     return this.sliceBindGroup;
   }
 }

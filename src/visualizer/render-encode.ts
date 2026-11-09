@@ -4,10 +4,12 @@
 // per-pass timestamps. Pass bodies live in render-passes.ts, except TAA and
 // SSR, whose parameter uploads stay here next to their gates.
 //
-//   compute → scene (1× | 4× MSAA) → depth-resolve → taa → ssr → bloom
-//           → composite → history
+//   compute → shadow → scene (1× | 4× MSAA) → depth-resolve → taa → ssr
+//           → bloom → composite → history
 //
-// WebGL2 does not use the graph (ADR-0001).
+// Pipelines a gate needs beyond the boot set (MSAA, SSR, TAA, shadow casters)
+// compile the first frame the gate would open (pipeline-tiers.ts); until they
+// land the gate stays shut. WebGL2 does not use the graph (ADR-0001).
 import { getPostQualityGates } from '../post-processing-config';
 import { writeQueueBuffer } from '../gpu-buffer-write';
 import { SSR_PARAMS_BYTES, TAA_PARAMS_BYTES } from './scene-setup.js';
@@ -19,8 +21,10 @@ import {
   encodeDepthResolve,
   encodeHistoryCopy,
   encodeScene,
+  encodeShadow,
   speedMotionBlur
 } from './render-passes';
+import type { ShadowFit } from './shadow-map';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { DeviceInstance } from '../device-instance.js';
 import type { PerformanceProfiler } from '../performance-profiler';
@@ -48,6 +52,12 @@ const TAA_HISTORY_WEIGHT = 0.9;
  */
 export const POST_TARGET_RELEASE_FRAMES = 120;
 
+// Parameter uploads reuse one array each: the render loop allocates no
+// Float32Array per frame or per draw (#225 §3 acceptance).
+const wallParams = new Float32Array(6);
+const taaParams = new Float32Array(TAA_PARAMS_BYTES / 4);
+const ssrParams = new Float32Array(SSR_PARAMS_BYTES / 4);
+
 /** Per-frame inputs and gates. Passes may clear a gate when they bail. */
 export interface FrameCtx {
   profiler: PerformanceProfiler;
@@ -61,6 +71,10 @@ export interface FrameCtx {
   postGates: ReturnType<typeof getPostQualityGates>;
   /** 4× MSAA scene: `high` tier + focus (`'ultra'` is never assigned by auto-quality). */
   msaa: boolean;
+  /** Key-light shadow map: `high` tier + focus; the focused bench and its fit. */
+  shadow: boolean;
+  shadowDevice: RenderDevice | null;
+  shadowFit: ShadowFit | null;
   taa: boolean;
   ssr: boolean;
   /** Which bloom encode runs, or null when gated off (the composite still tonemaps). */
@@ -86,14 +100,23 @@ function frameContext(
   const postGates = getPostQualityGates(profiler.postQualityTier || 'high');
   host._postQualityGates = postGates;
 
-  const msaa = profiler.qualityTier === 'high' && !overview
-    && !!host.depthResolvePipeline && !!host.bloomSceneTexture;
+  const tiers = host.pipelineTiers!;
+  const msaa = profiler.qualityTier === 'high' && !overview && !!host.bloomSceneTexture
+    && tiers.ready('msaa') && !!host.depthResolvePipeline;
+
+  // Key-light shadow (#225 §4): same gate as MSAA — `high` tier, focus view.
+  // Overview never encodes the pass (nor compiles its pipelines).
+  const focused = overview ? null : (host.devices[host.currentView] as RenderDevice | undefined) ?? null;
+  const shadow = profiler.qualityTier === 'high' && !!focused && !!host.shadowMap
+    && base.isDeviceVisible(focused) && tiers.ready('shadow');
+  const shadowFit = shadow ? host.shadowMap!.fitFor(focused!) : null;
 
   // TAA: high/ultra tier, focus only, `?taa=0` forces it off. Reprojects with
   // the camera's own matrices (no velocity buffer — see passes/taa-resolve.wgsl).
   const taa = !!postGates.taa && !overview && host.taaEnabled !== false
-    && !!host.taaPipeline && !!host.taaParamsBuffer && !!host.cameraController
-    && !!host.bloomSceneTexture && !!host.bloomSampler && !!host.depthSampleView;
+    && !!host.taaParamsBuffer && !!host.cameraController
+    && !!host.bloomSceneTexture && !!host.bloomSampler && !!host.depthSampleView
+    && tiers.ready('taa') && !!host.taaPipeline;
   if (!taa) {
     // Whatever is in the history belongs to a frame the next TAA frame cannot
     // trust, so make the first frame back a reset.
@@ -103,8 +126,9 @@ function frameContext(
 
   // SSR: high/ultra tier; `?ssr=0` forces it off.
   const ssr = host.ssrEnabled !== false && postGates.ssr > 0
-    && !!host.ssrPipeline && !!host.ssrParamsBuffer && !!host.materialGBufferView
-    && !!host.bloomSceneTexture && !!host.bloomSampler && !!host.depthSampleView;
+    && !!host.ssrParamsBuffer && !!host.materialGBufferView
+    && !!host.bloomSceneTexture && !!host.bloomSampler && !!host.depthSampleView
+    && tiers.ready('ssr') && !!host.ssrPipeline;
 
   const chainReady = !!(host.bloomChain && host.bloomChainPipelines);
   const legacyReady = !!(host.bloomExtractPipeline && host.bloomBlurPipeline
@@ -125,6 +149,9 @@ function frameContext(
     overview,
     postGates,
     msaa,
+    shadow,
+    shadowDevice: shadow ? focused : null,
+    shadowFit,
     taa,
     ssr,
     bloom,
@@ -158,6 +185,7 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
     .addResource('ssrColor', { lifetime: life.ssr })
     // Last frame's image: valid at frame start, written at the end.
     .addResource('history', { imported: true, lifetime: life.history })
+    .addResource('shadowMap', { lifetime: host.shadowMap!.lifetime() })
     .addResource('bloom')
     .addResource('canvas');
 
@@ -165,8 +193,18 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
     writes: ['simBuffers'],
     encode: (encoder, res, ctx) => encodeCompute(host, encoder, ctx, res)
   });
-  graph.addPass('scene', {
+  // Before the scene: receivers sample the map through the frame group.
+  graph.addPass('shadow', {
+    enabled: (ctx) => ctx.shadow,
     reads: ['simBuffers'],
+    writes: ['shadowMap'],
+    encode: (encoder, res, ctx) => {
+      ctx.shadow = encodeShadow(host, encoder, ctx, res);
+      return ctx.shadow;
+    }
+  });
+  graph.addPass('scene', {
+    reads: (ctx) => (ctx.shadow ? ['simBuffers', 'shadowMap'] : ['simBuffers']),
     // MSAA resolves colour + G-buffer into the single-sample targets; depth
     // has no resolveTarget, so the plain depth is not written on those frames.
     writes: (ctx) => (ctx.msaa
@@ -234,7 +272,6 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
 export const renderEncodeMethods: ThisType<Host> & {
   renderAnomalyWalls(
     renderPass: GPURenderPassEncoder,
-    globalUniformBuffer: GPUBuffer | null,
     segDevice: DeviceInstance | null | undefined
   ): void;
   _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean,
@@ -253,7 +290,6 @@ export const renderEncodeMethods: ThisType<Host> & {
 } = {
   renderAnomalyWalls(
     renderPass: GPURenderPassEncoder,
-    _globalUniformBuffer: GPUBuffer | null,
     segDevice: DeviceInstance | null | undefined
   ) {
     if (!this.anomalyWallPipeline || !this.magneticWallBuffer || !segDevice) return;
@@ -267,15 +303,14 @@ export const renderEncodeMethods: ThisType<Host> & {
     const shellCount = quality < 0.6 ? 3 : 5;
 
     // WallParams: intensity, shellCount, innerRadius, spacing, shellThickness, height
-    this.device.queue.writeBuffer(
-      this.anomalyWallParamsBuffer, 0,
-      new Float32Array([envelope, shellCount, 1.6, 0.55, 0.06, 8.0])
-    );
+    wallParams[0] = envelope; wallParams[1] = shellCount; wallParams[2] = 1.6;
+    wallParams[3] = 0.55; wallParams[4] = 0.06; wallParams[5] = 8.0;
+    writeQueueBuffer(this.device, this.anomalyWallParamsBuffer, wallParams);
 
     const bindGroup = this.anomalyWallBindGroup;
     if (!bindGroup) return;
     renderPass.setPipeline(this.anomalyWallPipeline);
-    renderPass.setBindGroup(0, bindGroup);
+    renderPass.setBindGroup(1, bindGroup);
     renderPass.setVertexBuffer(0, this.magneticWallBuffer.vertexBuffer);
     renderPass.setIndexBuffer(this.magneticWallBuffer.indexBuffer, 'uint16');
     renderPass.drawIndexed(this.magneticWallBuffer.indexCount, 1);
@@ -306,7 +341,7 @@ export const renderEncodeMethods: ThisType<Host> & {
     // the history texture happens to hold.
     const historyValid = this._taaHistoryValid === true && !!prevViewProj;
 
-    const params = new Float32Array(TAA_PARAMS_BYTES / 4);
+    const params = taaParams;
     params.set(invViewProj, 0);
     params.set(prevViewProj ?? viewProj, 16);
     params[32] = 1 / Math.max(this.canvas.width || 1, 1);   // texelSize
@@ -329,9 +364,10 @@ export const renderEncodeMethods: ThisType<Host> & {
     pass.draw(3);
     pass.end();
 
-    // Cache this frame's matrix for the next reprojection. Copy it: the
-    // camera hands back a fresh array today, but this must not depend on that.
-    this._taaPrevViewProj = new Float32Array(viewProj);
+    // Cache this frame's matrix for the next reprojection. Copy it into a
+    // kept array: the camera hands back a fresh one today, but this must not
+    // depend on that.
+    (this._taaPrevViewProj ??= new Float32Array(16)).set(viewProj);
     return true;
   },
 
@@ -351,7 +387,7 @@ export const renderEncodeMethods: ThisType<Host> & {
     const proj = this.cameraController.getProjMatrix();
     const invProj = this.cameraController.invertMatrix(proj);
 
-    const params = new Float32Array(SSR_PARAMS_BYTES / 4);
+    const params = ssrParams;
     params.set(invProj, 0);
     params.set(proj, 16);
     params[32] = this.ssrWidth || 1;          // outSize
@@ -365,7 +401,7 @@ export const renderEncodeMethods: ThisType<Host> & {
     params[40] = 1.0;                         // strength (gate applied on the composite)
     params[41] = 0.12;                        // edgeFade
     params[42] = 0.85;                        // jitter
-    this.device.queue.writeBuffer(this.ssrParamsBuffer, 0, params);
+    writeQueueBuffer(this.device, this.ssrParamsBuffer, params);
 
     const pass = encoder.beginComputePass({ label: 'ssr', timestampWrites });
     pass.setPipeline(this.ssrPipeline);
@@ -393,6 +429,14 @@ export const renderEncodeMethods: ThisType<Host> & {
     profiler.taaActive = ctx.taa;
     this._taaActive = ctx.taa;
     this._ssrActive = ctx.ssr;
+    this._shadowActive = ctx.shadow;
+
+    // Per-frame uploads that must see what the graph decided: receivers only
+    // sample the map on frames the shadow pass encoded, and the uniform ring
+    // goes up in one writeBuffer after every draw picked its slot. Both land
+    // on the queue before the submit below.
+    this.shadowMap?.upload(ctx.shadow, ctx.shadowFit);
+    this.uniformRing?.flush();
 
     profiler.endFrameCpu();
     this.device.queue.submit([encoder.finish({ label: 'frame' })]);

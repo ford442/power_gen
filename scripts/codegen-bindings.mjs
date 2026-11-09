@@ -3,7 +3,8 @@
  * codegen-bindings.mjs
  *
  * Reads src/pipeline-layout/bind-group-schema.json (source of truth for every
- * `@group(0)` bind group layout) and emits:
+ * bind group layout — the scene pass's shared `frame` @group(0) and each
+ * pipeline's own group) and emits:
  *   src/pipeline-layout/generated/bind-group-layouts.ts
  *
  * The layout registrars (`src/pipeline-layout/layouts/*.ts`) pass those
@@ -36,12 +37,15 @@ export const KINDS = {
   'texture-array': () => `texture: { sampleType: 'float', viewDimension: '2d-array' }`,
   'storage-texture': (fmt) => `storageTexture: { access: 'write-only', format: '${fmt}', viewDimension: '2d' }`,
   'storage-texture-array': (fmt) => `storageTexture: { access: 'write-only', format: '${fmt}', viewDimension: '2d-array' }`,
-  sampler: () => `sampler: { type: 'filtering' }`
+  sampler: () => `sampler: { type: 'filtering' }`,
+  'sampler-comparison': () => `sampler: { type: 'comparison' }`
 };
 
 export function loadSchema() {
   const schema = JSON.parse(readFileSync(SCHEMA_PATH, 'utf8'));
   for (const [name, layout] of Object.entries(schema.layouts)) {
+    const group = layout.group ?? 0;
+    if (!Number.isInteger(group) || group < 0 || group > 3) throw new Error(`${name}: bad group ${layout.group}`);
     const seen = new Set();
     for (const [binding, stages, kind, fmt] of layout.entries) {
       if (seen.has(binding)) throw new Error(`${name}: duplicate binding ${binding}`);
@@ -85,6 +89,12 @@ function render(schema) {
     }
     lines.push('  ],');
   }
+  lines.push('};', '');
+  lines.push(
+    '/** `@group()` index each layout fills — scene pipelines are [frame (0), own (1)]. */',
+    'export const BGL_GROUP: Readonly<Record<SchemaBindGroupLayoutName, number>> = {'
+  );
+  for (const name of names) lines.push(`  ${name}: ${schema.layouts[name].group ?? 0},`);
   lines.push('};', '');
   return lines.join('\n');
 }

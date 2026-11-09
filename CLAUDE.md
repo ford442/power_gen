@@ -101,6 +101,7 @@ npm run test:experiments # reference experiments headless on wasm + js (docs/EXP
 npm run test:snapshots   # plant snapshots: native + shipped WASM + TS save→load→step bit-identical, JS→C++ cross-load
 npm run test:embed      # embed postMessage validator, origin allowlist, hz clamp, classroom channel
 npm run test:frame-clock # UI frame clock: hz throttle, unsubscribe, LabSession.publishFrame tick
+npm run test:uniform-ring # per-draw uniform ring, key-light shadow fit, render-bundle replay
 npm run validate      # the whole suite — CI runs exactly this (validate.yml)
 npm run check:file-size # 700-line gate on src/** + cpp/src/** (generated/ skipped)
 npm run build:site    # no Emscripten

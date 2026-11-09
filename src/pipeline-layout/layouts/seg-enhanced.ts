@@ -4,10 +4,10 @@ import { BGL } from '../generated/bind-group-layouts.js';
 /** SEG PBR mesh + SEG compute passes (roller, field advect, flux tracer). */
 export function registerSegEnhancedLayouts(r: LayoutRegistrar): void {
   r.bgl('roller', BGL.roller);
-  r.pl('roller', ['roller']);
+  r.pl('roller', ['frame', 'roller']);
 
   r.bgl('segEnhanced', BGL.segEnhanced);
-  r.pl('segEnhanced', ['segEnhanced']);
+  r.pl('segEnhanced', ['frame', 'segEnhanced']);
 
   r.bgl('rollerCompute', BGL.rollerCompute);
   r.pl('rollerCompute', ['rollerCompute']);

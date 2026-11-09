@@ -1,6 +1,10 @@
 /**
  * DeviceUniformManager - Manages uniform buffer setup and updates for device instances
- * Handles: device uniforms, material uniforms, core material buffers, coil material buffers
+ * Handles: material uniforms, core material buffers, coil material buffers.
+ *
+ * DeviceUniforms (pose / renderMode / energy) are not a per-device buffer any
+ * more: they live in the visualizer's uniform ring, one slot per part
+ * (devices/device-render.ts `_deviceUniformOffset`, #225 §3).
  */
 import { getDeviceModeIndex } from './devices/device-registry';
 import { writeQueueBuffer } from './gpu-buffer-write';
@@ -14,7 +18,6 @@ class DeviceUniformManager {
   config: DeviceInstanceConfig;
   visualizer: VisualizerLike;
 
-  deviceUniformBuffer!: GPUBuffer;
   materialUniformBuffer!: GPUBuffer;
   coreMaterialBuffer: GPUBuffer | null = null;
   gaugeInstanceBuffer: GPUBuffer | null = null;
@@ -25,6 +28,10 @@ class DeviceUniformManager {
   renderMode = 0;
   /** State for battery charge (solar device) */
   batteryCharge = 0.5;
+  /** Reused MaterialUniforms upload (solar rewrites it every frame). */
+  private readonly _materialData = new Float32Array(8);
+  /** Solar gauge instance staging, rewritten every frame. */
+  private readonly _gaugeData = new Float32Array(12);
 
   constructor(device: GPUDevice, id: string, config: DeviceInstanceConfig, visualizer: VisualizerLike) {
     this.device = device;
@@ -38,13 +45,10 @@ class DeviceUniformManager {
   }
 
   async setupUniforms(): Promise<void> {
-    // DeviceUniforms: 48 bytes (12 x f32) - canonical unified struct
-    // [0] renderMode, [1-3] position, [4-7] rotation, [8] timeScale, [9] ringIndex, [10] batteryCharge, [11] isSolar
-    this.deviceUniformBuffer = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.materialUniformBuffer = this.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.renderMode = 0;  // 0=rollers, 1=base, 2=stator, 3=wiring
 
-    this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-uniforms`, 80, GPUBufferUsage.UNIFORM);
+    this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-material`, 48, GPUBufferUsage.UNIFORM);
 
     // Battery gauge instance buffer used by solar device
     if (this.id === 'solar') {
@@ -132,47 +136,19 @@ class DeviceUniformManager {
     }
   }
 
-  updateUniforms(position: ArrayLike<number>, rotation: ArrayLike<number>, renderMode = 0, energyLevel = 0.0): void {
-    // Determine ring index for shaders: 0=SEG, 1=Heron, 2=Kelvin, 3=Solar, 4=Peltier, 5=MHD
-    const ringIndex = this.getRingIndex();
-
-    // Battery charge for solar device (0..1) passed via the padding slot
-    if (this.id === 'solar' && this.batteryCharge === undefined) {
-      this.batteryCharge = 0.5;
-    }
-
-    const deviceData = new Float32Array([
-      renderMode,                           // [0] renderMode
-      position[0],                          // [1] posX
-      position[1],                          // [2] posY
-      position[2],                          // [3] posZ
-      Math.sin(rotation[1] / 2),            // [4] rotation.x (quaternion)
-      0,                                    // [5] rotation.y
-      Math.cos(rotation[1] / 2),            // [6] rotation.z
-      1.0,                                  // [7] rotation.w
-      energyLevel,                          // [8] energyLevel (reuses timeScale slot)
-      ringIndex,                            // [9] ringIndex
-      this.id === 'solar' ? this.batteryCharge : 0,  // [10] batteryCharge
-      this.id === 'solar' ? 1 : 0           // [11] isSolar
-    ]);
-    writeQueueBuffer(this.device, this.deviceUniformBuffer, deviceData);
-
-    if (this.id === 'solar') {
-      // Update material buffer to reflect battery charge
-      const baseColor = authoredColor(
-        this.config.color ?? [0.7, 0.7, 0.75],
-        this.visualizer.pipelineCache?.colorTargets.mode
-      );
-      const glowColor = [1.0, 0.9, 0.4];
-      const emission = 1.2 + energyLevel * 1.8;
-      const materialData = new Float32Array([
-        ...baseColor,
-        this.batteryCharge,
-        ...glowColor,
-        emission
-      ]);
-      writeQueueBuffer(this.device, this.materialUniformBuffer, materialData);
-    }
+  /** Per-frame material update — only solar's emission follows its battery. */
+  updateUniforms(energyLevel = 0.0): void {
+    if (this.id !== 'solar') return;
+    const baseColor = authoredColor(
+      this.config.color ?? [0.7, 0.7, 0.75],
+      this.visualizer.pipelineCache?.colorTargets.mode
+    );
+    const data = this._materialData;
+    data[0] = baseColor[0]; data[1] = baseColor[1]; data[2] = baseColor[2];
+    data[3] = this.batteryCharge;
+    data[4] = 1.0; data[5] = 0.9; data[6] = 0.4;   // glowColor
+    data[7] = 1.2 + energyLevel * 1.8;              // emission
+    writeQueueBuffer(this.device, this.materialUniformBuffer, data);
   }
 
   updateBatteryCharge(deltaTime: number): number | null {
@@ -188,15 +164,12 @@ class DeviceUniformManager {
   updateGaugeBuffer(position: ArrayLike<number>, ringIndex: number): void {
     if (this.id === 'solar' && this.gaugeInstanceBuffer) {
       const offset = 1.5;
-      const gaugePos = [position[0] + offset, position[1] + 0.5, position[2]];
-      const rotation = [0, 0, 0, 1];
-      const instanceData = new Float32Array([
-        gaugePos[0], gaugePos[1], gaugePos[2], ringIndex,
-        rotation[0], rotation[1], rotation[2], rotation[3],
-        1.0, 0.9, 0.2,   // copperColor (solar gold)
-        this.batteryCharge // greenEmissive slot → reuse for charge visualization
-      ]);
-      writeQueueBuffer(this.device, this.gaugeInstanceBuffer, instanceData);
+      const d = this._gaugeData;
+      d[0] = position[0] + offset; d[1] = position[1] + 0.5; d[2] = position[2]; d[3] = ringIndex;
+      d[4] = 0; d[5] = 0; d[6] = 0; d[7] = 1;   // identity rotation
+      d[8] = 1.0; d[9] = 0.9; d[10] = 0.2;     // copperColor (solar gold)
+      d[11] = this.batteryCharge;              // greenEmissive slot → reuse for charge visualization
+      writeQueueBuffer(this.device, this.gaugeInstanceBuffer, d);
     }
   }
 }

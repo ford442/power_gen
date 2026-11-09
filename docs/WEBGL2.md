@@ -44,6 +44,7 @@ Do **not** expect these under WebGL2:
 | Roschin–Godin magnetic wall shells | `renderAnomalyWalls` |
 | Full energy-pipe **particle** billboards | `EnergyPipe` + WGSL (WebGL2 uses lines) |
 | GPU timestamp queries | `?gpuTiming=1` |
+| Key-light shadow map (focus, `high` tier) | `visualizer/shadow-map.ts` + `common/shadow-pcf.wgsl` — **skipped**; WebGL2 keeps its unshadowed rig (`intentionalGaps`: `key-light shadow map`) |
 | **Temporal AA** | `passes/taa-resolve.wgsl` — **skipped**, see below |
 | **FDTD wave slice** (pulse-coil focus) | `passes/fdtd-tmz-compute.wgsl` + `fdtd-slice.wgsl` — GPU panel **skipped**; a CPU micro-grid readout stands in, see below (ADR-0010/0012) |
 | Hardware bridge / electromagnet coils | CPU twin + panel work on WebGL2 (`?mockHardware=1`); **coil GPU viz** is WebGPU-only |

@@ -31,8 +31,8 @@ struct Uniforms {
       }
       
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(4) @group(0) var<storage> particles: array<FieldParticle>;
+      @binding(1) @group(1) var<uniform> device: DeviceUniforms;
+      @binding(4) @group(1) var<storage> particles: array<FieldParticle>;
       
       struct VertexOutput {
         @builtin(position) position: vec4f,

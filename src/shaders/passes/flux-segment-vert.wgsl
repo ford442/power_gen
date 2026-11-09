@@ -30,8 +30,8 @@ struct Uniforms {
       }
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(2) @group(0) var<storage> segments: array<FluxSegment>;
+      @binding(1) @group(1) var<uniform> device: DeviceUniforms;
+      @binding(2) @group(1) var<storage> segments: array<FluxSegment>;
 
       struct VertexOutput {
         @builtin(position) position: vec4f,

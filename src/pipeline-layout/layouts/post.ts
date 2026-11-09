@@ -4,18 +4,13 @@ import { BGL } from '../generated/bind-group-layouts.js';
 /** Sky, grid, anomaly walls, bloom stack, SSR, MSAA depth resolve. */
 export function registerPostLayouts(r: LayoutRegistrar): void {
   r.bgl('sky', BGL.sky);
-  r.pl('sky', ['sky']);
+  r.pl('sky', ['frame', 'sky']);
 
-  r.bgl('empty', BGL.empty);
-  r.pl('empty', ['empty']);
-  const emptyPl = r.device.createPipelineLayout({
-    label: 'pl-empty-groups',
-    bindGroupLayouts: []
-  });
-  r.setEmptyGroupsPipeline(emptyPl);
+  // Grid shaders bind nothing of their own: the frame group alone.
+  r.pl('grid', ['frame']);
 
   r.bgl('anomalyWall', BGL.anomalyWall);
-  r.pl('anomalyWall', ['anomalyWall']);
+  r.pl('anomalyWall', ['frame', 'anomalyWall']);
 
   r.bgl('bloomExtract', BGL.bloomExtract);
   r.pl('bloomExtract', ['bloomExtract']);

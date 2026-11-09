@@ -24,8 +24,8 @@ struct Uniforms {
       }
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(3) @group(0) var<uniform> material: CoilMaterialUniforms;
+      @binding(1) @group(1) var<uniform> device: DeviceUniforms;
+      @binding(3) @group(1) var<uniform> material: CoilMaterialUniforms;
 
       struct FragmentInput {
         @location(0) worldPos: vec3f,
