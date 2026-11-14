@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SEG WebGPU Dashboard</title>
+  <!-- Offline PWA (docs/CLASSROOM.md): manifest + icons live in src/public/ -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="theme-color" content="#050a0f">
   <link rel="stylesheet" href="styles/seg-operator-panel.css">
   <link rel="stylesheet" href="styles/seg-dashboard-layout.css">
   <link rel="stylesheet" href="styles/seg-operator-chrome.css">
@@ -16,6 +21,8 @@
   <!-- ── Header ─────────────────────────────────────────── -->
   <div id="header">
     <h1>SEG WebGPU Dashboard</h1>
+    <!-- Showroom / Lab / Twin preset bundle — built by src/lab-mode.ts -->
+    <div id="lab-mode-switch"></div>
     <div class="header-right">
       <div id="hw-twin-badge" data-state="disconnected" title="Hardware digital twin connection">
         <span class="hw-twin-dot" aria-hidden="true"></span>
@@ -25,6 +32,10 @@
         <span class="replay-badge-dot" aria-hidden="true"></span>
         <span id="replayBadgeText">REPLAY</span>
       </div>
+      <button type="button" id="renderer-badge" hidden aria-haspopup="dialog">
+        <span class="renderer-badge-dot" aria-hidden="true"></span>
+        <span id="rendererBadgeText">WebGL2 mode</span>
+      </button>
       <div id="wasm-badge">
         <div class="wasm-dot loading" id="wasmDot"></div>
         <span id="wasmStatus">WASM…</span>
@@ -110,22 +121,26 @@
 
       <!-- Lorentz rail-sled classroom controls -->
       <div class="panel-section" id="lorentz-sled-controls" style="display:none;">
-        <h3>Bench field B</h3>
-        <div class="slider-row">
-          <label>Transverse field <span id="lorentzFieldValue">0.80 T</span></label>
-          <input type="range" id="lorentzFieldSlider" min="0" max="1.2" step="0.05" value="0.8"
-                 aria-label="Lorentz sled transverse bench field"
-                 oninput="setLorentzFieldT(this.valueAsNumber)">
-        </div>
-        <div id="lorentzFieldSource" data-coupled="false" style="font-size:0.66rem;color:#8cf;margin-top:6px;line-height:1.4;">Source: local bench slider</div>
+        <h3>Lorentz rail sled</h3>
         <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Educational Lorentz-force model (F = I&nbsp;&#8467;&nbsp;&times;&nbsp;B on a sliding armature, with friction and back-EMF) — a low-voltage bench rail motor, <strong>not a railgun design tool</strong>. B is a local bench parameter by default; with <strong>Field coupling</strong> on it follows the MHD channel's simulated B estimate instead — still simulated, not metrology.</div>
       </div>
+
+      <!-- Per-device setpoint sliders: generated from physics/devices.json `setpoints`
+           by src/setpoint-sliders.ts (Lorentz B, Halbach N, pulse-coil charge). -->
+      <div id="device-setpoints"></div>
 
       <!-- Thomson jumping-ring classroom notes -->
       <div class="panel-section" id="jumping-ring-controls" style="display:none;">
         <h3>Jumping ring</h3>
         <div style="font-size:0.68rem;color:#0aa;line-height:1.4;">The drive slider sets the AC supply; the ring's hover height follows it. The ring is a shorted single turn — its induced current opposes the primary (<strong>Lenz</strong>), the two repel, and the coupling <em>k(h)</em> decays as the ring rises, so the lift decays with it and the ring settles instead of leaving the pole.</div>
         <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Educational Thomson-ring demo (lumped circuit + rigid body) — <strong>not</strong> an induction-furnace or launcher model, and there is no projectile. There is also <strong>no thermal model at all</strong>: a real shorted ring heats and can glow or melt, and nothing here represents that.</div>
+      </div>
+
+      <!-- Lenz drop-tube classroom notes (σ slider is a catalog setpoint above) -->
+      <div class="panel-section" id="drop-tube-controls" style="display:none;">
+        <h3>Lenz drop tube</h3>
+        <div style="font-size:0.68rem;color:#0aa;line-height:1.4;">The drive slider opens the release clamp (0 keeps it shut) and sets how high above the mouth it lets go. Inside the tube the drag is <em>k·v</em>, so the magnet settles at <em>v_t = m·g/k</em> whatever speed it arrived with. The tube is drawn as a stack of rings because that is how the drag is derived: each slice of wall is a shorted ring the falling flux sweeps through.</div>
+        <div style="font-size:0.68rem;color:#0aa;margin-top:6px;line-height:1.4;">Point dipole in a thin-walled tube — a textbook idealisation to compare a real drop against, <strong>not</strong> a brake-design tool or a maglev launcher. No FEM, no skin depth, and <strong>no thermal model</strong>: at terminal velocity all of <em>m·g·v</em> heats the wall, and nothing here tracks where it goes.</div>
       </div>
 
       <!-- Lab field bus (ADR-0011) -->
@@ -174,7 +189,7 @@
         <h3>Rendering</h3>
         <div class="slider-row">
           <label>Particles <span id="particleVal">10000</span></label>
-          <input type="range" id="particleSlider" min="1000" max="50000" step="1000" value="10000">
+          <input type="range" id="particleSlider" min="1000" max="50000" step="1000" value="10000" aria-label="Particle count">
         </div>
         <div style="margin-top: 8px;">
           <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.72rem; color: #0aa;">
@@ -208,14 +223,8 @@
       <!-- SEG Learning / tour -->
       <div class="panel-section" id="seg-explainer-section">
         <h3>SEG Learning</h3>
-        <div class="ctrl-row" style="flex-wrap:wrap;gap:4px;">
-          <button class="ctrl-btn" id="explainerTourBtn" type="button" style="font-size:0.68rem;">▶ Guided Tour</button>
-          <button class="ctrl-btn" id="explainerVdgTourBtn" type="button" style="font-size:0.68rem;">▶ Van de Graaff Tour</button>
-          <button class="ctrl-btn" id="explainerLorentzTourBtn" type="button" style="font-size:0.68rem;">▶ Lorentz Sled Tour</button>
-          <button class="ctrl-btn" id="explainerJumpingRingTourBtn" type="button" style="font-size:0.68rem;">▶ Jumping Ring Tour</button>
-          <button class="ctrl-btn" id="explainerHallTourBtn" type="button" style="font-size:0.68rem;">▶ Hall-Effect Tour</button>
-          <button class="ctrl-btn" id="explainerTransformerTourBtn" type="button" style="font-size:0.68rem;">▶ Mutual Induction Tour</button>
-          <button class="ctrl-btn" id="explainerKelvinTourBtn" type="button" style="font-size:0.68rem;">▶ Kelvin Dropper Tour</button>
+        <!-- Tour buttons are generated from LAB_TOURS (seg-explainer/explainer-ui.ts). -->
+        <div class="ctrl-row" id="explainerTourRow" style="flex-wrap:wrap;gap:4px;">
           <button class="ctrl-btn" id="explainerShareBtn" type="button" style="font-size:0.68rem;">⎘ Lab Link</button>
         </div>
         <div class="slider-row">
@@ -301,6 +310,7 @@
           <button type="button" class="sci-panel-btn ctrl-btn" id="replayOpenBtn" title="Open replay JSON or CSV">Open</button>
           <button type="button" class="sci-panel-btn ctrl-btn" id="replayPlayBtn" title="Play replay" disabled>▶</button>
           <button type="button" class="sci-panel-btn ctrl-btn" id="replayStepBtn" title="Step one sample" disabled>⇥</button>
+          <button type="button" class="sci-panel-btn ctrl-btn" id="replayTakeOverBtn" title="Take over: restore the plant snapshot at or before the cursor and run live from there" disabled>Take over</button>
           <button type="button" class="sci-panel-btn ctrl-btn" id="replayExitBtn" title="Exit replay mode" disabled>×</button>
           <input type="file" id="replayFileInput" accept=".json,.csv,application/json,text/csv" hidden>
         </div>

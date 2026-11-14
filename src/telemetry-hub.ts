@@ -168,6 +168,11 @@ function emptyDeviceSnap(id: string): DeviceTelemetrySnap {
     ringPrimaryIA: 0,
     ringForceN: 0,
     ringCouplingK: 0,
+    dropTubeVMps: 0,
+    dropTubeTerminalVMps: 0,
+    dropTubeDragN: 0,
+    dropTubeEddyIA: 0,
+    dropTubeDepthM: 0,
     powerInW: 0,
     powerOutW: 0,
     efficiency: 0
@@ -249,6 +254,12 @@ function snapFromPhysics(
     ringPrimaryIA: physics.ringPrimaryIA ?? 0,
     ringForceN: physics.ringForceN ?? 0,
     ringCouplingK: physics.ringCouplingK ?? 0,
+    dropTubeVMps: physics.dropTubeVMps ?? 0,
+    // NaN ("—") for a non-conducting tube: there is no terminal velocity to report.
+    dropTubeTerminalVMps: physics.dropTubeTerminalVMps ?? 0,
+    dropTubeDragN: physics.dropTubeDragN ?? 0,
+    dropTubeEddyIA: physics.dropTubeEddyIA ?? 0,
+    dropTubeDepthM: physics.dropTubeDepthM ?? 0,
     powerInW: 0,
     powerOutW: 0,
     efficiency: 0
@@ -425,6 +436,11 @@ export class TelemetryHub {
   resetSimClock(): void {
     this._simTimeS = 0;
     this.sampler.clear();
+  }
+
+  /** Put the session clock back to a plant snapshot's `t` (#224 §2). */
+  setSimTimeS(t: number): void {
+    if (Number.isFinite(t) && t >= 0) this._simTimeS = t;
   }
 
   /** Record telemetry for N seconds of simulation time. */

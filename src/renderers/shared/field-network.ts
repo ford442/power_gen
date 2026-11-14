@@ -20,8 +20,7 @@
 
 import { HALL, LORENTZ_SLED } from '../../../generated/physics-constants';
 import type { DevicePhysicsState } from './device-physics';
-
-const COUPLING_STORAGE_KEY = 'seg-field-coupling';
+import { labConfig, persistLabConfig } from '../../config/lab-config';
 
 /** Physics-state keys a coupling edge may read or write (all B, in tesla). */
 type FieldKey = keyof Pick<
@@ -148,35 +147,14 @@ export interface FieldNetworkUpdateInput {
   devicesEnabled: Record<string, boolean>;
 }
 
-/** `?fieldCoupling=1|0`, or null when the param is absent so storage decides. */
-function readFieldCouplingFromUrl(): boolean | null {
-  if (typeof location === 'undefined') return null;
-  const v = new URLSearchParams(location.search).get('fieldCoupling');
-  if (v === '1') return true;
-  if (v === '0') return false;
-  return null;
-}
-
-/** Effective preference: URL wins over stored, and both default to off. */
+/** Effective preference: URL (or share link) wins over stored; default off. */
 export function readFieldCouplingPref(): boolean {
-  const fromUrl = readFieldCouplingFromUrl();
-  if (fromUrl !== null) return fromUrl;
-  if (typeof localStorage === 'undefined') return false;
-  try {
-    return localStorage.getItem(COUPLING_STORAGE_KEY) === 'true';
-  } catch {
-    return false;
-  }
+  return labConfig().fieldCoupling;
 }
 
 /** Remember the toggle across reloads; a storage failure is never fatal. */
 export function persistFieldCouplingPref(enabled: boolean): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(COUPLING_STORAGE_KEY, enabled ? 'true' : 'false');
-  } catch {
-    /* ignore */
-  }
+  persistLabConfig('fieldCoupling', enabled);
 }
 
 /** WebGPU exposes `physicsState`, WebGL2 aliases it as `physics`. */

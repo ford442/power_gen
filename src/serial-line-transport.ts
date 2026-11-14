@@ -34,6 +34,12 @@ export class SerialLineTransport extends LineTransport {
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private readLoop: Promise<void> | null = null;
   /**
+   * Bumped on every open and close. A pump only delivers chunks / drops while
+   * its generation is current, so a loop from a previous open that is still
+   * unwinding cannot feed (or "drop") the next connection.
+   */
+  private generation = 0;
+  /**
    * The `port.readable` → decoder pipe. Kept because `reader.cancel()` resolves
    * before the pipe has finished cancelling its *source*, so closing the port
    * immediately after would reject with the stream still locked — and the
@@ -64,19 +70,20 @@ export class SerialLineTransport extends LineTransport {
       .pipeTo(decoder.writable as unknown as WritableStream<Uint8Array>)
       .catch(() => { /* closed with the port */ });
     this.reader = decoder.readable.getReader();
-    this.readLoop = this.pump();
+    this.readLoop = this.pump(++this.generation);
   }
 
-  private async pump(): Promise<void> {
+  private async pump(gen: number): Promise<void> {
     const reader = this.reader;
     if (!reader) return;
     for (;;) {
       try {
         const { value, done } = await reader.read();
+        if (gen !== this.generation) return;
         if (done) break;
         if (value) this.pushChunk(value);
       } catch (err) {
-        this.reportDrop(err instanceof Error ? err : new Error(String(err)));
+        if (gen === this.generation) this.reportDrop(err instanceof Error ? err : new Error(String(err)));
         return;
       }
     }
@@ -91,9 +98,15 @@ export class SerialLineTransport extends LineTransport {
   }
 
   protected async closeLink(): Promise<void> {
+    this.generation++;
     if (this.reader) {
       try { await this.reader.cancel(); } catch { /* already gone */ }
       this.reader = null;
+    }
+    // cancel() settles the pending read; let the old pump finish unwinding
+    // before the port (and possibly a fast reconnect) moves on.
+    if (this.readLoop) {
+      try { await this.readLoop; } catch { /* pump never throws; belt and braces */ }
     }
     // Wait for the pipe to release `port.readable` before closing the port.
     if (this.pipeDone) {

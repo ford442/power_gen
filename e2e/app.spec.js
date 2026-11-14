@@ -137,6 +137,27 @@ test.describe('SEG WebGL2 smoke', () => {
     expect(frame.height).toBeGreaterThan(0);
     expect(frame.pixelBytes).toBe(frame.width * frame.height * 4);
   });
+
+  test('WebGL2 context loss shows the reload overlay instead of a silent black canvas', async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    const lost = await page.evaluate(() => {
+      const gl = document.querySelector('#gpuCanvas').getContext('webgl2');
+      const ext = gl?.getExtension('WEBGL_lose_context');
+      if (!ext) return false;
+      ext.loseContext();
+      return true;
+    });
+    test.skip(!lost, 'WEBGL_lose_context unavailable');
+
+    await waitForEval(page,
+      () => document.querySelector('#webgpu-device-lost h2')?.textContent === 'WebGL2 context lost'
+        && !!document.getElementById('webgpu-device-lost-reload'),
+      { timeout: 10_000 }
+    );
+    expect(errors.pageErrors).toEqual([]);
+  });
 });
 
 test.describe('WASM physics (optional)', () => {
@@ -427,12 +448,18 @@ test.describe('WASM physics (optional)', () => {
     // old binary simply will not take 12 — detect that rather than asserting
     // against a plant it does not have. The JS-fallback test below still covers
     // the physics on every checkout.
-    const accepted = await page.evaluate(() => {
+    //
+    // Poll rather than read getMode() straight after setMode(): with the plant
+    // worker on, getMode() reports the worker's last plant, which trails the
+    // focus change by one frame (docs/AGENTS.md → plant worker).
+    await page.evaluate(() => {
       window.segOperator.start();
       window.setMode('jumping-ring');
       window.segWasm?.setMode?.('jumping-ring');
-      return window.segWasm?.getMode?.() === 12;
     });
+    const accepted = await page
+      .waitForFunction(() => window.segWasm?.getMode?.() === 12, null, { timeout: 15_000 })
+      .then(() => true, () => false);
     test.skip(!accepted, 'sim_core.wasm predates SimMode 12 (jumping-ring) — rebuilt by build-wasm.yml on main');
 
     await waitForEval(page,
@@ -635,6 +662,51 @@ test.describe('Quanta plugin devices (JS fallback)', () => {
     expect(snap.couplingK).toBeLessThan(0.65);
   });
 
+  test('drop-tube JS plant falls at its algebraic terminal velocity', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('drop-tube');
+    });
+
+    // Released, inside the tube, past the entry transient (τ = m/k ≈ 18 ms, so
+    // gone within a few cm) and clear of the exit taper. The plant clamps a
+    // frame to 50 ms, so on a slow SwiftShader host the hold + fall to 10 cm
+    // can take ~30 frames — give it the same 90 s the other slow waits get.
+    await waitForEval(page,
+      () => {
+        const phys = window.multiVisualizer?.devices?.['drop-tube']?.physics;
+        return !!phys && phys.dropTubeStage === 1 && phys.dropTubeDepthM > 0.1 && phys.dropTubeDepthM < 0.55;
+      },
+      { timeout: 90_000 }
+    );
+
+    const snap = await page.evaluate(() => {
+      const phys = window.multiVisualizer.devices['drop-tube'].physics;
+      const hub = window.telemetryHub?.getSnapshot?.()?.devices?.['drop-tube'];
+      return {
+        v: phys.dropTubeVMps,
+        vt: phys.dropTubeTerminalVMps,
+        dragN: phys.dropTubeDragN,
+        eddyA: phys.dropTubeEddyIA,
+        depthM: phys.dropTubeDepthM,
+        hubV: hub?.dropTubeVMps
+      };
+    });
+
+    // The bench's whole claim: mid-tube the magnet sits at v_t = m·g/k.
+    expect(snap.vt).toBeGreaterThan(0.05);
+    expect(snap.vt).toBeLessThan(0.5);
+    expect(Math.abs(snap.v - snap.vt) / snap.vt).toBeLessThan(0.01);
+    // The drag is doing it, carried by a circulating eddy current.
+    expect(snap.dragN).toBeGreaterThan(0);
+    expect(snap.eddyA).toBeGreaterThan(1);
+    expect(Number.isFinite(snap.hubV)).toBe(true);
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
   test('lorentz-sled B slider changes the field and the force', async ({ page }) => {
     trackPageErrors(page);
     await gotoWebGL2(page);
@@ -728,6 +800,13 @@ test.describe('Hardware twin mock', () => {
     );
     expect(Number.isFinite(twin.hub.shadowResidual.voltageError)).toBe(true);
     expect(Number.isFinite(twin.hub.shadowResidual.currentError)).toBe(true);
+
+    // Protocol v2: the host asks with V2 and the mock answers like a v2 board.
+    await waitForEval(page,
+      () => window.telemetryHub?.getSnapshot?.()?.hardwareTwin?.firmwareProtocol === 2,
+      { timeout: 10_000 }
+    );
+    await expect(page.locator('#hwFirmware')).toHaveText('fw v2 · mock · 8 coils');
   });
 
   test('mock reconnect after disconnect does not leave coils commanded', async ({ page }) => {
@@ -808,6 +887,58 @@ test.describe('Hardware twin mock', () => {
     expect(state.connectionKind).toBe('disconnected');
     expect(state.manualMode).toBe(false);
     expect(state.pwmDuty).toBe(0);
+  });
+
+  test('hardware panel DOM follows the bridge: status text, sensors, buttons', async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await gotoWebGL2(page, 'mockHardware=1');
+
+    // LabSession owns the bridge; the panel must hear about the auto-connect
+    // through bridge.on('status') — it used to sit on "Disconnected" forever.
+    await waitForEval(page,
+      () => document.getElementById('hwStatusText')?.textContent === 'Mock stream',
+      { timeout: 15_000 }
+    );
+    await waitForEval(page,
+      () => /^-?\d/.test(document.getElementById('hwPhase')?.textContent ?? ''),
+      { timeout: 10_000 }
+    );
+
+    // Real DOM clicks on the panel's own buttons.
+    await page.evaluate(() => document.getElementById('hwDisconnectBtn').click());
+    await waitForEval(page,
+      () => document.getElementById('hwStatusText')?.textContent === 'Disconnected'
+        && document.getElementById('hwDisconnectBtn')?.disabled === true,
+      { timeout: 10_000 }
+    );
+
+    await page.evaluate(() => document.getElementById('hwMockBtn').click());
+    await waitForEval(page,
+      () => document.getElementById('hwStatusText')?.textContent === 'Mock stream'
+        && document.getElementById('hwDisconnectBtn')?.disabled === false,
+      { timeout: 10_000 }
+    );
+
+    // Twin mode set on the bridge reaches the <select> (twinMode event).
+    await page.evaluate(() => window.multiVisualizer.hardwareBridge.setTwinMode('closed'));
+    await waitForEval(page,
+      () => document.getElementById('hwTwinMode')?.value === 'closed',
+      { timeout: 5_000 }
+    );
+
+    // Re-attaching is idempotent: one subscriber set, one panel, one click handler.
+    const after = await page.evaluate(() => {
+      const b = window.multiVisualizer.hardwareBridge;
+      window.hardwarePanel.attach(window.multiVisualizer);
+      window.hardwarePanel.attach(window.multiVisualizer);
+      return {
+        panels: document.querySelectorAll('#hardware-panel').length,
+        statusListeners: b._listeners.status.size
+      };
+    });
+    expect(after.panels).toBe(1);
+    expect(after.statusListeners).toBe(1);
+    expect(errors.pageErrors).toEqual([]);
   });
 
   test('scientific UI shows shadow residual chart with mockHardware', async ({ page }) => {
@@ -1174,6 +1305,20 @@ test.describe('Lab charge coupling', () => {
 
 // Explainer tours that ship their own script (LAB_TOURS registry).
 test.describe('Device explainer tours', () => {
+  // The scripts are a lazy chunk (seg-tour-player.ts warms it after boot); a
+  // first start can wait on it, and a starved SwiftShader runner serves the
+  // dev server's modules slowly.
+  test.describe.configure({ timeout: 300_000 });
+  const TOUR_START = { timeout: 90_000 };
+  // A #lab= link is applied during boot, so its wait covers boot + the chunk.
+  const BOOT_AND_TOUR = { timeout: 180_000 };
+
+  // Every LAB_TOURS handle on window; the "only one plays" checks read this.
+  const ALL_TOUR_KEYS = [
+    'segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour',
+    'jumpingRingTour', 'dropTubeTour', 'heronTour', 'pulseCoilTour', 'homopolarTour', 'halbachTour',
+    'peltierTour', 'mhdTour', 'maglevTour', 'solarTour'
+  ];
 
   for (const { mode, startFn, key, firstTitle } of [
     { mode: 'hall', startFn: 'startHallTour', key: 'hallTour', firstTitle: /strip, a current/i },
@@ -1184,6 +1329,50 @@ test.describe('Device explainer tours', () => {
       startFn: 'startJumpingRingTour',
       key: 'jumpingRingTour',
       firstTitle: /Lenz's law you can watch/i
+    },
+    {
+      mode: 'drop-tube',
+      startFn: 'startDropTubeTour',
+      key: 'dropTubeTour',
+      firstTitle: /will not fall/i
+    },
+    { mode: 'heron', startFn: 'startHeronTour', key: 'heronTour', firstTitle: /height in, jet out/i },
+    {
+      mode: 'pulse-coil',
+      startFn: 'startPulseCoilTour',
+      key: 'pulseCoilTour',
+      firstTitle: /cannot change its current/i
+    },
+    {
+      mode: 'homopolar',
+      startFn: 'startHomopolarTour',
+      key: 'homopolarTour',
+      firstTitle: /no commutator/i
+    },
+    {
+      mode: 'halbach-viz',
+      startFn: 'startHalbachTour',
+      key: 'halbachTour',
+      firstTitle: /push the field one way/i
+    },
+    {
+      mode: 'peltier',
+      startFn: 'startPeltierTour',
+      key: 'peltierTour',
+      firstTitle: /heat in, a little electricity/i
+    },
+    { mode: 'mhd', startFn: 'startMhdTour', key: 'mhdTour', firstTitle: /flows through a field/i },
+    {
+      mode: 'maglev',
+      startFn: 'startMaglevTour',
+      key: 'maglevTour',
+      firstTitle: /floating over a ring of magnets/i
+    },
+    {
+      mode: 'solar',
+      startFn: 'startSolarTour',
+      key: 'solarTour',
+      firstTitle: /recharge its own battery/i
     }
   ]) {
     test(`${mode} tour plays via window.${startFn}() and focuses its device`, async ({ page }) => {
@@ -1199,7 +1388,7 @@ test.describe('Device explainer tours', () => {
 
       await waitForEval(page,
         () => window[window.__tourUnderTest]?.playing === true,
-        { timeout: 15_000 }
+        TOUR_START
       );
 
       const snap = await page.evaluate((k) => {
@@ -1234,15 +1423,14 @@ test.describe('Device explainer tours', () => {
       window.startHallTour();
       window.startKelvinTour();
     });
-    await waitForEval(page, () => window.kelvinTour?.playing === true, { timeout: 15_000 });
+    await waitForEval(page, () => window.kelvinTour?.playing === true, TOUR_START);
 
-    const viaHooks = await page.evaluate(() => ({
-      playing: ['segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour',
-        'jumpingRingTour']
+    const viaHooks = await page.evaluate((keys) => ({
+      playing: keys
         .filter((k) => window[k]?.playing),
       visibleOverlays: [...document.querySelectorAll('#seg-tour-overlay')]
         .filter((el) => el.style.display !== 'none').length
-    }));
+    }), ALL_TOUR_KEYS);
 
     expect(viaHooks.playing).toEqual(['kelvinTour']);
     expect(viaHooks.visibleOverlays).toBe(1);
@@ -1251,13 +1439,12 @@ test.describe('Device explainer tours', () => {
     await page.evaluate(() => window.transformerTour.goToStep(1));
     await waitForEval(page, () => window.transformerTour?.playing === true, { timeout: 10_000 });
 
-    const viaLabHash = await page.evaluate(() => ({
-      playing: ['segTour', 'vdgTour', 'lorentzTour', 'hallTour', 'transformerTour', 'kelvinTour',
-        'jumpingRingTour']
+    const viaLabHash = await page.evaluate((keys) => ({
+      playing: keys
         .filter((k) => window[k]?.playing),
       visibleOverlays: [...document.querySelectorAll('#seg-tour-overlay')]
         .filter((el) => el.style.display !== 'none').length
-    }));
+    }), ALL_TOUR_KEYS);
 
     expect(viaLabHash.playing).toEqual(['transformerTour']);
     expect(viaLabHash.visibleOverlays).toBe(1);
@@ -1274,7 +1461,7 @@ test.describe('Device explainer tours', () => {
       window.startKelvinTour();
       window.kelvinTour.goToStep(3);
     });
-    await waitForEval(page, () => window.kelvinTour?.stepIndex === 3, { timeout: 15_000 });
+    await waitForEval(page, () => window.kelvinTour?.stepIndex === 3, TOUR_START);
 
     const ceiling = await page.evaluate(() => {
       const overlay = [...document.querySelectorAll('#seg-tour-overlay')]
@@ -1286,7 +1473,7 @@ test.describe('Device explainer tours', () => {
     expect(ceiling).not.toMatch(/sphere|belt/i);
 
     await page.evaluate(() => window.kelvinTour.goToStep(4));
-    await waitForEval(page, () => window.kelvinTour?.stepIndex === 4, { timeout: 15_000 });
+    await waitForEval(page, () => window.kelvinTour?.stepIndex === 4, TOUR_START);
 
     const breakdown = await page.evaluate(() => {
       const overlay = [...document.querySelectorAll('#seg-tour-overlay')]
@@ -1300,6 +1487,10 @@ test.describe('Device explainer tours', () => {
 
   test('#lab= share link reopens a device tour on its step', async ({ page }) => {
     trackPageErrors(page);
+    // Steps auto-advance every ~6 s, which is shorter than a SwiftShader boot,
+    // so the first poll could already see a later step. Reduced motion disables
+    // auto-advance (seg-tour-player `_loop`), which pins the restored step.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     // Navigated directly (not via gotoWebGL2 + a hash append): a hash-only
     // change would not reload, and the lab hash is applied at boot.
     await page.goto('/?renderer=webgl2#lab=v1;mode=hall;tour=1;step=2', {
@@ -1309,7 +1500,7 @@ test.describe('Device explainer tours', () => {
 
     await waitForEval(page,
       () => window.hallTour?.playing === true && window.hallTour?.stepIndex === 2,
-      { timeout: 60_000 }
+      BOOT_AND_TOUR
     );
 
     const snap = await page.evaluate(() => ({
@@ -1320,6 +1511,59 @@ test.describe('Device explainer tours', () => {
     expect(snap.playing).toBe(true);
     expect(snap.step).toBe(2);
     expect(snap.view).toBe('hall');
+  });
+
+  for (const { mode, key } of [
+    { mode: 'heron', key: 'heronTour' },
+    { mode: 'pulse-coil', key: 'pulseCoilTour' },
+    { mode: 'homopolar', key: 'homopolarTour' },
+    { mode: 'halbach-viz', key: 'halbachTour' }
+  ]) {
+    test(`#lab= share link reopens the ${mode} tour on its step`, async ({ page }) => {
+      trackPageErrors(page);
+      // Reduced motion stops the tour auto-advancing, so a slow frame cannot
+      // carry it past step 2 and the resume step is checked exactly.
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto(`/?renderer=webgl2#lab=v1;mode=${mode};tour=1;step=2`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60_000
+      });
+
+      await page.evaluate((k) => { window.__tourUnderTest = k; }, key);
+      await waitForEval(page,
+        () => window[window.__tourUnderTest]?.playing === true
+          && window[window.__tourUnderTest]?.stepIndex === 2,
+        BOOT_AND_TOUR
+      );
+
+      const snap = await page.evaluate((k) => ({
+        step: window[k]?.stepIndex,
+        view: window.multiVisualizer?.currentView,
+        hash: location.hash
+      }), key);
+      expect(snap.step).toBe(2);
+      expect(snap.view).toBe(mode);
+      // The tour writes its own state back, so the link stays shareable.
+      expect(snap.hash).toContain(`mode=${mode}`);
+      expect(snap.hash).toContain('tour=1');
+    });
+  }
+
+  test('every registry tour has a generated button that starts it', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+
+    const ids = await page.evaluate(() =>
+      [...document.querySelectorAll('#explainerTourRow button')].map((b) => b.id));
+    expect(ids).toContain('explainerTourBtn');
+    expect(ids).toContain('explainerHeronTourBtn');
+    expect(ids).toContain('explainerSolarTourBtn');
+    expect(ids).toContain('explainerShareBtn');
+
+    await page.evaluate(() => document.getElementById('explainerPulseCoilTourBtn').click());
+    await waitForEval(page, () => window.pulseCoilTour?.playing === true, TOUR_START);
+    const view = await page.evaluate(() => window.multiVisualizer?.currentView);
+    expect(view).toBe('pulse-coil');
   });
 });
 
@@ -1361,6 +1605,43 @@ test.describe('WebGPU required boot', () => {
     expect(snap.canvasRenderer).toBe('none');
     expect(snap.canvasWebgpuFail).toBe('1');
     expect(snap.hasWebglAttr).toBe('');
+  });
+
+  test('hard-fail card is dismissible, keeps the sim off, and offers opt-in WebGL2', async ({ page }) => {
+    trackPageErrors(page);
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    const card = page.locator('#webgpu-hard-fail');
+    await expect(card).toBeVisible({ timeout: 30_000 });
+
+    // Probe JSON is behind a collapsed Details toggle; troubleshooting is visible.
+    await expect(card.locator('details.webgpu-hard-fail-details')).not.toHaveAttribute('open', '');
+    await expect(card.locator('.webgpu-hard-fail-tips')).toBeVisible();
+
+    // The WebGL2 button is a link to an explicit opt-in, never automatic.
+    expect(await page.evaluate(() => window.currentRenderer)).toBeFalsy();
+    await expect(card.locator('[data-hard-fail-action="webgl2"]')).toBeVisible();
+
+    // Esc dismisses; sim stays disabled; header badge reopens the card.
+    await page.keyboard.press('Escape');
+    await expect(card).toBeHidden();
+    expect(await page.evaluate(() => document.body.classList.contains('webgpu-hard-fail'))).toBe(true);
+    const badge = page.locator('#renderer-badge');
+    await expect(badge).toBeVisible();
+    await badge.click();
+    await expect(card).toBeVisible();
+
+    // Close button dismisses too.
+    await card.locator('.webgpu-hard-fail-close').click();
+    await expect(card).toBeHidden();
+
+    // Opt-in reload lands on ?renderer=webgl2 and shows the persistent badge.
+    await badge.click();
+    await Promise.all([
+      page.waitForURL(/renderer=webgl2/),
+      card.locator('[data-hard-fail-action="webgl2"]').click()
+    ]);
+    await waitForEval(page, () => window.currentRenderer === 'webgl2', { timeout: 30_000 });
+    await expect(page.locator('#renderer-badge')).toHaveText(/WebGL2 mode/);
   });
 });
 
@@ -1500,6 +1781,13 @@ test.describe('Catalog telemetry on the hub (plugin devices)', () => {
       // cycle; the two currents and the force they make all change sign 120
       // times a second.
       positive: 'ringCouplingK'
+    },
+    {
+      id: 'drop-tube',
+      keys: ['dropTubeVMps', 'dropTubeTerminalVMps', 'dropTubeDragN', 'dropTubeEddyIA', 'dropTubeDepthM'],
+      // v_t is positive from the first step (a copper tube always has one);
+      // the speed is 0 while the clamp holds and on the catch pad.
+      positive: 'dropTubeTerminalVMps'
     }
   ]) {
     test(`setMode('${device.id}') publishes finite catalog keys on the hub`, async ({ page }) => {
@@ -1635,6 +1923,9 @@ test.describe('Lab sonification (?audio=1)', () => {
   });
 
   test('?audio=1 arms, starts on a gesture, and the badge mutes it', async ({ page }) => {
+    // Boot plus three gesture round-trips: on SwiftShader each one can stall
+    // the main thread for 10–25 s, which overruns the default 180 s budget.
+    test.slow();
     const { pageErrors } = trackPageErrors(page);
     await gotoWebGL2(page, 'audio=1');
     await waitForEval(page, () => !!window.labAudio, { timeout: 30_000 });
@@ -1768,3 +2059,705 @@ test.describe('FDTD micro-grid heatmap (WebGL2 stand-in)', () => {
     expect(state.mounted).toBe(false);
   });
 });
+
+// Showroom / Lab / Twin preset bundle (src/lab-mode.ts) — one switch over the
+// flags ADR-0005 scattered. The bundle is the default; an explicit flag wins.
+test.describe('Lab mode', () => {
+  test('no labMode anywhere → no bundle applied, no button pressed', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!document.getElementById('labmode-lab'), { timeout: 30_000 });
+    const s = await page.evaluate(() => ({
+      mode: window.getLabMode?.() ?? null,
+      body: document.body.dataset.labMode ?? null,
+      pressed: [...document.querySelectorAll('[data-lab-mode-btn]')]
+        .filter((b) => b.getAttribute('aria-pressed') === 'true').length,
+      buttons: [...document.querySelectorAll('[data-lab-mode-btn]')].map((b) => b.dataset.labModeBtn)
+    }));
+    expect(s.mode).toBeNull();
+    expect(s.body).toBeNull();
+    expect(s.pressed).toBe(0);
+    expect(s.buttons).toEqual(['showroom', 'lab', 'twin']);
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('?labMode=showroom strips teaching chrome, folds the twin, turns buses off', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=showroom');
+    await waitForEval(page, () => window.getLabMode?.() === 'showroom', { timeout: 60_000 });
+    const s = await page.evaluate(() => ({
+      pressed: document.getElementById('labmode-showroom')?.getAttribute('aria-pressed'),
+      explainer: getComputedStyle(document.getElementById('seg-explainer-section')).display,
+      fieldSec: getComputedStyle(document.getElementById('field-coupling-section')).display,
+      chargeSec: getComputedStyle(document.getElementById('charge-coupling-section')).display,
+      hwCollapsed: document.getElementById('hardware-panel')?.dataset.collapsed ?? null,
+      look: window.multiVisualizer?.lightingLook,
+      fieldOn: window.multiVisualizer?.fieldNetwork?.couplingEnabled,
+      stored: localStorage.getItem('seg-lab-mode')
+    }));
+    expect(s.pressed).toBe('true');
+    expect(s.explainer).toBe('none');
+    expect(s.fieldSec).toBe('none');
+    expect(s.chargeSec).toBe('none');
+    expect(s.hwCollapsed).toBe('true');
+    expect(s.look).toBe('studio');
+    expect(s.fieldOn).toBe(false);
+    // `?labMode=` at boot is a URL choice, not a click: nothing is remembered yet.
+    expect(s.stored).toBeNull();
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('?labMode=lab shows the explainer and coupling controls, and the lab look', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=lab');
+    await waitForEval(page, () => window.getLabMode?.() === 'lab', { timeout: 60_000 });
+    const s = await page.evaluate(() => ({
+      explainer: getComputedStyle(document.getElementById('seg-explainer-section')).display,
+      fieldSec: getComputedStyle(document.getElementById('field-coupling-section')).display,
+      chargeSec: getComputedStyle(document.getElementById('charge-coupling-section')).display,
+      hwCollapsed: document.getElementById('hardware-panel')?.dataset.collapsed ?? null,
+      look: window.multiVisualizer?.lightingLook,
+      fieldOn: window.multiVisualizer?.fieldNetwork?.couplingEnabled
+    }));
+    expect(s.explainer).not.toBe('none');
+    expect(s.fieldSec).not.toBe('none');
+    expect(s.chargeSec).not.toBe('none');
+    expect(s.hwCollapsed).toBe('false');
+    expect(s.look).toBe('lab');
+    // Controls visible, buses still default-off until the user enables one.
+    expect(s.fieldOn).toBe(false);
+  });
+
+  test('an explicit flag beats the bundle (look, class, a bus)', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=showroom&look=drama&class=1&fieldCoupling=1');
+    await waitForEval(page, () => window.getLabMode?.() === 'showroom', { timeout: 60_000 });
+    const s = await page.evaluate(() => ({
+      look: window.multiVisualizer?.lightingLook,
+      classroom: window.explainerState?.classroomMode,
+      explainer: getComputedStyle(document.getElementById('seg-explainer-section')).display,
+      fieldOn: window.multiVisualizer?.fieldNetwork?.couplingEnabled,
+      fieldSec: getComputedStyle(document.getElementById('field-coupling-section')).display,
+      chargeOn: window.multiVisualizer?.chargeNetwork?.couplingEnabled
+    }));
+    expect(s.look).toBe('drama');
+    expect(s.classroom).toBe(true);
+    expect(s.explainer).not.toBe('none');
+    expect(s.fieldOn).toBe(true);
+    // A live bus must keep its switch on screen.
+    expect(s.fieldSec).not.toBe('none');
+    // Unmentioned buses are still the bundle's to turn off.
+    expect(s.chargeOn).toBeFalsy();
+  });
+
+  test('header buttons apply the whole bundle, remember it, and write ?labMode=', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=lab&look=drama');
+    await waitForEval(page, () => window.getLabMode?.() === 'lab', { timeout: 60_000 });
+    // Boot honoured the explicit look…
+    expect(await page.evaluate(() => window.multiVisualizer?.lightingLook)).toBe('drama');
+
+    // …but a click is an explicit choice of the whole bundle.
+    await page.evaluate(() => document.getElementById('labmode-showroom').click());
+    await waitForEval(page, () => window.getLabMode?.() === 'showroom', { timeout: 30_000 });
+    const s = await page.evaluate(() => ({
+      look: window.multiVisualizer?.lightingLook,
+      stored: localStorage.getItem('seg-lab-mode'),
+      param: new URL(location.href).searchParams.get('labMode'),
+      pressed: ['showroom', 'lab', 'twin'].filter(
+        (m) => document.getElementById(`labmode-${m}`).getAttribute('aria-pressed') === 'true'),
+      explainer: getComputedStyle(document.getElementById('seg-explainer-section')).display
+    }));
+    expect(s.look).toBe('studio');
+    expect(s.stored).toBe('showroom');
+    expect(s.param).toBe('showroom');
+    expect(s.pressed).toEqual(['showroom']);
+    expect(s.explainer).toBe('none');
+
+    // Back to Lab restores the chrome showroom hid.
+    await page.evaluate(() => document.getElementById('labmode-lab').click());
+    await waitForEval(page, () => window.getLabMode?.() === 'lab', { timeout: 30_000 });
+    const back = await page.evaluate(() => ({
+      explainer: getComputedStyle(document.getElementById('seg-explainer-section')).display,
+      fieldSec: getComputedStyle(document.getElementById('field-coupling-section')).display,
+      look: window.multiVisualizer?.lightingLook
+    }));
+    expect(back.explainer).not.toBe('none');
+    expect(back.fieldSec).not.toBe('none');
+    expect(back.look).toBe('lab');
+  });
+
+  test('the remembered mode applies on a bare reload', async ({ page }) => {
+    trackPageErrors(page);
+    await page.addInitScript(() => {
+      try { localStorage.setItem('seg-lab-mode', 'showroom'); } catch (_) { /* ignore */ }
+    });
+    await gotoWebGL2(page);
+    await waitForEval(page, () => window.getLabMode?.() === 'showroom', { timeout: 60_000 });
+    expect(await page.evaluate(() => document.body.dataset.labMode)).toBe('showroom');
+  });
+
+  test('showroom forces a bus off for the session without rewriting the stored preference', async ({ page }) => {
+    trackPageErrors(page);
+    await page.addInitScript(() => {
+      try { localStorage.setItem('seg-field-coupling', 'true'); } catch (_) { /* ignore */ }
+    });
+    await gotoWebGL2(page, 'labMode=showroom');
+    await waitForEval(page, () => window.getLabMode?.() === 'showroom', { timeout: 60_000 });
+    const s = await page.evaluate(() => ({
+      on: window.multiVisualizer?.fieldNetwork?.couplingEnabled,
+      stored: localStorage.getItem('seg-field-coupling')
+    }));
+    expect(s.on).toBe(false);
+    expect(s.stored).toBe('true');
+  });
+
+  test('twin opens the residual gauges; leaving it coasts a live link without disconnecting', async ({ page }) => {
+    test.setTimeout(300_000);
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=twin&mockHardware=1');
+    await waitForEval(page, () => window.getLabMode?.() === 'twin'
+      && window.multiVisualizer?.hardwareBridge?.isConnected === true, { timeout: 90_000 });
+    const open = await page.evaluate(() => ({
+      sci: window.sciUI?.isVisible,
+      hwCollapsed: document.getElementById('hardware-panel')?.dataset.collapsed ?? null
+    }));
+    expect(open.sci).toBe(true);
+    expect(open.hwCollapsed).toBe('false');
+
+    await page.evaluate(() => window.multiVisualizer.hardwareBridge.setManualCoils(0b11, 0.75));
+    await page.evaluate(() => document.getElementById('labmode-lab').click());
+    await waitForEval(page, () => window.getLabMode?.() === 'lab', { timeout: 30_000 });
+    const left = await page.evaluate(() => {
+      const b = window.multiVisualizer.hardwareBridge;
+      return { connected: b.isConnected, manual: b.manualMode, duty: b.manualPwmDuty, sci: window.sciUI?.isVisible };
+    });
+    expect(left.connected).toBe(true);
+    expect(left.manual).toBe(false);
+    expect(left.duty).toBe(0);
+    // The gauges Twin opened close again; a panel the user opened themselves would stay.
+    expect(left.sci).toBe(false);
+  });
+
+  test('catalog mode buttons still switch bench', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=lab');
+    await waitForEval(page, () => window.getLabMode?.() === 'lab' && !!document.getElementById('btn-heron'),
+      { timeout: 60_000 });
+    await page.evaluate(() => document.getElementById('btn-heron').click());
+    await waitForEval(page, () => window.getRendererInfo()?.view === 'heron'
+      && document.getElementById('btn-heron').classList.contains('active'), { timeout: 30_000 });
+  });
+
+  test('focus change is announced: mode + bench + one number, in a polite live region', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page, 'labMode=lab');
+    await waitForEval(page, () => window.getLabMode?.() === 'lab', { timeout: 60_000 });
+    await page.evaluate(() => window.setMode('pulse-coil'));
+    await waitForEval(page,
+      () => /Pulse Coil/.test(document.getElementById('focusLiveRegion')?.textContent ?? ''),
+      { timeout: 30_000 });
+    const s = await page.evaluate(() => {
+      const el = document.getElementById('focusLiveRegion');
+      return {
+        role: el.getAttribute('role'),
+        live: el.getAttribute('aria-live'),
+        text: el.textContent,
+        readoutName: document.getElementById('device-readout')?.getAttribute('aria-label') ?? null
+      };
+    });
+    expect(s.role).toBe('status');
+    expect(s.live).toBe('polite');
+    expect(s.text).toMatch(/^Lab mode\. Pulse Coil/);
+    expect(s.text).not.toMatch(/NaN/);
+    expect(s.text).toMatch(/\d/);
+    expect(s.readoutName).toMatch(/Pulse Coil/);
+  });
+});
+
+// Catalog `setpoints` → generated sliders (src/setpoint-sliders.ts). The page
+// carries no per-device slider markup; the panel only writes, the plant steps.
+test.describe('Catalog setpoint sliders', () => {
+  test('each declared setpoint gets a slider with catalog bounds, shown only for its bench', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!document.getElementById('lorentzFieldSlider'), { timeout: 60_000 });
+    const dom = await page.evaluate(() => ['lorentzFieldSlider', 'halbachSegmentsSlider', 'pulseCoilChargeSlider', 'dropTubeSigmaSlider'].map((id) => {
+      const el = document.getElementById(id);
+      return { id, min: el?.min, max: el?.max, step: el?.step, label: el?.getAttribute('aria-label') };
+    }));
+    expect(dom).toEqual([
+      expect.objectContaining({ id: 'lorentzFieldSlider', min: '0', max: '1.2', step: '0.05' }),
+      expect.objectContaining({ id: 'halbachSegmentsSlider', min: '4', max: '24', step: '1' }),
+      expect.objectContaining({ id: 'pulseCoilChargeSlider', min: '0', max: '48', step: '1' }),
+      expect.objectContaining({ id: 'dropTubeSigmaSlider', min: '0', max: '60', step: '0.1' })
+    ]);
+    for (const d of dom) expect(d.label).toBeTruthy();
+
+    const shown = async (mode) => {
+      await page.evaluate((m) => window.setMode(m), mode);
+      return page.evaluate(() => [...document.querySelectorAll('[data-setpoint-device]')]
+        .filter((el) => !el.hidden).map((el) => el.dataset.setpointDevice));
+    };
+    expect(await shown('halbach-viz')).toEqual(['halbach-viz']);
+    expect(await shown('pulse-coil')).toEqual(['pulse-coil']);
+    expect(await shown('lorentz-sled')).toEqual(['lorentz-sled']);
+    expect(await shown('drop-tube')).toEqual(['drop-tube']);
+    expect(await shown('overview')).toEqual([]);
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('Lorentz slider still writes setLorentzFieldT (local B), clamped by the plant', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!document.getElementById('lorentzFieldSlider')
+      && !!window.multiVisualizer?.devices?.['lorentz-sled'], { timeout: 60_000 });
+    await page.evaluate(() => window.setMode('lorentz-sled'));
+    await page.evaluate(() => {
+      const s = document.getElementById('lorentzFieldSlider');
+      s.value = '0.35';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const s = await page.evaluate(() => {
+      const d = window.multiVisualizer.devices['lorentz-sled'];
+      const ph = d.physicsState ?? d.physics;
+      return { local: ph.lorentzFieldLocalT, B: ph.lorentzFieldT, label: document.getElementById('lorentzFieldValue').textContent };
+    });
+    expect(s.local).toBeCloseTo(0.35, 5);
+    expect(s.B).toBeCloseTo(0.35, 5);
+    expect(s.label).toBe('0.35 T');
+  });
+
+  test('Halbach N pins against the drive sweep, and Auto hands it back', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.multiVisualizer?.devices?.['halbach-viz'], { timeout: 60_000 });
+    await page.evaluate(() => window.setMode('halbach-viz'));
+    await page.evaluate(() => {
+      const s = document.getElementById('halbachSegmentsSlider');
+      s.value = '7';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const n = () => page.evaluate(() => {
+      const d = window.multiVisualizer.devices['halbach-viz'];
+      const ph = d.physicsState ?? d.physics;
+      return { count: ph.halbachSegmentCount, set: ph.halbachSegmentSetpoint };
+    });
+    // The plant must keep honouring the pin on frames after the input event.
+    await waitForEval(page, () => {
+      const ph = window.multiVisualizer.devices['halbach-viz'];
+      return (ph.physicsState ?? ph.physics).halbachSegmentCount === 7;
+    }, { timeout: 30_000 });
+    await page.waitForTimeout(500);
+    expect(await n()).toEqual({ count: 7, set: 7 });
+
+    await page.evaluate(() => document.getElementById('halbachSegmentsRelease').click());
+    expect((await n()).set).toBeNull();
+  });
+
+  test('pulse-coil charge target pins the bank and is clamped to the catalog range', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.multiVisualizer?.devices?.['pulse-coil'], { timeout: 60_000 });
+    await page.evaluate(() => window.setMode('pulse-coil'));
+    await page.evaluate(() => {
+      const s = document.getElementById('pulseCoilChargeSlider');
+      s.value = '30';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const set = await page.evaluate(() => {
+      const d = window.multiVisualizer.devices['pulse-coil'];
+      return (d.physicsState ?? d.physics).pulseCoilChargeSetpointV;
+    });
+    expect(set).toBe(30);
+  });
+
+  test('drop-tube σ slider swaps the tube material, and Auto returns to copper', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.multiVisualizer?.devices?.['drop-tube']
+      && !!document.getElementById('dropTubeSigmaSlider'), { timeout: 60_000 });
+    await page.evaluate(() => {
+      window.segOperator.start();
+      window.setMode('drop-tube');
+    });
+    const read = () => page.evaluate(() => {
+      const d = window.multiVisualizer.devices['drop-tube'];
+      const ph = d.physicsState ?? d.physics;
+      return { set: ph.dropTubeSigmaSetpointMSm, sigma: ph.dropTubeSigmaMSm, vt: ph.dropTubeTerminalVMps };
+    });
+    await waitForEval(page, () => {
+      const d = window.multiVisualizer.devices['drop-tube'];
+      return Number.isFinite((d.physicsState ?? d.physics).dropTubeTerminalVMps);
+    }, { timeout: 30_000 });
+    const copper = await read();
+    expect(copper.set).toBeNull();
+    expect(copper.sigma).toBeCloseTo(59.6, 5);
+
+    // Aluminium: v_t scales as 1/σ.
+    await page.evaluate(() => {
+      const s = document.getElementById('dropTubeSigmaSlider');
+      s.value = '37.7';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await waitForEval(page, () => {
+      const d = window.multiVisualizer.devices['drop-tube'];
+      return (d.physicsState ?? d.physics).dropTubeSigmaMSm === 37.7;
+    }, { timeout: 30_000 });
+    const al = await read();
+    expect(al.set).toBe(37.7);
+    expect(al.vt / copper.vt).toBeCloseTo(59.6 / 37.7, 4);
+
+    // Plastic: no terminal velocity, and the readout says so rather than a number.
+    await page.evaluate(() => {
+      const s = document.getElementById('dropTubeSigmaSlider');
+      s.value = '0';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await waitForEval(page, () => {
+      const d = window.multiVisualizer.devices['drop-tube'];
+      return (d.physicsState ?? d.physics).dropTubeSigmaMSm === 0;
+    }, { timeout: 30_000 });
+    expect(Number.isNaN((await read()).vt)).toBe(true);
+
+    await page.evaluate(() => document.getElementById('dropTubeSigmaRelease').click());
+    await waitForEval(page, () => {
+      const d = window.multiVisualizer.devices['drop-tube'];
+      return (d.physicsState ?? d.physics).dropTubeSigmaMSm === 59.6;
+    }, { timeout: 30_000 });
+    expect((await read()).set).toBeNull();
+  });
+
+  test('#lab= pcap / hseg / lfield share links pin through the same setpoints', async ({ page }) => {
+    trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.multiVisualizer?.devices?.['halbach-viz']
+      && !!window.multiVisualizer?.devices?.['pulse-coil'], { timeout: 60_000 });
+    await page.evaluate(async () => {
+      const { applyLabState, decodeLabHash } = await import('/seg-explainer/lab-url.ts');
+      await applyLabState(decodeLabHash('#lab=v1;mode=halbach-viz;hseg=12'));
+      await applyLabState(decodeLabHash('#lab=v1;mode=pulse-coil;pcap=0.5'));
+    });
+    const s = await page.evaluate(() => {
+      const ph = (id) => window.multiVisualizer.devices[id].physicsState ?? window.multiVisualizer.devices[id].physics;
+      return { hseg: ph('halbach-viz').halbachSegmentSetpoint, pcap: ph('pulse-coil').pulseCoilChargeSetpointV };
+    });
+    expect(s.hseg).toBe(12);
+    expect(s.pcap).toBe(24);
+  });
+});
+
+test.describe('LabConfig share links v2 (#224 §1)', () => {
+  test('window.lab.loadConfig applies live fields and writes a #lab2= link that boots back', async ({ page }) => {
+    // Two boots plus the lab-file / lab-url / share chunks; SwiftShader can starve module loads.
+    test.setTimeout(480_000);
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.multiVisualizer?.devices?.hall && !!window.lab, { timeout: 120_000 });
+
+    const result = await page.evaluate(() => window.lab.loadConfig({
+      format: 'seg-lab', version: 1, schema: 'old-schema',
+      config: { mode: 'hall', look: 'lab', fieldCoupling: true, seed: 4242, bogus: 1, renderer: 'webgpu' }
+    }));
+    expect(result.reloading).toBe(false);
+    expect([...result.applied].sort()).toEqual(['fieldCoupling', 'look', 'mode', 'seed']);
+    expect(result.ignored).toEqual(expect.arrayContaining(['bogus', 'renderer']));
+
+    const live = await page.evaluate(() => ({
+      view: window.multiVisualizer.currentView,
+      look: window.multiVisualizer.lightingLook,
+      field: window.multiVisualizer.fieldNetwork?.couplingEnabled,
+      hash: location.hash
+    }));
+    expect(live.view).toBe('hall');
+    expect(live.look).toBe('lab');
+    expect(live.field).toBe(true);
+    expect(live.hash.startsWith('#lab2=')).toBe(true);
+
+    const url = await page.evaluate(() => window.lab.shareLink());
+    expect(url).toMatch(/[?&]renderer=webgl2.*#lab2=[zj][A-Za-z0-9_-]+$/);
+    expect(url.length).toBeLessThan(600);
+
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await waitForEval(page, () => window.currentRenderer === 'webgl2'
+      && window.multiVisualizer?.currentView === 'hall', { timeout: 120_000 });
+    const booted = await page.evaluate(() => ({
+      look: window.multiVisualizer.lightingLook,
+      lookSource: window.lab.sources().look,
+      field: window.multiVisualizer.fieldNetwork?.couplingEnabled,
+      seed: window.lab.config().seed,
+      seedSource: window.lab.sources().seed
+    }));
+    expect(booted.look).toBe('lab');
+    expect(booted.lookSource).toBe('hash');
+    expect(booted.field).toBe(true);
+    expect(booted.seed).toBe(4242);
+    expect(booted.seedSource).toBe('hash');
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('a dropped .lab.json loads; a junk #lab2= is ignored, not fatal', async ({ page }) => {
+    test.setTimeout(480_000);
+    const { pageErrors } = trackPageErrors(page);
+    await page.goto('/?renderer=webgl2#lab2=zNOT-A-REAL-PAYLOAD', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await waitForEval(page, () => window.currentRenderer === 'webgl2' && !!window.multiVisualizer?.devices?.transformer
+      && !!window.lab, { timeout: 120_000 });
+
+    const taken = await page.evaluate(() => {
+      const file = new File([JSON.stringify({
+        format: 'seg-lab', version: 1, schema: 'x', config: { mode: 'transformer', heronLayout: 'tower' }
+      })], 'bench.lab.json', { type: 'application/json' });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      return !document.body.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    });
+    // The drop listener is there from boot, so the drop is taken at once; the
+    // loader is a lazy lab-file → lab-url chain, 90 s+ in dev mode on SwiftShader.
+    expect(taken).toBe(true);
+    await waitForEval(page, () => window.multiVisualizer?.currentView === 'transformer'
+      && window.multiVisualizer?.heronLayoutPreset === 'tower', { timeout: 300_000 });
+    expect(pageErrors).toEqual([]);
+  });
+});
+
+test.describe('Plant snapshots (#224 §2)', () => {
+  test('restoreSnapshot of a steady operating point: telemetry is at steady state at once (no spin-up)', async ({ page }) => {
+    // Boot + the lazy snapshot chunk; SwiftShader can starve module loads.
+    test.setTimeout(300_000);
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page);
+    await waitForEval(page, () => !!window.lab?.restoreSnapshot && !!window.multiVisualizer?.devices?.vdg
+      && !!window.telemetryHub, { timeout: 120_000 });
+
+    // A saved operating point, as a .lab.json `state` carries it (JSON). SEG
+    // at full drive and excitation balances drive torque against eddy +
+    // viscous drag at exactly ω = 1 (1.33/1.4 + 0.05), i.e. OPERATIONAL; a
+    // fresh START would spend seconds spinning up to it. The VdG sphere comes
+    // back charged too. No C++ vector: this lab runs the JS plants.
+    const restored = await page.evaluate(async () => {
+      const snapshot = {
+        format: 'seg-plant-snapshot', version: 1, layoutHash: 0, catalogHash: '', backend: 'js',
+        focus: 'seg', view: window.multiVisualizer.currentView, t: 600, seed: null, config: {},
+        operator: {
+          status: 'operational', isRunning: true, targetDrive: 1, magneticFieldStrength: 1, loadResistance: 100,
+          totalEnergy: 0, efficiency: 90, displayRpm: 3000, displayField: 0.7,
+          physics: { segOmega: 1, corona: 1, energyLevel: 1, magneticFieldStrength: 1 }
+        },
+        devices: { vdg: { vdgChargeC: 2e-6, vdgVoltage: 150000 } }
+      };
+      const ok = await window.lab.restoreSnapshot(JSON.parse(JSON.stringify(snapshot)));
+      const seg = window.telemetryHub.getSnapshot().seg;
+      return {
+        ok,
+        status: seg.status,
+        segOmega: seg.segOmega,
+        rpmInner: seg.rpmInner,
+        simT: window.telemetryHub.getSimTimeS(),
+        vdgV: window.multiVisualizer.devices.vdg.physicsState?.vdgVoltage
+      };
+    });
+    expect(restored.ok).toBe(true);
+    // Straight away — no spin-up ramp from rest.
+    expect(restored.status).toBe('operational');
+    expect(restored.segOmega).toBe(1);
+    expect(restored.rpmInner).toBe(3000);
+    expect(restored.simT).toBe(600);
+    expect(restored.vdgV).toBe(150000);
+
+    // Live stepping resumes from the restored point and stays on it.
+    await waitForEval(page, () => window.telemetryHub.getSimTimeS() > 600.5, { timeout: 120_000 });
+    const live = await page.evaluate(() => ({
+      status: window.segOperator.status,
+      segOmega: window.segOperator.physics.segOmega
+    }));
+    expect(live.status).toBe('operational');
+    expect(Math.abs(live.segOmega - 1)).toBeLessThan(1e-3);
+
+    // Not a snapshot: refused, nothing thrown.
+    expect(await page.evaluate(() => window.lab.restoreSnapshot({ format: 'nope' }))).toBe(false);
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('replay "Take over" restores the keyframe at or before the cursor and runs live from it', async ({ page }) => {
+    test.setTimeout(300_000);
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page, 'replay=1');
+    await waitForEval(page, () => typeof window.applyReplayFile === 'function' && !!window.replayPlayer
+      && !!window.telemetryHub && !!window.multiVisualizer?.session, { timeout: 120_000 });
+
+    // Samples start at time_s = 10 (keyframe `t` is on that clock). Two
+    // keyframes of the same steady SEG point, told apart by their sim clock.
+    await page.evaluate(() => {
+      const steady = (simT) => ({
+        format: 'seg-plant-snapshot', version: 1, layoutHash: 0, catalogHash: '', backend: 'js',
+        focus: 'seg', view: window.multiVisualizer.currentView, t: simT, seed: null, config: {},
+        operator: {
+          status: 'operational', isRunning: true, targetDrive: 1, magneticFieldStrength: 1, loadResistance: 100,
+          totalEnergy: 0, efficiency: 90, displayRpm: 3000, displayField: 0.7,
+          physics: { segOmega: 1, corona: 1, energyLevel: 1, magneticFieldStrength: 1 }
+        },
+        devices: {}
+      });
+      const row = (t) => ({
+        time_s: t, frame_id: t, view: 'seg', mode: 'seg', status: 'operational',
+        rpm_inner: 3000, seg_omega: 1, corona: 1, voltage_v: 100, current_a: 1, power_w: 100,
+        field_sim_t: 0.7, energy_density_j_m3: 2e5, drive: 1, excitation_pct: 100, temperature_c: 30,
+        efficiency_pct: 90, particle_flux: 20, load_ohm: 100, hw_connected: 0,
+        hw_connection_state: 'disconnected', phase_error_deg: '', rpm_error: '', voltage_error_v: '',
+        current_error_a: '', energy_residual_w: '', energy_coupled: 0
+      });
+      window.applyReplayFile({
+        replayVersion: 1, createdAt: new Date().toISOString(), seed: null,
+        segLayoutPreset: 'searl', heronLayoutPreset: 'classic', renderer: 'webgl2',
+        speedCurve: [{ t: 10, drive: 1, simRate: 1 }, { t: 12, drive: 1, simRate: 1 }],
+        config: { loadOhm: 100, magneticFieldStrength: 1, sampleHz: 1 },
+        samples: [row(10), row(11), row(12)],
+        keyframes: [{ t: 10, snapshot: steady(50_000) }, { t: 11, snapshot: steady(100_000) }]
+      });
+      window.replayPlayer.pause();
+      window.replayPlayer.seek(1.5);
+    });
+    await waitForEval(page, () => window.segOperator?.replayMode === true, { timeout: 60_000 });
+    await expect(page.locator('#replayTakeOverBtn')).toBeEnabled();
+
+    // DOM click: a locator click waits on frames, which SwiftShader starves.
+    await page.evaluate(() => document.getElementById('replayTakeOverBtn').click());
+    // The click lazy-loads the snapshot chunk; slow in dev mode on SwiftShader.
+    await expect(page.locator('#replayStatus')).toHaveText(/Took over from the t = 11\.00 s keyframe/, { timeout: 120_000 });
+
+    const after = await page.evaluate(() => {
+      window.__takeOverT = window.telemetryHub.getSimTimeS();
+      return {
+        replayMode: window.segOperator.replayMode,
+        hubReplay: window.telemetryHub.isReplayMode(),
+        loaded: window.replayPlayer.state.loaded,
+        simT: window.__takeOverT
+      };
+    });
+    expect(after.replayMode).toBe(false);
+    expect(after.hubReplay).toBe(false);
+    expect(after.loaded).toBe(false);
+    // The t = 11 keyframe's clock, not the t = 10 one (50 000 s) or the boot clock.
+    expect(after.simT).toBeGreaterThanOrEqual(100_000);
+
+    // Live from there: the plant steps on and holds the steady point.
+    await waitForEval(page, () => window.telemetryHub.getSimTimeS() > window.__takeOverT + 0.5, { timeout: 120_000 });
+    const live = await page.evaluate(() => ({
+      status: window.segOperator.status,
+      running: window.segOperator.isRunning,
+      segOmega: window.segOperator.physics.segOmega
+    }));
+    expect(live.status).toBe('operational');
+    expect(live.running).toBe(true);
+    expect(Math.abs(live.segOmega - 1)).toBeLessThan(1e-3);
+    expect(pageErrors).toEqual([]);
+  });
+});
+
+test.describe('Embed postMessage protocol (#224 §5)', () => {
+  // One lab boot: a parent page on an allowed origin frames the lab, and a
+  // sibling frame on another origin tries the same requests. Both parents are
+  // served by page.route, so no second server is needed, and are https — a
+  // lab framed by a plain http page is no secure context and cannot boot
+  // (EMBED.md). Chrome's Local
+  // Network Access checks would block a "public" (routed) page from framing
+  // the localhost dev server — a deployed lab is public — so this test runs
+  // in its own browser with them off (launchOptions cannot vary per group).
+  test('an allowed parent gets hello / loadConfig replies; another origin gets nothing', async ({ playwright, baseURL }) => {
+    // A full lab boot plus the lazy embed / lab-file chunks inside a frame;
+    // under SwiftShader on a loaded VM each step can take minutes.
+    test.setTimeout(900_000);
+    const browser = await playwright.chromium.launch({
+      args: ['--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']
+    });
+    try {
+      await embedProtocolFlow(await browser.newPage({ viewport: { width: 1280, height: 800 } }), baseURL);
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+/** @param {import('@playwright/test').Page} page @param {string | undefined} baseURL */
+async function embedProtocolFlow(page, baseURL) {
+  const { pageErrors } = trackPageErrors(page);
+  const labUrl = new URL('/?renderer=webgl2&embed=1&embedOrigins=https://school.example', baseURL).href;
+  const labOrigin = new URL(labUrl).origin;
+  const recorder = `<script>
+    window.__got = [];
+    window.addEventListener('message', (ev) => window.__got.push({ origin: ev.origin, data: ev.data }));
+  </script>`;
+  await page.route('https://school.example/**', (route) => route.fulfill({
+    contentType: 'text/html',
+    body: `<!doctype html><title>parent</title>${recorder}
+      <iframe id="lab" src="${labUrl}" style="width:640px;height:400px"></iframe>
+      <iframe id="evil" src="https://evil.example/frame.html" style="width:10px;height:10px"></iframe>`
+  }));
+  await page.route('https://evil.example/**', (route) => route.fulfill({
+    contentType: 'text/html', body: `<!doctype html><title>evil</title>${recorder}`
+  }));
+
+  await page.goto('https://school.example/parent.html', { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await waitForEval(page, () => window.__got.some((m) => m.data?.type === 'lab:ready'), { timeout: 330_000, intervalMs: 500 });
+
+  const replies = await page.evaluate(async (target) => {
+    const lab = document.getElementById('lab').contentWindow;
+    const wait = (id) => new Promise((resolve) => {
+      const t0 = Date.now();
+      (function poll() {
+        const hit = window.__got.find((m) => m.data?.requestId === id);
+        if (hit || Date.now() - t0 > 300_000) resolve(hit ?? null);
+        else setTimeout(poll, 100);
+      })();
+    });
+    lab.postMessage({ type: 'lab:hello', requestId: 'h1' }, target);
+    lab.postMessage({ type: 'lab:loadConfig', requestId: 'c1', config: { mode: 'hall', bogus: 1 } }, target);
+    lab.postMessage({ type: 'lab:subscribe', requestId: 'bad', keys: ['document.cookie'] }, target);
+    return { hello: await wait('h1'), load: await wait('c1'), bad: await wait('bad') };
+  }, labOrigin);
+  expect(replies.hello?.origin).toBe(labOrigin);
+  expect(replies.hello?.data).toMatchObject({ type: 'lab:hello:result', ok: true, protocol: 1, disclaimer: 'Simulated, not metrology' });
+  expect(replies.hello?.data.capabilities).toEqual(expect.arrayContaining(['lab:loadConfig', 'lab:subscribe']));
+  expect(replies.load?.data).toMatchObject({ type: 'lab:loadConfig:result', ok: true, requestId: 'c1' });
+  expect(replies.load?.data.result.applied).toEqual(['mode']);
+  expect(replies.load?.data.result.ignored).toEqual(['bogus']);
+  expect(replies.bad?.data).toMatchObject({ type: 'lab:error', ok: false, requestId: 'bad' });
+
+  const lab = page.frame({ url: /embed=1/ });
+  expect(lab).not.toBeNull();
+  await waitForEval(lab, () => window.multiVisualizer?.currentView === 'hall', { timeout: 120_000 });
+  const chrome = await lab.evaluate(() => ({
+    embed: document.documentElement.hasAttribute('data-lab-embed'),
+    header: getComputedStyle(document.getElementById('header')).display,
+    left: getComputedStyle(document.getElementById('left-panel')).display,
+    badge: document.getElementById('lab-embed-badge')?.textContent ?? null
+  }));
+  expect(chrome).toEqual({ embed: true, header: 'none', left: 'none', badge: 'Simulated, not metrology' });
+
+  // The sibling frame on https://evil.example can reach the lab's window
+  // but not its protocol. A ping from the parent, sent after, proves the
+  // lab already processed (and dropped) the evil messages.
+  const evil = page.frame({ url: /evil\.example/ });
+  expect(evil).not.toBeNull();
+  await evil.evaluate((target) => {
+    const lab = window.parent.frames[0];
+    lab.postMessage({ type: 'lab:hello', requestId: 'e1' }, target);
+    lab.postMessage({ type: 'lab:loadConfig', requestId: 'e2', config: { mode: 'transformer' } }, target);
+  }, labOrigin);
+  const ping = await page.evaluate(async (target) => {
+    document.getElementById('lab').contentWindow.postMessage({ type: 'lab:ping', requestId: 'p1' }, target);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 180_000) {
+      const hit = window.__got.find((m) => m.data?.requestId === 'p1');
+      if (hit) return hit.data;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return null;
+  }, labOrigin);
+  expect(ping).toMatchObject({ type: 'lab:ping:result', ok: true });
+  expect(ping.status.view).toBe('hall');
+  const evilGot = await evil.evaluate(() => window.__got.filter((m) => typeof m.data?.type === 'string' && m.data.type.startsWith('lab:')));
+  expect(evilGot).toEqual([]);
+  expect(await lab.evaluate(() => window.multiVisualizer?.currentView)).toBe('hall');
+  expect(pageErrors).toEqual([]);
+}

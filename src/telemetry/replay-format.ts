@@ -27,6 +27,17 @@ export interface ReplayFile {
     sampleHz: number;
   };
   samples: TelemetryCsvRow[] | Record<string, number | string>[];
+  /**
+   * Plant snapshots taken while recording (#224 §2), `t` on the sample clock
+   * (`time_s`). Optional: files without them still replay, they just cannot
+   * be taken over. Each `snapshot` is a `window.lab.captureSnapshot()` object.
+   */
+  keyframes?: ReplayKeyframe[];
+}
+
+export interface ReplayKeyframe {
+  t: number;
+  snapshot: unknown;
 }
 
 export interface BuildReplayFileOpts {
@@ -36,6 +47,7 @@ export interface BuildReplayFileOpts {
   speedCurve?: SpeedKeyframe[];
   sampleHz?: number;
   samples?: TelemetryCsvRow[] | Record<string, number | string>[];
+  keyframes?: ReplayKeyframe[];
 }
 
 export function buildReplayFile(opts: BuildReplayFileOpts = {}): ReplayFile {
@@ -59,7 +71,8 @@ export function buildReplayFile(opts: BuildReplayFileOpts = {}): ReplayFile {
       magneticFieldStrength: window.segOperator?.magneticFieldStrength ?? 0.5,
       sampleHz: opts.sampleHz ?? 10
     },
-    samples: opts.samples ?? []
+    samples: opts.samples ?? [],
+    ...(opts.keyframes?.length ? { keyframes: opts.keyframes } : {})
   };
 }
 

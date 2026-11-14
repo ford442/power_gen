@@ -4,6 +4,7 @@
 
 import { SEG_LAYOUT_PRESETS } from '../../seg-layout';
 import { FDTD_DRIVE_SOURCES, type FdtdDriveSource } from '../../physics/fdtd-tmz';
+import { labConfigFor, type ResolvedLabConfig } from '../../config/lab-config';
 
 export type PrototypePreset = 'showroom' | 'lab';
 
@@ -24,22 +25,23 @@ export interface SegLayoutForDraw {
   worldScale?: number;
 }
 
-function defaultParams(): URLSearchParams {
-  return new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
+/**
+ * Each parser takes an optional query for tests and per-call overrides; with
+ * none it reads the page's resolved LabConfig (URL > share hash > storage >
+ * default — `src/config/lab-config.ts`). A window override (`SEG_*`, set by
+ * an embedding page) applies only where nothing on the page chose the field.
+ */
+function resolved(params?: URLSearchParams): ResolvedLabConfig {
+  return labConfigFor(params);
 }
 
 /**
  * Parse SEG prototype preset from URL or window override.
  * Lab aliases: lab, roschin, godin. Showroom aliases: showroom, searl.
  */
-export function parsePrototypePreset(params: URLSearchParams = defaultParams()): PrototypePreset {
-  const protoParam = params.get('prototype');
-  if (protoParam === 'lab' || protoParam === 'roschin' || protoParam === 'godin') {
-    return 'lab';
-  }
-  if (protoParam === 'showroom' || protoParam === 'searl') {
-    return 'showroom';
-  }
+export function parsePrototypePreset(params?: URLSearchParams): PrototypePreset {
+  const r = resolved(params);
+  if (r.sources.prototype !== 'default') return r.config.prototype;
   if (typeof window !== 'undefined' && window.SEG_PROTOTYPE_PRESET) {
     const w = window.SEG_PROTOTYPE_PRESET;
     if (w === 'lab' || w === 'showroom') return w;
@@ -48,7 +50,7 @@ export function parsePrototypePreset(params: URLSearchParams = defaultParams()):
 }
 
 /**
- * Screen-space reflections kill switch: `?ssr=0` (aliases: off / false / no).
+ * Screen-space reflections kill switch: `?ssr=0` (any LabConfig boolean).
  *
  * Independent of the quality tier — the tier gate in post-processing-config.ts
  * already turns SSR off below high/ultra; this lets a capture or a bug report
@@ -56,11 +58,9 @@ export function parsePrototypePreset(params: URLSearchParams = defaultParams()):
  *
  * @returns true when SSR may run (subject to the tier gate)
  */
-export function parseSsrEnabled(params: URLSearchParams = defaultParams()): boolean {
-  const raw = params.get('ssr');
-  if (raw !== null) {
-    return !(raw === '0' || raw === 'off' || raw === 'false' || raw === 'no');
-  }
+export function parseSsrEnabled(params?: URLSearchParams): boolean {
+  const r = resolved(params);
+  if (r.sources.ssr !== 'default') return r.config.ssr;
   if (typeof window !== 'undefined' && window.SEG_SSR_ENABLED !== undefined) {
     return !!window.SEG_SSR_ENABLED;
   }
@@ -68,7 +68,7 @@ export function parseSsrEnabled(params: URLSearchParams = defaultParams()): bool
 }
 
 /**
- * Temporal AA kill switch: `?taa=0` (aliases: off / false / no).
+ * Temporal AA kill switch: `?taa=0` (any LabConfig boolean).
  *
  * Same shape as {@link parseSsrEnabled}: the quality tier already gates TAA to
  * high/ultra in focus mode, and this lets a capture or a bug report turn it off
@@ -77,11 +77,9 @@ export function parseSsrEnabled(params: URLSearchParams = defaultParams()): bool
  *
  * @returns true when TAA may run (subject to the tier and mode gates)
  */
-export function parseTaaEnabled(params: URLSearchParams = defaultParams()): boolean {
-  const raw = params.get('taa');
-  if (raw !== null) {
-    return !(raw === '0' || raw === 'off' || raw === 'false' || raw === 'no');
-  }
+export function parseTaaEnabled(params?: URLSearchParams): boolean {
+  const r = resolved(params);
+  if (r.sources.taa !== 'default') return r.config.taa;
   if (typeof window !== 'undefined' && window.SEG_TAA_ENABLED !== undefined) {
     return !!window.SEG_TAA_ENABLED;
   }
@@ -89,16 +87,14 @@ export function parseTaaEnabled(params: URLSearchParams = defaultParams()): bool
 }
 
 /**
- * FDTD wave-slice kill switch: `?fdtd=0` (aliases: off / false / no).
+ * FDTD wave-slice kill switch: `?fdtd=0`.
  *
  * The slice is already gated to the pulse-coil focus view at the `high` tier
  * (ADR-0010, `fdtdSliceGateOpen`); this only ever turns it off. WebGPU-only —
  * WebGL2 has no slice (docs/WEBGL2.md).
  */
-export function parseFdtdEnabled(params: URLSearchParams = defaultParams()): boolean {
-  const raw = params.get('fdtd');
-  if (raw === null) return true;
-  return !(raw === '0' || raw === 'off' || raw === 'false' || raw === 'no');
+export function parseFdtdEnabled(params?: URLSearchParams): boolean {
+  return resolved(params).config.fdtd;
 }
 
 /**
@@ -106,10 +102,8 @@ export function parseFdtdEnabled(params: URLSearchParams = defaultParams()): boo
  * ADR-0010 vacuum kernel, so the μ_r armature and copper turns can be switched
  * off to compare the two pictures side by side. Default on.
  */
-export function parseFdtdMaterialsEnabled(params: URLSearchParams = defaultParams()): boolean {
-  const raw = params.get('fdtdMaterials');
-  if (raw === null) return true;
-  return !(raw === '0' || raw === 'off' || raw === 'false' || raw === 'no');
+export function parseFdtdMaterialsEnabled(params?: URLSearchParams): boolean {
+  return resolved(params).config.fdtdMaterials;
 }
 
 /**
@@ -120,9 +114,8 @@ export function parseFdtdMaterialsEnabled(params: URLSearchParams = defaultParam
  * The winding *geometry* is always the pulse coil's — the panel lives in its
  * focus view. Only the modulation changes.
  */
-export function parseFdtdDriveSource(params: URLSearchParams = defaultParams()): FdtdDriveSource {
-  const raw = (params.get('fdtdDrive') ?? '').toLowerCase();
-  return raw === FDTD_DRIVE_SOURCES.TRANSFORMER
+export function parseFdtdDriveSource(params?: URLSearchParams): FdtdDriveSource {
+  return resolved(params).config.fdtdDrive === 'transformer'
     ? FDTD_DRIVE_SOURCES.TRANSFORMER
     : FDTD_DRIVE_SOURCES.COIL;
 }
@@ -137,19 +130,11 @@ export function parseAnomalousEffects(prototypePreset: PrototypePreset): boolean
  * When prototype=lab and layout is omitted, defaults to Roschin like WebGPU.
  */
 export function parseSegLayoutPreset(
-  params: URLSearchParams = defaultParams(),
+  params?: URLSearchParams,
   prototypePreset: PrototypePreset = 'showroom'
 ): string {
-  const layoutParam = params.get('layout');
-  if (layoutParam === 'roschin' || layoutParam === 'lab' || layoutParam === 'godin') {
-    return SEG_LAYOUT_PRESETS.roschin;
-  }
-  if (layoutParam === 'legacy') {
-    return SEG_LAYOUT_PRESETS.legacy;
-  }
-  if (layoutParam === 'searl' || layoutParam === 'showroom') {
-    return SEG_LAYOUT_PRESETS.searl;
-  }
+  const layout = resolved(params).config.layout;
+  if (layout) return SEG_LAYOUT_PRESETS[layout];
   if (prototypePreset === 'lab') {
     return SEG_LAYOUT_PRESETS.roschin;
   }

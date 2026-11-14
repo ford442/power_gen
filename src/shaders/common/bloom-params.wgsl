@@ -22,6 +22,12 @@ struct BloomParams {
   ssrStrength: f32,
   // 1 = skip filmic curve (linear HDR for canvas toneMapping.extended).
   outputLinearHdr: f32,
-  _pad1:      f32,
-  _pad2:      f32,
+  // 0 = legacy 3-pass bloom (composite widens it with 5 taps); > 0 = the
+  // linear pipeline's mip chain, read once and scaled by this (1 / levels).
+  bloomChainScale: f32,
+  // How the composite's result reaches the canvas (see color-pipeline.ts):
+  //   0 legacy   tonemapped linear written as-is to a UNORM view (no encode)
+  //   1 srgbView canvas -srgb view encodes in hardware; grading runs encoded
+  //   2 shader   composite applies the sRGB OETF (float HDR canvas)
+  outputTransfer: f32,
 }

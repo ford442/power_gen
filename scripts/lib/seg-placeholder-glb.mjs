@@ -464,7 +464,7 @@ export function writePlaceholderGlb(outPath, opts) {
       });
       images.push({
         mimeType: 'image/ktx2',
-        bufferView: 4 + i,
+        bufferView: 2 + i,
         name: `albedo_${keys[i]}`
       });
       compressedAlbedo[keys[i]] = i;
@@ -504,16 +504,19 @@ export function writePlaceholderGlb(outPath, opts) {
         }]
       }
     ],
+    // One bufferView per interleaved vertex block (stride 32 = pos 12 + normal 12
+    // + uv 8), with the attributes at accessor byteOffset 0 / 12 / 24. Three views
+    // at offsets 0/12/24 sized count×element (what this used to write) leave every
+    // accessor overrunning its view by ~2.7× — the repo's loader reads by stride
+    // and never noticed, but cgltf (gltfpack) rejects it ("buffer too short").
     accessors: [
-      { bufferView: 0, componentType: 5126, count: packedMesh.vertexCount, type: 'VEC3', min: posMin, max: posMax },
-      { bufferView: 1, componentType: 5126, count: packedMesh.vertexCount, type: 'VEC3' },
-      { bufferView: 2, componentType: 5126, count: packedMesh.vertexCount, type: 'VEC2' },
-      { bufferView: 3, componentType: 5123, count: packedMesh.indices.length, type: 'SCALAR' }
+      { bufferView: 0, byteOffset: 0, componentType: 5126, count: packedMesh.vertexCount, type: 'VEC3', min: posMin, max: posMax },
+      { bufferView: 0, byteOffset: 12, componentType: 5126, count: packedMesh.vertexCount, type: 'VEC3' },
+      { bufferView: 0, byteOffset: 24, componentType: 5126, count: packedMesh.vertexCount, type: 'VEC2' },
+      { bufferView: 1, componentType: 5123, count: packedMesh.indices.length, type: 'SCALAR' }
     ],
     bufferViews: [
-      { buffer: 0, byteOffset: vertOff.byteOffset, byteLength: packedMesh.vertexCount * 12, byteStride: 32, target: 34962 },
-      { buffer: 0, byteOffset: vertOff.byteOffset + 12, byteLength: packedMesh.vertexCount * 12, byteStride: 32, target: 34962 },
-      { buffer: 0, byteOffset: vertOff.byteOffset + 24, byteLength: packedMesh.vertexCount * 8, byteStride: 32, target: 34962 },
+      { buffer: 0, byteOffset: vertOff.byteOffset, byteLength: vertOff.byteLength, byteStride: 32, target: 34962 },
       { buffer: 0, byteOffset: idxOff.byteOffset, byteLength: idxOff.byteLength, target: 34963 },
       ...imageViews
     ],

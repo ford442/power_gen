@@ -1,6 +1,7 @@
 import type { PerformanceProfiler } from './performance-profiler';
 import { domMethods } from './debug-panel-dom';
 import { paneMethods } from './debug-panel-panes';
+import { onFrame } from './frame-clock';
 
 export class DebugPanel {
   profiler: PerformanceProfiler;
@@ -9,7 +10,8 @@ export class DebugPanel {
   ctx!: CanvasRenderingContext2D;
   correlationCanvas!: HTMLCanvasElement;
   correlationCtx!: CanvasRenderingContext2D;
-  animationId: number | null;
+  /** Frame-clock unsubscribe while the panel is visible. */
+  private _offFrame: (() => void) | null;
   panel!: HTMLDivElement;
   wasmDiffEnabled?: boolean;
 
@@ -17,15 +19,15 @@ export class DebugPanel {
   // prototype below (see the Object.assign call at the end of this file).
   _refreshEnergyNetworkStatus?: () => void;
   _refreshFieldNetworkStatus?: () => void;
-  _wireFieldNetworkControls!: () => void;
   _refreshChargeNetworkStatus?: () => void;
-  _wireChargeNetworkControls!: () => void;
   _wasmRefreshStatus?: () => void;
+  /** Every DOM listener/timer the panel wires (debug-panel-dom.ts); `destroy()` aborts them. */
+  _abort = new AbortController();
 
   constructor(profiler: PerformanceProfiler) {
     this.profiler = profiler;
     this.visible = false;
-    this.animationId = null;
+    this._offFrame = null;
     this.createPanel();
   }
 
@@ -47,20 +49,22 @@ export class DebugPanel {
     else this.show();
   }
 
+  destroy(): void {
+    this.hide();
+    this._abort.abort();
+    this.panel?.remove();
+  }
+
+  /** Stats, graphs and readouts at 20 Hz while visible (was every frame). */
   startUpdateLoop(): void {
-    const update = () => {
-      if (!this.visible) return;
-      this.update();
-      this.animationId = requestAnimationFrame(update);
-    };
-    update();
+    this.stopUpdateLoop();
+    this.update();
+    this._offFrame = onFrame(() => this.update(), { hz: 20 });
   }
 
   stopUpdateLoop(): void {
-    if (this.animationId) {
-      cancelAnimationFrame(this.animationId);
-      this.animationId = null;
-    }
+    this._offFrame?.();
+    this._offFrame = null;
   }
 
   private async _updateWasmDiff(): Promise<void> {
@@ -179,6 +183,9 @@ export class DebugPanel {
 
       <div style="color: #888;">GPU Timing:</div>
       <div style="color: ${stats.timingEnabled ? '#4f4' : '#888'};">${stats.timingEnabled ? `On · ${(stats.lastGpuTimeMs || 0).toFixed(2)} ms` : 'Disabled'}</div>
+${stats.timingEnabled ? Object.entries(stats.gpuPassTimesMs || {}).map(([pass, ms]) => `
+      <div style="color: #888; padding-left: 10px;">· ${pass}</div>
+      <div style="color: #0ff;">${ms.toFixed(3)} ms</div>`).join('') : ''}
 
       <div style="color: #888;">Buffer Memory:</div>
       <div style="color: #0ff;">${stats.bufferMemoryMB} MB (${stats.bufferCount} buffers)</div>
@@ -241,9 +248,14 @@ export class DebugPanel {
     }, 1000);
 
     // Wait for benchmark to complete
-    setTimeout(() => {
+    const done = setTimeout(() => {
       this.showBenchmarkResults();
     }, (duration + 1) * 1000);
+    // After destroy() #benchmarkResults is gone; the results callback would throw.
+    this._abort.signal.addEventListener('abort', () => {
+      clearInterval(countdown);
+      clearTimeout(done);
+    }, { once: true });
   }
 
   showBenchmarkResults(): void {
@@ -289,6 +301,8 @@ export class DebugPanel {
 export interface DebugPanel {
   createPanel(): void;
   _wireEnergyNetworkControls(): void;
+  _wireFieldNetworkControls(): void;
+  _wireChargeNetworkControls(): void;
   _wireWasmControls(): void;
   updateDevicePhysicsData(): void;
   drawFPSGraph(): void;

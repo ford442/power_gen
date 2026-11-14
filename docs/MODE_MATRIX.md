@@ -35,13 +35,40 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 | `hall` | 13 | 10 (`SIM_MODE_HALL`) | `hallVoltage` (V), `hallCurrent` (A), `hallFieldT` (T), `hallCoeff` (m³/C) | WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback |
 | `lorentz-sled` | 14 | 11 (`SIM_MODE_LORENTZ_SLED`) | `lorentzSledVms` (m/s), `lorentzCurrentA` (A), `lorentzFieldT` (T), `lorentzForceN` (N), `lorentzPositionM` (m) | WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it |
 | `jumping-ring` | 15 | 12 (`SIM_MODE_JUMPING_RING`) | `ringHeightM` (m), `ringCurrentA` (A), `ringPrimaryIA` (A), `ringForceN` (N), `ringCouplingK` | WASM coupled L–M(h) RK4 ODE with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it |
+| `drop-tube` | 16 | none (`wasmMode: null`) | `dropTubeVMps` (m/s), `dropTubeTerminalVMps` (m/s), `dropTubeDragN` (N), `dropTubeEddyIA` (A), `dropTubeDepthM` (m) | JS-only algebraic eddy drag (point dipole, thin-walled tube): v_t = m·g/k, exact exponential step |
+
+## Snapshot state
+
+Each device's `state` block lists what a plant snapshot saves (see
+[`SNAPSHOTS.md`](SNAPSHOTS.md)). The C++ vector is `[_time, _drive, …]`
+followed by the block's `cpp` fields; layout hash
+`0x21801834` (`PLANT_STATE_LAYOUT_HASH`).
+
+| Device `id` | TS keys | C++ `plantStateSize` | Keys shared with C++ |
+|---|---|---|---|
+| `seg` | 4 | 137 floats | 0 |
+| `heron` | 7 | 8 floats | 5 |
+| `kelvin` | 6 | 8 floats | 5 |
+| `solar` | 2 | 4 floats | 1 |
+| `peltier` | 8 | 10 floats | 7 |
+| `mhd` | 7 | 9 floats | 6 |
+| `maglev` | 7 | 9 floats | 6 |
+| `pulse-coil` | 12 | — | — |
+| `homopolar` | 8 | 9 floats | 6 |
+| `halbach-viz` | 8 | — | — |
+| `transformer` | 9 | 11 floats | 8 |
+| `vdg` | 8 | 10 floats | 7 |
+| `hall` | 7 | 9 floats | 6 |
+| `lorentz-sled` | 7 | 8 floats | 5 |
+| `jumping-ring` | 8 | 10 floats | 7 |
+| `drop-tube` | 13 | — | — |
 
 ## How to add a device
 
-1. Add a row to `physics/devices.json` (new unused `shaderMode`; `wasmMode` next reserved or `null`), including a `telemetry` entry (label / unit / digits) for every `telemetryKeys` entry.
+1. Add a row to `physics/devices.json` (new unused `shaderMode`; `wasmMode` next reserved or `null`), including a `telemetry` entry (label / unit / digits) for every `telemetryKeys` entry, and a `state` block listing every field the plant's step reads before it writes.
 2. Register a plugin that spreads `catalogIdentity('id')`.
 3. Add a C++ plant + `case` **only if** `wasmMode` is set.
-4. `npm run codegen:catalog` (and nameplates in `physics/constants.json` if the energy bus needs a watt rating).
+4. `npm run codegen:catalog` (and nameplates in `physics/constants.json` if the energy bus needs a watt rating), then `npm run test:snapshots`.
 
 ## Source of truth pointers
 

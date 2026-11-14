@@ -1,0 +1,16 @@
+{
+  "id": "hall-voltage-vs-field",
+  "title": "Hall voltage vs B (field from the Halbach array)",
+  "description": "With field coupling on, the Hall strip sits in the Halbach array's peak field. Hold the strip current fixed and step the array from 4 to 24 segments: V_H = I·B·R_H / t, so V_H against B is a line through the origin with slope I·R_H/t. Simulated, not metrology.",
+  "config": { "mode": "hall", "wasmPhysics": true, "fieldCoupling": true, "seed": 42 },
+  "steps": [
+    { "at": 0, "set": { "drive": 0.6, "halbach-viz.halbachSegments": 4 } },
+    { "at": 2, "ramp": { "halbach-viz.halbachSegments": [4, 24] }, "over": 10 },
+    { "at": 2, "record": ["halbach-viz.halbachSegments", "halbachPeakBT", "hallFieldT", "hallCurrent", "hallVoltage"], "hz": 30, "until": 13 },
+    { "at": 13, "expect": [
+      { "fit": { "x": "hallFieldT", "y": "hallVoltage", "model": "proportional", "r2": { "gt": 0.999 } } },
+      { "stat": { "key": "hallFieldT", "of": "p2p", "gt": 0.05 } }
+    ] }
+  ],
+  "plots": [{ "x": "hallFieldT", "y": "hallVoltage", "fit": "linear" }]
+}

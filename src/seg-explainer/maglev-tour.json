@@ -1,0 +1,86 @@
+{
+  "tourVersion": 1,
+  "id": "maglev-intro",
+  "title": "Magnetic Levitation Tour",
+  "description": "Guided walkthrough of the floater's gap dynamics: a target gap set by the drive, a virtual spring holding the floater against its weight, and heavy damping that settles it without bouncing.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 7,
+      "view": "maglev",
+      "cameraOffset": [0, 3.5, 11],
+      "cameraTargetY": 0.4,
+      "title": "A disc floating over a ring of magnets",
+      "body": "A light disc hovers above a ring of magnets with nothing touching it. The one number this bench cares about is the air gap between them: where it settles, how fast it gets there, and what happens when you move the drive slider. Everything else is a consequence of that gap.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "target",
+      "durationSec": 9,
+      "view": "maglev",
+      "cameraOffset": [4.5, 1.8, 6],
+      "cameraTargetY": 0.5,
+      "title": "Step 1 — the drive picks a target gap",
+      "body": "The drive slider chooses a target gap from 12 mm at zero to 34 mm at full drive. The plant does not work the lift out from the magnets: it holds the floater with a virtual spring, F = k (target − gap) with k = 180 N/m, scaled up as the drive rises. Read it as a spring-and-damper model of a levitation loop, not a field calculation.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "gap-spring"
+    },
+    {
+      "id": "sag",
+      "durationSec": 10,
+      "view": "maglev",
+      "cameraOffset": [0, 1.4, 6.5],
+      "cameraTargetY": 0.55,
+      "title": "Step 2 — the floater sits below its target",
+      "body": "The 45 g floater weighs about 0.44 N, and a spring must stretch to carry a weight. So the gap settles where lift equals weight — below the target by m g / k_eff, about 4 mm at zero drive and about 2.5 mm at full drive.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "damping",
+      "durationSec": 10,
+      "view": "maglev",
+      "cameraOffset": [-3.5, 2, 7.5],
+      "cameraTargetY": 0.5,
+      "title": "Step 3 — damping, so it settles without bouncing",
+      "body": "The 14 N·s/m damping term stands in for eddy-current drag. Against a 45 g mass and a spring this stiff it is heavily overdamped (a damping ratio around 2 to 3), so after you move the drive slider the gap creeps to its new value rather than oscillating around it. A real passive levitator is far more delicate: Earnshaw's theorem says static magnets alone cannot hold a stable float, which is why real ones lean on motion, eddy currents or feedback.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "eddy-damping"
+    },
+    {
+      "id": "readouts",
+      "durationSec": 9,
+      "view": "maglev",
+      "cameraOffset": [0, 3, 9],
+      "cameraTargetY": 0.4,
+      "title": "Step 4 — reading B, F and RPM",
+      "body": "The lift F_z is the spring force, clamped at zero. The B readout is a separate order-of-magnitude estimate that falls roughly as 1/gap; as written it lands in the micro-tesla range, orders below a real magnet ring, so read it for its trend only and never as an input to the lift. The RPM figure is a proxy that rises with drive and with how close the gap is to its target — there is no spinning rotor.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "honesty",
+      "durationSec": 9,
+      "view": "maglev",
+      "cameraOffset": [0, 5, 14],
+      "cameraTargetY": 0.4,
+      "title": "What this model is not",
+      "body": "A one-degree-of-freedom gap ODE: a mass on a virtual spring and damper, between stops at 4 mm and 60 mm. It is not a maglev-train or bearing model — no finite-element field solution, no lateral or tilt stability, no eddy-current computation, no control loop. The ring of coloured magnets is a visual cue, not the source of the force. Use it to see how a levitated mass settles, not to size a levitator.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

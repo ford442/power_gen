@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SEG Lab — embed demo</title>
+  <!--
+    Parent-page demo for the ?embed=1 postMessage protocol (#224 §5, docs/EMBED.md).
+    Plain JS, no build step: copied as-is from src/public/ into the site root,
+    next to index.html, so the lab is "./" from here (works under a Pages subpath).
+    Simulated, not metrology.
+  -->
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 13px system-ui, sans-serif; background: #050a0f; color: #d8e6f5; }
+    header { display: flex; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #1c2a3c; }
+    h1 { margin: 0; font-size: 15px; }
+    .note { opacity: 0.7; font-size: 12px; }
+    main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 12px; padding: 12px 16px; }
+    @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+    iframe { width: 100%; aspect-ratio: 16 / 10; border: 1px solid #2a3b52; border-radius: 6px; background: #000; }
+    fieldset { border: 1px solid #2a3b52; border-radius: 6px; margin: 0 0 10px; padding: 8px 10px; }
+    legend { padding: 0 4px; opacity: 0.8; }
+    label { display: block; margin: 4px 0; }
+    input[type=text], textarea, select {
+      width: 100%; font: 12px ui-monospace, monospace; padding: 4px 6px;
+      background: #081018; color: #cfe; border: 1px solid #2a3b52; border-radius: 4px;
+    }
+    textarea { min-height: 64px; resize: vertical; }
+    button { font: inherit; padding: 4px 10px; margin: 4px 4px 0 0; background: #0d1a2a; color: #cfe;
+      border: 1px solid #2a3b52; border-radius: 4px; cursor: pointer; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    #state { font-weight: 600; }
+    #readout { font: 12px ui-monospace, monospace; white-space: pre; min-height: 3em; color: #fc6; }
+    #log { font: 11px ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; max-height: 260px;
+      overflow: auto; background: #081018; border: 1px solid #1c2a3c; border-radius: 4px; padding: 6px; margin: 0; }
+    .badge { display: inline-block; padding: 1px 8px; border: 1px solid #0ff4; border-radius: 10px; color: #8ad; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SEG Lab — embed demo</h1>
+    <span class="badge">Simulated, not metrology</span>
+    <span class="note">Parent page talking to <code>?embed=1</code> over <code>postMessage</code> — see docs/EMBED.md</span>
+  </header>
+  <main>
+    <section>
+      <iframe id="lab" title="SEG lab (embedded)" allow="fullscreen"></iframe>
+      <p class="note">Lab: <code id="labSrc"></code> · state: <span id="state">loading…</span></p>
+    </section>
+    <section>
+      <fieldset>
+        <legend>Frame</legend>
+        <label>Renderer
+          <select id="renderer">
+            <option value="webgl2">webgl2 (works without a GPU adapter)</option>
+            <option value="webgpu">webgpu</option>
+          </select>
+        </label>
+        <button id="reload" type="button">Reload frame</button>
+        <button id="hello" type="button" disabled>Hello</button>
+        <button id="ping" type="button" disabled>Ping</button>
+      </fieldset>
+      <fieldset>
+        <legend>lab:loadConfig</legend>
+        <textarea id="config" aria-label="Config JSON">{ "mode": "lorentz-sled", "setpoints": { "lorentzField": 0.6 } }</textarea>
+        <button id="load" type="button" disabled>Load config</button>
+      </fieldset>
+      <fieldset>
+        <legend>lab:runExperiment</legend>
+        <input id="experiment" type="text" value="" placeholder="experiment id" aria-label="Experiment id">
+        <button id="run" type="button" disabled>Run</button>
+        <button id="snapshot" type="button" disabled>Snapshot</button>
+      </fieldset>
+      <fieldset>
+        <legend>lab:subscribe</legend>
+        <label>Keys (comma-separated; empty = follow focus)
+          <input id="keys" type="text" value="lorentzForceN, lorentzFieldT" aria-label="Telemetry keys">
+        </label>
+        <label>Hz (clamped to ≤ 10) <input id="hz" type="text" value="5" aria-label="Telemetry rate"></label>
+        <button id="subscribe" type="button" disabled>Subscribe</button>
+        <button id="unsubscribe" type="button" disabled>Unsubscribe</button>
+        <div id="readout" aria-live="off"></div>
+      </fieldset>
+      <pre id="log" aria-live="polite"></pre>
+    </section>
+  </main>
+  <script>
+    (function () {
+      'use strict';
+      var frame = document.getElementById('lab');
+      var origin = location.origin;           // the lab is served from this same site
+      var nextId = 0;
+      var pending = new Map();
+      var actions = ['hello', 'ping', 'load', 'run', 'snapshot', 'subscribe', 'unsubscribe'];
+
+      function $(id) { return document.getElementById(id); }
+      function log(line) {
+        var el = $('log');
+        el.textContent = (new Date().toLocaleTimeString() + '  ' + line + '\n' + el.textContent).slice(0, 20000);
+      }
+      function setReady(ready, text) {
+        $('state').textContent = text;
+        actions.forEach(function (id) { $(id).disabled = !ready; });
+      }
+
+      function labUrl() {
+        var p = new URLSearchParams({ renderer: $('renderer').value, embed: '1', embedOrigins: origin });
+        return './?' + p.toString();
+      }
+      function load() {
+        setReady(false, 'loading… (waits for lab:ready)');
+        frame.src = labUrl();
+        $('labSrc').textContent = frame.src;
+      }
+
+      function ask(type, fields) {
+        var requestId = 'demo-' + (++nextId);
+        var msg = Object.assign({ type: type, requestId: requestId }, fields || {});
+        // targetOrigin is the lab's origin — never '*'.
+        frame.contentWindow.postMessage(msg, origin);
+        log('→ ' + JSON.stringify(msg));
+        return new Promise(function (resolve, reject) { pending.set(requestId, { resolve: resolve, reject: reject }); });
+      }
+
+      window.addEventListener('message', function (ev) {
+        if (ev.origin !== origin || ev.source !== frame.contentWindow) return;
+        var msg = ev.data;
+        if (!msg || typeof msg.type !== 'string') return;
+        if (msg.type === 'lab:telemetry') {
+          $('readout').textContent = 't = ' + msg.t.toFixed(2) + ' s (sim)\n' + Object.keys(msg.values).map(function (k) {
+            return k + ' = ' + Number(msg.values[k]).toPrecision(4);
+          }).join('\n');
+          return;
+        }
+        log('← ' + JSON.stringify(msg).slice(0, 600));
+        if (msg.type === 'lab:ready') { setReady(true, 'ready (protocol ' + msg.protocol + ')'); return; }
+        var p = pending.get(msg.requestId);
+        if (!p) return;
+        pending.delete(msg.requestId);
+        if (msg.ok) p.resolve(msg); else p.reject(new Error(msg.error));
+      });
+
+      function run(promise) { promise.catch(function (err) { log('✗ ' + err.message); }); }
+
+      $('reload').addEventListener('click', load);
+      $('hello').addEventListener('click', function () { run(ask('lab:hello')); });
+      $('ping').addEventListener('click', function () { run(ask('lab:ping')); });
+      $('load').addEventListener('click', function () {
+        var config;
+        try { config = JSON.parse($('config').value); } catch (e) { log('✗ config is not valid JSON'); return; }
+        run(ask('lab:loadConfig', { config: config }).then(function (r) {
+          if (r.result && r.result.reloading) setReady(false, 'reloading (boot-only field changed)…');
+        }));
+      });
+      $('run').addEventListener('click', function () {
+        var id = $('experiment').value.trim();
+        if (!id) { log('✗ enter an experiment id'); return; }
+        run(ask('lab:runExperiment', { id: id }));
+      });
+      $('snapshot').addEventListener('click', function () { run(ask('lab:snapshot')); });
+      $('subscribe').addEventListener('click', function () {
+        var keys = $('keys').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        var fields = { hz: Number($('hz').value) };
+        if (keys.length) fields.keys = keys;
+        run(ask('lab:subscribe', fields));
+      });
+      $('unsubscribe').addEventListener('click', function () {
+        run(ask('lab:unsubscribe').then(function () { $('readout').textContent = ''; }));
+      });
+      $('renderer').addEventListener('change', load);
+      load();
+    })();
+  </script>
+</body>
+</html>

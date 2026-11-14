@@ -60,9 +60,16 @@ export function smoothEnergyLevel(
  */
 export function writeMeshCylinders(instance: DeviceInstanceLike, mesh?: DeviceMeshSource): void {
   if (!instance.rollerInstances || !mesh?.cylinders) return;
-  const data = instancesToBufferData([mesh.cylinders()]);
-  writeQueueBuffer(instance.device, instance.rollerInstances, data);
-  const count = countInstances(mesh.cylinders().flat());
+  const cylinders = mesh.cylinders();
+  const data = instancesToBufferData([cylinders]);
+  if (data.byteLength > instance.rollerInstances.size && instance.geometry?.writeRollerInstances) {
+    // A rebuilt mesh can outgrow the boot-time buffer (Halbach segment count
+    // rises with drive). Reallocate and drop the bind groups that held the old one.
+    if (instance.geometry.writeRollerInstances([cylinders])) instance._bindGroupCache?.invalidate();
+  } else {
+    writeQueueBuffer(instance.device, instance.rollerInstances, data);
+  }
+  const count = countInstances(cylinders.flat());
   instance.meshCylinderCount = count;
   if (instance.geometry) instance.geometry.meshCylinderCount = count;
 }

@@ -196,5 +196,5 @@ float SEGSimulator::getEnergyLevel() const {
 }
 
 const char* SEGSimulator::version() {
-    return "sim_core 1.4.0";
+    return "sim_core 1.5.0";
 }

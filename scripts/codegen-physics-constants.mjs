@@ -352,6 +352,7 @@ function emitTs(data) {
   const jr = data.jumpingRing;
   const pc = data.pulseCoil;
   const hv = data.halbachViz;
+  const dt = data.dropTube;
   const hs = hall.carrierProfiles.semiconductor;
   const hm = hall.carrierProfiles.metal;
 
@@ -615,6 +616,30 @@ export const HALBACH_VIZ = {
   magAngleSpan: ${hv.magAngleSpan},
 } as const;
 
+/**
+ * Lenz drop tube — JS-only plant (wasmMode null), so TS is the only target.
+ * Conductivities are in MS/m (the setpoint slider's unit); the plant scales by
+ * 1e6. No nameplate: the bench's only source is gravity, so there is no pipe.
+ */
+export const DROP_TUBE = {
+  magnetBrT: ${dt.magnetBrT},
+  magnetRadiusM: ${dt.magnetRadiusM},
+  magnetLengthM: ${dt.magnetLengthM},
+  magnetDensityKgM3: ${dt.magnetDensityKgM3},
+  tubeMeanRadiusM: ${dt.tubeMeanRadiusM},
+  tubeWallM: ${dt.tubeWallM},
+  tubeLengthM: ${dt.tubeLengthM},
+  tubeSigmaMSm: ${dt.tubeSigmaMSm},
+  sigmaMaxMSm: ${dt.sigmaMaxMSm},
+  releaseMinM: ${dt.releaseMinM},
+  releaseMaxM: ${dt.releaseMaxM},
+  catchBelowM: ${dt.catchBelowM},
+  holdS: ${dt.holdS},
+  dwellS: ${dt.dwellS},
+  iEddyMaxA: ${dt.iEddyMaxA},
+  vRefMps: ${dt.vRefMps},
+} as const;
+
 export const ENERGY_NETWORK_NAMEPLATES = {
   simulatedOrderOfMagnitude: ${en.simulatedOrderOfMagnitude},
   deviceNameplateWatts: {
@@ -770,8 +795,53 @@ function writeOrCheck(path, content) {
   writeFileSync(path, content);
 }
 
+/**
+ * Hard physical anchors. μ0 was once committed a decade low (…e-7 instead of
+ * …e-6): every dipole field and energy density derived from it was off by 10×,
+ * and nothing failed because everything agreed with the typo. These checks tie
+ * the source of truth to a value the repo can verify from first principles.
+ */
+function validatePhysicalAnchors(data) {
+  const errors = [];
+  const p = data.physical;
+  const mu0Ref = 4 * Math.PI * 1e-7; // exact before the 2019 SI redefinition; within 1e-9 after
+  if (Math.abs(p.MU_0 - mu0Ref) / mu0Ref > 1e-6) {
+    errors.push(`physical.MU_0 = ${p.MU_0}; expected 4π×10⁻⁷ = ${mu0Ref} H/m (relative error > 1e-6)`);
+  }
+  const eps0Ref = 1 / (mu0Ref * p.C * p.C);
+  if (Math.abs(p.EPSILON_0 - eps0Ref) / eps0Ref > 1e-6) {
+    errors.push(`physical.EPSILON_0 = ${p.EPSILON_0}; 1/(μ0 c²) = ${eps0Ref} F/m — μ0, ε0 and c disagree`);
+  }
+  const m = data.segMagnet;
+  const magRef = m.Br / (mu0Ref * m.mu_r);
+  if (Math.abs(m.magnetizationAm - magRef) / magRef > 1e-3) {
+    errors.push(`segMagnet.magnetizationAm = ${m.magnetizationAm}; Br/(μ0 μr) = ${magRef.toFixed(0)} A/m`);
+  }
+  // Drop tube: the drag formula is the thin-wall limit, and the setpoint slider
+  // must be able to reach the catalog tube's own conductivity.
+  const dt = data.dropTube;
+  if (!(dt.tubeWallM < 0.25 * dt.tubeMeanRadiusM)) {
+    errors.push(`dropTube.tubeWallM = ${dt.tubeWallM} is not thin against tubeMeanRadiusM = ${dt.tubeMeanRadiusM}; the 45/1024 drag law needs w ≪ a`);
+  }
+  if (!(dt.magnetRadiusM < dt.tubeMeanRadiusM - dt.tubeWallM / 2)) {
+    errors.push(`dropTube magnet (r = ${dt.magnetRadiusM} m) does not fit the bore (inner radius ${dt.tubeMeanRadiusM - dt.tubeWallM / 2} m)`);
+  }
+  if (!(dt.tubeSigmaMSm > 0 && dt.tubeSigmaMSm <= dt.sigmaMaxMSm)) {
+    errors.push(`dropTube.tubeSigmaMSm = ${dt.tubeSigmaMSm} must be in (0, sigmaMaxMSm = ${dt.sigmaMaxMSm}]`);
+  }
+  if (!(dt.releaseMinM > 0 && dt.releaseMinM < dt.releaseMaxM)) {
+    errors.push(`dropTube release range ${dt.releaseMinM}..${dt.releaseMaxM} m is empty`);
+  }
+  return errors;
+}
+
 function main() {
   const data = loadJson();
+  const anchorErrors = validatePhysicalAnchors(data);
+  if (anchorErrors.length) {
+    for (const e of anchorErrors) console.error(`[codegen] ${e}`);
+    process.exit(1);
+  }
   mkdirSync(OUT_DIR, { recursive: true });
   mkdirSync(dirname(SHADER_OUT), { recursive: true });
 

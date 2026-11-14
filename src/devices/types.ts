@@ -9,9 +9,10 @@
 import type { DevicePhysicsState, HeronLayout } from '../renderers/shared/device-physics';
 import type { PipelineLayoutCache, BindGroupLayoutName } from '../pipeline-layout-cache';
 import type { BindGroupCache } from '../renderers/shared/bind-group-cache';
-import type { DeviceMeshLayout } from '../device-mesh-layouts';
+import type { DeviceMeshLayout, InstanceArray } from '../device-mesh-layouts';
 import type { OverviewCullPass } from './overview-cull';
 import type { DeviceDashboardDefaults } from './device-config';
+import type { SegPartSlot } from './device-render';
 
 export type { BindGroupLayoutName };
 
@@ -117,6 +118,8 @@ export interface DeviceGeometryLike {
   wiringBuffer?: GPUBuffer | null;
   baseBuffer?: GPUBuffer | null;
   rollerInstances?: GPUBuffer | null;
+  /** Upload mesh cylinders; true when the buffer was reallocated. */
+  writeRollerInstances?: (instanceParts: InstanceArray[]) => boolean;
   fluxSegmentBuffer?: GPUBuffer | null;
   fluxTotalSegments?: number;
   /** Heron's Fountain jet/basin geometry, set from the active build preset. */
@@ -375,8 +378,10 @@ export interface DeviceInstanceLike {
   _flowPathData?: Float32Array<ArrayBuffer>;
   _effectParticleData: Float32Array<ArrayBuffer>;
   _bindGroupCache?: BindGroupCache;
-  _topRingUniformBuffer?: GPUBuffer;
-  _bottomRingUniformBuffer?: GPUBuffer;
+  /** segEnhanced per-part uniform slots (device-render.ts SEG_PART_SLOT). */
+  _segPartUniformBuffer?: GPUBuffer;
+  _segPartMirror?: Float32Array<ArrayBuffer>;
+  _segPartSlots?: Record<string, number>;
 
   // Solar energy proxies (synced from DevicePhysicsState per device)
   batteryCharge?: number;
@@ -441,7 +446,10 @@ export interface DeviceInstanceLike {
   renderCore: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
   renderPickupCoils: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
   renderWires: (renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer) => void;
-  _ensureRingUniformBuffers: () => void;
+  _ensureSegPartUniformBuffer: () => GPUBuffer;
+  _writeSegPartUniforms: () => void;
+  _segPartOffset: (slot: SegPartSlot, part: string) => number;
+  segPartModes: () => Record<string, number>;
   _enhancedBindGroup: (
     globalUniformBuffer: GPUBuffer,
     instanceBuffer: GPUBuffer,

@@ -20,7 +20,11 @@ import {
   finiteNum,
   clampRpm,
   clampPwmDuty,
-  pwmDutyToWire
+  pwmDutyToWire,
+  parseFirmwareHello,
+  HELLO_COMMAND,
+  HELLO_ATTEMPTS,
+  HELLO_RETRY_MS
 } from './hardware-protocol-shared';
 
 export const protocolMethods: ThisType<HardwareBridge> & {
@@ -73,13 +77,16 @@ export const protocolMethods: ThisType<HardwareBridge> & {
         this.shadow.voltageError = this.actualVoltage - this.shadow.simVoltage;
         this.shadow.currentError = this.actualCurrent - this.shadow.simCurrent;
 
-        if (this.onSensorData) {
-          this.onSensorData(this.getSensorSnapshot());
+        if (this._hasListeners('sensor')) {
+          this._emit('sensor', this.getSensorSnapshot());
         }
       }
     } else if (line.startsWith('E')) {
       console.error('[Arduino Error]', line.slice(1));
     } else if (line.startsWith('I')) {
+      // A v2 board says hello at boot and in answer to `V2`; v1 never does.
+      const hello = parseFirmwareHello(line);
+      if (hello) this.firmware = hello;
       console.log('[Arduino]', line.slice(1));
     }
   },
@@ -161,6 +168,15 @@ export const protocolMethods: ThisType<HardwareBridge> & {
     if (now - this._lastCommandTime < this.commandThrottleMs) return;
     this._lastCommandTime = now;
 
+    // Ask for the v2 hello until one arrives. Queued behind this frame's P/C,
+    // so it never delays a watchdog feed; a v1 sketch just drops it.
+    if (!this.firmware && this._helloAttempts < HELLO_ATTEMPTS
+      && now - this._lastHelloAt >= HELLO_RETRY_MS) {
+      this._helloAttempts += 1;
+      this._lastHelloAt = now;
+      this._commandQueue.push(HELLO_COMMAND);
+    }
+
     if (this.manualMode) {
       const wirePwm = pwmDutyToWire(this.manualPwmDuty);
       this._writeLine(`C${this.manualCoilMask},${wirePwm},0`);
@@ -195,7 +211,7 @@ export const protocolMethods: ThisType<HardwareBridge> & {
     if (!Object.values(TWIN_MODES).includes(mode as TwinMode)) return;
     this.twinMode = mode as TwinMode;
     this.mirrorEnabled = mode === TWIN_MODES.CLOSED;
-    if (this.onTwinModeChange) this.onTwinModeChange(this.twinMode);
+    this._emit('twinMode', this.twinMode);
   },
 
   setTarget(phase: number, speed: number, mode: number = MODE_RUN): void {

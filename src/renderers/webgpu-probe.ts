@@ -3,6 +3,9 @@ import {
   type AdapterFeatureLevel,
   type AdapterInfoSnapshot
 } from '../webgpu-manager';
+import { compatibilityOnlyAdapter } from '../webgpu-init/adapter';
+import { reloadWithLabParam } from '../config/lab-config';
+import { RENDERER_WEBGL2, resolveRenderer } from './renderer-selector';
 
 export interface BrowserBrandSnapshot {
   brand: string;
@@ -172,6 +175,14 @@ export async function probeWebGPU(): Promise<WebGPUProbeResult> {
     return fail(browser, `requestAdapter threw: ${e instanceof Error ? e.message : String(e)}`);
   }
   if (!adapter) {
+    if (await compatibilityOnlyAdapter(navigator.gpu)) {
+      return fail(
+        browser,
+        'Only a WebGPU compatibility-mode adapter is available. This app needs core WebGPU ' +
+        '(storage buffers in vertex shaders, sRGB canvas views, textureLoad on depth). ' +
+        'Try ?renderer=webgl2.'
+      );
+    }
     return fail(browser, 'No adapter');
   }
 
@@ -230,7 +241,60 @@ export async function probeWebGPU(): Promise<WebGPUProbeResult> {
   return ok;
 }
 
-/** Blocking hard-fail UI — does not call getContext('webgl2'). */
+const HARD_FAIL_ID = 'webgpu-hard-fail';
+let hardFailKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+
+/**
+ * Show or hide the hard-fail card. Hiding only reveals the static content
+ * (About / Reference / Learning); the simulation stays disabled
+ * (`body.webgpu-hard-fail` is untouched) and the header badge reopens it.
+ */
+export function setWebGPUHardFailOpen(open: boolean): void {
+  const host = document.getElementById(HARD_FAIL_ID);
+  if (!host) return;
+  host.hidden = !open;
+  const badge = document.getElementById('renderer-badge');
+  if (badge) badge.setAttribute('aria-expanded', String(open));
+  if (hardFailKeyHandler) {
+    document.removeEventListener('keydown', hardFailKeyHandler);
+    hardFailKeyHandler = null;
+  }
+  if (open) {
+    hardFailKeyHandler = (e) => {
+      if (e.key === 'Escape') setWebGPUHardFailOpen(false);
+    };
+    document.addEventListener('keydown', hardFailKeyHandler);
+    host.querySelector<HTMLElement>('[data-hard-fail-focus]')?.focus();
+  } else {
+    badge?.focus();
+  }
+}
+
+/** Header badge: "WebGL2 mode" (explicit opt-in) or "WebGPU off" (reopens the card). */
+export function setRendererBadge(state: 'webgl2' | 'webgpu-unavailable' | null): void {
+  const badge = document.getElementById('renderer-badge') as HTMLButtonElement | null;
+  const text = document.getElementById('rendererBadgeText');
+  if (!badge || !text) return;
+  badge.hidden = state === null;
+  if (state === null) return;
+  badge.dataset.state = state;
+  if (state === 'webgl2') {
+    text.textContent = 'WebGL2 mode';
+    badge.title = 'Running on the opt-in WebGL2 renderer (?renderer=webgl2). Some WebGPU-only effects are unavailable.';
+    badge.disabled = true;
+    badge.removeAttribute('aria-expanded');
+  } else {
+    text.textContent = 'WebGPU unavailable';
+    badge.title = 'WebGPU is unavailable — click for details';
+    badge.disabled = false;
+    badge.setAttribute('aria-expanded', 'false');
+  }
+}
+
+/**
+ * Blocking-but-dismissible hard-fail UI — does not call getContext('webgl2').
+ * WebGL2 is offered only as an explicit button; nothing starts automatically.
+ */
 export function showWebGPUHardFail(probe: WebGPUProbeResult): void {
   document.body.classList.add('webgpu-hard-fail');
   const canvas = document.getElementById('gpuCanvas');
@@ -240,37 +304,105 @@ export function showWebGPUHardFail(probe: WebGPUProbeResult): void {
   }
   window.currentRenderer = null;
 
-  let host = document.getElementById('webgpu-hard-fail');
+  let host = document.getElementById(HARD_FAIL_ID);
   if (!host) {
     host = document.createElement('div');
-    host.id = 'webgpu-hard-fail';
-    host.setAttribute('role', 'alert');
+    host.id = HARD_FAIL_ID;
+    host.setAttribute('role', 'dialog');
+    host.setAttribute('aria-modal', 'true');
+    host.setAttribute('aria-labelledby', 'webgpu-hard-fail-title');
     document.body.appendChild(host);
   }
 
+  // If the explicit WebGL2 opt-in is what failed, offer the way back instead of a reload loop.
+  const triedWebGL2 = resolveRenderer() === RENDERER_WEBGL2;
   const json = JSON.stringify(probe, null, 2);
+  const alt = triedWebGL2
+    ? `<button type="button" class="ctrl-btn" data-hard-fail-action="webgpu">Reload with WebGPU</button>`
+    : `<button type="button" class="ctrl-btn" data-hard-fail-action="webgl2">Reload with WebGL2 (?renderer=webgl2)</button>`;
+  const altNote = triedWebGL2
+    ? 'The WebGL2 renderer failed to start as well.'
+    : 'WebGL2 is a reduced-fidelity opt-in; it is never started automatically.';
+
   host.innerHTML = `
     <div class="webgpu-hard-fail-card">
-      <h2>WebGPU required</h2>
+      <button type="button" class="webgpu-hard-fail-close" data-hard-fail-action="close"
+        aria-label="Close (Esc)" title="Close (Esc)">✕</button>
+      <h2 id="webgpu-hard-fail-title">WebGPU required</h2>
       <p class="webgpu-hard-fail-lead">
-        This build does <strong>not</strong> fall back to WebGL2 when WebGPU fails
-        (automatic dual-hot path removed — see ADR-0001 / gpu-chores exclusive session).
+        This browser could not start WebGPU, so the live simulation is disabled.
+        You can close this message to read the About, Reference and Learning content.
       </p>
       <p><strong>Browser:</strong> ${escapeHtml(probe.browser.brand)} ${escapeHtml(probe.browser.version)}</p>
-      <p><strong>Error:</strong> ${escapeHtml(probe.error || 'unknown')}</p>
+      <p><strong>Problem:</strong> ${escapeHtml(probe.error || 'unknown')}</p>
       <p class="webgpu-hard-fail-hint">${escapeHtml(probe.chromeVsEdge)}</p>
-      <details open>
-        <summary>window.webgpuProbe JSON</summary>
+      <div class="webgpu-hard-fail-actions">
+        <button type="button" class="ctrl-btn" data-hard-fail-action="close" data-hard-fail-focus>Close and read the docs</button>
+        ${alt}
+      </div>
+      <p class="webgpu-hard-fail-foot">${altNote}</p>
+      <h3>Things to try</h3>
+      <ul class="webgpu-hard-fail-tips">
+        <li>Turn on <strong>hardware acceleration</strong> (Chrome/Edge: Settings → System → “Use graphics acceleration when available”), then restart the browser.</li>
+        <li>Update your <strong>GPU drivers</strong> and the browser. Remote desktops, VMs and headless sessions often have no GPU adapter.</li>
+        <li>Use a recent <strong>Chrome or Edge</strong> (113+ on Windows, macOS and ChromeOS; Android 121+). Recent Safari and Firefox releases have WebGPU on some platforms.</li>
+        <li><strong>Linux Chrome:</strong> WebGPU may need Vulkan — try <code>chrome://flags/#enable-unsafe-webgpu</code> and <code>chrome://flags/#enable-vulkan</code>, or launch with <code>--enable-features=Vulkan</code>. Check <code>chrome://gpu</code> for “WebGPU: Hardware accelerated”.</li>
+        <li><strong>Firefox:</strong> set <code>dom.webgpu.enabled</code> to true in <code>about:config</code> if your version has it off.</li>
+      </ul>
+      <details class="webgpu-hard-fail-details">
+        <summary>Details (probe JSON)</summary>
         <pre class="webgpu-hard-fail-pre">${escapeHtml(json)}</pre>
       </details>
-      <p class="webgpu-hard-fail-foot">
-        In-tree WebGL2 remains available only via explicit <code>?renderer=webgl2</code> for agents —
-        not as an automatic rescue path.
-      </p>
     </div>
   `;
 
+  host.onclick = (e) => {
+    const target = e.target as HTMLElement;
+    const action = target.closest<HTMLElement>('[data-hard-fail-action]')?.dataset.hardFailAction;
+    if (action === 'close') setWebGPUHardFailOpen(false);
+    else if (action === 'webgl2') reloadWithLabParam('renderer', RENDERER_WEBGL2);
+    else if (action === 'webgpu') reloadWithLabParam('renderer', null);
+    else if (target === host) setWebGPUHardFailOpen(false); // backdrop click
+  };
+
+  const badge = document.getElementById('renderer-badge');
+  if (badge) badge.onclick = () => setWebGPUHardFailOpen(true);
+  setRendererBadge('webgpu-unavailable');
+  setWebGPUHardFailOpen(true);
+
   console.error('[boot] WebGPU hard-fail — WebGL2 not started. window.webgpuProbe =', probe);
+}
+
+/**
+ * Non-fatal boot problem: the renderer is running but part of the UI wiring
+ * threw. A dismissible strip (not the hard-fail card) plus a
+ * `window.webgpuProbe.bootWarnings` entry, so agents can see it too.
+ */
+export function showBootWarning(message: string): void {
+  if (typeof document === 'undefined') return;
+  const probe = window.webgpuProbe as (WebGPUProbeResult & { bootWarnings?: string[] }) | undefined;
+  if (probe) (probe.bootWarnings ??= []).push(message);
+
+  let host = document.getElementById('boot-warning');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'boot-warning';
+    host.setAttribute('role', 'alert');
+    host.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:3000;'
+      + 'max-width:min(640px,calc(100vw - 32px));padding:8px 36px 8px 12px;border-radius:6px;'
+      + 'background:#2a1600;border:1px solid #fa0;color:#fc6;font:12px/1.4 system-ui,sans-serif;';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = '✕';
+    close.setAttribute('aria-label', 'Dismiss');
+    close.style.cssText = 'position:absolute;right:6px;top:6px;background:none;border:0;color:inherit;cursor:pointer;';
+    close.addEventListener('click', () => host?.remove(), { once: true });
+    host.appendChild(close);
+    document.body.appendChild(host);
+  }
+  const line = document.createElement('div');
+  line.textContent = message;
+  host.insertBefore(line, host.lastElementChild);
 }
 
 function escapeHtml(s: string): string {

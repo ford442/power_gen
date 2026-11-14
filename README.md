@@ -31,7 +31,7 @@ Default boot **requires WebGPU**. GPU-less / agent path (explicit opt-in): [open
 
 ## Future Plans
 - **Quanta Magnetics catalog (shipped):** [Magnetic Levitation](docs/DEVICE_GALLERY.md#maglev), [Homopolar Generator](docs/DEVICE_GALLERY.md#homopolar), [Halbach field visualizer](docs/DEVICE_GALLERY.md#halbach-viz), [pulse-coil](docs/DEVICE_GALLERY.md#pulse-coil), [Mutual Induction / transformer](docs/DEVICE_GALLERY.md#transformer) — see gallery for literature and screenshots
-- Further classroom apparatus candidates (Quanta product twins) only when a fidelity pass is scoped; Van de Graaff, the Hall bench, the [Lorentz rail sled](docs/DEVICE_GALLERY.md#lorentz-sled), and the [Thomson jumping ring](docs/DEVICE_GALLERY.md#jumping-ring) have shipped
+- Further classroom apparatus candidates (Quanta product twins) only when a fidelity pass is scoped; Van de Graaff, the Hall bench, the [Lorentz rail sled](docs/DEVICE_GALLERY.md#lorentz-sled), the [Thomson jumping ring](docs/DEVICE_GALLERY.md#jumping-ring) and the [Lenz drop tube](docs/DEVICE_GALLERY.md#drop-tube) have shipped
 - Hardware bridge hooks for Quanta product twins when specs are available
 
 **SEG Explainer** (shipped): [guided tour](docs/SEG_EXPLAINER.md), B-field experiments, shareable `#lab=` URLs, classroom mode — sidebar **SEG Learning**.
@@ -124,7 +124,7 @@ The live demo is deployed automatically on every push to `main` via [`.github/wo
 1. `npm ci`, `npm run typecheck`, `npm run build:site` (Vite → `dist/`)
 2. GitHub Actions uploads `dist/` and publishes to Pages
 
-Non-deploy validation (typecheck, native C++, WGSL) runs on PRs via
+Non-deploy validation (the whole `npm run validate` suite, plus Playwright) runs on PRs via
 [`.github/workflows/validate.yml`](.github/workflows/validate.yml).
 **Demo URL:** https://ford442.github.io/power_gen/ (repo name is `power_gen`; the old `seg-webgpu-visualizer` path no longer applies.)
 

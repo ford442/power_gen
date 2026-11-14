@@ -15,6 +15,8 @@
  *   4. Pause (dt = 0) posts nothing; `cancel()` discards the in-flight batch.
  *   5. `?wasmPhysics` without a loadable sim_core falls back with a reason.
  *   6. Packed plant snapshot round-trips (keys, mode index, NaN = absent).
+ *   7. Snapshot `plantSave` / `plantLoad` calls reply by id, around a batch
+ *      in flight (the C++ round trip itself is test-snapshots.mjs).
  *
  * Golden JS ⇄ C++ parity stays in test-js-wasm-golden.mjs (in-process, native).
  *
@@ -64,10 +66,16 @@ writeFileSync(bootstrap, `
 import { parentPort } from 'node:worker_threads';
 globalThis.self = globalThis;
 globalThis.postMessage = (msg, transfer) => parentPort.postMessage(msg, transfer);
-parentPort.on('message', (data) => globalThis.onmessage?.({ data }));
+// A browser Worker queues messages until its script has run; without this the
+// host's 'init' can land before the bundle sets onmessage (seen on Node 20).
+const queued = [];
+let deliver = (data) => queued.push(data);
+parentPort.on('message', (data) => deliver(data));
 console.info = () => {};
 console.log = () => {};
 await import(${JSON.stringify(pathToFileURL(workerBundle).href)});
+deliver = (data) => globalThis.onmessage?.({ data });
+for (const data of queued.splice(0)) deliver(data);
 `);
 
 /** Browser `Worker` facade over worker_threads for the host. */
@@ -76,12 +84,18 @@ globalThis.Worker = class {
   constructor() {
     this.onmessage = null;
     this.onerror = null;
+    this._listeners = new Set();
     this._t = new ThreadWorker(bootstrap);
-    this._t.on('message', (data) => this.onmessage?.({ data }));
+    this._t.on('message', (data) => {
+      this.onmessage?.({ data });
+      for (const fn of this._listeners) fn({ data });
+    });
     this._t.on('error', (err) => this.onerror?.({ message: err.message }));
     threads.push(this._t);
   }
   postMessage(msg, transfer) { this._t.postMessage(msg, transfer); }
+  addEventListener(type, fn) { if (type === 'message') this._listeners.add(fn); }
+  removeEventListener(type, fn) { this._listeners.delete(fn); }
   terminate() { this._t.terminate(); }
 };
 
@@ -92,6 +106,7 @@ const hostCode = await bundle({
       export { segOperator, SEGOperatorState } from './src/seg-operator-state';
       export { packModePlant, unpackModePlant, PLANT_PACK_ROLLER_OFFSET } from './src/session/plant-worker-protocol';
       export { WASM_DEVICE_IDS } from './generated/device-catalog';
+      export { workerSavePlantState, workerLoadPlantState } from './src/session/plant-worker-snapshot';
     `,
     resolveDir: ROOT,
     sourcefile: 'plant-worker-host-harness.ts',
@@ -100,7 +115,7 @@ const hostCode = await bundle({
 });
 const {
   PlantWorkerHost, segOperator, SEGOperatorState, packModePlant, unpackModePlant,
-  PLANT_PACK_ROLLER_OFFSET, WASM_DEVICE_IDS
+  PLANT_PACK_ROLLER_OFFSET, WASM_DEVICE_IDS, workerSavePlantState, workerLoadPlantState
 } = await (async () => {
   // A file URL, not data: — src/wasm/index.ts resolves sim_core against import.meta.url.
   const hostBundle = join(TMP, 'host.mjs');
@@ -216,7 +231,33 @@ try {
     host.unavailableReason(true) === 'sim_core unavailable in worker', host.unavailableReason(true));
   check('wasm: JS frames still use the worker', host.unavailableReason(false) === null);
 
+  // 5b. Snapshot calls (#224 §2). No sim_core here, so the host hands out no
+  //     port; forcing one runs the worker's plantSave / plantLoad replies,
+  //     which must route by call id around a step batch the host ignores.
+  check('snapshot: no sim_core → no snapshot port', host.snapshotPort() === null);
+  host.wasmAvailable = true;
+  const port = host.snapshotPort();
+  const before = segOperator.physics.segOmega;
+  const droppedPrior = host.stats().droppedResults;
+  segOperator.start();
+  frame(host, [1 / 60]);
+  const t0 = Date.now();
+  const [saved, loaded] = await Promise.all([
+    workerSavePlantState(port, 1),
+    workerLoadPlantState(port, 1, [0, 0], 0)
+  ]);
+  // A missing reply would also resolve null — but only after the 5 s timeout.
+  check('snapshot: the worker answered (not the call timeout)', Date.now() - t0 < 4000, `${Date.now() - t0} ms`);
+  check('snapshot: worker plantSave reply routed by id (null: no plant)', saved === null);
+  check('snapshot: worker plantLoad reply routed by id (false: refused)', loaded === false);
+  await settle(host); frame(host, []);
+  check('snapshot: a call does not disturb the batch in flight',
+    segOperator.physics.segOmega > before && host.stats().droppedResults === droppedPrior,
+    `${segOperator.physics.segOmega} vs ${before}`);
+  host.wasmAvailable = false;
+
   host.dispose();
+  check('snapshot: no port after dispose', host.snapshotPort() === null);
 
   // 6. Packed snapshot round-trip ──────────────────────────────────────────
   const plant = { mode: 'hall', voltage: 0.125, current: 2, fieldT: 0.5, coeff: -1e-4, energyLevel: 0.25 };

@@ -108,7 +108,8 @@ int main(int argc, char** argv) {
             if (std::strcmp(argv[i + 1], "catalog") == 0) return run_catalog_smoke();
             if (std::strcmp(argv[i + 1], "bench") == 0) return run_bench_smoke();
             if (std::strcmp(argv[i + 1], "golden") == 0) return run_golden();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|lorentz-sled|jumping-ring|chores|energy-network|catalog|bench|golden)\n", argv[i + 1]);
+            if (std::strcmp(argv[i + 1], "snapshots") == 0) return run_snapshots();
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|lorentz-sled|jumping-ring|chores|energy-network|catalog|bench|golden|snapshots)\n", argv[i + 1]);
             return 2;
         }
     }
@@ -193,6 +194,7 @@ int main(int argc, char** argv) {
     if (run_jumping_ring_smoke() != 0) return 1;
     if (run_chores_smoke() != 0) return 1;
     if (run_energy_network_smoke() != 0) return 1;
+    if (run_snapshots() != 0) return 1;
 
     // Zero-copy packing smoke
     sim.setMode(SIM_MODE_SEG);

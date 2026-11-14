@@ -10,6 +10,7 @@
  */
 import { segOperator } from '../seg-operator-state';
 import { segWasm } from '../wasm/seg-physics-bridge';
+import { loadPlantState, savePlantState } from '../wasm/plant-state-io';
 import {
   applyWasmPlant,
   hallCouplingIgnoredByWasm,
@@ -20,6 +21,7 @@ import {
 import {
   packModePlant,
   type PlantKnobs,
+  type PlantWorkerCallReply,
   type PlantWorkerRequest,
   type PlantWorkerResponse,
   type PlantWorkerStep
@@ -28,7 +30,7 @@ import { WASM_DEVICE_IDS } from '../../generated/device-catalog';
 
 const ctx = self as unknown as {
   onmessage: ((e: MessageEvent<PlantWorkerRequest>) => void) | null;
-  postMessage(msg: PlantWorkerResponse, transfer?: Transferable[]): void;
+  postMessage(msg: PlantWorkerResponse | PlantWorkerCallReply, transfer?: Transferable[]): void;
 };
 
 let wasmReady = false;
@@ -113,6 +115,16 @@ ctx.onmessage = (e: MessageEvent<PlantWorkerRequest>) => {
     init
       .catch(() => { wasmReady = false; })
       .finally(() => ctx.postMessage({ type: 'ready', wasmAvailable: wasmReady }));
+    return;
+  }
+  if (msg.type === 'plantSave') {
+    const values = wasmReady ? savePlantState(segWasm.rawSim(), msg.mode) : null;
+    ctx.postMessage({ type: 'plantState', id: msg.id, values: values ? Array.from(values) : null });
+    return;
+  }
+  if (msg.type === 'plantLoad') {
+    const ok = wasmReady && loadPlantState(segWasm.rawSim(), msg.mode, msg.values, msg.layoutHash);
+    ctx.postMessage({ type: 'plantLoaded', id: msg.id, ok });
     return;
   }
   if (msg.type === 'step') {

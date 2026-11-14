@@ -6,12 +6,14 @@ import { DEVICE_MESH_LAYOUTS } from './device-mesh-layouts';
 import { createDevicePhysicsState } from './renderers/shared/device-physics';
 import type { DevicePhysicsState, HeronLayout } from './renderers/shared/device-physics';
 import { getHeronLayout } from './heron-layout';
+import { DEVICE_BY_ID } from '../generated/device-catalog';
 
 import {
   getDeviceModeIndex,
   getPluginMeshLayouts
 } from './devices/device-registry.js';
 import type { MergedDeviceConfigEntry } from './devices/device-registry.js';
+import type { SegPartSlot } from './devices/device-render';
 import { DeviceSetupMixin } from './devices/device-setup';
 import { DeviceRenderMixin } from './devices/device-render';
 import { DeviceUpdateMixin } from './devices/device-update';
@@ -98,7 +100,10 @@ export interface DeviceInstance {
     instanceBuffer: GPUBuffer,
     keySuffix?: string
   ): GPUBindGroup;
-  _ensureRingUniformBuffers(): void;
+  _ensureSegPartUniformBuffer(): GPUBuffer;
+  _writeSegPartUniforms(): void;
+  _segPartOffset(slot: SegPartSlot, part: string): number;
+  segPartModes(): Record<string, number>;
   renderDeviceMesh(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
   render(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer, skipEffects?: boolean): void;
   renderBase(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
@@ -118,7 +123,6 @@ export interface DeviceInstance {
   renderWires(renderPass: GPURenderPassEncoder, globalUniformBuffer: GPUBuffer): void;
 
   update(deltaTime: number, qualityScale: number): void;
-  updateDeviceFlowPaths(deltaTime: number): void;
   _computeEnergyLevel(deltaTime: number): void;
   _buildDeviceUniformData(renderMode: number, yOffset?: number): Float32Array<ArrayBuffer>;
   updateEmitterEffects(deltaTime: number, qualityScale: number): void;
@@ -141,6 +145,12 @@ export interface DeviceInstance {
   _anomalyT?: number;
   _prevEffectBudget?: number;
 }
+
+/**
+ * Every mixin the constructor binds onto a `DeviceInstance`, in bind order.
+ * Exported so `npm run test:device-mixins` binds the same list the app does.
+ */
+export const DEVICE_MIXINS = [DeviceSetupMixin, DeviceRenderMixin, DeviceUpdateMixin] as const;
 
 export function bindMixinFunctions(target: object, mixin: Record<string, unknown>): void {
   for (const [name, value] of Object.entries(mixin)) {
@@ -272,7 +282,7 @@ export class DeviceInstance {
     // helpers the mixins call on `this` (`updateDeviceFlowPaths`, the bind-group
     // builders), which threw on the first frame; binding whole mixins keeps the
     // instance surface in step as the mixins grow.
-    for (const mixin of [DeviceSetupMixin, DeviceRenderMixin, DeviceUpdateMixin]) {
+    for (const mixin of DEVICE_MIXINS) {
       bindMixinFunctions(this, mixin as Record<string, unknown>);
     }
     // Static named reads so minifiers cannot DCE helpers that `update()` calls
@@ -416,7 +426,8 @@ export class DeviceInstance {
    * Reset simulation accumulators when the user enters this device's focused view.
    */
   resetForModeEntry(): void {
-    if (['heron', 'kelvin', 'solar', 'peltier', 'mhd', 'maglev', 'homopolar', 'halbach-viz', 'pulse-coil', 'transformer', 'vdg', 'hall', 'lorentz-sled', 'jumping-ring'].includes(this.id)) {
+    // Every catalog bench but SEG, whose plant is the operator's.
+    if (this.id !== 'seg' && DEVICE_BY_ID[this.id]) {
       const heronLayout: HeronLayout | undefined = this.id === 'heron'
         ? ((this.visualizer.heronLayout as HeronLayout | undefined) ||
           getHeronLayout(this.visualizer.heronLayoutPreset))

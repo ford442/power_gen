@@ -15,6 +15,8 @@
  */
 
 import { parseHeronLayoutPreset, HERON_LAYOUT_PRESETS } from '../../heron-layout';
+import { labConfigFor } from '../../config/lab-config';
+import type { LabConfigKey } from '../../../generated/lab-config';
 
 export type PropLoadPolicy = 'resident' | 'focus';
 
@@ -53,10 +55,13 @@ export interface SegGltfPropDef {
   layoutScaled?: boolean;
 }
 
-export function parseGltfHousingEnabled(params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')): boolean {
-  const raw = params.get('gltfHousing');
-  if (raw === '0' || raw === 'false' || raw === 'off') return false;
-  if (raw === '1' || raw === 'true' || raw === 'on') return true;
+/**
+ * `params` (tests) is the whole query; without it the page's LabConfig is
+ * read. `window.GLTF_HOUSING = false` applies only when nothing set the flag.
+ */
+export function parseGltfHousingEnabled(params?: URLSearchParams): boolean {
+  const r = labConfigFor(params);
+  if (r.sources.gltfHousing !== 'default') return r.config.gltfHousing;
   if (typeof window !== 'undefined' && window.GLTF_HOUSING === false) return false;
   return true;
 }
@@ -64,11 +69,8 @@ export function parseGltfHousingEnabled(params: URLSearchParams = new URLSearchP
 /**
  * Coil former prop — default on with housing; disable via ?gltfCoilFormer=0.
  */
-export function parseGltfCoilFormerEnabled(params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')): boolean {
-  const raw = params.get('gltfCoilFormer');
-  if (raw === '0' || raw === 'false' || raw === 'off') return false;
-  if (raw === '1' || raw === 'true' || raw === 'on') return true;
-  return parseGltfHousingEnabled(params);
+export function parseGltfCoilFormerEnabled(params?: URLSearchParams): boolean {
+  return parseFocusPropEnabled('gltfCoilFormer', params);
 }
 
 /**
@@ -83,13 +85,11 @@ export function parseGltfCoilFormerEnabled(params: URLSearchParams = new URLSear
  * Both halves are pinned by `npm run test:props`, including the conflicting
  * query, so the precedence cannot drift unnoticed in either direction.
  */
-function parseFocusPropEnabled(
-  key: string,
-  params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
-): boolean {
-  const raw = params.get(key);
-  if (raw === '0' || raw === 'false' || raw === 'off') return false;
-  if (raw === '1' || raw === 'true' || raw === 'on') return true;
+type FocusPropKey = Extract<LabConfigKey, `gltf${string}`>;
+
+function parseFocusPropEnabled(key: FocusPropKey, params?: URLSearchParams): boolean {
+  const own = labConfigFor(params).config[key];
+  if (typeof own === 'boolean') return own;
   return parseGltfHousingEnabled(params);
 }
 
@@ -140,7 +140,7 @@ export function parseGltfThomsonStandEnabled(params?: URLSearchParams): boolean 
  * Off the browser — `npm run test:props` — there is no session to ask, so the
  * passed params are the whole truth and `parseHeronLayoutPreset` resolves them.
  */
-function activeHeronPreset(params: URLSearchParams): string {
+function activeHeronPreset(params?: URLSearchParams): string {
   const published = typeof window !== 'undefined' ? window.HERON_LAYOUT_PRESET : undefined;
   if (published && published in HERON_LAYOUT_PRESETS) return published;
   return parseHeronLayoutPreset(params);
@@ -161,10 +161,8 @@ function activeHeronPreset(params: URLSearchParams): string {
  * prop's GPU buffers, and switching back reloads it.
  */
 export function parseGltfHeronVesselsEnabled(params?: URLSearchParams): boolean {
-  const resolved = params
-    ?? new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-  if (!parseFocusPropEnabled('gltfHeronVessels', resolved)) return false;
-  return activeHeronPreset(resolved) === HERON_LAYOUT_PRESETS.classic;
+  if (!parseFocusPropEnabled('gltfHeronVessels', params)) return false;
+  return activeHeronPreset(params) === HERON_LAYOUT_PRESETS.classic;
 }
 
 export const SEG_HOUSING_GLB_URL = './assets/seg/housing-shell.glb';

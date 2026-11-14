@@ -1,103 +1,26 @@
 import { getPostQualityGates, formatPostQualitySummary } from './post-processing-config';
 import type { AdapterInfoSnapshot } from './webgpu-manager';
-import { gpuTimingMethods } from './performance-profiler-gpu-timing';
+import { gpuTimingMethods, GPU_TIMING_MAX_PASSES } from './performance-profiler-gpu-timing';
 import { displayMethods } from './performance-profiler-display';
 
-export interface PerformanceProfilerOptions {
-  /** Pass adapter/info from WebGPUManager — do not call requestAdapter again. */
-  adapter?: GPUAdapter | null;
-  adapterInfo?: Partial<AdapterInfoSnapshot> | null;
-  textureCompression?: string;
-}
+import type {
+  PerformanceProfilerOptions,
+  BufferAllocation,
+  TextureAllocation,
+  BenchmarkSample,
+  BenchmarkResults,
+  GpuTier,
+  QualityTier,
+  ProfilerStats,
+  FpsGraphPoint,
+  ParticleFpsCorrelationPoint
+} from './performance-profiler-types';
+import { bytesPerPixel } from './performance-profiler-types';
 
-export interface BufferAllocation {
-  name: string;
-  size: number;
-  usage: GPUBufferUsageFlags;
-  timestamp: number;
-}
+export type * from './performance-profiler-types';
+export { bytesPerPixel } from './performance-profiler-types';
 
-export interface TextureAllocation {
-  name: string;
-  width: number;
-  height: number;
-  format: GPUTextureFormat;
-  sampleCount: number;
-  size: number;
-  timestamp: number;
-}
-
-export interface BenchmarkSample {
-  time: number;
-  fps: number;
-  particleCount: number;
-}
-
-export interface BenchmarkResults {
-  duration: number;
-  totalFrames: number;
-  averageFPS: number;
-  minFPS: number;
-  maxFPS: number;
-  p1FPS: number;
-  p99FPS: number;
-  onePercentLow: number;
-  samples: BenchmarkSample[];
-}
-
-export interface FpsGraphPoint {
-  x: number;
-  y: number;
-  fps: number;
-}
-
-export interface ParticleFpsCorrelationPoint {
-  particles: number;
-  fps: number;
-  frameTime: number;
-}
-
-export type GpuTier = 'unknown' | 'low' | 'medium' | 'high';
-export type QualityTier = 'high' | 'medium' | 'low' | 'critical';
-
-export interface ProfilerStats {
-  currentFPS: number;
-  averageFPS: number;
-  minFPS: number;
-  maxFPS: number;
-  qualityLevel: number;
-  qualityTier: QualityTier;
-  drawCallsEstimate: number;
-  drawPrepMs: number;
-  /** Main-thread ms in `LabSession.stepPlant` (drops when the plant worker owns the step). */
-  plantMs: number;
-  /** Worker wall ms for the last plant batch (0 in-loop). */
-  plantWorkerMs: number;
-  /** `worker` or `in-loop (<reason>)`. */
-  plantBackend: string;
-  overviewCullActive: boolean;
-  msaaActive: boolean;
-  taaActive: boolean;
-  fdtdActive: boolean;
-  postQualityGates: ReturnType<typeof getPostQualityGates>;
-  postQualitySummary: string;
-  gpuTier: GpuTier;
-  frameTimeMs: number;
-  frameCpuMs: number;
-  lastGpuTimeMs: number;
-  deviceTimes: { id: string; ms: number }[];
-  deviceTimesMs: Record<string, number>;
-  bufferMemoryMB: string;
-  textureMemoryMB: string;
-  totalMemoryMB: string;
-  bufferCount: number;
-  textureCount: number;
-  timingEnabled: boolean;
-  benchmarkMode: boolean;
-  autoQualityEnabled: boolean;
-  /** Adapter info snippet for documenting mid-tier hardware in acceptance notes */
-  adapterSummary: string;
-}
+const TIER_RANK: Record<string, number> = { critical: 0, low: 1, medium: 2, high: 3, ultra: 4 };
 
 interface DeviceScope {
   id: string;
@@ -115,6 +38,8 @@ export class PerformanceProfiler {
   timingEnabled: boolean;
   // Not `private`: written from the mixed-in gpu-timing methods (see bottom of file).
   _timestampResolvePending: boolean;
+  /** Last resolved frame's GPU ms per frame-graph pass (F3, `?gpuTiming=1`). */
+  gpuPassTimesMs: Record<string, number>;
   queryCount: number;
 
   // FPS History (60 seconds at 60fps = 3600 samples, but we'll use 1 sample per frame)
@@ -159,6 +84,13 @@ export class PerformanceProfiler {
 
   // Quality tier label derived from qualityLevel (for SimRate / UI)
   qualityTier: QualityTier;
+
+  /**
+   * Showroom hold (labMode): the post stack never gates below this tier. Only
+   * post reads {@link postQualityTier}; particles, FDTD and `qualityLevel` keep
+   * following the live tier, so a slow GPU still sheds the expensive work.
+   */
+  postTierFloor: QualityTier | null;
 
   /** Estimated draw calls this frame (CPU-side count of draw/drawIndexed). */
   drawCallsEstimate: number;
@@ -211,7 +143,8 @@ export class PerformanceProfiler {
     this.timestampMappedBuffer = null;
     this.timingEnabled = false;
     this._timestampResolvePending = false;
-    this.queryCount = 8; // Space for multiple timestamps
+    this.gpuPassTimesMs = {};
+    this.queryCount = 2 * GPU_TIMING_MAX_PASSES; // begin + end per frame-graph pass
 
     // FPS History (60 seconds at 60fps = 3600 samples, but we'll use 1 sample per frame)
     this.fpsHistory = new Float32Array(3600);
@@ -255,6 +188,7 @@ export class PerformanceProfiler {
 
     // Quality tier label derived from qualityLevel (for SimRate / UI)
     this.qualityTier = 'high'; // high | medium | low | critical
+    this.postTierFloor = null;
 
     this.drawCallsEstimate = 0;
     this._drawCallsAcc = 0;
@@ -332,7 +266,9 @@ export class PerformanceProfiler {
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
       });
 
-      // Never auto-enable: writeTimestamp in the render encoder blanks the canvas on some GPUs.
+      // Off until the debug-panel toggle: timing costs a resolve + map per
+      // frame. (The old encoder-level writeTimestamp, removed from the spec,
+      // blanked the canvas; pass-level timestampWrites replaced it.)
       this.timingEnabled = false;
       console.log('GPU timestamp queries available (off by default; enable in debug panel after ?gpuTiming=1)');
     } catch (e) {
@@ -399,10 +335,20 @@ export class PerformanceProfiler {
   }
 
   // Track texture allocation. `sampleCount` > 1 (MSAA) multiplies the
-  // per-sample storage the GPU actually allocates for the attachment.
-  trackTexture(name: string, width: number, height: number, format: GPUTextureFormat, sampleCount = 1): TextureAllocation {
+  // per-sample storage the GPU actually allocates for the attachment;
+  // `byteSize` overrides the estimate (mip chains). Re-tracking a name — every
+  // resize does — replaces the old entry instead of adding to the total.
+  trackTexture(
+    name: string,
+    width: number,
+    height: number,
+    format: GPUTextureFormat,
+    sampleCount = 1,
+    byteSize?: number
+  ): TextureAllocation {
+    this.untrackTextures([name]);
     const bytesPerPixel = this.getBytesPerPixel(format);
-    const size = width * height * bytesPerPixel * sampleCount;
+    const size = byteSize ?? width * height * bytesPerPixel * sampleCount;
     const entry: TextureAllocation = {
       name,
       width,
@@ -417,23 +363,27 @@ export class PerformanceProfiler {
     return entry;
   }
 
+  /** Drop tracked textures by name (destroyed or never re-created). */
+  untrackTextures(names: string[]): void {
+    const drop = new Set(names);
+    let freed = 0;
+    this.textureAllocations = this.textureAllocations.filter((t) => {
+      if (!drop.has(t.name)) return true;
+      freed += t.size;
+      return false;
+    });
+    this.totalTextureMemory -= freed;
+  }
+
+  /** `getRendererInfo().gpuMemory`: tracked bytes (an estimate — drivers pad and compress). */
+  gpuMemoryEstimate(): { textureBytes: number; bufferBytes: number; textures: Record<string, number> } {
+    const textures: Record<string, number> = {};
+    for (const t of this.textureAllocations) textures[t.name] = (textures[t.name] ?? 0) + t.size;
+    return { textureBytes: this.totalTextureMemory, bufferBytes: this.totalBufferMemory, textures };
+  }
+
   getBytesPerPixel(format: GPUTextureFormat): number {
-    const formatSizes: Record<string, number> = {
-      'r8unorm': 1, 'r8uint': 1, 'r8sint': 1,
-      'r16uint': 2, 'r16sint': 2, 'r16float': 2,
-      'rg8unorm': 2, 'rg8uint': 2, 'rg8sint': 2,
-      'r32uint': 4, 'r32sint': 4, 'r32float': 4,
-      'rg16uint': 4, 'rg16sint': 4, 'rg16float': 4,
-      'rgba8unorm': 4, 'rgba8uint': 4, 'rgba8sint': 4,
-      'bgra8unorm': 4,
-      'rgb10a2unorm': 4,
-      'rg11b10ufloat': 4,
-      'rgba16uint': 8, 'rgba16sint': 8, 'rgba16float': 8,
-      'rgba32uint': 16, 'rgba32sint': 16, 'rgba32float': 16,
-      'depth24plus': 4, 'depth24plus-stencil8': 4,
-      'depth32float': 4, 'depth32float-stencil8': 5
-    };
-    return formatSizes[format] || 4;
+    return bytesPerPixel(format);
   }
 
   // Track shader compilation time
@@ -518,6 +468,13 @@ export class PerformanceProfiler {
     }
   }
 
+  /** Tier the post stack gates on: the live tier, raised to {@link postTierFloor}. */
+  get postQualityTier(): QualityTier {
+    const floor = this.postTierFloor;
+    if (!floor) return this.qualityTier;
+    return TIER_RANK[floor] > TIER_RANK[this.qualityTier] ? floor : this.qualityTier;
+  }
+
   private _updateQualityTier(): void {
     const q = this.qualityLevel;
     if (q < 0.4) this.qualityTier = 'critical';
@@ -572,18 +529,26 @@ export class PerformanceProfiler {
       this.consecutiveHighFPSFrames = 0;
 
       if (this.consecutiveLowFPSFrames > 30) { // 0.5 seconds at 60fps
+        const prev = this.qualityLevel;
         this.qualityLevel = Math.max(0.3, this.qualityLevel - 0.1);
         this.consecutiveLowFPSFrames = 0;
-        console.log(`Quality reduced to ${(this.qualityLevel * 100).toFixed(0)}%`);
+        // Log only real changes — pinned at the floor this fired every 0.5 s.
+        if (this.qualityLevel !== prev) {
+          console.log(`Quality reduced to ${(this.qualityLevel * 100).toFixed(0)}%`);
+        }
       }
     } else if (currentFPS > this.targetFPS - 5) {
       this.consecutiveHighFPSFrames++;
       this.consecutiveLowFPSFrames = 0;
 
       if (this.consecutiveHighFPSFrames > 120) { // 2 seconds sustained
+        const prev = this.qualityLevel;
         this.qualityLevel = Math.min(1.0, this.qualityLevel + 0.05);
         this.consecutiveHighFPSFrames = 0;
-        console.log(`Quality increased to ${(this.qualityLevel * 100).toFixed(0)}%`);
+        // Log only real changes — at 100% this used to print every 2 s forever.
+        if (this.qualityLevel !== prev) {
+          console.log(`Quality increased to ${(this.qualityLevel * 100).toFixed(0)}%`);
+        }
       }
     } else {
       this.consecutiveLowFPSFrames = 0;
@@ -656,7 +621,7 @@ export class PerformanceProfiler {
       .map(([id, ms]) => ({ id, ms }))
       .sort((a, b) => b.ms - a.ms);
 
-    const postGates = getPostQualityGates(this.qualityTier);
+    const postGates = getPostQualityGates(this.postQualityTier);
 
     return {
       currentFPS: this.fpsHistory[(this.fpsIndex - 1 + this.fpsHistory.length) % this.fpsHistory.length],
@@ -680,6 +645,7 @@ export class PerformanceProfiler {
       frameTimeMs: this.lastFrameTimeMs,
       frameCpuMs: this.frameCpuMs,
       lastGpuTimeMs: this.lastGpuTimeMs,
+      gpuPassTimesMs: { ...this.gpuPassTimesMs },
       deviceTimes,
       deviceTimesMs: { ...this.deviceTimesMs },
       bufferMemoryMB: (this.totalBufferMemory / 1024 / 1024).toFixed(2),
@@ -708,14 +674,14 @@ export class PerformanceProfiler {
   }
 }
 
-// GPU timestamp query/resolve logic (writeTimestamp, scheduleResolveTimestamps,
+// GPU timestamp query/resolve logic (gpuTimestampTarget, scheduleResolveTimestamps,
 // resolveTimestamps) and F3 overlay display-data helpers (getFPSGraphData,
 // getParticleFPSCorrelation) live in the mixin modules below, merged onto the
 // prototype to keep this file under the 700-line cap (issues #142/#143/#187).
 export interface PerformanceProfiler {
-  writeTimestamp(encoder: GPUCommandEncoder | GPURenderPassEncoder | GPUComputePassEncoder, index: number): void;
-  scheduleResolveTimestamps(): void;
-  resolveTimestamps(): Promise<number | undefined>;
+  gpuTimestampTarget(): { querySet: GPUQuerySet; queryCount: number } | null;
+  scheduleResolveTimestamps(passes: ReadonlyArray<{ name: string; slot: number }>, queriesUsed: number): void;
+  resolveTimestamps(passes: ReadonlyArray<{ name: string; slot: number }>, queriesUsed: number): Promise<number | undefined>;
   getFPSGraphData(width: number, height: number): FpsGraphPoint[];
   getParticleFPSCorrelation(): ParticleFpsCorrelationPoint[];
 }

@@ -10,6 +10,7 @@
 import { HardwareBridge, TWIN_MODES, type SensorSnapshot } from './hardware-bridge';
 import { syncHardwareTwinBadgeFromBridge } from './hardware-twin-badge';
 import { ElectromagnetController } from './electromagnet-controller';
+import { onFrame } from './frame-clock';
 
 function bits(mask: number, n: number): number[] {
   const out: number[] = [];
@@ -31,55 +32,92 @@ export class HardwarePanel {
   visualizer: HardwarePanelVisualizer | null;
   bridge: HardwareBridge | null;
   private _root: HTMLElement | null;
-  private _unsub: (() => void) | null;
-  private _raf: number;
+  /** Bridge event subscriptions (status / sensor / twinMode / error). */
+  private _unsub: Array<() => void>;
+  /** Aborts every DOM listener `_wire` added — on re-attach and destroy. */
+  private _wireAbort: AbortController | null;
+  /** Frame-clock unsubscribe: set while a bridge is attached and the panel is open. */
+  private _offFrame: (() => void) | null;
+  private _collapsed: boolean;
 
   constructor(options: HardwarePanelOptions = {}) {
     this.visualizer = options.visualizer || null;
     this.bridge = options.bridge || null;
     this._root = null;
-    this._unsub = null;
-    this._raf = 0;
+    this._unsub = [];
+    this._wireAbort = null;
+    this._offFrame = null;
+    this._collapsed = false;
   }
 
   /**
    * Attach bridge + inject UI. Creates bridge if missing.
+   *
+   * The bridge usually already exists (LabSession owns it and its `onError`
+   * slot), so the panel listens through `bridge.on(...)` rather than the
+   * constructor callbacks. Idempotent: attaching again to the same bridge only
+   * refreshes the status; a different bridge drops the old subscriptions and
+   * button handlers first, so nothing fires twice.
    */
   attach(visualizer: HardwarePanelVisualizer): void {
     this.visualizer = visualizer;
     if (!visualizer.hardwareBridge) {
-      visualizer.emController = visualizer.emController || new ElectromagnetController();
-      visualizer.hardwareBridge = new HardwareBridge({
-        onStatusChange: (s) => this._renderStatus(s),
-        onSensorData: (s) => this._renderSensors(s),
-        onError: (e) => this._setError(e.message || String(e)),
-        onTwinModeChange: (m) => this._syncTwinUI(m)
-      });
+      visualizer.hardwareBridge = new HardwareBridge();
     }
-    this.bridge = visualizer.hardwareBridge;
+    const bridge = visualizer.hardwareBridge;
     if (!visualizer.emController) {
-      visualizer.emController = new ElectromagnetController(this.bridge.config);
+      visualizer.emController = new ElectromagnetController(bridge.config);
     }
-    this._inject();
+    const injected = this._inject(bridge);
+    if (this.bridge === bridge && this._unsub.length) {
+      if (injected) {
+        // Panel DOM was rebuilt: its buttons need handlers, and the new select
+        // starts on 'open' whatever mode the bridge is in.
+        this._wire();
+        this._syncTwinUI(bridge.twinMode);
+      }
+      this._renderStatus(bridge.status);
+      return;
+    }
+    this._detachBridge();
+    this.bridge = bridge;
+    this._unsub = [
+      bridge.on('status', (st) => this._renderStatus(st)),
+      bridge.on('sensor', (snap) => this._renderSensors(snap)),
+      bridge.on('error', (e) => this._setError(e.message || String(e))),
+      bridge.on('twinMode', (m) => this._syncTwinUI(m))
+    ];
     this._wire();
-    this._renderStatus(this.bridge.status);
+    this._renderStatus(bridge.status);
+    this._syncTwinUI(bridge.twinMode);
     this._loop();
   }
 
-  private _inject(): void {
+  private _detachBridge(): void {
+    for (const off of this._unsub) off();
+    this._unsub = [];
+    this._wireAbort?.abort();
+    this._wireAbort = null;
+    this._offFrame?.();
+    this._offFrame = null;
+  }
+
+  /** Returns true when it created the panel element (false if present or no host). */
+  private _inject(bridge: HardwareBridge): boolean {
     const left = document.getElementById('left-panel');
-    if (!left || document.getElementById('hardware-panel')) return;
+    if (!left || document.getElementById('hardware-panel')) return false;
 
     const el = document.createElement('div');
     el.id = 'hardware-panel';
     el.className = 'hw-panel';
     el.innerHTML = `
-      <div class="ctrl-section-title">Hardware Twin</div>
+      <div class="ctrl-section-title hw-title" id="hwTitle" role="button" tabindex="0" aria-controls="hardware-panel">Hardware Twin</div>
       <div class="hw-status-row">
         <span class="hw-dot" id="hwDot"></span>
         <span id="hwStatusText">Disconnected</span>
         <span class="hw-serial-badge" id="hwSerialBadge"></span>
       </div>
+      <div class="hw-fw" id="hwFirmware"></div>
       <div class="hw-btn-row">
         <button type="button" class="seg-op-btn" id="hwConnectBtn" title="USB CDC serial port">Serial</button>
         <button type="button" class="seg-op-btn" id="hwBleBtn" title="Wireless Nordic UART (BLE)">BLE</button>
@@ -121,9 +159,22 @@ export class HardwarePanel {
     left.appendChild(el);
     this._root = el;
 
+    // Lab mode (src/lab-mode.ts) decides whether the panel starts folded away.
+    const title = el.querySelector<HTMLElement>('#hwTitle');
+    const toggle = (): void => this.setCollapsed(!this._collapsed);
+    title?.addEventListener('click', toggle);
+    title?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggle();
+      }
+    });
+    this.setCollapsed(document.body.dataset.hwPanel === 'collapsed');
+
     // Coil pad buttons
     const pad = el.querySelector('#hwCoilPad');
-    const n = this.bridge?.config?.numCoils || 8;
+    // `bridge`, not `this.bridge`: on first attach the field is not set yet.
+    const n = bridge.config?.numCoils || 8;
     for (let i = 0; i < n; i++) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -135,6 +186,21 @@ export class HardwarePanel {
     }
 
     this._injectStyles();
+    return true;
+  }
+
+  /**
+   * Fold the panel down to its title. Folding never disconnects or coasts: the
+   * link, the coil override and the header badge carry on underneath.
+   */
+  setCollapsed(collapsed: boolean): void {
+    this._collapsed = collapsed;
+    const root = this._root;
+    if (!root) return;
+    root.dataset.collapsed = String(collapsed);
+    root.querySelector('#hwTitle')?.setAttribute('aria-expanded', String(!collapsed));
+    // Folded: stop the repaint; unfolded with a bridge: resume it.
+    if (this.bridge && this._unsub.length) this._loop();
   }
 
   private _injectStyles(): void {
@@ -143,12 +209,17 @@ export class HardwarePanel {
     s.id = 'hw-panel-styles';
     s.textContent = `
       .hw-panel { margin-top: 12px; padding-top: 10px; border-top: 1px solid #0ff3; font-size: 0.75rem; }
+      .hw-title { cursor: pointer; user-select: none; }
+      .hw-title::after { content: ' ▾'; color: #0aa; }
+      .hw-panel[data-collapsed="true"] .hw-title::after { content: ' ▸'; }
+      .hw-panel[data-collapsed="true"] > :not(.hw-title) { display: none; }
       .hw-status-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
       .hw-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; box-shadow: 0 0 6px #000; }
       .hw-dot.on { background: #0f8; box-shadow: 0 0 8px #0f8; }
       .hw-dot.mock { background: #fa0; box-shadow: 0 0 8px #fa0; }
       .hw-dot.err { background: #f44; }
       .hw-serial-badge { margin-left: auto; color: #678; font-size: 0.65rem; }
+      .hw-fw { color: #678; font-size: 0.65rem; margin: -4px 0 6px 16px; min-height: 1em; }
       .hw-btn-row { display: flex; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
       .hw-btn-row .seg-op-btn { flex: 1; min-width: 70px; font-size: 0.7rem; padding: 6px 4px; }
       .hw-btn-row .seg-op-btn[data-unsupported] { opacity: 0.4; text-decoration: line-through; }
@@ -169,6 +240,9 @@ export class HardwarePanel {
   private _wire(): void {
     const b = this.bridge;
     if (!b) return;
+    this._wireAbort?.abort();
+    this._wireAbort = new AbortController();
+    const { signal } = this._wireAbort;
     document.getElementById('hwConnectBtn')?.addEventListener('click', async () => {
       this._setError('');
       if (!HardwareBridge.isSerialSupported()) {
@@ -176,7 +250,7 @@ export class HardwarePanel {
         return;
       }
       await b.connectSerial();
-    });
+    }, { signal });
     document.getElementById('hwBleBtn')?.addEventListener('click', async () => {
       this._setError('');
       if (!HardwareBridge.isBluetoothSupported()) {
@@ -184,7 +258,7 @@ export class HardwarePanel {
         return;
       }
       await b.connectBluetooth();
-    });
+    }, { signal });
     document.getElementById('hwUsbBtn')?.addEventListener('click', async () => {
       this._setError('');
       if (!HardwareBridge.isWebUsbSupported()) {
@@ -192,23 +266,23 @@ export class HardwarePanel {
         return;
       }
       await b.connectUsb();
-    });
+    }, { signal });
     document.getElementById('hwMockBtn')?.addEventListener('click', async () => {
       this._setError('');
       await b.connectMock();
-    });
+    }, { signal });
     document.getElementById('hwDisconnectBtn')?.addEventListener('click', async () => {
       await b.disconnect();
       this._renderSensors(null);
-    });
+    }, { signal });
     document.getElementById('hwTwinMode')?.addEventListener('change', (e) => {
       b.setTwinMode((e.target as HTMLSelectElement).value);
-    });
+    }, { signal });
     document.getElementById('hwClearManualBtn')?.addEventListener('click', () => {
       b.clearManual();
       this._paintCoilPad(0);
-    });
-    document.getElementById('hwBrakeBtn')?.addEventListener('click', () => b.brake());
+    }, { signal });
+    document.getElementById('hwBrakeBtn')?.addEventListener('click', () => b.brake(), { signal });
 
     document.getElementById('hwCoilPad')?.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest('[data-coil]') as HTMLElement | null;
@@ -220,7 +294,7 @@ export class HardwarePanel {
       if (mask === 0) b.clearManual();
       else b.setManualCoils(mask, 1.0);
       this._paintCoilPad(mask);
-    });
+    }, { signal });
 
     // Feature badge: which links this browser could actually open.
     const badge = document.getElementById('hwSerialBadge');
@@ -280,7 +354,25 @@ export class HardwarePanel {
     }
     if (disc) disc.disabled = !live;
     if (status === 'error' && this.bridge?.lastError) this._setError(this.bridge.lastError);
+    this._renderFirmware();
     syncHardwareTwinBadgeFromBridge(this.bridge);
+  }
+
+  /** The board's v2 hello (or its absence). Arrives after connect, so the loop polls it. */
+  private _renderFirmware(): void {
+    const el = document.getElementById('hwFirmware');
+    const b = this.bridge;
+    if (!el || !b) return;
+    const label = b.firmwareLabel;
+    if (el.textContent === label) return;
+    el.textContent = label;
+    const fw = b.firmware;
+    el.title = fw
+      ? `Line protocol v${fw.protocol} · ${fw.firmware} on ${fw.board} over ${fw.link}`
+        + (fw.watchdogMs !== null ? ` · watchdog ${fw.watchdogMs} ms` : '')
+        + (fw.brakePwmMax !== null && fw.brakeMaxMs !== null
+          ? ` · brake ≤ ${fw.brakePwmMax}/255 for ≤ ${fw.brakeMaxMs} ms` : '')
+      : label ? 'No v2 hello yet. A v1 sketch never answers; it is still driven, and coasted, with v1 lines.' : '';
   }
 
   private _renderSensors(snap: SensorSnapshot | null): void {
@@ -338,20 +430,30 @@ export class HardwarePanel {
     if (el) el.textContent = msg || '';
   }
 
+  /**
+   * Keep the readouts fresh even if the sensor callback is quiet: 10 Hz on the
+   * frame clock while a bridge is attached and the panel is open (it used to
+   * repaint every frame, folded or not).
+   */
   private _loop(): void {
-    // Keep UI fresh even if sensor callback is quiet
-    const tick = () => {
+    this._offFrame?.();
+    this._offFrame = null;
+    if (!this.bridge || this._collapsed) return;
+    const tick = (): void => {
       if (this.bridge?.isConnected && this.bridge.lastSensorUpdate) {
         this._renderSensors(this.bridge.getSensorSnapshot());
       }
-      this._raf = requestAnimationFrame(tick);
+      this._renderFirmware();
     };
-    this._raf = requestAnimationFrame(tick);
+    tick();
+    this._offFrame = onFrame(tick, { hz: 10 });
   }
 
   destroy(): void {
-    cancelAnimationFrame(this._raf);
+    this._detachBridge();
+    this.bridge = null;
     this._root?.remove();
+    this._root = null;
   }
 }
 

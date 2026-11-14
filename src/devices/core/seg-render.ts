@@ -1,5 +1,6 @@
 import { cullSegRollerInstances, isCameraInsideSegRing } from '../../renderers/shared/view-lod.js';
 import type { DevicePlugin } from '../types';
+import { SEG_PART_SLOT } from '../device-render';
 
 /**
  * WebGPU draw path for SEG — housing, frame, rollers, flux, arcs.
@@ -8,6 +9,9 @@ import type { DevicePlugin } from '../types';
 export const drawSegWebgpu: NonNullable<DevicePlugin['drawWebgpu']> = (instance, renderPass, globalUniformBuffer, skipEffects) => {
   if (skipEffects) return;
 
+  // One write fills every per-part slot (bench / stator / wiring / rollers…);
+  // each segEnhanced draw below binds its slot by dynamic offset.
+  instance._writeSegPartUniforms();
   instance.renderGltfHousing(renderPass, globalUniformBuffer);
   instance.renderFrame(renderPass, globalUniformBuffer);
 
@@ -25,11 +29,12 @@ export const drawSegWebgpu: NonNullable<DevicePlugin['drawWebgpu']> = (instance,
   instance.renderPickupCoils(renderPass, globalUniformBuffer);
   instance.renderWires(renderPass, globalUniformBuffer);
 
-  if (instance.rollerInstances && instance.segEnhancedPipeline) {
-    instance.renderMode = 0;
-    const deviceData = instance._buildDeviceUniformData(instance.renderMode);
-    instance.device.queue.writeBuffer(instance.deviceUniformBuffer, 0, deviceData);
+  // deviceUniformBuffer still feeds the non-segEnhanced layouts below (coil,
+  // field lines, arcs, particles) — mode 0, as it always ended the frame.
+  instance.renderMode = 0;
+  instance.device.queue.writeBuffer(instance.deviceUniformBuffer, 0, instance._buildDeviceUniformData(0));
 
+  if (instance.rollerInstances && instance.segEnhancedPipeline) {
     const layoutRollers = instance.visualizer.segLayout?.totalRollers ?? 36;
     const segPos = instance.position || [0, 0, 0];
     const rings = instance.visualizer.segLayout?.rings;
@@ -47,7 +52,7 @@ export const drawSegWebgpu: NonNullable<DevicePlugin['drawWebgpu']> = (instance,
 
     const enhancedBindGroup = instance._enhancedBindGroup(globalUniformBuffer, instance.rollerInstances, 'rollers');
     renderPass.setPipeline(instance.segEnhancedPipeline);
-    renderPass.setBindGroup(0, enhancedBindGroup);
+    renderPass.setBindGroup(0, enhancedBindGroup, [instance._segPartOffset(SEG_PART_SLOT.rollers, 'rollers')]);
     renderPass.setVertexBuffer(0, instance.visualizer.enhancedRollerBuffer!.vertexBuffer);
     renderPass.setIndexBuffer(instance.visualizer.enhancedRollerBuffer!.indexBuffer, 'uint16');
     renderPass.drawIndexed(instance.visualizer.enhancedRollerBuffer!.indexCount, activeRollers);

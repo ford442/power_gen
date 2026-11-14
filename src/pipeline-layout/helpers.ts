@@ -125,6 +125,19 @@ export const SSR_FORMAT: GPUTextureFormat = 'rgba16float';
 /** Metalness (r) / roughness (g) G-buffer packed into the scene render pass's second color target. */
 export const MATERIAL_GBUFFER_FORMAT: GPUTextureFormat = 'rg8unorm';
 
+/**
+ * Second target for scene-pass pipelines that do not write the material
+ * G-buffer. It must name the format: a `null` target is **not** compatible
+ * with a pass that has an attachment in that slot (render pass layouts must
+ * be equal), and the mismatch invalidated the whole scene command buffer —
+ * a black WebGPU canvas. `writeMask: 0` is legal with no fragment output at
+ * @location(1) and leaves the attachment's clear value (non-metal, rough).
+ */
+export const MATERIAL_GBUFFER_NO_WRITE: GPUColorTargetState = {
+  format: MATERIAL_GBUFFER_FORMAT,
+  writeMask: 0
+};
+
 export function hashString(str: string): string {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {

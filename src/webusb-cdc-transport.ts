@@ -80,6 +80,8 @@ export class WebUsbCdcTransport extends LineTransport {
   private device: USBDevice | null;
   private endpoints: CdcEndpoints | null = null;
   private readLoop: Promise<void> | null = null;
+  /** Bumped on open/close; a stale pump stops instead of reading for the next link. */
+  private generation = 0;
   private readonly queue: WriteQueue;
 
   constructor(device?: USBDevice) {
@@ -122,15 +124,21 @@ export class WebUsbCdcTransport extends LineTransport {
       }
     }
 
-    this.readLoop = this.pump();
+    this.readLoop = this.pump(++this.generation);
   }
 
-  private async pump(): Promise<void> {
-    while (this.device && this.endpoints && !this.closing) {
+  private async pump(gen: number): Promise<void> {
+    // Capture the link this pump was started for: `this.device` / `endpoints`
+    // may already belong to a newer open by the time a transfer settles.
+    const device = this.device;
+    const endpointIn = this.endpoints?.endpointIn;
+    if (!device || endpointIn === undefined) return;
+    while (gen === this.generation && !this.closing) {
       try {
-        const result = await this.device.transferIn(this.endpoints.endpointIn, USB_READ_BYTES);
+        const result = await device.transferIn(endpointIn, USB_READ_BYTES);
+        if (gen !== this.generation) return;
         if (result.status === 'stall') {
-          await this.device.clearHalt('in', this.endpoints.endpointIn);
+          await device.clearHalt('in', endpointIn);
           continue;
         }
         if (result.data?.byteLength) {
@@ -138,7 +146,7 @@ export class WebUsbCdcTransport extends LineTransport {
           this.pushChunk(new Uint8Array(d.buffer, d.byteOffset, d.byteLength));
         }
       } catch (err) {
-        this.reportDrop(err instanceof Error ? err : new Error(String(err)));
+        if (gen === this.generation) this.reportDrop(err instanceof Error ? err : new Error(String(err)));
         return;
       }
     }
@@ -157,8 +165,10 @@ export class WebUsbCdcTransport extends LineTransport {
   }
 
   protected async closeLink(): Promise<void> {
+    this.generation++;
     const device = this.device;
     const iface = this.endpoints?.interfaceNumber;
+    const loop = this.readLoop;
     this.endpoints = null;
     this.readLoop = null;
     if (device && iface !== undefined) {
@@ -166,6 +176,11 @@ export class WebUsbCdcTransport extends LineTransport {
     }
     if (device) {
       try { await device.close(); } catch { /* unplugged */ }
+    }
+    // close() rejects the pending transferIn; wait for the old pump to exit so
+    // it cannot outlive a fast reconnect on the same device.
+    if (loop) {
+      try { await loop; } catch { /* pump never throws; belt and braces */ }
     }
     this.device = null;
   }

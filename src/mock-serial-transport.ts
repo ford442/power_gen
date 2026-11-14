@@ -1,6 +1,6 @@
 /**
  * In-memory mock Arduino for demos/CI (no navigator.serial).
- * Accepts P/C/CONF lines; streams S at ~120 Hz.
+ * Accepts P/C/CONF lines, answers V with a v2 hello; streams S at ~120 Hz.
  *
  * Split out of hardware-bridge.ts (issues #142/#143/#187): self-contained
  * fake serial-port transport used for `?mockHardware=1` / no-Arduino development.
@@ -10,7 +10,7 @@
  * link (ADR-0005 WS3). It cannot emulate GATT or USB descriptors — it emulates
  * the *protocol*, which is the layer the twin actually depends on.
  */
-import { MODE_RUN, MODE_BRAKE, MODE_COAST, finiteNum, clampRpm } from './hardware-protocol-shared';
+import { MODE_RUN, MODE_BRAKE, MODE_COAST, HOST_PROTOCOL_VERSION, finiteNum, clampRpm } from './hardware-protocol-shared';
 import type { HardwareTransport, HardwareTransportKind } from './hardware-transport';
 
 export class MockSerialTransport implements HardwareTransport {
@@ -85,13 +85,17 @@ export class MockSerialTransport implements HardwareTransport {
       this._targetRpm = clampRpm(parseFloat(parts[1]) || 0);
       this._controlMode = parseInt(parts[2], 10) || 0;
       this._manual = false;
+    } else if (line.startsWith('CONF')) {
+      // Before `C`: matched the other way round, CONF read as a coil override.
+      this._emit(`Iconfig_ack:${line.slice(4)}`);
     } else if (line.startsWith('C')) {
       const parts = line.slice(1).split(',');
       this._coilMask = parseInt(parts[0], 10) || 0;
       this._manual = this._coilMask !== 0;
-      if (this._coilMask === 0) this._manual = false;
-    } else if (line.startsWith('CONF')) {
-      this._emit(`Iconfig_ack:${line.slice(4)}`);
+    } else if (line.startsWith('V')) {
+      // Answer like a v2 board (seg_safety.h formatHello), so the panel and the
+      // hub show the hello path without hardware.
+      this._emit(`I v=${HOST_PROTOCOL_VERSION} fw=mock board=mock link=mock coils=8 halls=0 wd=100 brake=128/1000`);
     }
   }
 

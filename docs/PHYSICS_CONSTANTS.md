@@ -39,15 +39,30 @@ constructor either (that is how the homopolar axial field drifted).
 | `lorentzSled` | `LORENTZ_SLED` (alias `LORENTZ`) | `power_gen::LorentzSledConstants` |
 | `pulseCoil` | `PULSE_COIL_CORE` (alias `PULSE_COIL`) | — JS-only plant |
 | `halbachViz` | `HALBACH_VIZ` | — JS-only plant |
+| `dropTube` | `DROP_TUBE` | — JS-only plant |
 
-Pulse-coil and halbach-viz have no `wasmMode` by design (ADR-0002), so
-codegen emits TS for them only.
+Pulse-coil, halbach-viz and drop-tube have no `wasmMode` by design (ADR-0002;
+the drop tube's answer is algebraic), so codegen emits TS for them only.
+`validatePhysicalAnchors` also refuses a `dropTube` block whose wall is not
+thin (`w < a/4`, the model's assumption), whose magnet does not fit the bore,
+or whose default σ falls outside its own slider range.
 
 Each block carries the **drive shaping** its equations use (`bFieldBaseT` /
 `bFieldSpanT`, `gapTargetBaseM` / `gapTargetSpanM`, `rpmMax`, the clamp
 bounds, …) as well as the SI parameters. Those shaping numbers appear in
 both plants' step functions, so leaving them as literals is the same drift
 risk as leaving out a resistance.
+
+## Physical anchors (codegen refuses a wrong μ0)
+
+`npm run codegen:constants` (and so `check:constants`) fails unless
+`physical.MU_0` is 4π×10⁻⁷ H/m to 1e-6, `EPSILON_0` agrees with 1/(μ0 c²), and
+`segMagnet.magnetizationAm` equals Br/(μ0 μr). μ0 was once committed as
+1.2566e-**7**; every dipole field and energy density derived from it was 10× off
+and nothing failed, because the plants, the shaders and the golden all agreed
+with the typo. The anchor ties the JSON to a value checkable from first
+principles. After changing it the prebuilt `src/public/wasm/sim_core.*` is stale
+until CI rebuilds it (`build-wasm.yml` commits it back on `main`).
 
 ## JS ⇄ WASM golden
 
@@ -103,7 +118,7 @@ Device **identity** (shader vs WASM mode numbers) is a separate catalog:
 |---------------------|---------------------------|
 | CODATA μ₀, ε₀, G, k_B, e, c, π | Layout ring counts / radii presets → `src/seg-layout.ts` `PRESET_DEFS` |
 | SEG NdFeB Br, μ_r, reference roller geometry | Per-preset world scale, flux-line counts → `seg-layout.ts` + `SEGLayoutUniforms` |
-| Kelvin / Heron / LED–solar core efficiencies | LED spectral wavelengths, IV curve UI metadata → `led-solar-constants.ts` |
+| Kelvin / Heron / LED–solar core efficiencies | Solar bench render-only tuning → catalog `solar` device |
 | Every classroom plant's ODE defaults + drive shaping | Scene/render scales (e.g. halbach-viz `SCENE_SCALE`, `LORENTZ_SCENE`) — device-local render units, not physics |
 | Particle byte strides (16 / 32 B) | WGSL struct definitions → `src/shaders/common/*.wgsl` |
 

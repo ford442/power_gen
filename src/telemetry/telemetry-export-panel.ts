@@ -14,7 +14,8 @@ import {
 import { replayPlayer } from './replay-player';
 import { setReplayBarVisible } from './replay-ui';
 import { setSimulationSeed } from './deterministic-rng';
-import { runOfflineSegExportInWorker, runOfflineSegExport } from '../wasm/offline-runner.js';
+
+const lazySnapshots = (): Promise<typeof import('../session/lab-snapshot')> => import('../session/lab-snapshot');
 
 function setStatus(el: HTMLElement | null, text: string, ok = true): void {
   if (!el) return;
@@ -52,6 +53,8 @@ export function initTelemetryExportPanel(): void {
       window.segOperator?.start?.();
     }
     telemetryHub.startRecording(10, getHz());
+    // Plant snapshot keyframes ride along so the replay can be taken over (#224 §2).
+    void lazySnapshots().then((m) => m.startKeyframeRecorder());
     recordBtn.textContent = '■ Stop';
     setStatus(statusEl, 'Recording 10s sim time…');
   });
@@ -83,6 +86,8 @@ export function initTelemetryExportPanel(): void {
       const drive = window.segOperator?.targetDrive ?? 0.5;
       const loadOhm = window.segOperator?.loadResistance ?? 100;
       const field = window.segOperator?.magneticFieldStrength ?? 0.5;
+      // Loaded on click: the offline runner is not needed to boot the lab.
+      const { runOfflineSegExportInWorker, runOfflineSegExport } = await import('../wasm/offline-runner.js');
       let result;
       try {
         result = await runOfflineSegExportInWorker({
@@ -116,13 +121,14 @@ export function initTelemetryExportPanel(): void {
     offlineBtn.disabled = false;
   });
 
-  replayBtn?.addEventListener('click', () => {
+  replayBtn?.addEventListener('click', async () => {
     const rows = telemetryHub.getRecordedRows();
     const replay = buildReplayFromRecording(rows, {
       sampleHz: getHz(),
       seed: seedEl?.value ? Number(seedEl.value) >>> 0 : null,
       segLayoutPreset: window.multiVisualizer?.getSEGLayoutPreset?.(),
-      heronLayoutPreset: window.multiVisualizer?.heronLayoutPreset
+      heronLayoutPreset: window.multiVisualizer?.heronLayoutPreset,
+      keyframes: await lazySnapshots().then((m) => m.recordedKeyframes(), () => [])
     });
     downloadReplayJson(replay);
     setStatus(statusEl, 'Replay file downloaded');

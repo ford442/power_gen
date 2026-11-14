@@ -46,7 +46,11 @@ export const DEVICE_PARTICLE_BUDGETS: Record<string, TierBudget> = {
   vdg: { high: 3600, medium: 2400, low: 1400, critical: 700 },
   hall: { high: 3200, medium: 2100, low: 1200, critical: 600 },
   'lorentz-sled': { high: 3400, medium: 2200, low: 1300, critical: 650 },
-  'jumping-ring': { high: 3600, medium: 2300, low: 1300, critical: 650 }
+  'jumping-ring': { high: 3600, medium: 2300, low: 1300, critical: 650 },
+  // A narrow bench: two eddy loops, a wake and a few field loops read at well
+  // under the jumping ring's count, and the 16th bench should not raise the
+  // overview particle total more than it has to.
+  'drop-tube': { high: 2400, medium: 1500, low: 900, critical: 450 }
 };
 
 /** Core / legacy ids that use DEFAULT_CORE when not listed above. */

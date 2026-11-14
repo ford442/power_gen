@@ -3,7 +3,7 @@
  */
 
 import { csvToRows, type TelemetryCsvRow } from './telemetry-schema';
-import { REPLAY_VERSION, type ReplayFile, type SpeedKeyframe } from './replay-format';
+import { REPLAY_VERSION, type ReplayFile, type ReplayKeyframe, type SpeedKeyframe } from './replay-format';
 
 export interface ReplayParseResult {
   replay: ReplayFile;
@@ -92,6 +92,8 @@ export function validateReplayFile(raw: unknown): ReplayFile {
     : speedCurveFromSamples(samples);
 
   const cfg = isRecord(raw.config) ? raw.config : {};
+  // Snapshot keyframes (#224 §2) pass through; take-over validates each.
+  const keyframes = Array.isArray(raw.keyframes) ? (raw.keyframes as ReplayKeyframe[]) : [];
   return {
     replayVersion: REPLAY_VERSION,
     createdAt: str(raw.createdAt, new Date().toISOString()),
@@ -105,7 +107,8 @@ export function validateReplayFile(raw: unknown): ReplayFile {
       magneticFieldStrength: num(cfg.magneticFieldStrength, 0.5),
       sampleHz: num(cfg.sampleHz, 10)
     },
-    samples
+    samples,
+    ...(keyframes.length ? { keyframes } : {})
   };
 }
 

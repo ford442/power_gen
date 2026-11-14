@@ -7,11 +7,13 @@ import { WebGPUManager } from '../webgpu-manager';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import { bindHostMethods } from './bind-host-methods.js';
 import { scenePostBufferMethods } from './scene-post-buffers.js';
+import { postTargetMethods } from './post-targets.js';
 
 // Re-exported for compatibility — other modules (e.g. render-loop.ts) import
 // these from './scene-setup.js'; the values themselves live in
 // scene-post-buffers.ts, next to the only methods that use them.
-export { SSR_RESOLUTION_SCALE, SSR_PARAMS_BYTES, TAA_PARAMS_BYTES } from './scene-post-buffers.js';
+export { SSR_PARAMS_BYTES, TAA_PARAMS_BYTES } from './scene-post-buffers.js';
+export { SSR_RESOLUTION_SCALE } from './post-targets.js';
 
 type Host = MultiDeviceVisualizer;
 
@@ -46,6 +48,11 @@ export const sceneSetupMethods: ThisType<Host> & {
     const fallbackSoft = !!(this.webgpu?.adapterInfo?.fallback || this.webgpu?.adapterInfo?.software);
     if (fallbackSoft) {
       this.iblLevels = 0;
+      // iblLevels = 0 selects the analytic path, but every segEnhanced bind group
+      // still binds @binding(7): without a texture the first SEG draw threw
+      // "iblResources missing" and WebGPU hard-failed on every software adapter.
+      // 1×1 texels, never sampled for lighting.
+      this.iblResources ??= await createIblResources(this.device, { size: 1, storage: false });
       console.log('[MultiDeviceVisualizer] IBL prefilter skipped (fallback/software adapter)');
       return { levels: 0, cached: true, ms: 0, path: 'skipped' as const };
     }
@@ -111,6 +118,9 @@ export const sceneSetupMethods: ThisType<Host> & {
    * compute pipeline is already built by now, so this stays synchronous.
    */
   refreshIblPrefilter() {
+    // Fallback/software adapters hold only the 1×1 placeholder; a bake would
+    // set iblLevels > 0 and switch them off the analytic path.
+    if (this.webgpu?.adapterInfo?.fallback || this.webgpu?.adapterInfo?.software) return;
     if (!this.iblResources || !this.device) return;
     this._bakeIbl();
   },
@@ -216,6 +226,13 @@ export const sceneSetupMethods: ThisType<Host> & {
       this._syncCanvasSize();
     });
     this._canvasResizeObserver.observe(target);
+    // Exact device pixels for the backing store (canvasPixelSize prefers
+    // them). Also fires on a DPR change — dragging the window to another
+    // monitor — which the layout observer above does not see.
+    this._canvasDprObserver?.disconnect();
+    this._canvasDprObserver = WebGPUManager.observeDevicePixelSize(this.canvas, () => {
+      this._syncCanvasSize();
+    });
   },
 
   async _syncCanvasSize() {
@@ -252,7 +269,6 @@ export class PostStack {
   setupDepthBuffer: typeof scenePostBufferMethods.setupDepthBuffer;
   _rebuildDepthResolveBindGroup: typeof scenePostBufferMethods._rebuildDepthResolveBindGroup;
   setupDepthResolvePipeline: typeof scenePostBufferMethods.setupDepthResolvePipeline;
-  setupSsrTexture: typeof scenePostBufferMethods.setupSsrTexture;
   _rebuildSsrBindGroup: typeof scenePostBufferMethods._rebuildSsrBindGroup;
   setupSsrPipeline: typeof scenePostBufferMethods.setupSsrPipeline;
   setupBloomTextures: typeof scenePostBufferMethods.setupBloomTextures;
@@ -260,8 +276,11 @@ export class PostStack {
   setupBloomPipeline: typeof scenePostBufferMethods.setupBloomPipeline;
   setupTaaPipeline: typeof scenePostBufferMethods.setupTaaPipeline;
   _rebuildTaaBindGroups: typeof scenePostBufferMethods._rebuildTaaBindGroups;
+  /** Lazy MSAA / SSR / TAA / history targets (post-targets.ts). */
+  readonly targets: typeof postTargetMethods;
 
   constructor(host: MultiDeviceVisualizer) {
+    this.targets = bindHostMethods(postTargetMethods, host);
     const bound = bindHostMethods(sceneSetupMethods, host);
     const boundPostBuffers = bindHostMethods(scenePostBufferMethods, host);
     this.setupIblPrefilter = bound.setupIblPrefilter;
@@ -276,7 +295,6 @@ export class PostStack {
     this.setupDepthBuffer = boundPostBuffers.setupDepthBuffer;
     this._rebuildDepthResolveBindGroup = boundPostBuffers._rebuildDepthResolveBindGroup;
     this.setupDepthResolvePipeline = boundPostBuffers.setupDepthResolvePipeline;
-    this.setupSsrTexture = boundPostBuffers.setupSsrTexture;
     this._rebuildSsrBindGroup = boundPostBuffers._rebuildSsrBindGroup;
     this.setupSsrPipeline = boundPostBuffers.setupSsrPipeline;
     this.setupBloomTextures = boundPostBuffers.setupBloomTextures;

@@ -3,6 +3,7 @@ import './devices/register-plugins';
 import { MultiDeviceCamera } from './multi-device-camera';
 import { SimRateController } from './sim-rate-controller';
 import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager';
+import { parseColorPipelineMode } from './webgpu-init/canvas';
 import { CameraController } from './camera-controller';
 import { PerformanceProfiler } from './performance-profiler';
 import { DebugPanel } from './debug-panel';
@@ -47,7 +48,6 @@ import {
   fdtdSliceGateOpen,
   type FdtdDriveSource
 } from './physics/fdtd-tmz';
-import type { SEGIntegrationManager } from './integration';
 import { generateCylinder } from './visualizer/primitives.js';
 import { SharedGeometryFactory } from './visualizer/setup-geometry.js';
 import { PostStack } from './visualizer/scene-setup.js';
@@ -122,10 +122,6 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   // Hardware digital twin (Web Serial / mock) — coil GPU viz stays on this backend
   emController: ElectromagnetController;
 
-  integration: SEGIntegrationManager | null;
-  /** Manager-owned physics uniform buffer (alias). */
-  physicsUniformBuffer: GPUBuffer | null;
-
   time: number;
   lastFrameTime: number;
   fps: number;
@@ -191,23 +187,19 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
     this.emController = new ElectromagnetController();
 
-    this.integration = null;
-    this.physicsUniformBuffer = null;
-
     this.time = 0;
     this.lastFrameTime = 0;
     this.fps = 60;
     this.globalEnergyLevel = 0.0;
 
-    const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-    this.ssrEnabled = parseSsrEnabled(params);
-    this.taaEnabled = parseTaaEnabled(params);
-    this.fdtdEnabled = parseFdtdEnabled(params);
-    this.fdtdMaterialsEnabled = parseFdtdMaterialsEnabled(params);
-    this.fdtdDriveSource = parseFdtdDriveSource(params);
+    this.ssrEnabled = parseSsrEnabled();
+    this.taaEnabled = parseTaaEnabled();
+    this.fdtdEnabled = parseFdtdEnabled();
+    this.fdtdMaterialsEnabled = parseFdtdMaterialsEnabled();
+    this.fdtdDriveSource = parseFdtdDriveSource();
 
-    this.lightingLook = parseLightingLook(params);
-    const lookPreset = getLightingPreset(this.lightingLook);
+    this.lightingLook = parseLightingLook();
+    const lookPreset = getLightingPreset(this.lightingLook, parseColorPipelineMode());
     this.lightingConfig = { ...lookPreset.lighting };
     this.postPreset = lookPreset;
     this.postExposure = lookPreset.post.exposure;
@@ -215,7 +207,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
     this.segLayout = null;
 
-    this.segFrameLevel = parseSegFrameLevel(params);
+    this.segFrameLevel = parseSegFrameLevel();
     this.segFrameBuffers = null;
     this.frameStructuralInstanceBuffer = null;
     this.frameControlInstanceBuffer = null;
@@ -302,7 +294,7 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
   /** Switch studio / lab / drama lighting + post look at runtime. */
   setLightingLook(look: string): void {
-    const preset = getLightingPreset(look as LightingLook);
+    const preset = getLightingPreset(look as LightingLook, this.webgpu.colorMode);
     if (!preset) return;
     this.lightingLook = look as LightingLook;
     this.postPreset = preset;
@@ -320,11 +312,13 @@ export class MultiDeviceVisualizer implements VisualizerLike {
 
   _uploadSkyUniforms(energy = 0): void {
     if (!this.skyUniformBuffer || !this.device) return;
-    const sky = this.postPreset?.sky ?? getLightingPreset(this.lightingLook).sky;
+    const sky = this.postPreset?.sky ?? getLightingPreset(this.lightingLook, this.webgpu.colorMode).sky;
     writeQueueBuffer(this.device, this.skyUniformBuffer, new Float32Array([
       sky.mode,
       sky.energy + energy * 0.5,
-      0, 0
+      // SkyParams.linear: decode the backdrop's sRGB-picked literals (sky-frag.wgsl).
+      this.webgpu.colorMode === 'linear' ? 1 : 0,
+      0
     ]));
   }
 

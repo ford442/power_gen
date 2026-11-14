@@ -307,6 +307,57 @@ fn posJumpingRing(phase: f32, t: f32, idx: u32) -> vec3f {
   return vec3f(cos(a) * radius, y, sin(a) * radius);
 }
 
+/// Mode 16 — Lenz drop tube: the two eddy-current loops in the wall just ahead
+/// of and behind the falling magnet, circulating in opposite senses, a wake
+/// above it whose length follows its speed, and a few dipole field loops riding
+/// with it. Loop speed follows the plant's loop currents. Illustrative, not a
+/// field solver — and nothing here glows because the wall is warm: this bench
+/// has no thermal model.
+fn posDropTube(phase: f32, t: f32, idx: u32) -> vec3f {
+  let travelN = clamp(uniforms.physics0, 0.0, 1.0);
+  let vN = uniforms.physics1;
+  let aheadN = uniforms.physics2;
+  let behindN = uniforms.physics3;
+  // 9.6 / -6.08 / 2.6 / 1.25 / 1.8 mirror DROP_Y_TOP / DROP_Y_BOTTOM /
+  // hoopRadiusU / magnetHalfU / loopOffsetU in devices/quanta/drop-tube.ts
+  // (device-local render units, not metres).
+  let yMag = mix(9.6, -6.08, travelN);
+  let hoopR = 2.6;
+  let magHalf = 1.25;
+  let loopOff = 1.8;
+  let kind = idx % 8u;
+
+  if (kind < 4u) {
+    let ahead = kind < 2u;
+    let s = select(behindN, aheadN, ahead);
+    if (s < 0.02) {
+      // No loop to show: tuck the packet inside the (opaque) magnet.
+      let a0 = phase * 6.28318;
+      return vec3f(cos(a0) * 0.3, yMag + (fract(phase * 7.0) - 0.5) * 1.6, sin(a0) * 0.3);
+    }
+    let dir = select(-1.0, 1.0, ahead);
+    let a = (phase * 6.28318 + t * (1.0 + s * 5.0)) * dir;
+    let r = hoopR + (fract(f32(idx) * 0.37) - 0.5) * 0.5;
+    let y = yMag + select(loopOff, -loopOff, ahead) + (fract(f32(idx) * 0.73) - 0.5) * 0.6 * s;
+    return vec3f(cos(a) * r, y, sin(a) * r);
+  }
+
+  if (kind < 7u) {
+    // Wake: a thin column above the magnet, stretched by its speed.
+    let u = fract(phase + t * (0.6 + 2.0 * vN));
+    let a = phase * 43.98;
+    let r = 0.25 + 0.35 * u;
+    return vec3f(cos(a) * r, yMag + magHalf + u * (0.6 + vN * 7.0), sin(a) * r);
+  }
+
+  // Dipole field loop r = L·sin²θ about the magnet.
+  let th = fract(phase + t * 0.15) * 3.14159;
+  let ph = fract(f32(idx) * 0.618) * 6.28318;
+  let st = sin(th);
+  let rr = 3.4 * st * st;
+  return vec3f(rr * st * cos(ph), yMag + rr * cos(th), rr * st * sin(ph));
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let idx = id.x;
@@ -352,6 +403,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     newPos = posLorentzSled(phase, t, idx);
   } else if (m == MODE_JUMPING_RING) {
     newPos = posJumpingRing(phase, t, idx);
+  } else if (m == MODE_DROP_TUBE) {
+    newPos = posDropTube(phase, t, idx);
   } else {
     newPos = posMagLev(phase, t, idx);
   }

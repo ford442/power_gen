@@ -179,7 +179,10 @@ from there, and never re-derive a render-unit bench from its SI constants.
 `npm run test:props` is the guard: every registry entry's URL must exist, parse
 with **this repo's own** hand-rolled loader, carry positions/normals/UVs, and sit
 under its `softBudgetBytes`. A generator that emits something the loader cannot
-read fails CI instead of failing at focus time.
+read fails CI instead of failing at focus time. It also checks each file against
+the glTF spec's structural rules (every accessor fits its bufferView, views fit
+the BIN chunk, strides and alignment), because this loader is lenient and
+external tools such as cgltf / gltfpack are not.
 
 ## Authoring workflow (Blender → glTF)
 
@@ -303,8 +306,10 @@ procedural label positions in `seg-annotations.js` when `?gltfHousing=1`.
   enforced per entry by `softBudgetBytes` and `npm run test:props`.
 - Sphere segment counts are the knob that blows the budget: the VDG terminal is
   14×8 (~42 KB) and 16×8 put it at ~50.6 KB, i.e. against the ceiling.
-- Prefer **Draco-free** glTF for the minimal loader; add meshopt/Draco only after evaluating
-  decode cost on GitHub Pages.
+- Prefer **Draco-free** glTF for the minimal loader. meshopt was measured against
+  the committed set (2026-10) and is **not needed yet** — see
+  *meshopt decode — measured, not needed yet* below for the byte table and the
+  re-measure trigger.
 - Large CAD assets should be lazy-loaded per device focus, not in the main chunk.
 
 ## KTX2 / texture compression
@@ -346,6 +351,82 @@ same job as the first four. `npm run test:props` now parses every registry GLB w
 that loader in CI, so the day an artist asset does need an extension, it fails there
 with a named prop instead of silently at focus time. That failure is the trigger to
 re-open this, and nothing before it is.
+
+### meshopt decode — measured, not needed yet (#217 WS B)
+
+#217 allowed a meshopt decoder "only if measured". Measured 2026-10 with
+`gltfpack` 1.2.0 (`-kn -km -ke`, so nodes, materials and `extras.power_gen`
+survive) against the nine committed GLBs, and `meshoptimizer` 1.2.0's
+`meshopt_decoder.mjs` for the decoder. Neither was added to `package.json`. GitHub
+Pages serves `.glb` as `content-encoding: gzip` (checked on the live demo:
+`vdg-terminal.glb` arrives as 9127 B), so **gzip is the column that ships**.
+
+| Prop | Today raw | Today gzip | Welded, no ext. (gzip) | Quantized (gzip) | meshopt + quantized `-cc` (gzip) |
+|------|----------:|-----------:|-----------------------:|-----------------:|---------------------------------:|
+| `seg/base-plate` | 1 996 | 707 | 638 | 697 | 838 |
+| `seg/coil-former` | 13 996 | 3 145 | 2 058 | 2 033 | 1 506 |
+| `seg/housing-shell` | 8 260 | 1 967 | 1 529 | 1 619 | 1 507 |
+| `seg/stand` | 8 396 | 2 000 | 1 607 | 1 633 | 1 391 |
+| `quanta/transformer-core` | 15 276 | 3 012 | 2 112 | 2 077 | 1 530 |
+| `quanta/vdg-terminal` | 43 228 | 9 045 | 5 577 | 4 976 | 3 071 |
+| `quanta/thomson-stand` | 32 076 | 5 765 | 3 658 | 3 561 | 2 055 |
+| `lab/heron-vessels` | 37 604 | 6 513 | 4 198 | 4 015 | 2 273 |
+| `lab/kelvin-jars` | 37 564 | 6 662 | 4 279 | 4 099 | 2 393 |
+| **All nine** | **198 396** | **38 816** | **25 656** | **24 710** | **16 564** |
+| Decoder (`meshopt_decoder.mjs`) | 29 059 | **7 783** | — | — | needed |
+
+Bytes. *Welded* is `gltfpack -noq`: no extension at all — it merges duplicate
+vertices (the VDG sphere goes 1200 → 486), drops degenerate triangles and drops
+`TEXCOORD_0`, which no prop's material samples. *Quantized* adds
+`KHR_mesh_quantization` (int16/int8 attributes, no decoder library, but a loader
+change). The last column adds `EXT_meshopt_compression`, which needs the decoder.
+
+**Why not yet:**
+
+- Most of the 22 KB between today and meshopt (38.8 → 16.6 KB) is **not
+  meshopt**: welding and dropping unused UVs take it to 25.7 KB with no
+  extension and no decoder. Measured against *that*, meshopt + quantization
+  saves **9.1 KB across all nine props together** — barely more than the
+  **7.8 KB** decoder it needs.
+- Props load **per focused bench**, so nobody downloads all nine at once. The
+  most a single focus view saves over the welded baseline is 2.5 KB (VDG);
+  SEG's four props together save 0.6 KB. Every single-bench visit would pay
+  more for the decoder than it saves.
+- It also costs loader code for two extensions (`EXT_meshopt_compression`
+  bufferView decode, `KHR_mesh_quantization` dequantize) feeding a GPU path
+  that uploads float32 8-float vertices anyway (`gltf-gpu.ts`), so there is no
+  VRAM win either.
+
+**When to re-measure.** meshopt beats the welded baseline by ~35 % at these
+densities, so it pays for its own decoder once one visit loads roughly
+**7.8 KB / 0.35 ≈ 22 KB** of welded, gzipped GLB — about 4× today's largest
+focus view (VDG, 5.6 KB). An artist asset of a few thousand vertices per bench
+would get there; that is the trigger. `npm run test:props` is where it shows up:
+the loader implements no extensions, so any GLB whose `extensionsRequired`
+lists one (gltfpack's `-q` / `-cc` output does) fails there by name instead of
+decoding as garbage.
+
+**The cheap part, if wanted before then:** welding plus dropping the unused UVs
+is ~13 KB gzipped across the set with no new dependency. It is not done here:
+UVs are part of the loader contract (`gltf-gpu.ts` uploads 8-float vertices,
+which `test:props` checks), and the stand's KTX2 albedo may want them back.
+
+**Spec validity (fixed while measuring).** gltfpack first refused *every*
+committed GLB with "buffer too short". All three writers
+(`scripts/lib/seg-placeholder-glb.mjs`, the housing and coil-former generators)
+described the interleaved stride-32 vertex block as three bufferViews of
+`count × elementSize` bytes, so every vertex accessor overran its view ~2.7×.
+This repo's loader reads by stride and never noticed; external tools did. The
+writers now emit one `count × 32` bufferView with accessors at byte offsets
+0 / 12 / 24. The regenerated GLBs decode **identically** through
+`parseGlb` + `extractGltfMeshes` (every vertex, index and node extra), and
+`npm run test:props` now checks the spec's structural rules on every prop
+(`glbSpecProblems`), so a writer cannot drift back.
+
+**Artist CAD.** None yet. No artist-authored GLB replaces a placeholder in this
+change; the SEG housing and coil former are still the first candidates (#217).
+What changed for that work is that the placeholders an artist starts from are
+now files external tools accept.
 
 ### Basis UASTC — evaluated, not adopted
 

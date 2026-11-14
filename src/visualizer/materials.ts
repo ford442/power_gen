@@ -1,5 +1,6 @@
 // PBR material table buffer for enhanced SEG mesh pipeline.
 import { SEGMaterialPresets } from '../seg-materials';
+import { authoredColor } from '../seg-lighting-presets';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import { bindHostMethods } from './bind-host-methods.js';
 
@@ -47,16 +48,21 @@ export const materialMethods: ThisType<Host> & {
       mat(SEGMaterialPresets.magnetSegment, [0.12, 0.14, 0.18], [36.0, 0.06, 0.14, 0.0])
     ];
 
+    // Table colours are sRGB picks; decode them on the linear colour pipeline.
+    const mode = this.pipelineCache?.colorTargets.mode;
     const packed = new Float32Array(materials.length * 12);
     for (let i = 0; i < materials.length; i++) {
       const m = materials[i];
       const baseOffset = i * 12;
-      packed.set([m.baseColor[0], m.baseColor[1], m.baseColor[2], m.metallic], baseOffset);
-      packed.set([m.accent[0], m.accent[1], m.accent[2], m.roughness], baseOffset + 4);
+      const base = authoredColor(m.baseColor, mode);
+      const accent = authoredColor(m.accent, mode);
+      packed.set([base[0], base[1], base[2], m.metallic], baseOffset);
+      packed.set([accent[0], accent[1], accent[2], m.roughness], baseOffset + 4);
       packed.set([m.detail[0], m.detail[1], m.detail[2], m.detail[3]], baseOffset + 8);
     }
 
     this.materialTableBuffer = this.device.createBuffer({
+      label: 'material-table',
       size: packed.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });

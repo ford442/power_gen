@@ -3,14 +3,15 @@ import type { PipelineLayoutCache } from '../pipeline-layout-cache.js';
 import {
   VB_POS_NORMAL, VB_POS_NORMAL_UV, VB_ENERGY_ARC,
   ALPHA_BLEND, ADDITIVE_BLEND, ADDITIVE_SRC_ALPHA, hashString,
-  MATERIAL_GBUFFER_FORMAT
+  MATERIAL_GBUFFER_FORMAT,
+  MATERIAL_GBUFFER_NO_WRITE
 } from '../helpers.js';
 
 export interface DevicePipelineOptions {
   /**
    * 1 (default) or 4. The 4x variant is a second, otherwise-identical
    * GPURenderPipeline for the ADR-0005 WS2 showroom MSAA path (`high` tier +
-   * focus mode — see render-loop.ts `msaaActive`) — created eagerly here
+   * focus mode — see render-encode.ts `frameContext()`) — created eagerly here
    * rather than lazily on first use, so the per-frame render loop never has
    * to await pipeline creation mid-frame. Cache keys get a `_msaa4` suffix;
    * layouts are unaffected (only `multisample` differs).
@@ -24,7 +25,7 @@ export async function ensureDevicePipelines(
   shaders: MultiDeviceShaders,
   opts: DevicePipelineOptions = {}
 ): Promise<void> {
-  const fmt = cache.canvasFormat;
+  const fmt = cache.sceneFormat;
   const depthWrite = cache.depthStencil(true, 'less');
   const depthRead = cache.depthStencil(false, 'less');
   const sampleCount = opts.sampleCount ?? 1;
@@ -67,9 +68,9 @@ export async function ensureDevicePipelines(
         module: cache.shaderModule('particle-frag', shaders.particleFragShader),
         entryPoint: 'main',
         // Unlit additive particles don't participate in the material
-        // G-buffer (SSR already ignores them) — null so this pipeline stays
+        // G-buffer (SSR already ignores them) — a masked target so this pipeline stays
         // compatible with the scene pass's second color attachment.
-        targets: [{ format: fmt, blend: ADDITIVE_BLEND }, null]
+        targets: [{ format: fmt, blend: ADDITIVE_BLEND }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'triangle-strip' },
       depthStencil: depthRead,
@@ -112,9 +113,9 @@ export async function ensureDevicePipelines(
       fragment: {
         module: cache.shaderModule('flux-segment-frag', shaders.fluxSegmentFragShader),
         entryPoint: 'main',
-        // No material G-buffer write — null keeps this compatible with the
+        // No material G-buffer write — a masked target keeps this compatible with the
         // scene pass's second color attachment (see roller/segEnhanced).
-        targets: [{ format: fmt, blend: ADDITIVE_SRC_ALPHA }, null]
+        targets: [{ format: fmt, blend: ADDITIVE_SRC_ALPHA }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'triangle-strip' },
       depthStencil: depthRead,
@@ -134,9 +135,9 @@ export async function ensureDevicePipelines(
       fragment: {
         module: cache.shaderModule('energy-arc-frag', shaders.energyArcFragShader),
         entryPoint: 'main',
-        // No material G-buffer write — null keeps this compatible with the
+        // No material G-buffer write — a masked target keeps this compatible with the
         // scene pass's second color attachment (see roller/segEnhanced).
-        targets: [{ format: fmt, blend: ALPHA_BLEND }, null]
+        targets: [{ format: fmt, blend: ALPHA_BLEND }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'line-list' },
       depthStencil: depthRead,
@@ -156,9 +157,9 @@ export async function ensureDevicePipelines(
       fragment: {
         module: cache.shaderModule('field-line-frag', shaders.fieldLineFragShader),
         entryPoint: 'main',
-        // No material G-buffer write — null keeps this compatible with the
+        // No material G-buffer write — a masked target keeps this compatible with the
         // scene pass's second color attachment (see roller/segEnhanced).
-        targets: [{ format: fmt, blend: ADDITIVE_SRC_ALPHA }, null]
+        targets: [{ format: fmt, blend: ADDITIVE_SRC_ALPHA }, MATERIAL_GBUFFER_NO_WRITE]
       },
       primitive: { topology: 'triangle-strip' },
       depthStencil: depthRead,
@@ -197,9 +198,9 @@ export async function ensureDevicePipelines(
         fragment: {
           module: cache.shaderModule('coil-frag', shaders.coilFragShader),
           entryPoint: 'main',
-          // Coils have no PBR metallic/roughness model — null keeps this
+          // Coils have no PBR metallic/roughness model — a masked target keeps this
           // compatible with the scene pass's second color attachment.
-          targets: [{ format: fmt, blend: ALPHA_BLEND }, null]
+          targets: [{ format: fmt, blend: ALPHA_BLEND }, MATERIAL_GBUFFER_NO_WRITE]
         },
         primitive: { topology: 'triangle-list' },
         depthStencil: depthWrite,

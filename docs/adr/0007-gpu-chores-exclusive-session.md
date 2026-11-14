@@ -20,10 +20,19 @@ The app already picks **one** session API at boot (`?renderer=webgpu|webgl2`).
 2. **gpu-chores** (`src/gpu-chores/`) is a meter backend, not a renderer:
    - WebGPU session → adopt `visualizer.device` (no `requestAdapter` /
      `requestDevice`).
-   - WebGL2 session → WASM (`chores_reduce_f32`) or JS goldens.
+   - WebGL2 session → WASM (`chores_reduce_f32_scratch`, via a HEAPF32 scratch) or JS goldens.
 3. Domain shaders (`field-advect-compute.wgsl`, `particle-compute.wgsl`,
    Kelvin/SEG plants) stay owned by their devices.
 4. Kill switch: `?gpuChores=0` (or `=js`) forces JS; `=wasm` skips GPU reduce.
+
+5. **One live device, not one adapter forever.** After `device.lost`,
+   `WebGPUManager.reinit()` requests a **fresh adapter** before
+   `requestDevice`: the WebGPU spec *consumes* an adapter on its first
+   successful `requestDevice`, so re-asking the old adapter always rejects
+   (`OperationError`). The lost device is dead, so this never makes a second
+   live device. A loss with `reason: 'destroyed'` comes from our own
+   teardown and is not recovered (`window.simulateDeviceLost()` flags a test
+   loss that is).
 
 ## Consequences
 

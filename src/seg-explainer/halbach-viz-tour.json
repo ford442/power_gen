@@ -1,0 +1,99 @@
+{
+  "tourVersion": 1,
+  "id": "halbach-viz-intro",
+  "title": "Halbach Array Tour",
+  "description": "Guided walkthrough of a rotating-magnetisation array: point-dipole superposition, the rotation step, why the field piles up on one side, and how it pairs with the Hall bench.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 7,
+      "view": "halbach-viz",
+      "cameraOffset": [0, 4, 12],
+      "cameraTargetY": 0.2,
+      "title": "Magnets arranged to push the field one way",
+      "body": "A row of identical magnets gives the same field on both faces. Rotate each magnet's orientation a fixed step from its neighbour and the field adds up on one side and thins out on the other. That is a Halbach array, and this bench lets you build one from 4 to 24 segments and see the field it makes.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "segments",
+      "durationSec": 9,
+      "view": "halbach-viz",
+      "cameraOffset": [0, 3.2, 6.5],
+      "cameraTargetY": 0.2,
+      "title": "Step 1 — segments are point dipoles",
+      "body": "The drive slider sets the segment count N (4 at the bottom, 24 at the top). Each segment is one point dipole, coloured by its orientation, and the field anywhere is the sum of every dipole's field. The λ in the readout is the spacing between segments, and the array is a ring by default; add ?halbachLinear=1 to the URL for a straight row.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "rotation",
+      "durationSec": 10,
+      "view": "halbach-viz",
+      "cameraOffset": [4.5, 2, 6],
+      "cameraTargetY": 0.2,
+      "title": "Step 2 — the rotation step",
+      "body": "The same slider also sweeps the magnetisation step between neighbours from 0.65× to 1.35× the ideal 360°/N. At half drive it is exactly the ideal step, and in the ring each magnet's orientation turns twice for every lap round the circle — the Halbach pattern. The θ readout is the step actually in use.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "halbach-rotation"
+    },
+    {
+      "id": "one-sided",
+      "durationSec": 11,
+      "view": "halbach-viz",
+      "cameraOffset": [0, 8, 2.5],
+      "cameraTargetY": 0,
+      "title": "Step 3 — one side strong, one side weak",
+      "body": "Look straight down on the |B| slice and the field lines. In this model the ring packs its field inside the bore, where it reads several times the value outside; the straight row puts roughly three to six times more field on one face than on the other. That asymmetry is the point of the pattern: the same magnet material, steered onto the side you want. Across the slider's whole sweep the asymmetry never disappears; the step changes how strong each side is, not whether there is a weak one.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "peak",
+      "durationSec": 9,
+      "view": "halbach-viz",
+      "cameraOffset": [-3, 2.4, 5.5],
+      "cameraTargetY": 0.2,
+      "title": "Step 4 — reading |B| and F honestly",
+      "body": "The |B| readout is the largest value found on a coarse grid of sample points near the array. Because each magnet is a point dipole, that maximum jumps when a sample point lands close to one — use it to compare settings, not as a surface-field specification. F is a force proxy: the gradient of m·B on a small test dipole held above the array.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "pairing",
+      "durationSec": 9,
+      "view": "halbach-viz",
+      "cameraOffset": [0, 4.5, 10],
+      "cameraTargetY": 0.2,
+      "title": "Step 5 — a field source for the Hall bench",
+      "body": "Switch on Lab field coupling (it is off by default) and this array's peak |B| becomes the Hall strip's field, clamped to that bench's range. The Hall voltage then follows the number you are reading here. It is one simulated estimate feeding another simulated plant — it teaches the dependence, but nothing in the chain is a measurement.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "field-coupling"
+    },
+    {
+      "id": "honesty",
+      "durationSec": 9,
+      "view": "halbach-viz",
+      "cameraOffset": [0, 5, 14],
+      "cameraTargetY": 0.2,
+      "title": "What this model is not",
+      "body": "A superposition of idealised point dipoles. There is no finite magnet size or shape, no demagnetisation, no permeable backing, no temperature and no manufacturing tolerance, and it has no C++ plant — the field is computed in JavaScript. It is a picture of the pattern, not a magnet design tool: do not read a build specification off it.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

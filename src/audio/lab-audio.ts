@@ -46,6 +46,7 @@ import {
   type SparkKind
 } from './lab-audio-mapping';
 import { telemetryHub } from '../telemetry-hub';
+import { labConfigFor } from '../config/lab-config';
 import type { TelemetrySnapshot } from '../telemetry/types';
 
 /** Seconds of white noise generated once and reused by every noise voice. */
@@ -67,11 +68,8 @@ type Voice = {
 };
 
 /** `?audio=1` (aliases on / true / yes). Silent unless explicitly asked for. */
-export function parseLabAudioEnabled(
-  params: URLSearchParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
-): boolean {
-  const raw = (params.get('audio') ?? '').toLowerCase();
-  return raw === '1' || raw === 'on' || raw === 'true' || raw === 'yes';
+export function parseLabAudioEnabled(params?: URLSearchParams): boolean {
+  return labConfigFor(params).config.audio;
 }
 
 export class LabAudio {
@@ -88,6 +86,8 @@ export class LabAudio {
   private segHum: Voice | null = null;
   private coilHum: Voice | null = null;
   private flow: Voice | null = null;
+  /** The video recorder's tap on the master output (`createRecordingTap`). */
+  private tap: MediaStreamAudioDestinationNode | null = null;
 
   private readonly contextFactory: () => AudioContext;
   private readonly startUnmuted: boolean;
@@ -248,8 +248,10 @@ export class LabAudio {
       // out the ramp, and abandon the suspend if the user unmutes (or the graph
       // is rebuilt) in the meantime.
       const context = ctx;
+      // A running recording keeps the context going (silently) so its audio
+      // track stays in step with the video; releasing the tap suspends.
       setTimeout(() => {
-        if (this.muted && this.ctx === context) void this.suspend();
+        if (this.muted && this.ctx === context && !this.tap) void this.suspend();
       }, BUS.rampS * 1000);
     } else {
       void this.resume();
@@ -281,6 +283,36 @@ export class LabAudio {
     if (!ctx || ctx.state !== 'suspended') return;
     if (typeof document !== 'undefined' && document.hidden) return;
     try { await ctx.resume(); } catch { /* needs another gesture */ }
+  }
+
+  // ── Recording tap ────────────────────────────────────────────────────────
+
+  /**
+   * A MediaStream of exactly what the speakers get, for the classroom video
+   * recorder (`src/classroom/recorder.ts`). The compressor fans out to a
+   * `MediaStreamAudioDestinationNode`; the speaker path is untouched.
+   *
+   * `null` when there is nothing to hear — audio not enabled (`?audio=1`), not
+   * started (no gesture yet) or muted — so the video gets *no* audio track
+   * rather than a silent one. One tap at a time (recordings are single-flight);
+   * a new tap replaces the old. End it with `releaseRecordingTap()`.
+   */
+  createRecordingTap(): MediaStream | null {
+    // No context means not enabled or not started yet.
+    if (this.muted || !this.ctx || !this.compressor) return null;
+    this.releaseRecordingTap();
+    this.tap = this.ctx.createMediaStreamDestination();
+    this.compressor.connect(this.tap);
+    return this.tap.stream;
+  }
+
+  releaseRecordingTap(): void {
+    const tap = this.tap;
+    if (!tap) return;
+    this.tap = null;
+    try { this.compressor?.disconnect(tap); } catch { /* graph already torn down */ }
+    for (const track of tap.stream.getTracks()) track.stop();
+    if (this.muted) void this.suspend();
   }
 
   // ── Telemetry ────────────────────────────────────────────────────────────
@@ -412,6 +444,7 @@ export class LabAudio {
   }
 
   destroy(): void {
+    this.releaseRecordingTap();
     this.unsubscribe?.();
     this.unsubscribe = null;
     for (const off of this.teardown) off();

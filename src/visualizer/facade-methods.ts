@@ -19,6 +19,8 @@ import {
 import type { DeviceInstance } from '../device-instance.js';
 import type { GltfPropRegistry } from './setup-gltf.js';
 import type { PostStack } from './scene-setup.js';
+import type { PostTargetKind } from './post-targets.js';
+import type { ResourceLifetime } from './frame-graph.js';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 
 type Host = MultiDeviceVisualizer;
@@ -46,7 +48,14 @@ export interface VisualizerFacadeMethods {
   setupIblPrefilter(): ReturnType<PostStack['setupIblPrefilter']>;
   refreshIblPrefilter(): void;
   _bakeIbl(): ReturnType<PostStack['_bakeIbl']>;
-  setupSsrTexture(): void;
+  _postTargetAllocated(kind: PostTargetKind): boolean;
+  _ensurePostTarget(kind: PostTargetKind): void;
+  _destroyPostTarget(kind: PostTargetKind): void;
+  _releasePostTarget(kind: PostTargetKind): void;
+  _destroyAllPostTargets(): void;
+  _postTargetLifetimes(): Record<PostTargetKind, ResourceLifetime>;
+  _setupPostPlaceholders(): void;
+  _rebindPostTargets(): void;
   setupSsrPipeline(): Promise<void>;
   setupDepthResolvePipeline(): Promise<void>;
   _waitForCanvasLayout(): Promise<void>;
@@ -62,8 +71,10 @@ export interface VisualizerFacadeMethods {
     globalUniformBuffer: GPUBuffer | null,
     segDevice: DeviceInstance | null | undefined
   ): void;
-  _encodeTaaResolve(encoder: GPUCommandEncoder, msaaActive: boolean): boolean;
-  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean): void;
+  _encodeTaaResolve(encoder: GPUCommandEncoder, msaaActive: boolean,
+    timestampWrites?: GPURenderPassTimestampWrites): boolean;
+  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean,
+    timestampWrites?: GPUComputePassTimestampWrites): boolean;
 
   setupMaterialTableBuffer(): void;
 
@@ -131,7 +142,14 @@ export const facadeMethods: ThisType<Host> & VisualizerFacadeMethods = {
   setupIblPrefilter() { return this.postStack.setupIblPrefilter(); },
   refreshIblPrefilter() { this.postStack.refreshIblPrefilter(); },
   _bakeIbl() { return this.postStack._bakeIbl(); },
-  setupSsrTexture() { this.postStack.setupSsrTexture(); },
+  _postTargetAllocated(kind) { return this.postStack.targets._postTargetAllocated(kind); },
+  _ensurePostTarget(kind) { this.postStack.targets._ensurePostTarget(kind); },
+  _destroyPostTarget(kind) { this.postStack.targets._destroyPostTarget(kind); },
+  _releasePostTarget(kind) { this.postStack.targets._releasePostTarget(kind); },
+  _destroyAllPostTargets() { this.postStack.targets._destroyAllPostTargets(); },
+  _postTargetLifetimes() { return this.postStack.targets._postTargetLifetimes(); },
+  _setupPostPlaceholders() { this.postStack.targets._setupPostPlaceholders(); },
+  _rebindPostTargets() { this.postStack.targets._rebindPostTargets(); },
   setupSsrPipeline() { return this.postStack.setupSsrPipeline(); },
   setupDepthResolvePipeline() { return this.postStack.setupDepthResolvePipeline(); },
   _waitForCanvasLayout() { return this.postStack._waitForCanvasLayout(); },
@@ -145,11 +163,11 @@ export const facadeMethods: ThisType<Host> & VisualizerFacadeMethods = {
   renderAnomalyWalls(renderPass, globalUniformBuffer, segDevice) {
     this.frameLoop.renderAnomalyWalls(renderPass, globalUniformBuffer, segDevice);
   },
-  _encodeTaaResolve(encoder, msaaActive) {
-    return this.frameLoop._encodeTaaResolve(encoder, msaaActive);
+  _encodeTaaResolve(encoder, msaaActive, timestampWrites) {
+    return this.frameLoop._encodeTaaResolve(encoder, msaaActive, timestampWrites);
   },
-  _dispatchSsr(encoder, msaaActive) {
-    this.frameLoop._dispatchSsr(encoder, msaaActive);
+  _dispatchSsr(encoder, msaaActive, timestampWrites) {
+    return this.frameLoop._dispatchSsr(encoder, msaaActive, timestampWrites);
   },
 
   setupMaterialTableBuffer() { this.materialTable.setupMaterialTableBuffer(); },

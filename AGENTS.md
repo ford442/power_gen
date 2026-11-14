@@ -18,8 +18,12 @@ No backend, database, or server-side service.
 - **Build (Pages):** `npm run build:site`. Prebuilt WASM: `src/public/wasm/`.
 - **Build (full):** `npm run build` (needs `emcc` or `EMSDK`).
 - **Validate:** `npm run validate` → codegen/catalog checks + typecheck + native
-  C++ + Node `test:*` suites (golden, plant-worker, coupling, transports, …) +
-  post/WGSL/bindings checks. Sanitizers: `npm run wasm:native:san`.
+  C++ + Node `test:*` suites (golden, snapshots, plant-worker, coupling,
+  transports, …) + post/WGSL/bindings checks. Sanitizers: `npm run wasm:native:san`.
+- **Plant snapshots:** `npm run test:snapshots` (native + shipped WASM + TS
+  save → load → step bit-identical; needs `npm run wasm:native` first).
+  Browser: `await window.lab.captureSnapshot()` / `window.lab.restoreSnapshot(s)`
+  — **`docs/SNAPSHOTS.md`**.
 - **E2E:** `npm run test:e2e` → Playwright + `?renderer=webgl2` (CI: `validate.yml`).
 - **Typecheck:** `npm run typecheck` (`src/**/*.ts` + `generated/**/*.ts`).
 
@@ -35,6 +39,9 @@ No backend, database, or server-side service.
 - Hooks: `window.getRendererInfo()`, `window.captureCanvasFrame({ flipY: true })`.
 - WebGL2 visual gaps: **`docs/WEBGL2.md`**. Telemetry: **`docs/TELEMETRY.md`**.
 - Offline WGSL: `npm run check:wgsl` (naga). See **`docs/SHADERS.md`**.
+- Embed: `?embed=1&embedOrigins=<origin>` (canvas + badge, postMessage
+  protocol); parent demo at `/embed-demo.html`; teacher console `?teacher=1`.
+  See **`docs/EMBED.md`**.
 - Query-param matrix: **`docs/AGENTS.md`**.
 
 ### C++ WASM physics path

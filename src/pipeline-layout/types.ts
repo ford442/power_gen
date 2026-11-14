@@ -20,6 +20,7 @@ export type BindGroupLayoutName =
   | 'anomalyWall'
   | 'bloomExtract'
   | 'bloomBlur'
+  | 'bloomMip'
   | 'bloomComposite'
   | 'ssr'
   | 'iblPrefilter'

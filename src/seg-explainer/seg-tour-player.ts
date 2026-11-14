@@ -1,13 +1,7 @@
-import tourScript from './seg-tour.json';
-import vdgTourScript from './vdg-tour.json';
-import lorentzTourScript from './lorentz-sled-tour.json';
-import jumpingRingTourScript from './jumping-ring-tour.json';
-import hallTourScript from './hall-tour.json';
-import transformerTourScript from './transformer-tour.json';
-import kelvinTourScript from './kelvin-tour.json';
 import { explainerState } from './explainer-state';
 import { glossaryForHighlight, SEG_GLOSSARY } from './seg-glossary';
 import { getMergedDeviceConfig } from '../devices/device-registry';
+import { onFrame } from '../frame-clock';
 
 interface TourCamera {
   position: number[];
@@ -37,9 +31,16 @@ interface TourStep {
   glossaryTerm?: string | null;
   startPlant?: boolean;
   layoutHint?: string;
+  /**
+   * Run an experiment live while this step shows (#224 §3): a shipped
+   * experiment id, or an inline snippet (`steps`, optional `config` / `id` /
+   * `title`; the mode defaults to the step's `view`). The tour holds the step
+   * until the run finishes, then prints its verdicts; leaving the step stops it.
+   */
+  run?: string | Record<string, unknown>;
 }
 
-interface TourScript {
+export interface TourScript {
   tourVersion?: number;
   id?: string;
   title?: string;
@@ -49,17 +50,33 @@ interface TourScript {
 
 type GetVisualizer = () => Window['multiVisualizer'];
 
+/** A script, or a loader for one (the registry's players load lazily). */
+export type TourSource = TourScript | (() => Promise<TourScript>);
+
+/**
+ * The start still waiting for its script chunk. A newer start (of any player)
+ * or a stop of that player replaces or clears it, so the latest start wins
+ * exactly as it does once the scripts are loaded.
+ */
+let pendingStart: { player: SEGTourPlayer } | null = null;
+
 /**
  * Guided SEG tour — camera keyframes, synced highlights, diagram + annotations.
  */
 export class SEGTourPlayer {
   getViz: GetVisualizer;
-  script: TourScript;
+  /** Null until a lazy script has loaded (see `ready()`). */
+  script: TourScript | null;
   stepIndex = 0;
   playing = false;
   private _stepStart = 0;
-  private _raf: number | null = null;
+  /** Frame-clock unsubscribe for the auto-advance check while playing. */
+  private _offFrame: (() => void) | null = null;
   private _onStepEnd: (() => void) | null = null;
+  /** The step's live experiment, while it runs. */
+  private _run: AbortController | null = null;
+  private readonly _load: (() => Promise<TourScript>) | null;
+  private _loading: Promise<this> | null = null;
 
   private _el!: HTMLDivElement;
   private _title!: HTMLDivElement;
@@ -70,10 +87,44 @@ export class SEGTourPlayer {
   private _btnNext!: HTMLButtonElement;
   private _btnExit!: HTMLButtonElement;
 
-  constructor(getVisualizer: GetVisualizer, script: TourScript = tourScript) {
+  constructor(getVisualizer: GetVisualizer, source: TourSource) {
     this.getViz = getVisualizer;
-    this.script = script;
+    this.script = typeof source === 'function' ? null : source;
+    this._load = typeof source === 'function' ? source : null;
     this._buildOverlay();
+  }
+
+  /** Resolves once the script is loaded; a failed chunk fetch is retried on the next call. */
+  ready(): Promise<this> {
+    if (this.script || !this._load) return Promise.resolve(this);
+    this._loading ??= this._load().then(
+      (script) => {
+        this.script = script;
+        return this;
+      },
+      (err: unknown) => {
+        this._loading = null;
+        throw err;
+      }
+    );
+    return this._loading;
+  }
+
+  /** First start: fetch the script, then `go` — unless a newer start or a stop came in meanwhile. */
+  private _whenLoaded(go: () => unknown): Promise<void> {
+    const token = { player: this as SEGTourPlayer };
+    pendingStart = token;
+    return this.ready().then(
+      () => {
+        if (pendingStart !== token) return;
+        pendingStart = null;
+        go();
+      },
+      (err: unknown) => {
+        if (pendingStart === token) pendingStart = null;
+        console.warn('[tour] script failed to load:', err);
+      }
+    );
   }
 
   private _buildOverlay(): void {
@@ -121,11 +172,12 @@ export class SEGTourPlayer {
   }
 
   get steps(): TourStep[] {
-    return this.script.steps || [];
+    return this.script?.steps || [];
   }
 
-  start(fromStep = 0): void {
-    this.goToStep(fromStep);
+  /** Resolves once the tour is playing (after the script chunk on a first start). */
+  start(fromStep = 0): Promise<void> {
+    return this.goToStep(fromStep);
   }
 
   /**
@@ -150,7 +202,9 @@ export class SEGTourPlayer {
   /**
    * Jump to a tour step by index (starts tour if not already playing).
    */
-  goToStep(stepIndex: number): void {
+  goToStep(stepIndex: number): Promise<void> {
+    if (!this.script) return this._whenLoaded(() => this.goToStep(stepIndex));
+    pendingStart = null;
     this._stopOtherTours();
     this.stepIndex = Math.max(0, Math.min(stepIndex, this.steps.length - 1));
     this.playing = true;
@@ -159,7 +213,10 @@ export class SEGTourPlayer {
     document.body.classList.add('seg-tour-active');
     this._enterStep(this.steps[this.stepIndex]);
     this._syncLabHash();
-    this._loop();
+    this._offFrame?.();
+    // Step durations are seconds; checking at 10 Hz is plenty (was every frame).
+    this._offFrame = onFrame(() => this._loop(), { hz: 10 });
+    return Promise.resolve();
   }
 
   /**
@@ -167,6 +224,10 @@ export class SEGTourPlayer {
    * Falls back to highlight + annotations when no step matches.
    */
   goToStepForHighlight(highlightId: string): void {
+    if (!this.script) {
+      void this._whenLoaded(() => this.goToStepForHighlight(highlightId));
+      return;
+    }
     const idx = this._findStepForHighlight(highlightId);
     if (idx >= 0) {
       this.goToStep(idx);
@@ -190,21 +251,23 @@ export class SEGTourPlayer {
       || explainerState.highlightId
       || this.steps[this.stepIndex]?.highlights?.[0]
       || null;
-    import('./lab-url').then((m) => {
-      const state = m.captureLabState();
-      if (hi) state.hi = hi;
-      if (this.playing) state.step = this.stepIndex;
-      if (this.playing) state.tour = true;
-      const hash = m.encodeLabHash(state);
-      history.replaceState(null, '', hash);
-    }).catch(() => {});
+    const playing = this.playing;
+    const step = this.stepIndex;
+    import('./lab-url').then((m) => m.syncTourShareHash({
+      highlight: hi ?? null,
+      tour: playing || null,
+      tourStep: playing ? step : null
+    })).catch(() => {});
   }
 
   stop(): void {
+    if (pendingStart?.player === this) pendingStart = null;
+    this._cancelRun();
     this.playing = false;
     explainerState.tourActive = false;
     explainerState.setHighlight(null);
-    if (this._raf) cancelAnimationFrame(this._raf);
+    this._offFrame?.();
+    this._offFrame = null;
     this._el.style.display = 'none';
     document.body.classList.remove('seg-tour-active');
     this._syncLabHash(null);
@@ -228,6 +291,7 @@ export class SEGTourPlayer {
 
   private _enterStep(step: TourStep | undefined): void {
     if (!step) return;
+    this._cancelRun();
     this._stepStart = performance.now();
     const v = this.getViz?.();
 
@@ -284,6 +348,32 @@ export class SEGTourPlayer {
 
     this._progress.textContent = `Step ${this.stepIndex + 1} / ${this.steps.length} · ${step.durationSec || 6}s`;
     this._syncLabHash();
+    if (step.run) this._startRun(step);
+  }
+
+  private _cancelRun(): void {
+    this._run?.abort();
+    this._run = null;
+  }
+
+  private _startRun(step: TourStep): void {
+    if (!step.run) return;
+    const ctrl = new AbortController();
+    this._run = ctrl;
+    const note = document.createElement('div');
+    note.className = 'seg-tour-run';
+    note.style.marginTop = '6px';
+    note.textContent = '🧪 Running the experiment on the live plant…';
+    this._body.append(note);
+    import('../experiments/tour-run')
+      .then((m) => m.runTourStep(step.run!, step, this.script?.id ?? 'tour', this.stepIndex, note, ctrl.signal))
+      .catch((err: unknown) => { note.textContent = `🧪 ${err instanceof Error ? err.message : String(err)}`; })
+      .finally(() => {
+        if (this._run !== ctrl) return;
+        this._run = null;
+        // The step's own duration counts from the result, so there is time to read it.
+        this._stepStart = performance.now();
+      });
   }
 
   private _loop(): void {
@@ -292,12 +382,9 @@ export class SEGTourPlayer {
     const elapsed = (performance.now() - this._stepStart) / 1000;
     const dur = step?.durationSec || 6;
 
-    if (elapsed >= dur && !explainerState.reducedMotion) {
+    if (elapsed >= dur && !this._run && !explainerState.reducedMotion) {
       this.next();
-      if (!this.playing) return;
     }
-
-    this._raf = requestAnimationFrame(() => this._loop());
   }
 }
 
@@ -338,14 +425,17 @@ export interface LabTourDefinition {
   mode: string | null;
   /** Explainer-panel button id. */
   buttonId: string;
+  /** Explainer-panel button text (the panel builds one button per row). */
+  label: string;
   /** Status line shown while playing. */
   status: string;
-  script: TourScript;
 }
 
 export type LabTourKey =
   | 'segTour' | 'vdgTour' | 'lorentzTour' | 'hallTour' | 'transformerTour' | 'kelvinTour'
-  | 'jumpingRingTour';
+  | 'jumpingRingTour' | 'dropTubeTour'
+  | 'heronTour' | 'pulseCoilTour' | 'homopolarTour' | 'halbachTour'
+  | 'peltierTour' | 'mhdTour' | 'maglevTour' | 'solarTour';
 
 export const LAB_TOURS: readonly LabTourDefinition[] = [
   {
@@ -354,8 +444,8 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToSEGStep',
     mode: null,
     buttonId: 'explainerTourBtn',
-    status: 'Tour playing — Space to pause sim',
-    script: tourScript
+    label: '▶ Guided Tour',
+    status: 'Tour playing — Space to pause sim'
   },
   {
     key: 'vdgTour',
@@ -363,8 +453,8 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToVdgStep',
     mode: 'vdg',
     buttonId: 'explainerVdgTourBtn',
-    status: 'Van de Graaff tour playing',
-    script: vdgTourScript
+    label: '▶ Van de Graaff Tour',
+    status: 'Van de Graaff tour playing'
   },
   {
     key: 'lorentzTour',
@@ -372,8 +462,8 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToLorentzStep',
     mode: 'lorentz-sled',
     buttonId: 'explainerLorentzTourBtn',
-    status: 'Lorentz sled tour playing',
-    script: lorentzTourScript
+    label: '▶ Lorentz Sled Tour',
+    status: 'Lorentz sled tour playing'
   },
   {
     key: 'jumpingRingTour',
@@ -381,8 +471,17 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToJumpingRingStep',
     mode: 'jumping-ring',
     buttonId: 'explainerJumpingRingTourBtn',
-    status: 'Jumping ring tour playing',
-    script: jumpingRingTourScript
+    label: '▶ Jumping Ring Tour',
+    status: 'Jumping ring tour playing'
+  },
+  {
+    key: 'dropTubeTour',
+    startFn: 'startDropTubeTour',
+    stepFn: 'goToDropTubeStep',
+    mode: 'drop-tube',
+    buttonId: 'explainerDropTubeTourBtn',
+    label: '▶ Lenz Drop Tube Tour',
+    status: 'Drop tube tour playing'
   },
   {
     key: 'hallTour',
@@ -390,8 +489,8 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToHallStep',
     mode: 'hall',
     buttonId: 'explainerHallTourBtn',
-    status: 'Hall-effect tour playing',
-    script: hallTourScript
+    label: '▶ Hall-Effect Tour',
+    status: 'Hall-effect tour playing'
   },
   {
     key: 'transformerTour',
@@ -399,8 +498,8 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToTransformerStep',
     mode: 'transformer',
     buttonId: 'explainerTransformerTourBtn',
-    status: 'Mutual-induction tour playing',
-    script: transformerTourScript
+    label: '▶ Mutual Induction Tour',
+    status: 'Mutual-induction tour playing'
   },
   {
     key: 'kelvinTour',
@@ -408,19 +507,105 @@ export const LAB_TOURS: readonly LabTourDefinition[] = [
     stepFn: 'goToKelvinStep',
     mode: 'kelvin',
     buttonId: 'explainerKelvinTourBtn',
-    status: 'Kelvin dropper tour playing',
-    script: kelvinTourScript
+    label: '▶ Kelvin Dropper Tour',
+    status: 'Kelvin dropper tour playing'
+  },
+  {
+    key: 'heronTour',
+    startFn: 'startHeronTour',
+    stepFn: 'goToHeronStep',
+    mode: 'heron',
+    buttonId: 'explainerHeronTourBtn',
+    label: '▶ Heron Fountain Tour',
+    status: 'Heron fountain tour playing'
+  },
+  {
+    key: 'pulseCoilTour',
+    startFn: 'startPulseCoilTour',
+    stepFn: 'goToPulseCoilStep',
+    mode: 'pulse-coil',
+    buttonId: 'explainerPulseCoilTourBtn',
+    label: '▶ Pulse Coil Tour',
+    status: 'Pulse coil tour playing'
+  },
+  {
+    key: 'homopolarTour',
+    startFn: 'startHomopolarTour',
+    stepFn: 'goToHomopolarStep',
+    mode: 'homopolar',
+    buttonId: 'explainerHomopolarTourBtn',
+    label: '▶ Homopolar Generator Tour',
+    status: 'Homopolar generator tour playing'
+  },
+  {
+    key: 'halbachTour',
+    startFn: 'startHalbachTour',
+    stepFn: 'goToHalbachStep',
+    mode: 'halbach-viz',
+    buttonId: 'explainerHalbachTourBtn',
+    label: '▶ Halbach Array Tour',
+    status: 'Halbach array tour playing'
+  },
+  {
+    key: 'peltierTour',
+    startFn: 'startPeltierTour',
+    stepFn: 'goToPeltierStep',
+    mode: 'peltier',
+    buttonId: 'explainerPeltierTourBtn',
+    label: '▶ Thermoelectric Tour',
+    status: 'Thermoelectric stack tour playing'
+  },
+  {
+    key: 'mhdTour',
+    startFn: 'startMhdTour',
+    stepFn: 'goToMhdStep',
+    mode: 'mhd',
+    buttonId: 'explainerMhdTourBtn',
+    label: '▶ MHD Channel Tour',
+    status: 'MHD channel tour playing'
+  },
+  {
+    key: 'maglevTour',
+    startFn: 'startMaglevTour',
+    stepFn: 'goToMaglevStep',
+    mode: 'maglev',
+    buttonId: 'explainerMaglevTourBtn',
+    label: '▶ Magnetic Levitation Tour',
+    status: 'Magnetic levitation tour playing'
+  },
+  {
+    key: 'solarTour',
+    startFn: 'startSolarTour',
+    stepFn: 'goToSolarStep',
+    mode: 'solar',
+    buttonId: 'explainerSolarTourBtn',
+    label: '▶ LED & Solar Loop Tour',
+    status: 'LED and solar loop tour playing'
   }
 ];
 
 type WindowWithTours = Record<string, unknown>;
+
+let scriptsChunk: Promise<Record<LabTourKey, TourScript>> | null = null;
+
+/** One registry script, from the shared lazy chunk (a failed fetch is retried). */
+export function loadTourScript(key: LabTourKey): Promise<TourScript> {
+  scriptsChunk ??= import('./tour-scripts').then(
+    (m) => m.TOUR_SCRIPTS,
+    (err: unknown) => {
+      scriptsChunk = null;
+      throw err;
+    }
+  );
+  return scriptsChunk.then((all) => all[key]);
+}
 
 /** Build one tour's player and publish its `window` hooks. */
 export function initLabTour(
   def: LabTourDefinition,
   getVisualizer: GetVisualizer = () => window.multiVisualizer
 ): SEGTourPlayer {
-  const player = new SEGTourPlayer(getVisualizer, def.script);
+  const player = new SEGTourPlayer(getVisualizer, () => loadTourScript(def.key));
   if (typeof window !== 'undefined') {
     const w = window as unknown as WindowWithTours;
     w[def.key] = player;
@@ -436,6 +621,13 @@ export function initLabTours(
 ): Record<LabTourKey, SEGTourPlayer> {
   const out = {} as Record<LabTourKey, SEGTourPlayer>;
   for (const def of LAB_TOURS) out[def.key] = initLabTour(def, getVisualizer);
+  // Warm the scripts chunk once the page is idle (a starved frame loop still
+  // gets it within 10 s), so a first start rarely waits on the fetch.
+  const warm = (): void => {
+    for (const player of Object.values(out)) void player.ready().catch(() => undefined);
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(warm, { timeout: 10_000 });
+  else setTimeout(warm, 2_000);
   return out;
 }
 

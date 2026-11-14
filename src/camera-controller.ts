@@ -1,3 +1,5 @@
+import type { FocusPicker, TouchInput } from './camera-touch';
+
 export interface CameraState {
   position: [number, number, number];
   target: [number, number, number];
@@ -13,6 +15,17 @@ export interface CameraState {
 
 export type ViewMode = 'seg' | 'heron' | 'kelvin' | 'solar';
 
+/** Radians of orbit per pointer pixel — mouse and finger drags share it. */
+export const ORBIT_RAD_PER_PX = 0.01;
+
+/** Keyboard shortcuts must not fire while the user is typing or using a control. */
+function isTypingTarget(t: EventTarget | null): boolean {
+  const el = t as HTMLElement | null;
+  if (!el || typeof el.tagName !== 'string') return false;
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
+    || el.isContentEditable;
+}
+
 export class CameraController {
   camera: CameraState;
   currentView: ViewMode | 'overview';
@@ -20,6 +33,8 @@ export class CameraController {
   lastMouseX: number;
   lastMouseY: number;
   mouseButtons: number;
+  /** Removes every listener `setupInteraction` added (re-setup or dispose). */
+  private _interactionAbort: AbortController | null = null;
 
   constructor() {
     this.camera = {
@@ -42,51 +57,108 @@ export class CameraController {
     this.mouseButtons = 0;
   }
 
-  setupInteraction(canvas: HTMLCanvasElement, onModeChange: (mode: ViewMode) => void): void {
-    canvas.addEventListener('mousedown', (e) => {
+  /**
+   * Pointer + keyboard input. Mouse is handled here (left-drag orbit, wheel
+   * zoom); touch and pen go to camera-touch.ts (orbit / pan / pinch /
+   * double-tap). `getFocus` lets double-tap focus a device — see that file.
+   */
+  setupInteraction(
+    canvas: HTMLCanvasElement,
+    onModeChange: (mode: string) => void,
+    getFocus?: () => FocusPicker | null | undefined
+  ): void {
+    // Re-setup (device-loss rebuild, renderer re-init) must not stack handlers.
+    this._interactionAbort?.abort();
+    this._interactionAbort = new AbortController();
+    const { signal } = this._interactionAbort;
+    // Touch drags orbit instead of scrolling the page (and cancelling the
+    // pointer). The stylesheet says the same for #gpuCanvas before boot.
+    canvas.style.touchAction = 'none';
+
+    // Touch and pen: a lazy chunk, so desktop boots never fetch it (touch
+    // devices prefetch it now). Events that arrive while it loads are queued
+    // and replayed in order, so the first gesture is not lost.
+    let touch: TouchInput | null = null;
+    let pending: PointerEvent[] | null = null;
+    const toTouch = (e: PointerEvent): void => {
+      if (touch) touch.handle(e);
+      else if (pending) pending.push(e);
+      else if (e.type === 'pointerdown') {
+        pending = [e];
+        import('./camera-touch')
+          .then((m) => {
+            if (signal.aborted) return;
+            touch = m.createTouchInput(this, canvas, onModeChange, getFocus);
+            for (const q of pending!) touch.handle(q);
+          })
+          .catch((err) => console.warn('[camera] touch input unavailable:', err))
+          .finally(() => { pending = null; });
+      }
+    };
+    if (navigator.maxTouchPoints > 0) import('./camera-touch').catch(() => { /* retried on first touch */ });
+
+    // Pointer Events + capture: a drag that leaves the canvas (or the window)
+    // keeps orbiting and always sees its pointerup, so it can't get stuck
+    // "down". Every pointer type is captured; non-mouse ones go to toTouch.
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+      if (e.pointerType !== 'mouse') return toTouch(e);
       this.mouseDown = true;
       this.lastMouseX = e.clientX;
       this.lastMouseY = e.clientY;
       this.mouseButtons = e.buttons;
-    });
+    }, { signal });
 
-    canvas.addEventListener('mouseup', () => {
+    const release = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') toTouch(e);
+      else {
+        this.mouseDown = false;
+        this.mouseButtons = 0;
+      }
+      if (canvas.hasPointerCapture?.(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    };
+    canvas.addEventListener('pointerup', release, { signal });
+    canvas.addEventListener('pointercancel', release, { signal });
+    canvas.addEventListener('lostpointercapture', (e) => {
+      if (e.pointerType !== 'mouse') return toTouch(e);
       this.mouseDown = false;
       this.mouseButtons = 0;
-    });
+    }, { signal });
 
-    canvas.addEventListener('mousemove', (e) => {
+    canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse') return toTouch(e);
       if (!this.mouseDown) return;
 
       const deltaX = e.clientX - this.lastMouseX;
       const deltaY = e.clientY - this.lastMouseY;
 
-      if (this.mouseButtons & 1) { // Left button - orbit
-        this.orbit(deltaX * 0.01, deltaY * 0.01);
+      if (this.mouseButtons & 1) { // Primary button - orbit
+        this.orbit(deltaX * ORBIT_RAD_PER_PX, deltaY * ORBIT_RAD_PER_PX);
       }
 
       this.lastMouseX = e.clientX;
       this.lastMouseY = e.clientY;
-    });
+    }, { signal });
 
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.zoom(e.deltaY * 0.001);
-    }, { passive: false });
+    }, { passive: false, signal });
 
-    // Mode switching with number keys
+    // Mode switching with number keys — not while typing in a field
     document.addEventListener('keydown', (e) => {
+      if (isTypingTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key >= '1' && e.key <= '4') {
         const modes: ViewMode[] = ['seg', 'heron', 'kelvin', 'solar'];
         const mode = modes[parseInt(e.key) - 1];
         onModeChange(mode);
       }
-    });
+    }, { signal });
 
     // Keyboard orbit / zoom (accessibility) — arrow keys, +/- when not typing
     document.addEventListener('keydown', (e) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (isTypingTarget(e.target)) return;
       const step = e.shiftKey ? 0.04 : 0.02;
       if (e.key === 'ArrowLeft') { this.orbit(step, 0); e.preventDefault(); }
       else if (e.key === 'ArrowRight') { this.orbit(-step, 0); e.preventDefault(); }
@@ -94,7 +166,13 @@ export class CameraController {
       else if (e.key === 'ArrowDown') { this.orbit(0, step); e.preventDefault(); }
       else if (e.key === '+' || e.key === '=') { this.zoom(-1); e.preventDefault(); }
       else if (e.key === '-' || e.key === '_') { this.zoom(1); e.preventDefault(); }
-    });
+    }, { signal });
+  }
+
+  /** Drop all input listeners. */
+  disposeInteraction(): void {
+    this._interactionAbort?.abort();
+    this._interactionAbort = null;
   }
 
   orbit(deltaPhi: number, deltaTheta: number): void {

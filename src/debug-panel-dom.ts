@@ -3,6 +3,7 @@
 // Methods here are merged onto DebugPanel.prototype via Object.assign in debug-panel.ts,
 // so `this` behaves exactly as it did when these were declared directly on the class.
 import type { DebugPanel } from './debug-panel';
+import { labConfig, persistLabConfig, reloadWithLabParam } from './config/lab-config';
 
 export const domMethods = {
   createPanel(this: DebugPanel): void {
@@ -186,10 +187,10 @@ export const domMethods = {
     this.correlationCtx = this.correlationCanvas.getContext('2d')!;
 
     // Event listeners
-    document.getElementById('closeDebug')?.addEventListener('click', () => this.hide());
+    document.getElementById('closeDebug')?.addEventListener('click', () => this.hide(), { signal: this._abort.signal });
     document.getElementById('autoQualityToggle')?.addEventListener('change', (e) => {
       this.profiler.autoQualityEnabled = (e.target as HTMLInputElement).checked;
-    });
+    }, { signal: this._abort.signal });
     document.getElementById('gpuTimingToggle')?.addEventListener('change', (e) => {
       const target = e.target as HTMLInputElement;
       if (target.checked && !this.profiler.device.features.has('timestamp-query')) {
@@ -198,33 +199,29 @@ export const domMethods = {
         return;
       }
       this.profiler.timingEnabled = target.checked;
-    });
-    document.getElementById('startBenchmark')?.addEventListener('click', () => this.startBenchmark());
-    document.getElementById('applyOptimal')?.addEventListener('click', () => this.applyOptimalSettings());
+    }, { signal: this._abort.signal });
+    document.getElementById('startBenchmark')?.addEventListener('click', () => this.startBenchmark(), { signal: this._abort.signal });
+    document.getElementById('applyOptimal')?.addEventListener('click', () => this.applyOptimalSettings(), { signal: this._abort.signal });
     this._wireWasmControls();
     this._wireEnergyNetworkControls();
     const frameSelect = document.getElementById('segFrameLevelSelect') as HTMLSelectElement | null;
     if (frameSelect) {
-      const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-      const initial = params.get('frame') || 'full';
-      if (['off', 'minimal', 'full'].includes(initial)) frameSelect.value = initial;
+      frameSelect.value = labConfig().frame;
       frameSelect.addEventListener('change', (e) => {
         if (typeof window.setSegFrameLevel === 'function') {
           window.setSegFrameLevel((e.target as HTMLSelectElement).value);
         }
-      });
+      }, { signal: this._abort.signal });
     }
 
     const lookSelect = document.getElementById('lightingLookSelect') as HTMLSelectElement | null;
     if (lookSelect) {
-      const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-      const initialLook = params.get('look') || params.get('lighting') || 'studio';
-      if (['studio', 'lab', 'drama'].includes(initialLook)) lookSelect.value = initialLook;
+      lookSelect.value = labConfig().look;
       lookSelect.addEventListener('change', (e) => {
         if (typeof window.setLightingLook === 'function') {
           window.setLightingLook((e.target as HTMLSelectElement).value);
         }
-      });
+      }, { signal: this._abort.signal });
     }
 
     const exposureSlider = document.getElementById('exposureSlider') as HTMLInputElement | null;
@@ -235,13 +232,13 @@ export const domMethods = {
       if (exposureSlider) v.postExposure = parseFloat(exposureSlider.value);
       if (bloomSlider) v.postBloomStrength = parseFloat(bloomSlider.value);
     };
-    exposureSlider?.addEventListener('input', applyPost);
-    bloomSlider?.addEventListener('input', applyPost);
+    exposureSlider?.addEventListener('input', applyPost, { signal: this._abort.signal });
+    bloomSlider?.addEventListener('input', applyPost, { signal: this._abort.signal });
 
     const annToggle = document.getElementById('segAnnotationsToggle') as HTMLInputElement | null;
     annToggle?.addEventListener('change', (e) => {
       window.segAnnotations?.setEnabled((e.target as HTMLInputElement).checked);
-    });
+    }, { signal: this._abort.signal });
 
     this.panel = container;
   },
@@ -276,7 +273,7 @@ export const domMethods = {
       if (!net) return;
       net.setCouplingEnabled?.((e.target as HTMLInputElement).checked);
       refresh();
-    });
+    }, { signal: this._abort.signal });
 
     this._refreshEnergyNetworkStatus = refresh;
     this._wireFieldNetworkControls();
@@ -311,7 +308,7 @@ export const domMethods = {
       if (typeof window.setFieldCoupling === 'function') window.setFieldCoupling(enabled);
       else getNetwork()?.setCouplingEnabled?.(enabled);
       refresh();
-    });
+    }, { signal: this._abort.signal });
 
     this._refreshFieldNetworkStatus = refresh;
     this._wireChargeNetworkControls();
@@ -346,7 +343,7 @@ export const domMethods = {
       if (typeof window.setChargeCoupling === 'function') window.setChargeCoupling(enabled);
       else getNetwork()?.setCouplingEnabled?.(enabled);
       refresh();
-    });
+    }, { signal: this._abort.signal });
 
     this._refreshChargeNetworkStatus = refresh;
   },
@@ -362,12 +359,15 @@ export const domMethods = {
       }
     };
     refreshChores();
-    setInterval(refreshChores, 2000);
+    // Only while the panel is open, and cleared on destroy() — this used to
+    // run every 2 s for the life of the page.
+    const choresTimer = setInterval(() => { if (this.visible) refreshChores(); }, 2000);
+    this._abort.signal.addEventListener('abort', () => clearInterval(choresTimer), { once: true });
 
     document.getElementById('replayScrubberBtn')?.addEventListener('click', async () => {
       const { showReplayBar } = await import('./telemetry/replay-ui');
       showReplayBar();
-    });
+    }, { signal: this._abort.signal });
 
     const statusEl = document.getElementById('wasmPhysicsStatus');
     const toggle = document.getElementById('wasmPhysicsToggle') as HTMLInputElement | null;
@@ -397,20 +397,16 @@ export const domMethods = {
       segWasm.setEnabled((e.target as HTMLInputElement).checked);
       // Reload so MultiDeviceVisualizer picks enabled flag at init paths cleanly
       if ((e.target as HTMLInputElement).checked) {
-        const u = new URL(location.href);
-        u.searchParams.set('wasmPhysics', '1');
-        location.href = u.toString();
+        reloadWithLabParam('wasmPhysics', true);
       } else {
-        const u = new URL(location.href);
-        u.searchParams.delete('wasmPhysics');
-        try { localStorage.setItem('useWasmPhysics', 'false'); } catch { /* */ }
-        location.href = u.toString();
+        persistLabConfig('wasmPhysics', false);
+        reloadWithLabParam('wasmPhysics', null);
       }
-    });
+    }, { signal: this._abort.signal });
 
     diffToggle?.addEventListener('change', (e) => {
       this.wasmDiffEnabled = (e.target as HTMLInputElement).checked;
-    });
+    }, { signal: this._abort.signal });
 
     benchBtn?.addEventListener('click', async () => {
       if (!benchOut) return;
@@ -428,7 +424,7 @@ export const domMethods = {
       } catch (err) {
         benchOut.textContent = 'Benchmark failed: ' + ((err as Error)?.message || err);
       }
-    });
+    }, { signal: this._abort.signal });
 
     this._wasmRefreshStatus = refreshStatus;
   },

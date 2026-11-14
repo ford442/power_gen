@@ -37,7 +37,7 @@ Do **not** expect these under WebGL2:
 
 | Gap | WebGPU location |
 |-----|-----------------|
-| Bloom / tonemap / previous-frame post | `setupBloomPipeline` |
+| Bloom / tonemap / previous-frame post; linear-HDR colour pipeline (`?color=`, `?renderScale=` are WebGPU-only — WebGL2 output is unchanged) | `setupBloomPipeline`, `webgpu-init/color-pipeline.ts` |
 | RK4 magnetic flux line tracer | `fluxTracer` compute + segment billboards |
 | Energy arc meshes between rollers | `energyArc` pipeline |
 | SEG enhanced PBR + UV materials | `segEnhanced` shaders |
@@ -162,6 +162,15 @@ Debug keys (WebGL2 only): `W` wireframe, `P` particle debug, `N` normals,
 `ctx.applyAnisotropy(target)` sets it on the bound texture — a no-op without
 the extension. The fallback has no glTF and no sampled textures today; this is
 for mipmapped procedural textures only.
+
+Depth textures are core in WebGL2, so `WEBGL_depth_texture` (a WebGL1
+extension that always returns null here) is not requested.
+
+**Context loss:** `webglcontextlost` calls `preventDefault()`, sets
+`ctx.contextLost`, and shows the same reload overlay as WebGPU device loss,
+titled "WebGL2 context lost". This path has no resource rebuild, so
+`webglcontextrestored` still asks for a reload. E2E: "WebGL2 context loss shows
+the reload overlay…" (uses `WEBGL_lose_context`).
 
 ## Architecture
 

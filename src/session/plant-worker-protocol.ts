@@ -92,7 +92,27 @@ export interface PlantWorkerStep {
   knobs: PlantKnobs;
 }
 
-export type PlantWorkerRequest = PlantWorkerInit | PlantWorkerStep;
+/**
+ * Plant snapshot (#224 §2): read the worker sim_core's `mode` state vector.
+ * Messages are handled in order, so this sees the plant after any batch
+ * posted before it.
+ */
+export interface PlantWorkerSaveState {
+  type: 'plantSave';
+  id: number;
+  mode: number;
+}
+
+/** Restore the worker sim_core's `mode` plant from a `plantSave` vector. */
+export interface PlantWorkerLoadState {
+  type: 'plantLoad';
+  id: number;
+  mode: number;
+  values: number[];
+  layoutHash: number;
+}
+
+export type PlantWorkerRequest = PlantWorkerInit | PlantWorkerStep | PlantWorkerSaveState | PlantWorkerLoadState;
 
 export interface PlantWorkerReady {
   type: 'ready';
@@ -119,6 +139,27 @@ export interface PlantWorkerError {
   seq: number;
   error: string;
 }
+
+/** Reply to `plantSave` — null when the worker has no C++ plant. */
+export interface PlantWorkerStateReply {
+  type: 'plantState';
+  id: number;
+  values: number[] | null;
+}
+
+/** Reply to `plantLoad` — false when sim_core refused the vector (or is absent). */
+export interface PlantWorkerLoadReply {
+  type: 'plantLoaded';
+  id: number;
+  ok: boolean;
+}
+
+/**
+ * Snapshot replies are kept out of `PlantWorkerResponse`: they have no `seq`,
+ * the host's step loop never sees them, and the snapshot chunk matches them
+ * by `id` on its own listener (`PlantWorkerHost.snapshotPort`).
+ */
+export type PlantWorkerCallReply = PlantWorkerStateReply | PlantWorkerLoadReply;
 
 export type PlantWorkerResponse = PlantWorkerReady | PlantWorkerResult | PlantWorkerError;
 

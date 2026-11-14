@@ -57,10 +57,8 @@ export class WebGL2MultiDeviceVisualizer {
     this.lastFrameTime = 0;
     this.fps = 60;
 
-    const params = new URLSearchParams(window.location.search);
-
-    this.segFrameLevel = parseSegFrameLevel(params);
-    this.lightingLook = parseLightingLook(params);
+    this.segFrameLevel = parseSegFrameLevel();
+    this.lightingLook = parseLightingLook();
     this.lightingPreset = getLightingPreset(this.lightingLook);
 
     this.segLayout = computeSEGLayout(this.session.segLayoutPreset, 1.0);
@@ -163,6 +161,7 @@ export class WebGL2MultiDeviceVisualizer {
         devicesEnabled: { ...this.devicesEnabled },
         wasmPhysics: !!(typeof window !== 'undefined' && window.segWasm?.enabled),
         plant: { ...this.session.plantStats },
+        energyBus: { ...this.session.energyNetwork.busStatus(), wasmPlantError: this.session.wasmPlantError },
         telemetry: snap?.seg
           ? {
               rpm: snap.seg.rpmDisplay,
@@ -217,7 +216,7 @@ export class WebGL2MultiDeviceVisualizer {
       this.energyPipeRenderer = new EnergyPipeRenderer(gl, { energyNetwork: this.energyNetwork });
       this.halbachFieldRenderer = new HalbachFieldRenderer(gl);
       this.cameraController = new MultiDeviceCamera(this.canvas, this.camera.camera, this);
-      this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode));
+      this.camera.setupInteraction(this.canvas, (mode) => this.switchMode(mode), () => this.cameraController);
 
       for (const [id, config] of Object.entries(getMergedDeviceConfig())) {
         this.devices[id] = new WebGL2DeviceState(id, config, this);

@@ -4,7 +4,7 @@
 
 import { explainerState } from './explainer-state';
 import { initLabTours, LAB_TOURS, type LabTourKey, SEGTourPlayer } from './seg-tour-player';
-import { shareLabLink, decodeLabHash, applyLabState } from './lab-url';
+import { bootLiveFields } from '../config/lab-config';
 import { SEG_GLOSSARY } from './seg-glossary';
 
 export interface ExplainerUIHandle {
@@ -16,7 +16,32 @@ export interface ExplainerUIHandle {
   applyLabFromHash: () => Promise<void>;
 }
 
+const TOUR_ROW_ID = 'explainerTourRow';
+
+/**
+ * One button per `LAB_TOURS` row, so a new tour script needs no markup edit.
+ * Buttons go in front of whatever the row already holds (the Lab Link button)
+ * and keep their registry ids. Idempotent.
+ */
+function renderTourButtons(): void {
+  const row = document.getElementById(TOUR_ROW_ID);
+  if (!row) return;
+  const buttons: HTMLButtonElement[] = [];
+  for (const def of LAB_TOURS) {
+    if (document.getElementById(def.buttonId)) continue;
+    const btn = document.createElement('button');
+    btn.className = 'ctrl-btn';
+    btn.id = def.buttonId;
+    btn.type = 'button';
+    btn.style.fontSize = '0.68rem';
+    btn.textContent = def.label;
+    buttons.push(btn);
+  }
+  row.prepend(...buttons);
+}
+
 export function initExplainerUI(): ExplainerUIHandle {
+  renderTourButtons();
   const tours = initLabTours();
   const tour = tours.segTour;
 
@@ -43,14 +68,20 @@ export function initExplainerUI(): ExplainerUIHandle {
       for (const other of LAB_TOURS) {
         if (tours[other.key].playing) tours[other.key].stop();
       }
-      if (!wasPlaying) player.start(0);
-      setStatus(player.playing ? def.status : 'Tour ended');
+      if (wasPlaying) {
+        setStatus('Tour ended');
+        return;
+      }
+      // A first start fetches the tour-scripts chunk before it plays.
+      void player.start(0).then(() => setStatus(player.playing ? def.status : 'Tour ended'));
     });
   }
 
   shareBtn?.addEventListener('click', () => {
-    const url = shareLabLink();
-    setStatus(`Lab link copied (${url.length} chars)`);
+    void import('../config/share-dialog')
+      .then((m) => m.openShareDialog())
+      .then(() => setStatus('Lab link copied'))
+      .catch((e: unknown) => setStatus(`Could not build a link: ${e instanceof Error ? e.message : String(e)}`));
   });
 
   classroomCb?.addEventListener('change', (e) => {
@@ -115,9 +146,11 @@ export function initExplainerUI(): ExplainerUIHandle {
   });
 
   return { tour, tours, vdgTour: tours.vdgTour, lorentzTour: tours.lorentzTour, applyLabFromHash: async () => {
-    const lab = decodeLabHash();
-    if (lab) {
-      await applyLabState(lab);
+    const fields = bootLiveFields();
+    if (Object.keys(fields).length) {
+      // The share-link applier is its own chunk; a plain boot never loads it.
+      const { applyLabConfig } = await import('./lab-url');
+      await applyLabConfig(fields);
       setStatus('Restored lab from URL');
     }
   } };

@@ -1,0 +1,86 @@
+{
+  "tourVersion": 1,
+  "id": "peltier-intro",
+  "title": "Thermoelectric Stack Tour",
+  "description": "Guided walkthrough of a two-node Seebeck/Peltier stack: where ΔT comes from, how it becomes volts, why drawing current cools the hot side, and what the COP readout does and does not mean.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 7,
+      "view": "peltier",
+      "cameraOffset": [0, 4, 15],
+      "cameraTargetY": 0,
+      "title": "Heat in, a little electricity out",
+      "body": "A heater warms the bottom plate of a thermoelectric stack; the top plate leaks heat to the room. The temperature difference between them drives a voltage across a load. Raise the drive slider and the heater power, the plate tints and the electrical readouts all climb together.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "nodes",
+      "durationSec": 9,
+      "view": "peltier",
+      "cameraOffset": [-3.5, 1.8, 8],
+      "cameraTargetY": 0,
+      "title": "Step 1 — two temperatures, nothing else",
+      "body": "The whole stack is two lumps: a hot plate (40 J/K) and a cold plate (60 J/K), joined by 0.5 W/K of conduction. Only the cold plate is tied to the 293 K room, through 1.6 W/K. Each plate has a single temperature — there is no gradient inside it. The heater adds up to 60 W to the hot plate, and the plates lag it because they have heat capacity; raise Time Dilation to watch them settle.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "thermal-two-node"
+    },
+    {
+      "id": "seebeck",
+      "durationSec": 9,
+      "view": "peltier",
+      "cameraOffset": [0, 1.2, 6.5],
+      "cameraTargetY": 0,
+      "title": "Step 2 — ΔT becomes volts",
+      "body": "127 junction pairs at 0.44 mV/K each give the stack S ≈ 0.056 V/K. The open-circuit voltage is S·ΔT, and with a 2.5 Ω load against the stack's own 2.5 Ω the current is I = S·ΔT / 5 Ω. At full drive the model settles near ΔT ≈ 80 K, I ≈ 0.9 A and about 2 W of electrical power.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "seebeck-coefficient"
+    },
+    {
+      "id": "peltier-heat",
+      "durationSec": 10,
+      "view": "peltier",
+      "cameraOffset": [4, 1.6, 7.5],
+      "cameraTargetY": 0,
+      "title": "Step 3 — current carries heat back",
+      "body": "Drawing current has a price. The Peltier term S·I·T pulls heat out of the hot plate and deposits it on the cold plate, and half the Joule heating I²R lands on each side. Both effects shrink ΔT, so the current the stack produces feeds back on the very temperature difference that drives it. The model keeps the Seebeck, Peltier and Joule terms and drops the Thomson term.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "cop",
+      "durationSec": 11,
+      "view": "peltier",
+      "cameraOffset": [0, 3, 10],
+      "cameraTargetY": 0,
+      "title": "Step 4 — what the COP readout means",
+      "body": "COP here is electrical power out divided by heater power in, held between 0 and 1: a generator efficiency, a few percent at best (about 3% at full drive). It is not the cooling COP of a Peltier cooler, which compares heat pumped to electricity put in — this bench never applies a supply voltage to pump heat, so it never runs that way. For scale, the Carnot limit at these plate temperatures is near 20%, and the stack sits far below it.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "honesty",
+      "durationSec": 9,
+      "view": "peltier",
+      "cameraOffset": [0, 5, 17],
+      "cameraTargetY": 0,
+      "title": "What this model is not",
+      "body": "A lumped two-node classroom model with constant material properties: the Seebeck coefficient, resistance and conductance do not change with temperature, there is no thermal contact resistance and no temperature gradient inside a plate. Plate temperatures are clamped to fixed limits. It is not a datasheet for any real module and not a cooler or heat-sink design tool.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

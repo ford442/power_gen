@@ -5,7 +5,7 @@
 namespace power_gen {
 
 struct PhysicalConstants {
-  static constexpr float MU_0       = 1.2566370614e-7f;
+  static constexpr float MU_0       = 0.0000012566370614f;
   static constexpr float EPSILON_0  = 8.854187817e-12f;
   static constexpr float G          = 9.80665f;
   static constexpr float PI         = 3.141592653589793f;

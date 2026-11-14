@@ -1,0 +1,99 @@
+{
+  "tourVersion": 1,
+  "id": "drop-tube-intro",
+  "title": "Lenz Drop Tube Tour",
+  "description": "Guided walkthrough of a magnet falling through a copper tube: the induced eddy currents, the drag they make, why it grows with speed, and the terminal velocity that falls out of it.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 8,
+      "view": "drop-tube",
+      "cameraOffset": [0, 5, 32],
+      "cameraTargetY": 1,
+      "title": "A magnet that will not fall",
+      "body": "Copper is not magnetic, yet a strong magnet dropped down a copper tube takes seconds to come out of the bottom. Nothing touches it. The jumping ring next door shows Lenz's law lifting a ring; this bench shows the same law as a brake.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "release",
+      "durationSec": 8,
+      "view": "drop-tube",
+      "cameraOffset": [7, 8, 20],
+      "cameraTargetY": 6,
+      "title": "Step 1 — the release",
+      "body": "The drive slider opens the clamp above the mouth (at zero it stays shut) and sets how high it lets go from: 8 to 30 cm. Above the tube the magnet is in free fall — watch v climb past 1 m/s before it reaches the copper.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "induced",
+      "durationSec": 9,
+      "view": "drop-tube",
+      "cameraOffset": [6, 2, 16],
+      "cameraTargetY": 0,
+      "title": "Step 2 — every slice of wall is a ring",
+      "body": "The tube is drawn as a stack of rings because that is how the physics works: as the magnet passes, the flux through each slice of wall changes, so each slice carries a current. Below the magnet the flux is growing and the current runs one way; above it the flux is shrinking and it runs the other. I_eddy is the loop just ahead — about 11 A in a copper tube.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "induced-current"
+    },
+    {
+      "id": "drag",
+      "durationSec": 9,
+      "view": "drop-tube",
+      "cameraOffset": [-6, 1, 16],
+      "cameraTargetY": 0,
+      "title": "Step 3 — the currents push back",
+      "body": "Both loops oppose the change that made them. The one ahead repels the magnet and the one behind pulls it back, so both brake. Twice the speed means twice the rate of flux change, twice the current and twice the drag: F_drag = k·v, with k fixed by the magnet, the wall and its conductivity.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "lenz-force"
+    },
+    {
+      "id": "terminal",
+      "durationSec": 10,
+      "view": "drop-tube",
+      "cameraOffset": [0, 3, 28],
+      "cameraTargetY": 0,
+      "title": "Step 4 — terminal velocity",
+      "body": "Drag that grows with speed has to catch the weight. The magnet slows until k·v = m·g, then falls steadily at v_t = m·g/k, about 0.17 m/s here. It gets there within a few centimetres of the mouth (τ = m/k ≈ 18 ms). Raise the drive: the magnet arrives faster but leaves at the same speed. Terminal velocity forgets where it started.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "terminal-velocity"
+    },
+    {
+      "id": "sigma",
+      "durationSec": 9,
+      "view": "drop-tube",
+      "cameraOffset": [8, 4, 24],
+      "cameraTargetY": 0,
+      "title": "Step 5 — change the tube",
+      "body": "k is proportional to the wall's conductivity σ, so v_t goes as 1/σ. Move the σ slider: aluminium (37.7 MS/m) falls about 1.6× faster than copper, and stainless (1.4) would need over 7 m/s — far more than a 60 cm tube can deliver, so it is nearly free fall. At zero (a plastic tube) there is no drag, no current and no terminal velocity at all; v_t reads “—”.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "eddy-drag"
+    },
+    {
+      "id": "honesty",
+      "durationSec": 9,
+      "view": "drop-tube",
+      "cameraOffset": [0, 6, 34],
+      "cameraTargetY": 0.5,
+      "title": "What this model is not",
+      "body": "A point dipole on the axis of a thin-walled tube: the textbook drag law and its closed-form end taper, nothing more. A real magnet has length, rattles off axis and sits in a wall that is not thin, so expect a real drop to differ by tens of percent. There is no field solver, no skin depth and no thermal state — at terminal velocity all of m·g·v heats the copper, and nothing here tracks it. Not a brake-design tool and not a maglev launcher.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

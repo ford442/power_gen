@@ -29,3 +29,6 @@ int run_golden();
 
 // standalone_bench.cpp
 int run_bench_smoke();
+
+// standalone_snapshots.cpp — plantSave/plantLoad round trip is bit-exact (#224 §2)
+int run_snapshots();

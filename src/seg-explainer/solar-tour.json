@@ -1,0 +1,86 @@
+{
+  "tourVersion": 1,
+  "id": "solar-intro",
+  "title": "LED and Solar Loop Tour",
+  "description": "Guided walkthrough of a battery lighting LEDs that shine on a solar panel feeding the same battery: the efficiency chain, why the state of charge only falls, and what the I–V sketch is and is not.",
+  "steps": [
+    {
+      "id": "welcome",
+      "durationSec": 7,
+      "view": "solar",
+      "cameraOffset": [0, 4, 10],
+      "cameraTargetY": 1.6,
+      "title": "Can a lamp recharge its own battery?",
+      "body": "A battery powers a ring of LEDs. Their light falls on a solar panel, and the panel charges the same battery. It is the cleanest way to ask what each step of an energy loop costs — and the bench answers by tracking one number, the battery's state of charge.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "leds",
+      "durationSec": 9,
+      "view": "solar",
+      "cameraOffset": [0, 5.5, 6.5],
+      "cameraTargetY": 3.3,
+      "title": "Step 1 — the LEDs set the power",
+      "body": "The drive slider sets LED power from 30% to 100% of full. That one number scales both the drain on the battery and the light reaching the panel, so a brighter ring costs more and also gives back more — but, as the next steps show, never enough.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "chain",
+      "durationSec": 11,
+      "view": "solar",
+      "cameraOffset": [3.5, 2.6, 6.5],
+      "cameraTargetY": 0.6,
+      "title": "Step 2 — what the panel gets back",
+      "body": "The battery is drained at 0.30 × LED power (the model uses the LED wall-plug figure as the drain rate). The panel returns only the fraction of light that actually lands on it (0.04 in this model) times its 45% optical-to-electrical efficiency, 0.04 × 0.45 = 0.018. Credit is about 6% of the debit, at every drive setting. Each stage in a loop multiplies by a number below one, so the product can only shrink.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": "soc"
+    },
+    {
+      "id": "soc",
+      "durationSec": 9,
+      "view": "solar",
+      "cameraOffset": [0, 3, 8.5],
+      "cameraTargetY": 1.2,
+      "title": "Step 3 — the state of charge only falls",
+      "body": "The state of charge starts at 50% and changes at (gain − drain) per unit of simulated time, clamped between 0 and 100%. With gain so far below drain the slope is always negative, so the gauge runs down within seconds of simulated time and then sits at zero. That is the sign a real light-to-solar loop has too: it cannot run itself.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "iv",
+      "durationSec": 10,
+      "view": "solar",
+      "cameraOffset": [-3, 3.5, 7],
+      "cameraTargetY": 0.8,
+      "title": "Step 4 — the I–V sketch",
+      "body": "The scientific panel (Ctrl+Shift+S) has a solar gauge that draws an I–V curve with a marked operating point. It is an illustrative single-diode-shaped sketch scaled to whatever operating point the gauge is handed, with a reference line for sunlight. The state-of-charge plant never reads it, and nothing on this bench changes a curve you could compare with a datasheet.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "honesty",
+      "durationSec": 9,
+      "view": "solar",
+      "cameraOffset": [0, 5, 13],
+      "cameraTargetY": 1.5,
+      "title": "What this model is not",
+      "body": "A scalar state of charge with fixed efficiency factors. There is no battery voltage curve in the plant, no panel temperature, irradiance spectrum, angle or shading, and no maximum-power-point tracking. The photons you see are a visual cue, not a ray trace. It teaches why a closed light loop loses energy — it is not a photovoltaic or battery design tool.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    }
+  ]
+}

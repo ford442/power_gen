@@ -70,17 +70,17 @@ export class SEGOperatorPanel {
   state: SEGOperatorState;
   onParticleCountChange: ((count: number) => void) | null;
   els!: PanelElements;
-  private _rafPending: boolean;
   private _lastTelemetry: TelemetrySnapshot['seg'];
   private _schematicVisible: boolean;
   private _unsubHub: (() => void) | null;
   private _readoutKeys = '';
   private _readoutCells: HTMLElement[] = [];
+  /** Every DOM listener this panel adds; `destroy()` aborts them all. */
+  private _abort = new AbortController();
 
   constructor(options: SEGOperatorPanelOptions = {}) {
     this.state = options.state || segOperator;
     this.onParticleCountChange = options.onParticleCountChange || null;
-    this._rafPending = false;
     this._lastTelemetry = null;
     this._schematicVisible = false;
     this._unsubHub = null;
@@ -157,7 +157,7 @@ export class SEGOperatorPanel {
         const v = parseInt((e.target as HTMLInputElement).value, 10);
         s.targetDrive = v / 100;
         if (this.els.driveVal) this.els.driveVal.textContent = `${v}%`;
-      });
+      }, { signal: this._abort.signal });
     }
 
     if (this.els.fieldControl) {
@@ -166,7 +166,7 @@ export class SEGOperatorPanel {
         const v = parseInt((e.target as HTMLInputElement).value, 10);
         s.magneticFieldStrength = v / 100;
         if (this.els.fieldVal) this.els.fieldVal.textContent = `${v}%`;
-      });
+      }, { signal: this._abort.signal });
     }
 
     if (this.els.loadControl) {
@@ -175,7 +175,7 @@ export class SEGOperatorPanel {
         const v = parseInt((e.target as HTMLInputElement).value, 10);
         s.loadResistance = v;
         if (this.els.loadVal) this.els.loadVal.textContent = String(v);
-      });
+      }, { signal: this._abort.signal });
     }
 
     this.els.startBtn?.addEventListener('click', () => {
@@ -186,48 +186,48 @@ export class SEGOperatorPanel {
         s.start();
       }
       this.updateStatusUi();
-    });
+    }, { signal: this._abort.signal });
 
     this.els.stopBtn?.addEventListener('click', () => {
       s.estop();
       this.updateStatusUi();
-    });
+    }, { signal: this._abort.signal });
 
     this.els.resetBtn?.addEventListener('click', () => {
       s.reset();
       this.updateStatusUi();
       this.refreshTelemetry(0);
-    });
+    }, { signal: this._abort.signal });
 
     this.els.schematicToggle?.addEventListener('change', (e) => {
       this._schematicVisible = (e.target as HTMLInputElement).checked;
       this.els.schematicOverlay?.classList.toggle('visible', this._schematicVisible);
       window.segDiagram2D?.setVisible?.(this._schematicVisible);
-    });
+    }, { signal: this._abort.signal });
 
     this.els.aboutToggle?.addEventListener('click', () => {
       this.els.aboutSection?.classList.toggle('expanded');
-    });
+    }, { signal: this._abort.signal });
 
     this.els.collapseLeft?.addEventListener('click', () => {
       this.els.main?.classList.toggle('left-collapsed');
       if (this.els.collapseLeft) {
         this.els.collapseLeft.textContent = this.els.main?.classList.contains('left-collapsed') ? '›' : '‹';
       }
-    });
+    }, { signal: this._abort.signal });
 
     this.els.collapseRight?.addEventListener('click', () => {
       this.els.main?.classList.toggle('right-collapsed');
       if (this.els.collapseRight) {
         this.els.collapseRight.textContent = this.els.main?.classList.contains('right-collapsed') ? '‹' : '›';
       }
-    });
+    }, { signal: this._abort.signal });
 
     this.els.particleSlider?.addEventListener('input', (e) => {
       const count = parseInt((e.target as HTMLInputElement).value, 10);
       if (this.els.particleVal) this.els.particleVal.textContent = count.toLocaleString();
       this.onParticleCountChange?.(count);
-    });
+    }, { signal: this._abort.signal });
   }
 
   private _wireKeyboard(): void {
@@ -250,7 +250,7 @@ export class SEGOperatorPanel {
         this.updateStatusUi();
         this.refreshTelemetry(0);
       }
-    });
+    }, { signal: this._abort.signal });
   }
 
   private _renderRpmGaugeSvg(): void {
@@ -346,24 +346,6 @@ export class SEGOperatorPanel {
     if (this.els.stopBtn) {
       this.els.stopBtn.classList.toggle('latched', s.status === OPERATOR_STATUS.ESTOP);
     }
-  }
-
-  /**
-   * Legacy per-frame hook. Prefer visualizers calling telemetryHub.publishFrame().
-   * If the hub was not updated this frame, publishes SEG-only telemetry so gauges move.
-   */
-  tick(deltaTime: number): void {
-    if (this._rafPending) return;
-    this._rafPending = true;
-    requestAnimationFrame(() => {
-      this._rafPending = false;
-      // Fallback publish when a renderer forgot to call the hub (keeps START→RPM working)
-      const snap = telemetryHub.getSnapshot();
-      const stale = !snap.seg || (performance.now() - (snap.timeMs || 0)) > 100;
-      if (stale) {
-        telemetryHub.publishFrame({ dt: deltaTime, view: snap.view || 'overview' });
-      }
-    });
   }
 
   /** Apply a TelemetryHub snapshot to the dashboard DOM (SEG primary gauges). */
@@ -537,6 +519,7 @@ export class SEGOperatorPanel {
       this._unsubHub();
       this._unsubHub = null;
     }
+    this._abort.abort();
   }
 
   private _updateRpmGauge(rpm: number): void {

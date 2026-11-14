@@ -7,7 +7,7 @@
 
 import { ValidatedConstants } from '../ValidatedConstants';
 
-export const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-7;
+export const MU0 = ValidatedConstants.MU_0?.value ?? 1.2566370614e-6;
 export const MAGNET_BR = ValidatedConstants.MAGNET_BR?.value ?? 1.48;
 
 export interface Vec3 {

@@ -1,7 +1,11 @@
+#include "common/color.wgsl"
+
 struct SkyParams {
         mode: f32,       // 0=drama/space, 1=studio, 2=lab
         energyGlow: f32,
-        _pad0: f32,
+        // 1 on the linear colour pipeline (#223): the backdrop colours below
+        // were picked as on-screen sRGB values, so decode them to linear light.
+        linear: f32,
         _pad1: f32,
       }
 
@@ -43,5 +47,8 @@ struct SkyParams {
         let energyGlow = exp(-lowDist * lowDist * 4.5) * (0.04 + sky.energyGlow * 0.12);
         color += vec3f(0.15, 0.45, 1.00) * energyGlow;
 
+        if (sky.linear > 0.5) {
+          color = srgbToLinear(color);
+        }
         return vec4f(color, 1.0);
       }

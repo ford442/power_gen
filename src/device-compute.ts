@@ -9,6 +9,7 @@ import type { DevicePhysicsState } from './renderers/shared/device-physics';
 import { VDG_V_BREAK } from './devices/quanta/van-de-graaff';
 import { HALL } from './devices/quanta/hall-effect';
 import { RING } from './devices/quanta/jumping-ring';
+import { dropTubeParticleUniforms } from './devices/quanta/drop-tube';
 
 interface ComputeGeometryHost {
   particles: GPUBuffer;
@@ -133,6 +134,8 @@ class DeviceComputeManager {
         p0 = Math.min(1, Math.abs(physicsState.ringCurrentA ?? 0) / RING.iRingMaxA);
         p1 = Math.min(1, (physicsState.ringHeightM ?? 0) / RING.poleHeightM);
         p2 = Math.min(1, (physicsState.ringCouplingK ?? 0) / RING.couplingK0);
+      } else if (physicsState.deviceId === 'drop-tube') {
+        [p0, p1, p2, p3] = dropTubeParticleUniforms(physicsState);
       }
     }
 
