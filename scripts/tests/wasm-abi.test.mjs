@@ -1,3 +1,4 @@
+/* global window -- the test installs window = globalThis before using it */
 /**
  * wasm-abi — call every Embind export of the *shipped* sim_core.
  *

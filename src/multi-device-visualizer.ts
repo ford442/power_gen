@@ -1,12 +1,12 @@
 import { MultiDeviceShaders } from './multi-device-shaders.js';
 import './devices/register-plugins';
-import { MultiDeviceCamera } from './multi-device-camera';
-import { SimRateController } from './sim-rate-controller';
+import { type MultiDeviceCamera } from './multi-device-camera';
+import { type SimRateController } from './sim-rate-controller';
 import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager';
 import { parseColorPipelineMode } from './webgpu-init/canvas';
-import { CameraController } from './camera-controller';
-import { PerformanceProfiler } from './performance-profiler';
-import { DebugPanel } from './debug-panel';
+import { type CameraController } from './camera-controller';
+import { type PerformanceProfiler } from './performance-profiler';
+import { type DebugPanel } from './debug-panel';
 import { DEVICE_CONFIG } from './devices/device-config';
 import { getMergedDeviceConfig } from './devices/device-registry.js';
 import { DeviceInstance } from './device-instance.js';
@@ -27,7 +27,7 @@ import {
   getLightingPreset,
 } from './seg-lighting-presets';
 import { writeQueueBuffer } from './gpu-buffer-write';
-import { HardwareBridge } from './hardware-bridge';
+import { type HardwareBridge } from './hardware-bridge';
 import { ElectromagnetController } from './electromagnet-controller';
 import { ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network';
 import type { EnergyNetwork } from './renderers/shared/energy-network';
@@ -56,7 +56,7 @@ import { WebGpuFrameLoop } from './visualizer/render-loop.js';
 import { MaterialTable } from './visualizer/materials.js';
 import { VisualizerDiagnostics } from './visualizer/diagnostics.js';
 import { GltfPropRegistry } from './visualizer/setup-gltf.js';
-import { LabSession, type PlantBatch } from './session/lab-session';
+import { type LabSession, type PlantBatch } from './session/lab-session';
 import type {
   VisualizerLike,
   MeshBuffers,

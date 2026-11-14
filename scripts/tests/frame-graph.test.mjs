@@ -1,3 +1,4 @@
+/* global GPUTextureUsage -- stubbed on globalThis below */
 /**
  * frame-graph — src/visualizer/frame-graph.ts and the WebGPU pass list in render-encode.ts.
  *

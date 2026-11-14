@@ -18,8 +18,8 @@ No backend, database, or server-side service.
 - **Build (Pages):** `npm run build:site`. Prebuilt WASM: `src/wasm/sim-core/` (ES module, emitted hashed under `assets/`).
 - **Build (full):** `npm run build` (needs `emcc` or `EMSDK`).
 - **Validate:** `npm run validate` (`scripts/validate.mjs`) → codegen, then
-  typecheck + lint + codegen/post/WGSL/bindings checks in parallel, native C++,
-  then every `scripts/tests/*.test.mjs` under `node:test` (golden, snapshots,
+  typecheck + lint + codegen/post/WGSL/bindings checks + native C++ in parallel,
+  then (once native is built) every `scripts/tests/*.test.mjs` under `node:test` (golden, snapshots,
   plant-worker, coupling, transports, …). Every step runs; a table at the end
   shows pass/fail and seconds. Sanitizers: `npm run wasm:native:san`.
 - **Plant snapshots:** `npm run test:snapshots` (native + shipped WASM + TS

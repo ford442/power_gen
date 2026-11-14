@@ -51,7 +51,7 @@ Browser loads src/index.html
 npm install
 npm run dev          # → http://localhost:5173/  (HTTPS is off; localhost is a secure context)
 npm run typecheck
-npm run validate     # staged + parallel: codegen → checks/typecheck/lint → native C++ → node:test suites; per-step table
+npm run validate     # parallel: codegen → checks/typecheck/lint ∥ native C++ → node:test suites; per-step table
 ```
 
 | Environment | URL |
@@ -556,8 +556,8 @@ npm run lint          # ESLint flat config (tools/lint/), typed rules on src/**/
 npm run test:unit     # node --test scripts/tests/*.test.mjs (one summary); test:coverage adds a report
 npm run check:wgsl    # extract includes → naga
 npm run check:post    # CPU↔WGSL post contracts
-npm run validate      # scripts/validate.mjs: codegen → [typecheck, lint, check:*] in parallel → wasm:native
-                      #   → [test:unit, check:entry-chunk]; runs every step, prints pass/fail + seconds per step
+npm run validate      # scripts/validate.mjs: codegen, then typecheck + lint + check:* + wasm:native in parallel,
+                      #   test:unit once native is built; runs every step, prints pass/fail + seconds per step
 npm run wasm:native   # g++ smoke test, no Emscripten
 npm run wasm:native:san  # sim_core_test under ASan + UBSan (skips if no sanitizer runtime)
 npm run test:plant-worker # LabSession ⇄ plant worker contract (Node worker_threads)

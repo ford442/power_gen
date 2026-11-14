@@ -40,11 +40,24 @@ this ADR.
   The by-hand firmware test is `scripts/tests/manual/` so the glob skips it.
 - `test:coverage` reports only (no gate yet).
 
-**`validate` is `scripts/validate.mjs`:** codegen (serial, it writes files) →
-checks in parallel (typecheck, lint, drift checks, file size, post / WGSL /
-bindings contracts) → `wasm:native` → `node --test` over every suite +
-`check:entry-chunk`. Every step runs; the table at the end has pass/fail and
-seconds per step. `validate.yml` still just calls `npm run validate`.
+**`validate` is `scripts/validate.mjs`:** codegen (serial, it writes files),
+then every read-only check (typecheck, lint, drift checks, file size, post /
+WGSL / bindings contracts) and `wasm:native` in parallel, then `node --test`
+over every suite once the native build is done (+ `check:entry-chunk`). Steps
+declare what they need instead of waiting on a whole stage, so the native
+build and the tests overlap lint, the slowest check. Every step runs; the
+table at the end has pass/fail and seconds per step. `validate.yml` still just
+calls `npm run validate`.
+
+Measured on a 4-core container (no naga, so `check:wgsl` skips in both):
+
+| | wall-clock |
+|---|---|
+| old `&&` chain (no lint, no checkJs) | 20.6 s |
+| `validate.mjs`, warm test-bundle cache (lint + checkJs included) | 13.8 s |
+| `validate.mjs`, cold cache (CI) | 14.0 s |
+
+Lint is ~10–13 s of that by itself, and it is the critical path.
 
 **ESLint: flat config, typed typescript-eslint, in `tools/lint/`.** The repo's
 `tsc` is TypeScript 7 (native Go, no JS API). typescript-eslint needs the TS

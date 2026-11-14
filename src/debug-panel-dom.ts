@@ -1,7 +1,7 @@
 // DOM construction + control wiring for the F3 debug overlay panel.
 // Extracted from debug-panel.ts (mechanical split to respect the 700-line cap).
 // Plain functions that take the panel; DebugPanel.createPanel() delegates here
-// (no prototype mixin — see scripts/check-mixin-shadowing.mjs).
+// (no prototype mixin — see ADR-0016; #244 was a WebGPU boot break from that pattern).
 import type { DebugPanel } from './debug-panel';
 import { labConfig, persistLabConfig, reloadWithLabParam } from './config/lab-config';
 

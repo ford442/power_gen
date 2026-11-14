@@ -4,7 +4,7 @@
  * Split out of hardware-bridge.ts (issues #142/#143/#187) to keep it under the
  * 700-line cap. Plain module functions that take the bridge; HardwareBridge
  * declares each one as a real class method that delegates here (no prototype
- * mixin — see scripts/check-mixin-shadowing.mjs for why). Calls back into the
+ * mixin — see ADR-0016 and #244, a WebGPU boot break from that pattern). Calls back into the
  * bridge (`bridge._writeLine`, `bridge.getSensorSnapshot`, …) go through those
  * class methods, so a test stubbing one on an instance still sees every call.
  */

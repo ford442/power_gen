@@ -3,7 +3,7 @@
 // module functions with an explicit `this: Host` parameter: the class's own
 // `init()` / `_bootGpuState()` / `recoverFromDeviceLoss()` methods delegate
 // here with `.call(this, …)` — no mixin is merged onto the instance or the
-// prototype (see scripts/check-mixin-shadowing.mjs).
+// prototype (see ADR-0016; #244 was a WebGPU boot break from that pattern).
 import { DEPTH_FORMAT, WebGPUManager } from '../webgpu-manager';
 import { PipelineLayoutCache } from '../pipeline-layout-cache';
 import { PerformanceProfiler } from '../performance-profiler';

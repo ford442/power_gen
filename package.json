@@ -80,7 +80,6 @@
     "wasm:native:san": "bash scripts/native-san.sh",
     "check:post": "node scripts/check-post-contracts.mjs",
     "check:file-size": "node scripts/check-file-size.mjs",
-    "check:mixin-shadowing": "node scripts/check-mixin-shadowing.mjs",
     "check:entry-chunk": "node scripts/check-entry-chunk.mjs"
   },
   "keywords": [

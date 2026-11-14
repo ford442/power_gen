@@ -1,3 +1,4 @@
+/* global window -- installed on globalThis by installBrowserStubs() below */
 /**
  * A headless live lab for Node tests: the real `LabSession`, every device
  * plant, the real window API (`src/bench-window-api.ts`) over a stub DOM, and

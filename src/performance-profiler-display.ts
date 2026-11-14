@@ -6,7 +6,7 @@ import type { PerformanceProfiler, FpsGraphPoint, ParticleFpsCorrelationPoint } 
  *
  * Plain functions that take the profiler; the PerformanceProfiler methods of
  * the same names delegate here (no prototype mixin — see
- * scripts/check-mixin-shadowing.mjs).
+ * ADR-0016; #244 was a WebGPU boot break from that pattern).
  */
 // Generate FPS graph data for canvas
 export function getFPSGraphData(profiler: PerformanceProfiler, width: number, height: number): FpsGraphPoint[] {

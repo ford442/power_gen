@@ -6,7 +6,7 @@ import type { PerformanceProfiler } from './performance-profiler';
  *
  * Plain functions that take the profiler; the PerformanceProfiler methods of
  * the same names delegate here (no prototype mixin — see
- * scripts/check-mixin-shadowing.mjs).
+ * ADR-0016; #244 was a WebGPU boot break from that pattern).
  */
 /** Timed passes per frame the query set has room for (two queries each). */
 export const GPU_TIMING_MAX_PASSES = 16;
