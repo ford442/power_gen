@@ -148,6 +148,30 @@ oscilloscope history, field-line geometry), camera, the energy-network edge
 allocation (rebuilt next frame), hardware-twin link state. `config` is
 recorded, not applied by `restoreSnapshot` — `.lab.json` applies it first.
 
+### Hardware twin: which ω wins
+
+In **closed-loop** twin mode the sensor RPM is written over the SEG plant's ω
+every frame (`LabSession.syncHardwareTwin`). A restore would lose to it at
+once: the last reading, taken *before* the restore, would overwrite the
+restored ω on the very next frame. The rule is **the snapshot at its epoch
+boundary, then the next sensor sample**: a restore that carries the operator
+calls `session.holdClosedLoopForSnapshot()`, which parks the override until
+the bridge reports a sample newer than the restore
+(`hardwareBridge.lastSensorUpdate`). The plant integrates on from the
+snapshot's ω until then; that next sample — the real rotor — wins again, as
+closed loop promises. The hardware panel keeps showing the last reading
+throughout; a disconnect drops the hold. Open and shadow modes are untouched
+(the sim drives the coils, so the snapshot's ω is what they command).
+
+With the plant worker on, the worker's C++ plant takes the snapshot's vector
+at the same boundary; it then integrates from its own ω while the override
+writes the display (the plant-worker gap in [`AGENTS.md`](./AGENTS.md)).
+`npm run test:twin-snapshot` checks the rule on the real `?mockHardware=1`
+transport (MockSerialTransport, its timer stopped and ticked by hand): closed
+loop follows the sensor, a restore holds the snapshot's ω over five frames
+with no new sample, the next sample takes over, open loop is unaffected, and a
+reconnect starts with no stale hold.
+
 ## Replay take-over
 
 Recording (**Record 10s**) also takes a snapshot keyframe every
@@ -176,8 +200,9 @@ Part of `npm run validate` and the `native-cpp` CI job.
    within the `test:golden` ε (rel 2e-4; the `transformerVp` zero-crossing
    override). Worst key today ~8e-5.
 
-`npm run test:plant-worker` covers the worker message pair; one Playwright
-test (`Plant snapshots (#224 §2)`) restores a steady operating point and checks
+`npm run test:plant-worker` covers the worker message pair;
+`npm run test:twin-snapshot` the closed-loop rule above; one Playwright test
+(`Plant snapshots (#224 §2)`) restores a steady operating point and checks
 telemetry is there at once.
 
 ## Adding a field

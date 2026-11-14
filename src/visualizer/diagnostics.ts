@@ -74,7 +74,7 @@ export const diagnosticsMethods: ThisType<Host> & {
 
   /**
    * Debug: read back first N GPU particles for WASM / CPU validation.
-   * Enable via ?debugParticles=1 or window.captureParticleSubset.
+   * Call it from the console as `window.captureParticleSubset` (no query flag).
    */
   async captureParticleSubset(deviceId: string = 'seg', maxCount: number = 64) {
     const dev = this.devices?.[deviceId] as DiagDevice | undefined;

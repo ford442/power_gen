@@ -21,6 +21,9 @@ The entry chunk only gains the run store and the button (~1.5 kB minified,
 lazy chunk, loaded by dynamic `import()` the first time the panel opens; the
 CSS is imported `?inline` and injected as one `<style>` so no CSS preload map
 lands in the entry. A failed chunk fetch is retried on the next open.
+`npm run check:entry-chunk` (in `validate`) builds the site and fails if uPlot,
+the panel, the spectrum chore or any other lazy lab feature shows up in the
+entry's static import closure (module membership from the build's source maps).
 
 ## Getting runs in
 

@@ -2483,19 +2483,24 @@ test.describe('Catalog setpoint sliders', () => {
 });
 
 test.describe('LabConfig share links v2 (#224 §1)', () => {
-  test('window.lab.loadConfig applies live fields and writes a #lab2= link that boots back', async ({ page }) => {
+  test('window.lab.loadConfig applies live fields and writes a #lab2= link that boots back in a fresh profile', async ({ page, browser }) => {
     // Two boots plus the lab-file / lab-url / share chunks; SwiftShader can starve module loads.
-    test.setTimeout(480_000);
+    test.setTimeout(600_000);
     const { pageErrors } = trackPageErrors(page);
     await gotoWebGL2(page);
     await waitForEval(page, () => !!window.multiVisualizer?.devices?.hall && !!window.lab, { timeout: 120_000 });
 
     const result = await page.evaluate(() => window.lab.loadConfig({
       format: 'seg-lab', version: 1, schema: 'old-schema',
-      config: { mode: 'hall', look: 'lab', fieldCoupling: true, seed: 4242, bogus: 1, renderer: 'webgpu' }
+      config: {
+        mode: 'hall', look: 'lab', fieldCoupling: true, chargeCoupling: true, seed: 4242,
+        layout: 'roschin', heronLayout: 'tower', setpoints: { lorentzField: 0.8 },
+        bogus: 1, renderer: 'webgpu'
+      }
     }));
     expect(result.reloading).toBe(false);
-    expect([...result.applied].sort()).toEqual(['fieldCoupling', 'look', 'mode', 'seed']);
+    expect([...result.applied].sort()).toEqual(
+      ['chargeCoupling', 'fieldCoupling', 'heronLayout', 'layout', 'look', 'mode', 'seed', 'setpoints']);
     expect(result.ignored).toEqual(expect.arrayContaining(['bogus', 'renderer']));
 
     const live = await page.evaluate(() => ({
@@ -2513,21 +2518,53 @@ test.describe('LabConfig share links v2 (#224 §1)', () => {
     expect(url).toMatch(/[?&]renderer=webgl2.*#lab2=[zj][A-Za-z0-9_-]+$/);
     expect(url.length).toBeLessThan(600);
 
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await waitForEval(page, () => window.currentRenderer === 'webgl2'
-      && window.multiVisualizer?.currentView === 'hall', { timeout: 120_000 });
-    const booted = await page.evaluate(() => ({
-      look: window.multiVisualizer.lightingLook,
-      lookSource: window.lab.sources().look,
-      field: window.multiVisualizer.fieldNetwork?.couplingEnabled,
-      seed: window.lab.config().seed,
-      seedSource: window.lab.sources().seed
-    }));
-    expect(booted.look).toBe('lab');
-    expect(booted.lookSource).toBe('hash');
-    expect(booted.field).toBe(true);
-    expect(booted.seed).toBe(4242);
-    expect(booted.seedSource).toBe('hash');
+    // A fresh profile — another tablet: no localStorage, no remembered prefs.
+    // Everything has to come from the link itself.
+    const tablet = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    try {
+      const fresh = await tablet.newPage();
+      const freshErrors = trackPageErrors(fresh).pageErrors;
+      await fresh.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await waitForEval(fresh, () => window.currentRenderer === 'webgl2'
+        && window.multiVisualizer?.currentView === 'hall' && !!window.lab
+        && !!window.multiVisualizer?.devices?.['lorentz-sled'], { timeout: 180_000 });
+      const booted = await fresh.evaluate(() => {
+        const v = window.multiVisualizer;
+        const sled = v.devices['lorentz-sled'];
+        const sources = window.lab.sources();
+        return {
+          view: v.currentView,
+          look: v.lightingLook,
+          field: v.fieldNetwork?.couplingEnabled,
+          charge: v.chargeNetwork?.couplingEnabled,
+          seed: window.lab.config().seed,
+          layout: v.getSEGLayoutPreset?.() ?? v.segLayoutPreset,
+          heron: v.heronLayoutPreset,
+          sledB: (sled.physicsState ?? sled.physics).lorentzFieldLocalT,
+          sources: {
+            mode: sources.mode, look: sources.look, fieldCoupling: sources.fieldCoupling,
+            chargeCoupling: sources.chargeCoupling, seed: sources.seed, layout: sources.layout,
+            heronLayout: sources.heronLayout, setpoints: sources.setpoints
+          }
+        };
+      });
+      expect(booted.view).toBe('hall');
+      expect(booted.look).toBe('lab');
+      expect(booted.field).toBe(true);
+      expect(booted.charge).toBe(true);
+      expect(booted.seed).toBe(4242);
+      expect(booted.layout).toBe('roschin');
+      expect(booted.heron).toBe('tower');
+      expect(booted.sledB).toBeCloseTo(0.8, 6);
+      // Every field came from the hash — none from a remembered preference.
+      expect(booted.sources).toEqual({
+        mode: 'hash', look: 'hash', fieldCoupling: 'hash', chargeCoupling: 'hash', seed: 'hash',
+        layout: 'hash', heronLayout: 'hash', setpoints: 'hash'
+      });
+      expect(freshErrors).toEqual([]);
+    } finally {
+      await tablet.close();
+    }
     expect(pageErrors).toEqual([]);
   });
 

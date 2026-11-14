@@ -98,7 +98,10 @@ npm run codegen:lab-config # config/lab-config.json → generated/lab-config.ts 
 npm run check:lab-config # drift + no raw location.search/hash/localStorage outside src/config/
 npm run test:lab-config  # parser, precedence, #lab=v1 mapping, #lab2= round-trip
 npm run test:experiments # reference experiments headless on wasm + js (docs/EXPERIMENTS.md)
+npm run test:experiments:live # same files on the live runner: headless LabSession, js + wasm, 60/20 fps, ≈ offline
 npm run test:snapshots   # plant snapshots: native + shipped WASM + TS save→load→step bit-identical, JS→C++ cross-load
+npm run test:twin-snapshot # closed-loop twin: snapshot ω wins at the restore, the next ?mockHardware=1 sample after
+npm run check:entry-chunk # vite build → entry closure has no uPlot / experiments / analysis panel / recorder / embed
 npm run test:embed      # embed postMessage validator, origin allowlist, hz clamp, classroom channel
 npm run test:frame-clock # UI frame clock: hz throttle, unsubscribe, LabSession.publishFrame tick
 npm run test:uniform-ring # per-draw uniform ring, key-light shadow fit, render-bundle replay

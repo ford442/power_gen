@@ -23,10 +23,12 @@ import { segOperator } from '../seg-operator-state';
 import type { LabExperimentClock, LabSession } from '../session/lab-session';
 import { telemetryHub } from '../telemetry-hub';
 import { segWasm } from '../wasm/seg-physics-bridge';
+import type { PlantSnapshot } from '../session/plant-snapshot';
+import { ExperimentBench } from './bench';
 import { ExperimentInterpreter, liveBatch } from './interpreter';
 import { knobSpec, type KnobTarget } from './knobs';
 import { readRecordKey, type PlantView } from './readers';
-import type { ValidatedExperiment } from './validate';
+import { benchConfigDefaults, type ValidatedExperiment } from './validate';
 
 export interface LiveRunOpts {
   onProgress?: (fraction: number) => void;
@@ -81,9 +83,10 @@ class LiveRun implements LabExperimentClock {
     private readonly epoch: number,
     private readonly opts: LiveRunOpts,
     private readonly resolve: (run: RecordedRun) => void,
-    private readonly reject: (err: Error) => void
+    private readonly reject: (err: Error) => void,
+    sweepPoint: Record<string, number> = {}
   ) {
-    this.interp = new ExperimentInterpreter(v);
+    this.interp = new ExperimentInterpreter(v, sweepPoint);
     const w = window as unknown as Record<string, unknown>;
     const target: KnobTarget = {
       devices: session.devices,
@@ -155,14 +158,36 @@ class LiveRun implements LabExperimentClock {
 }
 
 /**
- * Restore the experiment's snapshot (if any), apply its live config, START
- * the plant if it is idle, and run the steps on the session clock. Without a
- * snapshot a live run starts from the lab as it stands (an offline run starts
- * from a fresh bench), so set every knob the result depends on. Boot-only fields (`wasmPhysics`, …) cannot change mid-session:
- * they are reported in `warnings` and the run's `backend` says what actually
- * stepped.
+ * The state a live run starts from — the one an offline run starts from: the
+ * experiment's own `snapshot`, else a fresh bench of the devices it steps
+ * (`ExperimentBench`, the same constructor the offline runner uses). The SEG
+ * operator is the page's: it is only reset when SEG is the focus — any other
+ * run only borrows its drive knob, which the steps set.
  */
-export async function runLive(v: ValidatedExperiment, opts: LiveRunOpts = {}): Promise<{ run: RecordedRun; warnings: string[] }> {
+export function liveStartSnapshot(v: ValidatedExperiment, t: number): PlantSnapshot {
+  if (v.snapshot) return v.snapshot;
+  const snap = new ExperimentBench(v.focus, v.devices, v.config, null).capture(t, null);
+  if (v.focus !== 'seg') delete snap.operator;
+  return snap;
+}
+
+/**
+ * Restore the run's start state ({@link liveStartSnapshot}), apply the
+ * experiment's live config over the bench defaults (`benchConfigDefaults`),
+ * START the plant if it is idle, and run the steps on the session clock. So a
+ * live run starts where an offline run does — not from whatever an earlier
+ * run, a coupling toggle or the teacher left on the bench — and both judge
+ * the same claim on the same plant. The rest of the lab (other benches, the
+ * camera, the look) is left as it stands. Boot-only fields (`wasmPhysics`, …)
+ * cannot change mid-session: they are reported in `warnings` and the run's
+ * `backend` says what actually stepped. `sweepPoint` is one sweep run's knob
+ * values, written at t = 0 after the t = 0 sets (as offline).
+ */
+export async function runLive(
+  v: ValidatedExperiment,
+  opts: LiveRunOpts = {},
+  sweepPoint?: Record<string, number>
+): Promise<{ run: RecordedRun; warnings: string[] }> {
   const session = liveSession();
   if (!session) throw new Error('the lab has not booted yet');
   if (session.experimentClock) throw new Error('an experiment is already running');
@@ -171,11 +196,15 @@ export async function runLive(v: ValidatedExperiment, opts: LiveRunOpts = {}): P
   const warnings = bootOnlyMismatches(v).map(
     (k) => `${k} is chosen at boot — this run uses the page's ${JSON.stringify((labConfig() as unknown as Record<string, unknown>)[k])}; reload with the experiment's config to change it`
   );
-  const live = Object.fromEntries(Object.entries(v.config).filter(([k]) => !BOOT_ONLY.has(k)));
-  // A saved operating point first, so the experiment's config and steps act on it.
-  if (v.snapshot) {
-    const { restoreLabSnapshot } = await import('../session/lab-snapshot');
-    if (!(await restoreLabSnapshot(v.snapshot))) throw new Error('the lab could not restore the experiment\'s snapshot');
+  const live = {
+    ...benchConfigDefaults(v),
+    ...Object.fromEntries(Object.entries(v.config).filter(([k]) => !BOOT_ONLY.has(k)))
+  };
+  // The start state first, so the experiment's config and steps act on it.
+  const { restoreLabSnapshot } = await import('../session/lab-snapshot');
+  if (!(await restoreLabSnapshot(liveStartSnapshot(v, telemetryHub.getSimTimeS())))) {
+    if (v.snapshot) throw new Error('the lab could not restore the experiment\'s snapshot');
+    warnings.push(`the C++ ${v.focus} plant refused the fresh start state — it starts from its own state`);
   }
   const { applyLabConfig } = await import('../seg-explainer/lab-url');
   await applyLabConfig(live);
@@ -183,7 +212,7 @@ export async function runLive(v: ValidatedExperiment, opts: LiveRunOpts = {}): P
 
   if (!segOperator.isRunning) segOperator.start();
   const run = await new Promise<RecordedRun>((resolve, reject) => {
-    session.experimentClock = new LiveRun(session, v, segOperator.epoch, opts, resolve, reject);
+    session.experimentClock = new LiveRun(session, v, segOperator.epoch, opts, resolve, reject, sweepPoint);
   });
   return { run, warnings };
 }

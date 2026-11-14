@@ -4,6 +4,7 @@
  * The offline PWA half needs a production build — see e2e/offline.preview.js
  * (`npm run test:e2e:offline`).
  */
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { gotoWebGL2, trackPageErrors, waitForEval } from './helpers.js';
 
@@ -189,5 +190,45 @@ test.describe('classroom: recording', () => {
     expect(file.suggestedFilename()).toMatch(/^seg-lab-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d\.(webm|mp4)$/);
     await waitForEval(page, () => /Saved seg-lab-/.test(document.querySelector('#classroomRecord [role="status"]')?.textContent ?? ''),
       { timeout: 120_000 });
+  });
+
+  test('a 10 s recording carries the lab audio track when lab audio is already running', async ({ page }) => {
+    // Boot, a gesture round-trip, then 10 s of capture + encode on SwiftShader.
+    test.setTimeout(420_000);
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page, 'audio=1');
+    await waitForEval(page, () => !!window.labAudio
+      && document.querySelectorAll('#classroomRecord [data-rec-seconds]').length === 3, { timeout: 90_000 });
+    // A trusted gesture starts Web Audio (page.mouse, not page.click — see the ?audio=1 test).
+    const box = await page.evaluate(() => {
+      const r = document.getElementById('lab-audio-badge').getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    await page.mouse.click(box.x, box.y);
+    await waitForEval(page, () => window.labAudio.started === true && window.labAudio.muted === false, { timeout: 60_000 });
+
+    // The 10 s preset, left to run out on its own.
+    const download = page.waitForEvent('download', { timeout: 240_000 });
+    await page.evaluate(() => /** @type {HTMLButtonElement} */ (document.querySelector('[data-rec-seconds="10"]')).click());
+    const file = await download;
+    expect(file.suggestedFilename()).toMatch(/^seg-lab-[\dT-]+\.(webm|mp4)$/);
+    await waitForEval(page, () => /Saved seg-lab-/.test(document.querySelector('#classroomRecord [role="status"]')?.textContent ?? ''),
+      { timeout: 120_000 });
+    const status = await page.evaluate(() => document.querySelector('#classroomRecord [role="status"]')?.textContent ?? '');
+    expect(status, 'the Record control reports the audio track').toContain('with audio');
+
+    // The container itself declares an audio track next to the video one:
+    // WebM codec ids (Matroska CodecID) or MP4 sample entries.
+    const bytes = readFileSync(/** @type {string} */ (await file.path()));
+    const head = bytes.subarray(0, Math.min(bytes.length, 64 * 1024)).toString('latin1');
+    const webm = file.suggestedFilename().endsWith('.webm');
+    if (webm) {
+      expect(head, 'WebM video track').toMatch(/V_VP8|V_VP9|V_AV1/);
+      expect(head, 'WebM audio track').toMatch(/A_OPUS|A_VORBIS/);
+    } else {
+      expect(head, 'MP4 audio sample entry').toMatch(/mp4a|Opus/);
+    }
+    expect(bytes.length).toBeGreaterThan(10_000);
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
   });
 });

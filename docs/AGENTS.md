@@ -265,6 +265,15 @@ power_gen/
 
 **Frame loop (both backends):** `LabSession.stepPlant` → backend device visuals → `LabSession.publishFrame` → encode draw.
 
+**One plant clock.** `stepPlant` returns (and keeps as `session.plantBatch`) the
+frame's `simSteps` and operator `drive`. Every JS device plant steps over that
+batch — WebGL2 through `stepJsDevicePlant`, WebGPU's `device-update.ts`
+through `visualizer.plantBatch` — never over the frame's `deltaTime`, so the
+JS plants, the operator and the C++ plant follow the same pause, `[` `]`,
+speed slider and live-experiment batch cut. Particles and other visuals stay
+on frame time. `npm run test:experiments:live` drives a headless `LabSession`
+in this order and holds the live runs to the offline ones.
+
 ### Plant worker (off-frame plant step)
 
 `LabSession.stepPlant` no longer integrates on the animation-frame call stack
@@ -302,6 +311,9 @@ never calls `requestAdapter`).
   **closed-loop** twin mode the per-frame RPM override is applied after the
   post, so the worker integrates from its own ω and the override re-applies
   each frame (display unchanged; only the integration start point differs).
+  A restored plant snapshot wins at its epoch boundary and holds the override
+  until the next sensor sample ([`SNAPSHOTS.md`](./SNAPSHOTS.md#hardware-twin-which-ω-wins),
+  `npm run test:twin-snapshot`).
 - **No SharedArrayBuffer.** Requests are structured-cloned; the plant result is
   a transferred `Float32Array` (layout in `plant-worker-protocol.ts`, strides in
   [`PHYSICS_CONSTANTS.md`](./PHYSICS_CONSTANTS.md#particle-layouts)). Default
@@ -554,7 +566,7 @@ npm run wasm:build    # scripts/build-wasm.sh
 |----------|------|
 | `.github/workflows/static.yml` | typecheck + `build:site` → Pages |
 | `.github/workflows/validate.yml` | `npm run validate` in full (`REQUIRE_NAGA=1`; fails on a dirty tree after codegen), site build, ASan/UBSan native job, Playwright. New gates go in the `validate` script, never as a separate workflow step |
-| `.github/workflows/build-wasm.yml` | WASM rebuild when `cpp/`, `src/wasm/`, `generated/*.h`, `physics/` or the build/codegen scripts change; `test:wasm-abi`, `test:snapshots`, `test:analysis`, `test:experiments` on the **fresh** `.wasm` (+ `test:golden`, which is TS ⇄ native C++) |
+| `.github/workflows/build-wasm.yml` | WASM rebuild when `cpp/`, `src/wasm/`, `generated/*.h`, `physics/` or the build/codegen scripts change; `test:wasm-abi`, `test:snapshots`, `test:analysis`, `test:experiments`, `test:experiments:live` on the **fresh** `.wasm` (+ `test:golden`, which is TS ⇄ native C++) |
 
 ---
 

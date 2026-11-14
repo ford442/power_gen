@@ -81,8 +81,10 @@ async function describe(s: PanelState): Promise<void> {
   for (const line of lines) s.about.append(el('p', { textContent: line }, 'margin:4px 0;'));
   for (const w of v.warnings) s.about.append(el('p', { textContent: `⚠ ${w}` }, 'margin:4px 0;color:#ffd27a;'));
   s.runOffline.disabled = false;
-  s.runLive.disabled = v.sweepPoints.length > 0;
-  s.runLive.title = v.sweepPoints.length ? 'A sweep runs offline only' : 'Run on the lab you are looking at (pause / slow-mo apply)';
+  s.runLive.disabled = false;
+  s.runLive.title = v.sweepPoints.length
+    ? `Run the ${v.sweepPoints.length} sweep points one after another on the lab you are looking at, each from the same start (pause / slow-mo apply)`
+    : 'Run on the lab you are looking at (pause / slow-mo apply)';
 }
 
 function setBusy(s: PanelState, busy: boolean): void {

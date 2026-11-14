@@ -115,7 +115,7 @@ export function summarizeSweep(v: ValidatedExperiment, runs: readonly RecordedRu
     experimentId: v.def.id,
     title: `${v.def.title} — sweep (${runs.length} runs)`,
     startedAt: runs[0]?.startedAt ?? new Date().toISOString(),
-    runner: 'offline',
+    runner: runs[0]?.runner ?? 'offline',
     backend: backends.size === 1 ? [...backends][0] : 'mixed',
     hz: 0,
     columns,

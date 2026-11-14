@@ -212,6 +212,9 @@ export async function restoreLabSnapshot(input: unknown): Promise<boolean> {
     segOperator.epoch++;
     session.plantWorker?.cancel();
   }
+  // Closed-loop twin: the snapshot's ω wins at this epoch boundary; the next
+  // sensor sample (not the last pre-restore one) takes over again.
+  if (snap.operator) session.holdClosedLoopForSnapshot();
   session.publishModeTelemetry();
   return ok;
 }

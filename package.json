@@ -48,6 +48,7 @@
     "test:golden": "node scripts/test-js-wasm-golden.mjs",
     "test:wasm-abi": "node scripts/test-wasm-abi.mjs",
     "test:snapshots": "node scripts/test-snapshots.mjs",
+    "test:twin-snapshot": "node scripts/test-twin-snapshot.mjs",
     "test:plant-worker": "node scripts/test-plant-worker.mjs",
     "test:coupling": "node scripts/test-lab-coupling.mjs",
     "test:pulse-coil": "node scripts/test-pulse-coil.mjs",
@@ -57,6 +58,7 @@
     "test:lab-config": "node scripts/test-lab-config.mjs",
     "test:analysis": "node scripts/test-analysis.mjs",
     "test:experiments": "node scripts/test-experiments.mjs",
+    "test:experiments:live": "node scripts/test-experiments-live.mjs",
     "test:camera-gestures": "node scripts/test-camera-gestures.mjs",
     "test:classroom": "node scripts/test-classroom.mjs",
     "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",
@@ -64,7 +66,7 @@
     "test:frame-clock": "node scripts/test-frame-clock.mjs",
     "test:frame-graph": "node scripts/test-frame-graph.mjs",
     "test:uniform-ring": "node scripts/test-uniform-ring.mjs",
-    "validate": "npm run check:file-size && npm run codegen:constants && npm run check:constants && npm run codegen:catalog && npm run check:catalog && npm run codegen:lab-config && npm run check:lab-config && npm run typecheck && npm run check:mixin-shadowing && npm run wasm:native && npm run test:chores && npm run test:device-mixins && npm run test:fdtd && npm run test:transports && npm run test:audio && npm run test:props && npm run test:golden && npm run test:wasm-abi && npm run test:snapshots && npm run test:plant-worker && npm run test:coupling && npm run test:pulse-coil && npm run test:drop-tube && npm run test:lab-mode && npm run test:lab-url && npm run test:lab-config && npm run test:embed && npm run test:frame-clock && npm run test:frame-graph && npm run test:uniform-ring && npm run test:camera-gestures && npm run test:classroom && npm run check:post && npm run check:wgsl && npm run check:bindings && npm run test:analysis && npm run test:experiments",
+    "validate": "npm run check:file-size && npm run codegen:constants && npm run check:constants && npm run codegen:catalog && npm run check:catalog && npm run codegen:lab-config && npm run check:lab-config && npm run typecheck && npm run check:mixin-shadowing && npm run wasm:native && npm run test:chores && npm run test:device-mixins && npm run test:fdtd && npm run test:transports && npm run test:audio && npm run test:props && npm run test:golden && npm run test:wasm-abi && npm run test:snapshots && npm run test:twin-snapshot && npm run test:plant-worker && npm run test:coupling && npm run test:pulse-coil && npm run test:drop-tube && npm run test:lab-mode && npm run test:lab-url && npm run test:lab-config && npm run test:embed && npm run test:frame-clock && npm run test:frame-graph && npm run test:uniform-ring && npm run test:camera-gestures && npm run test:classroom && npm run check:post && npm run check:wgsl && npm run check:bindings && npm run check:entry-chunk && npm run test:analysis && npm run test:experiments && npm run test:experiments:live",
     "deploy": "npm run build:site && python deploy.py",
     "wasm:build": "bash scripts/build-wasm.sh",
     "wasm:build-debug": "bash scripts/build-wasm.sh --debug",
@@ -72,7 +74,8 @@
     "wasm:native:san": "bash scripts/native-san.sh",
     "check:post": "node scripts/check-post-contracts.mjs",
     "check:file-size": "node scripts/check-file-size.mjs",
-    "check:mixin-shadowing": "node scripts/check-mixin-shadowing.mjs"
+    "check:mixin-shadowing": "node scripts/check-mixin-shadowing.mjs",
+    "check:entry-chunk": "node scripts/check-entry-chunk.mjs"
   },
   "keywords": [
     "webgpu",

@@ -106,11 +106,12 @@ jobs:
       # Every suite that loads src/wasm/sim-core/sim_core.{js,wasm}. (test:golden
       # compares the TS plant against the *native* binary built in step 4, so
       # it runs too, but it does not exercise the .wasm.)
-      - name: Fresh-build WASM suites (snapshots, analysis, experiments) + golden
+      - name: Fresh-build WASM suites (snapshots, analysis, experiments offline + live) + golden
         run: |
           npm run test:snapshots
           npm run test:analysis
           npm run test:experiments
+          npm run test:experiments:live
           npm run test:golden
 
       # ── 6b. Size / bench note ─────────────────────────────────

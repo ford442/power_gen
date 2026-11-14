@@ -22,7 +22,7 @@ import { dropTubeMeshFromState } from '../../devices/quanta/drop-tube';
 import { buildPeltierMesh } from '../../devices/core/peltier-mesh';
 import { buildMhdMesh } from '../../devices/core/mhd-mesh';
 import { stepParticles } from '../shared/particle-physics';
-import { stepDevicePhysics, deviceModeIndex } from '../shared/device-physics';
+import { deviceModeIndex } from '../shared/device-physics';
 import { shouldSimulateDevice } from '../shared/device-view';
 import {
   getOverviewCullOpts,
@@ -34,7 +34,7 @@ import {
 import { resolveScaledParticleCount } from '../../devices/particle-budgets';
 import { segLayoutRingsForDraw } from '../shared/url-params';
 import { segOperator } from '../../seg-operator-state';
-import { wasmOwnsJsDevicePhysics } from '../../session/apply-wasm-plant';
+import { stepJsDevicePlant } from '../../session/apply-wasm-plant';
 
 /** Build flat [x,z,...] roller positions from SEG layout + spin. */
 function layoutRollerPositions(layout, time, speedMult, segOmega) {
@@ -93,16 +93,12 @@ export const renderMethods = {
         device.physics.magneticFieldStrength = segOperator.magneticFieldStrength;
         device.physics.energyLevel = segOperator.physics.segOmega;
       } else {
-        const wasmOwnsFocus = wasmOwnsJsDevicePhysics(
-          device.id, focus, useWasm, device.physics
-        );
-        if (!wasmOwnsFocus && !replayLocked) {
-          for (let s = 0; s < substeps; s++) {
-            const heronLayout = device.id === 'heron' ? this.heronLayout : null;
-            stepDevicePhysics(device.physics, subDt, drive, { heronLayout });
-          }
-        }
-        if (device.physics._wasmPlantActive) device.physics._wasmPlantActive = false;
+        // The session's substeps, not the wall-clock frame: the JS plant
+        // follows speed, pause and a live experiment's cut batch exactly like
+        // the operator and the C++ plant (particles below stay on frame time —
+        // they are visuals).
+        const heronLayout = device.id === 'heron' ? this.heronLayout : null;
+        stepJsDevicePlant(device.id, device.physics, focus, { simSteps, drive, useWasm, replayLocked }, { heronLayout });
       }
 
       for (let s = 0; s < substeps; s++) {
