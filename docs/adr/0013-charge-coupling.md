@@ -44,7 +44,7 @@ coupling* checkbox in the operator and debug panels.
 2. **A third sibling flag.** Not folded into `energyCoupling` or
    `fieldCoupling`, and none of the three implies another —
    `?chargeCoupling=1&fieldCoupling=1&energyCoupling=1` turns on exactly three
-   buses, `?fieldCoupling=1` turns on one. `scripts/test-lab-coupling.mjs` and
+   buses, `?fieldCoupling=1` turns on one. `scripts/tests/coupling.test.mjs` and
    the e2e suite both check the flags are independent.
 3. **One edge, one direction: `vdg → kelvin`.**
 

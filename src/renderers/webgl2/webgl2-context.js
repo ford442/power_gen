@@ -9,10 +9,13 @@ import { labConfig } from '../../config/lab-config';
 export const MAX_ANISOTROPY_CAP = 8;
 
 export class WebGL2Context {
+  /** @param {HTMLCanvasElement} canvas */
   constructor(canvas) {
     this.canvas = canvas;
     this.gl = null;
     this.extensions = {};
+    /** Clamped EXT_texture_filter_anisotropic max; 0 until init() / when missing. */
+    this.maxAnisotropy = 0;
     /** True between webglcontextlost and a reload; GL calls are no-ops meanwhile. */
     this.contextLost = false;
   }
@@ -93,11 +96,14 @@ export class WebGL2Context {
    * Set TEXTURE_MAX_ANISOTROPY on the texture currently bound to `target`
    * (mipmapped procedural textures only — the fallback has no glTF). Capped at
    * {@link MAX_ANISOTROPY_CAP}; no-op when EXT_texture_filter_anisotropic is missing.
+   * @param {number} [target] texture target (default gl.TEXTURE_2D)
+   * @param {number} [level]
    */
-  applyAnisotropy(target = this.gl?.TEXTURE_2D, level = this.maxAnisotropy) {
+  applyAnisotropy(target, level = this.maxAnisotropy) {
+    const gl = this.gl;
     const ext = this.extensions.anisotropic;
-    if (!ext || !this.gl || this.maxAnisotropy <= 0) return;
-    this.gl.texParameterf(target, ext.TEXTURE_MAX_ANISOTROPY_EXT, Math.max(1, Math.min(level, this.maxAnisotropy)));
+    if (!ext || !gl || this.maxAnisotropy <= 0) return;
+    gl.texParameterf(target ?? gl.TEXTURE_2D, ext.TEXTURE_MAX_ANISOTROPY_EXT, Math.max(1, Math.min(level, this.maxAnisotropy)));
   }
 
   resize() {

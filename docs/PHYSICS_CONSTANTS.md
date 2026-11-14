@@ -71,7 +71,7 @@ honest. `cpp/build/sim_core_test --mode golden` replays every **dual**
 device — catalog `wasmMode` set *and* a TS fallback plant: peltier, mhd,
 maglev, homopolar, transformer, vdg, hall, lorentz-sled, jumping-ring —
 from a fixed seed, printing the schedule it used (drive / frames / dt) and
-its catalog `telemetryKeys`. `scripts/test-js-wasm-golden.mjs` steps the TS
+its catalog `telemetryKeys`. `scripts/tests/golden.test.mjs` steps the TS
 fallback over exactly that schedule and diffs every key.
 
 The native run is authoritative for the schedule, including dt: it emits
@@ -105,7 +105,7 @@ without a golden.
    `scripts/codegen-physics-constants.mjs` into both TS and C++.
 2. Write the TS fallback as a port of the C++ plant, not a second model.
 3. Add a `GOLDEN_CASES` row and the matching `PLANTS` entry in
-   `scripts/test-js-wasm-golden.mjs`.
+   `scripts/tests/golden.test.mjs`.
 4. `npm run validate`.
 
 Device **identity** (shader vs WASM mode numbers) is a separate catalog:

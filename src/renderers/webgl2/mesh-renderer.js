@@ -55,7 +55,7 @@ export class MeshRenderer {
     this.lighting = null;
   }
 
-  /** @param {import('../../seg-lighting-presets').ReturnType<typeof import('../../seg-lighting-presets').getLightingPreset>} preset */
+  /** @param {ReturnType<typeof import('../../seg-lighting-presets').getLightingPreset>} preset */
   setLightingPreset(preset) {
     if (!preset) return;
     const k = preset.lighting.key;
@@ -435,7 +435,7 @@ export class MeshRenderer {
    * @param {Float32Array} viewProj
    * @param {number[]} devicePos
    * @param {number[][]} instances  packed cylinder instances (12 floats each)
-   * @param {object} [opts]
+   * @param {{ cameraPos?: number[], wireframe?: boolean, debugMode?: number }} [opts]
    */
   drawPluginDevice(viewProj, devicePos, instances, opts = {}) {
     const gl = this.gl;

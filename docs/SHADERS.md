@@ -91,7 +91,7 @@ uses `node:fs`. Use `?raw` imports and let the Vite plugin expand includes.
 3. **Bind group** — register layout in `src/pipeline-layout/layouts/*.ts` and
    document in `docs/BINDINGS.md`.
 4. **Wire runtime** — thin `?raw` re-export in a generator (or direct import in
-   `multi-device-shaders.js`).
+   `multi-device-shaders.ts`).
 5. **Validate** — `npm run check:wgsl`; add a `check:post` case if CPU packs a
    matching struct.
 6. **Optional WebGL2** — mirror in `renderers/webgl2/` only if required
@@ -146,7 +146,7 @@ Add a case here whenever you introduce a new struct that is written on the CPU
 and declared in WGSL.
 
 ```bash
-npm run test:fdtd           # scripts/test-fdtd-slice.mjs (ADR-0010)
+npm run test:fdtd           # scripts/tests/fdtd.test.mjs (ADR-0010)
 ```
 
 The FDTD wave slice has its own check: `FdtdParams` / `FdtdSliceParams` byte
@@ -212,7 +212,7 @@ nothing imported it. It is in git history if a pass needs a reference.
 ## Post stack (WebGPU bloom / filmic)
 
 Runtime source: `passes/bloom-*.wgsl` (via thin `generators/bloom-shaders.js` →
-`multi-device-shaders.js` → `pipeline-layout-cache`).
+`multi-device-shaders.ts` → `pipeline-layout-cache`).
 
 | Pass | Entry | Notes |
 |------|-------|-------|

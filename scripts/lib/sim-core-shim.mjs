@@ -16,7 +16,7 @@ import { pathToFileURL } from 'node:url';
 export function simCoreShim(wasmDir) {
   const glue = pathToFileURL(join(wasmDir, 'sim_core.js')).href;
   const wasm = join(wasmDir, 'sim_core.wasm');
-  return {
+  const plugin = {
     name: 'sim-core-shim',
     setup(build) {
       // First: the shim's own `import('file:///…/sim-core/sim_core.js')` must stay
@@ -36,4 +36,7 @@ export function simCoreShim(wasmDir) {
       }));
     }
   };
+  // test-harness.mjs cache key: the generated shim embeds these paths.
+  plugin.cacheKey = wasmDir;
+  return plugin;
 }

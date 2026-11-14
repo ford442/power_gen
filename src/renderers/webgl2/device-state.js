@@ -15,6 +15,8 @@ export class WebGL2DeviceState {
     this.position = config.position;
     this.particleCount = config.particleCount || 10000;
     this.particles = new Float32Array(this.particleCount * 8);
+    /** Particle count after quality / view LOD scaling (set each frame by render.js). @type {number | undefined} */
+    this.scaledParticleCount = undefined;
     const heronLayout = id === 'heron'
       ? (visualizer?.heronLayout || getHeronLayout(visualizer?.heronLayoutPreset))
       : null;

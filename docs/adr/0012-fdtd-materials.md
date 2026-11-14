@@ -121,7 +121,7 @@ commercial-solver parity.
   label it, clamp it" pattern as the transformer drive)
 - `docs/DEVICE_GALLERY.md#pulse-coil`, `docs/BINDINGS.md` (`fdtdCompute`,
   `fdtdSlice`), `docs/WEBGL2.md`
-- `npm run test:fdtd` — `scripts/test-fdtd-slice.mjs`
+- `npm run test:fdtd` — `scripts/tests/fdtd.test.mjs`
 - A. Taflove, S. C. Hagness, *Computational Electrodynamics: The FDTD Method*
   (3rd ed., 2005), ch. 3 — lossy and magnetic media in the Yee update
 - K. S. Yee, *IEEE Trans. Antennas Propag.* **14** (1966)

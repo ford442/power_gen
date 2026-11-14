@@ -1,0 +1,78 @@
+{
+  "src/bench-window-api.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 2
+    }
+  },
+  "src/classroom/record-control.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 1
+    }
+  },
+  "src/debug-panel-dom.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    },
+    "@typescript-eslint/no-misused-promises": {
+      "count": 4
+    }
+  },
+  "src/hardware-bridge-protocol.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    }
+  },
+  "src/hardware-panel.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 5
+    }
+  },
+  "src/main.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 3
+    },
+    "@typescript-eslint/no-misused-promises": {
+      "count": 2
+    }
+  },
+  "src/seg-explainer/explainer-ui.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 2
+    }
+  },
+  "src/seg-explainer/lab-url.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 4
+    }
+  },
+  "src/seg-explainer/seg-tour-player.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    }
+  },
+  "src/telemetry/telemetry-export-panel.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 3
+    }
+  },
+  "src/visualizer/init-methods.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 1
+    }
+  },
+  "src/visualizer/scene-setup.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 2
+    }
+  },
+  "src/webgpu-init/device-lost.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    }
+  },
+  "src/workers/experiment-worker.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 1
+    }
+  }
+}

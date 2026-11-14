@@ -3,7 +3,7 @@
  *
  * Steps an `ExperimentBench` on a fixed `dt` as fast as the CPU allows — no
  * frame loop, no renderer — so it runs in a worker, in a sweep pool, and in
- * Node for CI (scripts/test-experiments.mjs). The live runner shares the
+ * Node for CI (scripts/tests/experiments.test.mjs). The live runner shares the
  * interpreter; only the clock differs.
  */
 import { LAB_CONFIG_DEFAULTS } from '../../generated/lab-config';
