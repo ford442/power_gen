@@ -233,6 +233,8 @@ export class SEGOperatorPanel {
   private _wireKeyboard(): void {
     window.addEventListener('keydown', (e) => {
       if ((e.target as HTMLElement).matches('input, textarea, select')) return;
+      // No renderer (WebGPU hard-fail): the hotkeys would change state with nothing running.
+      if (document.body.classList.contains('webgpu-hard-fail')) return;
       const key = e.key.toLowerCase();
 
       if (key === 's' && !e.ctrlKey && !e.metaKey) {
