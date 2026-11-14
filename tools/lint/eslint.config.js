@@ -39,7 +39,7 @@ const noWgslInclude = {
 export default tseslint.config(
   {
     ignores: [
-      'dist/**', 'node_modules/**', 'tools/**/node_modules/**',
+      'dist/**', 'node_modules/**', 'tools/**/node_modules/**', '.claude/**', '.cache/**',
       'src/public/**', 'src/wasm/**', 'generated/**',
       'cpp/**', 'firmware/**', 'physics/**', 'colab/**', 'tests/**', 'e2e/**',
       '**/*.d.ts'

@@ -28,33 +28,9 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import * as esbuild from 'esbuild';
+import { ROOT, bundleTs as importTs } from './test-harness.mjs';
 
-const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
-
-/** Transpile a .ts module (via the esbuild Vite already depends on) and import it directly — no ts-node/tsx dep, works on plain Node. */
-/** Bundled, so a module may import LabConfig (or anything else) like the app does. */
-async function importTs(rel) {
-  const result = await esbuild.build({
-    entryPoints: [join(ROOT, rel)],
-    bundle: true,
-    format: 'esm',
-    platform: 'neutral',
-    mainFields: ['module', 'main'],
-    write: false,
-    logLevel: 'silent',
-    plugins: [{
-      name: 'vite-raw-stub',
-      setup(b) {
-        b.onResolve({ filter: /\?raw$/ }, (a) => ({ path: a.path, namespace: 'raw-stub' }));
-        b.onLoad({ filter: /.*/, namespace: 'raw-stub' }, () => ({ contents: 'export default "";', loader: 'js' }));
-      }
-    }]
-  });
-  return import(`data:text/javascript,${encodeURIComponent(result.outputFiles[0].text)}`);
-}
 
 const failures = [];
 const ok = [];
