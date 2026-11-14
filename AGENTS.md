@@ -15,7 +15,7 @@ No backend, database, or server-side service.
 
 - **Dev server:** `npm run dev` → **`http://localhost:5173/`** (not HTTPS; Vite
   `server.https: false`). Serves `src/index.html`.
-- **Build (Pages):** `npm run build:site`. Prebuilt WASM: `src/public/wasm/`.
+- **Build (Pages):** `npm run build:site`. Prebuilt WASM: `src/wasm/sim-core/` (ES module, emitted hashed under `assets/`).
 - **Build (full):** `npm run build` (needs `emcc` or `EMSDK`).
 - **Validate:** `npm run validate` → codegen/catalog checks + typecheck + native
   C++ + Node `test:*` suites (golden, snapshots, plant-worker, coupling,

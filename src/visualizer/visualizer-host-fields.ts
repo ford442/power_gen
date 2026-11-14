@@ -74,6 +74,7 @@ export interface VisualizerHostFields {
   skyUniformBuffer?: GPUBuffer;
   /** Reused SkyParams upload (written every frame). */
   _skyUniformData?: Float32Array<ArrayBuffer>;
+  _segLayoutUniformData?: Float32Array<ArrayBuffer>;
   /** Reused per-frame upload staging (render-loop.ts) — no allocation per frame. */
   _globalUniformData?: Float32Array<ArrayBuffer>;
   _lightingUniformData?: Float32Array<ArrayBuffer>;
@@ -96,7 +97,8 @@ export interface VisualizerHostFields {
   connectionRingBuffer?: MeshBuffers | null;
   standBuffer?: MeshBuffers | null;
   wireBuffers?: MeshBuffers[] | null;
-  coilBuffer?: VertexOnlyBuffers | null;
+  /** SEG pickup-coil mesh (setup-geometry.ts), drawn by renderPickupCoils. */
+  pickupCoilBuffer?: MeshBuffers | null;
   baseInstanceBuffer?: GPUBuffer | null;
   coreBoltInstanceBuffer?: GPUBuffer | null;
   coreBoltPositions?: ArrayLike<number>;

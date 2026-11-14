@@ -256,6 +256,9 @@ export function encodeBloom(host: Host, encoder: GPUCommandEncoder, ctx: FrameCt
 }
 
 /** Post uniforms (exposure, bloom, gates) for this frame — read by bloom and composite. */
+
+/** BloomParams staging for uploadPostParams (once per frame; writeBuffer copies). */
+const postUniformScratch = new Float32Array(20);
 export function uploadPostParams(host: Host, ctx: FrameCtx): void {
   if (!host.bloomParamsBuffer) return;
   const colorTargets = host.pipelineCache!.colorTargets;
@@ -284,7 +287,8 @@ export function uploadPostParams(host: Host, ctx: FrameCtx): void {
     ssrEnabled: ctx.ssr,
     outputLinearHdr: colorTargets.hdrOutput,
     bloomChainLevels: host.bloomChain?.levels ?? 0,
-    outputTransfer: postOutputTransfer(colorTargets)
+    outputTransfer: postOutputTransfer(colorTargets),
+    out: postUniformScratch
   }));
 }
 

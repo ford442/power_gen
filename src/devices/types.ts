@@ -286,7 +286,8 @@ export interface VisualizerLike {
   connectionRingInstances?: GPUBuffer | null;
   standBuffer?: MeshBuffers | null;
   wireBuffers?: MeshBuffers[] | null;
-  coilBuffer?: VertexOnlyBuffers | null;
+  /** SEG pickup-coil mesh (setup-geometry.ts), drawn by renderPickupCoils. */
+  pickupCoilBuffer?: MeshBuffers | null;
 
   // Instance buffers
   baseInstanceBuffer?: GPUBuffer | null;
@@ -434,7 +435,8 @@ export interface DeviceInstanceLike {
     key: string,
     layoutName: BindGroupLayoutName,
     entries: GPUBindGroupEntry[],
-    label?: string
+    label?: string,
+    token?: unknown
   ) => GPUBindGroup;
   _packDeviceUniforms: (out: Float32Array, base: number, renderMode: number, yOffset?: number) => void;
   _computeEnergyLevel: (deltaTime: number) => void;

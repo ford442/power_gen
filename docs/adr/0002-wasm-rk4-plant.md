@@ -9,7 +9,7 @@ Browser GPU particles are kinematic / visual (16-byte `GpuParticle`, WGSL comput
 
 ## Decision
 
-- Author a **C++17** core (`cpp/src/sim_core.*`) with RK4 (and mode plants), built to WASM via Emscripten; **prebuilt** artifacts committed under `src/public/wasm/`.
+- Author a **C++17** core (`cpp/src/sim_core.*`) with RK4 (and mode plants), built to WASM via Emscripten; **prebuilt** artifacts committed under `src/public/wasm/` (since #249: `src/wasm/sim-core/`, loaded as an ES module).
 - Bridge from JS: `src/wasm/seg-physics-bridge.ts` (+ typed helpers).
 - **Opt-in at runtime:** `?wasmPhysics=1` / `?wasm=1` / debug panel / `localStorage useWasmPhysics`.
 - Keep GPU particles on the interactive path; expose zero-copy `HEAPF32` views for tools/benchmarks. Document dual layouts: 16 B GPU vs 32 B `SimParticle` (`docs/SHADERS.md`).

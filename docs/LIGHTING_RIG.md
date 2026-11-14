@@ -46,11 +46,10 @@ ambient / IBL occlusion above is unchanged.
   lines, arcs or glow.
 - **Bias:** slope-scaled raster bias on the casters, plus a receiver bias and a
   normal offset that grows at grazing angles.
-- **`roller-frag` caveat:** its key term uses a fixed `L1 = normalize(1, 1, 1)`
-  instead of the preset key direction. That is 23–36° off the presets'
-  `key.position`, so its shadow comes from the preset key while its shading
-  comes from `L1`. This is pre-existing; the SEG path (`seg-enhanced`) uses
-  the preset direction for both.
+- **Key direction:** `roller-frag` and `seg-enhanced-frag` both shade the
+  key from `normalize(lighting.key.posOrDir)` (frame binding 5), the same
+  direction the shadow map is fitted along, so shading and shadow agree on
+  every preset.
 - Off in overview, below `high`, and on WebGL2. While it is off, receivers see
   `enabled = 0` and sample a 1×1 placeholder.
 

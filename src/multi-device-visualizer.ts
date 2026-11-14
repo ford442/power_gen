@@ -15,7 +15,8 @@ import { OverviewCullPass } from './devices/overview-cull';
 import {
   computeSEGLayout,
   SEG_LAYOUT_PRESETS,
-  packSEGLayoutUniforms
+  packSEGLayoutUniforms,
+  SEG_LAYOUT_UNIFORM_FLOATS
 } from './seg-layout';
 import {
   HERON_LAYOUT_PRESETS
@@ -328,7 +329,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.segLayout = computeSEGLayout(this.segLayoutPreset, qualityScale) as SegLayout;
     if (this.segLayoutUniformBuffer && this.device) {
       writeQueueBuffer(this.device, 
-        this.segLayoutUniformBuffer, packSEGLayoutUniforms(this.segLayout)
+        this.segLayoutUniformBuffer,
+        packSEGLayoutUniforms(this.segLayout, (this._segLayoutUniformData ??= new Float32Array(SEG_LAYOUT_UNIFORM_FLOATS)))
       );
     }
     return this.segLayout!;

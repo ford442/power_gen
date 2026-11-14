@@ -83,26 +83,37 @@ export class MultiDeviceCamera {
 
   lerp(a: number, b: number, t: number): number { return a + (b - a) * t; }
 
+  // Per-frame scratch (these run several times a frame: cull, globals, TAA,
+  // SSR). The getters below return these arrays — copy to keep one past the
+  // next call. Every caller today consumes or copies the result at once.
+  private readonly _proj = new Float32Array(16);
+  private readonly _view = new Float32Array(16);
+  private readonly _viewProj = new Float32Array(16);
+  private readonly _inv = new Float32Array(16);
+
+  /** View-projection (camera-owned scratch — copy to keep). */
   getViewProjMatrix(): Float32Array {
-    return this.multiplyMatrices(this.getProjMatrix(), this.getViewMatrix());
+    return this.multiplyMatrices(this.getProjMatrix(), this.getViewMatrix(), this._viewProj);
   }
 
-  /** Projection alone — screen-space passes (SSR) need it without the view. */
+  /** Projection alone — screen-space passes (SSR) need it without the view. Scratch — copy to keep. */
   getProjMatrix(): Float32Array {
     const aspect = this.canvas.width / Math.max(this.canvas.height, 1);
-    return this.perspectiveMatrix(this.camera.fov * Math.PI / 180, aspect, 0.1, 200);
+    return this.perspectiveMatrix(this.camera.fov * Math.PI / 180, aspect, 0.1, 200, this._proj);
   }
 
+  /** View matrix (scratch — copy to keep). */
   getViewMatrix(): Float32Array {
-    return this.lookAt(this.camera.position, this.camera.target, [0, 1, 0]);
+    return this.lookAt(this.camera.position, this.camera.target, [0, 1, 0], this._view);
   }
 
   /**
    * General 4×4 inverse (column-major, same convention as the matrices above).
-   * SSR unprojects depth samples with `inverse(proj)`.
+   * SSR unprojects depth samples with `inverse(proj)`. Writes `out` (default:
+   * camera-owned scratch — copy to keep); `out` must not alias `m`.
    */
-  invertMatrix(m: Float32Array | number[]): Float32Array {
-    const inv = new Float32Array(16);
+  invertMatrix(m: Float32Array | number[], out: Float32Array = this._inv): Float32Array {
+    const inv = out;
     inv[0]  =  m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
     inv[4]  = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];
     inv[8]  =  m[4]*m[9]*m[15]  - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] + m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9];
@@ -122,31 +133,43 @@ export class MultiDeviceCamera {
 
     const det = m[0]*inv[0] + m[1]*inv[4] + m[2]*inv[8] + m[3]*inv[12];
     if (!det) {
-      return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+      inv.fill(0);
+      inv[0] = inv[5] = inv[10] = inv[15] = 1;
+      return inv;
     }
     const d = 1.0 / det;
     for (let i = 0; i < 16; i++) inv[i] *= d;
     return inv;
   }
 
-  perspectiveMatrix(fov: number, aspect: number, near: number, far: number): Float32Array {
+  perspectiveMatrix(fov: number, aspect: number, near: number, far: number, out = new Float32Array(16)): Float32Array {
     const f = 1.0 / Math.tan(fov / 2);
     const nf = 1 / (near - far);
-    return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
+    out.fill(0);
+    out[0] = f / aspect;
+    out[5] = f;
+    out[10] = (far + near) * nf;
+    out[11] = -1;
+    out[14] = 2 * far * near * nf;
+    return out;
   }
 
-  lookAt(eye: number[], center: number[], up: number[]): Float32Array {
+  lookAt(eye: number[], center: number[], up: number[], out = new Float32Array(16)): Float32Array {
     const z = this.normalize([eye[0] - center[0], eye[1] - center[1], eye[2] - center[2]]);
     const x = this.normalize(this.cross(up, z));
     const y = this.cross(z, x);
-    return new Float32Array([x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -this.dot(x, eye), -this.dot(y, eye), -this.dot(z, eye), 1]);
+    out[0] = x[0]; out[1] = y[0]; out[2] = z[0]; out[3] = 0;
+    out[4] = x[1]; out[5] = y[1]; out[6] = z[1]; out[7] = 0;
+    out[8] = x[2]; out[9] = y[2]; out[10] = z[2]; out[11] = 0;
+    out[12] = -this.dot(x, eye); out[13] = -this.dot(y, eye); out[14] = -this.dot(z, eye); out[15] = 1;
+    return out;
   }
 
   normalize(v: number[]): number[] { const len = Math.sqrt(v[0]**2 + v[1]**2 + v[2]**2); return len > 0 ? [v[0]/len, v[1]/len, v[2]/len] : [0, 0, 0]; }
   cross(a: number[], b: number[]): number[] { return [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]]; }
   dot(a: number[], b: number[]): number { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
-  multiplyMatrices(a: Float32Array, b: Float32Array): Float32Array {
-    const out = new Float32Array(16);
+  /** a × b into `out` (default: a new array); `out` must not alias `a` or `b`. */
+  multiplyMatrices(a: Float32Array, b: Float32Array, out = new Float32Array(16)): Float32Array {
     for (let col = 0; col < 4; col++) {
       for (let row = 0; row < 4; row++) {
         let sum = 0;

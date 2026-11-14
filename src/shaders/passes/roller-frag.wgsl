@@ -33,11 +33,15 @@ struct Uniforms {
       const MATERIAL_COUNT: u32 = 19u;
       const MAT_ALUMINUM: u32 = 17u;
 
+      #include "common/pbr-lighting.wgsl"
       #include "common/pbr-surface.wgsl"
       #include "common/pbr-brdf.wgsl"
       #include "common/shadow-pcf.wgsl"
 
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+      // Scene lighting rig (seg-lighting-presets.ts) — only the key direction
+      // is read here, so shading and the key-light shadow map agree.
+      @binding(5) @group(0) var<uniform> lighting: LightingConfig;
       @binding(1) @group(1) var<uniform> device: DeviceUniforms;
       @binding(3) @group(1) var<uniform> material: MaterialUniforms;
       @binding(6) @group(0) var<storage, read> materialTable: array<MaterialEntry>;
@@ -217,11 +221,10 @@ struct Uniforms {
         let f0 = mix(vec3f(0.04), baseColor, metallic);
         let albedo = mix(baseColor, vec3f(0.0), metallic);
 
-        // Key light (main directional). This pass keeps its own fixed rig; the
-        // shadow map is cast from the preset key, 23–36° away from L1
-        // depending on the preset, so roller-pipeline shadows fall slightly
-        // off the direction this term shades from.
-        let L1 = normalize(vec3f(1.0, 1.0, 1.0));
+        // Key light: the preset's key direction (directional, normalize(pos)),
+        // the same one shadow-map.ts fits the key-light shadow to. Colour and
+        // intensity stay this pass's own.
+        let L1 = normalize(lighting.key.posOrDir);
         let keyVis = keyLightVisibility(input.worldPos, normalize(input.normal), L1);
         let H1 = normalize(V + L1);
         let NdotL1 = max(dot(detailN, L1), 0.0);

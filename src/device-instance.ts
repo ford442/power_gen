@@ -89,7 +89,8 @@ export interface DeviceInstance {
     key: string,
     layoutName: BindGroupLayoutName,
     entries: GPUBindGroupEntry[],
-    label?: string
+    label?: string,
+    token?: unknown
   ): GPUBindGroup;
   _enhancedBindGroup(instanceBuffer: GPUBuffer, keySuffix?: string): GPUBindGroup;
   _rollerBindGroup(instanceBuffer: GPUBuffer, keySuffix?: string): GPUBindGroup;

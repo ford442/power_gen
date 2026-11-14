@@ -1,0 +1,60 @@
+# =============================================================
+# stacked-prs.yml — keep stacked PRs from merging off `main`
+#
+# #249 and #251 merged into their base branches after those bases had
+# already merged, so GitHub showed "Merged" while `main` never got the code.
+# scripts/check-stacked-prs.mjs (decision table: npm run test:stacked-prs):
+#
+#   open / edited / synchronize : fail while the base branch is already
+#                                 merged into main → retarget to main.
+#   closed + merged             : fail and comment when the merge commit
+#                                 was left on an already-merged base.
+# =============================================================
+
+name: Stacked PRs
+
+on:
+  pull_request:
+    types: [opened, reopened, edited, synchronize, closed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  stacked-base:
+    name: base branch not already merged
+    # Only stacked PRs; closed ones only when actually merged.
+    if: >-
+      github.event.pull_request.base.ref != github.event.repository.default_branch &&
+      (github.event.action != 'closed' || github.event.pull_request.merged)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          STACKED_PR_REPORT: ${{ runner.temp }}/stacked-pr.md
+          MODE: ${{ github.event.action == 'closed' && 'closed' || 'open' }}
+        run: node scripts/check-stacked-prs.mjs --mode "$MODE"
+
+      - name: Comment on the merged PR
+        if: failure() && github.event.action == 'closed'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/stacked-pr.md"

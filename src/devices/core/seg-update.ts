@@ -8,6 +8,27 @@ const SEG_RINGS = [
   { count: 16, radius: 5.5, speed: 0.5, index: 2 }
 ];
 
+
+/**
+ * Per-frame upload staging, reused. `queue.writeBuffer` copies at call time,
+ * so one set serves every frame (and every SEG instance); each array is fully
+ * rewritten before each write.
+ */
+const scratch = {
+  roller: new Float32Array(4),
+  advect: new Float32Array(4),
+  tracer: new Float32Array(8),
+  frameInst: new Float32Array(12),
+  electromagnets: new Float32Array(24 * 8),
+  pickups: new Float32Array(24 * 8),
+  arcs: new Float32Array(200 * 8)
+};
+
+function fill(out: Float32Array, ...values: number[]): Float32Array {
+  for (let i = 0; i < values.length; i++) out[i] = values[i];
+  return out;
+}
+
 export const segGetComputeSpeed: NonNullable<DevicePlugin['getComputeSpeed']> = (instance, baseSpeed) => {
   return baseSpeed * (0.15 + 0.85 * (instance.visualizer.segOmega ?? 0));
 };
@@ -24,13 +45,13 @@ export const segUpdateDynamics: NonNullable<DevicePlugin['updateDynamics']> = (i
     const segOmega = Math.max(0.02, instance.visualizer.segOmega ?? 1.0);
     instance.device.queue.writeBuffer(
       instance.rollerComputeUniformBuffer, 0,
-      new Float32Array([time, speedMult, presetVal, segOmega])
+      fill(scratch.roller, time, speedMult, presetVal, segOmega)
     );
   }
   if (instance.fieldAdvectUniformBuffer && instance.geometry.fieldLineParticles) {
     instance.device.queue.writeBuffer(
       instance.fieldAdvectUniformBuffer, 0,
-      new Float32Array([time, speedMult, instance.fieldLineCount, 0])
+      fill(scratch.advect, time, speedMult, instance.fieldLineCount, 0)
     );
   }
   if (instance.fluxTracerUniformBuffer) {
@@ -40,7 +61,7 @@ export const segUpdateDynamics: NonNullable<DevicePlugin['updateDynamics']> = (i
     const follow = 1.0 + Math.min(0.35, instance.energyLevel * 0.25 + segOmega * 0.15);
     instance.device.queue.writeBuffer(
       instance.fluxTracerUniformBuffer, 0,
-      new Float32Array([time, deltaTime, 0.016, lineOpacity, 0.055, follow, 0.0, 0.0])
+      fill(scratch.tracer, time, deltaTime, 0.016, lineOpacity, 0.055, follow, 0.0, 0.0)
     );
   }
 
@@ -202,7 +223,7 @@ export function segUpdateElectromagnetCoils(instance: DeviceInstanceLike): void 
   }
 
   const maxCoils = 24;
-  const instanceData = new Float32Array(maxCoils * 8);
+  const instanceData = scratch.electromagnets;
   const radius = 7.2;
   const offsetRad = ((em?.offsetAngle || 0) * Math.PI) / 180;
   const t = instance.visualizer.time;
@@ -271,7 +292,9 @@ export function segUpdatePickupCoilEnergies(
     instance.coilEnergies = new Float32Array(numCoils);
   }
 
-  const coilInstanceData = new Float32Array(numCoils * 8);
+  // coil-vert.wgsl CoilInstance: position xyz, angle, activeIntensity,
+  // coilIndex, pad, pad. Reused across frames (writeBuffer copies at call time).
+  const coilInstanceData = scratch.pickups;
 
   for (let i = 0; i < numCoils; i++) {
     const coilAngle = (i / numCoils) * Math.PI * 2;
@@ -300,18 +323,16 @@ export function segUpdatePickupCoilEnergies(
     const energy = Math.max(0, 1 - minDistance / 3.0) * nearestRollerSpeed * 0.5;
     instance.coilEnergies[i] = instance.coilEnergies[i] * 0.9 + energy * 0.1;
 
-    const rotAngle = coilAngle + Math.PI;
-    const rotY = Math.sin(rotAngle / 2);
-    const rotW = Math.cos(rotAngle / 2);
-
+    // Before, this packed a quaternion into the angle / intensity slots, so
+    // the coil shader read activeIntensity = sin(θ/2) and never the energy.
     coilInstanceData[i * 8] = coilX;
     coilInstanceData[i * 8 + 1] = 0;
     coilInstanceData[i * 8 + 2] = coilZ;
-    coilInstanceData[i * 8 + 3] = 0;
-    coilInstanceData[i * 8 + 4] = rotY;
-    coilInstanceData[i * 8 + 5] = 0;
-    coilInstanceData[i * 8 + 6] = rotW;
-    coilInstanceData[i * 8 + 7] = instance.coilEnergies[i];
+    coilInstanceData[i * 8 + 3] = coilAngle + Math.PI;
+    coilInstanceData[i * 8 + 4] = instance.coilEnergies[i];
+    coilInstanceData[i * 8 + 5] = i;
+    coilInstanceData[i * 8 + 6] = 0;
+    coilInstanceData[i * 8 + 7] = 0;
   }
 
   instance.device.queue.writeBuffer(instance.coilInstances, 0, coilInstanceData);
@@ -324,7 +345,7 @@ export function segUpdatePickupCoilEnergies(
 export function segUpdateEnergyArcs(instance: DeviceInstanceLike): void {
   if (!instance.arcSegments) return;
   const arcCount = 200;
-  const arcData = new Float32Array(arcCount * 8);
+  const arcData = scratch.arcs;
   const time = instance.visualizer.time;
   const speedMult = instance.speedMult || 1.0;
 
@@ -357,13 +378,13 @@ export function segUpdateFrameVibration(instance: DeviceInstanceLike): void {
 
   const writeInst = (buf: GPUBuffer | null | undefined, ringIndex: number, color: number[]) => {
     if (!buf) return;
-    instance.device.queue.writeBuffer(buf, 0, new Float32Array([
+    instance.device.queue.writeBuffer(buf, 0, fill(scratch.frameInst,
       dx, dy, dz,
       ringIndex,
       0, 0, 0, 1,
       color[0], color[1], color[2],
       0.0
-    ]));
+    ));
   };
 
   writeInst(v.frameStructuralInstanceBuffer, MATERIAL_STRUCTURAL, [0.74, 0.76, 0.80]);

@@ -310,6 +310,16 @@ export const geometrySetupMethods: ThisType<Host> & {
     ]));
     this.profiler.trackBuffer('seg-connection-ring-instances', 2 * 48, GPUBufferUsage.STORAGE);
 
+    // Pickup coils (renderPickupCoils, coil pipeline): 24 small cylinders on
+    // the ring the pickup-energy model samples (seg-update.ts). Smaller than
+    // the shared electromagnet cylinder so the two read as different parts.
+    const pickupData = generateCylinder(0.22, 0.7, 24);
+    const pickupVB = this.device.createBuffer({ label: 'seg-pickup-coil-vb', size: pickupData.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    writeQueueBuffer(this.device, pickupVB, pickupData.vertices);
+    const pickupIB = this.device.createBuffer({ label: 'seg-pickup-coil-ib', size: pickupData.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    writeQueueBuffer(this.device, pickupIB, pickupData.indices);
+    this.pickupCoilBuffer = { vertexBuffer: pickupVB, indexBuffer: pickupIB, indexCount: pickupData.indices.length };
+
     // C-shaped pickup coil geometry (core, winding bundle, mounting foot)
     this.cCoreCoilBuffer = generateCCorePickupCoil(this.device, {
       coilRadius,
