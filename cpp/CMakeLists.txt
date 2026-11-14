@@ -41,15 +41,22 @@ if(EMSCRIPTEN)
       target_link_options(sim_core PRIVATE "SHELL:${_flag}")
     endif()
   endforeach()
-  # -g0/--closure 1 match the Makefile `wasm` (release) target — this
-  # CMake path has no separate debug configuration, so it always builds
-  # release-optimized output.
+  # Compile database ONLY (`make compile-db-wasm`, for clangd). The shipped
+  # binary comes from `make -C cpp wasm` (scripts/build-wasm.sh, CI, Pages),
+  # never from here. The flags match the Makefile release target, -O3 on the
+  # per-file compile too, so the database shows what really compiles — but
+  # linking is refused: an unoptimised CMake link once could, and did, write
+  # an -O0 sim_core.wasm over the committed one.
+  target_compile_options(sim_core PRIVATE -O3)
   target_link_options(sim_core PRIVATE -O3 -g0 --closure 1)
-
-  # Output directly into the Vite public/wasm directory so the dev
-  # server can serve sim_core.js and sim_core.wasm without copying.
   set_target_properties(sim_core PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../src/public/wasm"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/not-shipped"
+  )
+  add_custom_command(TARGET sim_core PRE_LINK
+    COMMAND ${CMAKE_COMMAND} -E echo
+      "sim_core: the Emscripten CMake build is a compile database only. Build the shipped WASM with: make -C cpp wasm  (or npm run wasm:build)"
+    COMMAND ${CMAKE_COMMAND} -E false
+    VERBATIM
   )
 else()
   # Native build: enable standalone smoke-test (clangd / compile_commands.json).

@@ -332,7 +332,11 @@ private:
     SEGRollerState _rollers[MAX_ROLLERS];
     int            _numRollers{0};
 
-    SimParticle    _particles[MAX_PARTICLES];
+    // Sized at seedParticles(), not inline: a MAX_PARTICLES array put 1.6 MB
+    // (50k × 32 B) into every SEGSimulator, seeded or not. The zero-copy view
+    // re-reads getParticleBufferPtr() on every call (src/wasm/sim.ts), so a
+    // reseed that reallocates is safe.
+    std::vector<SimParticle> _particles;
     int            _numParticles{0};
 
     // Contiguous export for rollers (GPU upload)

@@ -59,10 +59,13 @@ test('first visit precaches the build; offline reload still boots WebGL2', async
   expect(state.names).toHaveLength(1);
   expect(state.names[0]).toMatch(/^seg-lab:\/:[0-9a-f]{16}$/);
   expect([...state.cached].sort()).toEqual([...state.urls].sort());
-  for (const must of ['index.html', 'wasm/sim_core.js', 'wasm/sim_core.wasm', 'manifest.webmanifest',
-    'icons/icon-192.png', 'assets/seg/stand.glb']) {
+  for (const must of ['index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'assets/seg/stand.glb']) {
     expect(state.urls, `precache list misses ${must}`).toContain(must);
   }
+  // sim_core is in the module graph now (src/wasm/sim-core/): hashed names.
+  const wasmUrl = state.urls.find((u) => /^assets\/sim_core-[\w-]+\.wasm$/.test(u));
+  expect(wasmUrl, 'hashed sim_core.wasm not precached').toBeTruthy();
+  expect(state.urls.some((u) => /^assets\/sim_core-[\w-]+\.js$/.test(u)), 'sim_core glue chunk not precached').toBe(true);
   expect(state.urls.some((u) => /^assets\/index-[\w-]+\.js$/.test(u)), 'entry chunk not precached').toBe(true);
   expect(state.urls.some((u) => /^assets\/recorder-[\w-]+\.js$/.test(u)), 'lazy recorder chunk not precached').toBe(true);
   expect(await page.evaluate(() => !!document.getElementById('pwaUpdateToast')), 'toast on first install').toBe(false);
@@ -77,12 +80,12 @@ test('first visit precaches the build; offline reload still boots WebGL2', async
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 120_000 });
     await waitForEval(page, () => window.currentRenderer === 'webgl2' && !!document.getElementById('gpuCanvas'),
       { timeout: 180_000 });
-    const offline = await page.evaluate(async () => ({
+    const offline = await page.evaluate(async (wasm) => ({
       controlled: !!navigator.serviceWorker.controller,
       online: navigator.onLine,
-      wasmHead: (await fetch('./wasm/sim_core.wasm', { method: 'HEAD' })).status,
+      wasmHead: (await fetch(`./${wasm}`, { method: 'HEAD' })).status,
       manifest: (await fetch('./manifest.webmanifest')).status
-    }));
+    }), wasmUrl);
     expect(offline).toEqual({ controlled: true, online: false, wasmHead: 200, manifest: 200 });
     // The lazy classroom chunk (and its recorder hook) loads from the cache too.
     await waitForEval(page, () => typeof window.recordBench === 'function', { timeout: 120_000 });

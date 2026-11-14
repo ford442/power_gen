@@ -13,6 +13,7 @@ using namespace plant_common;
 void SEGSimulator::seedParticles(int count) {
     _numParticles = (count < 0) ? 0 :
                     (count > MAX_PARTICLES) ? MAX_PARTICLES : count;
+    _particles.assign(static_cast<size_t>(_numParticles), SimParticle{});
     for (int i = 0; i < _numParticles; ++i) {
         uint32_t idx = static_cast<uint32_t>(i);
         SimParticle& p = _particles[i];
@@ -102,7 +103,7 @@ SimParticle SEGSimulator::getParticle(int i) const {
 }
 
 uintptr_t SEGSimulator::getParticleBufferPtr() const {
-    return reinterpret_cast<uintptr_t>(_particles);
+    return reinterpret_cast<uintptr_t>(_particles.data());
 }
 
 int SEGSimulator::getParticleFloatCount() const {

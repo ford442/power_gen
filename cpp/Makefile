@@ -6,7 +6,7 @@
 #   source /path/to/emsdk/emsdk_env.sh
 #
 # Targets:
-#   make wasm        – release WASM build → src/public/wasm/
+#   make wasm        – release WASM build → src/wasm/sim-core/
 #   make wasm-dbg    – debug WASM build with source maps
 #   make native      – native binary (smoke-test, no Emscripten needed)
 #                      warning-free build: -Wall -Wextra -Wpedantic -Werror
@@ -20,8 +20,9 @@
 #                      (Embind TU included; needs emcmake on PATH)
 #   make clean       – remove build artefacts
 #
-# The output (sim_core.js + sim_core.wasm) is written directly to
-# ../src/public/wasm/ so Vite / the GitHub Pages root can serve it.
+# The output (sim_core.js ES module + sim_core.wasm) is written to
+# ../src/wasm/sim-core/, where src/wasm/index.ts imports it: Vite bundles
+# the glue and emits the .wasm under a content-hashed name.
 # =============================================================
 
 # sim_core_embind.cpp is WASM-only — its body is entirely inside
@@ -33,18 +34,23 @@ SRC             := $(SIM_CORE_SHARED) src/sim_core_embind.cpp
 # standalone/*.cpp are the native `--mode` runs; they compile to nothing
 # without SIM_CORE_STANDALONE, so they stay out of the WASM source list.
 NATIVE_SRC      := $(SIM_CORE_SHARED) $(wildcard src/standalone/*.cpp)
-OUT_DIR    := ../src/public/wasm
+# Imported by src/wasm/index.ts (Vite bundles the glue, hashes the .wasm URL).
+OUT_DIR    := ../src/wasm/sim-core
 OUT_JS     := $(OUT_DIR)/sim_core.js
 
 # Shared link flags — keep in sync via cpp/emscripten.flags (also used by CMake)
 EMCC_FLAGS := $(shell grep -vE '^\s*#' emscripten.flags | grep -vE '^\s*$$' | tr '\n' ' ') -I src
+
+# Baked into the release binary as sim_core_source_hash(); see
+# scripts/sim-core-source-hash.mjs. Overridable for hermetic builds.
+SIM_CORE_SOURCE_HASH ?= $(shell node ../scripts/sim-core-source-hash.mjs 2>/dev/null || echo unknown)
 
 # ── Targets ─────────────────────────────────────────────────────
 
 .PHONY: wasm wasm-dbg native native-san tidy compile-db compile-db-wasm clean
 
 wasm: $(OUT_DIR)
-	em++ -std=c++17 -O3 -g0 --closure 1 $(EMCC_FLAGS) $(SRC) -o $(OUT_JS)
+	em++ -std=c++17 -O3 -g0 --closure 1 -DSIM_CORE_SOURCE_HASH='"$(SIM_CORE_SOURCE_HASH)"' $(EMCC_FLAGS) $(SRC) -o $(OUT_JS)
 	@echo "✓  WASM build complete → $(OUT_JS)"
 
 wasm-dbg: $(OUT_DIR)

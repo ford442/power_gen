@@ -21,7 +21,7 @@ import * as esbuild from 'esbuild';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const REF_DIR = join(ROOT, 'src/experiments/reference');
-const WASM_DIR = join(ROOT, 'src/public/wasm');
+const WASM_DIR = join(ROOT, 'src/wasm/sim-core');
 const VERBOSE = process.argv.includes('--verbose');
 
 /** C++ integrates in float, JS in double; verdict numbers agree far inside this. */
@@ -74,7 +74,8 @@ writeFileSync(bundlePath, built.outputFiles[0].text);
 const X = await import(pathToFileURL(bundlePath).href);
 
 // ── shipped wasm, no fetch (ENVIRONMENT=web glue + wasmBinary) ──
-const SimCore = new Function(`${readFileSync(join(WASM_DIR, 'sim_core.js'), 'utf8')}\n;return SimCore;`)();
+// ES-module glue (EXPORT_ES6): a plain import, like the page and workers.
+const { default: SimCore } = await import(pathToFileURL(join(WASM_DIR, 'sim_core.js')).href);
 const wasmMod = await SimCore({ wasmBinary: readFileSync(join(WASM_DIR, 'sim_core.wasm')) });
 
 function runOnce(v, backend, sweepPoint) {

@@ -88,7 +88,9 @@ async function initWasm(): Promise<void> {
     wasmSim = await SEGSim.create();
     const st = getSimCoreStatus();
     if (st.state === 'ready' && wasmSim.wasmAvailable) {
-      updateWasmBadge('loaded', 'WASM ✓', 'sim_core.wasm instantiated');
+      // A stale binary still runs: keep "loaded", tint the dot, say why on hover.
+      if (st.stale) updateWasmBadge('loaded stale', 'WASM ✓', st.stale);
+      else updateWasmBadge('loaded', 'WASM ✓', 'sim_core.wasm instantiated');
       gpuChores.refreshBackend();
     } else {
       updateWasmBadge('missing', 'WASM failed', st.error ?? 'sim_core.wasm unavailable');

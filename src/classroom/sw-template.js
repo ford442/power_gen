@@ -70,8 +70,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith((async () => {
     const hit = await (await caches.open(CACHE)).match(key);
     if (!hit) return fetch(request);
-    // HEAD probes (src/wasm/index.ts checks sim_core.wasm this way) get the
-    // cached status and headers, without the body.
+    // HEAD requests get the cached status and headers, without the body.
     return request.method === 'HEAD'
       ? new Response(null, { status: hit.status, statusText: hit.statusText, headers: hit.headers })
       : hit;

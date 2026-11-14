@@ -61,7 +61,7 @@ risk as leaving out a resistance.
 1.2566e-**7**; every dipole field and energy density derived from it was 10× off
 and nothing failed, because the plants, the shaders and the golden all agreed
 with the typo. The anchor ties the JSON to a value checkable from first
-principles. After changing it the prebuilt `src/public/wasm/sim_core.*` is stale
+principles. After changing it the prebuilt `src/wasm/sim-core/sim_core.*` is stale
 until CI rebuilds it (`build-wasm.yml` commits it back on `main`).
 
 ## JS ⇄ WASM golden
