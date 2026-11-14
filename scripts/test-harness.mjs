@@ -103,7 +103,8 @@ export async function bundleTsFile(entry, options = {}) {
     sourcesContent: false,
     loader: { '.wgsl': 'text', '.glsl': 'text' },
     ...rest,
-    plugins: [viteRawStub, ...plugins]
+    // esbuild rejects unknown plugin fields, so `cacheKey` stays harness-side.
+    plugins: [viteRawStub, ...plugins.map(({ name, setup }) => ({ name, setup }))]
   });
 
   const inputs = {};

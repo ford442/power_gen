@@ -36,8 +36,7 @@ export function simCoreShim(wasmDir) {
       }));
     }
   };
-  // test-harness.mjs cache key: the generated shim embeds these paths. Not
-  // enumerable, because esbuild rejects unknown plugin fields.
-  Object.defineProperty(plugin, 'cacheKey', { value: wasmDir });
+  // test-harness.mjs cache key: the generated shim embeds these paths.
+  plugin.cacheKey = wasmDir;
   return plugin;
 }

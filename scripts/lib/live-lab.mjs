@@ -45,8 +45,8 @@ function referenceGlob() {
       });
     }
   };
-  // test-harness.mjs cache key; not enumerable, because esbuild rejects unknown plugin fields.
-  Object.defineProperty(plugin, 'cacheKey', { value: hash.digest('hex') });
+  // test-harness.mjs cache key (the harness strips it before esbuild sees the plugin).
+  plugin.cacheKey = hash.digest('hex');
   return plugin;
 }
 
