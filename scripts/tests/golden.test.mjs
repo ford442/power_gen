@@ -1,6 +1,5 @@
-#!/usr/bin/env node
 /**
- * test-js-wasm-golden.mjs — JS fallback ⇄ C++ plant telemetry golden.
+ * golden — JS fallback ⇄ C++ plant telemetry golden.
  *
  * ADR-0002 keeps two plants for every dual device: the C++ one behind
  * `?wasmPhysics=1`, and a TypeScript fallback. Nothing used to hold them to
@@ -37,15 +36,18 @@
  * why. Keep that list short: each entry is a place the plants only nearly
  * agree.
  *
- * Usage: node scripts/test-js-wasm-golden.mjs   (exit 1 on failure)
+ * The native binary is required (a missing one fails, it is not a skip):
+ * run `npm run wasm:native` first (npm run validate does).
+ *
+ * Usage: npm run test:golden   (node --test scripts/tests/golden.test.mjs)
  */
+import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import * as esbuild from 'esbuild';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+import { bundleTs, ROOT } from '../test-harness.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const NATIVE = join(ROOT, 'cpp', 'build', 'sim_core_test');
 
 const REL_EPS = 2e-4;
@@ -105,22 +107,9 @@ export const createKelvinPhysicsState = () => createDevicePhysicsState('kelvin')
 export const stepKelvinPhysics = (state, dt, drive) => stepDevicePhysics(state, dt, drive);
 `;
 
-const failures = [];
-const fail = (msg) => failures.push(msg);
-
-async function importBundle(contents, sourcefile) {
-  const built = await esbuild.build({
-    stdin: { contents, resolveDir: ROOT, sourcefile, loader: 'ts' },
-    bundle: true,
-    format: 'esm',
-    platform: 'neutral',
-    target: 'es2022',
-    write: false,
-    logLevel: 'warning',
-  });
-  const code = built.outputFiles[0].text;
-  return import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
-}
+/** Problems found while parsing the native output (reported by a test below). */
+const parseProblems = [];
+const fail = (msg) => parseProblems.push(msg);
 
 /**
  * Parse `golden.case <id> k=v …` / `golden.value <id> <key> <v>`.
@@ -187,46 +176,6 @@ function agree(a, b, eps) {
   return diff <= Math.max(eps.abs, eps.rel * Math.max(Math.abs(a), Math.abs(b)));
 }
 
-// ── 1. native side ───────────────────────────────────────────────────────
-if (!existsSync(NATIVE)) {
-  console.error(
-    '[golden] native binary missing at cpp/build/sim_core_test.\n' +
-    '         Run `npm run wasm:native` first (npm run validate does).'
-  );
-  process.exit(1);
-}
-const run = spawnSync(NATIVE, ['--mode', 'golden'], { encoding: 'utf8' });
-process.stderr.write(run.stderr || '');
-if (run.status !== 0) {
-  console.error(`[golden] native --mode golden exited ${run.status}`);
-  process.exit(run.status || 1);
-}
-const { cases, done } = parseGolden(run.stdout || '');
-if (!done) fail('native --mode golden did not print golden.done');
-
-// ── 2. JS side ───────────────────────────────────────────────────────────
-const js = await importBundle(ENTRY, 'golden-entry.ts');
-const catalogById = new Map(js.DEVICE_CATALOG.map((d) => [d.id, d]));
-
-// Every dual device — catalog wasmMode set *and* a JS fallback plant — must
-// be covered. This is what stops a new plant landing without a golden. A
-// device may have more than one case (a default one and a field-coupled
-// variant); it must have at least one.
-const dualIds = js.DEVICE_CATALOG.filter((d) => d.wasmMode !== null && PLANTS[d.id]).map((d) => d.id);
-const casesByDevice = new Map();
-for (const kase of cases.values()) {
-  if (!casesByDevice.has(kase.device)) casesByDevice.set(kase.device, []);
-  casesByDevice.get(kase.device).push(kase);
-}
-for (const id of dualIds) {
-  if (!casesByDevice.has(id)) fail(`no native golden case for dual device '${id}' — add it to GOLDEN_CASES`);
-}
-for (const kase of cases.values()) {
-  if (!PLANTS[kase.device]) {
-    fail(`native emitted golden case '${kase.id}' for device '${kase.device}' with no JS fallback plant wired up here`);
-  }
-}
-
 /**
  * Apply a case's coupled setpoints to the JS state before stepping. This is
  * the same write `FieldNetwork.update` / `ChargeNetwork.update` make each
@@ -239,67 +188,105 @@ function seedCoupling(state, kase) {
   if (kase.kelvinSeedV >= 0) state.kelvinSeedCoupledV = kase.kelvinSeedV;
 }
 
-let compared = 0;
+// ── 1. native side ───────────────────────────────────────────────────────
+// Run once at load: the cases it prints are what the tests below are made of.
+const nativeExists = existsSync(NATIVE);
+const run = nativeExists ? spawnSync(NATIVE, ['--mode', 'golden'], { encoding: 'utf8' }) : null;
+if (run?.stderr) process.stderr.write(run.stderr);
+const { cases, done } = run && run.status === 0 ? parseGolden(run.stdout || '') : { cases: new Map(), done: false };
+
+// ── 2. JS side ───────────────────────────────────────────────────────────
+const js = await bundleTs({ contents: ENTRY, sourcefile: 'golden-entry.ts' });
+const catalogById = new Map(js.DEVICE_CATALOG.map((d) => [d.id, d]));
+
+// Every dual device — catalog wasmMode set *and* a JS fallback plant — must
+// be covered. This is what stops a new plant landing without a golden. A
+// device may have more than one case (a default one and a field-coupled
+// variant); it must have at least one.
+const dualIds = js.DEVICE_CATALOG.filter((d) => d.wasmMode !== null && PLANTS[d.id]).map((d) => d.id);
+const casesByDevice = new Map();
+for (const kase of cases.values()) {
+  if (!casesByDevice.has(kase.device)) casesByDevice.set(kase.device, []);
+  casesByDevice.get(kase.device).push(kase);
+}
+
+describe('native --mode golden', () => {
+  it('native binary exists', () => {
+    assert.ok(nativeExists,
+      'native binary missing at cpp/build/sim_core_test. Run `npm run wasm:native` first (npm run validate does).');
+  });
+  it('exits 0', { skip: nativeExists ? false : 'native binary missing' }, () => {
+    assert.ok(run.status === 0, `native --mode golden exited ${run.status}`);
+  });
+  it('prints golden.done', () => {
+    assert.ok(done, 'native --mode golden did not print golden.done');
+  });
+  it('every value follows its golden.case line', () => {
+    assert.deepEqual(parseProblems, []);
+  });
+});
+
+describe('coverage', () => {
+  for (const id of dualIds) {
+    it(`dual device '${id}' has a native golden case`, () => {
+      assert.ok(casesByDevice.has(id), `no native golden case for dual device '${id}' — add it to GOLDEN_CASES`);
+    });
+  }
+  for (const kase of cases.values()) {
+    it(`case '${kase.id}' has a JS fallback plant`, () => {
+      assert.ok(PLANTS[kase.device],
+        `native emitted golden case '${kase.id}' for device '${kase.device}' with no JS fallback plant wired up here`);
+    });
+  }
+});
+
 for (const kase of cases.values()) {
   const id = kase.id;
   const plant = PLANTS[kase.device];
   const entry = catalogById.get(kase.device);
   if (!plant || !entry) continue;
 
-  const create = js[plant.create];
-  const step = js[plant.step];
-  if (typeof create !== 'function' || typeof step !== 'function') {
-    fail(`${id}: JS fallback exports missing (${plant.create} / ${plant.step})`);
-    continue;
-  }
-
-  const state = create();
-  seedCoupling(state, kase);
-  for (let i = 0; i < kase.frames; i++) step(state, kase.dt, kase.drive);
-
-  for (const key of entry.telemetryKeys) {
-    const native = kase.values.get(key);
-    if (native === undefined) {
-      fail(`${id}.${key}: catalog telemetry key has no native golden value`);
-      continue;
+  describe(`golden case ${id}`, () => {
+    const create = js[plant.create];
+    const step = js[plant.step];
+    const exportsOk = typeof create === 'function' && typeof step === 'function';
+    let state = null;
+    if (exportsOk) {
+      state = create();
+      seedCoupling(state, kase);
+      for (let i = 0; i < kase.frames; i++) step(state, kase.dt, kase.drive);
     }
-    const mine = state[key];
-    if (typeof mine !== 'number') {
-      fail(`${id}.${key}: JS fallback left it ${mine === undefined ? 'unset' : String(mine)}`);
-      continue;
-    }
-    if (!Number.isFinite(mine)) { fail(`${id}.${key}: JS value is ${mine}`); continue; }
-    if (!Number.isFinite(native)) { fail(`${id}.${key}: native value is ${native}`); continue; }
 
-    const eps = epsFor(kase.device, key);
-    compared++;
-    if (!agree(mine, native, eps)) {
-      const diff = Math.abs(mine - native);
-      const rel = diff / Math.max(Math.abs(mine), Math.abs(native), Number.MIN_VALUE);
-      fail(
-        `${id}.${key}: JS ${mine} vs native ${native} — |Δ| ${diff.toExponential(3)} ` +
-        `(relative ${rel.toExponential(3)}) exceeds rel ${eps.rel.toExponential(1)} / ` +
-        `abs ${eps.abs.toExponential(1)}${eps.why ? ` (${eps.why})` : ''}`
-      );
-    }
-  }
+    it('JS fallback exports exist', () => {
+      assert.ok(exportsOk, `${id}: JS fallback exports missing (${plant.create} / ${plant.step})`);
+    });
 
-  // Keys the native side reports that the catalog does not list would drop
-  // out of the diff unnoticed.
-  for (const key of kase.values.keys()) {
-    if (!entry.telemetryKeys.includes(key)) {
-      fail(`${id}.${key}: native golden emits it, but it is not in the catalog telemetryKeys`);
+    for (const key of entry.telemetryKeys) {
+      it(`${key}: JS ≈ native`, { skip: exportsOk ? false : 'JS fallback exports missing' }, () => {
+        const native = kase.values.get(key);
+        assert.ok(native !== undefined, `${id}.${key}: catalog telemetry key has no native golden value`);
+        const mine = state[key];
+        assert.ok(typeof mine === 'number', `${id}.${key}: JS fallback left it ${mine === undefined ? 'unset' : String(mine)}`);
+        assert.ok(Number.isFinite(mine), `${id}.${key}: JS value is ${mine}`);
+        assert.ok(Number.isFinite(native), `${id}.${key}: native value is ${native}`);
+
+        const eps = epsFor(kase.device, key);
+        const diff = Math.abs(mine - native);
+        const rel = diff / Math.max(Math.abs(mine), Math.abs(native), Number.MIN_VALUE);
+        assert.ok(agree(mine, native, eps),
+          `${id}.${key}: JS ${mine} vs native ${native} — |Δ| ${diff.toExponential(3)} ` +
+          `(relative ${rel.toExponential(3)}) exceeds rel ${eps.rel.toExponential(1)} / ` +
+          `abs ${eps.abs.toExponential(1)}${eps.why ? ` (${eps.why})` : ''}`);
+      });
     }
-  }
+
+    it('every native key is in the catalog telemetryKeys', () => {
+      // Keys the native side reports that the catalog does not list would drop
+      // out of the diff unnoticed.
+      for (const key of kase.values.keys()) {
+        assert.ok(entry.telemetryKeys.includes(key),
+          `${id}.${key}: native golden emits it, but it is not in the catalog telemetryKeys`);
+      }
+    });
+  });
 }
-
-if (failures.length) {
-  console.error(`[golden] ${failures.length} failure(s):`);
-  for (const f of failures) console.error(`  - ${f}`);
-  process.exit(1);
-}
-console.log(
-  `[golden] JS fallback matches the C++ plant on ${compared} telemetry keys ` +
-  `across ${cases.size} cases / ${dualIds.length} dual devices ` +
-  `(rel ε ${REL_EPS.toExponential(0)}, abs ε ${ABS_EPS.toExponential(0)})`
-);
