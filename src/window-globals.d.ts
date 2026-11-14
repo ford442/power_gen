@@ -209,6 +209,19 @@ export interface RendererInfoSnapshot {
     /** Passes with GPU timestamps last frame (`?gpuTiming=1` + debug toggle). */
     timed: string[];
   };
+  /** WebGPU only: pipeline compile tiers (visualizer/pipeline-tiers.ts). */
+  pipelineTiers?: {
+    /** msaa / ssr / taa / shadow → idle | compiling | ready | failed. */
+    states: Record<string, string>;
+    /** ms from first use to ready, per tier (plus `boot`). */
+    compileMs: Record<string, number>;
+  };
+  /** WebGPU only: render bundles (visualizer/render-bundles.ts). */
+  renderBundles?: { names: string[]; records: number; replays: number };
+  /** WebGPU only: the per-draw DeviceUniforms ring (visualizer/uniform-ring.ts). */
+  uniformRing?: { slotsUsed: number; slotsTotal: number; writes: number };
+  /** WebGPU only: whether last frame encoded the key-light shadow pass. */
+  shadow?: { active: boolean; allocated: boolean; size: number };
 }
 
 /** Canvas readback returned by window.captureCanvasFrame() (WebGL2 fallback + agent/e2e hooks). */

@@ -4,6 +4,7 @@
  */
 
 export type SchemaBindGroupLayoutName =
+  | 'frame'
   | 'roller'
   | 'particle'
   | 'segEnhanced'
@@ -20,7 +21,6 @@ export type SchemaBindGroupLayoutName =
   | 'choresReduce'
   | 'fluxTracer'
   | 'sky'
-  | 'empty'
   | 'anomalyWall'
   | 'bloomExtract'
   | 'bloomBlur'
@@ -35,42 +35,41 @@ export type SchemaBindGroupLayoutName =
 
 /** `GPUBindGroupLayoutDescriptor.entries` per named layout (visibility: 1=VERTEX 2=FRAGMENT 4=COMPUTE). */
 export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGroupLayoutEntry[]>> = {
-  roller: [
+  frame: [
     { binding: 0, visibility: 3, buffer: { type: 'uniform' } },
-    { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
-    { binding: 2, visibility: 1, buffer: { type: 'read-only-storage' } },
-    { binding: 3, visibility: 2, buffer: { type: 'uniform' } },
-    { binding: 5, visibility: 2, buffer: { type: 'read-only-storage' } },
-  ],
-  particle: [
-    { binding: 0, visibility: 3, buffer: { type: 'uniform' } },
-    { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
-    { binding: 3, visibility: 2, buffer: { type: 'uniform' } },
-    { binding: 4, visibility: 1, buffer: { type: 'read-only-storage' } },
-  ],
-  segEnhanced: [
-    { binding: 0, visibility: 3, buffer: { type: 'uniform' } },
-    { binding: 1, visibility: 3, buffer: { type: 'uniform', hasDynamicOffset: true } },
-    { binding: 2, visibility: 1, buffer: { type: 'read-only-storage' } },
-    { binding: 3, visibility: 2, buffer: { type: 'uniform' } },
     { binding: 4, visibility: 1, buffer: { type: 'uniform' } },
     { binding: 5, visibility: 2, buffer: { type: 'uniform' } },
     { binding: 6, visibility: 2, buffer: { type: 'read-only-storage' } },
     { binding: 7, visibility: 2, texture: { sampleType: 'float', viewDimension: '2d-array' } },
     { binding: 8, visibility: 2, sampler: { type: 'filtering' } },
+    { binding: 9, visibility: 2, texture: { sampleType: 'depth', viewDimension: '2d' } },
+    { binding: 10, visibility: 2, sampler: { type: 'comparison' } },
+    { binding: 11, visibility: 2, buffer: { type: 'uniform' } },
+  ],
+  roller: [
+    { binding: 1, visibility: 3, buffer: { type: 'uniform', hasDynamicOffset: true } },
+    { binding: 2, visibility: 1, buffer: { type: 'read-only-storage' } },
+    { binding: 3, visibility: 2, buffer: { type: 'uniform' } },
+  ],
+  particle: [
+    { binding: 1, visibility: 3, buffer: { type: 'uniform', hasDynamicOffset: true } },
+    { binding: 3, visibility: 2, buffer: { type: 'uniform' } },
+    { binding: 4, visibility: 1, buffer: { type: 'read-only-storage' } },
+  ],
+  segEnhanced: [
+    { binding: 1, visibility: 3, buffer: { type: 'uniform', hasDynamicOffset: true } },
+    { binding: 2, visibility: 1, buffer: { type: 'read-only-storage' } },
+    { binding: 3, visibility: 2, buffer: { type: 'uniform' } },
   ],
   fluxSegment: [
-    { binding: 0, visibility: 3, buffer: { type: 'uniform' } },
-    { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 3, buffer: { type: 'uniform', hasDynamicOffset: true } },
     { binding: 2, visibility: 1, buffer: { type: 'read-only-storage' } },
   ],
   fieldParticles: [
-    { binding: 0, visibility: 3, buffer: { type: 'uniform' } },
-    { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 3, buffer: { type: 'uniform', hasDynamicOffset: true } },
     { binding: 4, visibility: 1, buffer: { type: 'read-only-storage' } },
   ],
   energyPipe: [
-    { binding: 0, visibility: 3, buffer: { type: 'uniform' } },
     { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
     { binding: 2, visibility: 1, buffer: { type: 'read-only-storage' } },
   ],
@@ -79,8 +78,7 @@ export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGro
     { binding: 1, visibility: 4, buffer: { type: 'uniform' } },
   ],
   coil: [
-    { binding: 0, visibility: 3, buffer: { type: 'uniform' } },
-    { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 3, buffer: { type: 'uniform', hasDynamicOffset: true } },
     { binding: 2, visibility: 1, buffer: { type: 'read-only-storage' } },
     { binding: 3, visibility: 2, buffer: { type: 'uniform' } },
   ],
@@ -121,9 +119,7 @@ export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGro
   sky: [
     { binding: 0, visibility: 2, buffer: { type: 'uniform' } },
   ],
-  empty: [],
   anomalyWall: [
-    { binding: 0, visibility: 3, buffer: { type: 'uniform' } },
     { binding: 1, visibility: 2, buffer: { type: 'uniform' } },
   ],
   bloomExtract: [
@@ -182,7 +178,6 @@ export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGro
     { binding: 4, visibility: 4, buffer: { type: 'read-only-storage' } },
   ],
   fdtdSlice: [
-    { binding: 0, visibility: 1, buffer: { type: 'uniform' } },
     { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
     { binding: 2, visibility: 2, buffer: { type: 'uniform' } },
     { binding: 3, visibility: 2, buffer: { type: 'read-only-storage' } },
@@ -190,4 +185,36 @@ export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGro
     { binding: 5, visibility: 2, buffer: { type: 'read-only-storage' } },
     { binding: 6, visibility: 2, buffer: { type: 'read-only-storage' } },
   ],
+};
+
+/** `@group()` index each layout fills — scene pipelines are [frame (0), own (1)]. */
+export const BGL_GROUP: Readonly<Record<SchemaBindGroupLayoutName, number>> = {
+  frame: 0,
+  roller: 1,
+  particle: 1,
+  segEnhanced: 1,
+  fluxSegment: 1,
+  fieldParticles: 1,
+  energyPipe: 1,
+  energyPipeCompute: 0,
+  coil: 1,
+  particleCompute: 0,
+  overviewCull: 0,
+  rollerCompute: 0,
+  fieldAdvect: 0,
+  transformerFlux: 0,
+  choresReduce: 0,
+  fluxTracer: 0,
+  sky: 1,
+  anomalyWall: 1,
+  bloomExtract: 0,
+  bloomBlur: 0,
+  bloomMip: 0,
+  bloomComposite: 0,
+  ssr: 0,
+  iblPrefilter: 0,
+  taaResolve: 0,
+  depthResolve: 0,
+  fdtdCompute: 0,
+  fdtdSlice: 1,
 };

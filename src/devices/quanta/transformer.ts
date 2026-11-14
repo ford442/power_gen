@@ -19,6 +19,7 @@ import {
 } from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
 import type { DevicePlugin } from '../types';
+import { DEVICE_PART } from '../device-render';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
 import { TRANSFORMER } from '../../../generated/physics-constants';
@@ -207,26 +208,23 @@ const transformerComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']>
   return Math.min(1.0, e * 0.75 + ctx.speedNorm * 0.25);
 };
 
+/** Per-frame flux uniform staging; writeBuffer copies at call time, so one is enough. */
+const fluxScratch = new Float32Array(4);
+
 const transformerUpdateDynamics: NonNullable<DevicePlugin['updateDynamics']> = (instance) => {
   const buf = instance.transformerFluxUniformBuffer;
   if (!buf) return;
   const s = instance.physicsState;
-  instance.device.queue.writeBuffer(
-    buf,
-    0,
-    new Float32Array([
-      instance.visualizer.time ?? 0,
-      s?.transformerFluxN ?? 0,
-      s?.transformerK ?? TRANSFORMER.kIdeal,
-      instance.geometry.fluxTotalSegments ?? 1152
-    ])
-  );
+  fluxScratch[0] = instance.visualizer.time ?? 0;
+  fluxScratch[1] = s?.transformerFluxN ?? 0;
+  fluxScratch[2] = s?.transformerK ?? TRANSFORMER.kIdeal;
+  fluxScratch[3] = instance.geometry.fluxTotalSegments ?? 1152;
+  instance.device.queue.writeBuffer(buf, 0, fluxScratch);
 };
 
 const transformerDrawWebgpu: NonNullable<DevicePlugin['drawWebgpu']> = (
   instance,
   renderPass,
-  _globalUniformBuffer,
   skipEffects
 ) => {
   if (skipEffects) return;
@@ -237,7 +235,7 @@ const transformerDrawWebgpu: NonNullable<DevicePlugin['drawWebgpu']> = (
   const totalSegments = Math.floor((instance.geometry.fluxTotalSegments ?? 0) * qualityScale);
   if (totalSegments <= 0) return;
   renderPass.setPipeline(instance.pipelineManager.fluxSegmentPipeline);
-  renderPass.setBindGroup(0, instance.fluxSegmentRenderBindGroup);
+  renderPass.setBindGroup(1, instance.fluxSegmentRenderBindGroup, [instance._deviceUniformOffset(DEVICE_PART.rollers)]);
   renderPass.draw(4, totalSegments);
 };
 

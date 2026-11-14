@@ -16,6 +16,11 @@ import type { getPostQualityGates } from '../post-processing-config';
 import type { BloomChain, BloomChainPipelines } from './bloom-chain';
 import type { FrameGraph, FrameGraphReport } from './frame-graph';
 import type { FrameCtx } from './render-encode';
+import type { UniformRing } from './uniform-ring';
+import type { PipelineTiers } from './pipeline-tiers';
+import type { ShadowMap } from './shadow-map';
+import type { FrameBindings } from './frame-bindings';
+import type { StaticBundles } from './render-bundles';
 import type {
   MeshBuffers,
   VertexOnlyBuffers,
@@ -67,6 +72,11 @@ export interface VisualizerHostFields {
   // so class-body reads type-check.
   materialTableBuffer?: GPUBuffer | null;
   skyUniformBuffer?: GPUBuffer;
+  /** Reused SkyParams upload (written every frame). */
+  _skyUniformData?: Float32Array<ArrayBuffer>;
+  /** Reused per-frame upload staging (render-loop.ts) — no allocation per frame. */
+  _globalUniformData?: Float32Array<ArrayBuffer>;
+  _lightingUniformData?: Float32Array<ArrayBuffer>;
   batteryGaugeVertexBuffer?: GPUBuffer;
   batteryGaugeIndexBuffer?: GPUBuffer;
   batteryGaugeIndexCount?: number;
@@ -145,7 +155,6 @@ export interface VisualizerHostFields {
   gridPipelineBase?: GPURenderPipeline | null;
   gridPipelineMsaa4?: GPURenderPipeline | null;
   gridVertexBuffer?: GPUBuffer | null;
-  gridBindGroup?: GPUBindGroup | null;
   skyPipeline?: GPURenderPipeline | null;
   skyPipelineBase?: GPURenderPipeline | null;
   skyPipelineMsaa4?: GPURenderPipeline | null;
@@ -197,6 +206,20 @@ export interface VisualizerHostFields {
   _taaActive?: boolean;
   /** False until prevSceneTexture holds a copied frame — motion blur waits for it. */
   _historyValid?: boolean;
+
+  // ── #225 §3–4: uniform ring, frame group, bundles, tiers, shadow ───────
+  /** Per-draw DeviceUniforms slots, one writeBuffer per frame (uniform-ring.ts). */
+  uniformRing?: UniformRing | null;
+  /** Scene / shadow-pass @group(0) (frame-bindings.ts). */
+  frameBindings?: FrameBindings | null;
+  /** Static-geometry render bundles (render-bundles.ts). */
+  staticBundles?: StaticBundles | null;
+  /** Boot + lazily compiled pipeline tiers (pipeline-tiers.ts). */
+  pipelineTiers?: PipelineTiers | null;
+  /** Key-light shadow map + its uniforms (shadow-map.ts). */
+  shadowMap?: ShadowMap | null;
+  /** Whether the shadow pass encoded this frame. */
+  _shadowActive?: boolean;
 
   // ── Frame graph (visualizer/frame-graph.ts, render-encode.ts) ──────────
   _frameGraph?: FrameGraph<FrameCtx> | null;

@@ -197,7 +197,8 @@ export class WebGL2MultiDeviceVisualizer {
           'SEG enhanced PBR / UV materials',
           'glTF CAD housing / coil former / stand / base plate',
           'Roschin–Godin magnetic wall shells',
-          'WebGPU timestamp queries'
+          'WebGPU timestamp queries',
+          'key-light shadow map'
         ],
         hardwareTwin: snap?.hardwareTwin ?? null,
         chores: gpuChores.breadcrumb(),

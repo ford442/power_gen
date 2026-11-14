@@ -8,10 +8,17 @@ When changing a binding, update **both** the layout module and the pass WGSL in 
 
 ## New pass checklist
 
-1. Add a pass in `src/shaders/passes/` with explicit `@binding` / `@group(0)`.
-2. Register `GPUBindGroupLayout` + `GPUPipelineLayout` in the matching `src/pipeline-layout/layouts/*.ts` module — **no** `layout: 'auto'`.
-3. Document bindings in this file (table under **Group 0 layouts**).
-4. Run `npm run check:wgsl` and `npm run check:post` when CPU↔WGSL struct coupling exists.
+1. Add a pass in `src/shaders/passes/` with explicit `@binding` / `@group`.
+   A draw in the scene pass reads camera / lighting / IBL / shadow from the
+   shared **`@group(0)` frame group** and declares only its own resources at
+   **`@group(1)`**; compute and post passes keep a single `@group(0)`.
+2. Add the layout to `src/pipeline-layout/bind-group-schema.json` (`"group": 1`
+   for a scene draw), run `npm run codegen:bindings`, and register it in the
+   matching `src/pipeline-layout/layouts/*.ts` module — scene pipeline layouts
+   are `['frame', <own>]`. **No** `layout: 'auto'`.
+3. Document bindings in this file.
+4. Run `npm run check:bindings`, `npm run check:wgsl`, and `npm run check:post`
+   when CPU↔WGSL struct coupling exists.
 
 ## Architecture
 
@@ -23,48 +30,37 @@ When changing a binding, update **both** the layout module and the pass WGSL in 
 
 There is **no** `layout: 'auto'` in production pipelines.
 
-## Group 0 layouts (device / scene)
+## Scene pass: `@group(0)` frame + `@group(1)` per draw (#225 §3)
 
-All current shaders use **@group(0)** only. Multi-group layouts can be added later without renumbering bindings inside a group.
+Every pipeline drawn in the scene pass (and the shadow pass) has the pipeline
+layout `[frame, <own>]`. The scene pass binds the frame group **once**
+(`render-passes.ts` `encodeScene`, `visualizer/frame-bindings.ts`); bind groups
+survive `setPipeline`, so each draw only sets `@group(1)`. A render bundle's
+`executeBundles` resets pass state, so the pass rebinds group 0 after each one
+(`visualizer/render-bundles.ts`).
 
-### `roller` — instanced mesh (rollers, fallback geometry)
-
-| Binding | Type | Stages | Resource |
-|---------|------|--------|----------|
-| 0 | uniform | VS+FS | Global frame (`viewProj`, time, camera, lights) |
-| 1 | uniform | VS+FS | Per-device uniforms |
-| 2 | storage (read) | VS | Instance table |
-| 3 | uniform | FS | Material uniforms |
-| 5 | storage (read) | FS | Material table |
-
-WGSL: `passes/roller-vert.wgsl`, `passes/roller-frag.wgsl`
-
-### `particle` — particle billboards
+### `frame` — shared scene data (`@group(0)`)
 
 | Binding | Type | Stages | Resource |
 |---------|------|--------|----------|
-| 0 | uniform | VS+FS | Global frame |
-| 1 | uniform | VS+FS | Per-device uniforms |
-| 3 | uniform | FS | Material |
-| 4 | storage (read) | VS | `array<GpuParticle>` particles (16 B stride) |
-
-WGSL: `passes/particle-vert.wgsl`, `passes/particle-frag.wgsl` + `common/particle.wgsl` (`GpuParticle`)
-
-### `segEnhanced` — SEG PBR meshes
-
-| Binding | Type | Stages | Resource |
-|---------|------|--------|----------|
-| 0 | uniform | VS+FS | Global frame |
-| 1 | uniform | VS+FS | Per-device uniforms |
-| 2 | storage (read) | VS | Instances |
-| 3 | uniform | FS | Material |
+| 0 | uniform | VS+FS | Global frame `Uniforms` (`viewProj`, time, resolution, camera, light packs) |
 | 4 | uniform | VS | SEG layout pack |
-| 5 | uniform | FS | Lighting config |
+| 5 | uniform | FS | `LightingConfig` (key / fill / rim / ground, ambient, env strength, IBL levels) |
 | 6 | storage (read) | FS | Material table |
 | 7 | texture (2d-array) | FS | Prefiltered GGX environment |
 | 8 | sampler | FS | Environment sampler (linear, clamp) |
+| 9 | texture_depth_2d | FS | Key-light shadow map (1×1 placeholder while released) |
+| 10 | sampler_comparison | FS | Shadow compare sampler (`less-equal`, linear → 2×2 hardware PCF per tap) |
+| 11 | uniform | FS | `ShadowUniforms` — light viewProj, enabled / texel / bias / strength, normal offset (96 B, `common/shadow-pcf.wgsl`) |
 
-WGSL: `passes/seg-enhanced-vert.wgsl`, `passes/seg-enhanced-frag.wgsl`
+Bindings 1–3 are unused here: they kept their pre-#225 numbers in the group-1
+layouts below. Binding numbers are per group, so `particle`'s `@group(1)
+@binding(4)` and the frame's `@group(0) @binding(4)` do not collide.
+
+Two groups share this layout. The **scene** group binds the real map at 9.
+The **shadow-pass** group binds `shadow-caster-uniforms` at 0 (same `Uniforms`
+struct, `viewProj` = the light's matrix) and the placeholder at 9, because the
+map is that pass's depth attachment.
 
 Bindings 7–8 are the always-on prefiltered IBL chain (ADR-0005 WS2): a
 `rgba16float` 2D array baked at startup and sampled in `common/pbr-eval.wgsl`.
@@ -73,29 +69,82 @@ Layers `0..IBL_SPEC_LEVELS-1` hold octahedral GGX radiance for roughness
 (`passes/ibl-prefilter-compute.wgsl`, the `iblPrefilter` layout below), with
 the CPU bake in `src/ibl-prefilter.ts` as the fallback.
 
-### `fluxSegment` — RK4 flux billboards
+### Per-draw `DeviceUniforms`: one ring, dynamic offsets
+
+`@group(1) @binding(1)` in `roller`, `particle`, `segEnhanced`, `fluxSegment`,
+`fieldParticles` and `coil` is `hasDynamicOffset: true`, bound as a 48 B window
+into **one** 256-byte-slotted buffer (`visualizer/uniform-ring.ts`). Each
+(device, part) — rollers / bench / stator / wiring / ring top / ring bottom,
+`DEVICE_PART` in `devices/device-render.ts` — owns a **stable** slot, so a
+draw passes `setBindGroup(1, bg, [offset])` and a render bundle can record that
+offset once. Every device repacks its slots in place after the physics step
+(`_refreshDeviceUniforms`, `render-loop.ts`) and the frame makes **one**
+`writeBuffer` of the slots in use right before submit. Nothing allocates a
+`Float32Array` per draw. 256 B is the largest legal
+`minUniformBufferOffsetAlignment`, so the offsets are valid on every adapter.
+
+### `roller` — instanced mesh (rollers, fallback geometry) — `@group(1)`
 
 | Binding | Type | Stages | Resource |
 |---------|------|--------|----------|
-| 0 | uniform | VS+FS | Global frame |
-| 1 | uniform | VS+FS | Per-device uniforms |
+| 1 | uniform, dynamic offset | VS+FS | `DeviceUniforms` (ring slot) |
+| 2 | storage (read) | VS | Instance table |
+| 3 | uniform | FS | Material uniforms |
+
+WGSL: `passes/roller-vert.wgsl`, `passes/roller-frag.wgsl` (reads the material
+table at frame binding 6 and the shadow map at 9–11)
+
+### `particle` — particle billboards — `@group(1)`
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 1 | uniform, dynamic offset | VS+FS | `DeviceUniforms` |
+| 3 | uniform | FS | Material |
+| 4 | storage (read) | VS | `array<GpuParticle>` particles (16 B stride) |
+
+WGSL: `passes/particle-vert.wgsl`, `passes/particle-frag.wgsl` + `common/particle.wgsl` (`GpuParticle`)
+
+### `segEnhanced` — SEG PBR meshes and CAD props — `@group(1)`
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 1 | uniform, dynamic offset | VS+FS | `DeviceUniforms` |
+| 2 | storage (read) | VS | Instances |
+| 3 | uniform | FS | Material |
+
+WGSL: `passes/seg-enhanced-vert.wgsl`, `passes/seg-enhanced-frag.wgsl` (frame
+bindings 4–11: layout pack, lighting, IBL, shadow)
+
+### `fluxSegment` — RK4 flux billboards — `@group(1)`
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 1 | uniform, dynamic offset | VS+FS | `DeviceUniforms` |
 | 2 | storage (read) | VS | Flux segments |
 
-### `fieldParticles` — field lines / energy arcs
+### `fieldParticles` — field lines / energy arcs — `@group(1)`
 
 | Binding | Type | Stages | Resource |
 |---------|------|--------|----------|
-| 0 | uniform | VS+FS | Global frame |
-| 1 | uniform | VS+FS | Per-device uniforms |
+| 1 | uniform, dynamic offset | VS+FS | `DeviceUniforms` |
 | 4 | storage (read) | VS | Particles / arc segments |
 
-### `energyPipe` — overview energy pipes
+### `energyPipe` — overview energy pipes — `@group(1)`
 
 | Binding | Type | Stages | Resource |
 |---------|------|--------|----------|
-| 0 | uniform | VS+FS | Global frame |
-| 1 | uniform | VS+FS | Pipe uniforms |
+| 1 | uniform | VS+FS | Pipe uniforms (one buffer per pipe, not the ring) |
 | 2 | storage (read) | VS | Pipe particles |
+
+### `coil` — electromagnet coils — `@group(1)`
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 1 | uniform, dynamic offset | VS+FS | `DeviceUniforms` |
+| 2 | storage (read) | VS | Coil instances |
+| 3 | uniform | FS | Coil material |
+
+## Compute and post layouts (`@group(0)` only)
 
 ### `energyPipeCompute` — overview pipe particle advection
 
@@ -105,15 +154,6 @@ the CPU bake in `src/ibl-prefilter.ts` as the fallback.
 | 1 | uniform | CS | `PipeCurve` (Bezier endpoints + flow) |
 
 WGSL: `passes/energy-pipe-compute.wgsl`
-
-### `coil` — electromagnet coils
-
-| Binding | Type | Stages | Resource |
-|---------|------|--------|----------|
-| 0 | uniform | VS+FS | Global frame |
-| 1 | uniform | VS+FS | Per-device uniforms |
-| 2 | storage (read) | VS | Coil instances |
-| 3 | uniform | FS | Coil material |
 
 ### `particleCompute` — GPU particle integration (shared)
 
@@ -213,10 +253,10 @@ group either way (`?fdtdMaterials=0` clears the flag).
 
 `passes/fdtd-slice.wgsl`, a six-vertex world-space quad (no vertex buffer)
 drawn after the device meshes. Reads the same field buffers read-only.
+Scene draw: `@group(1)`, with `viewProj` from the frame group's binding 0.
 
 | Binding | Type | Stages | Resource |
 |---------|------|--------|----------|
-| 0 | uniform | VS | Global frame uniforms (`viewProj`) |
 | 1 | uniform | VS, FS | `FdtdSliceParams` (32 B: center, halfExtent, gains, opacity) |
 | 2 | uniform | FS | `FdtdParams` (grid size, sponge depth, winding markers) |
 | 3 | storage (read) | FS | Ez |
@@ -234,9 +274,9 @@ gate could open.
 
 | Layout | Bindings |
 |--------|----------|
-| `sky` | 0 uniform sky params |
-| `empty` | (none) — floor grid |
-| `anomalyWall` | 0 global, 1 wall params |
+| `sky` | `@group(1)` 0 uniform sky params (frame group at 0) |
+| `grid` (pipeline layout) | `['frame']` — the floor grid needs nothing but the frame |
+| `anomalyWall` | `@group(1)` 1 wall params (frame group at 0) |
 | `bloomExtract` | 0 scene tex, 1 sampler, 2 params |
 | `bloomBlur` | 0 tex, 1 sampler, 2 params, 3 direction |
 | `bloomMip` | 0 source mip (or scene), 1 sampler, 2 params, 3 `BloomLevel` (256-byte-strided slots) — prefilter / downsample / upsample of the linear-path mip chain |
@@ -254,7 +294,7 @@ pass's second color target — see "Metalness/roughness G-buffer" in
 `docs/LIGHTING_RIG.md`.
 
 The scene render pass itself (`sky` → `grid` → per-device meshes →
-`anomalyWall` → `energyPipe`, encoded in `render-loop.ts`) has **two** color
+`anomalyWall` → `energyPipe`, encoded in `render-passes.ts`) has **two** color
 attachments once the G-buffer is allocated: slot 0 is the existing scene
 color, slot 1 is the `rg8unorm` G-buffer. Every pipeline drawn in that pass
 must declare a `fragment.targets` array with two entries to stay compatible —
@@ -295,35 +335,44 @@ has zero color targets (`fragment.targets: []`) and writes
 `depthCompare: 'always'`. See "4x MSAA" in `docs/LIGHTING_RIG.md`.
 
 **MSAA pipeline variants:** every render pipeline in the scene pass listed
-above (11 total) is compiled **twice** — once at `multisample.count: 1`
-(the default) and once at `count: 4`, cache key suffix `_msaa4` — since
-`multisample` is baked into a `GPURenderPipeline` at creation and can't be a
-runtime toggle. Both are created eagerly in `ensureDevicePipelines(shaders,
-{ sampleCount: 4 })` / the equivalent `ensureXPipeline(..., { sampleCount: 4
-})` calls, not lazily on first use. `DevicePipelineManager.applyMsaaState()`
-(per-device) and a handful of `if (this.XPipelineBase) this.XPipeline =
-msaaActive ? ... : ...` lines in `render-loop.ts` (for the four
-non-per-device pipelines: sky, grid, anomalyWall, energyPipe) pick the active
-variant once per frame — cheap reference reassignment, no GPU work. Layouts
-(bind group + pipeline layout) are identical between variants; only
-`multisample` differs.
+above is compiled at `multisample.count: 1` and, separately, at `count: 4`
+(cache key suffix `_msaa4`) — `multisample` is baked into a
+`GPURenderPipeline`. The 4× set is **not** built at boot: it is the `msaa`
+tier in `visualizer/pipeline-tiers.ts`, compiled the first frame the MSAA
+gate (`high` tier + focus) would open; until it lands those frames render 1×.
+`DevicePipelineManager.applyPassVariant()` (per device) and four reference
+swaps in `render-passes.ts` (sky, grid, anomalyWall, energyPipe) pick the
+active variant each pass — no GPU work. Layouts are identical between
+variants.
+
+**Shadow caster variants:** `roller_shadow` and `segEnhanced_shadow` are the
+same vertex shaders and layouts with no fragment stage, `cullMode: 'none'`, a
+slope-scaled depth bias and a `depth32float` target (`ensureShadowCasterPipelines`).
+They are the `shadow` tier: compiled on first use, never in overview.
 
 ## Shared pipeline compile policy
 
-`PipelineLayoutCache.ensureDevicePipelines(shaders)` runs **twice** at multi-device init
-(`{ sampleCount: 4 }` on the second call — see "MSAA pipeline variants" above):
+`PipelineTiers.boot()` (`visualizer/pipeline-tiers.ts`) builds the 1× scene
+set, particle / cull / energy-pipe compute and the bloom stack in **one
+`Promise.all`** of `createRenderPipelineAsync` / `createComputePipelineAsync`
+before the first frame. `msaa`, `ssr`, `taa` and `shadow` compile on first use.
 
-- Creates roller, particle, segEnhanced, fluxSegment, energyArc, fieldLine, coil, particleCompute
-  (the last only on the `sampleCount: 1` call — compute pipelines have no multisample state)
-- Each `DevicePipelineManager.setupPipelines()` only **assigns references** (cache hits)
-- SEG-only compute (roller / field advect / flux tracer) is also cached by shader hash
+- `PipelineLayoutCache.getOrCreatePipeline` dedupes in-flight compiles, so two
+  tiers asking for the same pipeline share one promise.
+- `shaderModule()` is keyed by the **source text**: two labels with the same
+  code share a module; a changed shader never hits a stale one.
+- Each `DevicePipelineManager.setupPipelines()` only **assigns references**.
+- SEG-only compute (roller / field advect / flux tracer) is cached by shader hash.
 
 Expect: **O(1) pipeline compiles per shader family**, not O(devices).
+`getRendererInfo().pipelineTiers` reports each tier's state and compile time.
 
 ## Schema codegen + drift check
 
 `src/pipeline-layout/bind-group-schema.json` is the source of truth for every
-`@group(0)` bind group layout: entries (`[binding, stages, kind, format?]`) and
+bind group layout: its `group` (0 unless stated; scene draws are 1), entries
+(`[binding, stages, kind, format?]`, kind `uniform-dynamic` for a ring slot)
+and
 the WGSL pass files of each pipeline built on it. `npm run codegen:bindings`
 (`scripts/codegen-bindings.mjs`) emits
 `src/pipeline-layout/generated/bind-group-layouts.ts`; the registrars in
@@ -335,7 +384,9 @@ TS is stale, a registrar bypasses `BGL.<name>`, a schema layout is unregistered,
 a pipeline's WGSL declares a binding the layout lacks or with a different
 resource kind / storage-texture format, a layout entry is used by no pipeline,
 or a pass file with bindings maps to no layout (unless listed under
-`unboundPasses`). Coverage: **all** layouts.
+`unboundPasses`). Each layout is checked against the WGSL declarations of
+**its** group; per-stage limits count a scene pipeline's frame + own entries
+together. Coverage: **all** layouts.
 
 To change a binding: edit the schema + the WGSL, then `npm run codegen:bindings`.
 Keep the tables above in sync by hand (they document meaning, not numbers).

@@ -223,22 +223,15 @@ export function deviceWantsThermalHaze(instance: DeviceInstanceLike): boolean {
 export function runDrawWebgpu(
   instance: DeviceInstanceLike,
   renderPass: GPURenderPassEncoder,
-  globalUniformBuffer: GPUBuffer,
   skipEffects: boolean
 ): void {
-  plugins.get(instance.id)?.drawWebgpu?.(instance, renderPass, globalUniformBuffer, skipEffects);
+  plugins.get(instance.id)?.drawWebgpu?.(instance, renderPass, skipEffects);
 }
 
 export function runDrawWebgpuOverlay(
   instance: DeviceInstanceLike,
   renderPass: GPURenderPassEncoder,
-  globalUniformBuffer: GPUBuffer,
   skipEffects: boolean
 ): void {
-  plugins.get(instance.id)?.drawWebgpuOverlay?.(
-    instance,
-    renderPass,
-    globalUniformBuffer,
-    skipEffects
-  );
+  plugins.get(instance.id)?.drawWebgpuOverlay?.(instance, renderPass, skipEffects);
 }

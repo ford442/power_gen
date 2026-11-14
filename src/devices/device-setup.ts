@@ -81,13 +81,11 @@ export const DeviceSetupMixin = {
       'flux-tracer-bg'
     );
 
-    if (!this.visualizer.globalUniformBuffer) return;
     // Pre-create the render bind group so render() can reuse it every frame.
     this.fluxSegmentRenderBindGroup = cache.createBindGroup(
       'fluxSegment',
       [
-        { binding: 0, resource: { buffer: this.visualizer.globalUniformBuffer } },
-        { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
+        { binding: 1, resource: this._deviceUniformResource() },
         { binding: 2, resource: { buffer: this.geometry.fluxSegmentBuffer } }
       ],
       'flux-segment-render-bg'
@@ -128,17 +126,14 @@ export const DeviceSetupMixin = {
       ],
       'transformer-flux-bg'
     );
-    if (this.visualizer.globalUniformBuffer) {
-      this.fluxSegmentRenderBindGroup = cache.createBindGroup(
-        'fluxSegment',
-        [
-          { binding: 0, resource: { buffer: this.visualizer.globalUniformBuffer } },
-          { binding: 1, resource: { buffer: this.deviceUniformBuffer } },
-          { binding: 2, resource: { buffer: this.geometry.fluxSegmentBuffer } }
-        ],
-        'transformer-flux-segment-render-bg'
-      );
-    }
+    this.fluxSegmentRenderBindGroup = cache.createBindGroup(
+      'fluxSegment',
+      [
+        { binding: 1, resource: this._deviceUniformResource() },
+        { binding: 2, resource: { buffer: this.geometry.fluxSegmentBuffer } }
+      ],
+      'transformer-flux-segment-render-bg'
+    );
     this.fieldLineEnabled = true;
     this.transformerFluxLineCount = LINE_COUNT;
   },

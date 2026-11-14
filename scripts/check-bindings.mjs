@@ -12,12 +12,17 @@
  *   - a `r.bgl('name', ...)` in src/pipeline-layout/layouts/*.ts does not pass
  *     `BGL.name` (hand-written entries bypass the schema), or a schema layout
  *     is never registered / a registered one is missing from the schema;
- *   - a pipeline's WGSL declares a `@group(0)` binding the layout lacks, or
- *     with a different resource kind (uniform / storage rw / storage read /
- *     texture / depth / sampler / storage texture + format);
- *   - a layout entry is declared by none of its pipelines' WGSL;
- *   - a pass file in src/shaders/passes/ declares bindings but belongs to no
- *     layout (and is not listed under `unboundPasses`).
+ *   - a pipeline's WGSL declares a binding in the layout's `@group()` (schema
+ *     `group`, default 0) that the layout lacks, or with a different resource
+ *     kind (uniform / storage rw / storage read / texture / depth / sampler /
+ *     comparison sampler / storage texture + format);
+ *   - a layout entry is declared by none of its pipelines' WGSL (for the
+ *     shared `frame` group this is the union over every scene pipeline);
+ *   - a pass file declares a `@group(n)` no layout listing it covers, or
+ *     declares bindings but belongs to no layout (and is not listed under
+ *     `unboundPasses`);
+ *   - a scene pipeline's layout ([frame, own]) exceeds a core per-stage
+ *     default once both groups are counted.
  *
  * naga (check:wgsl) validates each WGSL file in isolation and can't see the
  * JS side; this closes that gap for every layout.
@@ -75,6 +80,7 @@ function wgslKind(addrSpace, type) {
     return { kind: `?${addrSpace}` };
   }
   if (t === 'sampler') return { kind: 'sampler' };
+  if (t === 'sampler_comparison') return { kind: 'sampler-comparison' };
   if (t === 'texture_depth_2d') return { kind: 'texture-depth' };
   if (t === 'texture_depth_multisampled_2d') return { kind: 'texture-depth-ms' };
   if (t === 'texture_2d<f32>') return { kind: 'texture' };
@@ -91,20 +97,23 @@ const wgslCache = new Map();
 function parseWgsl(file) {
   if (wgslCache.has(file)) return wgslCache.get(file);
   const src = fs.readFileSync(path.join(PASSES_DIR, file), 'utf8');
-  const out = new Map(); // binding -> {kind, format}
+  const out = new Map(); // group -> Map(binding -> {kind, format})
   for (const m of src.matchAll(DECL_RE)) {
     const group = Number(m[1].match(/@group\(\s*(\d+)/)[1]);
     const binding = Number(m[1].match(/@binding\(\s*(\d+)/)[1]);
-    if (group !== 0) continue;
-    out.set(binding, wgslKind(m[2], m[3]));
+    if (!out.has(group)) out.set(group, new Map());
+    out.get(group).set(binding, wgslKind(m[2], m[3]));
   }
   wgslCache.set(file, out);
   return out;
 }
 
 const mappedPasses = new Set();
+/** pass file -> groups some layout listing it covers */
+const coveredGroups = new Map();
 let checked = 0;
 for (const [name, layout] of Object.entries(layouts)) {
+  const group = layout.group ?? 0;
   // WGSL cannot tell a dynamic-offset uniform from a plain one.
   const entries = new Map(layout.entries.map(([b, , kind, format]) => [
     b, { kind: kind === 'uniform-dynamic' ? 'uniform' : kind, format }
@@ -114,15 +123,17 @@ for (const [name, layout] of Object.entries(layouts)) {
   for (const files of layout.pipelines) {
     for (const f of files) {
       mappedPasses.add(f);
+      if (!coveredGroups.has(f)) coveredGroups.set(f, new Set());
+      coveredGroups.get(f).add(group);
       if (!fs.existsSync(path.join(PASSES_DIR, f))) {
         fail(`${name}: pass file ${f} does not exist`);
         continue;
       }
-      for (const [b, decl] of parseWgsl(f)) {
+      for (const [b, decl] of parseWgsl(f).get(group) ?? []) {
         used.add(b);
         const e = entries.get(b);
         if (!e) {
-          fail(`${name}: ${f} declares @binding(${b}) but the layout has no entry ${b}`);
+          fail(`${name}: ${f} declares @group(${group}) @binding(${b}) but the layout has no entry ${b}`);
         } else if (e.kind !== decl.kind || (e.format && e.format !== decl.format)) {
           fail(`${name}@${b}: layout says ${e.kind}${e.format ? `(${e.format})` : ''}, ${f} declares ${decl.kind}${decl.format ? `(${decl.format})` : ''}`);
         }
@@ -133,31 +144,41 @@ for (const [name, layout] of Object.entries(layouts)) {
     if (!used.has(b)) fail(`${name}: entry ${b} is declared by none of ${layout.pipelines.flat().join(', ')}`);
   }
   checked += 1;
-  if (failures === before) console.log(`  ok: ${name} — {${[...entries.keys()].sort((a, b) => a - b).join(', ')}}`);
+  if (failures === before) console.log(`  ok: ${name} @group(${group}) — {${[...entries.keys()].sort((a, b) => a - b).join(', ')}}`);
 }
 
 for (const f of fs.readdirSync(PASSES_DIR).filter((p) => p.endsWith('.wgsl'))) {
-  if (mappedPasses.has(f) || unbound.has(f)) continue;
-  if (parseWgsl(f).size > 0) fail(`${f} declares @group(0) bindings but maps to no layout in bind-group-schema.json`);
+  if (unbound.has(f)) continue;
+  const groups = parseWgsl(f);
+  if (!mappedPasses.has(f)) {
+    if (groups.size > 0) fail(`${f} declares bindings but maps to no layout in bind-group-schema.json`);
+    continue;
+  }
+  for (const g of groups.keys()) {
+    if (!coveredGroups.get(f).has(g)) fail(`${f} declares @group(${g}) bindings but no layout listing it fills group ${g}`);
+  }
 }
 
 // Per-stage resource counts must fit the WebGPU core defaults: PREFERRED_LIMITS
-// (webgpu-init/adapter.ts) requests nothing, so a layout that outgrows a
-// default would fail createBindGroupLayout on every adapter at boot.
+// (webgpu-init/adapter.ts) requests nothing, so a pipeline layout that
+// outgrows a default would fail createPipelineLayout on every adapter at
+// boot. A group-1 layout is counted together with the frame group it is
+// paired with, since the limit is per pipeline layout.
 {
   const CORE_DEFAULTS = {
     'storage buffers': [8, (k) => k === 'storage' || k === 'storage-ro'],
     'uniform buffers': [12, (k) => k === 'uniform' || k === 'uniform-dynamic'],
     'sampled textures': [16, (k) => k.startsWith('texture')],
     'storage textures': [4, (k) => k.startsWith('storage-texture')],
-    samplers: [16, (k) => k === 'sampler']
+    samplers: [16, (k) => k === 'sampler' || k === 'sampler-comparison']
   };
   for (const [what, [limit, match]] of Object.entries(CORE_DEFAULTS)) {
     let peak = 0;
     let where = '';
     for (const [name, layout] of Object.entries(layouts)) {
+      const paired = (layout.group ?? 0) === 1 ? [...layouts.frame.entries, ...layout.entries] : layout.entries;
       for (const stage of 'VFC') {
-        const n = layout.entries.filter(([, st, kind]) => st.includes(stage) && match(kind)).length;
+        const n = paired.filter(([, st, kind]) => st.includes(stage) && match(kind)).length;
         if (n > peak) { peak = n; where = `${name}/${stage}`; }
       }
     }

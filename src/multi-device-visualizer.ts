@@ -313,13 +313,13 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   _uploadSkyUniforms(energy = 0): void {
     if (!this.skyUniformBuffer || !this.device) return;
     const sky = this.postPreset?.sky ?? getLightingPreset(this.lightingLook, this.webgpu.colorMode).sky;
-    writeQueueBuffer(this.device, this.skyUniformBuffer, new Float32Array([
-      sky.mode,
-      sky.energy + energy * 0.5,
-      // SkyParams.linear: decode the backdrop's sRGB-picked literals (sky-frag.wgsl).
-      this.webgpu.colorMode === 'linear' ? 1 : 0,
-      0
-    ]));
+    const data = (this._skyUniformData ??= new Float32Array(4));
+    data[0] = sky.mode;
+    data[1] = sky.energy + energy * 0.5;
+    // SkyParams.linear: decode the backdrop's sRGB-picked literals (sky-frag.wgsl).
+    data[2] = this.webgpu.colorMode === 'linear' ? 1 : 0;
+    data[3] = 0;
+    writeQueueBuffer(this.device, this.skyUniformBuffer, data);
   }
 
   refreshSEGLayout(qualityScale = 1.0): SegLayout {
@@ -592,8 +592,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   }
 
   async setupEnergyPipePipeline(): Promise<void> {
+    // The 4× variant compiles with the MSAA tier (visualizer/pipeline-tiers.ts).
     this.energyPipePipelineBase = await this.pipelineCache!.ensureEnergyPipePipeline(this.shaders);
-    this.energyPipePipelineMsaa4 = await this.pipelineCache!.ensureEnergyPipePipeline(this.shaders, { sampleCount: 4 });
     this.energyPipePipeline = this.energyPipePipelineBase;
     this.energyPipeComputePipeline = await this.pipelineCache!.ensureEnergyPipeComputePipeline(this.shaders);
     for (const pipe of this.energyPipes) {

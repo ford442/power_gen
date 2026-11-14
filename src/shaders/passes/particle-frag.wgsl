@@ -9,8 +9,8 @@
       }
       
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
-      @binding(1) @group(0) var<uniform> device: DeviceUniforms;
-      @binding(3) @group(0) var<uniform> material: MaterialUniforms;
+      @binding(1) @group(1) var<uniform> device: DeviceUniforms;
+      @binding(3) @group(1) var<uniform> material: MaterialUniforms;
       
       struct FragmentInput {
         @location(0) particlePhase: f32,

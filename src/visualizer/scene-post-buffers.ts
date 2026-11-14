@@ -101,15 +101,11 @@ export const scenePostBufferMethods: ThisType<Host> & {
     ], 'depth-resolve-bg');
   },
 
+  /**
+   * The depth-resolve pipeline compiles with the MSAA tier, the first frame
+   * MSAA is wanted (pipeline-tiers.ts) — a failure there only costs MSAA.
+   */
   async setupDepthResolvePipeline() {
-    const cache = this.pipelineCache;
-    if (!cache) return;
-    try {
-      this.depthResolvePipeline = await cache.ensureDepthResolvePipeline(this.shaders);
-    } catch (e) {
-      console.warn('[MultiDeviceVisualizer] Depth-resolve pipeline unavailable — 4x MSAA disabled:', e);
-      this.depthResolvePipeline = null;
-    }
     this._rebuildDepthResolveBindGroup();
   },
 
@@ -124,14 +120,7 @@ export const scenePostBufferMethods: ThisType<Host> & {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.profiler.trackBuffer('ssr-params', SSR_PARAMS_BYTES, GPUBufferUsage.UNIFORM);
-
-    try {
-      this.ssrPipeline = await cache.ensureSsrPipeline(this.shaders.ssrComputeShader);
-    } catch (e) {
-      console.warn('[MultiDeviceVisualizer] SSR pipeline unavailable — reflections disabled:', e);
-      this.ssrPipeline = null;
-      this.ssrEnabled = false;
-    }
+    // The pipeline compiles the first frame SSR is gated on (pipeline-tiers.ts).
     this._rebuildSsrBindGroup();
   },
 
@@ -398,13 +387,7 @@ export const scenePostBufferMethods: ThisType<Host> & {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.profiler.trackBuffer('taa-params', TAA_PARAMS_BYTES, GPUBufferUsage.UNIFORM);
-
-    try {
-      this.taaPipeline = await cache.ensureTaaResolvePipeline(this.shaders, cache.sceneFormat);
-    } catch (e) {
-      console.warn('[MultiDeviceVisualizer] TAA pipeline unavailable — temporal AA disabled:', e);
-      this.taaPipeline = null;
-    }
+    // The pipeline compiles the first frame TAA is gated on (pipeline-tiers.ts).
     this._rebuildTaaBindGroups();
   },
 

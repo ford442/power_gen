@@ -9,6 +9,13 @@
  * Nested includes are expanded; cycles throw. Lines that are only
  * whitespace + a comment after the include are allowed.
  *
+ * Include guard: each file is expanded at most once per top-level source. A
+ * second `#include` of the same file (directly or through another chunk) is
+ * replaced by a marker comment, so two chunks may both depend on
+ * `common/frame-uniforms.wgsl` without redeclaring `Uniforms`. The Vite
+ * plugin (`vite-plugin-wgsl-include.js`) calls `resolveWgsl`, so the bundle
+ * and CI expand identically.
+ *
  * Browser / Vite: use `resolveWgsl` on string sources, or the Vite plugin
  * that preprocesses `*.wgsl?raw` imports. Node / CI: `loadWgslFile`.
  */
@@ -54,6 +61,8 @@ export function resolveIncludePath(includePath, fromFile) {
 export function resolveWgsl(source, opts = {}) {
   const stack = opts.stack || [];
   const fromFile = opts.fromFile || null;
+  /** Files already expanded into this top-level source (the include guard). */
+  const included = opts.included || new Set();
   const lines = source.split(/\r?\n/);
   const out = [];
 
@@ -71,11 +80,17 @@ export function resolveWgsl(source, opts = {}) {
         `[wgsl-include] cycle: ${[...stack, key].map((p) => relative(SHADER_ROOT, p)).join(' → ')}`
       );
     }
+    if (included.has(key)) {
+      out.push(`// ---- include ${m[1]} skipped (already included) ----`);
+      continue;
+    }
+    included.add(key);
 
     const body = readFileSync(abs, 'utf8');
     const expanded = resolveWgsl(body, {
       fromFile: abs,
-      stack: [...stack, key]
+      stack: [...stack, key],
+      included
     });
     out.push(`// ---- begin include ${m[1]} ----`);
     out.push(expanded);

@@ -204,8 +204,16 @@ export const renderLoopMethods: ThisType<Host> & {
 
     profiler.recordFrame(deltaTime, totalParticles);
 
-    // Update global uniforms with extended lighting data
-    const globalData = new Float32Array(128); // 512 bytes / 4 = 128 floats
+    // Every device's DeviceUniforms slots in the shared ring (#225 §3): repacked
+    // after the physics step, uploaded with one writeBuffer in _encodeFrame.
+    // Bundled draws recorded the slot offsets, so the slots must be current
+    // even for a device whose draw is replayed rather than re-encoded.
+    for (const device of Object.values(this.devices) as RenderDevice[]) {
+      device._refreshDeviceUniforms?.();
+    }
+
+    // Update global uniforms with extended lighting data (reused staging).
+    const globalData = (this._globalUniformData ??= new Float32Array(128)); // 512 bytes / 4 = 128 floats
 
     // Base uniforms (offset 0-23: 96 bytes)
     globalData.set(viewProj, 0);                    // 0-15: viewProj matrix
@@ -265,7 +273,7 @@ export const renderLoopMethods: ThisType<Host> & {
     this.device.queue.writeBuffer(globalUniforms, 0, globalData);
 
     // Upload centralized 3-point + environment lighting rig for all lit passes
-    const lightingData = new Float32Array(48);
+    const lightingData = (this._lightingUniformData ??= new Float32Array(48));
     lightingData[0] = key.position[0]; lightingData[1] = key.position[1]; lightingData[2] = key.position[2]; lightingData[3] = 0;
     lightingData[4] = key.color[0]; lightingData[5] = key.color[1]; lightingData[6] = key.color[2]; lightingData[7] = key.intensity;
     lightingData[8] = fill.position[0]; lightingData[9] = fill.position[1]; lightingData[10] = fill.position[2]; lightingData[11] = 0;

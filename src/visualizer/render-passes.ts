@@ -1,5 +1,5 @@
-// Pass bodies for the WebGPU frame graph (#225 PR2): compute, scene, depth
-// resolve, bloom, composite, history copy. Moved out of render-encode.ts,
+// Pass bodies for the WebGPU frame graph (#225 PR2): compute, shadow, scene,
+// depth resolve, bloom, composite, history copy. Moved out of render-encode.ts,
 // which is now the pass list (reads / writes / gates) that orders these.
 // Each body records exactly the GPU work the hand-ordered encoder did; the
 // gating that used to sit around them lives in render-encode.ts frameContext().
@@ -76,9 +76,47 @@ export function encodeCompute(host: Host, encoder: GPUCommandEncoder, ctx: Frame
   pass.end();
 }
 
+/**
+ * Key-light shadow map (#225 §4): the focused bench's opaque casters —
+ * rollers, plates / core, frame, stator rings, CAD props (incl. the Thomson
+ * ring's mesh) — depth-only into the 2048² map. Not particles, lines or
+ * glow. Caster pipelines are the scene's vertex shaders with no fragment
+ * stage; the shadow frame group puts the light's matrix in `Uniforms.viewProj`.
+ */
+export function encodeShadow(host: Host, encoder: GPUCommandEncoder, ctx: FrameCtx, res: PassResources): boolean {
+  const shadow = host.shadowMap;
+  const device = ctx.shadowDevice;
+  const frame = host.frameBindings?.shadowGroup();
+  // The light matrix is uploaded after the graph runs (render-encode.ts) —
+  // still before the submit, so this pass's draws see it.
+  if (!shadow?.attachmentView || !device || !frame || !ctx.shadowFit) return false;
+
+  const pass = encoder.beginRenderPass({
+    label: 'shadow-map',
+    colorAttachments: [],
+    depthStencilAttachment: {
+      view: shadow.attachmentView,
+      depthClearValue: 1.0,
+      depthLoadOp: 'clear',
+      depthStoreOp: 'store'
+    },
+    timestampWrites: res.timestamps('both')
+  });
+  pass.setBindGroup(0, frame);
+  device.pipelineManager?.applyPassVariant?.('shadow');
+  try {
+    device.renderShadowCasters(pass);
+  } finally {
+    // The scene pass re-selects 1× / 4× anyway; never leave a bench on casters.
+    device.pipelineManager?.applyPassVariant?.('base');
+  }
+  pass.end();
+  return true;
+}
+
 /** Sky, grid, devices, FDTD panel, anomaly walls, energy pipes — 1× or 4× MSAA. */
 export function encodeScene(host: Host, encoder: GPUCommandEncoder, ctx: FrameCtx, res: PassResources): void {
-  const { profiler, isDeviceVisible, globalUniforms } = ctx;
+  const { profiler, isDeviceVisible } = ctx;
   const msaa = ctx.msaa;
 
   // Swap every scene/device pipeline to its MSAA-4x variant (or back) — a
@@ -115,17 +153,33 @@ export function encodeScene(host: Host, encoder: GPUCommandEncoder, ctx: FrameCt
     timestampWrites: res.timestamps('both')
   });
 
-  // Sky first (fullscreen, before all geometry), then the grid.
-  if (host.skyPipeline && host.skyBindGroup) {
-    pass.setPipeline(host.skyPipeline);
-    pass.setBindGroup(0, host.skyBindGroup);
-    pass.draw(3);
+  // The frame group (camera, lighting, materials, IBL, shadow map) is bound
+  // once for the whole pass; every draw below only sets its @group(1).
+  const frame = host.frameBindings?.sceneGroup();
+  if (!frame) {
+    pass.end();
+    return;
   }
-  if (host.gridPipeline && host.gridBindGroup) {
-    pass.setPipeline(host.gridPipeline);
-    pass.setBindGroup(0, host.gridBindGroup);
-    pass.setVertexBuffer(0, host.gridVertexBuffer);
-    pass.draw(6);
+  pass.setBindGroup(0, frame);
+  const bundles = host.staticBundles;
+  if (bundles) bundles.shape = { msaa, gbuffer: !!gbufferView };
+
+  // Sky first (fullscreen, before all geometry), then the grid — one bundle.
+  const sky = host.skyPipeline, grid = host.gridPipeline;
+  const drawEnv = (enc: GPURenderPassEncoder | GPURenderBundleEncoder) => {
+    if (sky && host.skyBindGroup) {
+      enc.setPipeline(sky);
+      enc.setBindGroup(1, host.skyBindGroup);
+      enc.draw(3);
+    }
+    if (grid && host.gridVertexBuffer) {
+      enc.setPipeline(grid);
+      enc.setVertexBuffer(0, host.gridVertexBuffer);
+      enc.draw(6);
+    }
+  };
+  if (!bundles?.replay(pass, 'env', [sky, grid, host.skyBindGroup, host.gridVertexBuffer], drawEnv)) {
+    drawEnv(pass);
   }
 
   const quality = profiler.qualityLevel;
@@ -134,20 +188,21 @@ export function encodeScene(host: Host, encoder: GPUCommandEncoder, ctx: FrameCt
     // Skip expensive VFX at low quality — keep core meshes visible.
     const skipEffects = quality < 0.5;
     profiler.measureDevice(`render:${device.id}`, () => {
-      device.render(pass, globalUniforms, skipEffects);
+      device.render(pass, skipEffects);
     });
   }
 
   // Transparent panel: after the opaque device meshes it is depth-tested against.
-  ctx.fdtdSlice?.draw(pass, globalUniforms, msaa);
+  ctx.fdtdSlice?.draw(pass, msaa);
 
   // Roschin–Godin magnetic wall shells overlay the SEG.
   const segDevice = host.devices['seg'] as RenderDevice | undefined;
-  if (segDevice && isDeviceVisible(segDevice)) host.renderAnomalyWalls(pass, globalUniforms, segDevice);
+  if (segDevice && isDeviceVisible(segDevice)) host.renderAnomalyWalls(pass, segDevice);
 
   if (ctx.overview && host.energyPipePipeline && quality > 0.35) {
-    for (const pipe of host.energyPipes) pipe.render(pass, globalUniforms, host.energyPipePipeline);
+    for (const pipe of host.energyPipes) pipe.render(pass, host.energyPipePipeline);
   }
+  if (bundles) bundles.shape = null;
   pass.end();
 }
 

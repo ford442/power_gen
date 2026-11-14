@@ -39,6 +39,8 @@ const TRACKED: Record<PostTargetKind, string[]> = {
  */
 export const POST_TARGET_TEXTURE_NAMES: readonly string[] = [
   'depthBuffer', 'bloomScene', 'materialGBuffer', 'bloomChain', 'bloomBlur', 'bloomTemp',
+  // Key-light shadow map (visualizer/shadow-map.ts) — lazy like the TRACKED ones.
+  'shadowMap',
   ...Object.values(TRACKED).flat()
 ];
 

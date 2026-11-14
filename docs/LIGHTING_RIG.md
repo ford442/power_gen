@@ -25,7 +25,34 @@ Each preset defines key / fill / rim / ground lights uploaded to `lightingUnifor
 - Cook-Torrance GGX specular (anisotropic on rollers)
 - **Prefiltered GGX split-sum IBL** (`evaluateIBL`) — see below
 - Rim term from view-dependent Fresnel
-- `shadowStrength` modulates crevice ambient and IBL occlusion
+- `shadowStrength` modulates crevice ambient and IBL occlusion, and is the
+  strength of the key-light shadow map (below)
+
+### Key-light shadow map (WebGPU, `high` tier, focus only)
+
+One 2048² `depth32float` map from the preset **key** light (#225 §4,
+`src/visualizer/shadow-map.ts`). The key is directional here
+(`normalize(key.position)` in `pbr-eval.wgsl`), so the map is an orthographic
+fit around the focused bench. Fill, rim and ground stay unshadowed; the
+ambient / IBL occlusion above is unchanged.
+
+- **Receivers:** `seg-enhanced-frag` (SEG plates, rollers, frame, stand, every
+  CAD prop) and `roller-frag` (fallback and non-SEG procedural meshes). The
+  visibility from 3×3 PCF (`common/shadow-pcf.wgsl`) multiplies only the key's
+  diffuse and specular terms (`evaluatePBR(..., keyVis)`), mixed by
+  `shadowStrength`: `vis = mix(1, pcf, shadowStrength)`.
+- **Casters:** rollers, plates / core, frame, stand, stator rings, CAD props,
+  the Thomson ring (part of the jumping-ring bench's mesh). Not particles,
+  lines, arcs or glow.
+- **Bias:** slope-scaled raster bias on the casters, plus a receiver bias and a
+  normal offset that grows at grazing angles.
+- **`roller-frag` caveat:** its key term uses a fixed `L1 = normalize(1, 1, 1)`
+  instead of the preset key direction. That is 23–36° off the presets'
+  `key.position`, so its shadow comes from the preset key while its shading
+  comes from `L1`. This is pre-existing; the SEG path (`seg-enhanced`) uses
+  the preset direction for both.
+- Off in overview, below `high`, and on WebGL2. While it is off, receivers see
+  `enabled = 0` and sample a 1×1 placeholder.
 
 ### Prefiltered environment (ADR-0005 WS2)
 

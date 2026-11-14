@@ -1,6 +1,7 @@
 /**
  * Vite plugin: expand `#include "…"` in `.wgsl` sources (including `?raw`).
- * Uses the same resolver as `wgsl-include.js` so CI and the bundler stay aligned.
+ * Uses the same resolver as `wgsl-include.js` so CI and the bundler stay aligned —
+ * including its include guard (a file is expanded once per shader source).
  *
  * Important: Vite’s `?raw` path does not always run content through `transform`
  * before stringifying, so we expand in `load` and emit the raw module ourselves
