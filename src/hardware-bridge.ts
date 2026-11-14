@@ -20,12 +20,12 @@
  * HardwareBridge vs protocol parse"):
  *   - ./hardware-protocol-shared.ts — constants/helpers shared by all three
  *   - ./mock-serial-transport.ts    — MockSerialTransport (fake serial port)
- *   - ./hardware-bridge-protocol.ts — Line Parsing + Command Writing, merged
- *     onto HardwareBridge.prototype below. This file keeps the constructor,
- *     Connection Lifecycle and class-field declarations.
+ *   - ./hardware-bridge-protocol.ts — Line Parsing + Command Writing, as
+ *     module functions the class methods below delegate to. This file keeps
+ *     the constructor, Connection Lifecycle and class-field declarations.
  */
 import { MockSerialTransport } from './mock-serial-transport';
-import { protocolMethods } from './hardware-bridge-protocol';
+import * as protocol from './hardware-bridge-protocol';
 import {
   TWIN_MODES,
   type TwinMode,
@@ -207,7 +207,7 @@ export class HardwareBridge {
   /** The board's v2 hello, or null (not yet, or a v1 sketch). Cleared with the link. */
   firmware: FirmwareHello | null;
 
-  // Not `private`: read/written from hardware-bridge-protocol.ts's mixin methods too.
+  // Not `private`: read/written from hardware-bridge-protocol.ts's functions too.
   _helloAttempts: number;
   _lastHelloAt: number;
   _lastCommandTime: number;
@@ -324,7 +324,7 @@ export class HardwareBridge {
    * Deliver to the owner callback, then every subscriber. A throwing UI
    * listener is logged and skipped — it must not tear down the link.
    */
-  // Not `private`: called from hardware-bridge-protocol.ts's mixin methods too.
+  // Not `private`: called from hardware-bridge-protocol.ts's functions too.
   _emit<K extends HardwareBridgeEvent>(event: K, value: HardwareBridgeEvents[K]): void {
     const slot = this._ownerCallback(event);
     const fns = [...(slot ? [slot] : []), ...(this._listeners[event] as Set<BridgeListener<K>>)];
@@ -604,35 +604,34 @@ export class HardwareBridge {
     return this.sensorAgeMs > 500;
   }
 
-  // Not `private`: called from hardware-bridge-protocol.ts's mixin methods too.
+  // Not `private`: called from hardware-bridge-protocol.ts's functions too.
   _setStatus(newStatus: HardwareBridgeStatus): void {
     if (this.status === newStatus) return;
     this.status = newStatus;
     this._emit('status', newStatus);
   }
+
+  // ============================================
+  // Line Parsing + Command Writing — bodies in ./hardware-bridge-protocol.ts
+  // ============================================
+
+  _parseLine(line: string): void { protocol.parseLine(this, line); }
+  getSensorSnapshot(): SensorSnapshot { return protocol.getSensorSnapshot(this); }
+  /** Queue one protocol line on the live transport (non-blocking). */
+  _writeLine(text: string): void { protocol.writeLine(this, text); }
+  /** Same path as {@link _writeLine} — a separate name for the safety call sites. */
+  _writeLineImmediate(text: string): void { protocol.writeLineImmediate(this, text); }
+  /** Called from the render loop ~60 Hz. */
+  update(sim?: UpdateSimInput): void { protocol.update(this, sim); }
+  _sendConfig(): Promise<void> { return protocol.sendConfig(this); }
+  setConfig(newConfig: Partial<HardwareBridgeConfig>): void { protocol.setConfig(this, newConfig); }
+  setTwinMode(mode: string): void { protocol.setTwinMode(this, mode); }
+  setTarget(phase: number, speed: number, mode?: number): void { protocol.setTarget(this, phase, speed, mode); }
+  /** Manual coil override. pwmOrDuty: 0..1 duty, or legacy 0..255 wire value. */
+  setManualCoils(coilMask: number, pwmOrDuty?: number): void { protocol.setManualCoils(this, coilMask, pwmOrDuty); }
+  clearManual(): void { protocol.clearManual(this); }
+  brake(): void { protocol.brake(this); }
+  coast(): void { protocol.coast(this); }
 }
-
-// ============================================
-// Line Parsing + Command Writing (src/hardware-bridge-protocol.ts)
-// ============================================
-
-/** TS mixin declaration merging: gives the members added below their types. */
-export interface HardwareBridge {
-  _parseLine(line: string): void;
-  getSensorSnapshot(): SensorSnapshot;
-  _writeLine(text: string): void;
-  _writeLineImmediate(text: string): void;
-  update(sim?: UpdateSimInput): void;
-  _sendConfig(): Promise<void>;
-  setConfig(newConfig: Partial<HardwareBridgeConfig>): void;
-  setTwinMode(mode: string): void;
-  setTarget(phase: number, speed: number, mode?: number): void;
-  setManualCoils(coilMask: number, pwmOrDuty?: number): void;
-  clearManual(): void;
-  brake(): void;
-  coast(): void;
-}
-
-Object.assign(HardwareBridge.prototype, protocolMethods);
 
 export { HardwareBridge as default };

@@ -1,6 +1,6 @@
 import type { PerformanceProfiler } from './performance-profiler';
-import { domMethods } from './debug-panel-dom';
-import { paneMethods } from './debug-panel-panes';
+import * as dom from './debug-panel-dom';
+import * as panes from './debug-panel-panes';
 import { onFrame } from './frame-clock';
 
 export class DebugPanel {
@@ -15,8 +15,7 @@ export class DebugPanel {
   panel!: HTMLDivElement;
   wasmDiffEnabled?: boolean;
 
-  // Not private: assigned from src/debug-panel-dom.ts, which is merged onto the
-  // prototype below (see the Object.assign call at the end of this file).
+  // Not private: assigned from src/debug-panel-dom.ts's wiring functions.
   _refreshEnergyNetworkStatus?: () => void;
   _refreshFieldNetworkStatus?: () => void;
   _refreshChargeNetworkStatus?: () => void;
@@ -293,22 +292,13 @@ ${stats.timingEnabled ? Object.entries(stats.gpuPassTimesMs || {}).map(([pass, m
           `• SPH: ${settings.enableSPH ? 'Enabled' : 'Disabled'}\n` +
           `• Target FPS: ${settings.targetFPS}`);
   }
-}
 
-// Declaration merging: these methods are implemented on the prototype (below) by
-// src/debug-panel-dom.ts and src/debug-panel-panes.ts, but declared here so the
-// class's own methods (constructor, update(), ...) type-check when calling them.
-export interface DebugPanel {
-  createPanel(): void;
-  _wireEnergyNetworkControls(): void;
-  _wireFieldNetworkControls(): void;
-  _wireChargeNetworkControls(): void;
-  _wireWasmControls(): void;
-  updateDevicePhysicsData(): void;
-  drawFPSGraph(): void;
-  drawCorrelationGraph(): void;
-  updateMemoryDetails(): void;
-  updateScientificData(): void;
+  // DOM construction + per-pane refresh — bodies in ./debug-panel-dom.ts and
+  // ./debug-panel-panes.ts (split for the 700-line cap).
+  createPanel(): void { dom.createPanel(this); }
+  updateDevicePhysicsData(): void { panes.updateDevicePhysicsData(this); }
+  drawFPSGraph(): void { panes.drawFPSGraph(this); }
+  drawCorrelationGraph(): void { panes.drawCorrelationGraph(this); }
+  updateMemoryDetails(): void { panes.updateMemoryDetails(this); }
+  updateScientificData(): void { panes.updateScientificData(this); }
 }
-
-Object.assign(DebugPanel.prototype, domMethods, paneMethods);
