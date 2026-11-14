@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable no-regex-spaces -- the patterns match literal two-space-indented source */
 /**
  * Split seg-geometry-generators.js and multi-device-visualizer.js into modules.
  */

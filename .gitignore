@@ -49,3 +49,6 @@ playwright/.cache/
 
 # `make wasm-dbg` output (ASSERTIONS/SAFE_HEAP) — local only
 src/wasm/sim-core/sim_core_dbg.*
+
+# Unit-test bundles under coverage (scripts/test-harness.mjs; normally node_modules/.cache)
+.cache/

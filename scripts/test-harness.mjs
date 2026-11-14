@@ -11,7 +11,8 @@
  * by file URL, so relative `import.meta.url`, stack traces and `node:` builtins
  * (with `external`) all behave like a real file. A manifest next to each bundle
  * records the sha-256 of every file esbuild read; when none changed the bundle
- * is reused without running esbuild. Set SEG_TEST_NO_CACHE=1 to always rebuild.
+ * is reused without running esbuild. Set SEG_TEST_NO_CACHE=1 to always rebuild,
+ * SEG_TEST_CACHE_DIR to move the cache.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -20,7 +21,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-export const CACHE_DIR = join(ROOT, 'node_modules/.cache/seg-tests');
+// Coverage (`test:coverage`, which sets NODE_V8_COVERAGE in test processes)
+// ignores anything under node_modules/, so bundles go to .cache/ instead.
+export const CACHE_DIR = process.env.SEG_TEST_CACHE_DIR
+  || join(ROOT, process.env.NODE_V8_COVERAGE ? '.cache/seg-tests' : 'node_modules/.cache/seg-tests');
 
 /** Stub Vite's `?raw` shader-text imports so app-reaching graphs still bundle. */
 export const viteRawStub = {
@@ -30,6 +34,9 @@ export const viteRawStub = {
     build.onLoad({ filter: /.*/, namespace: 'raw-stub' }, () => ({ contents: 'export default "";', loader: 'js' }));
   }
 };
+
+/** Bump when the defaults below change, so cached bundles are rebuilt. */
+const HARNESS_VERSION = 3;
 
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 
@@ -67,7 +74,7 @@ function inputsUnchanged(manifest) {
 export async function bundleTsFile(entry, options = {}) {
   const { plugins = [], ...rest } = options;
   const isStdin = typeof entry === 'object';
-  const key = sha(keyOf({ entry, options }));
+  const key = sha(keyOf({ v: HARNESS_VERSION, entry, options }));
   const out = join(CACHE_DIR, `${key}.mjs`);
   const manifestPath = join(CACHE_DIR, `${key}.json`);
 
@@ -88,8 +95,12 @@ export async function bundleTsFile(entry, options = {}) {
     target: 'es2022',
     mainFields: ['module', 'main'],
     write: false,
+    outfile: out, // not written by esbuild; sets the base for source-map paths
     metafile: true,
     logLevel: 'silent',
+    // Inline maps let `test:coverage` and stack traces point at src/, not the bundle.
+    sourcemap: 'inline',
+    sourcesContent: false,
     loader: { '.wgsl': 'text', '.glsl': 'text' },
     ...rest,
     plugins: [viteRawStub, ...plugins]

@@ -6,18 +6,17 @@
  *   generated/lab-config.ts            — typed `LabConfig`, field specs, defaults
  *   docs/AGENTS.md (marked block)      — the query-parameter matrix
  *
- * `--check` also fails when src/ reads `location.search` / `location.hash`,
- * `localStorage` / `sessionStorage` or builds a `URLSearchParams` anywhere
- * outside src/config/ — every knob goes through the one reader (#224). This is
- * the gate the epic asks an ESLint rule to be; it lives here until the repo
- * has ESLint (#222), and is a plain source scan so it needs no parser.
+ * `--check` fails when a generated file is stale. Raw `location.search` /
+ * `location.hash` / Web Storage / `new URLSearchParams(` outside src/config/
+ * is an ESLint rule now (`no-restricted-syntax` in tools/lint/eslint.config.js,
+ * `npm run lint`), not a grep here.
  *
  * Usage:
  *   node scripts/codegen-lab-config.mjs
  *   node scripts/codegen-lab-config.mjs --check
  */
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { join, dirname, relative, sep } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
@@ -33,21 +32,6 @@ const END = '<!-- lab-config:end -->';
 const TYPES = new Set(['bool', 'enum', 'number', 'int', 'string', 'list', 'setpoints']);
 const CODECS = new Set(['bool', 'raw', 'int']);
 const KEY_RE = /^[a-z][A-Za-z0-9]*$/;
-
-/**
- * Raw config access is banned outside src/config/. Each pattern runs on the
- * source with comments stripped, so prose like "localStorage seg-lab-mode" in
- * a doc comment is fine.
- */
-const RAW_ACCESS = [
-  { re: /\blocation\.search\b/, what: 'location.search' },
-  { re: /\blocation\.hash\b/, what: 'location.hash' },
-  // Access, not mention: `localStorage.getItem`, `localStorage[k]`, `typeof localStorage`.
-  { re: /\blocalStorage\s*[.[]|typeof\s+localStorage\b/, what: 'localStorage' },
-  { re: /\bsessionStorage\s*[.[]|typeof\s+sessionStorage\b/, what: 'sessionStorage' },
-  { re: /\bnew\s+URLSearchParams\s*\(/, what: 'new URLSearchParams(' }
-];
-const RAW_ACCESS_ALLOWED_DIRS = ['src/config/', 'src/public/'];
 
 function fail(errors) {
   for (const e of errors) console.error(`[lab-config] ${e}`);
@@ -217,10 +201,6 @@ export const LAB_CONFIG_SCHEMA_HASH = '${schemaHash}';
 `;
 }
 
-function mdEscape(s) {
-  return String(s).replace(/\|/g, '\\|');
-}
-
 function docValues(f) {
   if (f.docValues) return f.docValues;
   switch (f.type) {
@@ -256,8 +236,9 @@ legacy \`#lab=v1;…\`) > \`localStorage\` > default. Booleans accept
 \`1/0/on/off/true/false/yes/no\` everywhere; numbers are finite-checked and
 clamped, so NaN from a hand-edited link never reaches a plant; anything
 unparsable falls through to the next layer. One reader —
-\`src/config/lab-config.ts\` — and \`npm run check:lab-config\` fails on drift or on
-raw \`location.search\` / \`localStorage\` access anywhere else in \`src/\`.
+\`src/config/lab-config.ts\`. \`npm run check:lab-config\` fails on drift and
+\`npm run lint\` on raw \`location.search\` / \`localStorage\` access anywhere else
+in \`src/\`.
 
 | Param | Values | Default | Stored | Share | Effect |
 |-------|--------|---------|--------|-------|--------|
@@ -292,39 +273,6 @@ function spliceAgents(md, block) {
   return `${md.slice(0, start)}${block}\n\n${md.slice(stop)}`;
 }
 
-function stripComments(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
-}
-
-function walk(dir, out = []) {
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name);
-    const st = statSync(p);
-    if (st.isDirectory()) walk(p, out);
-    else if (/\.(ts|js|mjs)$/.test(name) && !name.endsWith('.d.ts')) out.push(p);
-  }
-  return out;
-}
-
-function checkRawAccess() {
-  const errors = [];
-  for (const file of walk(join(ROOT, 'src'))) {
-    const rel = relative(ROOT, file).split(sep).join('/');
-    if (RAW_ACCESS_ALLOWED_DIRS.some((d) => rel.startsWith(d))) continue;
-    const lines = stripComments(readFileSync(file, 'utf8')).split('\n');
-    lines.forEach((line, i) => {
-      for (const { re, what } of RAW_ACCESS) {
-        if (re.test(line)) {
-          errors.push(`${rel}:${i + 1}: raw ${what} — read/write it through src/config/lab-config.ts`);
-        }
-      }
-    });
-  }
-  return errors;
-}
-
 function writeOrCheck(path, content) {
   let existing = null;
   try { existing = readFileSync(path, 'utf8'); } catch { /* missing */ }
@@ -345,7 +293,7 @@ function main() {
 
   // Hash the machine-relevant spec only, so a doc-text edit does not
   // invalidate saved .lab.json files.
-  const specOnly = data.fields.map(({ doc, docValues: _v, docDefault: _d, group: _g, ...rest }) => rest);
+  const specOnly = data.fields.map(({ doc: _doc, docValues: _v, docDefault: _d, group: _g, ...rest }) => rest);
   const schemaHash = createHash('sha256').update(JSON.stringify(specOnly)).digest('hex').slice(0, 12);
 
   writeOrCheck(OUT_TS, emitTs(data, schemaHash));
@@ -353,9 +301,7 @@ function main() {
   writeOrCheck(AGENTS_MD, spliceAgents(agents, emitMatrix(data)));
 
   if (CHECK) {
-    const rawErrors = checkRawAccess();
-    if (rawErrors.length) fail(rawErrors);
-    console.log(`[lab-config] OK — ${data.fields.length} fields, generated files current, no raw config access outside src/config/`);
+    console.log(`[lab-config] OK — ${data.fields.length} fields, generated files current`);
   } else {
     console.log(`[lab-config] wrote generated/lab-config.ts + docs/AGENTS.md matrix (${data.fields.length} fields, schema ${schemaHash})`);
   }

@@ -179,7 +179,7 @@ const STATE_KEY_RE = /^[a-z][A-Za-z0-9]*$/;
 
 function validateState(devices) {
   const errors = [];
-  let physicsText = '';
+  let physicsText;
   try {
     physicsText = readFileSync(DEVICE_PHYSICS, 'utf8');
   } catch (e) {
@@ -1122,8 +1122,6 @@ function main() {
   const md = emitModeMatrix(devices, reserved, layout);
 
   const wgslErrors = checkWgslNamedConstants(devices, wgsl);
-  const errors = [...pluginErrors, ...(CHECK || true ? wgslErrors : [])];
-
   // When generating the first time, particle-compute may not yet include MODE_*.
   // Fail WGSL refs only in --check, or after we know the pass was updated.
   // Always fail plugin/catalog/telemetry-meta/telemetry-snap/wasm-plant integrity.

@@ -359,8 +359,9 @@ legacy `#lab=v1;…`) > `localStorage` > default. Booleans accept
 `1/0/on/off/true/false/yes/no` everywhere; numbers are finite-checked and
 clamped, so NaN from a hand-edited link never reaches a plant; anything
 unparsable falls through to the next layer. One reader —
-`src/config/lab-config.ts` — and `npm run check:lab-config` fails on drift or on
-raw `location.search` / `localStorage` access anywhere else in `src/`.
+`src/config/lab-config.ts`. `npm run check:lab-config` fails on drift and
+`npm run lint` on raw `location.search` / `localStorage` access anywhere else
+in `src/`.
 
 | Param | Values | Default | Stored | Share | Effect |
 |-------|--------|---------|--------|-------|--------|
