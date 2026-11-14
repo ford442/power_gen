@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "checkJs": true, "noImplicitAny": false },
+  "include": ["src/renderers/webgl2/**/*.js", "src/seg-geometry/**/*.js", "src/**/*.d.ts", "src/window-globals.d.ts"]
+}

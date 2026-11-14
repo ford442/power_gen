@@ -1,5 +1,6 @@
 /**
- * MultiDeviceShaders - Thin delegator for all WGSL shaders.
+ * MultiDeviceShaders - Thin delegator for all WGSL shaders (typed TS; the
+ * generators it forwards to in ./shaders/generators/* stay JS `?raw` re-exports).
  * Imports implementations from ./shaders/generators/* and raw files.
  * Contains getters for: roller, particle, core, field line, energy arc, coil,
  * seg-enhanced, compute, environment, bloom, and anomaly walls.
@@ -49,187 +50,186 @@ import {
   getBloomUpsampleShader
 } from './shaders/generators/bloom-shaders.js';
 
+/** Every accessor returns generated WGSL source. */
 export class MultiDeviceShaders {
-  constructor() {}
-
-  get rollerVertShader() {
+  get rollerVertShader(): string {
     return getRollerVertShader();
   }
 
-  get rollerFragShader() {
+  get rollerFragShader(): string {
     return getRollerFragShader();
   }
 
-  get particleVertShader() {
+  get particleVertShader(): string {
     return getParticleVertShader();
   }
 
-  get particleFragShader() {
+  get particleFragShader(): string {
     return getParticleFragShader();
   }
 
-  get coreVertShader() {
+  get coreVertShader(): string {
     return getCoreVertShader();
   }
 
-  get coreFragShader() {
+  get coreFragShader(): string {
     return getCoreFragShader();
   }
 
-  get fieldLineVertShader() {
+  get fieldLineVertShader(): string {
     return getFieldLineVertShader();
   }
 
-  get fieldLineFragShader() {
+  get fieldLineFragShader(): string {
     return getFieldLineFragShader();
   }
 
-  get fluxLineTracerShader() {
+  get fluxLineTracerShader(): string {
     return getFluxLineTracerShader();
   }
 
-  get fluxSegmentVertShader() {
+  get fluxSegmentVertShader(): string {
     return getFluxSegmentVertShader();
   }
 
-  get fluxSegmentFragShader() {
+  get fluxSegmentFragShader(): string {
     return getFluxSegmentFragShader();
   }
 
-  get energyArcVertShader() {
+  get energyArcVertShader(): string {
     return getEnergyArcVertShader();
   }
 
-  get energyArcFragShader() {
+  get energyArcFragShader(): string {
     return getEnergyArcFragShader();
   }
 
-  get energyPipeVertShader() {
+  get energyPipeVertShader(): string {
     return getEnergyPipeVertShader();
   }
 
-  get energyPipeFragShader() {
+  get energyPipeFragShader(): string {
     return getEnergyPipeFragShader();
   }
 
-  get energyPipeComputeShader() {
+  get energyPipeComputeShader(): string {
     return getEnergyPipeComputeShader();
   }
 
-  get coilVertShader() {
+  get coilVertShader(): string {
     return getCoilVertShader();
   }
 
-  get coilFragShader() {
+  get coilFragShader(): string {
     return getCoilFragShader();
   }
 
-  get segEnhancedVertShader() {
+  get segEnhancedVertShader(): string {
     return getSegEnhancedVertShader();
   }
 
-  get segEnhancedFragShader() {
+  get segEnhancedFragShader(): string {
     return getSegEnhancedFragShader();
   }
 
-  get computeShader() {
+  get computeShader(): string {
     return getComputeShader();
   }
 
-  get segRollerComputeShader() {
+  get segRollerComputeShader(): string {
     return getSegRollerComputeShader();
   }
 
-  get segFieldAdvectShader() {
+  get segFieldAdvectShader(): string {
     return getSegFieldAdvectShader();
   }
 
-  get overviewCullComputeShader() {
+  get overviewCullComputeShader(): string {
     return getOverviewCullComputeShader();
   }
 
-  get transformerFluxShader() {
+  get transformerFluxShader(): string {
     return getTransformerFluxShader();
   }
 
-  get choresReduceShader() {
+  get choresReduceShader(): string {
     return getChoresReduceShader();
   }
 
-  get skyVertShader() {
+  get skyVertShader(): string {
     return getSkyVertShader();
   }
 
-  get skyFragShader() {
+  get skyFragShader(): string {
     return getSkyFragShader();
   }
 
-  get gridVertShader() {
+  get gridVertShader(): string {
     return getGridVertShader();
   }
 
-  get gridFragShader() {
+  get gridFragShader(): string {
     return getGridFragShader();
   }
 
-  get bloomVertShader() {
+  get bloomVertShader(): string {
     return getBloomVertShader();
   }
 
-  get bloomExtractShader() {
+  get bloomExtractShader(): string {
     return getBloomExtractShader();
   }
 
-  get bloomBlurShader() {
+  get bloomBlurShader(): string {
     return getBloomBlurShader();
   }
 
-  get bloomCompositeShader() {
+  get bloomCompositeShader(): string {
     return getBloomCompositeShader();
   }
 
-  get bloomDownsampleShader() {
+  get bloomDownsampleShader(): string {
     return getBloomDownsampleShader();
   }
 
-  get bloomUpsampleShader() {
+  get bloomUpsampleShader(): string {
     return getBloomUpsampleShader();
   }
 
   /** Screen-space reflections compute pass (ADR-0005 WS2). */
-  get taaResolveShader() {
+  get taaResolveShader(): string {
     return taaResolveWgsl;
   }
 
-  get iblPrefilterComputeShader() {
+  get iblPrefilterComputeShader(): string {
     return iblPrefilterComputeWgsl;
   }
 
-  get ssrComputeShader() {
+  get ssrComputeShader(): string {
     return ssrComputeWgsl;
   }
 
-  get anomalyWallsShader() {
+  get anomalyWallsShader(): string {
     return segAnomalyWallsWgsl;
   }
 
   /** Manual MSAA depth resolve, vsMain/fsMain (ADR-0005 WS2 — see passes/depth-resolve.wgsl). */
-  get depthResolveShader() {
+  get depthResolveShader(): string {
     return depthResolveWgsl;
   }
 
   /** 2D TM_z Yee update, updateH/updateE (ADR-0010 — see passes/fdtd-tmz-compute.wgsl). */
-  get fdtdTmzComputeShader() {
+  get fdtdTmzComputeShader(): string {
     return fdtdTmzComputeWgsl;
   }
 
   /** FDTD slice panel, vsMain/fsMain (ADR-0010 — see passes/fdtd-slice.wgsl). */
-  get fdtdSliceShader() {
+  get fdtdSliceShader(): string {
     return fdtdSliceWgsl;
   }
 
   // Legacy / compatibility alias sometimes referenced in older code
-  get fluxLinesWgsl() {
+  get fluxLinesWgsl(): string {
     return getFluxLineTracerShader();
   }
 }

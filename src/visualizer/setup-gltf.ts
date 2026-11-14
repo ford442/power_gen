@@ -416,7 +416,7 @@ export const gltfSetupMethods: ThisType<Host> & {
     const drops = (propId: string | null | undefined): boolean =>
       focusIds.has(propId || '') && !keptIds.has(propId || '');
 
-    const kept = [];
+    const kept: NonNullable<typeof this.gltfHousingDrawables> = [];
     let freed = 0;
     for (const d of this.gltfHousingDrawables || []) {
       if (d.loadPolicy === 'focus' && drops(d.propId)) {

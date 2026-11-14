@@ -39,17 +39,30 @@ import {
 } from '../../seg-layout';
 import { initHardwarePanel } from '../../hardware-panel';
 import { WebGL2DeviceState } from './device-state.js';
-import { renderMethods } from './render.js';
+import { stepSimulation, renderFrame } from './render.js';
+
+/** @typedef {import('../../session/lab-session.js').LabSession} LabSession */
 
 export class WebGL2MultiDeviceVisualizer {
+  /** @param {LabSession} session */
   constructor(session) {
     console.log('WebGL2MultiDeviceVisualizer starting (agent / CI fallback path)');
     this.session = session;
     this.session.rendererId = 'webgl2';
-    this.canvas = document.getElementById('gpuCanvas');
+    /** @type {HTMLCanvasElement} */
+    this.canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('gpuCanvas'));
     this.ctx = new WebGL2Context(this.canvas);
     this.debug = new WebGL2DebugControls();
 
+    /**
+     * Never set on the WebGL2 path (WebGPU owns PerformanceProfiler); read with `?.`.
+     * @type {{ qualityLevel?: number, qualityTier?: string, lastFrameTimeMs?: number, lastGpuTimeMs?: number } | undefined}
+     */
+    this.profiler = undefined;
+    /** Last overview mesh LOD (read by devices/device-render.ts). @type {string | undefined} */
+    this._overviewMeshDetail = undefined;
+
+    /** @type {Record<string, WebGL2DeviceState>} */
     this.devices = {};
     this.session.attachDevices(this.devices);
     this.time = 0;
@@ -64,6 +77,7 @@ export class WebGL2MultiDeviceVisualizer {
     this.segLayout = computeSEGLayout(this.session.segLayoutPreset, 1.0);
 
     this.energyPipes = []; // filled after devices for debug panel total flow
+    /** @type {EnergyPipeRenderer | null} */
     this.energyPipeRenderer = null;
 
     exposeRenderer(this.canvas, RENDERER_WEBGL2);
@@ -110,8 +124,10 @@ export class WebGL2MultiDeviceVisualizer {
   set heronLayout(v) { this.session.heronLayout = v; }
 
   _exposeScreenshotHooks() {
-    window.captureCanvasFrame = (opts = {}) => {
+    window.captureCanvasFrame = (/** @type {import('../../window-globals').CaptureCanvasFrameOptions} */ opts = {}) => {
       const gl = this.ctx.gl;
+      // Same failure as before (readback before init), just with a clear message.
+      if (!gl) throw new Error('captureCanvasFrame: WebGL2 context not initialised');
       const w = this.canvas.width;
       const h = this.canvas.height;
       // Ensure a fresh frame is presented before readback when requested
@@ -124,7 +140,7 @@ export class WebGL2MultiDeviceVisualizer {
       if (opts.flipY) {
         const row = w * 4;
         const tmp = new Uint8Array(row);
-        for (let y = 0; y < (h / 2) | 0; y++) {
+        for (let y = 0; y < ((h / 2) | 0); y++) {
           const top = y * row;
           const bot = (h - 1 - y) * row;
           tmp.set(pixels.subarray(top, top + row));
@@ -159,7 +175,8 @@ export class WebGL2MultiDeviceVisualizer {
         anomalousEffectsEnabled: this.anomalousEffectsEnabled,
         heronLayoutPreset: this.heronLayoutPreset,
         devicesEnabled: { ...this.devicesEnabled },
-        wasmPhysics: !!(typeof window !== 'undefined' && window.segWasm?.enabled),
+        wasmPhysics: !!(typeof window !== 'undefined' &&
+          /** @type {{ enabled?: boolean } | undefined} */ (window.segWasm)?.enabled),
         plant: { ...this.session.plantStats },
         energyBus: { ...this.session.energyNetwork.busStatus(), wasmPlantError: this.session.wasmPlantError },
         telemetry: snap?.seg
@@ -188,7 +205,7 @@ export class WebGL2MultiDeviceVisualizer {
           debugParticles: this.debug.debugParticles,
           debugMode: this.debug.debugMode,
           paused: this.debug.paused,
-          slowMo: this.debug.slowMo
+          slowMo: this.debug.slowMotion
         },
         intentionalGaps: [
           'bloom/post-process',
@@ -256,7 +273,7 @@ export class WebGL2MultiDeviceVisualizer {
       );
     } catch (e) {
       console.error(e);
-      alert('WebGL2 init failed: ' + e.message);
+      alert('WebGL2 init failed: ' + (e instanceof Error ? e.message : String(e)));
     }
   }
 
@@ -344,9 +361,23 @@ export class WebGL2MultiDeviceVisualizer {
   }
 
   updateBatteryGaugeMesh(_charge) {}
-}
 
-// Draw-side methods (_stepSimulation, render) live in render.js — split
-// orchestrator vs draw to keep this file under the 700-line cap (ADR-0001:
-// this rescue path stays plain JS, no TS conversion).
-Object.assign(WebGL2MultiDeviceVisualizer.prototype, renderMethods);
+  // Draw side lives in render.js (orchestrator vs draw split, 700-line cap;
+  // ADR-0001: this rescue path stays plain JS). Real methods that delegate —
+  // no prototype mixin.
+
+  /**
+   * Physics step: LabSession plant + CPU device/particle visuals.
+   * @param {number} deltaTime
+   * @param {number} speed
+   * @returns {number}
+   */
+  _stepSimulation(deltaTime, speed) {
+    return stepSimulation(this, deltaTime, speed);
+  }
+
+  /** @param {number} timestamp rAF timestamp (ms) */
+  render(timestamp) {
+    renderFrame(this, timestamp);
+  }
+}

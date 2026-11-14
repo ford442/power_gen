@@ -260,8 +260,8 @@ export const geometrySetupMethods: ThisType<Host> & {
     this.coreBoltBuffer = { vertexBuffer: boltVB, indexBuffer: boltIB, indexCount: boltData.indices.length };
 
     // Bolt positions (16 bolts around perimeter)
-    const boltPositions = [];
-    const boltInstanceData = [];
+    const boltPositions: number[] = [];
+    const boltInstanceData: number[] = [];
     const boltCount = 16;
     const boltRadius = outerR * 1.02;
     for (let i = 0; i < boltCount; i++) {

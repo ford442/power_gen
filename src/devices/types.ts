@@ -200,7 +200,7 @@ export interface VisualizerLike {
   /** GPU overview cull pass — drives indirect particle draws (ADR-0005 WS4). */
   overviewCull?: OverviewCullPass | null;
   isOverviewMode?: () => boolean;
-  /** Compute/vertex/fragment shader source getters (multi-device-shaders.js). */
+  /** Compute/vertex/fragment shader source getters (multi-device-shaders.ts). */
   shaders?: {
     segRollerComputeShader?: string;
     segFieldAdvectShader?: string;
