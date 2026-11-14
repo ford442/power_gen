@@ -8,7 +8,7 @@
  *   session.syncHardwareTwin   → the hardware twin, as the render loop does
  *   session.publishFrame(dt)   → TelemetryHub, then a live run's samples
  *
- * Used by test-experiments-live.mjs and test-twin-snapshot.mjs. Call once per
+ * Used by test-experiments-live.mjs and tests/twin-snapshot.test.mjs. Call once per
  * process: the app's singletons (segOperator, segWasm, TelemetryHub) are
  * module state, so a second backend needs its own process.
  *
@@ -16,39 +16,39 @@
  *   lab.frame(1 / 60);
  *   await lab.driveUntil(promise, 1 / 60, 10_000);
  */
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import * as esbuild from 'esbuild';
+import { bundleTs, ROOT } from '../test-harness.mjs';
 import { simCoreShim } from './sim-core-shim.mjs';
 
-const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
 const WASM_DIR = join(ROOT, 'src/wasm/sim-core');
 export const REF_DIR = join(ROOT, 'src/experiments/reference');
 
-/** `import.meta.glob` is Vite's; give the registry the reference files from disk. */
-const referenceGlob = {
-  name: 'reference-glob',
-  setup(build) {
-    build.onLoad({ filter: /src[\\/]experiments[\\/]registry\.ts$/ }, () => {
-      const src = readFileSync(join(ROOT, 'src/experiments/registry.ts'), 'utf8');
-      const files = readdirSync(REF_DIR).filter((f) => f.endsWith('.experiment.json')).sort();
-      const table = `{${files.map((f) => `${JSON.stringify(`./reference/${f}`)}: () => Promise.resolve(${readFileSync(join(REF_DIR, f), 'utf8')})`).join(',')}}`;
-      const out = src.replace(/import\.meta\.glob\([^)]*\)/, table);
-      if (out === src) throw new Error('registry.ts: import.meta.glob call not found');
-      return { contents: out, loader: 'ts' };
-    });
-  }
-};
-
-const viteRawStub = {
-  name: 'vite-raw-stub',
-  setup(build) {
-    build.onResolve({ filter: /\?raw$/ }, (args) => ({ path: args.path, namespace: 'raw-stub' }));
-    build.onLoad({ filter: /.*/, namespace: 'raw-stub' }, () => ({ contents: 'export default "";', loader: 'js' }));
-  }
-};
+/**
+ * `import.meta.glob` is Vite's; give the registry the reference files from disk.
+ * Its output depends on files esbuild never reads, so they go in the cache key.
+ */
+function referenceGlob() {
+  const files = readdirSync(REF_DIR).filter((f) => f.endsWith('.experiment.json')).sort();
+  const hash = createHash('sha256');
+  for (const f of files) hash.update(f).update('\0').update(readFileSync(join(REF_DIR, f))).update('\0');
+  const plugin = {
+    name: 'reference-glob',
+    setup(build) {
+      build.onLoad({ filter: /src[\\/]experiments[\\/]registry\.ts$/ }, () => {
+        const src = readFileSync(join(ROOT, 'src/experiments/registry.ts'), 'utf8');
+        const table = `{${files.map((f) => `${JSON.stringify(`./reference/${f}`)}: () => Promise.resolve(${readFileSync(join(REF_DIR, f), 'utf8')})`).join(',')}}`;
+        const out = src.replace(/import\.meta\.glob\([^)]*\)/, table);
+        if (out === src) throw new Error('registry.ts: import.meta.glob call not found');
+        return { contents: out, loader: 'ts' };
+      });
+    }
+  };
+  // test-harness.mjs cache key; not enumerable, because esbuild rejects unknown plugin fields.
+  Object.defineProperty(plugin, 'cacheKey', { value: hash.digest('hex') });
+  return plugin;
+}
 
 /** Browser surface the session, the window API and the loaders touch. */
 function installBrowserStubs(search) {
@@ -82,9 +82,13 @@ export async function bootLiveLab({ backend = 'js', search = '' } = {}) {
     : search;
   installBrowserStubs(query);
 
-  const built = await esbuild.build({
-    stdin: {
-      contents: `
+  // The app logs its boot (WASM ready, bridge connected); keep test output readable.
+  const say = console.log.bind(console);
+  console.info = () => {};
+  console.debug = () => {};
+  console.log = () => {};
+  const X = await bundleTs({
+    contents: `
         import './src/devices/register-plugins';
         import './src/bench-window-api';
         export { LabSession } from './src/session/lab-session';
@@ -99,36 +103,11 @@ export async function bootLiveLab({ backend = 'js', search = '' } = {}) {
         export { segOperator } from './src/seg-operator-state';
         export { segWasm } from './src/wasm/seg-physics-bridge';
         export { telemetryHub } from './src/telemetry-hub';
-      `,
-      resolveDir: ROOT,
-      sourcefile: 'live-lab-harness.ts',
-      loader: 'ts'
-    },
-    bundle: true,
-    format: 'esm',
-    platform: 'neutral',
-    mainFields: ['module', 'main'],
-    target: 'es2022',
-    write: false,
-    logLevel: 'warning',
-    loader: { '.wgsl': 'text', '.glsl': 'text' },
-    plugins: [viteRawStub, referenceGlob, simCoreShim(WASM_DIR)]
+    `,
+    sourcefile: 'live-lab-harness.ts'
+  }, {
+    plugins: [referenceGlob(), simCoreShim(WASM_DIR)]
   });
-
-  // The app logs its boot (WASM ready, bridge connected); keep test output readable.
-  const say = console.log.bind(console);
-  console.info = () => {};
-  console.debug = () => {};
-  console.log = () => {};
-  const tmp = mkdtempSync(join(tmpdir(), 'seg-live-lab-'));
-  let X;
-  try {
-    const file = join(tmp, 'harness.mjs');
-    writeFileSync(file, built.outputFiles[0].text);
-    X = await import(pathToFileURL(file).href);
-  } finally {
-    rmSync(tmp, { recursive: true, force: true });
-  }
 
   if (backend === 'wasm') await X.segWasm.init();
 
