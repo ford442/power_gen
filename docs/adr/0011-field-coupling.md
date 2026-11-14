@@ -102,7 +102,7 @@ capture group.
 
 ## WASM artefact lag
 
-`src/public/wasm/sim_core.wasm` is a CI artefact committed on main, so a branch
+`src/wasm/sim-core/sim_core.wasm` is a CI artefact committed on main, so a branch
 checkout can be running a binary older than `setHallFieldCoupledT`. The bridge
 reports whether the loaded binary actually took the setpoint; when it did not,
 `applyWasmPlant` leaves the Hall frame to the JS plant (which does honor it)

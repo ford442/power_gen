@@ -6,12 +6,12 @@
  * what the build wrote, hash it, fill in a 70-line worker", and that is
  * smaller than the dependency's config surface.
  *
- * After Vite has written the bundle *and* copied `src/public/` (wasm/sim_core.*,
- * the GLBs, icons, manifest), the plugin walks the out dir, so the precache list
+ * After Vite has written the bundle (including the hashed
+ * `assets/sim_core-*.{js,wasm}` from src/wasm/sim-core/) *and* copied
+ * `src/public/` (the GLBs, icons, manifest), the plugin walks the out dir, so the precache list
  * is exactly what a deploy serves — no glob to keep in sync with the build. The
- * cache version is a hash over every URL *and its bytes*: `wasm/sim_core.wasm`
- * and the GLBs keep their names across releases, so names alone would miss a
- * rebuilt plant.
+ * cache version is a hash over every URL *and its bytes*: the GLBs keep their
+ * names across releases, so names alone would miss a rebuilt asset.
  *
  * `buildPrecacheList` / `renderServiceWorker` are pure and checked by
  * `npm run test:classroom`.
