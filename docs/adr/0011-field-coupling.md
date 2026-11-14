@@ -89,7 +89,7 @@ module on a separate switch, not a `FIELD_COUPLING_EDGES` row.
 
 ## Goldens
 
-`scripts/test-js-wasm-golden.mjs` covers the coupled path on both plants. The
+`scripts/tests/golden.test.mjs` covers the coupled path on both plants. The
 native `--mode golden` run emits `hall-coupled` (B pinned to 0.31 T) and
 `lorentz-sled-coupled` (0.45 T) beside the existing default cases, and the JS
 fallback replays each schedule with the same setpoint seeded. Both setpoints

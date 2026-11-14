@@ -146,7 +146,7 @@ Add a case here whenever you introduce a new struct that is written on the CPU
 and declared in WGSL.
 
 ```bash
-npm run test:fdtd           # scripts/test-fdtd-slice.mjs (ADR-0010)
+npm run test:fdtd           # scripts/tests/fdtd.test.mjs (ADR-0010)
 ```
 
 The FDTD wave slice has its own check: `FdtdParams` / `FdtdSliceParams` byte

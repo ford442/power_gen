@@ -291,7 +291,7 @@ never calls `requestAdapter`).
 | Host (queue, epoch, apply) | `src/session/plant-worker-host.ts` |
 | Message protocol + packed snapshot | `src/session/plant-worker-protocol.ts` |
 | Worker entry | `src/workers/plant-worker.ts` |
-| Contract test (Node `worker_threads`) | `scripts/test-plant-worker.mjs` → `npm run test:plant-worker` |
+| Contract test (Node `worker_threads`) | `scripts/tests/plant-worker.test.mjs` → `npm run test:plant-worker` |
 | Plant snapshot calls (`plantSave` / `plantLoad`, lazy) | `src/session/plant-worker-snapshot.ts` — [`SNAPSHOTS.md`](./SNAPSHOTS.md) |
 
 - **One frame of latency (by design).** Frame N applies batch N−1's result,
@@ -666,7 +666,7 @@ as the graphics/content epic once the plant stays maintainable.
 ## Extension points
 
 - **New apparatus:** catalog row in `physics/devices.json` + plugin + plant (if `wasmMode` set). Do not add a fourth magic map.
-- **New operator slider for a bench:** a `setpoints[]` row on its catalog entry (no `index.html` edit); make the plant read the `stateKey` (null/NaN = unset), add the field to `renderers/shared/device-physics.ts`, and cover it in `scripts/test-lab-mode.mjs`.
+- **New operator slider for a bench:** a `setpoints[]` row on its catalog entry (no `index.html` edit); make the plant read the `stateKey` (null/NaN = unset), add the field to `renderers/shared/device-physics.ts`, and cover it in `scripts/tests/lab-mode.test.mjs`.
 - **New shader pass:** `.wgsl` in `passes/` + layout name in `pipeline-layout/` + BINDINGS row + `check:wgsl` (+ `check:post` if CPU struct).
 - **New plant mode in WASM:** next `reservedWasmModes` slot in the catalog, then `cpp/src/sim_core.*`. Bridge `setMode` takes a device **id**, not `shaderMode`.
 - **Energy coupling:** pipes are visual today; physical network intent is ADR-0004.

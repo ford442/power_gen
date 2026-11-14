@@ -1,6 +1,6 @@
 /**
  * Embed / classroom message protocol (#224 §5) — pure: no DOM, no globals, so
- * Node unit-tests it (scripts/test-embed.mjs). The same request shapes travel
+ * Node unit-tests it (scripts/tests/embed.test.mjs). The same request shapes travel
  * over `postMessage` (an `?embed=1` lab in a parent page's iframe) and over
  * `BroadcastChannel('seg-lab')` (teacher console → student tabs); see
  * docs/EMBED.md for the table.

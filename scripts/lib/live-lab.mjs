@@ -8,7 +8,7 @@
  *   session.syncHardwareTwin   → the hardware twin, as the render loop does
  *   session.publishFrame(dt)   → TelemetryHub, then a live run's samples
  *
- * Used by test-experiments-live.mjs and tests/twin-snapshot.test.mjs. Call once per
+ * Used by tests/experiments-live.test.mjs and tests/twin-snapshot.test.mjs. Call once per
  * process: the app's singletons (segOperator, segWasm, TelemetryHub) are
  * module state, so a second backend needs its own process.
  *

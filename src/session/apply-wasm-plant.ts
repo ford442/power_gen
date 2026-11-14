@@ -133,7 +133,7 @@ export function wasmOwnsJsDevicePhysics(
 
 /**
  * One frame of a non-SEG device's JS plant, as the WebGL2 loop runs it (and
- * the headless live-experiment test, scripts/test-experiments-live.mjs): skip
+ * the headless live-experiment test, scripts/tests/experiments-live.test.mjs): skip
  * it while the C++ focus plant or a replay owns the state, else step it over
  * the frame's `LabSession.plantBatch` — the session's substeps and drive, so
  * it shares the operator's clock. Clears the C++ plant's per-frame flag.

@@ -52,7 +52,7 @@ const FRAMES_AFTER = 90;
  */
 const TS_SAVE_AT = [23, 90, 241, 607];
 
-// Same tolerance (and the same single override) as test-js-wasm-golden.mjs.
+// Same tolerance (and the same single override) as tests/golden.test.mjs.
 const REL_EPS = 2e-4;
 const ABS_EPS = 1e-9;
 const PER_KEY_EPS = {

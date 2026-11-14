@@ -17,7 +17,7 @@
  * The graph does not create textures, bind groups or GPU passes itself: the
  * host's lifetime callbacks allocate, and each pass's `encode` records the
  * GPU work it always did. Pure TypeScript with no DOM or GPU globals, so
- * scripts/test-frame-graph.mjs runs it under Node with a mock encoder.
+ * scripts/tests/frame-graph.test.mjs runs it under Node with a mock encoder.
  * See docs/WEBGPU.md → Frame graph.
  */
 

@@ -5,7 +5,7 @@
  *      offline on the C++ plant (shipped sim_core.wasm) *and* on the JS
  *      fallback, and every `expect` / `summaryExpect` passes on both.
  *   2. The two backends agree on each verdict's measured numbers (the plants
- *      are golden-matched, test-js-wasm-golden.mjs; this holds the whole
+ *      are golden-matched, tests/golden.test.mjs; this holds the whole
  *      experiment pipeline — knobs, buses, recorder — to the same bar).
  *   3. Unit checks: validator errors, interpreter timing, knob aliases, sweep
  *      grid, conditions, proportional fit.

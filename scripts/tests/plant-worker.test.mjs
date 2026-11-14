@@ -17,7 +17,7 @@
  *   7. Snapshot `plantSave` / `plantLoad` calls reply by id, around a batch
  *      in flight (the C++ round trip itself is snapshots.test.mjs).
  *
- * Golden JS ⇄ C++ parity stays in test-js-wasm-golden.mjs (in-process, native).
+ * Golden JS ⇄ C++ parity stays in tests/golden.test.mjs (in-process, native).
  *
  * Usage: npm run test:plant-worker   (node --test scripts/tests/plant-worker.test.mjs)
  */
