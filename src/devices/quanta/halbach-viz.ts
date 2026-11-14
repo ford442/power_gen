@@ -151,12 +151,12 @@ export function refreshHalbachFieldGeometry(state: Partial<DevicePhysicsState>):
 }
 
 /**
- * @param drive 0..1 from speed slider
+ * @param drive 0..1 — the operator throttle (drive slider)
  */
 export const stepHalbachVizPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   // A pinned N (the catalog `halbachSegments` setpoint) replaces the drive
   // sweep until the operator releases it. The magnetisation angle still
-  // follows the drive, so moving the speed slider must not drop the pin.
+  // follows the drive, so moving the drive slider must not drop the pin.
   const pinned = state.halbachSegmentSetpoint;
   const swept = HALBACH_VIZ.segmentMin + Math.round(drive * HALBACH_VIZ.segmentSpan);
   const segmentCount = Math.max(

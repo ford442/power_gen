@@ -24,10 +24,12 @@ behaves the way its equations say; it says nothing about a real bench.
 | Public API / sweep pool | `src/experiments/run.ts` |
 | Reference experiments | `src/experiments/reference/*.experiment.json` |
 | Panel | `src/experiments/experiment-panel.ts` |
-| CI | `scripts/test-experiments.mjs` (`npm run test:experiments`) |
+| CI | `scripts/test-experiments.mjs` (`npm run test:experiments`, offline) · `scripts/test-experiments-live.mjs` (`npm run test:experiments:live`, the live runner on a headless `LabSession`) |
 
 All of it is lazy: the entry chunk carries only the `window.lab` hooks, the
-**Experiments** button and the `LabSession.experimentClock` slot.
+**Experiments** button and the `LabSession.experimentClock` slot
+(`npm run check:entry-chunk` fails the build if any `src/experiments/` module
+reaches the entry closure).
 
 ## Running one
 
@@ -95,7 +97,7 @@ Steps run in time order; at the same `at`, in file order.
 
 | Knob | Writes | Range |
 |------|--------|-------|
-| `drive` | operator throttle (`segOperator.targetDrive`), the speed slider | 0 … 1 |
+| `drive` | operator throttle (`segOperator.targetDrive`), the drive slider | 0 … 1 |
 | `<deviceId>.<setpointId>` | every catalog setpoint (`physics/devices.json` `setpoints`): `pulse-coil.pulseCoilCharge`, `halbach-viz.halbachSegments`, `lorentz-sled.lorentzField`, `drop-tube.dropTubeSigma` | the setpoint's min … max (clamped, with a validation warning) |
 | `transformer.leakage` | the transformer's leakage toggle (k = 0.97 → 0.72) | 0 / 1 |
 | `hall.carrierMetal` | the Hall strip's carrier profile (semiconductor → metal) | 0 / 1 |
@@ -158,9 +160,30 @@ event (a set, a ramp's start or end, a record tick, an expect — the
 interpreter's `nextEvent(t)`) and never more than 0.1 s, re-split into equal
 substeps of at most 1/60 s. So steps and samples land on their own times even
 at 1 fps or 3×; a slow frame slows the run down instead of skipping through it
-(an uncut batch keeps the frame's substeps). With the plant worker on, devices
-hold the previous batch's result, so a sample lags its `t` by one batch. A live
-run starts from the lab as it stands — set every knob the result depends on.
+(an uncut batch keeps the frame's substeps). Every plant steps that batch: the
+operator and the C++ focus plant inside `stepPlant`, and each JS device plant
+in the backend over `LabSession.plantBatch` (`stepDevicePhysicsBatch` — the
+session's substeps and operator drive, never the frame's wall-clock time), so
+a cut batch is exactly what the JS plants integrate too. With the plant worker
+on, devices hold the previous batch's result, so a sample lags its `t` by one
+batch.
+
+**A live run starts where an offline run does.** Before its config and steps
+apply, it restores a start state: the experiment's `snapshot`, or else a fresh
+bench of the devices it steps (`ExperimentBench(...).capture()` — the focus and
+any coupling sources, at their created state; the C++ focus plant is
+cross-loaded from those keys). The bench's config — `fieldCoupling`,
+`chargeCoupling`, and `halbachLinear` / `heronLayout` when the run steps that
+bench — takes the experiment's value or the default (`benchConfigDefaults`), so
+a coupling a previous run or the teacher left on cannot leak in. The rest of
+the lab is left as it stands: other benches, the camera, the look, and the SEG
+operator (reset only when SEG is the focus; other runs only borrow its drive
+knob). One limit: the C++ SEG roller plant (`@_rollers[]`) has no device keys
+to reset it from, so a SEG-focus live run on `?wasmPhysics=1` keeps the live
+roller state unless the experiment carries a `snapshot` (no reference
+experiment focuses SEG). The same file therefore judges the same claim on the same plant live and
+offline — `test:experiments:live` holds them within 2 % (bit-identical at
+60 fps for most references).
 
 Operator actions win (ADR-0009): START / STOP / E-stop / reset / replay bump
 `segOperator.epoch`, and a changed epoch, leaving the experiment's mode, or a
@@ -185,7 +208,7 @@ sources), `js`.
 
 - Axes are `{ from, to, n }` or `{ values: [...] }`; several axes form a
   cartesian product (first axis slowest), capped at 64 runs.
-- Each point is one offline run, one worker each, at most
+- Offline, each point is one run, one worker each, at most
   `hardwareConcurrency − 1` (≤ 8) in flight. The point's values are written at
   t = 0 after the t = 0 `set` steps, so they win over them.
 - Each run collapses to one summary row: the sweep values, every recorded key
@@ -193,7 +216,12 @@ sources), `js`.
   `until`, default the run's last second), the derived `columns`, and `pass`
   (1 when every per-run `expect` passed). `summaryExpect` is judged on that
   table; the summary is itself a `RecordedRun` (no `t` column, `hz` 0).
-- Sweeps run offline only.
+- **Live** (`runner: 'live'`, or **Run live** in the panel), the points run
+  one after another on the lab you are looking at, each from the same start
+  state (above), so point k never inherits point k − 1's plant. A long record
+  window at a high rate (the transformer's 2400 Hz) costs one frame per sample
+  live — about 40 s per point at 60 fps — which is why the panel defaults to
+  offline. The summary's `runner` is `live`.
 
 ## Tours
 
@@ -214,6 +242,14 @@ counts the step's `durationSec` from there. Leaving the step stops the run.
 
 Each runs in CI on **both** backends; the measured numbers of every verdict
 must agree between the C++ plant and the JS fallback within 2e-3 relative.
+
+Each also runs **live** in CI (`npm run test:experiments:live`): a headless
+`LabSession` with every device plant, the real window API, and a frame loop in
+WebGL2's order (`stepPlant` → `stepJsDevicePlant` → `publishFrame`), on the JS
+plants and on the in-loop C++ plant, at 60 fps and at 20 fps (every batch cut
+at its next record tick). Every verdict must pass live, and every measured
+number must agree with the offline run of the same file within 2 % — a plant
+that stepped anything but the session's batch drifts well past that.
 
 | Experiment | Claim | Measured (both backends) |
 |------------|-------|--------------------------|

@@ -9,7 +9,7 @@
  * canonical knob ids, numeric knob values, steps in time order.
  */
 import { DEVICE_BY_ID } from '../../generated/device-catalog';
-import { LAB_CONFIG_FIELDS, type LabConfigKey } from '../../generated/lab-config';
+import { LAB_CONFIG_DEFAULTS, LAB_CONFIG_FIELDS, type LabConfigKey } from '../../generated/lab-config';
 import { coerceLabField } from '../config/lab-config';
 import { CHARGE_COUPLING_EDGES } from '../renderers/shared/charge-network';
 import { FIELD_COUPLING_EDGES } from '../renderers/shared/field-network';
@@ -79,6 +79,23 @@ export function benchDevices(focus: string, config: Record<string, unknown>): st
     for (const e of CHARGE_COUPLING_EDGES) if (e.to === focus) add(e.from);
   }
   return out;
+}
+
+/**
+ * The LabConfig fields the headless bench builds its plants from, at the
+ * experiment's value or else the default — what an offline run starts with.
+ * A live run applies these before its own config, so it does not inherit a
+ * coupling (or a Halbach / Heron layout) a previous run or the teacher left
+ * on: the same file gives the same plant live and offline. Layouts only count
+ * when the run steps that bench, so an unrelated choice is left alone.
+ */
+export function benchConfigDefaults(v: { devices: readonly string[] }): Record<string, unknown> {
+  return {
+    fieldCoupling: LAB_CONFIG_DEFAULTS.fieldCoupling,
+    chargeCoupling: LAB_CONFIG_DEFAULTS.chargeCoupling,
+    ...(v.devices.includes('halbach-viz') ? { halbachLinear: LAB_CONFIG_DEFAULTS.halbachLinear } : {}),
+    ...(v.devices.includes('heron') ? { heronLayout: LAB_CONFIG_DEFAULTS.heronLayout } : {})
+  };
 }
 
 function sweepValues(axis: SweepAxis): number[] {

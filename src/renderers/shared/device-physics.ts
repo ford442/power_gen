@@ -329,6 +329,26 @@ export function kelvinSeedV(state: Pick<BaseDevicePhysicsState, 'kelvinSeedCoupl
   return Math.min(v, state.kelvinVbreak);
 }
 
+/**
+ * Step a device's JS plant over one frame's session substeps — the `simSteps`
+ * and `drive` that `LabSession.stepPlant` returns. Both backends call this for
+ * every JS-stepped device, so the JS plants ride the same clock as the
+ * operator and the C++ plant: pause (no substeps) stops them, `[` `]` scale
+ * them, and a live experiment's cut batch (src/experiments/interpreter.ts
+ * `liveBatch`) is exactly what they integrate. The headless experiment bench
+ * steps its plants the same way, one substep at a time.
+ */
+export function stepDevicePhysicsBatch(
+  state: DevicePhysicsState,
+  simSteps: readonly number[],
+  drive: number,
+  opts: StepDevicePhysicsOpts = {}
+): void {
+  for (const dt of simSteps) {
+    if (dt > 0) stepDevicePhysics(state, dt, drive, opts);
+  }
+}
+
 export function stepDevicePhysics(
   state: DevicePhysicsState,
   dt: number,

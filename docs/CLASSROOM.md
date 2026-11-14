@@ -159,7 +159,7 @@ WebCodecs / muxers are out of scope.
 |---------|--------|
 | `npm run test:classroom` | Precache list + plugin, the generated worker in a sandbox (install / fetch routing / activate / skip-waiting), icons + manifest, recorder helpers, lazy-chunk structure |
 | `npm run test:camera-gestures` | Gesture tracker, pan / dolly, double-tap pick, touch router, mouse path unchanged |
-| `npm run test:e2e` (`e2e/classroom.spec.js`) | Touch double-tap focus ↔ overview, orbit, pinch, pan; `recordBench(2)`; Record control at 390 px + download |
+| `npm run test:e2e` (`e2e/classroom.spec.js`) | Touch double-tap focus ↔ overview, orbit, pinch, pan; `recordBench(2)`; Record control at 390 px + download; with `?audio=1` started by a gesture, the 10 s preset saves a file whose container declares an audio track (`A_OPUS` / `A_VORBIS`) and the control says "with audio" |
 | `npm run test:e2e:offline` (`e2e/offline.preview.js`, `playwright.preview.config.js`) | Against `vite preview` of a fresh build: precache = list, installability, offline reload boots WebGL2; a redeploy waits behind the toast until Reload. CI: `validate.yml` e2e job |
 
 Not verified here: real touch hardware, WebGPU canvas capture (the VM has no

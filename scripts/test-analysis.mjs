@@ -12,7 +12,11 @@
  *   3. run store: newest first, cap, replace, subscribe / unsubscribe, validation;
  *   4. TelemetrySampler rows → RecordedRun (snake_case → catalog keys, idle drop);
  *   5. CSV export and the panel's view models (alignment, unit strips, fit text,
- *      spectrum peak, plot-hint defaults).
+ *      spectrum peak, plot-hint defaults);
+ *   6. the spectrum of a *real* transformer run: the reference experiment's
+ *      first sweep point, offline on the plant, through the panel's spectrum
+ *      view — `transformerVs` peaks at the drive frequency, and the JS and
+ *      WASM kernels agree on that waveform within FFT_GOLDEN_TOL_DB.
  *
  * Usage: node scripts/test-analysis.mjs   (exit 1 on failure)
  */
@@ -75,6 +79,9 @@ const built = await esbuild.build({
       export { TelemetrySampler } from './src/telemetry/telemetry-sampler';
       export { stepPulseCoilPhysics, PULSE_COIL } from './src/devices/quanta/pulse-coil';
       export { DEVICE_TELEMETRY_FIELDS } from './generated/device-catalog';
+      export { validateExperiment } from './src/experiments/validate';
+      export { runExperimentSync } from './src/experiments/offline';
+      export { TRANSFORMER } from './src/devices/quanta/transformer';
     `,
     resolveDir: ROOT,
     sourcefile: 'analysis-harness.ts',
@@ -418,6 +425,41 @@ console.log('\n5. Export + view models');
   const sp = sm.spectra[0];
   check(`spectrum model: 12.5 Hz tone at 100 Hz → peak ${sp.peak.hz.toFixed(3)} Hz (±Δf/2), note printed`,
     Math.abs(sp.peak.hz - 12.5) <= sp.binHz / 2 && sm.notes[0].startsWith('Peak') && sm.x.length === 129, sm.notes.join(' | '));
+}
+
+// ── 6. Spectrum of a real transformer run ─────────────────────────────────
+console.log('\n6. Spectrum of a real transformer run (transformerVs)');
+{
+  const def = JSON.parse(readFileSync(join(ROOT, 'src/experiments/reference/transformer-turns-ratio.experiment.json'), 'utf8'));
+  const v = A.validateExperiment(def);
+  // The tightly coupled point (leakage 0), on the JS plant (golden-matched to C++).
+  const run = A.runExperimentSync(v, { cpp: null, sweepPoint: v.sweepPoints[0], startedAt: '2026-01-01T00:00:00.000Z' });
+  const fHz = A.TRANSFORMER.fHz;
+  check(`transformer run records transformerVs at ${run.hz} Hz`, run.columns.includes('transformerVs') && run.hz === 2400 && run.rows.length > 2000,
+    `${run.columns.join()} · ${run.hz} Hz · ${run.rows.length} rows`);
+
+  const sel = { ...A.defaultSelection(run), view: 'spectrum', specKey: 'transformerVs' };
+  const model = A.buildPlotModel(run, null, sel);
+  const sp = model.spectra[0];
+  check(`spectrum view: transformerVs peaks at the ${fHz} Hz drive (±Δf/2) — peak ${sp?.peak.hz.toFixed(3)} Hz, Δf ${sp?.binHz.toFixed(3)} Hz`,
+    !!sp && Math.abs(sp.peak.hz - fHz) <= sp.binHz / 2, JSON.stringify(sp?.peak));
+  check('spectrum view: the peak note is printed', (model.notes[0] ?? '').startsWith('Peak'), model.notes.join(' | '));
+  // The secondary is a sine at the drive: the peak stands far above the floor
+  // a bin or two away from it (Hann main lobe ±2 bins).
+  const k = Math.round(fHz / sp.binHz);
+  const far = Math.max(...[k - 20, k + 20].map((i) => sp.db[i]));
+  check(`transformerVs peak stands ≥ 40 dB over bins ±20 away (${(sp.peak.db - far).toFixed(1)} dB)`, sp.peak.db - far >= 40);
+
+  // JS ⇄ WASM on the real waveform (the same demeaned column the panel feeds).
+  const col = run.rows.map((r) => r[run.columns.indexOf('transformerVs')]);
+  const mean = col.reduce((a, b) => a + b, 0) / col.length;
+  const demeaned = col.map((x) => x - mean);
+  const js = A.fftMagnitudeDbJs(demeaned, true, -120);
+  const wasm = A.fftMagnitudeDbWasm(demeaned, true, -120);
+  let worst = 0;
+  for (let i = 0; i < js.length; i++) worst = Math.max(worst, Math.abs(js[i] - (wasm?.[i] ?? Number.NaN)));
+  check(`transformerVs: JS ⇄ WASM FFT max |ΔdB| ${worst.toExponential(2)} ≤ ${FFT_GOLDEN_TOL_DB}`,
+    !!wasm && wasm.length === js.length && worst <= FFT_GOLDEN_TOL_DB);
 }
 
 console.log(failures === 0 ? `\ntest-analysis: ${passed} checks OK` : `\ntest-analysis: ${failures} failure(s)`);

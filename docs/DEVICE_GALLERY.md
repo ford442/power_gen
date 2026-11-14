@@ -125,7 +125,7 @@ Capture: `?renderer=webgl2` → START → `setMode('homopolar')` → `captureCan
 
 **Halbach Array Field Visualizer** — standalone Quanta demo showing how oriented
 magnet segments shape the B-field. Configurable N-segment ring (or linear array
-via `?halbachLinear=1`); speed slider drives segment count and magnetization
+via `?halbachLinear=1`); the drive slider (operator throttle) drives segment count and magnetization
 angle. CPU RK4 field-line tracer with |B| slice heatmap on focus view.
 
 | View | Screenshot |

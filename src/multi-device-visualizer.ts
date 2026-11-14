@@ -55,7 +55,7 @@ import { WebGpuFrameLoop } from './visualizer/render-loop.js';
 import { MaterialTable } from './visualizer/materials.js';
 import { VisualizerDiagnostics } from './visualizer/diagnostics.js';
 import { GltfPropRegistry } from './visualizer/setup-gltf.js';
-import { LabSession } from './session/lab-session';
+import { LabSession, type PlantBatch } from './session/lab-session';
 import type {
   VisualizerLike,
   MeshBuffers,
@@ -64,7 +64,7 @@ import type {
   SegFrameBuffers,
   SegLayout
 } from './devices/types';
-import { stepDevicePhysics } from './renderers/shared/device-physics';
+import { stepDevicePhysics, stepDevicePhysicsBatch } from './renderers/shared/device-physics';
 import { telemetryHub } from './telemetry-hub';
 import { segWasm } from './wasm/seg-physics-bridge';
 import type { DevicePhysicsState, HeronLayout } from './renderers/shared/device-physics';
@@ -253,6 +253,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
   set hardwareTwinTelemetry(v: HardwareTwinTelemetry | null) { this.session.hardwareTwinTelemetry = v; }
   get speedMult(): number { return this.session.speedMult; }
   set speedMult(v: number) { this.session.speedMult = v; }
+  /** This frame's plant batch — device-update.ts steps the JS plants over it. */
+  get plantBatch(): PlantBatch | null { return this.session.plantBatch; }
   get segOmega(): number { return this.session.segOmega; }
   set segOmega(v: number) { this.session.segOmega = v; }
   get corona(): number { return this.session.corona; }
@@ -585,10 +587,11 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     if (segWasm.enabled || telemetryHub.isReplayMode()) return;
     const state = src.physicsState as DevicePhysicsState | undefined;
     if (!state) return;
-    // Same drive curve device-update.ts applies, so the borrowed bench behaves
-    // exactly as it would if you were looking at it.
-    const drive = Math.min(1, Math.log2((src.speedMult || 1) + 1) / Math.log2(21));
-    stepDevicePhysics(state, deltaTime, drive);
+    // Same substeps and drive device-update.ts applies, so the borrowed bench
+    // behaves exactly as it would if you were looking at it.
+    const batch = this.session.plantBatch;
+    if (batch) stepDevicePhysicsBatch(state, batch.simSteps, batch.drive);
+    else stepDevicePhysics(state, deltaTime, Math.min(1, Math.log2((src.speedMult || 1) + 1) / Math.log2(21)));
   }
 
   async setupEnergyPipePipeline(): Promise<void> {

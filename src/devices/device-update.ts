@@ -1,6 +1,7 @@
 import {
   createDevicePhysicsState,
-  stepDevicePhysics
+  stepDevicePhysics,
+  stepDevicePhysicsBatch
 } from '../renderers/shared/device-physics';
 import { getHeronLayout } from '../heron-layout';
 import { overviewLodParticleCount } from '../renderers/shared/view-lod.js';
@@ -84,7 +85,13 @@ export const DeviceUpdateMixin = {
         && pluginWasmSkipsJsPhysics(this);
       const replayOwnsPlant = telemetryHub.isReplayMode();
       if (!wasmOwnsPlant && !replayOwnsPlant) {
-        stepDevicePhysics(this.physicsState, deltaTime, ctx.drive, { heronLayout });
+        // The session's substeps and operator drive (as WebGL2, the C++ plant
+        // and the experiment bench use), so a JS plant follows pause, `[` `]`
+        // and a live experiment's cut batch. The frame-time step is only the
+        // fallback for a caller with no LabSession batch.
+        const batch = this.visualizer.plantBatch;
+        if (batch) stepDevicePhysicsBatch(this.physicsState, batch.simSteps, batch.drive, { heronLayout });
+        else stepDevicePhysics(this.physicsState, deltaTime, ctx.drive, { heronLayout });
       } else if (wasmOwnsPlant) {
         this.physicsState._wasmPlantActive = false;
       }

@@ -7,7 +7,8 @@
  *     time; a sweep fans out one worker per grid point, at most
  *     `hardwareConcurrency − 1` at once, and returns the summary run.
  *   runner 'live': the steps ride the session clock on the lab you are
- *     looking at (live-runner.ts). Sweeps are offline only.
+ *     looking at (live-runner.ts), from the start state an offline run uses;
+ *     a sweep runs its points one after another, each from that same state.
  *
  * Every run (each sweep point too) lands in the analysis panel's run store.
  */
@@ -129,11 +130,27 @@ export async function runExperimentDetailed(idOrDef: unknown, opts: RunExperimen
   };
 
   if (runner === 'live') {
-    if (v.sweepPoints.length) throw new Error('a sweep runs offline only — use runner: "offline"');
     const { runLive } = await import('./live-runner');
-    const { run, warnings } = await runLive(v, { onProgress: opts.onProgress, signal: opts.signal });
-    store([run]);
-    return { run, runs: [run], warnings: [...v.warnings, ...warnings] };
+    if (!v.sweepPoints.length) {
+      const { run, warnings } = await runLive(v, { onProgress: opts.onProgress, signal: opts.signal });
+      store([run]);
+      return { run, runs: [run], warnings: [...v.warnings, ...warnings] };
+    }
+    // A live sweep is one lab, so its points run one after another — each
+    // from the same start state (runLive restores it), so point k does not
+    // inherit point k − 1's plant: an A/B from one start, on the session clock.
+    const runs: RecordedRun[] = [];
+    const warnings = new Set<string>();
+    for (const [i, point] of v.sweepPoints.entries()) {
+      if (opts.signal?.aborted) throw abortError();
+      const n = v.sweepPoints.length;
+      const res = await runLive(v, { onProgress: (f) => opts.onProgress?.((i + f) / n), signal: opts.signal }, point);
+      for (const w of res.warnings) warnings.add(w);
+      runs.push(res.run);
+    }
+    const summary = summarizeSweep(v, runs);
+    store([...runs, summary]);
+    return { run: summary, runs, warnings: [...v.warnings, ...warnings] };
   }
 
   // Run-time warnings (a C++ plant that refused the snapshot), once each.

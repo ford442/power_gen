@@ -4,7 +4,11 @@
  */
 import { segOperator } from '../seg-operator-state';
 import { segWasm } from '../wasm/seg-physics-bridge';
-import type { DevicePhysicsState } from '../renderers/shared/device-physics';
+import {
+  stepDevicePhysicsBatch,
+  type DevicePhysicsState,
+  type StepDevicePhysicsOpts
+} from '../renderers/shared/device-physics';
 import { DEVICE_CATALOG, WASM_DEVICE_IDS } from '../../generated/device-catalog';
 
 /** Every device with a `wasmMode` in physics/devices.json (ADR-0008). */
@@ -125,6 +129,26 @@ export function wasmOwnsJsDevicePhysics(
   if (deviceId === 'kelvin' && _kelvinSeedIgnoredByWasm) return false;
   if (CORE_WASM_OWNED_IDS.has(deviceId)) return true;
   return QUANTA_WASM_OWNED_IDS.has(deviceId) && !!physics?._wasmPlantActive;
+}
+
+/**
+ * One frame of a non-SEG device's JS plant, as the WebGL2 loop runs it (and
+ * the headless live-experiment test, scripts/test-experiments-live.mjs): skip
+ * it while the C++ focus plant or a replay owns the state, else step it over
+ * the frame's `LabSession.plantBatch` — the session's substeps and drive, so
+ * it shares the operator's clock. Clears the C++ plant's per-frame flag.
+ */
+export function stepJsDevicePlant(
+  deviceId: string,
+  physics: DevicePhysicsState & { _wasmPlantActive?: boolean },
+  focus: string,
+  batch: { simSteps: readonly number[]; drive: number; useWasm: boolean; replayLocked: boolean },
+  opts: StepDevicePhysicsOpts = {}
+): void {
+  if (!wasmOwnsJsDevicePhysics(deviceId, focus, batch.useWasm, physics) && !batch.replayLocked) {
+    stepDevicePhysicsBatch(physics, batch.simSteps, batch.drive, opts);
+  }
+  if (physics._wasmPlantActive) physics._wasmPlantActive = false;
 }
 
 /** Whether the last `syncWasmFocusKnobs` left Hall to the JS plant (see above). */

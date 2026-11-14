@@ -216,6 +216,12 @@ export interface VisualizerLike {
   heronLayout?: (HeronLayout & { name?: string; description?: string }) | null;
   heronLayoutPreset?: string;
 
+  /**
+   * This frame's session substeps and drive (`LabSession.plantBatch`): the
+   * JS plant steps over these, not the frame's `deltaTime`.
+   */
+  plantBatch?: { simSteps: readonly number[]; drive: number } | null;
+
   // SEG operator physics + layout
   segOmega?: number;
   corona?: number;

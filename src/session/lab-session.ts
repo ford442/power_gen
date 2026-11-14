@@ -76,6 +76,18 @@ export interface LabExperimentClock {
   afterPublish(): void;
 }
 
+/**
+ * One frame's plant batch — what `stepPlant` stepped the operator / C++ plant
+ * over. Backends step every JS device plant over the same `simSteps` at the
+ * same `drive` (`stepDevicePhysicsBatch`), so all plants share one clock.
+ */
+export interface PlantBatch {
+  simSteps: number[];
+  replayLocked: boolean;
+  useWasm: boolean;
+  drive: number;
+}
+
 export class LabSession {
   /** The page's session (the last one constructed) — lazy chunks such as plant snapshots reach it here. */
   static active: LabSession | null = null;
@@ -141,6 +153,15 @@ export class LabSession {
   /** The running live experiment, if any — see {@link LabExperimentClock}. */
   experimentClock: LabExperimentClock | null = null;
 
+  /** This frame's {@link PlantBatch} (null before the first `stepPlant`). */
+  plantBatch: PlantBatch | null = null;
+
+  /**
+   * `hardwareBridge.lastSensorUpdate` when a snapshot was restored, while the
+   * closed-loop override waits for a newer sample (`holdClosedLoopForSnapshot`).
+   */
+  private closedLoopHeldAt: number | null = null;
+
   constructor() {
     LabSession.active = this;
     this.hardwareBridge = new HardwareBridge({
@@ -178,12 +199,7 @@ export class LabSession {
    * applies the *previous* batch's result (one frame of latency); otherwise
    * the operator / C++ plant step in-loop exactly as before.
    */
-  stepPlant(deltaTime: number, speed: number, quality: LabSessionQuality = {}): {
-    simSteps: number[];
-    replayLocked: boolean;
-    useWasm: boolean;
-    drive: number;
-  } {
+  stepPlant(deltaTime: number, speed: number, quality: LabSessionQuality = {}): PlantBatch {
     const t0 = performance.now();
     this.speedMult = speed;
     const load: SimRateLoad = {
@@ -250,7 +266,8 @@ export class LabSession {
         ? worker.stats()
         : { workerMs: 0, pendingSteps: 0, droppedResults: 0, wasmInWorker: false })
     };
-    return { simSteps, replayLocked, useWasm, drive };
+    this.plantBatch = { simSteps, replayLocked, useWasm, drive };
+    return this.plantBatch;
   }
 
   /**
@@ -289,11 +306,25 @@ export class LabSession {
     }
   }
 
+  /**
+   * A restored plant snapshot owns ω at its epoch boundary. In closed-loop
+   * twin mode the per-frame sensor override would otherwise re-apply the last
+   * reading — taken *before* the restore — on the very next frame, so the
+   * snapshot's ω would never be seen. Hold the override until the bridge
+   * reports a sample newer than this call; that sample (the real rotor) then
+   * wins again, as closed loop promises. Called by `restoreLabSnapshot`.
+   */
+  holdClosedLoopForSnapshot(): void {
+    const hw = this.hardwareBridge;
+    this.closedLoopHeldAt = hw?.isConnected ? hw.lastSensorUpdate : null;
+  }
+
   syncHardwareTwin(deltaTime: number): void {
     const hw = this.hardwareBridge;
     if (!hw?.isConnected) {
       this.hardwareTwinTelemetry = null;
       this.hardwareShadow = { phaseError: 0, rpmError: 0 };
+      this.closedLoopHeldAt = null;
       return;
     }
 
@@ -320,7 +351,12 @@ export class LabSession {
 
     hw.update({ simPhase, simRpm, simVoltage, simCurrent });
 
-    if (hw.twinMode === TWIN_MODES.CLOSED && !hw.isSensorStale) {
+    // After a snapshot restore the snapshot's ω holds until a sensor sample
+    // newer than the restore arrives; the last pre-restore reading must not
+    // overwrite it on the very next frame (see holdClosedLoopForSnapshot).
+    const held = this.closedLoopHeldAt !== null && hw.lastSensorUpdate <= this.closedLoopHeldAt;
+    if (!held) this.closedLoopHeldAt = null;
+    if (hw.twinMode === TWIN_MODES.CLOSED && !hw.isSensorStale && !held) {
       const hwRpm = HardwareBridge.sanitizeRpm(hw.actualRpm);
       const wNorm = Math.min(1, Math.abs(hwRpm) / 3000);
       this.segOmega = wNorm;
