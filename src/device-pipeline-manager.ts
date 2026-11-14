@@ -68,9 +68,6 @@ export class DevicePipelineManager {
     }
 
     this.computePipeline = cache.getParticleComputePipeline();
-    // core uses enhanced when present; ringPipeline remains unset until a
-    // dedicated layout exists (renderPickupCoils guards on ringPipeline).
-    this.ringPipeline = null;
     this.applyPassVariant('base');
 
     if (!this.rollerPipeline || !this.particlePipeline || !this.computePipeline) {
@@ -90,11 +87,20 @@ export class DevicePipelineManager {
     this.rollerPipeline = get('roller');
     this.particlePipeline = get('particle');
     this.coilPipeline = get('coil');
+    // Flux-line ribbons: SEG (flux tracer) and the transformer bench
+    // (transformer-flux compute) both fill a fluxSegment buffer. The draw is
+    // gated on the device's fluxSegmentRenderBindGroup, so other benches
+    // holding the handle draw nothing. Before this it was SEG-only, and
+    // transformer flux never drew on WebGPU.
+    this.fluxSegmentPipeline = get('fluxSegment');
     if (this.id === 'seg') {
-      this.fluxSegmentPipeline = get('fluxSegment');
       this.energyArcPipeline = get('energyArc');
       this.segEnhancedPipeline = get('segEnhanced');
       this.corePipeline = this.segEnhancedPipeline || this.rollerPipeline;
+      // Connection rings are UV cylinders on the segEnhanced layout
+      // (renderPickupCoils builds a segEnhanced bind group), so they share
+      // its pipeline. Was always null, so the pickup coils never drew.
+      this.ringPipeline = this.segEnhancedPipeline;
     } else {
       // Non-SEG benches draw their CAD props with segEnhanced too
       // (_drawGltfPropsForDevice). Before #225 this was SEG-only, so those

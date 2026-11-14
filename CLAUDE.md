@@ -117,7 +117,11 @@ npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switche
 npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement
 npm run test:drop-tube # drop-tube k / end taper / loops vs quadrature, transit vs RK4
 npm run generate:gltf # regenerate every placeholder GLB (seg + quanta + lab)
+npm run test:device-draws # mock encoder: transformer flux, pickup coils + rings, bind-group token, camera scratch
+npm run test:stacked-prs # stacked-PR guard decision table (CI: .github/workflows/stacked-prs.yml)
 ```
+
+**Stacked PRs:** retarget a stacked PR to `main` before merging it. Merging into an already-merged base leaves the code off `main` (#249, #251); `stacked-prs.yml` fails such PRs.
 
 ## WebGPU notes
 

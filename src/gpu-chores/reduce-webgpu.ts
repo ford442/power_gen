@@ -19,6 +19,9 @@ export class WebgpuReduce {
   private capacity = 0;
   private wgCapacity = 0;
   private last: ReduceResult | null = null;
+  /** Upload staging, grown on demand and reused (writeBuffer copies at call time). */
+  private upload = new Float32Array(64);
+  private readonly uniforms = new Uint32Array(4);
   private inflight = false;
 
   constructor(device: GPUDevice) {
@@ -49,11 +52,12 @@ export class WebgpuReduce {
     if (n <= 0) return js;
     try {
       this._ensureCapacity(n);
-      const upload = new Float32Array(n);
+      if (this.upload.length < n) this.upload = new Float32Array(Math.max(n, this.upload.length * 2));
+      const upload = this.upload;
       for (let i = 0; i < n; i++) upload[i] = Number(data[i]) || 0;
-      this.device.queue.writeBuffer(this.inputBuf!, 0, upload);
-      const uniforms = new Uint32Array([n, 0, 0, 0]);
-      this.device.queue.writeBuffer(this.uniformBuf!, 0, uniforms);
+      this.device.queue.writeBuffer(this.inputBuf!, 0, upload.buffer, 0, n * 4);
+      this.uniforms[0] = n;
+      this.device.queue.writeBuffer(this.uniformBuf!, 0, this.uniforms);
       const wgs = Math.max(1, Math.ceil(n / 64));
       const enc = this.device.createCommandEncoder({ label: 'chores-reduce' });
       const pass = enc.beginComputePass({ label: 'chores-reduce' });

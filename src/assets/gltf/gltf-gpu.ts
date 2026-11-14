@@ -54,6 +54,10 @@ export function createGltfInstanceBuffer(device: GPUDevice, opts: CreateGltfInst
   return buf;
 }
 
+/** One float, reused — writeBuffer copies at call time. Runs per prop per frame. */
+const emissiveScratch = new Float32Array(1);
+
 export function updateGltfInstanceEmissive(device: GPUDevice, instanceBuffer: GPUBuffer, emissive: number): void {
-  writeQueueBuffer(device, instanceBuffer, new Float32Array([emissive]), 44);
+  emissiveScratch[0] = emissive;
+  writeQueueBuffer(device, instanceBuffer, emissiveScratch, 44);
 }

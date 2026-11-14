@@ -25,6 +25,8 @@ class DeviceComputeManager {
   computePipeline: GPUComputePipeline | GPURenderPipeline | null = null;
   computeBindGroup: GPUBindGroup | null = null;
   computeUniformBuffer: GPUBuffer | null = null;
+  /** Per-frame ComputeUniforms staging (48 B), reused — writeBuffer copies. */
+  private readonly _computeUniformData = new Float32Array(12);
   scaledParticleCount = 0;
   speedMult = 1.0;
 
@@ -139,15 +141,11 @@ class DeviceComputeManager {
       }
     }
 
-    writeQueueBuffer(
-      this.device,
-      this.computeUniformBuffer,
-      new Float32Array([
-        time, mode, particleCount, speedMult,
-        p0, p1, p2, p3,
-        Math.max(0, Math.min(3, lodLevel | 0)), 0, 0, 0
-      ])
-    );
+    const u = this._computeUniformData;
+    u[0] = time; u[1] = mode; u[2] = particleCount; u[3] = speedMult;
+    u[4] = p0; u[5] = p1; u[6] = p2; u[7] = p3;
+    u[8] = Math.max(0, Math.min(3, lodLevel | 0)); u[9] = 0; u[10] = 0; u[11] = 0;
+    writeQueueBuffer(this.device, this.computeUniformBuffer, u);
   }
 
   /**

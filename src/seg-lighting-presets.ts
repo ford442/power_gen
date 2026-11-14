@@ -256,6 +256,8 @@ export interface PackPostUniformsOpts {
   bloomChainLevels?: number;
   /** Composite → canvas transfer: 0 legacy (no encode), 1 `-srgb` view, 2 shader OETF. */
   outputTransfer?: 0 | 1 | 2;
+  /** Write into this 20-float array (per-frame callers reuse one) instead of a new one. */
+  out?: Float32Array;
 }
 
 /**
@@ -275,7 +277,8 @@ export function packPostUniforms(opts: PackPostUniformsOpts): Float32Array {
     ssrEnabled = true,
     outputLinearHdr = false,
     bloomChainLevels = 0,
-    outputTransfer = 0
+    outputTransfer = 0,
+    out = new Float32Array(20)
   } = opts;
 
   const p = preset?.post ?? PRESETS.studio.post;
@@ -293,26 +296,25 @@ export function packPostUniforms(opts: PackPostUniformsOpts): Float32Array {
       ? 0
       : (p.bloomStrength ?? 0) * (1.0 + energyPow * 0.42 + speedNorm * 0.12) * bloomMul;
 
-  return new Float32Array([
-    1.0 / width,
-    1.0 / height,
-    Math.max(0.35, (p.bloomThreshold ?? 0) - energyPow * 0.12 - speedNorm * 0.06),
-    Math.max(0.06, (p.bloomKnee ?? 0) * (1.0 + energyPow * 0.25)),
-    bloomStrength,
-    (p.bloomRadius ?? 0) + energyPow * 2.8 + speedNorm * 0.6,
-    energyPow,
-    p.grain ?? 0,
-    (p.aberration ?? 0) * (1.0 + energyPow * 0.5),
-    p.vignette ?? 0,
-    motionBlur * motionMul,
-    p.exposure ?? 1,
-    p.coronaBoost ?? 0,
-    (p.ssaoStrength ?? 0) * ssaoMul,
-    (p.contactShadow ?? 0) * contactMul,
-    preset?.sky?.mode ?? 1,
-    (p.ssrStrength ?? 0) * ssrMul,
-    outputLinearHdr ? 1 : 0,
-    bloomChainLevels > 0 ? 1 / bloomChainLevels : 0,
-    outputTransfer
-  ]);
+  out[0] = 1.0 / width;
+  out[1] = 1.0 / height;
+  out[2] = Math.max(0.35, (p.bloomThreshold ?? 0) - energyPow * 0.12 - speedNorm * 0.06);
+  out[3] = Math.max(0.06, (p.bloomKnee ?? 0) * (1.0 + energyPow * 0.25));
+  out[4] = bloomStrength;
+  out[5] = (p.bloomRadius ?? 0) + energyPow * 2.8 + speedNorm * 0.6;
+  out[6] = energyPow;
+  out[7] = p.grain ?? 0;
+  out[8] = (p.aberration ?? 0) * (1.0 + energyPow * 0.5);
+  out[9] = p.vignette ?? 0;
+  out[10] = motionBlur * motionMul;
+  out[11] = p.exposure ?? 1;
+  out[12] = p.coronaBoost ?? 0;
+  out[13] = (p.ssaoStrength ?? 0) * ssaoMul;
+  out[14] = (p.contactShadow ?? 0) * contactMul;
+  out[15] = preset?.sky?.mode ?? 1;
+  out[16] = (p.ssrStrength ?? 0) * ssrMul;
+  out[17] = outputLinearHdr ? 1 : 0;
+  out[18] = bloomChainLevels > 0 ? 1 / bloomChainLevels : 0;
+  out[19] = outputTransfer;
+  return out;
 }

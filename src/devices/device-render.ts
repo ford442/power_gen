@@ -31,15 +31,13 @@ export const DEVICE_PART = {
   /** renderMode 2 — aluminum stator rings */
   stator: 2,
   /** renderMode 3 — wiring */
-  wiring: 3,
-  ringTop: 4,
-  ringBottom: 5
+  wiring: 3
 } as const;
 export type DevicePart = (typeof DEVICE_PART)[keyof typeof DEVICE_PART];
 
 /** [renderMode, yOffset] per part, indexed by DEVICE_PART. */
 const DEVICE_PART_UNIFORMS: ReadonlyArray<readonly [number, number]> = [
-  [0, 0], [1, 0], [2, 0], [3, 0], [0, 2.0], [0, -2.0]
+  [0, 0], [1, 0], [2, 0], [3, 0]
 ];
 export const DEVICE_PART_COUNT = DEVICE_PART_UNIFORMS.length;
 /** sizeof(DeviceUniforms) — src/shaders/common/device-uniforms.wgsl */
@@ -62,15 +60,15 @@ export const DeviceRenderMixin = {
     key: string,
     layoutName: BindGroupLayoutName,
     entries: GPUBindGroupEntry[],
-    label?: string
+    label?: string,
+    token?: unknown
   ): GPUBindGroup {
     const cache = this.visualizer.pipelineCache;
     if (!cache) {
       throw new Error(`[DeviceRender] pipelineCache missing for layout "${layoutName}"`);
     }
     return this._ensureBgCache().get(key, () =>
-      cache.createBindGroup(layoutName, entries, label || key)
-    );
+      cache.createBindGroup(layoutName, entries, label || key), token);
   },
 
   _uniformRing: function (this: DeviceInstanceLike): UniformRing {
@@ -135,7 +133,7 @@ export const DeviceRenderMixin = {
       { binding: 1, resource: this._deviceUniformResource() },
       { binding: 2, resource: { buffer: instanceBuffer } },
       { binding: 3, resource: { buffer: this.materialUniformBuffer } }
-    ], `seg-enhanced-${this.id}-${keySuffix}`);
+    ], `seg-enhanced-${this.id}-${keySuffix}`, instanceBuffer);
   },
 
   _rollerBindGroup: function (
@@ -147,7 +145,7 @@ export const DeviceRenderMixin = {
       { binding: 1, resource: this._deviceUniformResource() },
       { binding: 2, resource: { buffer: instanceBuffer } },
       { binding: 3, resource: { buffer: this.materialUniformBuffer } }
-    ], `roller-${this.id}-${keySuffix}`);
+    ], `roller-${this.id}-${keySuffix}`, instanceBuffer);
   },
 
   renderDeviceMesh: function (this: DeviceInstanceLike, renderPass: RenderEncoder): void {
@@ -476,13 +474,15 @@ export const DeviceRenderMixin = {
 
   renderPickupCoils: function (this: DeviceInstanceLike, renderPass: RenderEncoder): void {
     if (!this.coilInstances || !this.coilPipeline || !this.ringPipeline) return;
-    if (!this.visualizer.connectionRingBuffer || !this.visualizer.coilBuffer) return;
+    if (!this.visualizer.connectionRingBuffer || !this.visualizer.pickupCoilBuffer) return;
     if (!this.coilMaterialBuffer || !this.ringMaterialBuffer || !this.visualizer.connectionRingInstances) return;
 
     this.renderMode = 0;
     const numCoils = 24;
 
-    // Top / bottom rings: same bind group, ±2 y offsets live in their own slots.
+    // Top / bottom rings: one instanced draw. Each ring's ±2 y lives in its
+    // own instance (setup-geometry.ts connectionRingInstances), so the slot
+    // is the plain rollers one — a ±2 slot offset on top would double it.
     const ringBindGroup = this._cacheBg(`ring:${this.id}`, 'segEnhanced', [
       { binding: 1, resource: this._deviceUniformResource() },
       { binding: 2, resource: { buffer: this.visualizer.connectionRingInstances } },
@@ -490,13 +490,10 @@ export const DeviceRenderMixin = {
     ], 'connection-ring-bg');
 
     renderPass.setPipeline(this.ringPipeline);
-    renderPass.setBindGroup(1, ringBindGroup, [this._deviceUniformOffset(DEVICE_PART.ringTop, 'ringTop')]);
+    renderPass.setBindGroup(1, ringBindGroup, [this._deviceUniformOffset(DEVICE_PART.rollers, 'rings')]);
     renderPass.setVertexBuffer(0, this.visualizer.connectionRingBuffer.vertexBuffer);
     renderPass.setIndexBuffer(this.visualizer.connectionRingBuffer.indexBuffer, 'uint16');
-    renderPass.drawIndexed(this.visualizer.connectionRingBuffer.indexCount);
-
-    renderPass.setBindGroup(1, ringBindGroup, [this._deviceUniformOffset(DEVICE_PART.ringBottom, 'ringBottom')]);
-    renderPass.drawIndexed(this.visualizer.connectionRingBuffer.indexCount);
+    renderPass.drawIndexed(this.visualizer.connectionRingBuffer.indexCount, 2);
 
     const coilBindGroup = this._cacheBg(`coil-pickup:${this.id}`, 'coil', [
       { binding: 1, resource: this._deviceUniformResource() },
@@ -506,8 +503,9 @@ export const DeviceRenderMixin = {
 
     renderPass.setPipeline(this.coilPipeline);
     renderPass.setBindGroup(1, coilBindGroup, [this._deviceUniformOffset(DEVICE_PART.rollers)]);
-    renderPass.setVertexBuffer(0, this.visualizer.coilBuffer.vertexBuffer);
-    renderPass.draw(this.visualizer.coilBuffer.vertexCount, numCoils);
+    renderPass.setVertexBuffer(0, this.visualizer.pickupCoilBuffer.vertexBuffer);
+    renderPass.setIndexBuffer(this.visualizer.pickupCoilBuffer.indexBuffer, 'uint16');
+    renderPass.drawIndexed(this.visualizer.pickupCoilBuffer.indexCount, numCoils);
   },
 
   /** SEG rollers (segEnhanced, instanced, inside-ring cull) — scene pass and shadow casters. */

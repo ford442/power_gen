@@ -261,8 +261,13 @@ export function worldOrbitRadius(ring: SegLayoutRing, layout: SegLayout): number
  * Pack layout parameters into the GPU uniform buffer consumed by SEG shaders.
  * Layout: header(8) + 3 × ringStride(12) floats — see multi-device-shaders.js.
  */
-export function packSEGLayoutUniforms(layout: SegLayout): Float32Array {
-  const data = new Float32Array(SEG_LAYOUT_UNIFORM_FLOATS);
+/** Pack into `out` (zeroed first, so unused ring slots read 0) — refreshSEGLayout passes a reused one each frame. */
+export function packSEGLayoutUniforms(
+  layout: SegLayout,
+  out = new Float32Array(SEG_LAYOUT_UNIFORM_FLOATS)
+): Float32Array {
+  const data = out;
+  data.fill(0);
   data[0] = layout.worldScale;
   data[1] = layout.ringCount;
   data[2] = layout.totalRollers;
