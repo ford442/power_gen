@@ -37,6 +37,11 @@ struct GoldenCase {
     // potential, exactly as ChargeNetwork does under ?chargeCoupling=1.
     // Negative = the isolated bench (the default, and every other case).
     float       kelvinSeedV;
+    // Shared-integrator override (SEGSimulator::setIntegrator): -1 = the
+    // catalog's method; otherwise 0 euler, 1 rk4, 2 dopri5, 3 ros23. The TS
+    // side sets physicsState.integratorOverride to the same method, so every
+    // integrator is held to JS ⇄ native parity, not just the default one.
+    int         integrator = -1;
 };
 
 // Frame counts are chosen so each plant has left its initial transient:
@@ -88,7 +93,19 @@ static const GoldenCase GOLDEN_CASES[] = {
     // would not accidentally agree.
     { SIM_MODE_KELVIN,       "kelvin",        "kelvin",      0.50f,  90, 1.f / 60.f, -1.f, -1.f, -1.f },
     { SIM_MODE_KELVIN,       "kelvin-seeded", "kelvin",      0.50f,  90, 1.f / 60.f, -1.f, -1.f, 12000.f },
+    // Every method on every shared-integrator plant (docs/INTEGRATORS.md),
+    // over the same schedule as the plant's default case.
+    { SIM_MODE_JUMPING_RING, "jumping-ring@rk4",    "jumping-ring", 0.85f, 400, 1.f / 90.f, -1.f, -1.f, -1.f, 1 },
+    { SIM_MODE_JUMPING_RING, "jumping-ring@dopri5", "jumping-ring", 0.85f, 400, 1.f / 90.f, -1.f, -1.f, -1.f, 2 },
+    { SIM_MODE_JUMPING_RING, "jumping-ring@ros23",  "jumping-ring", 0.85f, 400, 1.f / 90.f, -1.f, -1.f, -1.f, 3 },
+    { SIM_MODE_HOMOPOLAR,    "homopolar@rk4",       "homopolar",    0.90f, 240, 1.f / 60.f, -1.f, -1.f, -1.f, 1 },
+    { SIM_MODE_HOMOPOLAR,    "homopolar@dopri5",    "homopolar",    0.90f, 240, 1.f / 60.f, -1.f, -1.f, -1.f, 2 },
+    { SIM_MODE_HOMOPOLAR,    "homopolar@ros23",     "homopolar",    0.90f, 240, 1.f / 60.f, -1.f, -1.f, -1.f, 3 },
 };
+
+static const char* golden_integrator_name(int m) {
+    return m < 0 ? "catalog" : sim_core::integrator_name(static_cast<sim_core::Integrator>(m));
+}
 static constexpr int GOLDEN_CASE_COUNT =
     static_cast<int>(sizeof(GOLDEN_CASES) / sizeof(GOLDEN_CASES[0]));
 
@@ -113,15 +130,17 @@ int run_golden() {
         if (g.hallFieldCoupledT >= 0.f) sim.setHallFieldCoupledT(g.hallFieldCoupledT);
         if (g.lorentzFieldT >= 0.f) sim.setLorentzFieldT(g.lorentzFieldT);
         if (g.kelvinSeedV >= 0.f) sim.setKelvinSeedV(g.kelvinSeedV);
+        sim.setIntegrator(g.integrator);
         for (int i = 0; i < g.frames; ++i) sim.step(g.dt, 0.f);
 
         std::printf("golden.case %s device=%s drive=%.17g frames=%d dt=%.17g"
-                    " hallFieldCoupledT=%.17g lorentzFieldT=%.17g kelvinSeedV=%.17g\n",
+                    " hallFieldCoupledT=%.17g lorentzFieldT=%.17g kelvinSeedV=%.17g integrator=%s\n",
                     g.id, g.device, static_cast<double>(g.drive), g.frames,
                     static_cast<double>(g.dt),
                     static_cast<double>(g.hallFieldCoupledT),
                     static_cast<double>(g.lorentzFieldT),
-                    static_cast<double>(g.kelvinSeedV));
+                    static_cast<double>(g.kelvinSeedV),
+                    golden_integrator_name(g.integrator));
 
         switch (g.mode) {
             case SIM_MODE_KELVIN:

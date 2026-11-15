@@ -117,8 +117,13 @@ The C++ vector for a mode is `[_time, _drive, …fields]`; sizes run from 4
 | `SEGSimulator.plantLoad(mode, count, layoutHash)` | `bool` — reads `count` scratch floats; **refuses** a layout-hash mismatch, a wrong count or any non-finite value, leaving the plant untouched |
 | `plant_state_layout_hash()` | free function — the hash this binary was built with |
 
-Same scratch ABI as the energy bus — no `std::vector` crosses the boundary
-(cpp/README.md → WASM ABI). JS side: `src/wasm/plant-state-io.ts`
+Same scratch ABI as the energy bus — scalars and a scratch pointer only, the
+flat C ABI generated from `cpp/abi.json` ([WASM_ABI.md](WASM_ABI.md)).
+
+A plant on the shared integrators ([INTEGRATORS.md](INTEGRATORS.md)) also saves
+its adaptive stepper's carry-over — `stepH` / `stepErrOld`, e.g. `ringStepH` /
+`ringStepErrOld` — so a restored jumping ring steps on bit-identically on
+dopri5. The catalog codegen refuses an `ode` block without those two fields. JS side: `src/wasm/plant-state-io.ts`
 (`savePlantState(sim, mode)` / `loadPlantState(sim, mode, values, hash)`).
 
 ## Backends

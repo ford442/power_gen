@@ -60,6 +60,19 @@ import { PHYSICAL_CONSTANTS, JUMPING_RING, TRANSFORMER } from '../../../generate
 import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
+import { JumpingRingState, PLANT_ODE } from '../../../generated/plant-ode';
+import {
+  addStats,
+  advanceAdaptive,
+  eulerFixed,
+  integratorFor,
+  isAdaptive,
+  odeStats,
+  rk4Fixed,
+  toleranceOf,
+  type OdePlant,
+  type StepperState
+} from '../../renderers/shared/integrate';
 
 const G = PHYSICAL_CONSTANTS.G;
 
@@ -207,10 +220,75 @@ export function buildJumpingRingMesh(
   };
 }
 
+/** What one advance holds: the drive phase at t = 0 and its amplitude. */
+interface RingInput {
+  phase0: number;
+  omega: number;
+  vPeakDrive: number;
+}
+
+const RING_ODE = PLANT_ODE['jumping-ring'];
+const RING_TOL = toleranceOf(RING_ODE);
+const S = JumpingRingState;
+const RING_LP_LR = RING.primaryLH * RING.ringLH;
+const RING_SQRT_LP_LR = Math.sqrt(RING_LP_LR > 1e-24 ? RING_LP_LR : 1e-24);
+const RING_INV_LAMBDA = 1 / RING.couplingLambdaM;
+
+/**
+ * The ring as an {@link OdePlant}: x = [Ip, Ir, v, h] (generated
+ * `JumpingRingState` order). Mirrors `ThomsonPlant` in
+ * cpp/src/plant/thomson_plant.cpp term for term.
+ */
+export const JUMPING_RING_PLANT: OdePlant<RingInput> = {
+  stateSize: RING_ODE.state.length,
+  derivs(t, x, u, dx) {
+    const r = RING;
+    const ips = x[S.primaryIA], irs = x[S.ringCurrentA], vels = x[S.velocityMps], hs = x[S.heightM];
+    const vps = u.vPeakDrive * Math.sin(u.phase0 + u.omega * t);
+    const k = r.couplingK0 * Math.exp(-hs * RING_INV_LAMBDA);
+    const M = k * RING_SQRT_LP_LR;
+    const dMdh = -M * RING_INV_LAMBDA;
+    let D = RING_LP_LR - M * M;
+    if (D < D_MIN) D = D_MIN;
+    // Motional EMF: the coupling itself changes as the ring moves, so the
+    // same dM/dh that produces the force also loads both circuits.
+    const motional = dMdh * vels;
+    const rhsP = vps - r.primaryROhm * ips - motional * irs;
+    const rhsR = -r.ringROhm * irs - motional * ips;
+    dx[S.primaryIA] = (r.ringLH * rhsP - M * rhsR) / D;
+    dx[S.ringCurrentA] = (r.primaryLH * rhsR - M * rhsP) / D;
+    const f = ips * irs * dMdh;
+    dx[S.velocityMps] = (f - r.ringMassKg * G - r.dragNsm * vels) / r.ringMassKg;
+    dx[S.heightM] = vels;
+  },
+  // Rigid stops: the core shoulder the ring starts on, and the top of the
+  // pole. Only the velocity component pushing into the stop is removed, so a
+  // ring pressed down by the negative half of the force cycle stays put
+  // instead of sinking through the core.
+  constrain(x) {
+    if (x[S.heightM] < 0) {
+      x[S.heightM] = 0;
+      if (x[S.velocityMps] < 0) x[S.velocityMps] = 0;
+      return true;
+    }
+    if (x[S.heightM] > RING.poleHeightM) {
+      x[S.heightM] = RING.poleHeightM;
+      if (x[S.velocityMps] > 0) x[S.velocityMps] = 0;
+      return true;
+    }
+    return false;
+  }
+};
+
+const ringX = new Float64Array(RING_ODE.state.length);
+const ringU: RingInput = { phase0: 0, omega: 0, vPeakDrive: 0 };
+const ringStepper: StepperState = { h: 0, errOld: 1e-4 };
+
 /**
  * One frame of the Thomson-ring plant. Mirrors `_stepThomson` in
- * `cpp/src/plant/thomson_plant.cpp` term for term, including the substep
- * schedule, the double-precision phase accumulator and the rigid stops.
+ * `cpp/src/plant/thomson_plant.cpp`: the catalog integrator (or
+ * `state.integratorOverride`), the fixed methods' substep schedule, the
+ * double-precision phase accumulator and the rigid stops.
  *
  * @param drive 0..1 from the speed slider (scales the mains supply voltage)
  */
@@ -218,104 +296,51 @@ export const stepJumpingRingPhysics: NonNullable<DevicePlugin['stepPhysics']> = 
   if (!(dt > 0) || !Number.isFinite(dt)) return;
 
   const r = RING;
-  const Lp = r.primaryLH;
-  const Lr = r.ringLH;
-  const lpLr = Lp * Lr;
-  const sqrtLpLr = Math.sqrt(lpLr > 1e-24 ? lpLr : 1e-24);
-  const invLambda = 1 / r.couplingLambdaM;
-
-  const omega = TWO_PI * TRANSFORMER.fHz;
   const d = Math.max(0, Math.min(1, drive));
   let remaining = Math.min(dt, DT_CLAMP_S);
 
-  let ip = state.ringPrimaryIA ?? 0;
-  let ir = state.ringCurrentA ?? 0;
-  let vel = state.ringVelocityMps ?? 0;
-  let h = state.ringHeightM ?? 0;
+  const x = ringX;
+  x[S.primaryIA] = state.ringPrimaryIA ?? 0;
+  x[S.ringCurrentA] = state.ringCurrentA ?? 0;
+  x[S.velocityMps] = state.ringVelocityMps ?? 0;
+  x[S.heightM] = state.ringHeightM ?? 0;
   let phase = state.ringPhase ?? 0;
+  const u = ringU;
+  u.omega = TWO_PI * TRANSFORMER.fHz;
+  u.vPeakDrive = r.primaryVPeak * d;
 
-  const vPeakDrive = r.primaryVPeak * d;
-  const driveV = (ph: number): number => vPeakDrive * Math.sin(ph);
-
-  // Derivatives written into a shared quad so the RK4 stages allocate nothing.
-  let dip = 0;
-  let dir = 0;
-  let dvel = 0;
-  let dh = 0;
-  const deriv = (ips: number, irs: number, vels: number, hs: number, vps: number): void => {
-    const k = r.couplingK0 * Math.exp(-hs * invLambda);
-    const M = k * sqrtLpLr;
-    const dMdh = -M * invLambda;
-    let D = lpLr - M * M;
-    if (D < D_MIN) D = D_MIN;
-    // Motional EMF: the coupling itself changes as the ring moves, so the
-    // same dM/dh that produces the force also loads both circuits.
-    const motional = dMdh * vels;
-    const rhsP = vps - r.primaryROhm * ips - motional * irs;
-    const rhsR = -r.ringROhm * irs - motional * ips;
-    dip = (Lr * rhsP - M * rhsR) / D;
-    dir = (Lp * rhsR - M * rhsP) / D;
-    const f = ips * irs * dMdh;
-    dvel = (f - r.ringMassKg * G - r.dragNsm * vels) / r.ringMassKg;
-    dh = vels;
-  };
-
-  while (remaining > 1e-8) {
-    let nSub = Math.ceil(remaining / H_TARGET_S);
-    if (nSub < 8) nSub = 8;
-    if (nSub > SUB_MAX) nSub = SUB_MAX;
-    const chunk = remaining > H_TARGET_S * SUB_MAX ? H_TARGET_S * SUB_MAX : remaining;
-    const hStep = chunk / nSub;
-
-    let ok = true;
-    const omegaH = omega * hStep;
-    for (let sub = 0; sub < nSub; sub++) {
-      const vp = driveV(phase);
-
-      deriv(ip, ir, vel, h, vp);
-      const k1a = dip, k1b = dir, k1c = dvel, k1d = dh;
-      const vpm = driveV(phase + 0.5 * omegaH);
-      deriv(ip + 0.5 * hStep * k1a, ir + 0.5 * hStep * k1b,
-            vel + 0.5 * hStep * k1c, h + 0.5 * hStep * k1d, vpm);
-      const k2a = dip, k2b = dir, k2c = dvel, k2d = dh;
-      deriv(ip + 0.5 * hStep * k2a, ir + 0.5 * hStep * k2b,
-            vel + 0.5 * hStep * k2c, h + 0.5 * hStep * k2d, vpm);
-      const k3a = dip, k3b = dir, k3c = dvel, k3d = dh;
-      const vpe = driveV(phase + omegaH);
-      deriv(ip + hStep * k3a, ir + hStep * k3b,
-            vel + hStep * k3c, h + hStep * k3d, vpe);
-      const k4a = dip, k4b = dir, k4c = dvel, k4d = dh;
-
-      const sixth = hStep / 6;
-      const nIp = ip + sixth * (k1a + 2 * k2a + 2 * k3a + k4a);
-      const nIr = ir + sixth * (k1b + 2 * k2b + 2 * k3b + k4b);
-      const nVel = vel + sixth * (k1c + 2 * k2c + 2 * k3c + k4c);
-      const nH = h + sixth * (k1d + 2 * k2d + 2 * k3d + k4d);
-      if (!Number.isFinite(nIp) || !Number.isFinite(nIr)
-          || !Number.isFinite(nVel) || !Number.isFinite(nH)) {
-        ok = false;
-        break;
+  const method = integratorFor(RING_ODE, state.integratorOverride);
+  if (isAdaptive(method)) {
+    // One adaptive advance over the frame; dense output lands it on dt.
+    u.phase0 = phase;
+    ringStepper.h = state.ringStepH ?? 0;
+    ringStepper.errOld = state.ringStepErrOld ?? 1e-4;
+    addStats(odeStats, advanceAdaptive(method, JUMPING_RING_PLANT, x, u, remaining, RING_TOL, ringStepper));
+    state.ringStepH = ringStepper.h;
+    state.ringStepErrOld = ringStepper.errOld;
+    phase += u.omega * remaining;
+  } else {
+    const fixed = method === 'euler' ? eulerFixed : rk4Fixed;
+    while (remaining > 1e-8) {
+      let nSub = Math.ceil(remaining / H_TARGET_S);
+      if (nSub < 8) nSub = 8;
+      if (nSub > SUB_MAX) nSub = SUB_MAX;
+      const chunk = remaining > H_TARGET_S * SUB_MAX ? H_TARGET_S * SUB_MAX : remaining;
+      const hStep = chunk / nSub;
+      const omegaH = u.omega * hStep;
+      let ok = true;
+      for (let sub = 0; sub < nSub; sub++) {
+        // t restarts at 0 each substep, so vp sees phase, phase + ω·h/2 and
+        // phase + ω·h — the stage phases the hand-written RK4 used.
+        u.phase0 = phase;
+        const st = fixed(JUMPING_RING_PLANT, 0, hStep, x, u);
+        addStats(odeStats, st);
+        if (!st.ok) { ok = false; break; }
+        phase += omegaH;
       }
-      ip = nIp;
-      ir = nIr;
-      vel = nVel;
-      h = nH;
-
-      // Rigid stops: the core shoulder the ring starts on, and the top of the
-      // pole. Only the velocity component pushing into the stop is removed, so
-      // a ring pressed down by the negative half of the force cycle stays put
-      // instead of sinking through the core.
-      if (h < 0) {
-        h = 0;
-        if (vel < 0) vel = 0;
-      } else if (h > r.poleHeightM) {
-        h = r.poleHeightM;
-        if (vel > 0) vel = 0;
-      }
-      phase += omegaH;
+      if (!ok) break;
+      remaining -= chunk;
     }
-    if (!ok) break;
-    remaining -= chunk;
   }
 
   // Wrap to one period: sin() is unchanged, and the C++ plant (which stores
@@ -323,15 +348,16 @@ export const stepJumpingRingPhysics: NonNullable<DevicePlugin['stepPhysics']> = 
   phase = phase % TWO_PI;
   if (phase < 0) phase += TWO_PI;
 
-  const kEnd = r.couplingK0 * Math.exp(-h * invLambda);
-  state.ringPrimaryIA = ip;
-  state.ringCurrentA = ir;
-  state.ringVelocityMps = vel;
+  const h = x[S.heightM];
+  const kEnd = r.couplingK0 * Math.exp(-h * RING_INV_LAMBDA);
+  state.ringPrimaryIA = x[S.primaryIA];
+  state.ringCurrentA = x[S.ringCurrentA];
+  state.ringVelocityMps = x[S.velocityMps];
   state.ringHeightM = h;
   state.ringPhase = phase;
   // Reported force is the instantaneous one at the state just stored, so the
   // telemetry row and the height it explains are the same sample.
-  state.ringForceN = ip * ir * (-kEnd * sqrtLpLr * invLambda);
+  state.ringForceN = x[S.primaryIA] * x[S.ringCurrentA] * (-kEnd * RING_SQRT_LP_LR * RING_INV_LAMBDA);
   state.ringCouplingK = kEnd;
   state.energyLevel = Math.max(0, Math.min(1, h / Math.max(r.heightRefM, 0.001)));
 };
@@ -345,6 +371,8 @@ export function createJumpingRingPhysicsState(): Partial<DevicePhysicsState> {
     ringForceN: 0,
     ringCouplingK: JUMPING_RING.couplingK0,
     ringPhase: 0,
+    ringStepH: 0,
+    ringStepErrOld: 1e-4,
     energyLevel: 0
   };
 }

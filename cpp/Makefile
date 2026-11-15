@@ -17,26 +17,26 @@
 #                      needs `make compile-db` first, never fails the build
 #   make compile-db  – native CMake configure → build/compile_commands.json
 #   make compile-db-wasm – emcmake configure → build-wasm/compile_commands.json
-#                      (Embind TU included; needs emcmake on PATH)
+#                      (needs emcmake on PATH)
 #   make clean       – remove build artefacts
 #
-# The output (sim_core.js ES module + sim_core.wasm) is written to
-# ../src/wasm/sim-core/, where src/wasm/index.ts imports it: Vite bundles
-# the glue and emits the .wasm under a content-hashed name.
+# The output (sim_core.wasm alone — no JS glue since #254) is written to
+# ../src/wasm/sim-core/, where src/wasm/index.ts references it: Vite emits the
+# .wasm under a content-hashed name and sim-core/instantiate.ts loads it.
 # =============================================================
 
-# sim_core_embind.cpp is WASM-only — its body is entirely inside
-# `#ifdef __EMSCRIPTEN__`, so `make native` was compiling an empty
-# translation unit. Keep it out of the native source list (CMake does the
-# same, so the compilation database clangd reads matches).
-SIM_CORE_SHARED := src/sim_core_facade.cpp src/sim_core_standalone.cpp $(wildcard src/plant/*.cpp)
-SRC             := $(SIM_CORE_SHARED) src/sim_core_embind.cpp
+# sim_core_abi.cpp is the generated flat C ABI (cpp/abi.json →
+# scripts/codegen-wasm-abi.mjs). It compiles natively too — EMSCRIPTEN_KEEPALIVE
+# is empty there — so `make native` type-checks every export against
+# sim_core.h under -Werror without Emscripten.
+SIM_CORE_SHARED := src/sim_core_facade.cpp src/sim_core_standalone.cpp src/sim_core_abi.cpp $(wildcard src/plant/*.cpp)
+SRC             := $(SIM_CORE_SHARED)
 # standalone/*.cpp are the native `--mode` runs; they compile to nothing
 # without SIM_CORE_STANDALONE, so they stay out of the WASM source list.
 NATIVE_SRC      := $(SIM_CORE_SHARED) $(wildcard src/standalone/*.cpp)
 # Imported by src/wasm/index.ts (Vite bundles the glue, hashes the .wasm URL).
 OUT_DIR    := ../src/wasm/sim-core
-OUT_JS     := $(OUT_DIR)/sim_core.js
+OUT_WASM   := $(OUT_DIR)/sim_core.wasm
 
 # Shared link flags — keep in sync via cpp/emscripten.flags (also used by CMake)
 EMCC_FLAGS := $(shell grep -vE '^\s*#' emscripten.flags | grep -vE '^\s*$$' | tr '\n' ' ') -I src
@@ -50,23 +50,24 @@ SIM_CORE_SOURCE_HASH ?= $(shell node ../scripts/sim-core-source-hash.mjs 2>/dev/
 .PHONY: wasm wasm-dbg native native-san tidy compile-db compile-db-wasm clean
 
 wasm: $(OUT_DIR)
-	em++ -std=c++17 -O3 -g0 --closure 1 -DSIM_CORE_SOURCE_HASH='"$(SIM_CORE_SOURCE_HASH)"' $(EMCC_FLAGS) $(SRC) -o $(OUT_JS)
-	@echo "✓  WASM build complete → $(OUT_JS)"
+	em++ -std=c++20 -O3 -g0 -DSIM_CORE_SOURCE_HASH='"$(SIM_CORE_SOURCE_HASH)"' $(EMCC_FLAGS) $(SRC) -o $(OUT_WASM)
+	@echo "✓  WASM build complete → $(OUT_WASM)"
 
+# Debug binary with DWARF (Chrome's C/C++ DevTools extension reads it). No
+# ASSERTIONS / SAFE_HEAP: those are JS-glue features, and there is no glue.
 wasm-dbg: $(OUT_DIR)
-	em++ -std=c++17 -O0 -g $(EMCC_FLAGS) \
-	  -s ASSERTIONS=1 \
-	  -s SAFE_HEAP=1 \
-	  $(SRC) -o $(OUT_DIR)/sim_core_dbg.js
-	@echo "✓  Debug WASM build complete → $(OUT_DIR)/sim_core_dbg.js"
+	em++ -std=c++20 -O0 -g $(EMCC_FLAGS) $(SRC) -o $(OUT_DIR)/sim_core_dbg.wasm
+	@echo "✓  Debug WASM build complete → $(OUT_DIR)/sim_core_dbg.wasm"
 
 # -Werror: the plants already build clean under -Wall -Wextra -Wpedantic,
 # so a new warning here is a regression, not a backlog item.
 native:
 	mkdir -p build
-	$(CXX) -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -DSIM_CORE_STANDALONE -I src $(NATIVE_SRC) -o build/sim_core_test
+	$(CXX) -std=c++20 -O2 -Wall -Wextra -Wpedantic -Werror -DSIM_CORE_STANDALONE -I src $(NATIVE_SRC) -o build/sim_core_test
 	./build/sim_core_test
 	./build/sim_core_test --mode catalog
+	./build/sim_core_test --mode integrators > build/integrators.txt
+	@echo "✓  Integrators vs reference → build/integrators.txt"
 	./build/sim_core_test --export-csv 10 build/seg_telemetry.csv 10
 	@echo "✓  CSV export smoke → build/seg_telemetry.csv"
 
@@ -81,12 +82,14 @@ SAN_ENV   := ASAN_OPTIONS=detect_leaks=1:abort_on_error=1:strict_string_checks=1
 
 native-san:
 	mkdir -p build
-	$(SAN_CXX) -std=c++17 $(SAN_FLAGS) -Wall -Wextra -Wpedantic -Werror -DSIM_CORE_STANDALONE -I src $(NATIVE_SRC) -o build/sim_core_test_san
+	$(SAN_CXX) -std=c++20 $(SAN_FLAGS) -Wall -Wextra -Wpedantic -Werror -DSIM_CORE_STANDALONE -I src $(NATIVE_SRC) -o build/sim_core_test_san
 	$(SAN_ENV) ./build/sim_core_test_san
 	$(SAN_ENV) ./build/sim_core_test_san --mode golden > build/golden_san.txt
 	$(SAN_ENV) ./build/sim_core_test_san --mode jumping-ring
 	$(SAN_ENV) ./build/sim_core_test_san --mode energy-network
-	@echo "✓  ASan + UBSan clean (default, golden, jumping-ring, energy-network) — $(SAN_CXX)"
+	$(SAN_ENV) ./build/sim_core_test_san --mode integrators > build/integrators_san.txt
+	$(SAN_ENV) ./build/sim_core_test_san --mode fdtd
+	@echo "✓  ASan + UBSan clean (default, golden, jumping-ring, energy-network, integrators, fdtd) — $(SAN_CXX)"
 
 # Advisory only: cpp/.clang-tidy keeps WarningsAsErrors empty and this target
 # never fails, until the finding count is near zero (see cpp/README.md).
@@ -100,10 +103,10 @@ compile-db:
 	@echo "✓  Compilation database → build/compile_commands.json"
 	@echo "    From repo root: ln -sfn cpp/build/compile_commands.json compile_commands.json"
 
-# Emscripten CMake configure: the only database that lists sim_core_embind.cpp
-# (with the emscripten.flags compile options and em++'s sysroot), so clangd can
-# jump from an EMSCRIPTEN_BINDINGS entry into the method it binds. Configure
-# only — nothing is compiled. See cpp/README.md → Compilation database.
+# Emscripten CMake configure: the database with the emscripten.flags compile
+# options and em++'s sysroot (so clangd resolves <emscripten/emscripten.h> in
+# sim_core_abi.cpp). Configure only — nothing is compiled. See cpp/README.md →
+# Compilation database.
 compile-db-wasm:
 	emcmake cmake -S . -B build-wasm -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 	@echo "✓  WASM compilation database → build-wasm/compile_commands.json"
@@ -112,6 +115,5 @@ $(OUT_DIR):
 	mkdir -p $(OUT_DIR)
 
 clean:
-	rm -f $(OUT_DIR)/sim_core.js $(OUT_DIR)/sim_core.wasm
-	rm -f $(OUT_DIR)/sim_core_dbg.js $(OUT_DIR)/sim_core_dbg.wasm
+	rm -f $(OUT_DIR)/sim_core.wasm $(OUT_DIR)/sim_core_dbg.wasm
 	rm -f build/sim_core_test build/sim_core_test_san

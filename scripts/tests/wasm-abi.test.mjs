@@ -1,18 +1,19 @@
 /* global window -- the test installs window = globalThis before using it */
 /**
- * wasm-abi — call every Embind export of the *shipped* sim_core.
+ * wasm-abi — the *shipped* sim_core.wasm against its manifest (#254 §3).
  *
  * `test:golden` compares native g++ against TS; nothing else loads the
- * src/wasm/sim-core/sim_core.{js,wasm} that Pages serves. A binding can compile,
- * pass `tsc` (types.ts is hand-written) and still be uncallable from JS — e.g.
- * a `std::vector<float>` parameter only accepts a registered FloatVector
- * handle, never a JS array. This test:
+ * src/wasm/sim-core/sim_core.wasm that Pages serves. The JS ⇄ WASM surface is
+ * generated from cpp/abi.json (scripts/codegen-wasm-abi.mjs), so this test:
  *
- *   1. parses every `function("…")` / `.function("…")` / `.class_function("…")`
- *      out of cpp/src/sim_core_embind.cpp and requires a call spec for each
- *      (a new binding without one fails here, as does a stale spec);
- *   2. calls each one once on the shipped module with representative args;
- *   3. checks the array-input paths (val + scratch) give the right numbers,
+ *   1. diffs the binary's export table against the manifest, both ways, and
+ *      its import table against what instantiate.ts supplies — a stale or
+ *      hand-edited binary fails here, not as a LinkError / TypeError in the
+ *      frame loop;
+ *   2. requires a call spec for every manifest function and calls each one
+ *      once with representative args (a new export without one fails here, as
+ *      does a stale spec);
+ *   3. checks the array-input paths (staged scratch) give the right numbers,
  *      including after a heap growth;
  *   4. drives the TS wrappers (SEGSim, segWasm → EnergyNetwork, gpuChores)
  *      against the same module, plus the one-shot WASM → JS bus fallback.
@@ -20,13 +21,13 @@
  * Usage: npm run test:wasm-abi   (node --test scripts/tests/wasm-abi.test.mjs)
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { pathToFileURL } from 'node:url';
 import { bundleTs, ROOT } from '../test-harness.mjs';
-import { simCoreShim } from '../lib/sim-core-shim.mjs';
+import { loadSimCoreFromDisk, simCoreLoader, simCoreShim } from '../lib/sim-core-shim.mjs';
 import { simCoreSourceHash } from '../sim-core-source-hash.mjs';
+import { loadManifest } from '../codegen-wasm-abi.mjs';
 
 // SIM_CORE_DIR: point at another build (e.g. an old artefact) to see what fails.
 const WASM_DIR = process.env.SIM_CORE_DIR ?? join(ROOT, 'src/wasm/sim-core');
@@ -35,28 +36,50 @@ const near = (a, b, eps = 1e-4) => Math.abs(a - b) <= eps * Math.max(1, Math.abs
 
 let mod;
 before(async () => {
-  // With `wasmBinary` the glue never fetches, so plain Node can instantiate it.
-  // ES-module glue (EXPORT_ES6): a plain import, like the page and workers.
-  const { default: SimCore } = await import(pathToFileURL(join(WASM_DIR, 'sim_core.js')).href);
-  const wasmBinary = readFileSync(join(WASM_DIR, 'sim_core.wasm'));
-  mod = await SimCore({ wasmBinary });
+  mod = await loadSimCoreFromDisk(WASM_DIR);
 });
 
-describe('glue + provenance', () => {
-  const glueSrc = readFileSync(join(WASM_DIR, 'sim_core.js'), 'utf8');
-  it('glue is an ES module (export default SimCore)', () => {
-    assert.ok(/\bexport\s+default\b/.test(glueSrc), 'glue is an ES module (export default SimCore)');
+/** Exports the Emscripten reactor runtime adds on its own (not ABI). */
+const RUNTIME_EXPORTS = new Set(['_initialize', '_emscripten_stack_restore', 'emscripten_stack_get_current']);
+
+describe('binary ⇄ manifest', () => {
+  const wasmModule = new WebAssembly.Module(readFileSync(join(WASM_DIR, 'sim_core.wasm')));
+  const exportsOf = WebAssembly.Module.exports(wasmModule);
+  const importsOf = WebAssembly.Module.imports(wasmModule);
+
+  it('export table = cpp/abi.json (both ways) + memory + reactor runtime', async () => {
+    const { SIM_CORE_ABI_EXPORTS } = await simCoreLoader();
+    const fns = exportsOf.filter((e) => e.kind === 'function' && !RUNTIME_EXPORTS.has(e.name)).map((e) => e.name).sort();
+    const want = [...SIM_CORE_ABI_EXPORTS].sort();
+    const missing = want.filter((n) => !fns.includes(n));
+    const extra = fns.filter((n) => !want.includes(n));
+    assert.deepEqual({ missing, extra }, { missing: [], extra: [] },
+      'binary exports differ from cpp/abi.json — rebuild (npm run wasm:build) or run npm run codegen:wasm-abi');
+    assert.ok(exportsOf.some((e) => e.name === 'memory' && e.kind === 'memory'), 'exports its memory');
   });
-  it('glue has no new Function / eval (DYNAMIC_EXECUTION=0, strict CSP)', () => {
-    assert.ok(!/\bnew Function\b|\beval\s*\(/.test(glueSrc), 'glue has no new Function / eval (DYNAMIC_EXECUTION=0, strict CSP)');
+  it('import table ⊆ what instantiate.ts supplies', async () => {
+    const { SIM_CORE_IMPORTS } = await simCoreLoader();
+    const got = importsOf.map((i) => `${i.module}.${i.name}`);
+    const unknown = got.filter((n) => !SIM_CORE_IMPORTS.includes(n));
+    assert.deepEqual(unknown, [], 'the binary imports something the loader does not provide — add it to SIM_CORE_IMPORTS');
   });
+  it('no Embind, no JS glue', () => {
+    assert.ok(!importsOf.some((i) => /embind|_emval|_embind/.test(i.name)), 'an Embind import survived');
+    const js = readdirSync(WASM_DIR).filter((f) => /\.(m?js|d\.ts)$/.test(f));
+    assert.deepEqual(js, [], 'src/wasm/sim-core ships no Emscripten glue');
+    const flags = readFileSync(join(ROOT, 'cpp/emscripten.flags'), 'utf8').replace(/^#.*$/gm, '');
+    assert.ok(!/--bind|-lembind/.test(flags), 'cpp/emscripten.flags has no --bind');
+  });
+});
+
+describe('provenance', () => {
   it('sim_core_source_hash() matches the C++ sources', (t) => {
     // validate tests the *committed* binary, which legitimately lags a PR that
     // edits cpp/ until build-wasm.yml rebuilds it: warn. build-wasm.yml sets
     // SIM_CORE_REQUIRE_FRESH=1 on its fresh build: there it must match.
     t.diagnostic(`${mod.sim_core_version()} (shipped src/wasm/sim-core)`);
     const want = simCoreSourceHash();
-    const got = typeof mod.sim_core_source_hash === 'function' ? mod.sim_core_source_hash() : 'none';
+    const got = mod.sim_core_source_hash();
     if (process.env.SIM_CORE_REQUIRE_FRESH === '1') {
       assert.ok(got === want, `sim_core_source_hash() = sources (${want}) — binary ${got}`);
     } else if (got === want) {
@@ -67,12 +90,11 @@ describe('glue + provenance', () => {
   });
 });
 
-// ── Binding inventory from the Embind source ──────────────────────────────
-const embindSrc = readFileSync(join(ROOT, 'cpp/src/sim_core_embind.cpp'), 'utf8')
-  .replace(/\/\/.*$/gm, '');
-const freeNames = [...embindSrc.matchAll(/(?<![.\w])function\("(\w+)"/g)].map((m) => m[1]);
-const methodNames = [...embindSrc.matchAll(/\.function\("(\w+)"/g)].map((m) => m[1]);
-const staticNames = [...embindSrc.matchAll(/\.class_function\("(\w+)"/g)].map((m) => m[1]);
+// ── Binding inventory from the manifest ──────────────────────────────────
+const manifest = loadManifest();
+const freeNames = manifest.functions.map((f) => f.name);
+const methodNames = manifest.classes.SEGSimulator.methods.map((f) => f.name);
+const staticNames = (manifest.classes.SEGSimulator.static ?? []).map((f) => f.name);
 
 const v3 = (x, y, z) => ({ x, y, z });
 const MODE_COUNT = 13;
@@ -120,7 +142,8 @@ const METHOD_ARGS = {
   plantStateSize: [1],
   plantSave: [1],
   // Wrong hash on purpose: the call must be refused, not throw.
-  plantLoad: [1, 8, 0]
+  plantLoad: [1, 8, 0],
+  setIntegrator: [-1]
 };
 
 describe('binding inventory', () => {
@@ -137,13 +160,10 @@ describe('binding inventory', () => {
   it('every METHOD_ARGS spec is still bound', () => {
     for (const n of Object.keys(METHOD_ARGS)) assert.ok(methodNames.includes(n), `METHOD_ARGS.${n} is still bound — stale spec`);
   });
-  it('no std::vector registration (handles reject JS arrays, leak without .delete())', () => {
-    assert.ok(!/register_vector\s*</.test(embindSrc), 'no std::vector registration (handles reject JS arrays, leak without .delete())');
-  });
 });
 
 // Sequential: sections 2 and 3 share one simulator.
-describe('every binding, called once; array inputs (val + scratch)', () => {
+describe('every export, called once; array inputs (staged scratch)', () => {
   let sim;
   before(() => { sim = new mod.SEGSimulator(); });
   after(() => { sim?.delete(); });
@@ -179,7 +199,7 @@ describe('every binding, called once; array inputs (val + scratch)', () => {
     callAll('SEGSimulator static', staticNames, mod.SEGSimulator, () => []);
   });
 
-  it('setNetworkEdges takes number[] and Float32Array, drops non-finite endpoints', () => {
+  it('setNetworkEdges takes number[] and Float32Array (staged in the scratch), drops non-finite endpoints', () => {
     sim.setNetworkEdges([0, 1, 10, 1, 0, 1, 2, 5, 0.9, 0]);
     assert.ok(sim.getNetworkEdgeCount() === 2, 'setNetworkEdges(number[]) → 2 edges');
     sim.setNetworkEdges(new Float32Array([0, 1, 10, 1, 0]));
@@ -265,6 +285,51 @@ describe('every binding, called once; array inputs (val + scratch)', () => {
         `plantLoad(own hash) restores the plant — ${fresh.getHeronHead()} vs ${sim.getHeronHead()}`);
     } finally {
       fresh.delete();
+    }
+  });
+});
+
+/** FdtdTmzGrid (#254 §5): every method needs a call spec, init first. */
+const FDTD_ARGS = {
+  init: [32, 4, 0.5, 0.12, 1.6],
+  setSources: [[16, 16, 1, 1]],
+  setMaterials: [new Float32Array(2 * 32 * 32).fill(1)],
+  step: [4],
+  scratchPtr: [8]
+};
+const fdtdMethods = (manifest.classes.FdtdTmzGrid?.methods ?? []).map((f) => f.name);
+
+describe('FdtdTmzGrid exports', () => {
+  it('every method has a call spec, and every spec is still exported', () => {
+    const argful = manifest.classes.FdtdTmzGrid.methods.filter((f) => f.args?.length).map((f) => f.name);
+    for (const n of argful) assert.ok(n in FDTD_ARGS, `FdtdTmzGrid.${n} has a call spec — add it to FDTD_ARGS`);
+    for (const n of Object.keys(FDTD_ARGS)) assert.ok(fdtdMethods.includes(n), `FDTD_ARGS.${n} is stale`);
+  });
+  it('init → every method callable → an impulse moves Ez → delete', () => {
+    const g = new mod.FdtdTmzGrid();
+    try {
+      assert.equal(g.init(...FDTD_ARGS.init), true, 'init(32, …)');
+      assert.equal(g.init(4, 1, 0.5, 0.1, 1), false, 'init refuses a grid below 8²');
+      g.init(...FDTD_ARGS.init);
+      const failed = [];
+      for (const n of fdtdMethods) {
+        try {
+          g[n](...(FDTD_ARGS[n] ?? []));
+        } catch (err) {
+          failed.push(`${n}: ${String(err?.message ?? err).slice(0, 80)}`);
+        }
+      }
+      assert.deepEqual(failed, []);
+      assert.equal(g.hasMaterials(), false, 'an all-vacuum map leaves the grid on the vacuum path');
+      g.reset();
+      g.setSources([16, 16, 1, 1]);
+      g.step(8);
+      const ez = new Float32Array(mod.HEAPF32.buffer, g.ezPtr(), 32 * 32);
+      assert.ok(ez.some((v) => v !== 0) && ez.every(Number.isFinite), 'Ez moved and stayed finite');
+      assert.ok(g.interiorEnergy() > 0, 'interior energy > 0');
+    } finally {
+      g.delete();
+      g.delete(); // idempotent
     }
   });
 });

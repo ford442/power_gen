@@ -23,6 +23,11 @@
  * with the WebGL2 renderer beyond reading TelemetryHub. It therefore cannot
  * regress the fallback's frame budget in any way a `?fdtd=0` cannot switch off.
  *
+ * Under `?wasmPhysics=1` (once sim_core is loaded) the grid is the C++ kernel
+ * (cpp/src/plant/fdtd_tmz.cpp via physics/fdtd-tmz-wasm.ts, #254 §5) — the
+ * same update, held to the TS reference by `npm run test:fdtd`. `stats()`
+ * reports which one runs.
+ *
  * Gates: WebGL2 only (the WebGPU path has the real panel), pulse-coil focus
  * only, and `?fdtd=0` kills it. Hidden — and stepped down to nothing — the
  * moment any of those stop holding.
@@ -35,8 +40,12 @@ import {
   FdtdTmzGrid,
   buildFdtdMaterialMap,
   type FdtdDriveSource,
+  type FdtdGridLike,
   type FdtdSource
 } from './physics/fdtd-tmz';
+import { WasmFdtdTmzGrid } from './physics/fdtd-tmz-wasm';
+import { getSimCore } from './wasm/index';
+import { labConfig } from './config/lab-config';
 import {
   pulseCoilFdtdDrive,
   pulseCoilFdtdMaterials,
@@ -76,6 +85,8 @@ export interface FdtdHeatmapOptions {
   enabled?: boolean;
   materialsEnabled?: boolean;
   driveSource?: FdtdDriveSource;
+  /** Use the C++ kernel when sim_core is loaded (default: `?wasmPhysics=1`). */
+  wasm?: boolean;
 }
 
 /**
@@ -135,7 +146,8 @@ export class FdtdHeatmapOverlay {
   /** True while the overlay is visible and stepping. */
   active = false;
 
-  private grid: FdtdTmzGrid | null = null;
+  private grid: FdtdGridLike | null = null;
+  private readonly wasm: boolean;
   private root: HTMLElement | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
@@ -167,6 +179,7 @@ export class FdtdHeatmapOverlay {
     // limitation beats a panel that is quietly dead (docs/WEBGL2.md).
     this.driveSource = opts.driveSource ?? FDTD_DRIVE_SOURCES.COIL;
     this.materialsEnabled = opts.materialsEnabled ?? parseFdtdMaterialsEnabled();
+    this.wasm = opts.wasm ?? (typeof window !== 'undefined' && labConfig().wasmPhysics);
     this.unitSources = pulseCoilFdtdSources(MICRO_GRID_N);
     this.frameSources = this.unitSources.map((s) => ({ ...s }));
     this.materialMap = this.materialsEnabled
@@ -196,7 +209,7 @@ export class FdtdHeatmapOverlay {
     if (typeof document === 'undefined') return;
     if (!this.root) this.mount();
     if (!this.grid) {
-      this.grid = new FdtdTmzGrid(MICRO_GRID_CONFIG);
+      this.grid = this.makeGrid();
       this.grid.setMaterials(this.materialMap);
     } else {
       // Leaving and re-entering focus should not resume a stale wave.
@@ -207,6 +220,19 @@ export class FdtdHeatmapOverlay {
     if (this.root) this.root.hidden = false;
     this.active = true;
     if (!this.offFrame) this.offFrame = onFrame(() => this.step());
+  }
+
+  /** The C++ kernel under `?wasmPhysics=1` once sim_core is up, else the TS reference. */
+  private makeGrid(): FdtdGridLike {
+    const mod = this.wasm ? getSimCore() : null;
+    if (mod) {
+      try {
+        return new WasmFdtdTmzGrid(mod, MICRO_GRID_CONFIG);
+      } catch (err) {
+        console.warn('[fdtd] C++ micro-grid unavailable, using the TS kernel:', err);
+      }
+    }
+    return new FdtdTmzGrid(MICRO_GRID_CONFIG);
   }
 
   private hide(): void {
@@ -273,7 +299,7 @@ export class FdtdHeatmapOverlay {
       this.frameSources[i].amp = this.unitSources[i].amp * this.drive;
     }
     grid.setSources(this.frameSources);
-    for (let k = 0; k < MICRO_STEPS_PER_FRAME; k++) grid.step();
+    grid.step(MICRO_STEPS_PER_FRAME);
     this.steps += MICRO_STEPS_PER_FRAME;
     this.paint();
   }
@@ -290,6 +316,8 @@ export class FdtdHeatmapOverlay {
     finite: boolean;
     hasMaterials: boolean;
     drive: number;
+    /** Which kernel steps the grid: the TS reference or the C++ one. */
+    backend: 'js' | 'wasm' | null;
   } {
     const g = this.grid;
     let peakEz = 0;
@@ -307,7 +335,8 @@ export class FdtdHeatmapOverlay {
       peakEz,
       finite,
       hasMaterials: !!g?.hasMaterials,
-      drive: this.drive
+      drive: this.drive,
+      backend: g?.backend ?? null
     };
   }
 
@@ -346,6 +375,7 @@ export class FdtdHeatmapOverlay {
     this.canvas = null;
     this.ctx = null;
     this.image = null;
+    this.grid?.dispose();
     this.grid = null;
   }
 }

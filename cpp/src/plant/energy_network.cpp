@@ -12,6 +12,16 @@
 
 using namespace plant_common;
 
+void SEGSimulator::setNetworkEdges(const float* flatEdges, int count) {
+    // Copied first: the C ABI stages the edges in _scratch, which nothing
+    // below touches, but the vector form owns its input either way.
+    if (!flatEdges || count <= 0) {
+        _networkEdges.clear();
+        return;
+    }
+    setNetworkEdges(std::vector<float>(flatEdges, flatEdges + count));
+}
+
 void SEGSimulator::setNetworkEdges(const std::vector<float>& flatEdges) {
     _networkEdges.clear();
     if (flatEdges.size() % 5 != 0) return;

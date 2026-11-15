@@ -71,6 +71,9 @@ export interface HomopolarPhysicsExtension {
   homopolarEmfV?: number;
   homopolarCurrentA?: number;
   homopolarFieldT?: number;
+  /** Adaptive-integrator carry-over (core/integrate.h StepperState): next step, s. */
+  homopolarStepH?: number;
+  homopolarStepErrOld?: number;
   homopolarAngle?: number;
   homopolarOmega?: number;
   homopolarCurrent?: number;
@@ -219,6 +222,14 @@ export interface LorentzSledPhysicsExtension {
   ringVelocityMps?: number;
   /** Mains drive phase ωt, rad, wrapped to one period (ODE state). */
   ringPhase?: number;
+  /** Adaptive-integrator carry-over (core/integrate.h StepperState): next step, s. */
+  ringStepH?: number;
+  ringStepErrOld?: number;
+  /**
+   * Bench / golden override of a shared-integrator plant's catalog method
+   * (generated/plant-ode.ts). Not saved in snapshots; absent = catalog.
+   */
+  integratorOverride?: 'euler' | 'rk4' | 'dopri5' | 'ros23';
   _wasmPlantActive?: boolean;
 }
 

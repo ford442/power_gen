@@ -8,8 +8,9 @@
  * Pages deployed before build-wasm.yml committed the rebuild (that commit is
  * `[skip ci]`, so it does not redeploy) — and the loader says so.
  *
- * Inputs: cpp/src/** (.cpp/.h), generated/*.h, cpp/emscripten.flags,
- * cpp/Makefile, cpp/emsdk-version. Path + bytes, sorted, sha256, first 16 hex.
+ * Inputs: cpp/src/** (.cpp/.h), generated/*.h, generated/sim-core-exports.json
+ * (the link's EXPORTED_FUNCTIONS), cpp/emscripten.flags, cpp/Makefile,
+ * cpp/emsdk-version. Path + bytes, sorted, sha256, first 16 hex.
  *
  * Usage: node scripts/sim-core-source-hash.mjs   → prints the hash
  */
@@ -33,7 +34,7 @@ export function simCoreSourceInputs(root = ROOT) {
   const files = [
     ...walk(join(root, 'cpp/src'), (n) => /\.(cpp|h|hpp)$/.test(n)),
     ...walk(join(root, 'generated'), (n) => n.endsWith('.h')),
-    ...['cpp/emscripten.flags', 'cpp/Makefile', 'cpp/emsdk-version'].map((p) => join(root, p)).filter(existsSync)
+    ...['generated/sim-core-exports.json', 'cpp/emscripten.flags', 'cpp/Makefile', 'cpp/emsdk-version'].map((p) => join(root, p)).filter(existsSync)
   ];
   return files.map((f) => relative(root, f).split('\\').join('/')).sort();
 }

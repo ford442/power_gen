@@ -12,13 +12,15 @@
 //   }
 // =============================================================
 
-import type { SimCoreModule, SimCoreFactory } from './types';
+import type { SimCoreModule } from './types';
 
 // Built by `make -C cpp wasm` into ./sim-core/ (see its README). Vite emits the
 // .wasm under a content-hashed name for this `new URL(…, import.meta.url)`
-// pattern and bundles the ES-module glue as its own lazy chunk, so the page and
-// every module worker load it with a plain `import()` — no `<script>`,
-// `importScripts` or `new Function`, and a rebuilt plant busts the HTTP cache.
+// pattern, so a rebuilt plant busts the HTTP cache. There is no Emscripten
+// glue (#254 §3): sim-core/instantiate.ts (a lazy chunk, loaded with a plain
+// `import()` by the page and every module worker) instantiates the bare
+// module and abi.generated.ts wraps its exports — no `<script>`,
+// `importScripts` or `new Function`.
 const WASM_WASM_URL = new URL('./sim-core/sim_core.wasm', import.meta.url).href;
 
 /** Site-build hash of the C++ sources (vite.config.js); unset in Node harnesses. */
@@ -74,17 +76,16 @@ export async function loadSimCore(): Promise<SimCoreModule | null> {
 
   _status = { state: 'loading', error: null };
   _loading = (async () => {
-    let factory: SimCoreFactory;
+    let instantiate: (source: string) => Promise<SimCoreModule>;
     try {
-      factory = (await import('./sim-core/sim_core.js')).default;
+      instantiate = (await import('./sim-core/instantiate')).instantiateSimCore;
     } catch (err) {
-      console.info('[sim_core] sim_core.js glue failed to load – falling back to JS-only physics.', err);
-      return fail(`sim_core.js glue failed to load: ${errText(err)}`);
+      console.info('[sim_core] loader chunk failed to load – falling back to JS-only physics.', err);
+      return fail(`sim_core loader failed to load: ${errText(err)}`);
     }
-    if (typeof factory !== 'function') return fail('sim_core.js has no default-exported factory');
 
     try {
-      _module = await factory({ locateFile: () => WASM_WASM_URL });
+      _module = await instantiate(WASM_WASM_URL);
     } catch (err) {
       console.error('[sim_core] Failed to instantiate WASM module:', err);
       return fail(`Instantiate failed: ${errText(err)}`);

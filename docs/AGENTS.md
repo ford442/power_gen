@@ -101,7 +101,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 |-------|------|
 | App / UI | JavaScript ES modules, `src/index.html` |
 | Typed physics / integration | TypeScript (`@webgpu/types`) |
-| High-precision plant | C++17 → Emscripten WASM (`cpp/`, prebuilt under `src/wasm/sim-core/`) |
+| High-precision plant | C++20 → Emscripten WASM (`cpp/`, prebuilt under `src/wasm/sim-core/`; flat C ABI from `cpp/abi.json`, shared integrators in `cpp/src/core/`) |
 | Primary GPU | WebGPU + **WGSL** |
 | Fallback GPU | WebGL2 + **GLSL** (`renderers/webgl2/`) |
 | Build | **Vite 5**, `root: 'src'`, `outDir: '../dist'`, `server.https: false` |
@@ -248,7 +248,7 @@ power_gen/
 │   │   └── webgl2/               # GLSL fallback (stays JS)
 │   ├── shaders/                  # WGSL common/ + passes/ + generators/
 │   ├── wasm/                     # Typed bridge + sim.ts → sim_core
-│   │   └── sim-core/             # Committed sim_core.js (ES module) + .wasm — imported, content-hashed
+│   │   └── sim-core/             # Committed sim_core.wasm (no glue) + generated abi.generated.ts + instantiate.ts
 │   └── *.ts                      # Typed physics
 ├── cpp/                          # Native + Emscripten sources
 ├── firmware/seg-driver/          # Experimental MCU sketch (see below)
@@ -569,7 +569,7 @@ npm run wasm:build    # scripts/build-wasm.sh
 |----------|------|
 | `.github/workflows/static.yml` | typecheck + `build:site` → Pages |
 | `.github/workflows/validate.yml` | `npm run validate` in full (`REQUIRE_NAGA=1`; fails on a dirty tree after codegen), site build, ASan/UBSan native job, Playwright. New gates go in the `validate` script, never as a separate workflow step |
-| `.github/workflows/build-wasm.yml` | WASM rebuild when `cpp/`, `src/wasm/`, `generated/*.h`, `physics/` or the build/codegen scripts change; `test:wasm-abi`, `test:snapshots`, `test:analysis`, `test:experiments`, `test:experiments:live` on the **fresh** `.wasm` (+ `test:golden`, which is TS ⇄ native C++) |
+| `.github/workflows/build-wasm.yml` | WASM rebuild when `cpp/`, `src/wasm/`, `generated/*.h`, `generated/sim-core-exports.json`, `physics/` or the build/codegen scripts change; `test:wasm-abi`, `test:snapshots`, `test:analysis`, `test:experiments`, `test:experiments:live`, `test:fdtd` on the **fresh** `.wasm` (+ `test:golden` / `test:integrators`, which are TS ⇄ native C++), then the size / bench check against `cpp/bench-baseline.json` |
 
 ---
 
@@ -675,4 +675,4 @@ as the graphics/content epic once the plant stays maintainable.
 
 - ES modules; async WebGPU init. Import extension convention: see "Import style" above.
 - Prefer explicit WGSL types and documented bindings over `layout: 'auto'`.
-- Physics numbers: [`physics/constants.json`](../physics/constants.json) → codegen ([`docs/PHYSICS_CONSTANTS.md`](PHYSICS_CONSTANTS.md)). Device identity: [`physics/devices.json`](../physics/devices.json) → `npm run codegen:catalog` ([`MODE_MATRIX.md`](MODE_MATRIX.md)). Layout presets stay in `seg-layout.ts`.
+- Physics numbers: [`physics/constants.json`](../physics/constants.json) → codegen ([`docs/PHYSICS_CONSTANTS.md`](PHYSICS_CONSTANTS.md)). Device identity: [`physics/devices.json`](../physics/devices.json) → `npm run codegen:catalog` ([`MODE_MATRIX.md`](MODE_MATRIX.md)); a plant's `integrator` / `ode` block → `generated/plant-ode.{h,ts}` ([`INTEGRATORS.md`](INTEGRATORS.md)). JS ⇄ WASM surface: [`cpp/abi.json`](../cpp/abi.json) → `npm run codegen:wasm-abi` ([`WASM_ABI.md`](WASM_ABI.md)). Layout presets stay in `seg-layout.ts`.

@@ -23,12 +23,16 @@ int run_jumping_ring_smoke();
 int run_chores_smoke();
 int run_energy_network_smoke();
 int run_catalog_smoke();
+int run_fdtd_smoke();
 
 // standalone_golden.cpp — GOLDEN_CASES is the SoT for `npm run test:golden`
 int run_golden();
 
 // standalone_bench.cpp
 int run_bench_smoke();
+
+// standalone_integrators.cpp — shared integrators vs the reference they replaced
+int run_integrators();
 
 // standalone_snapshots.cpp — plantSave/plantLoad round trip is bit-exact (#224 §2)
 int run_snapshots();

@@ -2068,6 +2068,8 @@ test.describe('FDTD micro-grid heatmap (WebGL2 stand-in)', () => {
     expect(evolves.peakEz).toBeGreaterThan(0);
     expect(evolves.hasMaterials).toBe(true);
     expect(evolves.steps).toBeGreaterThan(0);
+    // Without ?wasmPhysics=1 the TS reference kernel runs.
+    expect(evolves.backend).toBe('js');
 
     // Leaving focus stops the stepping and hides it again.
     await page.evaluate(() => window.setMode?.('overview'));
@@ -2077,6 +2079,25 @@ test.describe('FDTD micro-grid heatmap (WebGL2 stand-in)', () => {
     );
     expect(left).toBe(true);
 
+    expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
+  });
+
+  test('?wasmPhysics=1 steps the micro-grid on the C++ kernel (#254 §5)', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page, 'wasmPhysics=1');
+    await waitForEval(page, () => !!window.fdtdHeatmapOverlay && window.segWasm?.enabled === true, { timeout: 60_000 });
+    await page.evaluate(() => window.setMode?.('pulse-coil'));
+    await waitForEval(page, () => window.fdtdHeatmapOverlay.active === true, { timeout: 30_000 });
+    const s = await page.evaluate(() => {
+      const o = window.fdtdHeatmapOverlay;
+      o.driveTarget = 1.2;
+      for (let i = 0; i < 90; i++) o.step();
+      return o.stats();
+    });
+    expect(s.backend).toBe('wasm');
+    expect(s.finite).toBe(true);
+    expect(s.peakEz).toBeGreaterThan(0);
+    expect(s.hasMaterials).toBe(true);
     expect(pageErrors, `uncaught errors: ${pageErrors.join('; ')}`).toEqual([]);
   });
 

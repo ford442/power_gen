@@ -7,7 +7,7 @@
 #   • manual workflow_dispatch
 #
 # Artefacts:
-#   • sim_core.js + sim_core.wasm  (uploaded as GitHub artefact)
+#   • sim_core.wasm  (uploaded as GitHub artefact; no JS glue since #254)
 #   • Committed back to src/wasm/sim-core/ on the main branch
 #
 # emsdk: cpp/emsdk-version is the one pin (scripts/build-wasm.sh warns on a
@@ -23,6 +23,7 @@ on:
       - 'src/wasm/**'
       # Compiled into the binary: codegen headers and their sources.
       - 'generated/*.h'
+      - 'generated/sim-core-exports.json'
       - 'physics/**'
       - 'scripts/build-wasm.sh'
       - 'scripts/codegen-*.mjs'
@@ -33,6 +34,7 @@ on:
       - 'src/wasm/**'
       # Compiled into the binary: codegen headers and their sources.
       - 'generated/*.h'
+      - 'generated/sim-core-exports.json'
       - 'physics/**'
       - 'scripts/build-wasm.sh'
       - 'scripts/codegen-*.mjs'
@@ -83,10 +85,11 @@ jobs:
       - name: Verify artefacts
         run: |
           ls -lh src/wasm/sim-core/
-          test -f src/wasm/sim-core/sim_core.js   || (echo "sim_core.js missing" && exit 1)
           test -f src/wasm/sim-core/sim_core.wasm || (echo "sim_core.wasm missing" && exit 1)
+          # No Emscripten glue ships (#254 §3): instantiate.ts + abi.generated.ts.
+          test ! -f src/wasm/sim-core/sim_core.js || (echo "unexpected sim_core.js glue" && exit 1)
 
-      # ── 6a. ABI: every Embind export callable from JS on the fresh build
+      # ── 6a. ABI: export / import tables vs cpp/abi.json, every export called
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -103,39 +106,39 @@ jobs:
           SIM_CORE_REQUIRE_FRESH: '1'
         run: npm ci && npm run test:wasm-abi
 
-      # Every suite that loads src/wasm/sim-core/sim_core.{js,wasm}. (test:golden
-      # compares the TS plant against the *native* binary built in step 4, so
-      # it runs too, but it does not exercise the .wasm.)
-      - name: Fresh-build WASM suites (snapshots, analysis, experiments offline + live) + golden
+      # Every suite that loads src/wasm/sim-core/sim_core.wasm. (test:golden and
+      # test:integrators compare the TS plants against the *native* binary built
+      # in step 4, so they run too, but they do not exercise the .wasm.)
+      - name: Fresh-build WASM suites (snapshots, analysis, experiments offline + live, fdtd) + golden
         run: |
           npm run test:snapshots
           npm run test:analysis
           npm run test:experiments
           npm run test:experiments:live
+          npm run test:fdtd
           npm run test:golden
+          npm run test:integrators
 
-      # ── 6b. Size / bench note ─────────────────────────────────
-      #    Logs sim_core.js/.wasm raw+gzip bytes and the native
-      #    sim_core_test step rate on every run, so a future compile-flag
-      #    change (SIMD, LTO, …) shows up as a diff in the Actions log
-      #    instead of regressing silently.
-      - name: Size / bench note
+      # ── 6b. Size / bench vs the flag-study baseline ───────────
+      #    cpp/bench-baseline.json is the #254 §4 study's numbers. The fresh
+      #    .wasm fails here if it grew > 5 % (size is deterministic under the
+      #    pinned emsdk); a throughput below 0.6× the baseline is a ::warning
+      #    (runners differ, but a lost SIMD kernel or -flto still shows).
+      #    The native --mode bench rates are logged alongside.
+      - name: Size / bench vs baseline
         run: |
+          status=0
+          npm run --silent bench:wasm -- --baseline=cpp/bench-baseline.json > bench-wasm.txt 2>&1 || status=$?
           {
-            echo "### sim_core size / bench note"
-            echo
-            echo "| Artefact | Raw bytes | Gzip bytes |"
-            echo "|---|---|---|"
-            for f in src/wasm/sim-core/sim_core.js src/wasm/sim-core/sim_core.wasm; do
-              raw=$(stat -c%s "$f")
-              gz=$(gzip -9 -c "$f" | wc -c)
-              echo "| $f | $raw | $gz |"
-            done
+            echo "### sim_core size / bench (vs cpp/bench-baseline.json)"
             echo
             echo "\`\`\`"
+            cat bench-wasm.txt
+            echo
             ./cpp/build/sim_core_test --mode bench
             echo "\`\`\`"
           } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
       # ── 7. Upload artefacts ──────────────────────────────────
       - name: Upload WASM artefacts
@@ -143,7 +146,6 @@ jobs:
         with:
           name: sim_core-wasm
           path: |
-            src/wasm/sim-core/sim_core.js
             src/wasm/sim-core/sim_core.wasm
           retention-days: 30
 
@@ -155,7 +157,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add src/wasm/sim-core/sim_core.js src/wasm/sim-core/sim_core.wasm
+          git add src/wasm/sim-core/sim_core.wasm
           git diff --cached --quiet || \
             git commit -m "ci: update sim_core WASM artefacts [skip ci]" && \
             git push

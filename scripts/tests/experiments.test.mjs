@@ -17,9 +17,9 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { before, describe, it } from 'node:test';
 import { ROOT, bundleTs } from '../test-harness.mjs';
+import { loadSimCoreFromDisk } from '../lib/sim-core-shim.mjs';
 
 const REF_DIR = join(ROOT, 'src/experiments/reference');
 const WASM_DIR = join(ROOT, 'src/wasm/sim-core');
@@ -44,10 +44,8 @@ const X = await bundleTs({
   sourcefile: 'experiments-harness.ts'
 });
 
-// ── shipped wasm, no fetch (ENVIRONMENT=web glue + wasmBinary) ──
-// ES-module glue (EXPORT_ES6): a plain import, like the page and workers.
-const { default: SimCore } = await import(pathToFileURL(join(WASM_DIR, 'sim_core.js')).href);
-const wasmMod = await SimCore({ wasmBinary: readFileSync(join(WASM_DIR, 'sim_core.wasm')) });
+// ── shipped wasm, no fetch: the bare module from disk through instantiate.ts ──
+const wasmMod = await loadSimCoreFromDisk(WASM_DIR);
 
 function runOnce(v, backend, sweepPoint) {
   const cpp = backend === 'wasm' ? X.SEGSim.fromModule(wasmMod) : null;

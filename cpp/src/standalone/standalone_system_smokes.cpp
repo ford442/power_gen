@@ -10,7 +10,9 @@
 #include "../../generated/lab-coupling.h"
 
 #include <cmath>
+#include <algorithm>
 #include <cstdio>
+#include <vector>
 #include <cstring>
 
 int run_chores_smoke() {
@@ -178,6 +180,54 @@ int run_catalog_smoke() {
         printf(" %d", RESERVED_WASM_MODES[i]);
     }
     printf(")\n");
+    return 0;
+}
+
+// --mode fdtd: the C++ FDTD TM_z kernel (#254 §5) stays finite under a hard
+// drive with materials, absorbs at the sponge once the drive stops, and
+// refuses a bad init. Numeric parity with TS / WGSL is test:fdtd's job.
+int run_fdtd_smoke() {
+    FdtdTmzGrid g;
+    if (g.init(4, 1, 0.5f, 0.1f, 1.f) || g.size() != 0) {
+        std::fprintf(stderr, "FAIL: fdtd init accepted a 4² grid\n");
+        return 1;
+    }
+    const int n = 64;
+    if (!g.init(n, 7, 0.5f, 0.12f, 0.8f)) {
+        std::fprintf(stderr, "FAIL: fdtd init(64)\n");
+        return 1;
+    }
+    std::vector<float> mat(2 * n * n);
+    for (int i = 0; i < n * n; ++i) {
+        const int x = i % n, y = i / n;
+        const bool iron = std::abs(x - 32) < 6 && std::abs(y - 32) < 10;
+        mat[2 * i] = iron ? 1.f / 24.f : 1.f;
+        mat[2 * i + 1] = (std::abs(x - 20) < 2 && std::abs(y - 32) < 2) ? 0.75f : 0.f;
+    }
+    g.setMaterials(mat.data(), static_cast<int>(mat.size()));
+    const float src[8] = { 22.f, 32.f, 1.5f, 1.f, 42.f, 32.f, -1.5f, -1.f };
+    double peakEnergy = 0;
+    for (int frame = 0; frame < 240; ++frame) {
+        float s[8];
+        for (int k = 0; k < 8; ++k) s[k] = src[k];
+        if (frame >= 120) s[2] = s[6] = 0.f;
+        g.setSources(s, 8);
+        g.step(2);
+        peakEnergy = std::max(peakEnergy, g.interiorEnergy());
+    }
+    for (int i = 0; i < n * n; ++i) {
+        if (!std::isfinite(g.ez()[i]) || !std::isfinite(g.hx()[i]) || !std::isfinite(g.hy()[i])) {
+            std::fprintf(stderr, "FAIL: fdtd field non-finite at %d\n", i);
+            return 1;
+        }
+    }
+    const double endEnergy = g.interiorEnergy();
+    std::printf("FDTD 64² materials=%d peak E=%.4g end E=%.4g\n", g.hasMaterials() ? 1 : 0, peakEnergy, endEnergy);
+    if (!g.hasMaterials() || !(peakEnergy > 0) || !(endEnergy < 0.5 * peakEnergy)) {
+        std::fprintf(stderr, "FAIL: fdtd did not drive / absorb (peak %g, end %g)\n", peakEnergy, endEnergy);
+        return 1;
+    }
+    std::printf("FDTD smoke OK\n");
     return 0;
 }
 

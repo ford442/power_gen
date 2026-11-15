@@ -10,6 +10,10 @@
 // Classroom numbers: physics/constants.json -> generated/constants.h.
 
 #include "../../../generated/constants.h"
+#include "../../../generated/plant-ode.h"
+
+#include <cstddef>
+#include <span>
 
 struct ThomsonState {
     float primaryIA{0.f};   // primary winding current, A
@@ -37,4 +41,41 @@ struct ThomsonState {
     float iPrimaryMaxA{power_gen::JumpingRingConstants::I_PRIMARY_MAX_A};
     float iRingMaxA{power_gen::JumpingRingConstants::I_RING_MAX_A};
     float drive{0.f};
+    // Adaptive-integrator carry-over (core/integrate.h StepperState): the
+    // next step size and the PI controller's last error. Saved in snapshots.
+    float stepH{0.f};
+    float stepErrOld{1e-4f};
+};
+
+/// What one advance holds constant: the drive's phase at t = 0 and its
+/// amplitude. vp(t) = vPeakDrive · sin(phase0 + omega·t), evaluated in double
+/// so ~20k substeps per second do not drift the phase.
+struct ThomsonInput {
+    double phase0{0.0};
+    double omega{0.0};
+    double vPeakDrive{0.0};
+};
+
+/// sim_core::Plant view over a ThomsonState (cpp/src/core/plant.h).
+/// x = [primaryIA, ringCurrentA, velocityMps, heightM] (generated enum).
+struct ThomsonPlant {
+    using ode = power_gen::ode::JumpingRing;
+    using input_type = ThomsonInput;
+    static constexpr std::size_t state_size = ode::STATE_SIZE;
+    static constexpr std::size_t output_size = ode::OUTPUT_SIZE;
+
+    explicit ThomsonPlant(ThomsonState& st);
+
+    void derivs(double t, std::span<const float> x, const ThomsonInput& u, std::span<float> dxdt) const;
+    /// y = [forceN, couplingK] at x: the instantaneous force and k(h).
+    void outputs(std::span<const float> x, const ThomsonInput& u, std::span<float> y) const;
+    void save(std::span<float> x) const;
+    void load(std::span<const float> x);
+    /// Rigid stops: the core shoulder (h = 0) and the pole top.
+    bool constrain(std::span<float> x) const;
+
+    ThomsonState& s;
+    float lpLr;
+    float sqrtLpLr;
+    float invLambda;
 };

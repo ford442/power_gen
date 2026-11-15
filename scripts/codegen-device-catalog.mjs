@@ -21,6 +21,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
+import { emitPlantOdeH, emitPlantOdeTs, validateOde } from './lib/catalog-ode.mjs';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const SRC_JSON = join(ROOT, 'physics', 'devices.json');
@@ -1109,7 +1111,7 @@ function main() {
   const telemetrySchemaErrors = checkTelemetrySchemaUsesCatalog();
   const chromeErrors = validateChrome(devices);
   const setpointErrors = validateSetpoints(devices);
-  const stateErrors = validateState(devices);
+  const stateErrors = [...validateState(devices), ...validateOde(devices)];
   if (stateErrors.length) {
     for (const e of stateErrors) console.error(`[catalog] ${e}`);
     process.exit(1);
@@ -1150,6 +1152,8 @@ function main() {
     [join(OUT_DIR, 'device-state.ts'), emitDeviceStateTs(layout)],
     [join(OUT_DIR, 'plant-state.h'), emitPlantStateH(layout)],
     [join(OUT_DIR, 'plant-state-impl.h'), emitPlantStateImplH(layout)],
+    [join(OUT_DIR, 'plant-ode.h'), emitPlantOdeH(devices)],
+    [join(OUT_DIR, 'plant-ode.ts'), emitPlantOdeTs(devices)],
     [SHADER_OUT, wgsl],
     [MODE_MATRIX, md],
   ];

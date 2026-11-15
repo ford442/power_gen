@@ -59,13 +59,20 @@ left the fallback with no answer to the one thing the slice teaches, so
 
 | | WebGPU panel | WebGL2 readout |
 |---|---|---|
-| Grid | 256², GPU storage buffers | **64²**, `FdtdTmzGrid` on the main thread |
+| Grid | 256², GPU storage buffers | **64²** on the main thread: `FdtdTmzGrid` (TS), or the C++ kernel under `?wasmPhysics=1` |
 | Steps / frame | 6 | 2 (front still crosses in ~1 s) |
 | Materials | μ_r armature + σ turns | same map, same presets |
 | Sources | same windings, world-placed | same windings, world-placed |
 | Drive | coil current, or `?fdtdDrive=transformer` | **coil current only** — see below |
 | Where | world-space quad in front of the coil | 176 px 2D canvas, bottom-left |
 | Cost | a few ms of GPU | **0.23 ms/frame** of CPU (measured in `test:fdtd`) |
+
+Under `?wasmPhysics=1`, once sim_core is loaded, the grid is the C++ kernel
+(`cpp/src/plant/fdtd_tmz.cpp` via `physics/fdtd-tmz-wasm.ts`, #254 §5): same
+update, same materials, Wasm SIMD. `window.fdtdHeatmapOverlay.stats().backend`
+says which one runs. `npm run test:fdtd` holds the TS kernel, the WASM kernel and
+the WGSL compute shader (executed from its own text on the CPU) to one another
+within 1e-4 of the field peak; the TS kernel stays the reference and the default.
 
 `?fdtdDrive=transformer` is **WebGPU-only**, and deliberately so. Borrowing
 another bench's flux means keeping that bench's plant stepping while the pulse

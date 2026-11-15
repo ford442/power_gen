@@ -76,7 +76,7 @@ export interface SegWasmBridge {
   setKelvinSeedV(seedV: number): boolean;
   setLorentzFieldT(fieldT: number): void;
   getModePlant(): unknown;
-  /** This thread's Embind instance (null before init / without WASM) — see SEGSim.raw. */
+  /** This thread's C ABI simulator (null before init / without WASM) — see SEGSim.raw. */
   rawSim(): SEGSimulatorInstance | null;
 
   getParticles(maxCount?: number): unknown[];
@@ -268,7 +268,7 @@ export const segWasm: SegWasmBridge = {
    * back to the JS plant rather than report a coupled B the C++ plant ignored.
    */
   setHallFieldCoupledT(fieldT: number): boolean {
-    // SEGSim reports whether the *embind* object carries the knob — checking
+    // SEGSim reports whether the *C ABI* object carries the knob — checking
     // `_instance` here would only confirm our own TS wrapper has the method.
     const t = Number(fieldT);
     return _instance?.setHallFieldCoupledT(Number.isFinite(t) ? t : -1) ?? false;
