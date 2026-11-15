@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <vector>
 
 // --mode bench: report SEG RK4 roller step throughput (steps/s) and
 // particle-replay throughput, as a plain "key=value" line CI can grep to
@@ -63,6 +64,26 @@ int run_bench_smoke() {
         printf("bench_ring_%s_sim_s_per_wall_s=%.1f\n", name, simSec / wall);
         printf("bench_ring_%s_rhs_per_sim_s=%.0f\n", name, rhsPerSimSec);
         if (m != 1) printf("bench_ring_%s_rhs_ratio_vs_rk4=%.2f\n", name, rk4Rhs / rhsPerSimSec);
+    }
+
+    // FDTD TM_z kernel (#254 §5), the WebGPU slice's 256² grid with a material
+    // map: cell updates (H + E) per second.
+    {
+        FdtdTmzGrid g;
+        const int n = 256;
+        g.init(n, 28, 0.5f, 0.12f, 1.6f);
+        std::vector<float> mat(2 * n * n, 0.f);
+        for (int i = 0; i < n * n; ++i) mat[2 * i] = (i % n) < n / 2 ? 1.f : 0.5f;
+        g.setMaterials(mat.data(), static_cast<int>(mat.size()));
+        const float src[4] = { 128.f, 128.f, 1.f, 1.f };
+        g.setSources(src, 4);
+        g.step(20);
+        const int fdtdSteps = 400;
+        auto f0 = std::chrono::steady_clock::now();
+        g.step(fdtdSteps);
+        auto f1 = std::chrono::steady_clock::now();
+        const double cells = static_cast<double>(n) * n * fdtdSteps;
+        printf("bench_fdtd_cell_updates_per_sec=%.0f\n", cells / std::chrono::duration<double>(f1 - f0).count());
     }
     return 0;
 }

@@ -65,7 +65,9 @@ test('first visit precaches the build; offline reload still boots WebGL2', async
   // sim_core is in the module graph now (src/wasm/sim-core/): hashed names.
   const wasmUrl = state.urls.find((u) => /^assets\/sim_core-[\w-]+\.wasm$/.test(u));
   expect(wasmUrl, 'hashed sim_core.wasm not precached').toBeTruthy();
-  expect(state.urls.some((u) => /^assets\/sim_core-[\w-]+\.js$/.test(u)), 'sim_core glue chunk not precached').toBe(true);
+  // No Emscripten glue since #254: the lazy loader chunk (instantiate.ts +
+  // abi.generated.ts) is what fetches and wraps it.
+  expect(state.urls.some((u) => /^assets\/instantiate-[\w-]+\.js$/.test(u)), 'sim_core loader chunk not precached').toBe(true);
   expect(state.urls.some((u) => /^assets\/index-[\w-]+\.js$/.test(u)), 'entry chunk not precached').toBe(true);
   expect(state.urls.some((u) => /^assets\/recorder-[\w-]+\.js$/.test(u)), 'lazy recorder chunk not precached').toBe(true);
   expect(await page.evaluate(() => !!document.getElementById('pwaUpdateToast')), 'toast on first install').toBe(false);

@@ -30,6 +30,13 @@
  *  14. Drive sources: coil current and transformer flux are both NaN-safe and
  *      clamped, and the parser defaults to the coil.
  *
+ * C++ kernel (#254 §5):
+ *  15. Three-way golden: the TS reference, the shipped WASM kernel
+ *      (cpp/src/plant/fdtd_tmz.cpp) and the WGSL compute shader — executed on
+ *      the CPU from its own text (scripts/lib/wgsl-fdtd-eval.mjs) — agree on
+ *      an impulse after N steps, with and without materials. A deliberately
+ *      broken shader must fail the same comparison.
+ *
  * Usage: npm run test:fdtd   (node --test scripts/tests/fdtd.test.mjs)
  */
 import assert from 'node:assert/strict';
@@ -37,6 +44,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { before, describe, it } from 'node:test';
 import { bundleTs, ROOT } from '../test-harness.mjs';
+import { loadSimCoreFromDisk } from '../lib/sim-core-shim.mjs';
+import { compileFdtdWgsl, fdtdParamsObject, materialsBinding } from '../lib/wgsl-fdtd-eval.mjs';
 
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 
@@ -577,5 +586,91 @@ describe('14. drive sources', () => {
       'materials default on: materials defaulted off');
     assert.ok(url.parseFdtdMaterialsEnabled(new URLSearchParams('fdtdMaterials=0')) === false,
       '?fdtdMaterials=0 turns materials off: the kill switch did not take');
+  });
+});
+
+describe('15. three-way golden: TS ⇄ WASM ⇄ WGSL (#254 §5)', () => {
+  // Relative to each field's peak over the grid. The kernels differ only in
+  // arithmetic width (TS: f32 storage, f64 maths; C++: f32 throughout; WGSL
+  // leg: f32 at every named value) — measured ≤ 1e-5 after 240 steps, so
+  // 1e-4 is 10× headroom. A *model* difference is orders of magnitude larger
+  // (the broken-shader case below lands near 1).
+  const TOL = 1e-4;
+  const STEPS = 240;
+  const ON = 24;
+  let x;
+  let mod;
+  before(async () => {
+    x = await bundleTs({
+      contents: `export { WasmFdtdTmzGrid } from './src/physics/fdtd-tmz-wasm.ts';
+export { pulseCoilFdtdSources, pulseCoilFdtdMaterials } from './src/devices/quanta/pulse-coil.ts';
+export { MICRO_GRID_CONFIG } from './src/fdtd-heatmap-overlay.ts';`,
+      sourcefile: 'fdtd-three-way.ts'
+    });
+    mod = await loadSimCoreFromDisk(join(ROOT, 'src/wasm/sim-core'));
+  });
+
+  /** Drive an impulse through every kernel; return the three final field sets. */
+  function runThree(cfg, withMaterials, computeSrc = computeWgsl) {
+    const n = cfg.n;
+    const sources = x.pulseCoilFdtdSources(n);
+    const map = withMaterials ? m.buildFdtdMaterialMap(x.pulseCoilFdtdMaterials(n), cfg) : null;
+    const ts = new m.FdtdTmzGrid(cfg);
+    const wa = new x.WasmFdtdTmzGrid(mod, cfg);
+    ts.setMaterials(map);
+    wa.setMaterials(map);
+    const gpu = { ez: new Float32Array(n * n), hx: new Float32Array(n * n), hy: new Float32Array(n * n) };
+    const params = fdtdParamsObject(cfg, sources, !!map);
+    const shader = compileFdtdWgsl({ computeSrc, paramsSrc: paramsWgsl, params, ...gpu, materials: materialsBinding(map, n * n) });
+    for (let k = 0; k < STEPS; k++) {
+      const frame = sources.map((s) => ({ ...s, amp: k < ON ? s.amp : 0 }));
+      ts.setSources(frame);
+      wa.setSources(frame);
+      Object.assign(params, fdtdParamsObject(cfg, frame, !!map));
+      ts.step();
+      wa.step();
+      shader.step();
+    }
+    const out = { ts, wasm: { ez: wa.ez.slice(), hx: wa.hx.slice(), hy: wa.hy.slice(), energy: wa.interiorEnergy(), hasMaterials: wa.hasMaterials }, gpu };
+    wa.dispose();
+    return out;
+  }
+
+  const relDiff = (a, ref) => {
+    let d = 0;
+    let peak = 0;
+    for (let i = 0; i < ref.length; i++) {
+      if (!Number.isFinite(a[i])) return Infinity; // a blown-up kernel is maximally wrong
+      d = Math.max(d, Math.abs(a[i] - ref[i]));
+      peak = Math.max(peak, Math.abs(ref[i]));
+    }
+    return peak > 0 ? d / peak : d;
+  };
+
+  for (const [label, withMaterials, cfgOf] of [
+    ['64² micro-grid, pulse-coil materials', true, () => x.MICRO_GRID_CONFIG],
+    ['64² micro-grid, vacuum', false, () => x.MICRO_GRID_CONFIG],
+    ['128² vacuum', false, () => ({ ...m.FDTD_DEFAULT_CONFIG, n: 128, pmlCells: 14 })]
+  ]) {
+    it(`${label}: WASM and WGSL match the TS reference within ${TOL}`, () => {
+      const r = runThree(cfgOf(), withMaterials);
+      assert.equal(r.wasm.hasMaterials, withMaterials, 'C++ grid material state');
+      for (const k of ['ez', 'hx', 'hy']) {
+        assert.ok(r.ts[k].some((v) => v !== 0), `${k} moved (the impulse reached the field)`);
+        const dw = relDiff(r.wasm[k], r.ts[k]);
+        const dg = relDiff(r.gpu[k], r.ts[k]);
+        assert.ok(dw <= TOL, `${k}: WASM vs TS ${dw.toExponential(2)} > ${TOL}`);
+        assert.ok(dg <= TOL, `${k}: WGSL vs TS ${dg.toExponential(2)} > ${TOL}`);
+      }
+      const e = r.ts.interiorEnergy();
+      assert.ok(Math.abs(r.wasm.energy - e) <= TOL * e, `interior energy WASM ${r.wasm.energy} vs TS ${e}`);
+    });
+  }
+
+  it('a broken shader (curl sign flipped) fails the comparison', () => {
+    const broken = computeWgsl.replace('- (hx[i] - hx[i - n])', '+ (hx[i] - hx[i - n])');
+    assert.notEqual(broken, computeWgsl, 'mutation applied (the curl line changed — update this test)');
+    const r = runThree(x.MICRO_GRID_CONFIG, true, broken);
+    assert.ok(relDiff(r.gpu.ez, r.ts.ez) > 100 * TOL, 'the WGSL leg would not have noticed a wrong curl');
   });
 });

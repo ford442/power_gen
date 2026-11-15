@@ -88,7 +88,8 @@ native-san:
 	$(SAN_ENV) ./build/sim_core_test_san --mode jumping-ring
 	$(SAN_ENV) ./build/sim_core_test_san --mode energy-network
 	$(SAN_ENV) ./build/sim_core_test_san --mode integrators > build/integrators_san.txt
-	@echo "✓  ASan + UBSan clean (default, golden, jumping-ring, energy-network, integrators) — $(SAN_CXX)"
+	$(SAN_ENV) ./build/sim_core_test_san --mode fdtd
+	@echo "✓  ASan + UBSan clean (default, golden, jumping-ring, energy-network, integrators, fdtd) — $(SAN_CXX)"
 
 # Advisory only: cpp/.clang-tidy keeps WarningsAsErrors empty and this target
 # never fails, until the finding count is near zero (see cpp/README.md).

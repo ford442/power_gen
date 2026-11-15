@@ -298,8 +298,32 @@ export function fdtdSliceGateOpen(g: FdtdGateInput): boolean {
     && (g.qualityTier === 'high' || g.qualityTier === 'ultra');
 }
 
+/**
+ * What the WebGL2 micro-grid needs from a CPU grid: this file's reference
+ * {@link FdtdTmzGrid}, or the C++ kernel behind `?wasmPhysics=1`
+ * (`WasmFdtdTmzGrid` in fdtd-tmz-wasm.ts, cpp/src/plant/fdtd_tmz.cpp).
+ */
+export interface FdtdGridLike {
+  readonly cfg: FdtdGridConfig;
+  readonly ez: Float32Array;
+  readonly hx: Float32Array;
+  readonly hy: Float32Array;
+  readonly hasMaterials: boolean;
+  /** `'js'` for this file's kernel, `'wasm'` for the C++ one. */
+  readonly backend: 'js' | 'wasm';
+  setMaterials(materials: Float32Array | readonly FdtdMaterialRegion[] | null | undefined): void;
+  setSources(sources: readonly FdtdSource[]): void;
+  /** `count` Yee steps (H then E). */
+  step(count?: number): void;
+  reset(): void;
+  interiorEnergy(): number;
+  /** Free native memory (no-op for the JS grid). */
+  dispose(): void;
+}
+
 /** CPU reference grid. Same update and indexing (`x + y·n`) as the WGSL. */
-export class FdtdTmzGrid {
+export class FdtdTmzGrid implements FdtdGridLike {
+  readonly backend = 'js';
   readonly cfg: FdtdGridConfig;
   readonly ez: Float32Array;
   readonly hx: Float32Array;
@@ -387,7 +411,13 @@ export class FdtdTmzGrid {
     }
   }
 
-  step(): void {
+  dispose(): void {}
+
+  step(count = 1): void {
+    for (let k = 0; k < count; k++) this.stepOnce();
+  }
+
+  private stepOnce(): void {
     const { n, courant: S } = this.cfg;
     const { ez, hx, hy, j } = this;
     const mat = this.materials;

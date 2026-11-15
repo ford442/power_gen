@@ -289,6 +289,51 @@ describe('every export, called once; array inputs (staged scratch)', () => {
   });
 });
 
+/** FdtdTmzGrid (#254 §5): every method needs a call spec, init first. */
+const FDTD_ARGS = {
+  init: [32, 4, 0.5, 0.12, 1.6],
+  setSources: [[16, 16, 1, 1]],
+  setMaterials: [new Float32Array(2 * 32 * 32).fill(1)],
+  step: [4],
+  scratchPtr: [8]
+};
+const fdtdMethods = (manifest.classes.FdtdTmzGrid?.methods ?? []).map((f) => f.name);
+
+describe('FdtdTmzGrid exports', () => {
+  it('every method has a call spec, and every spec is still exported', () => {
+    const argful = manifest.classes.FdtdTmzGrid.methods.filter((f) => f.args?.length).map((f) => f.name);
+    for (const n of argful) assert.ok(n in FDTD_ARGS, `FdtdTmzGrid.${n} has a call spec — add it to FDTD_ARGS`);
+    for (const n of Object.keys(FDTD_ARGS)) assert.ok(fdtdMethods.includes(n), `FDTD_ARGS.${n} is stale`);
+  });
+  it('init → every method callable → an impulse moves Ez → delete', () => {
+    const g = new mod.FdtdTmzGrid();
+    try {
+      assert.equal(g.init(...FDTD_ARGS.init), true, 'init(32, …)');
+      assert.equal(g.init(4, 1, 0.5, 0.1, 1), false, 'init refuses a grid below 8²');
+      g.init(...FDTD_ARGS.init);
+      const failed = [];
+      for (const n of fdtdMethods) {
+        try {
+          g[n](...(FDTD_ARGS[n] ?? []));
+        } catch (err) {
+          failed.push(`${n}: ${String(err?.message ?? err).slice(0, 80)}`);
+        }
+      }
+      assert.deepEqual(failed, []);
+      assert.equal(g.hasMaterials(), false, 'an all-vacuum map leaves the grid on the vacuum path');
+      g.reset();
+      g.setSources([16, 16, 1, 1]);
+      g.step(8);
+      const ez = new Float32Array(mod.HEAPF32.buffer, g.ezPtr(), 32 * 32);
+      assert.ok(ez.some((v) => v !== 0) && ez.every(Number.isFinite), 'Ez moved and stayed finite');
+      assert.ok(g.interiorEnergy() > 0, 'interior energy > 0');
+    } finally {
+      g.delete();
+      g.delete(); // idempotent
+    }
+  });
+});
+
 const HARNESS_ENTRY = `
   export { SEGSim } from './src/wasm/sim';
   export { segWasm } from './src/wasm/seg-physics-bridge';

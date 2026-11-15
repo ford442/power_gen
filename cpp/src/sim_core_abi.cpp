@@ -90,6 +90,66 @@ EMSCRIPTEN_KEEPALIVE uint32_t sc_plant_state_layout_hash() {
     return PLANT_STATE_LAYOUT_HASH;
 }
 
+EMSCRIPTEN_KEEPALIVE FdtdTmzGrid* fdtd_new() {
+    return new FdtdTmzGrid();
+}
+
+EMSCRIPTEN_KEEPALIVE void fdtd_delete(FdtdTmzGrid* self) {
+    delete self;
+}
+
+EMSCRIPTEN_KEEPALIVE int fdtd_init(FdtdTmzGrid* self, int n, int pmlCells, float courant, float lossMax, float sourceRadius) {
+    return (self->init(n, pmlCells, courant, lossMax, sourceRadius)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int fdtd_size(FdtdTmzGrid* self) {
+    return self->size();
+}
+
+EMSCRIPTEN_KEEPALIVE void fdtd_reset(FdtdTmzGrid* self) {
+    self->reset();
+}
+
+EMSCRIPTEN_KEEPALIVE void fdtd_setSources(FdtdTmzGrid* self, const float* packed, int packedCount) {
+    self->setSources(packed, packedCount);
+}
+
+EMSCRIPTEN_KEEPALIVE void fdtd_setMaterials(FdtdTmzGrid* self, const float* interleaved, int interleavedCount) {
+    self->setMaterials(interleaved, interleavedCount);
+}
+
+EMSCRIPTEN_KEEPALIVE void fdtd_clearMaterials(FdtdTmzGrid* self) {
+    self->clearMaterials();
+}
+
+EMSCRIPTEN_KEEPALIVE int fdtd_hasMaterials(FdtdTmzGrid* self) {
+    return (self->hasMaterials()) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void fdtd_step(FdtdTmzGrid* self, int steps) {
+    self->step(steps);
+}
+
+EMSCRIPTEN_KEEPALIVE double fdtd_interiorEnergy(FdtdTmzGrid* self) {
+    return self->interiorEnergy();
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t fdtd_ezPtr(FdtdTmzGrid* self) {
+    return static_cast<uintptr_t>(self->ezPtr());
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t fdtd_hxPtr(FdtdTmzGrid* self) {
+    return static_cast<uintptr_t>(self->hxPtr());
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t fdtd_hyPtr(FdtdTmzGrid* self) {
+    return static_cast<uintptr_t>(self->hyPtr());
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t fdtd_scratchPtr(FdtdTmzGrid* self, int count) {
+    return static_cast<uintptr_t>(self->scratchPtr(count));
+}
+
 EMSCRIPTEN_KEEPALIVE SEGSimulator* seg_new() {
     return new SEGSimulator();
 }

@@ -60,6 +60,21 @@ export interface SimCoreExports {
   sc_chores_map_scale_f32_scratch(count: number, scale: number, bias: number): void;
   sc_chores_fft_db_scratch(count: number, hann: number, floorDb: number): number;
   sc_plant_state_layout_hash(): number;
+  fdtd_new(): number;
+  fdtd_delete(self: number): void;
+  fdtd_init(self: number, n: number, pmlCells: number, courant: number, lossMax: number, sourceRadius: number): number;
+  fdtd_size(self: number): number;
+  fdtd_reset(self: number): void;
+  fdtd_setSources(self: number, packed: number, packedCount: number): void;
+  fdtd_setMaterials(self: number, interleaved: number, interleavedCount: number): void;
+  fdtd_clearMaterials(self: number): void;
+  fdtd_hasMaterials(self: number): number;
+  fdtd_step(self: number, steps: number): void;
+  fdtd_interiorEnergy(self: number): number;
+  fdtd_ezPtr(self: number): number;
+  fdtd_hxPtr(self: number): number;
+  fdtd_hyPtr(self: number): number;
+  fdtd_scratchPtr(self: number, count: number): number;
   seg_new(): number;
   seg_delete(self: number): void;
   seg_version(): number;
@@ -180,6 +195,21 @@ export interface SimCoreExports {
 
 /** Every function export the manifest declares, sorted (test:wasm-abi diffs the binary against it). */
 export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
+  'fdtd_clearMaterials',
+  'fdtd_delete',
+  'fdtd_ezPtr',
+  'fdtd_hasMaterials',
+  'fdtd_hxPtr',
+  'fdtd_hyPtr',
+  'fdtd_init',
+  'fdtd_interiorEnergy',
+  'fdtd_new',
+  'fdtd_reset',
+  'fdtd_scratchPtr',
+  'fdtd_setMaterials',
+  'fdtd_setSources',
+  'fdtd_size',
+  'fdtd_step',
   'sc_axialBField',
   'sc_chores_fft_db_scratch',
   'sc_chores_map_scale_f32_scratch',
@@ -309,6 +339,31 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_version'
 ];
 
+export interface FdtdTmzGridInstance {
+  /** Address of the C++ object (for diagnostics). */
+  readonly ptr: number;
+  init(n: number, pmlCells: number, courant: number, lossMax: number, sourceRadius: number): boolean;
+  size(): number;
+  reset(): void;
+  setSources(packed: ArrayLike<number>): void;
+  setMaterials(interleaved: ArrayLike<number>): void;
+  clearMaterials(): void;
+  hasMaterials(): boolean;
+  step(steps: number): void;
+  interiorEnergy(): number;
+  ezPtr(): number;
+  hxPtr(): number;
+  hyPtr(): number;
+  scratchPtr(count: number): number;
+  /** Free the C++ object. Idempotent; the instance is dead afterwards. */
+  delete(): void;
+}
+
+export interface FdtdTmzGridConstructor {
+  new (): FdtdTmzGridInstance;
+
+}
+
 export interface SEGSimulatorInstance {
   /** Address of the C++ object (for diagnostics). */
   readonly ptr: number;
@@ -435,6 +490,7 @@ export interface SEGSimulatorConstructor {
 }
 
 export interface SimCoreModule {
+  FdtdTmzGrid: FdtdTmzGridConstructor;
   SEGSimulator: SEGSimulatorConstructor;
   /** View over the instance memory; re-read after any call that may grow the heap. */
   readonly HEAPF32: Float32Array;
@@ -491,6 +547,62 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
     const b = (ptr >>> 0) >> 2;
     return { powerInW: h[b + 0], powerOutW: h[b + 1], efficiency: h[b + 2] };
   };
+
+  class FdtdTmzGridImpl implements FdtdTmzGridInstance {
+    ptr: number;
+    constructor() {
+      this.ptr = ex.fdtd_new() >>> 0;
+      if (this.ptr === 0) throw new Error('sim_core: FdtdTmzGrid allocation failed');
+    }
+
+    delete(): void {
+      if (this.ptr !== 0) ex.fdtd_delete(this.ptr);
+      this.ptr = 0;
+    }
+    init(n: number, pmlCells: number, courant: number, lossMax: number, sourceRadius: number): boolean {
+      return ex.fdtd_init(this.ptr, n, pmlCells, courant, lossMax, sourceRadius) !== 0;
+    }
+    size(): number {
+      return ex.fdtd_size(this.ptr);
+    }
+    reset(): void {
+      ex.fdtd_reset(this.ptr);
+    }
+    setSources(packed: ArrayLike<number>): void {
+      const packedPtr = this.scratchPtr(packed.length);
+      heapF32().set(packed, packedPtr >> 2);
+      ex.fdtd_setSources(this.ptr, packedPtr, packed.length);
+    }
+    setMaterials(interleaved: ArrayLike<number>): void {
+      const interleavedPtr = this.scratchPtr(interleaved.length);
+      heapF32().set(interleaved, interleavedPtr >> 2);
+      ex.fdtd_setMaterials(this.ptr, interleavedPtr, interleaved.length);
+    }
+    clearMaterials(): void {
+      ex.fdtd_clearMaterials(this.ptr);
+    }
+    hasMaterials(): boolean {
+      return ex.fdtd_hasMaterials(this.ptr) !== 0;
+    }
+    step(steps: number): void {
+      ex.fdtd_step(this.ptr, steps);
+    }
+    interiorEnergy(): number {
+      return ex.fdtd_interiorEnergy(this.ptr);
+    }
+    ezPtr(): number {
+      return ex.fdtd_ezPtr(this.ptr) >>> 0;
+    }
+    hxPtr(): number {
+      return ex.fdtd_hxPtr(this.ptr) >>> 0;
+    }
+    hyPtr(): number {
+      return ex.fdtd_hyPtr(this.ptr) >>> 0;
+    }
+    scratchPtr(count: number): number {
+      return ex.fdtd_scratchPtr(this.ptr, count) >>> 0;
+    }
+  }
 
   class SEGSimulatorImpl implements SEGSimulatorInstance {
     ptr: number;
@@ -849,6 +961,7 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
   }
 
   return {
+    FdtdTmzGrid: FdtdTmzGridImpl,
     SEGSimulator: SEGSimulatorImpl,
     get HEAPF32(): Float32Array {
       return heapF32();

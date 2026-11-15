@@ -117,6 +117,25 @@
     }
   ],
   "classes": {
+    "FdtdTmzGrid": {
+      "prefix": "fdtd_",
+      "scratch": "scratchPtr",
+      "methods": [
+        { "name": "init", "ret": "bool", "args": [["n", "i32"], ["pmlCells", "i32"], ["courant", "f32"], ["lossMax", "f32"], ["sourceRadius", "f32"]] },
+        { "name": "size", "ret": "i32" },
+        { "name": "reset", "ret": "void" },
+        { "name": "setSources", "ret": "void", "args": [["packed", "f32[]"]] },
+        { "name": "setMaterials", "ret": "void", "args": [["interleaved", "f32[]"]] },
+        { "name": "clearMaterials", "ret": "void" },
+        { "name": "hasMaterials", "ret": "bool" },
+        { "name": "step", "ret": "void", "args": [["steps", "i32"]] },
+        { "name": "interiorEnergy", "ret": "f64" },
+        { "name": "ezPtr", "ret": "ptr" },
+        { "name": "hxPtr", "ret": "ptr" },
+        { "name": "hyPtr", "ret": "ptr" },
+        { "name": "scratchPtr", "ret": "ptr", "args": [["count", "i32"]] }
+      ]
+    },
     "SEGSimulator": {
       "prefix": "seg_",
       "scratch": "getScratchPtr",

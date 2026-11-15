@@ -143,6 +143,7 @@ int chores_fft_db_scratch(int count, bool hann, float floorDb);
 #include "plant/lorentz_plant.h"
 #include "plant/thomson_plant.h"
 #include "plant/energy_network.h"
+#include "plant/fdtd_tmz.h"
 
 // ─────────────────────────────────────────────────────────────
 // SEGSimulator
