@@ -66,9 +66,9 @@ export class HalbachFieldRenderer {
   /**
    * @param {Float32Array} viewProj
    * @param {number[]} devicePos
-   * @param {Float32Array[]} fieldLines
-   * @param {Float32Array|null} heatmap  RGBA grid (gridSize²)
-   * @param {object} [opts]
+   * @param {Float32Array[] | null | undefined} fieldLines
+   * @param {Float32Array | null | undefined} heatmap  RGBA grid (gridSize²)
+   * @param {{ extent?: number, gridSize?: number, lineColor?: number[], lineAlpha?: number }} [opts]
    */
   draw(viewProj, devicePos, fieldLines, heatmap, opts = {}) {
     const gl = this.gl;

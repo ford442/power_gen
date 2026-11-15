@@ -19,5 +19,6 @@ Lightweight ADRs for the SEG WebGPU Visualizer. Each file is a short record of a
 | [0013](./0013-charge-coupling.md) | Lab charge coupling (optional VdG → Kelvin seed) |
 | [0014](./0014-linear-hdr-colour.md) | Linear-HDR colour pipeline (float scene, `-srgb` composite, `?color=legacy`) |
 | [0015](./0015-plant-snapshots.md) | Plant snapshots from the device catalog (`state` blocks, layout hash, bit-identical restore) |
+| [0016](./0016-node-test-and-eslint.md) | `node:test` as the one test runner; staged `validate`; ESLint in its own TS 6 toolchain |
 
 Status values: **Accepted** · **Superseded** · **Proposed**

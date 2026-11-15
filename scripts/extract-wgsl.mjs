@@ -10,7 +10,7 @@
  *
  * Exit 0 always (extraction only). Validation is scripts/check-wgsl.sh.
  */
-import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readdirSync, readFileSync } from 'node:fs';
 import { join, basename, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {

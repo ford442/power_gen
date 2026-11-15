@@ -160,7 +160,8 @@ export class FdtdHeatmapOverlay {
     this.enabled = opts.enabled ?? parseFdtdEnabled();
     // Always the coil, unless a caller insists. `?fdtdDrive=transformer` needs
     // the transformer's plant kept running while another bench is focused, and
-    // the WebGPU pass does that from the render loop (`_stepBorrowedDrivePlant`).
+    // the WebGPU pass does that from the render loop (`stepBorrowedDrivePlant`
+    // in visualizer/fdtd-drive.ts).
     // This overlay only reads TelemetryHub — it has no device instances to step —
     // so honouring the flag here would show a value frozen at 0. A documented
     // limitation beats a panel that is quietly dead (docs/WEBGL2.md).

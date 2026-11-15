@@ -3,7 +3,7 @@
  */
 
 import { explainerState } from './explainer-state';
-import { initLabTours, LAB_TOURS, type LabTourKey, SEGTourPlayer } from './seg-tour-player';
+import { initLabTours, LAB_TOURS, type LabTourKey, type SEGTourPlayer } from './seg-tour-player';
 import { bootLiveFields } from '../config/lab-config';
 import { SEG_GLOSSARY } from './seg-glossary';
 

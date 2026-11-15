@@ -51,7 +51,7 @@ Browser loads src/index.html
 npm install
 npm run dev          # → http://localhost:5173/  (HTTPS is off; localhost is a secure context)
 npm run typecheck
-npm run validate     # codegen checks + typecheck + native C++ + Node test:* suites + post/WGSL/bindings checks
+npm run validate     # parallel: codegen → checks/typecheck/lint ∥ native C++ → node:test suites; per-step table
 ```
 
 | Environment | URL |
@@ -115,8 +115,8 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 
 | Language | Own | Do not put |
 |----------|-----|------------|
-| **JavaScript** | WebGL2 path (`renderers/webgl2/**`), procedural geometry builders (`seg-geometry/**`, `seg-geometry-generators.js`), `multi-device-shaders.js`, `shaders/generators/*` (`?raw` re-exports), `shaders/wgsl-include.js` | New authoritative physics formulas; new device plugin hooks (typed via `devices/types.ts`); dashboard layout (`DEVICE_CONFIG`) |
-| **TypeScript** | `main.ts`, `session/`, `multi-device-visualizer.ts`, device registry/config, `device-instance.ts`, visualizer GPU collaborators, WASM bridge, shared url-params/view-lod/device-view, constants (`ValidatedConstants.ts`), telemetry, `pipeline-layout-cache.ts`, `devices/types.ts`, core/Quanta strategies, `scientific-ui/**`, `scientific-data.ts`, `seg-explainer/**`, `renderers/renderer-selector.ts`, `renderers/shared/primitive-geometry.ts`, `electromagnet-controller.ts`, `devices/register-plugins.ts`, SEG focus chrome (`seg-annotations`, `seg-diagram-2d`, `seg-materials`, `seg-enhanced-geometry`, `seg-roller-model`, `seg-frame-model`) | WebGL2 GLSL path; Three.js / gl-matrix (ADR-0003) |
+| **JavaScript** | WebGL2 path (`renderers/webgl2/**`), procedural geometry builders (`seg-geometry/**`, `seg-geometry-generators.js`), `shaders/generators/*` (`?raw` re-exports), `shaders/wgsl-include.js` | New authoritative physics formulas; new device plugin hooks (typed via `devices/types.ts`); dashboard layout (`DEVICE_CONFIG`) |
+| **TypeScript** | `main.ts`, `session/`, `multi-device-visualizer.ts`, `multi-device-shaders.ts` (WGSL getter delegator), device registry/config, `device-instance.ts`, visualizer GPU collaborators, WASM bridge, shared url-params/view-lod/device-view, constants (`ValidatedConstants.ts`), telemetry, `pipeline-layout-cache.ts`, `devices/types.ts`, core/Quanta strategies, `scientific-ui/**`, `scientific-data.ts`, `seg-explainer/**`, `renderers/renderer-selector.ts`, `renderers/shared/primitive-geometry.ts`, `electromagnet-controller.ts`, `devices/register-plugins.ts`, SEG focus chrome (`seg-annotations`, `seg-diagram-2d`, `seg-materials`, `seg-enhanced-geometry`, `seg-roller-model`, `seg-frame-model`) | WebGL2 GLSL path; Three.js / gl-matrix (ADR-0003) |
 | **C++** | `sim_core` plant (SEG rollers RK4, Heron/Kelvin/Solar/Peltier/MHD/Quanta state) | Browser DOM or GPU API calls |
 | **WGSL** | WebGPU compute + render (`src/shaders/`) | WebGL2 fallback |
 | **GLSL** | WebGL2 only (`renderers/webgl2/shaders.js`) | WebGPU path |
@@ -127,7 +127,7 @@ Dashboard overview can enable **all** registered sim devices (typically 6 core +
 - New physics math and public numeric APIs → **TypeScript** (or C++ if part of the WASM plant).
 - New draw/compute passes → **WGSL** in `passes/` + layout in `src/pipeline-layout/layouts/*.ts` + [`BINDINGS.md`](./BINDINGS.md); `check:wgsl` + `check:post` when CPU structs couple; document in [`SHADERS.md`](./SHADERS.md). No new `/* wgsl */` in JS.
 - New device plugins implement the `DevicePlugin` interface from `src/devices/types.ts` — the single source of truth for plugin hooks and the `DeviceInstanceLike` / `VisualizerLike` shapes. Layout defaults go on `plugin.defaults` (core devices share `DEVICE_CONFIG` from `devices/device-config.ts`).
-- `npm run typecheck` covers **`src/**/*.ts` + `generated/**/*.ts`**. `tsconfig` uses **`allowJs: true` / `checkJs: false`** so JS modules can be imported; remaining JS is not typechecked in CI. JS modules that TS imports may carry a hand-written `.d.ts`.
+- `npm run typecheck` covers **`src/**/*.ts` + `generated/**/*.ts`** (`tsconfig.json`, `allowJs: true` / `checkJs: false`) **and** the JS that stays JS — `renderers/webgl2/**` + `seg-geometry/**` — via `tsconfig.js.json` (`checkJs: true`, `noImplicitAny: false`, rest of `strict` on). Type those files with JSDoc (`@param`, `@type`, `@typedef`, `import('…')` types), not `// @ts-nocheck`. JS modules that TS imports may carry a hand-written `.d.ts`.
 - Runtime entry is **`src/main.ts`**. There is no `src/index.ts` barrel (deleted — nothing imported it).
 - Physics constants SoT: `physics/constants.json` → codegen → `ValidatedConstants.ts` (ADR-0002/0006). Wolfram MCP manager was removed; do not reintroduce it on the default boot path.
 - **Import style:** JS entry paths import TypeScript modules **extensionless** (e.g. `./telemetry-hub` → `telemetry-hub.ts`). TypeScript sources may use a `.js` emit suffix for cross-file references (`moduleResolution: bundler`). Do not use `from '…ts'` in app code.
@@ -168,7 +168,7 @@ always did; nothing steps a plant from an input handler.
 | Boot policy + shared geometry: `renderers/renderer-selector.ts`, `renderers/shared/primitive-geometry.ts`, `electromagnet-controller.ts`, `devices/register-plugins.ts` → `.ts` | Done |
 | SEG focus chrome: `seg-annotations`, `seg-diagram-2d`, `seg-materials`, `seg-enhanced-geometry`, `seg-roller-model`, `seg-frame-model` → `.ts`; deleted stub `seg-frame-model.d.ts` | Done |
 
-**Still JavaScript (intentional):** `renderers/webgl2/**` (GLSL path, ADR-0001), `seg-geometry/**` + `seg-geometry-generators.js` (procedural builders), `shaders/generators/*` (thin `?raw` re-exports), `shaders/wgsl-include.js` / Vite plugin, `multi-device-shaders.js`. The root `scientific-ui.js` / `scientific-ui-utils.js` shims and `wasm/offline-runner.js` (+ its hand-written `.d.ts`) are **deleted** — import `scientific-ui/index` / `scientific-ui/utils/index` and `wasm/offline-runner` directly. The last untyped worker, `workers/wasm-offline-worker`, is now `.ts` (Wave 10).
+**Still JavaScript (intentional):** `renderers/webgl2/**` (GLSL path, ADR-0001), `seg-geometry/**` + `seg-geometry-generators.js` (procedural builders), `shaders/generators/*` (thin `?raw` re-exports), `shaders/wgsl-include.js` / Vite plugin (`multi-device-shaders` is now `.ts`). The root `scientific-ui.js` / `scientific-ui-utils.js` shims and `wasm/offline-runner.js` (+ its hand-written `.d.ts`) are **deleted** — import `scientific-ui/index` / `scientific-ui/utils/index` and `wasm/offline-runner` directly. The last untyped worker, `workers/wasm-offline-worker`, is now `.ts` (Wave 10).
 
 ### TypeScript migration (Wave 6 — complete)
 
@@ -291,7 +291,7 @@ never calls `requestAdapter`).
 | Host (queue, epoch, apply) | `src/session/plant-worker-host.ts` |
 | Message protocol + packed snapshot | `src/session/plant-worker-protocol.ts` |
 | Worker entry | `src/workers/plant-worker.ts` |
-| Contract test (Node `worker_threads`) | `scripts/test-plant-worker.mjs` → `npm run test:plant-worker` |
+| Contract test (Node `worker_threads`) | `scripts/tests/plant-worker.test.mjs` → `npm run test:plant-worker` |
 | Plant snapshot calls (`plantSave` / `plantLoad`, lazy) | `src/session/plant-worker-snapshot.ts` — [`SNAPSHOTS.md`](./SNAPSHOTS.md) |
 
 - **One frame of latency (by design).** Frame N applies batch N−1's result,
@@ -359,8 +359,9 @@ legacy `#lab=v1;…`) > `localStorage` > default. Booleans accept
 `1/0/on/off/true/false/yes/no` everywhere; numbers are finite-checked and
 clamped, so NaN from a hand-edited link never reaches a plant; anything
 unparsable falls through to the next layer. One reader —
-`src/config/lab-config.ts` — and `npm run check:lab-config` fails on drift or on
-raw `location.search` / `localStorage` access anywhere else in `src/`.
+`src/config/lab-config.ts`. `npm run check:lab-config` fails on drift and
+`npm run lint` on raw `location.search` / `localStorage` access anywhere else
+in `src/`.
 
 | Param | Values | Default | Stored | Share | Effect |
 |-------|--------|---------|--------|-------|--------|
@@ -550,11 +551,13 @@ Do not present firmware as production-ready or as a CI dependency. The visualize
 npm run dev           # Vite → http://localhost:5173/
 npm run build:site    # vite build (uses committed WASM)
 npm run build         # wasm:build + build:site (needs emcc / EMSDK)
-npm run typecheck     # tsc --noEmit
+npm run typecheck     # tsc --noEmit (TS) + tsc -p tsconfig.js.json (checkJs: renderers/webgl2, seg-geometry)
+npm run lint          # ESLint flat config (tools/lint/), typed rules on src/**/*.ts
+npm run test:unit     # node --test scripts/tests/*.test.mjs (one summary); test:coverage adds a report
 npm run check:wgsl    # extract includes → naga
 npm run check:post    # CPU↔WGSL post contracts
-npm run validate      # codegen/catalog checks + typecheck + wasm:native + test:* (chores, mixins, fdtd,
-                      #   transports, audio, props, golden, plant-worker, coupling, analysis, experiments) + check:post/wgsl/bindings
+npm run validate      # scripts/validate.mjs: codegen, then typecheck + lint + check:* + wasm:native in parallel,
+                      #   test:unit once native is built; runs every step, prints pass/fail + seconds per step
 npm run wasm:native   # g++ smoke test, no Emscripten
 npm run wasm:native:san  # sim_core_test under ASan + UBSan (skips if no sanitizer runtime)
 npm run test:plant-worker # LabSession ⇄ plant worker contract (Node worker_threads)
@@ -663,7 +666,7 @@ as the graphics/content epic once the plant stays maintainable.
 ## Extension points
 
 - **New apparatus:** catalog row in `physics/devices.json` + plugin + plant (if `wasmMode` set). Do not add a fourth magic map.
-- **New operator slider for a bench:** a `setpoints[]` row on its catalog entry (no `index.html` edit); make the plant read the `stateKey` (null/NaN = unset), add the field to `renderers/shared/device-physics.ts`, and cover it in `scripts/test-lab-mode.mjs`.
+- **New operator slider for a bench:** a `setpoints[]` row on its catalog entry (no `index.html` edit); make the plant read the `stateKey` (null/NaN = unset), add the field to `renderers/shared/device-physics.ts`, and cover it in `scripts/tests/lab-mode.test.mjs`.
 - **New shader pass:** `.wgsl` in `passes/` + layout name in `pipeline-layout/` + BINDINGS row + `check:wgsl` (+ `check:post` if CPU struct).
 - **New plant mode in WASM:** next `reservedWasmModes` slot in the catalog, then `cpp/src/sim_core.*`. Bridge `setMode` takes a device **id**, not `shaderMode`.
 - **Energy coupling:** pipes are visual today; physical network intent is ADR-0004.

@@ -38,7 +38,7 @@ Vertex UV convention:
 
 ## Shader logic
 
-The enhanced SEG fragment shader (`segEnhancedFragShader` in `src/multi-device-shaders.js`) detects rollers by `renderMode == 0` and then distinguishes caps from the barrel by the normal (`abs(N.y) > 0.85`).
+The enhanced SEG fragment shader (`segEnhancedFragShader` in `src/multi-device-shaders.ts`) detects rollers by `renderMode == 0` and then distinguishes caps from the barrel by the normal (`abs(N.y) > 0.85`).
 
 ### End-face radial layers
 
@@ -130,14 +130,14 @@ window.SEG_PROTOTYPE_PRESET = 'lab';
 - `src/device-uniforms.ts` encodes the preset into the SEG `materialUniformBuffer` `pad1` slot:
   - `0.0` = showroom
   - `1.0` = lab
-- `src/multi-device-shaders.js` reads `material.pad1` as `prototypePreset` and branches roller colors/materials accordingly.
+- `src/multi-device-shaders.ts` reads `material.pad1` as `prototypePreset` and branches roller colors/materials accordingly.
 
 ## Files changed
 
 - `src/seg-geometry-generators.js` — new `generatePoleBandedRoller()` with caps, 8 segments, and grooves.
 - `src/multi-device-visualizer.ts` — updated roller creation call; added `prototypePreset` parsing.
 - `src/seg-enhanced-geometry.js` — updated default roller call to 8 bands / 64 segments.
-- `src/multi-device-shaders.js` — `segEnhancedVertShader` and `segEnhancedFragShader` roller logic.
+- `src/multi-device-shaders.ts` — `segEnhancedVertShader` and `segEnhancedFragShader` roller logic.
 - `src/device-uniforms.ts` — encode `prototypePreset` into SEG material uniform `pad1`.
 
 ## Synchronization note

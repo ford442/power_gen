@@ -7,7 +7,7 @@
  * graded-loss sponge at the edges, and a soft J_z current source. There is no
  * 3D and no FEM. `passes/fdtd-tmz-compute.wgsl` runs the same update on the
  * GPU; the CPU kernel here is the reference the contract test
- * (`scripts/test-fdtd-slice.mjs`) checks for stability and edge absorption, and
+ * (`scripts/tests/fdtd.test.mjs`) checks for stability and edge absorption, and
  * the kernel the WebGL2 micro-grid heatmap actually runs.
  *
  * Deliberately dependency-free so Node can import it through a bare esbuild

@@ -1,14 +1,12 @@
 /**
  * HardwareBridge protocol methods — Line Parsing + Command Writing.
  *
- * Split out of hardware-bridge.ts (issues #142/#143/#187). Merged onto
- * HardwareBridge.prototype via `Object.assign` at the bottom of hardware-bridge.ts;
- * a merged `interface HardwareBridge` declaration there gives TypeScript the
- * member signatures (interface members can't be `private`, so these methods —
- * `private` inside the original class — drop that modifier here, matching the
- * mixin convention already used by src/visualizer/render-loop.ts and scene-setup.ts).
- * Because these end up as real prototype methods (not per-instance bound
- * closures), normal `this` binding at call time works automatically.
+ * Split out of hardware-bridge.ts (issues #142/#143/#187) to keep it under the
+ * 700-line cap. Plain module functions that take the bridge; HardwareBridge
+ * declares each one as a real class method that delegates here (no prototype
+ * mixin — see ADR-0016 and #244, a WebGPU boot break from that pattern). Calls back into the
+ * bridge (`bridge._writeLine`, `bridge.getSensorSnapshot`, …) go through those
+ * class methods, so a test stubbing one on an instance still sees every call.
  */
 import type { HardwareBridge, HardwareBridgeConfig, SensorSnapshot, UpdateSimInput } from './hardware-bridge';
 import {
@@ -27,229 +25,214 @@ import {
   HELLO_RETRY_MS
 } from './hardware-protocol-shared';
 
-export const protocolMethods: ThisType<HardwareBridge> & {
-  _parseLine(line: string): void;
-  getSensorSnapshot(): SensorSnapshot;
-  _writeLine(text: string): void;
-  _writeLineImmediate(text: string): void;
-  update(sim?: UpdateSimInput): void;
-  _sendConfig(): Promise<void>;
-  setConfig(newConfig: Partial<HardwareBridgeConfig>): void;
-  setTwinMode(mode: string): void;
-  setTarget(phase: number, speed: number, mode?: number): void;
-  setManualCoils(coilMask: number, pwmOrDuty?: number): void;
-  clearManual(): void;
-  brake(): void;
-  coast(): void;
-} = {
-  // ============================================
-  // Line Parsing
-  //
-  // Whole lines arrive from the live transport (mock / serial / bluetooth /
-  // usb); framing and the read loop belong to ./hardware-transport.ts.
-  // ============================================
+// ============================================
+// Line Parsing
+//
+// Whole lines arrive from the live transport (mock / serial / bluetooth /
+// usb); framing and the read loop belong to ./hardware-transport.ts.
+// ============================================
 
-  _parseLine(line: string): void {
-    // S{phase},{rpm},{magX},{magY},{magZ},{hallMask},{coilMask},{timestampMs}
-    if (line.startsWith('S')) {
-      const parts = line.slice(1).split(',');
-      if (parts.length >= 8) {
-        this.actualPhase = finiteNum(parseFloat(parts[0]), 0);
-        this.actualRpm = clampRpm(parseFloat(parts[1]));
-        this.magnetometer.x = finiteNum(parseFloat(parts[2]), 0);
-        this.magnetometer.y = finiteNum(parseFloat(parts[3]), 0);
-        this.magnetometer.z = finiteNum(parseFloat(parts[4]), 0);
-        this.hallMask = parseInt(parts[5], 10) || 0;
-        this.coilMask = parseInt(parts[6], 10) || 0;
-        this.lastTimestampMs = parseInt(parts[7], 10) || 0;
-        if (parts.length >= 10) {
-          this.actualVoltage = finiteNum(parseFloat(parts[8]), 0);
-          this.actualCurrent = finiteNum(parseFloat(parts[9]), 0);
-        }
-        this.lastSensorUpdate = performance.now();
-
-        // Shadow error vs last sim setpoints
-        let dPhase = this.actualPhase - this.shadow.simPhase;
-        while (dPhase > 180) dPhase -= 360;
-        while (dPhase < -180) dPhase += 360;
-        this.shadow.phaseErrorDeg = dPhase;
-        this.shadow.rpmError = this.actualRpm - this.shadow.simRpm;
-        this.shadow.voltageError = this.actualVoltage - this.shadow.simVoltage;
-        this.shadow.currentError = this.actualCurrent - this.shadow.simCurrent;
-
-        if (this._hasListeners('sensor')) {
-          this._emit('sensor', this.getSensorSnapshot());
-        }
+export function parseLine(bridge: HardwareBridge, line: string): void {
+  // S{phase},{rpm},{magX},{magY},{magZ},{hallMask},{coilMask},{timestampMs}
+  if (line.startsWith('S')) {
+    const parts = line.slice(1).split(',');
+    if (parts.length >= 8) {
+      bridge.actualPhase = finiteNum(parseFloat(parts[0]), 0);
+      bridge.actualRpm = clampRpm(parseFloat(parts[1]));
+      bridge.magnetometer.x = finiteNum(parseFloat(parts[2]), 0);
+      bridge.magnetometer.y = finiteNum(parseFloat(parts[3]), 0);
+      bridge.magnetometer.z = finiteNum(parseFloat(parts[4]), 0);
+      bridge.hallMask = parseInt(parts[5], 10) || 0;
+      bridge.coilMask = parseInt(parts[6], 10) || 0;
+      bridge.lastTimestampMs = parseInt(parts[7], 10) || 0;
+      if (parts.length >= 10) {
+        bridge.actualVoltage = finiteNum(parseFloat(parts[8]), 0);
+        bridge.actualCurrent = finiteNum(parseFloat(parts[9]), 0);
       }
-    } else if (line.startsWith('E')) {
-      console.error('[Arduino Error]', line.slice(1));
-    } else if (line.startsWith('I')) {
-      // A v2 board says hello at boot and in answer to `V2`; v1 never does.
-      const hello = parseFirmwareHello(line);
-      if (hello) this.firmware = hello;
-      console.log('[Arduino]', line.slice(1));
+      bridge.lastSensorUpdate = performance.now();
+
+      // Shadow error vs last sim setpoints
+      let dPhase = bridge.actualPhase - bridge.shadow.simPhase;
+      while (dPhase > 180) dPhase -= 360;
+      while (dPhase < -180) dPhase += 360;
+      bridge.shadow.phaseErrorDeg = dPhase;
+      bridge.shadow.rpmError = bridge.actualRpm - bridge.shadow.simRpm;
+      bridge.shadow.voltageError = bridge.actualVoltage - bridge.shadow.simVoltage;
+      bridge.shadow.currentError = bridge.actualCurrent - bridge.shadow.simCurrent;
+
+      if (bridge._hasListeners('sensor')) {
+        bridge._emit('sensor', bridge.getSensorSnapshot());
+      }
     }
-  },
-
-  getSensorSnapshot(): SensorSnapshot {
-    return {
-      phase: this.actualPhase,
-      rpm: this.actualRpm,
-      magnetometer: { ...this.magnetometer },
-      hallMask: this.hallMask,
-      coilMask: this.coilMask,
-      timestamp: this.lastTimestampMs,
-      twinMode: this.twinMode,
-      shadow: { ...this.shadow },
-      magMagnitudeUt: Math.hypot(
-        this.magnetometer.x,
-        this.magnetometer.y,
-        this.magnetometer.z
-      )
-    };
-  },
-
-  // ============================================
-  // Command Writing
-  // ============================================
-
-  /**
-   * Queue one protocol line on the live transport. Non-blocking by design: the
-   * coast / watchdog paths must never await a link that has gone away.
-   */
-  _writeLine(text: string): void {
-    if (!this.transport || !this.isConnected) return;
-    try {
-      this.transport.writeLine(text);
-    } catch (err) {
-      console.error('[HardwareBridge] Write failed:', err);
-    }
-  },
-
-  _writeLineImmediate(text: string): void {
-    // Same path — kept as a separate name for the safety call sites.
-    this._writeLine(text);
-  },
-
-  /**
-   * Called from render loop ~60 Hz.
-   */
-  update(sim: UpdateSimInput = {}): void {
-    if (!this.isConnected) return;
-    this._lastUpdateCall = performance.now();
-
-    if (typeof sim.simPhase === 'number' && Number.isFinite(sim.simPhase)) {
-      this.shadow.simPhase = sim.simPhase;
-    }
-    if (typeof sim.simRpm === 'number' && Number.isFinite(sim.simRpm)) {
-      this.shadow.simRpm = sim.simRpm;
-    }
-    if (typeof sim.simVoltage === 'number' && Number.isFinite(sim.simVoltage)) {
-      this.shadow.simVoltage = sim.simVoltage;
-    }
-    if (typeof sim.simCurrent === 'number' && Number.isFinite(sim.simCurrent)) {
-      this.shadow.simCurrent = sim.simCurrent;
-    }
-
-    // Mock only: drive its synthetic V/I proxies so the shadow charts move.
-    this.transport?.setElectricalTargets?.(this.shadow.simVoltage, this.shadow.simCurrent);
-
-    // Apply twin-mode side effects for setTarget authority
-    if (this.twinMode === TWIN_MODES.CLOSED) {
-      this.mirrorEnabled = true;
-    } else if (this.twinMode === TWIN_MODES.OPEN) {
-      this.mirrorEnabled = false;
-    } else {
-      // shadow: visualize sim, still compare
-      this.mirrorEnabled = false;
-    }
-
-    const now = performance.now();
-    if (now - this._lastCommandTime < this.commandThrottleMs) return;
-    this._lastCommandTime = now;
-
-    // Ask for the v2 hello until one arrives. Queued behind this frame's P/C,
-    // so it never delays a watchdog feed; a v1 sketch just drops it.
-    if (!this.firmware && this._helloAttempts < HELLO_ATTEMPTS
-      && now - this._lastHelloAt >= HELLO_RETRY_MS) {
-      this._helloAttempts += 1;
-      this._lastHelloAt = now;
-      this._commandQueue.push(HELLO_COMMAND);
-    }
-
-    if (this.manualMode) {
-      const wirePwm = pwmDutyToWire(this.manualPwmDuty);
-      this._writeLine(`C${this.manualCoilMask},${wirePwm},0`);
-    } else {
-      const phase = ((this.targetPhase % 360) + 360) % 360;
-      const speed = clampRpm(this.targetSpeed);
-      // Protocol: P{phase},{speed},{mode}
-      this._writeLine(
-        `P${phase.toFixed(2)},${speed.toFixed(1)},${this.controlMode}`
-      );
-    }
-
-    while (this._commandQueue.length > 0) {
-      const cmd = this._commandQueue.shift();
-      if (cmd) this._writeLine(cmd);
-    }
-  },
-
-  async _sendConfig(): Promise<void> {
-    const { numCoils, offsetAngle, dwellAngle, advanceAngle } = this.config;
-    this._commandQueue.push(
-      `CONF${numCoils},${offsetAngle.toFixed(1)},${dwellAngle.toFixed(1)},${advanceAngle.toFixed(1)}`
-    );
-  },
-
-  setConfig(newConfig: Partial<HardwareBridgeConfig>): void {
-    Object.assign(this.config, newConfig);
-    if (this.isConnected) this._sendConfig();
-  },
-
-  setTwinMode(mode: string): void {
-    if (!Object.values(TWIN_MODES).includes(mode as TwinMode)) return;
-    this.twinMode = mode as TwinMode;
-    this.mirrorEnabled = mode === TWIN_MODES.CLOSED;
-    this._emit('twinMode', this.twinMode);
-  },
-
-  setTarget(phase: number, speed: number, mode: number = MODE_RUN): void {
-    this.targetPhase = finiteNum(phase, 0);
-    this.targetSpeed = clampRpm(speed);
-    this.controlMode = mode;
-    this.manualMode = false;
-  },
-
-  /**
-   * Manual coil override. pwmOrDuty: 0..1 duty, or legacy 0..255 wire value.
-   */
-  setManualCoils(coilMask: number, pwmOrDuty: number = 1): void {
-    this.manualCoilMask = coilMask >>> 0;
-    const duty = pwmOrDuty > 1 ? pwmOrDuty / 255 : pwmOrDuty;
-    this.manualPwmDuty = clampPwmDuty(duty);
-    this.manualMode = this.manualCoilMask !== 0 && this.manualPwmDuty > 0;
-  },
-
-  clearManual(): void {
-    this.manualMode = false;
-    this.manualCoilMask = 0;
-    this.manualPwmDuty = 0;
-    // Release override on device
-    this._writeLineImmediate('C0,0,0');
-  },
-
-  brake(): void {
-    this.controlMode = MODE_BRAKE;
-    this.targetSpeed = 0;
-    this.manualMode = false;
-    this.manualPwmDuty = 0;
-  },
-
-  coast(): void {
-    this.controlMode = MODE_COAST;
-    this.targetSpeed = 0;
-    this.manualMode = false;
-    this.manualPwmDuty = 0;
+  } else if (line.startsWith('E')) {
+    console.error('[Arduino Error]', line.slice(1));
+  } else if (line.startsWith('I')) {
+    // A v2 board says hello at boot and in answer to `V2`; v1 never does.
+    const hello = parseFirmwareHello(line);
+    if (hello) bridge.firmware = hello;
+    console.log('[Arduino]', line.slice(1));
   }
-};
+}
+
+export function getSensorSnapshot(bridge: HardwareBridge): SensorSnapshot {
+  return {
+    phase: bridge.actualPhase,
+    rpm: bridge.actualRpm,
+    magnetometer: { ...bridge.magnetometer },
+    hallMask: bridge.hallMask,
+    coilMask: bridge.coilMask,
+    timestamp: bridge.lastTimestampMs,
+    twinMode: bridge.twinMode,
+    shadow: { ...bridge.shadow },
+    magMagnitudeUt: Math.hypot(
+      bridge.magnetometer.x,
+      bridge.magnetometer.y,
+      bridge.magnetometer.z
+    )
+  };
+}
+
+// ============================================
+// Command Writing
+// ============================================
+
+/**
+ * Queue one protocol line on the live transport. Non-blocking by design: the
+ * coast / watchdog paths must never await a link that has gone away.
+ */
+export function writeLine(bridge: HardwareBridge, text: string): void {
+  if (!bridge.transport || !bridge.isConnected) return;
+  try {
+    bridge.transport.writeLine(text);
+  } catch (err) {
+    console.error('[HardwareBridge] Write failed:', err);
+  }
+}
+
+export function writeLineImmediate(bridge: HardwareBridge, text: string): void {
+  // Same path — kept as a separate name for the safety call sites.
+  bridge._writeLine(text);
+}
+
+/**
+ * Called from render loop ~60 Hz.
+ */
+export function update(bridge: HardwareBridge, sim: UpdateSimInput = {}): void {
+  if (!bridge.isConnected) return;
+  bridge._lastUpdateCall = performance.now();
+
+  if (typeof sim.simPhase === 'number' && Number.isFinite(sim.simPhase)) {
+    bridge.shadow.simPhase = sim.simPhase;
+  }
+  if (typeof sim.simRpm === 'number' && Number.isFinite(sim.simRpm)) {
+    bridge.shadow.simRpm = sim.simRpm;
+  }
+  if (typeof sim.simVoltage === 'number' && Number.isFinite(sim.simVoltage)) {
+    bridge.shadow.simVoltage = sim.simVoltage;
+  }
+  if (typeof sim.simCurrent === 'number' && Number.isFinite(sim.simCurrent)) {
+    bridge.shadow.simCurrent = sim.simCurrent;
+  }
+
+  // Mock only: drive its synthetic V/I proxies so the shadow charts move.
+  bridge.transport?.setElectricalTargets?.(bridge.shadow.simVoltage, bridge.shadow.simCurrent);
+
+  // Apply twin-mode side effects for setTarget authority
+  if (bridge.twinMode === TWIN_MODES.CLOSED) {
+    bridge.mirrorEnabled = true;
+  } else if (bridge.twinMode === TWIN_MODES.OPEN) {
+    bridge.mirrorEnabled = false;
+  } else {
+    // shadow: visualize sim, still compare
+    bridge.mirrorEnabled = false;
+  }
+
+  const now = performance.now();
+  if (now - bridge._lastCommandTime < bridge.commandThrottleMs) return;
+  bridge._lastCommandTime = now;
+
+  // Ask for the v2 hello until one arrives. Queued behind this frame's P/C,
+  // so it never delays a watchdog feed; a v1 sketch just drops it.
+  if (!bridge.firmware && bridge._helloAttempts < HELLO_ATTEMPTS
+    && now - bridge._lastHelloAt >= HELLO_RETRY_MS) {
+    bridge._helloAttempts += 1;
+    bridge._lastHelloAt = now;
+    bridge._commandQueue.push(HELLO_COMMAND);
+  }
+
+  if (bridge.manualMode) {
+    const wirePwm = pwmDutyToWire(bridge.manualPwmDuty);
+    bridge._writeLine(`C${bridge.manualCoilMask},${wirePwm},0`);
+  } else {
+    const phase = ((bridge.targetPhase % 360) + 360) % 360;
+    const speed = clampRpm(bridge.targetSpeed);
+    // Protocol: P{phase},{speed},{mode}
+    bridge._writeLine(
+      `P${phase.toFixed(2)},${speed.toFixed(1)},${bridge.controlMode}`
+    );
+  }
+
+  while (bridge._commandQueue.length > 0) {
+    const cmd = bridge._commandQueue.shift();
+    if (cmd) bridge._writeLine(cmd);
+  }
+}
+
+export async function sendConfig(bridge: HardwareBridge): Promise<void> {
+  const { numCoils, offsetAngle, dwellAngle, advanceAngle } = bridge.config;
+  bridge._commandQueue.push(
+    `CONF${numCoils},${offsetAngle.toFixed(1)},${dwellAngle.toFixed(1)},${advanceAngle.toFixed(1)}`
+  );
+}
+
+export function setConfig(bridge: HardwareBridge, newConfig: Partial<HardwareBridgeConfig>): void {
+  Object.assign(bridge.config, newConfig);
+  if (bridge.isConnected) bridge._sendConfig();
+}
+
+export function setTwinMode(bridge: HardwareBridge, mode: string): void {
+  if (!Object.values(TWIN_MODES).includes(mode as TwinMode)) return;
+  bridge.twinMode = mode as TwinMode;
+  bridge.mirrorEnabled = mode === TWIN_MODES.CLOSED;
+  bridge._emit('twinMode', bridge.twinMode);
+}
+
+export function setTarget(bridge: HardwareBridge, phase: number, speed: number, mode: number = MODE_RUN): void {
+  bridge.targetPhase = finiteNum(phase, 0);
+  bridge.targetSpeed = clampRpm(speed);
+  bridge.controlMode = mode;
+  bridge.manualMode = false;
+}
+
+/**
+ * Manual coil override. pwmOrDuty: 0..1 duty, or legacy 0..255 wire value.
+ */
+export function setManualCoils(bridge: HardwareBridge, coilMask: number, pwmOrDuty: number = 1): void {
+  bridge.manualCoilMask = coilMask >>> 0;
+  const duty = pwmOrDuty > 1 ? pwmOrDuty / 255 : pwmOrDuty;
+  bridge.manualPwmDuty = clampPwmDuty(duty);
+  bridge.manualMode = bridge.manualCoilMask !== 0 && bridge.manualPwmDuty > 0;
+}
+
+export function clearManual(bridge: HardwareBridge): void {
+  bridge.manualMode = false;
+  bridge.manualCoilMask = 0;
+  bridge.manualPwmDuty = 0;
+  // Release override on device
+  bridge._writeLineImmediate('C0,0,0');
+}
+
+export function brake(bridge: HardwareBridge): void {
+  bridge.controlMode = MODE_BRAKE;
+  bridge.targetSpeed = 0;
+  bridge.manualMode = false;
+  bridge.manualPwmDuty = 0;
+}
+
+export function coast(bridge: HardwareBridge): void {
+  bridge.controlMode = MODE_COAST;
+  bridge.targetSpeed = 0;
+  bridge.manualMode = false;
+  bridge.manualPwmDuty = 0;
+}
+

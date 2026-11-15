@@ -11,7 +11,8 @@ file into:
 
 ```bash
 npm run codegen:lab-config   # regenerate after editing config/lab-config.json
-npm run check:lab-config     # CI: drift + raw-access gate
+npm run check:lab-config     # CI: generated files current
+npm run lint                 # CI: raw-access gate (ESLint no-restricted-syntax)
 npm run test:lab-config      # parser, precedence, v1 mapping, #lab2= round-trip
 ```
 
@@ -19,8 +20,12 @@ npm run test:lab-config      # parser, precedence, v1 mapping, #lab2= round-trip
 
 `src/config/lab-config.ts` is the **only** module in `src/` that reads
 `location.search`, `location.hash` or `localStorage` for configuration;
-`check:lab-config` fails the build on raw access anywhere else (comments are
-ignored; `src/config/` and `src/public/` are exempt).
+`npm run lint` fails the build on raw access anywhere else — an ESLint
+`no-restricted-syntax` rule in `tools/lint/eslint.config.js` that matches
+`location.search` / `.hash` (bare or `window.`), `localStorage` /
+`sessionStorage` references and `new URLSearchParams(`. It sees the AST, so
+comments and an object key named `localStorage` are fine; `src/config/` is
+exempt and `src/public/` is not linted.
 
 ```ts
 import { labConfig, labConfigResolved, labConfigFor, persistLabConfig } from './config/lab-config';

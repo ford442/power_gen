@@ -53,7 +53,7 @@ export interface ShadowFit {
 /**
  * Column-major world → light clip matrix for an orthographic key light
  * looking at `target`, covering a sphere of `radius`. Clip z is WebGPU's
- * [0, 1]. Pure math so scripts/test-uniform-ring.mjs can check it.
+ * [0, 1]. Pure math so scripts/tests/uniform-ring.test.mjs can check it.
  */
 export function fitKeyLightMatrix(fit: ShadowFit, out: Float32Array = new Float32Array(16)): Float32Array {
   const [lx, ly, lz] = fit.toLight;

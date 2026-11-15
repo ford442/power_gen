@@ -20,7 +20,8 @@ export class WebGL2DebugControls {
   _bindKeys() {
     document.addEventListener('keydown', (e) => {
       if (!window.currentRenderer || window.currentRenderer !== 'webgl2') return;
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const tag = e.target instanceof Element ? e.target.tagName : '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
       switch (e.key.toLowerCase()) {
         case 'w': this.wireframe = !this.wireframe; console.log('[webgl2] wireframe:', this.wireframe); break;

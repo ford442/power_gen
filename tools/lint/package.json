@@ -1,0 +1,17 @@
+{
+  "name": "@seg/lint",
+  "private": true,
+  "version": "0.0.0",
+  "description": "ESLint toolchain. typescript-eslint needs the TypeScript JS API (<6.1); the repo's tsc is TypeScript 7 (native, no JS API). This package pins TS 6 for the linter only. It is its own install root (not an npm workspace, which would hoist ts-api-utils next to TS 7); the root postinstall runs `npm ci --prefix tools/lint`.",
+  "type": "module",
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "eslint": "^10.15.0",
+    "globals": "^17.0.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.2"
+  },
+  "overrides": {
+    "minimatch": "^11.0.8"
+  }
+}

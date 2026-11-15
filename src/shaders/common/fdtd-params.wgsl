@@ -1,7 +1,7 @@
 // =============================================================
 // 2D TM_z FDTD slice uniforms (ADR-0010; materialFlags from ADR-0012).
 // Packed by packFdtdParams in src/physics/fdtd-tmz.ts — keep both in sync
-// (scripts/test-fdtd-slice.mjs checks the byte size).
+// (scripts/tests/fdtd.test.mjs checks the byte size).
 // =============================================================
 
 const FDTD_MAX_SOURCES: u32 = 16u;

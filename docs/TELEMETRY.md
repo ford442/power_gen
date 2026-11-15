@@ -209,7 +209,7 @@ so the JS fallback and the C++ plant step from the same **B**:
 - **WASM** — `syncWasmFocusKnobs` pushes `segWasm.setHallFieldCoupledT(T)`
   (negative clears it) and `setLorentzFieldT(T)` each frame.
 
-`scripts/test-js-wasm-golden.mjs` covers both paths: the native `--mode golden`
+`scripts/tests/golden.test.mjs` covers both paths: the native `--mode golden`
 run emits a `hall-coupled` and a `lorentz-sled-coupled` case alongside the
 default ones, and the JS fallback is stepped with the same setpoints seeded.
 

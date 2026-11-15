@@ -24,7 +24,7 @@ behaves the way its equations say; it says nothing about a real bench.
 | Public API / sweep pool | `src/experiments/run.ts` |
 | Reference experiments | `src/experiments/reference/*.experiment.json` |
 | Panel | `src/experiments/experiment-panel.ts` |
-| CI | `scripts/test-experiments.mjs` (`npm run test:experiments`, offline) · `scripts/test-experiments-live.mjs` (`npm run test:experiments:live`, the live runner on a headless `LabSession`) |
+| CI | `scripts/tests/experiments.test.mjs` (`npm run test:experiments`, offline) · `scripts/tests/experiments-live.test.mjs` (`npm run test:experiments:live`, the live runner on a headless `LabSession`) |
 
 All of it is lazy: the entry chunk carries only the `window.lab` hooks, the
 **Experiments** button and the `LabSession.experimentClock` slot

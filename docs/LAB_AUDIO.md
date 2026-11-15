@@ -102,7 +102,7 @@ clicks faster than they are distinguishable.
 | Mapping (pure, Node-tested) | `src/audio/lab-audio-mapping.ts` |
 | Web Audio graph | `src/audio/lab-audio.ts` |
 | Header badge / mute switch | `src/audio/lab-audio-badge.ts` |
-| Contract test | `npm run test:audio` → `scripts/test-lab-audio.mjs` |
+| Contract test | `npm run test:audio` → `scripts/tests/audio.test.mjs` |
 | Agent hook | `window.labAudio` (`start()`, `toggleMuted()`, `setMuted()`, `createRecordingTap()` / `releaseRecordingTap()`) |
 
 Both renderers get it: the module reads `TelemetryHub` only, so WebGPU and WebGL2

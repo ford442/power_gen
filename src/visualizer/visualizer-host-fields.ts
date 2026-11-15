@@ -68,7 +68,7 @@ export interface VisualizerHostFields {
   segAnnotations?: unknown;
 
   // Populated by the collaborators below (SharedGeometryFactory, PostStack,
-  // MaterialTable, GltfPropRegistry — ADR-0009 bindHostMethods); declared here
+  // MaterialTable, GltfPropRegistry — ADR-0009 collaborators); declared here
   // so class-body reads type-check.
   materialTableBuffer?: GPUBuffer | null;
   skyUniformBuffer?: GPUBuffer;

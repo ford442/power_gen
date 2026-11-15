@@ -1,6 +1,6 @@
 /**
  * Plot models for the analysis panel's three views — plain data, no DOM and
- * no uPlot, so `scripts/test-analysis.mjs` can check them in Node.
+ * no uPlot, so `scripts/tests/analysis.test.mjs` can check them in Node.
  *
  * - **time**: selected columns vs `t`, one strip per unit (never two y-scales
  *   on one axis); the overlay run is the same colour, dashed.

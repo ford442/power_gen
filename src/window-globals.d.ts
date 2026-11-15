@@ -371,6 +371,8 @@ declare global {
 
     /** WASM physics bridge singleton (seg-physics-bridge). */
     segWasm?: unknown;
+    /** WebGL2 fallback debug toggles (renderers/webgl2/debug-controls.js) for Playwright hooks. */
+    webgl2Debug?: import('./renderers/webgl2/debug-controls.js').WebGL2DebugControls;
 
     /** Force-disable the SEG housing glTF prop (assets/gltf/prop-registry.ts). */
     GLTF_HOUSING?: boolean;

@@ -1,12 +1,12 @@
 import { MultiDeviceShaders } from './multi-device-shaders.js';
 import './devices/register-plugins';
-import { MultiDeviceCamera } from './multi-device-camera';
-import { SimRateController } from './sim-rate-controller';
+import { type MultiDeviceCamera } from './multi-device-camera';
+import { type SimRateController } from './sim-rate-controller';
 import { WebGPUManager, DEPTH_FORMAT } from './webgpu-manager';
 import { parseColorPipelineMode } from './webgpu-init/canvas';
-import { CameraController } from './camera-controller';
-import { PerformanceProfiler } from './performance-profiler';
-import { DebugPanel } from './debug-panel';
+import { type CameraController } from './camera-controller';
+import { type PerformanceProfiler } from './performance-profiler';
+import { type DebugPanel } from './debug-panel';
 import { DEVICE_CONFIG } from './devices/device-config';
 import { getMergedDeviceConfig } from './devices/device-registry.js';
 import { DeviceInstance } from './device-instance.js';
@@ -27,7 +27,7 @@ import {
   getLightingPreset,
 } from './seg-lighting-presets';
 import { writeQueueBuffer } from './gpu-buffer-write';
-import { HardwareBridge } from './hardware-bridge';
+import { type HardwareBridge } from './hardware-bridge';
 import { ElectromagnetController } from './electromagnet-controller';
 import { ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network';
 import type { EnergyNetwork } from './renderers/shared/energy-network';
@@ -40,23 +40,23 @@ import {
   parseFdtdMaterialsEnabled,
   parseFdtdDriveSource
 } from './renderers/shared/url-params.js';
-import { FdtdSlicePass } from './devices/quanta/fdtd-slice-pass';
-import { pulseCoilFdtdDrive, transformerFdtdDrive } from './devices/quanta/pulse-coil';
+import type { FdtdSlicePass } from './devices/quanta/fdtd-slice-pass';
+import type { FdtdDriveSource } from './physics/fdtd-tmz';
 import {
-  FDTD_DRIVE_DEVICE,
-  FDTD_DRIVE_SOURCES,
-  FDTD_SLICE_OWNER,
-  fdtdSliceGateOpen,
-  type FdtdDriveSource
-} from './physics/fdtd-tmz';
-import { generateCylinder } from './visualizer/primitives.js';
+  generateCylinder,
+  generateCylinderWithUVs,
+  generateDisc,
+  generateDiscWithUVs,
+  generateBoxWithUVs,
+  type PrimitiveMesh
+} from './visualizer/primitives.js';
 import { SharedGeometryFactory } from './visualizer/setup-geometry.js';
 import { PostStack } from './visualizer/scene-setup.js';
 import { WebGpuFrameLoop } from './visualizer/render-loop.js';
 import { MaterialTable } from './visualizer/materials.js';
 import { VisualizerDiagnostics } from './visualizer/diagnostics.js';
 import { GltfPropRegistry } from './visualizer/setup-gltf.js';
-import { LabSession, type PlantBatch } from './session/lab-session';
+import { type LabSession, type PlantBatch } from './session/lab-session';
 import type {
   VisualizerLike,
   MeshBuffers,
@@ -65,19 +65,15 @@ import type {
   SegFrameBuffers,
   SegLayout
 } from './devices/types';
-import { stepDevicePhysics, stepDevicePhysicsBatch } from './renderers/shared/device-physics';
-import { telemetryHub } from './telemetry-hub';
-import { segWasm } from './wasm/seg-physics-bridge';
-import type { DevicePhysicsState, HeronLayout } from './renderers/shared/device-physics';
+import type { HeronLayout } from './renderers/shared/device-physics';
 import type { PrototypePreset } from './renderers/shared/url-params.js';
 import type { LightingLook } from './seg-lighting-presets';
 import type { HardwareTwinTelemetry } from './telemetry/types';
 import type { VisualizerHostFields } from './visualizer/visualizer-host-fields';
-import { facadeMethods } from './visualizer/facade-methods.js';
-import type { VisualizerFacadeMethods } from './visualizer/facade-methods.js';
-import { initMethods } from './visualizer/init-methods.js';
-import type { VisualizerInitMethods } from './visualizer/init-methods.js';
-import { bindHostMethods } from './visualizer/bind-host-methods.js';
+import type { PostTargetKind } from './visualizer/post-targets.js';
+import type { ResourceLifetime } from './visualizer/frame-graph.js';
+import { initVisualizer, bootGpuState, recoverFromDeviceLoss } from './visualizer/init-methods.js';
+import { updateFdtdSlice } from './visualizer/fdtd-drive.js';
 
 type HeronLayoutWithMeta = HeronLayout & { name: string; description: string };
 
@@ -94,12 +90,12 @@ export interface GltfPickable {
 }
 
 // The GPU field bag (setup-geometry/scene-setup/setup-gltf-owned buffers,
-// pipelines, textures) and the facade methods that just forward to
-// collaborator objects are declared on separate interfaces and merged in via
-// declaration merging, purely to keep this file under the repo's line cap
-// (issues #142/#143/#187) — see src/visualizer/visualizer-host-fields.ts,
-// src/visualizer/facade-methods.ts and src/visualizer/init-methods.ts.
-export interface MultiDeviceVisualizer extends VisualizerHostFields, VisualizerFacadeMethods, VisualizerInitMethods {}
+// pipelines, textures) is declared on a separate interface and merged in via
+// declaration merging (types only — no methods), purely to keep this file
+// under the repo's line cap (issues #142/#143/#187) — see
+// src/visualizer/visualizer-host-fields.ts. Every method is a real class
+// method below; none is merged in at runtime.
+export interface MultiDeviceVisualizer extends VisualizerHostFields {}
 export class MultiDeviceVisualizer implements VisualizerLike {
   session: LabSession;
   geometryFactory: SharedGeometryFactory;
@@ -221,13 +217,6 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     this.materialTable = new MaterialTable(this);
     this.diagnostics = new VisualizerDiagnostics(this);
     this.frameLoop = new WebGpuFrameLoop(this);
-
-    // Facade methods that just forward to the collaborator objects above
-    // (see src/visualizer/facade-methods.ts), plus the async boot sequence
-    // (see src/visualizer/init-methods.ts) — attached here rather than
-    // declared as class methods to keep this file under the line cap.
-    Object.assign(this, bindHostMethods(facadeMethods, this));
-    Object.assign(this, bindHostMethods(initMethods, this));
 
     this.ready = this.init();
   }
@@ -500,100 +489,9 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     }
   }
 
-  /**
-   * Per-frame FDTD wave slice gate + uniform upload (ADR-0010). The pass is
-   * not built at boot: the first frame on which the gate would open starts
-   * an async build, and the slice joins a few frames later. A failed build
-   * disables the slice for the session.
-   *
-   * @returns the pass when it should dispatch and draw this frame, else null
-   */
+  /** Per-frame FDTD wave slice gate + upload (ADR-0010) — visualizer/fdtd-drive.ts. */
   updateFdtdSlice(qualityTier: string, deltaTime = 0): FdtdSlicePass | null {
-    const owner = this.devices[FDTD_SLICE_OWNER];
-    const frame = {
-      enabled: this.fdtdEnabled && !!owner,
-      currentView: this.currentView,
-      qualityTier
-    };
-    if (this.fdtdSlice === undefined) {
-      const wouldOpen = fdtdSliceGateOpen({ ...frame, ready: true });
-      if (wouldOpen && !this._fdtdSliceInit && this.pipelineCache) {
-        const pass = new FdtdSlicePass(this.device, this, {
-          materialsEnabled: this.fdtdMaterialsEnabled
-        });
-        this._fdtdSliceInit = pass.init().then(
-          (ok) => { this.fdtdSlice = ok ? pass : null; },
-          (err) => {
-            console.warn('[fdtd-slice] disabled — pipeline build failed', err);
-            pass.destroy();
-            this.fdtdSlice = null;
-          }
-        );
-      }
-      return null;
-    }
-    const pass = this.fdtdSlice;
-    if (!pass || !owner) return null;
-    return pass.update({
-      ...frame,
-      devicePos: owner.position,
-      drive: this._fdtdDrive(owner, deltaTime)
-    }) ? pass : null;
-  }
-
-  /**
-   * Source amplitude for the slice (ADR-0012). Default: the pulse coil's own
-   * discharge current. Under `?fdtdDrive=transformer`, the transformer bench's
-   * normalised core flux instead — continuous AC, so the panel shows successive
-   * fronts rather than one transient. If that bench isn't in the lab, fall back
-   * to the coil rather than showing a dead panel.
-   */
-  private _fdtdDrive(
-    owner: { physicsState?: Partial<DevicePhysicsState> | null },
-    deltaTime: number
-  ): number {
-    if (this.fdtdDriveSource === FDTD_DRIVE_SOURCES.TRANSFORMER) {
-      const src = this.devices[FDTD_DRIVE_DEVICE.transformer];
-      if (src?.physicsState) {
-        this._stepBorrowedDrivePlant(src, deltaTime);
-        return transformerFdtdDrive(src.physicsState);
-      }
-    }
-    return pulseCoilFdtdDrive(owner.physicsState);
-  }
-
-  /**
-   * Keep a *borrowed* drive device's plant running while the slice reads it.
-   *
-   * The render loop skips `device.update()` for every device that is not the
-   * focused one (`getViewParticleLod` returns 0 off-focus), and the slice only
-   * opens in pulse-coil focus. So borrowing the transformer's flux would read a
-   * value frozen at whatever it held when the view changed — usually the 0 it was
-   * created with, i.e. a dead panel rather than the AC fronts the flag promises.
-   *
-   * The slice declares an explicit dependency on that bench's plant, so step
-   * exactly that: **physics only**, no particles, meshes, uniforms or GPU work.
-   * One extra lumped-ODE step per frame, and only while `?fdtdDrive=` is actually
-   * pointing somewhere else.
-   *
-   * No double-stepping: a device is either focused (and updated by the loop) or
-   * borrowed here, never both, because the slice requires pulse-coil focus. The
-   * WASM and replay paths already refresh every device's state each frame, so
-   * they own it and this stands aside.
-   */
-  private _stepBorrowedDrivePlant(
-    src: { id: string; physicsState?: Partial<DevicePhysicsState> | null; speedMult?: number },
-    deltaTime: number
-  ): void {
-    if (!(deltaTime > 0) || src.id === this.currentView) return;
-    if (segWasm.enabled || telemetryHub.isReplayMode()) return;
-    const state = src.physicsState as DevicePhysicsState | undefined;
-    if (!state) return;
-    // Same substeps and drive device-update.ts applies, so the borrowed bench
-    // behaves exactly as it would if you were looking at it.
-    const batch = this.session.plantBatch;
-    if (batch) stepDevicePhysicsBatch(state, batch.simSteps, batch.drive);
-    else stepDevicePhysics(state, deltaTime, Math.min(1, Math.log2((src.speedMult || 1) + 1) / Math.log2(21)));
+    return updateFdtdSlice(this, qualityTier, deltaTime);
   }
 
   async setupEnergyPipePipeline(): Promise<void> {
@@ -646,4 +544,113 @@ export class MultiDeviceVisualizer implements VisualizerLike {
    * mode switches, layout presets, and lighting-look changes.
    */
   _resetTaaHistory(): void { this._taaHistoryValid = false; }
+
+  // ── Boot (bodies in visualizer/init-methods.ts) ──
+  init(): Promise<void> { return initVisualizer.call(this); }
+  /** GPU-resource half of boot; re-run by device-lost recovery (init-methods.ts). */
+  _bootGpuState(): Promise<void> { return bootGpuState.call(this); }
+  /** `onDeviceLost` handler (ADR-0007) — session re-init on the existing adapter. */
+  recoverFromDeviceLoss(info: { reason?: string; message?: string }): Promise<void> {
+    return recoverFromDeviceLoss.call(this, info);
+  }
+
+  // ── Facade: forwards to the collaborators built in the constructor ──
+  generateCylinder(radius: number, height: number, segments: number): PrimitiveMesh {
+    return generateCylinder(radius, height, segments);
+  }
+  generateCylinderWithUVs(radius: number, height: number, segments: number): PrimitiveMesh {
+    return generateCylinderWithUVs(radius, height, segments);
+  }
+  generateDisc(innerRadius: number, outerRadius: number, thickness: number, segments: number): PrimitiveMesh {
+    return generateDisc(innerRadius, outerRadius, thickness, segments);
+  }
+  generateDiscWithUVs(innerRadius: number, outerRadius: number, thickness: number, segments: number): PrimitiveMesh {
+    return generateDiscWithUVs(innerRadius, outerRadius, thickness, segments);
+  }
+  generateBoxWithUVs(width: number, height: number, depth: number): PrimitiveMesh {
+    return generateBoxWithUVs(width, height, depth);
+  }
+
+  setupSharedGeometry(): Promise<void> { return this.geometryFactory.setupSharedGeometry(); }
+  setupDefaultPrimitiveGeometry(deviceId: string, config: { color?: unknown }): Promise<void> {
+    return this.geometryFactory.setupDefaultPrimitiveGeometry(deviceId, config);
+  }
+  _setupCoreSEGSharedMeshes(): Promise<void> { return this.geometryFactory._setupCoreSEGSharedMeshes(); }
+  _setupAlternateDeviceSharedMeshes(): Promise<void> { return this.geometryFactory._setupAlternateDeviceSharedMeshes(); }
+
+  setupFloorGrid(): Promise<void> { return this.postStack.setupFloorGrid(); }
+  setupSkyGradient(): Promise<void> { return this.postStack.setupSkyGradient(); }
+  setupAnomalyWallPipeline(): Promise<void> { return this.postStack.setupAnomalyWallPipeline(); }
+  setupDepthBuffer(): Promise<void> { return this.postStack.setupDepthBuffer(); }
+  setupBloomTextures(): void { this.postStack.setupBloomTextures(); }
+  setupBloomPipeline(): Promise<void> { return this.postStack.setupBloomPipeline(); }
+  setupTaaPipeline(): Promise<void> { return this.postStack.setupTaaPipeline(); }
+  _rebuildTaaBindGroups(): void { this.postStack._rebuildTaaBindGroups(); }
+  setupIblPrefilter(): ReturnType<PostStack['setupIblPrefilter']> { return this.postStack.setupIblPrefilter(); }
+  refreshIblPrefilter(): void { this.postStack.refreshIblPrefilter(); }
+  _bakeIbl(): ReturnType<PostStack['_bakeIbl']> { return this.postStack._bakeIbl(); }
+  _postTargetAllocated(kind: PostTargetKind): boolean { return this.postStack.targets._postTargetAllocated(kind); }
+  _ensurePostTarget(kind: PostTargetKind): void { this.postStack.targets._ensurePostTarget(kind); }
+  _destroyPostTarget(kind: PostTargetKind): void { this.postStack.targets._destroyPostTarget(kind); }
+  _releasePostTarget(kind: PostTargetKind): void { this.postStack.targets._releasePostTarget(kind); }
+  _destroyAllPostTargets(): void { this.postStack.targets._destroyAllPostTargets(); }
+  _postTargetLifetimes(): Record<PostTargetKind, ResourceLifetime> { return this.postStack.targets._postTargetLifetimes(); }
+  _setupPostPlaceholders(): void { this.postStack.targets._setupPostPlaceholders(); }
+  _rebindPostTargets(): void { this.postStack.targets._rebindPostTargets(); }
+  setupSsrPipeline(): Promise<void> { return this.postStack.setupSsrPipeline(); }
+  setupDepthResolvePipeline(): Promise<void> { return this.postStack.setupDepthResolvePipeline(); }
+  _waitForCanvasLayout(): Promise<void> { return this.postStack._waitForCanvasLayout(); }
+  _observeCanvasLayout(): void { this.postStack._observeCanvasLayout(); }
+  _syncCanvasSize(): Promise<void> { return this.postStack._syncCanvasSize(); }
+  _rebuildBloomBindGroups(): void { this.postStack._rebuildBloomBindGroups(); }
+  _rebuildSsrBindGroup(): void { this.postStack._rebuildSsrBindGroup(); }
+  _rebuildDepthResolveBindGroup(): void { this.postStack._rebuildDepthResolveBindGroup(); }
+
+  render(timestamp: number): void { this.frameLoop.render(timestamp); }
+  renderAnomalyWalls(renderPass: GPURenderPassEncoder, segDevice: DeviceInstance | null | undefined): void {
+    this.frameLoop.renderAnomalyWalls(renderPass, segDevice);
+  }
+  _encodeTaaResolve(encoder: GPUCommandEncoder, msaaActive: boolean,
+    timestampWrites?: GPURenderPassTimestampWrites): boolean {
+    return this.frameLoop._encodeTaaResolve(encoder, msaaActive, timestampWrites);
+  }
+  _dispatchSsr(encoder: GPUCommandEncoder, msaaActive: boolean,
+    timestampWrites?: GPUComputePassTimestampWrites): boolean {
+    return this.frameLoop._dispatchSsr(encoder, msaaActive, timestampWrites);
+  }
+
+  setupMaterialTableBuffer(): void { this.materialTable.setupMaterialTableBuffer(); }
+
+  runSpeedTest(speeds?: number[], durationMs?: number): Promise<void> {
+    return this.diagnostics.runSpeedTest(speeds, durationMs);
+  }
+  captureParticleSubset(deviceId?: string, maxCount?: number): Promise<unknown> {
+    return this.diagnostics.captureParticleSubset(deviceId, maxCount);
+  }
+  captureOverviewCull(): Promise<unknown> { return this.diagnostics.captureOverviewCull(); }
+
+  setupGltfAssets(embeddedGlb?: ArrayBuffer, opts?: { propBuffers?: Record<string, ArrayBuffer> }): Promise<void> {
+    return this.gltfProps.setupGltfAssets(embeddedGlb, opts);
+  }
+  ensureGltfPropsForView(view: string): Promise<void> { return this.gltfProps.ensureGltfPropsForView(view); }
+  updateGltfHousingState(): void { this.gltfProps.updateGltfHousingState(); }
+  _loadGltfPropsForSegFocus(view?: string): Promise<void> { return this.gltfProps._loadGltfPropsForSegFocus(view); }
+  _loadGltfPropsForSegFocusInner(view: string): Promise<void> { return this.gltfProps._loadGltfPropsForSegFocusInner(view); }
+  _disposeFocusOnlyGltfProps(keepDeviceId?: string): void { this.gltfProps._disposeFocusOnlyGltfProps(keepDeviceId); }
+  _uploadGltfProp(
+    prop: Parameters<GltfPropRegistry['_uploadGltfProp']>[0],
+    ctx: Parameters<GltfPropRegistry['_uploadGltfProp']>[1]
+  ): Promise<void> {
+    return this.gltfProps._uploadGltfProp(prop, ctx);
+  }
+
+  _updateHardwareTwin(deltaTime: number): void { this.session.syncHardwareTwin(deltaTime); }
+  _updateTachometer(): void { this.session.updateTachometer(); }
+  _updateDeviceTelemetry(): void { this.session.publishModeTelemetry(); }
+
+  getSEGLayoutPreset(): string { return this.segLayoutPreset; }
+  getHeronLayoutPreset(): string { return this.heronLayoutPreset; }
+  /** Overview shows all enabled devices; focused mode only the active one. */
+  isDeviceActive(deviceId: string): boolean { return this.session.isDeviceActive(deviceId); }
+  isOverviewMode(): boolean { return this.session.isOverviewMode(); }
 }

@@ -141,7 +141,7 @@ const pickMin = [-0.5, -0.5, -0.5];
 const pickMax = [0.5, 0.5, 0.5];
 
 const annNodeStart = 2;
-const annNodes = HOUSING_ANNOTATIONS.map((a, i) => ({
+const annNodes = HOUSING_ANNOTATIONS.map((a) => ({
   name: `ann_${a.id}`,
   mesh: 1,
   translation: a.translation,

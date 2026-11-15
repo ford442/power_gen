@@ -98,7 +98,7 @@ WebGPU adapter/device setup: [`docs/WEBGPU.md`](docs/WEBGPU.md).
 ```bash
 npm install
 npm run typecheck   # TypeScript physics/integration layer
-npm run validate    # typecheck + native C++ smoke + WGSL (naga optional)
+npm run validate    # typecheck + lint + native C++ + node:test suites + WGSL (naga optional), per-step table
 npm run test:e2e    # Playwright E2E (WebGL2; auto-starts dev server)
 npm run dev         # http://localhost:5173/  (Vite https: false; localhost is OK for WebGPU)
 # WebGL2: http://localhost:5173/?renderer=webgl2

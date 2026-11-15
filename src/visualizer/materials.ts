@@ -2,7 +2,6 @@
 import { SEGMaterialPresets } from '../seg-materials';
 import { authoredColor } from '../seg-lighting-presets';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
-import { bindHostMethods } from './bind-host-methods.js';
 
 type Host = MultiDeviceVisualizer;
 
@@ -72,10 +71,12 @@ export const materialMethods: ThisType<Host> & {
 };
 
 export class MaterialTable {
-  setupMaterialTableBuffer: typeof materialMethods.setupMaterialTableBuffer;
+  private readonly host: Host;
 
   constructor(host: MultiDeviceVisualizer) {
-    this.setupMaterialTableBuffer = bindHostMethods(materialMethods, host).setupMaterialTableBuffer;
+    this.host = host;
   }
+
+  setupMaterialTableBuffer(): void { materialMethods.setupMaterialTableBuffer.call(this.host); }
 }
 

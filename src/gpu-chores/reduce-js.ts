@@ -6,7 +6,7 @@ import type { MapScaleOpts, ReduceAccum, ReduceResult } from './types';
 
 export const CHORES_GOLDEN_INPUT = Object.freeze([1, -2, 3, 0, 4]);
 
-/** Fixture expected by native `--mode chores` and scripts/test-gpu-chores.mjs */
+/** Fixture expected by native `--mode chores` and scripts/tests/chores.test.mjs */
 export const CHORES_GOLDEN_ACCUM: Readonly<ReduceAccum> = Object.freeze({
   sum: 6,
   min: -2,

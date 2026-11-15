@@ -41,7 +41,7 @@ Full query matrix: **docs/AGENTS.md → Query-parameter matrix** (generated).
 **New flag or remembered preference?** Add a row to `config/lab-config.json`,
 run `npm run codegen:lab-config`, and read it with `labConfig()` from
 `src/config/lab-config.ts`. Never read `location.search` / `location.hash` /
-`localStorage` directly — `check:lab-config` fails CI on it. Share links are
+`localStorage` directly — `npm run lint` fails CI on it. Share links are
 `#lab2=` (old `#lab=v1` still loads); `.lab.json` drops onto the page.
 Details: **docs/LAB_CONFIG.md**.
 
@@ -91,11 +91,13 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 ## Commands
 
 ```bash
-npm run typecheck
-npm run check:mixin-shadowing # class field hiding an Object.assign(…prototype) method (broke WebGPU boot)
+npm run typecheck      # tsc on TS + checkJs on renderers/webgl2 + seg-geometry (tsconfig.js.json)
+npm run lint           # ESLint (typed); raw location/storage access, wgsl-include imports, floating promises
+npm run test:unit      # every scripts/tests/*.test.mjs under node:test, one summary
+npm run test:coverage  # same, with a coverage report (no gate yet)
 npm run codegen:catalog  # physics/devices.json → TS/C++/WGSL/docs
 npm run codegen:lab-config # config/lab-config.json → generated/lab-config.ts + docs/AGENTS.md matrix
-npm run check:lab-config # drift + no raw location.search/hash/localStorage outside src/config/
+npm run check:lab-config # generated lab-config files are current (raw-access ban is now `lint`)
 npm run test:lab-config  # parser, precedence, #lab=v1 mapping, #lab2= round-trip
 npm run test:experiments # reference experiments headless on wasm + js (docs/EXPERIMENTS.md)
 npm run test:experiments:live # same files on the live runner: headless LabSession, js + wasm, 60/20 fps, ≈ offline
@@ -105,7 +107,7 @@ npm run check:entry-chunk # vite build → entry closure has no uPlot / experime
 npm run test:embed      # embed postMessage validator, origin allowlist, hz clamp, classroom channel
 npm run test:frame-clock # UI frame clock: hz throttle, unsubscribe, LabSession.publishFrame tick
 npm run test:uniform-ring # per-draw uniform ring, key-light shadow fit, render-bundle replay
-npm run validate      # the whole suite — CI runs exactly this (validate.yml)
+npm run validate      # the whole suite, staged + parallel, per-step table — CI runs exactly this (validate.yml)
 npm run check:file-size # 700-line gate on src/** + cpp/src/** (generated/ skipped)
 npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline
@@ -120,6 +122,12 @@ npm run generate:gltf # regenerate every placeholder GLB (seg + quanta + lab)
 npm run test:device-draws # mock encoder: transformer flux, pickup coils + rings, bind-group token, camera scratch
 npm run test:stacked-prs # stacked-PR guard decision table (CI: .github/workflows/stacked-prs.yml)
 ```
+
+**Tests:** new unit tests go in `scripts/tests/<name>.test.mjs` (`node:test`
+`describe`/`it`, `node:assert/strict`) and import TS through
+`bundleTs('src/….ts')` from `scripts/test-harness.mjs` — no per-file esbuild.
+`test:unit` picks them up; add a `test:<name>` alias only if docs cite it.
+ADR-0016 has the why.
 
 **Stacked PRs:** retarget a stacked PR to `main` before merging it. Merging into an already-merged base leaves the code off `main` (#249, #251); `stacked-prs.yml` fails such PRs.
 

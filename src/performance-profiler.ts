@@ -1,7 +1,7 @@
 import { getPostQualityGates, formatPostQualitySummary } from './post-processing-config';
 import type { AdapterInfoSnapshot } from './webgpu-manager';
-import { gpuTimingMethods, GPU_TIMING_MAX_PASSES } from './performance-profiler-gpu-timing';
-import { displayMethods } from './performance-profiler-display';
+import * as gpuTiming from './performance-profiler-gpu-timing';
+import * as display from './performance-profiler-display';
 
 import type {
   PerformanceProfilerOptions,
@@ -36,7 +36,7 @@ export class PerformanceProfiler {
   timestampResolveBuffer: GPUBuffer | null;
   timestampMappedBuffer: GPUBuffer | null;
   timingEnabled: boolean;
-  // Not `private`: written from the mixed-in gpu-timing methods (see bottom of file).
+  // Not `private`: written from performance-profiler-gpu-timing.ts too.
   _timestampResolvePending: boolean;
   /** Last resolved frame's GPU ms per frame-graph pass (F3, `?gpuTiming=1`). */
   gpuPassTimesMs: Record<string, number>;
@@ -144,7 +144,7 @@ export class PerformanceProfiler {
     this.timingEnabled = false;
     this._timestampResolvePending = false;
     this.gpuPassTimesMs = {};
-    this.queryCount = 2 * GPU_TIMING_MAX_PASSES; // begin + end per frame-graph pass
+    this.queryCount = 2 * gpuTiming.GPU_TIMING_MAX_PASSES; // begin + end per frame-graph pass
 
     // FPS History (60 seconds at 60fps = 3600 samples, but we'll use 1 sample per frame)
     this.fpsHistory = new Float32Array(3600);
@@ -672,18 +672,18 @@ export class PerformanceProfiler {
       .map(String);
     return parts.length ? parts.join(' / ') : `tier:${this.gpuTier}`;
   }
-}
 
-// GPU timestamp query/resolve logic (gpuTimestampTarget, scheduleResolveTimestamps,
-// resolveTimestamps) and F3 overlay display-data helpers (getFPSGraphData,
-// getParticleFPSCorrelation) live in the mixin modules below, merged onto the
-// prototype to keep this file under the 700-line cap (issues #142/#143/#187).
-export interface PerformanceProfiler {
-  gpuTimestampTarget(): { querySet: GPUQuerySet; queryCount: number } | null;
-  scheduleResolveTimestamps(passes: ReadonlyArray<{ name: string; slot: number }>, queriesUsed: number): void;
-  resolveTimestamps(passes: ReadonlyArray<{ name: string; slot: number }>, queriesUsed: number): Promise<number | undefined>;
-  getFPSGraphData(width: number, height: number): FpsGraphPoint[];
-  getParticleFPSCorrelation(): ParticleFpsCorrelationPoint[];
+  // GPU timestamp query/resolve (./performance-profiler-gpu-timing.ts) and F3
+  // display data (./performance-profiler-display.ts), split for the line cap.
+  /** Where the frame graph writes pass timestamps, or `null` when timing is off. */
+  gpuTimestampTarget(): { querySet: GPUQuerySet; queryCount: number } | null { return gpuTiming.gpuTimestampTarget(this); }
+  /** Queue a single in-flight timestamp resolve. */
+  scheduleResolveTimestamps(passes: ReadonlyArray<{ name: string; slot: number }>, queriesUsed: number): void {
+    gpuTiming.scheduleResolveTimestamps(this, passes, queriesUsed);
+  }
+  resolveTimestamps(passes: ReadonlyArray<{ name: string; slot: number }>, queriesUsed: number): Promise<number | undefined> {
+    return gpuTiming.resolveTimestamps(this, passes, queriesUsed);
+  }
+  getFPSGraphData(width: number, height: number): FpsGraphPoint[] { return display.getFPSGraphData(this, width, height); }
+  getParticleFPSCorrelation(): ParticleFpsCorrelationPoint[] { return display.getParticleFPSCorrelation(this); }
 }
-
-Object.assign(PerformanceProfiler.prototype, gpuTimingMethods, displayMethods);

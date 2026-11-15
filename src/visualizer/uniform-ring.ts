@@ -23,7 +23,7 @@
  * encoding; nothing here allocates per draw.
  *
  * Pure TypeScript (no WebGPU globals at module scope) so
- * scripts/test-uniform-ring.mjs runs it under Node with a mock device.
+ * scripts/tests/uniform-ring.test.mjs runs it under Node with a mock device.
  */
 
 /** Largest legal `minUniformBufferOffsetAlignment`, so any adapter accepts every offset. */

@@ -4,7 +4,7 @@
  * Deliberately separate from the Web Audio graph and dependency-free, for two
  * reasons: the mapping is the part that can be *wrong* (a NaN reaching a
  * `frequency` value throws, a runaway gain is a loud surprise in a classroom),
- * and it is the only part Node can check. `scripts/test-lab-audio.mjs` runs
+ * and it is the only part Node can check. `scripts/tests/audio.test.mjs` runs
  * every function here over sane, absurd and hostile inputs.
  *
  * House rules for everything in this file:
