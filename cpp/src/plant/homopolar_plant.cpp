@@ -1,31 +1,93 @@
 // =============================================================
 // homopolar_plant.cpp  –  Faraday-disc homopolar generator L–R + back-EMF
-// (pure extraction, no logic changes vs sim_core.cpp)
+//
+//   L dI/dt = ½·B·ω·r² − R·I                 (disc EMF into the coil)
+//   J dω/dt = τ_drive(ω) − ½·I·B·r − b·ω     (motor torque − Lorentz load)
+//
+// A sim_core::Plant (core/plant.h) stepped by the catalog's integrator —
+// "euler", one explicit step per frame, which is what the TS twin
+// (devices/quanta/homopolar-generator.ts) has always done. ω and I are
+// clamped at zero after each step, as both plants always did.
 // =============================================================
 
 #include "../sim_core.h"
 #include "plant_common.h"
 
-void SEGSimulator::_stepHomopolar(float dt) {
+#include <algorithm>
+#include <cmath>
+
+using HP = power_gen::ode::Homopolar;
+
+void HomopolarPlant::derivs(double, std::span<const float> x, const HomopolarInput& u,
+                            std::span<float> dxdt) const {
     using HC = power_gen::HomopolarConstants;
+    const float omega = x[HP::omega];
+    const float current = x[HP::currentA];
+    const float B = s.fieldT;
+    const float omegaTarget = u.drive * HC::RPM_MAX * (PhysicsConstants::PI / 30.f);
+    const float tauDrive = s.tauDriveMax * u.drive
+                         * (HC::TAU_DRIVE_BASE
+                            + HC::TAU_DRIVE_SPAN
+                              * std::tanh((omegaTarget - omega) * HC::TAU_DRIVE_TANH_GAIN));
+    const float emf = 0.5f * B * omega * s.discRadiusM * s.discRadiusM;
+    const float tauLoad = current * B * s.discRadiusM * 0.5f;
+    dxdt[HP::currentA] = (emf - s.rOhm * current) / s.lHenry;
+    dxdt[HP::omega] = (tauDrive - tauLoad - s.drag * omega) / s.inertia;
+}
+
+void HomopolarPlant::outputs(std::span<const float> x, const HomopolarInput&, std::span<float> y) const {
+    y[HP::emfV] = 0.5f * s.fieldT * x[HP::omega] * s.discRadiusM * s.discRadiusM;
+}
+
+void HomopolarPlant::save(std::span<float> x) const {
+    x[HP::omega] = s.omega;
+    x[HP::currentA] = s.currentA;
+}
+
+void HomopolarPlant::load(std::span<const float> x) {
+    s.omega = x[HP::omega];
+    s.currentA = x[HP::currentA];
+}
+
+bool HomopolarPlant::constrain(std::span<float> x) const {
+    bool changed = false;
+    for (std::size_t i : { std::size_t{HP::omega}, std::size_t{HP::currentA} }) {
+        const float c = std::max(0.f, x[i]);
+        changed = changed || c != x[i];
+        x[i] = c;
+    }
+    return changed;
+}
+
+void SEGSimulator::_stepHomopolar(float dt) {
     HomopolarState& h = _homopolar;
-    float omega = h.omega;
-    float current = h.currentA;
-    float B = h.fieldT;
-    float omegaTarget = h.drive * HC::RPM_MAX * (PhysicsConstants::PI / 30.f);
-    float tauDrive = h.tauDriveMax * h.drive
-                   * (HC::TAU_DRIVE_BASE
-                      + HC::TAU_DRIVE_SPAN
-                        * std::tanh((omegaTarget - omega) * HC::TAU_DRIVE_TANH_GAIN));
-    float emf = 0.5f * B * omega * h.discRadiusM * h.discRadiusM;
-    float tauLoad = current * B * h.discRadiusM * 0.5f;
-    float dI = (emf - h.rOhm * current) / h.lHenry * dt;
-    current = std::max(0.f, current + dI);
-    float dOmega = (tauDrive - tauLoad - h.drag * omega) / h.inertia * dt;
-    omega = std::max(0.f, omega + dOmega);
-    h.omega = omega;
-    h.angle += omega * dt;
-    h.rpm = omega * 30.f / PhysicsConstants::PI;
-    h.emfV = emf;
-    h.currentA = current;
+    HomopolarPlant plant(h);
+    const HomopolarInput u{h.drive};
+    float x[HP::STATE_SIZE];
+    plant.save(x);
+    // The reported EMF is the one this step integrated from (start of step).
+    float y[HP::OUTPUT_SIZE];
+    plant.outputs(x, u, y);
+
+    const sim_core::Integrator method = _odeMethod(HP::INTEGRATOR);
+    switch (method) {
+        case sim_core::Integrator::Euler:
+            _odeStats += sim_core::euler_fixed(plant, 0.0, dt, std::span<float>(x), u);
+            break;
+        case sim_core::Integrator::Rk4:
+            _odeStats += sim_core::rk4_fixed(plant, 0.0, dt, std::span<float>(x), u);
+            break;
+        default: {
+            sim_core::StepperState st{h.stepH, h.stepErrOld};
+            _odeStats += sim_core::advance_adaptive(method, plant, std::span<float>(x), u,
+                                                    static_cast<double>(dt), HP::tolerance(), st);
+            h.stepH = st.h;
+            h.stepErrOld = st.errOld;
+            break;
+        }
+    }
+    plant.load(x);
+    h.angle += h.omega * dt;
+    h.rpm = h.omega * 30.f / PhysicsConstants::PI;
+    h.emfV = y[HP::emfV];
 }

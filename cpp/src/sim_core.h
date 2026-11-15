@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================
-// sim_core.h  –  SEG simulation core  (C++17, WASM-compatible)
+// sim_core.h  –  SEG simulation core  (C++20, WASM-compatible)
 // =============================================================
 //
 // Modes: SEG (RK4 rollers), Heron (Bernoulli / Swamee–Jain head),
@@ -256,6 +256,20 @@ public:
     float getRingCouplingK() const { return _thomson.couplingK; }
     float getRingVelocityMps() const { return _thomson.velocityMps; }
 
+    // ── Shared integrators (core/integrate.h, docs/INTEGRATORS.md) ──
+    /// Override the catalog `integrator` of every plant that runs on the
+    /// shared integrators (homopolar, jumping-ring): 0 euler, 1 rk4,
+    /// 2 dopri5, 3 ros23; -1 (or anything else) restores the catalog's.
+    /// For benches and goldens — not saved in snapshots.
+    void setIntegrator(int method);
+    int  getIntegrator() const { return _integratorOverride; }
+    /// Work counters since the last resetOdeStats(), over every shared-
+    /// integrator step. Doubles: a long bench passes 2^24 RHS calls.
+    double getOdeRhsEvals() const { return static_cast<double>(_odeStats.rhs); }
+    double getOdeSteps() const { return static_cast<double>(_odeStats.steps); }
+    double getOdeRejected() const { return static_cast<double>(_odeStats.rejected); }
+    void   resetOdeStats() { _odeStats = {}; }
+
     // ── Accessors ─────────────────────────────────────────────
     float getOmega()        const { return _rollers[0].omega; }
     float getRPM()          const { return _rollers[0].omega * 60.f / PhysicsConstants::TAU; }
@@ -290,6 +304,8 @@ public:
     // ── Lab energy bus (ADR-0004 Phase B) ─────────────────────
     /// Replace edge list. Flat layout per edge: fromMode, toMode, maxWatts, efficiency, latencyS.
     void setNetworkEdges(const std::vector<float>& flatEdges);
+    /// Same, from `count` floats at `flatEdges` (the C ABI stages them in the scratch).
+    void setNetworkEdges(const float* flatEdges, int count);
     int  getNetworkEdgeCount() const { return static_cast<int>(_networkEdges.size()); }
     /// Per-mode energyLevel (0..1) and enabled flags (0/1), length ENERGY_NETWORK_MODE_COUNT.
     void updateEnergyNetwork(
@@ -361,6 +377,14 @@ private:
     HallState        _hall;
     LorentzState     _lorentz;
     ThomsonState     _thomson;
+
+    int                _integratorOverride{-1};
+    sim_core::StepStats _odeStats{};
+    sim_core::Integrator _odeMethod(sim_core::Integrator catalogDefault) const {
+        return (_integratorOverride >= 0 && _integratorOverride <= 3)
+            ? static_cast<sim_core::Integrator>(_integratorOverride)
+            : catalogDefault;
+    }
 
     // Lab energy bus state
     std::vector<EnergyNetworkEdgeSpec> _networkEdges;

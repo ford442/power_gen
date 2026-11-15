@@ -287,7 +287,7 @@ export const DEVICE_CATALOG = [
       "ringForceN": { label: "F_z", unit: "N", digits: 3 },
       "ringCouplingK": { label: "k(h)", unit: "", digits: 3 },
     } as Record<string, TelemetryFieldMeta>,
-    fidelity: "WASM coupled L–M(h) RK4 ODE with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it",
+    fidelity: "WASM coupled L–M(h) ODE (adaptive Dormand–Prince 5(4)) with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it",
   },
   {
     id: 'drop-tube',

@@ -79,7 +79,9 @@ int SEGSimulator::plantSave(int mode) {
             s[5] = _homopolar.emfV;
             s[6] = _homopolar.currentA;
             s[7] = _homopolar.fieldT;
-            s[8] = _homopolar.drive;
+            s[8] = _homopolar.stepH;
+            s[9] = _homopolar.stepErrOld;
+            s[10] = _homopolar.drive;
             break;
         case SIM_MODE_TRANSFORMER:
             s[2] = _transformer.phase;
@@ -127,7 +129,9 @@ int SEGSimulator::plantSave(int mode) {
             s[6] = _thomson.phase;
             s[7] = _thomson.forceN;
             s[8] = _thomson.couplingK;
-            s[9] = _thomson.drive;
+            s[9] = _thomson.stepH;
+            s[10] = _thomson.stepErrOld;
+            s[11] = _thomson.drive;
             break;
         default:
             break;
@@ -206,7 +210,9 @@ bool SEGSimulator::plantLoad(int mode, int count, uint32_t layoutHash) {
             _homopolar.emfV = s[5];
             _homopolar.currentA = s[6];
             _homopolar.fieldT = s[7];
-            _homopolar.drive = s[8];
+            _homopolar.stepH = s[8];
+            _homopolar.stepErrOld = s[9];
+            _homopolar.drive = s[10];
             break;
         case SIM_MODE_TRANSFORMER:
             _transformer.phase = s[2];
@@ -254,7 +260,9 @@ bool SEGSimulator::plantLoad(int mode, int count, uint32_t layoutHash) {
             _thomson.phase = s[6];
             _thomson.forceN = s[7];
             _thomson.couplingK = s[8];
-            _thomson.drive = s[9];
+            _thomson.stepH = s[9];
+            _thomson.stepErrOld = s[10];
+            _thomson.drive = s[11];
             break;
         default:
             break;

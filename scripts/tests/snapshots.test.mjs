@@ -10,7 +10,7 @@
  *      (standalone_snapshots.cpp; also refuses a wrong hash / short vector /
  *      NaN).
  *   2. wasm    the *shipped* src/wasm/sim-core/sim_core — the same round trip
- *      through the Embind scratch ABI for all 13 modes, bit-identical, plus
+ *      through the C ABI scratch for all 13 modes, bit-identical, plus
  *      `plantLoad` refusing a layout-hash mismatch and leaving B untouched.
  *   3. TS      every JS device plant (10 dual + seg / heron / solar + the
  *      TS-only pulse-coil / halbach-viz / drop-tube): save → JSON → load into
@@ -31,11 +31,11 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { before, describe, it } from 'node:test';
-import { pathToFileURL } from 'node:url';
 import { bundleTs, ROOT } from '../test-harness.mjs';
+import { loadSimCoreFromDisk } from '../lib/sim-core-shim.mjs';
 
 const NATIVE = join(ROOT, 'cpp', 'build', 'sim_core_test');
 const WASM_DIR = process.env.SIM_CORE_DIR ?? join(ROOT, 'src/wasm/sim-core');
@@ -217,9 +217,7 @@ describe('TS plants: save → JSON → load → step bit-identical', () => {
 // ── shipped wasm module (2 and 4) ─────────────────────────────────────────
 let mod;
 before(async () => {
-  // ES-module glue (EXPORT_ES6): a plain import, like the page and workers.
-  const { default: SimCore } = await import(pathToFileURL(join(WASM_DIR, 'sim_core.js')).href);
-  mod = await SimCore({ wasmBinary: readFileSync(join(WASM_DIR, 'sim_core.wasm')) });
+  mod = await loadSimCoreFromDisk(WASM_DIR);
 });
 
 function save(sim, mode) {

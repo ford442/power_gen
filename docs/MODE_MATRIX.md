@@ -34,7 +34,7 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 | `vdg` | 12 | 9 (`SIM_MODE_VDG`) | `vdgVoltage` (V), `vdgBeltMps` (m/s), `vdgChargeC` (C), `vdgSparkHz` (Hz) | WASM belt-charge/sphere-capacitance/spark-gap ODE (?wasmPhysics=1); JS fallback |
 | `hall` | 13 | 10 (`SIM_MODE_HALL`) | `hallVoltage` (V), `hallCurrent` (A), `hallFieldT` (T), `hallCoeff` (m³/C) | WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback |
 | `lorentz-sled` | 14 | 11 (`SIM_MODE_LORENTZ_SLED`) | `lorentzSledVms` (m/s), `lorentzCurrentA` (A), `lorentzFieldT` (T), `lorentzForceN` (N), `lorentzPositionM` (m) | WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it |
-| `jumping-ring` | 15 | 12 (`SIM_MODE_JUMPING_RING`) | `ringHeightM` (m), `ringCurrentA` (A), `ringPrimaryIA` (A), `ringForceN` (N), `ringCouplingK` | WASM coupled L–M(h) RK4 ODE with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it |
+| `jumping-ring` | 15 | 12 (`SIM_MODE_JUMPING_RING`) | `ringHeightM` (m), `ringCurrentA` (A), `ringPrimaryIA` (A), `ringForceN` (N), `ringCouplingK` | WASM coupled L–M(h) ODE (adaptive Dormand–Prince 5(4)) with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it |
 | `drop-tube` | 16 | none (`wasmMode: null`) | `dropTubeVMps` (m/s), `dropTubeTerminalVMps` (m/s), `dropTubeDragN` (N), `dropTubeEddyIA` (A), `dropTubeDepthM` (m) | JS-only algebraic eddy drag (point dipole, thin-walled tube): v_t = m·g/k, exact exponential step |
 
 ## Snapshot state
@@ -42,7 +42,7 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 Each device's `state` block lists what a plant snapshot saves (see
 [`SNAPSHOTS.md`](SNAPSHOTS.md)). The C++ vector is `[_time, _drive, …]`
 followed by the block's `cpp` fields; layout hash
-`0x21801834` (`PLANT_STATE_LAYOUT_HASH`).
+`0x1d82ad14` (`PLANT_STATE_LAYOUT_HASH`).
 
 | Device `id` | TS keys | C++ `plantStateSize` | Keys shared with C++ |
 |---|---|---|---|
@@ -54,13 +54,13 @@ followed by the block's `cpp` fields; layout hash
 | `mhd` | 7 | 9 floats | 6 |
 | `maglev` | 7 | 9 floats | 6 |
 | `pulse-coil` | 12 | — | — |
-| `homopolar` | 8 | 9 floats | 6 |
+| `homopolar` | 10 | 11 floats | 8 |
 | `halbach-viz` | 8 | — | — |
 | `transformer` | 9 | 11 floats | 8 |
 | `vdg` | 8 | 10 floats | 7 |
 | `hall` | 7 | 9 floats | 6 |
 | `lorentz-sled` | 7 | 8 floats | 5 |
-| `jumping-ring` | 8 | 10 floats | 7 |
+| `jumping-ring` | 10 | 12 floats | 9 |
 | `drop-tube` | 13 | — | — |
 
 ## How to add a device

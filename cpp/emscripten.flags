@@ -1,32 +1,24 @@
 # Shared Emscripten link flags for sim_core WASM (Makefile + CMakeLists.txt).
 # One flag per line. Lines starting with # are ignored.
 # Optimization (-O3 / -O0) is applied by each build driver, not here.
-# Release-only flags (-g0, --closure 1) live in the `wasm` Makefile target /
-# CMakeLists.txt instead of here, since `wasm-dbg` needs the opposite
-# (debug symbols, unminified JS) — see cpp/README.md for the full mapping.
+# Release-only flags (-g0) live in the `wasm` Makefile target instead, since
+# `wasm-dbg` needs the opposite — see cpp/README.md for the full mapping.
 #
-# ES module glue (`export default SimCore`), loadable by the page and by the
-# module workers (vite.config.js `worker.format: 'es'`) with a plain
-# `import()` — no `<script>`, `importScripts` or `new Function`.
-# DYNAMIC_EXECUTION=0 keeps eval / new Function out of the glue too (embind
-# then builds its invokers without them), so a strict CSP holds.
-# Dropped as emscripten defaults: WASM=1, NO_EXIT_RUNTIME=1,
-# DISABLE_EXCEPTION_CATCHING=1 (the default once -fno-exceptions is set).
-# HEAPF32 is the scratch ABI (src/wasm/sim.ts, gpu-chores/reduce-wasm.ts);
-# nothing outside the glue calls ccall / cwrap / HEAPU8.
---bind
--s MODULARIZE=1
--s EXPORT_ES6=1
--s EXPORT_NAME=SimCore
--s ENVIRONMENT=web,worker
--s DYNAMIC_EXECUTION=0
--s EXPORTED_RUNTIME_METHODS=['HEAPF32']
+# No JS glue, no Embind (#254 §3): `make wasm` writes sim_core.wasm alone, a
+# standalone reactor module (--no-entry) that exports the flat C ABI in
+# cpp/src/sim_core_abi.cpp (generated from cpp/abi.json) plus its memory.
+# src/wasm/sim-core/instantiate.ts supplies its two imports and
+# abi.generated.ts wraps the exports — that is the whole JS ⇄ WASM surface.
+# The export list is the codegen's, not hand-kept: generated/sim-core-exports.json.
+--no-entry
+-sSTANDALONE_WASM=1
+-sEXPORTED_FUNCTIONS=@../generated/sim-core-exports.json
 # 4 MiB, growing on demand: the particle buffer is a std::vector sized at
 # seedParticles() (it used to be a 1.6 MB inline array in every
 # SEGSimulator), so most realms never grow. The page, the plant worker and
 # the offline worker each instantiate one; 16 MiB × 3 was the old floor.
--s ALLOW_MEMORY_GROWTH=1
--s INITIAL_MEMORY=4194304
--s MALLOC=emmalloc
--s FILESYSTEM=0
+-sALLOW_MEMORY_GROWTH=1
+-sINITIAL_MEMORY=4194304
+-sMALLOC=emmalloc
+-sFILESYSTEM=0
 -fno-exceptions

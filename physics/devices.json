@@ -429,6 +429,12 @@
       "wasmMode": 7,
       "telemetryKeys": ["homopolarRpm", "homopolarEmfV", "homopolarCurrentA", "homopolarFieldT"],
       "fidelity": "WASM (Faraday disc L–R + back-EMF)",
+      "integrator": "euler",
+      "ode": {
+        "state": ["omega", "currentA"],
+        "outputs": ["emfV"],
+        "tolerance": { "rtol": 1e-4, "atol": { "omega": 1e-3, "currentA": 1e-3 } }
+      },
       "state": {
         "plant": "_homopolar",
         "fields": [
@@ -439,6 +445,8 @@
           { "key": "homopolarCurrentA", "cpp": "currentA" },
           { "key": "homopolarCurrent", "cpp": null },
           { "key": "homopolarFieldT", "cpp": "fieldT" },
+          { "key": "homopolarStepH", "cpp": "stepH" },
+          { "key": "homopolarStepErrOld", "cpp": "stepErrOld" },
           { "key": "energyLevel", "cpp": null },
           { "cpp": "drive" }
         ]
@@ -758,7 +766,16 @@
       "shaderMode": 15,
       "wasmMode": 12,
       "telemetryKeys": ["ringHeightM", "ringCurrentA", "ringPrimaryIA", "ringForceN", "ringCouplingK"],
-      "fidelity": "WASM coupled L–M(h) RK4 ODE with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it",
+      "fidelity": "WASM coupled L–M(h) ODE (adaptive Dormand–Prince 5(4)) with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it",
+      "integrator": "dopri5",
+      "ode": {
+        "state": ["primaryIA", "ringCurrentA", "velocityMps", "heightM"],
+        "outputs": ["forceN", "couplingK"],
+        "tolerance": {
+          "rtol": 2e-4,
+          "atol": { "primaryIA": 3.4e-3, "ringCurrentA": 0.16, "velocityMps": 1.7e-4, "heightM": 1.3e-5 }
+        }
+      },
       "state": {
         "plant": "_thomson",
         "fields": [
@@ -769,6 +786,8 @@
           { "key": "ringPhase", "cpp": "phase" },
           { "key": "ringForceN", "cpp": "forceN" },
           { "key": "ringCouplingK", "cpp": "couplingK" },
+          { "key": "ringStepH", "cpp": "stepH" },
+          { "key": "ringStepErrOld", "cpp": "stepErrOld" },
           { "key": "energyLevel", "cpp": null },
           { "cpp": "drive" }
         ]

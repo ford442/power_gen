@@ -1,5 +1,5 @@
 // =============================================================
-// standalone_bench.cpp  –  --mode bench (SEG RK4 + particle throughput)
+// standalone_bench.cpp  –  --mode bench (SEG RK4, particles, shared integrators)
 // =============================================================
 
 #ifdef SIM_CORE_STANDALONE
@@ -39,6 +39,31 @@ int run_bench_smoke() {
 
     printf("bench_seg_steps_per_sec=%.0f\n", stepsPerSec);
     printf("bench_particle_steps_per_sec=%.0f\n", particleStepsPerSec);
+
+    // Shared integrators (core/integrate.h): the jumping ring on each method,
+    // simulated seconds per wall second and RHS calls per simulated second.
+    // --mode integrators has the accuracy side of the same comparison.
+    const int ringFrames = 400;
+    const float ringDt = 1.f / 90.f;
+    double rk4Rhs = 0;
+    for (int m : { 1, 2, 3 }) {
+        SEGSimulator ring;
+        ring.setMode(SIM_MODE_JUMPING_RING);
+        ring.setDrive(0.85f);
+        ring.setIntegrator(m);
+        ring.resetOdeStats();
+        auto r0 = std::chrono::steady_clock::now();
+        for (int i = 0; i < ringFrames; ++i) ring.step(ringDt, 0.f);
+        auto r1 = std::chrono::steady_clock::now();
+        const double simSec = ringFrames * static_cast<double>(ringDt);
+        const double wall = std::chrono::duration<double>(r1 - r0).count();
+        const double rhsPerSimSec = ring.getOdeRhsEvals() / simSec;
+        if (m == 1) rk4Rhs = rhsPerSimSec;
+        const char* name = sim_core::integrator_name(static_cast<sim_core::Integrator>(m));
+        printf("bench_ring_%s_sim_s_per_wall_s=%.1f\n", name, simSec / wall);
+        printf("bench_ring_%s_rhs_per_sim_s=%.0f\n", name, rhsPerSimSec);
+        if (m != 1) printf("bench_ring_%s_rhs_ratio_vs_rk4=%.2f\n", name, rk4Rhs / rhsPerSimSec);
+    }
     return 0;
 }
 

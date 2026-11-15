@@ -143,6 +143,8 @@ function parseGolden(stdout) {
         lorentzFieldT: Number(kv.get('lorentzFieldT') ?? -1),
         // Lab charge coupling (ADR-0013) — negative means "isolated bench".
         kelvinSeedV: Number(kv.get('kelvinSeedV') ?? -1),
+        // Shared-integrator override (docs/INTEGRATORS.md) — 'catalog' = none.
+        integrator: kv.get('integrator') ?? 'catalog',
         values: new Map(),
       });
       continue;
@@ -186,6 +188,7 @@ function seedCoupling(state, kase) {
   if (kase.hallFieldCoupledT >= 0) state.hallFieldCoupledT = kase.hallFieldCoupledT;
   if (kase.lorentzFieldT >= 0) state.lorentzFieldT = kase.lorentzFieldT;
   if (kase.kelvinSeedV >= 0) state.kelvinSeedCoupledV = kase.kelvinSeedV;
+  if (kase.integrator !== 'catalog') state.integratorOverride = kase.integrator;
 }
 
 // ── 1. native side ───────────────────────────────────────────────────────

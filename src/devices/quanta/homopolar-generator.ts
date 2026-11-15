@@ -15,6 +15,19 @@ import type { DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
 import { catalogIdentity } from '../../../generated/device-catalog';
 import { HOMOPOLAR } from '../../../generated/physics-constants';
+import { HomopolarState, PLANT_ODE } from '../../../generated/plant-ode';
+import {
+  addStats,
+  advanceAdaptive,
+  eulerFixed,
+  integratorFor,
+  isAdaptive,
+  odeStats,
+  rk4Fixed,
+  toleranceOf,
+  type OdePlant,
+  type StepperState
+} from '../../renderers/shared/integrate';
 
 /**
  * Disc / circuit parameters — the single set shared with the C++ plant.
@@ -97,34 +110,83 @@ export function estimateHomopolarEmfV(omegaRadS: number, fieldT: number = B_AXIA
   return 0.5 * fieldT * omegaRadS * radiusM * radiusM;
 }
 
+interface DiscInput {
+  drive: number;
+  fieldT: number;
+}
+
+const DISC_ODE = PLANT_ODE.homopolar;
+const DISC_TOL = toleranceOf(DISC_ODE);
+const HS = HomopolarState;
+
 /**
+ * The disc as an {@link OdePlant}: x = [ω, I] (generated `HomopolarState`
+ * order). Mirrors `HomopolarPlant` in cpp/src/plant/homopolar_plant.cpp.
+ */
+export const HOMOPOLAR_PLANT: OdePlant<DiscInput> = {
+  stateSize: DISC_ODE.state.length,
+  derivs(_t, x, u, dx) {
+    const omega = x[HS.omega];
+    const current = x[HS.currentA];
+    const omegaTarget = u.drive * HOMOPOLAR.rpmMax * (Math.PI / 30);
+    const tauDrive = TAU_DRIVE_MAX * u.drive
+      * (HOMOPOLAR.tauDriveBase
+         + HOMOPOLAR.tauDriveSpan
+           * Math.tanh((omegaTarget - omega) * HOMOPOLAR.tauDriveTanhGain));
+    const emf = estimateHomopolarEmfV(omega, u.fieldT);
+    const tauLoad = current * u.fieldT * DISC_RADIUS * 0.5;
+    dx[HS.currentA] = (emf - R_COIL * current) / L_COIL;
+    dx[HS.omega] = (tauDrive - tauLoad - B_DRAG * omega) / J_DISC;
+  },
+  // ω, I ≥ 0 after every step — the clamp both plants have always applied.
+  constrain(x) {
+    const o = Math.max(0, x[HS.omega]);
+    const i = Math.max(0, x[HS.currentA]);
+    const changed = o !== x[HS.omega] || i !== x[HS.currentA];
+    x[HS.omega] = o;
+    x[HS.currentA] = i;
+    return changed;
+  }
+};
+
+const discX = new Float64Array(DISC_ODE.state.length);
+const discU: DiscInput = { drive: 0, fieldT: B_AXIAL };
+const discStepper: StepperState = { h: 0, errOld: 1e-4 };
+
+/**
+ * One frame of the Faraday disc on the catalog integrator ("euler": one
+ * explicit step per frame), or `state.integratorOverride`.
+ *
  * @param drive 0..1 from speed slider
  */
 export const stepHomopolarPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const B = state.homopolarFieldT ?? B_AXIAL;
-  let omega = state.homopolarOmega ?? 0;
+  const x = discX;
+  x[HS.omega] = state.homopolarOmega ?? 0;
   // `homopolarCurrentA` is the catalog telemetry key; `homopolarCurrent` is
   // an older alias the WASM bridge still fills (apply-wasm-plant.ts writes
   // both). This step used to *read* the alias and *write* only the catalog
   // key, so the loop current never fed back and the disc ran unloaded —
   // no back-EMF braking at all. Read the key, keep the alias in sync.
-  let current = state.homopolarCurrentA ?? state.homopolarCurrent ?? 0;
+  x[HS.currentA] = state.homopolarCurrentA ?? state.homopolarCurrent ?? 0;
+  discU.drive = drive;
+  discU.fieldT = B;
+  // The reported EMF is the one this step integrated from (start of step).
+  const emf = estimateHomopolarEmfV(x[HS.omega], B);
 
-  const omegaTarget = drive * HOMOPOLAR.rpmMax * (Math.PI / 30);
-  const tauDrive = TAU_DRIVE_MAX * drive
-    * (HOMOPOLAR.tauDriveBase
-       + HOMOPOLAR.tauDriveSpan
-         * Math.tanh((omegaTarget - omega) * HOMOPOLAR.tauDriveTanhGain));
+  const method = integratorFor(DISC_ODE, state.integratorOverride);
+  if (isAdaptive(method)) {
+    discStepper.h = state.homopolarStepH ?? 0;
+    discStepper.errOld = state.homopolarStepErrOld ?? 1e-4;
+    addStats(odeStats, advanceAdaptive(method, HOMOPOLAR_PLANT, x, discU, dt, DISC_TOL, discStepper));
+    state.homopolarStepH = discStepper.h;
+    state.homopolarStepErrOld = discStepper.errOld;
+  } else {
+    addStats(odeStats, (method === 'rk4' ? rk4Fixed : eulerFixed)(HOMOPOLAR_PLANT, 0, dt, x, discU));
+  }
 
-  const emf = estimateHomopolarEmfV(omega, B);
-  const tauLoad = current * B * DISC_RADIUS * 0.5;
-
-  const dI = (emf - R_COIL * current) / L_COIL * dt;
-  current = Math.max(0, current + dI);
-
-  const dOmega = (tauDrive - tauLoad - B_DRAG * omega) / J_DISC * dt;
-  omega = Math.max(0, omega + dOmega);
-
+  const omega = x[HS.omega];
+  const current = x[HS.currentA];
   const rpm = omega * 30 / Math.PI;
 
   state.homopolarOmega = omega;
@@ -145,6 +207,8 @@ export function createHomopolarPhysicsState(): Partial<DevicePhysicsState> {
     homopolarEmfV: 0,
     homopolarCurrentA: 0,
     homopolarFieldT: B_AXIAL,
+    homopolarStepH: 0,
+    homopolarStepErrOld: 1e-4,
     homopolarCurrent: 0
   };
 }

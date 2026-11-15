@@ -40,10 +40,10 @@ export interface DeviceStateLayout {
 export const PLANT_STATE_PREFIX = { time: 0, drive: 1, length: 2 } as const;
 
 /** FNV-1a of every state block — `PLANT_STATE_LAYOUT_HASH` in generated/plant-state.h. */
-export const PLANT_STATE_LAYOUT_HASH = 0x21801834;
+export const PLANT_STATE_LAYOUT_HASH = 0x1d82ad14;
 
 /** First 12 hex of sha256(physics/devices.json) — which catalog wrote a snapshot. */
-export const DEVICE_CATALOG_HASH = '81caf605beca';
+export const DEVICE_CATALOG_HASH = '60cbbf986925';
 
 export const DEVICE_STATE_LAYOUT: Readonly<Record<string, DeviceStateLayout>> = {
   'seg': {
@@ -158,7 +158,7 @@ export const DEVICE_STATE_LAYOUT: Readonly<Record<string, DeviceStateLayout>> = 
   },
   'homopolar': {
     wasmMode: 7,
-    cppSize: 9,
+    cppSize: 11,
     fields: [
       { key: "homopolarOmega", cpp: "omega", type: 'number', offset: 2 },
       { key: "homopolarAngle", cpp: "angle", type: 'number', offset: 3 },
@@ -167,8 +167,10 @@ export const DEVICE_STATE_LAYOUT: Readonly<Record<string, DeviceStateLayout>> = 
       { key: "homopolarCurrentA", cpp: "currentA", type: 'number', offset: 6 },
       { key: "homopolarCurrent", cpp: null, type: 'number', offset: -1 },
       { key: "homopolarFieldT", cpp: "fieldT", type: 'number', offset: 7 },
+      { key: "homopolarStepH", cpp: "stepH", type: 'number', offset: 8 },
+      { key: "homopolarStepErrOld", cpp: "stepErrOld", type: 'number', offset: 9 },
       { key: "energyLevel", cpp: null, type: 'number', offset: -1 },
-      { key: null, cpp: "drive", type: 'number', offset: 8 }
+      { key: null, cpp: "drive", type: 'number', offset: 10 }
     ]
   },
   'halbach-viz': {
@@ -247,7 +249,7 @@ export const DEVICE_STATE_LAYOUT: Readonly<Record<string, DeviceStateLayout>> = 
   },
   'jumping-ring': {
     wasmMode: 12,
-    cppSize: 10,
+    cppSize: 12,
     fields: [
       { key: "ringPrimaryIA", cpp: "primaryIA", type: 'number', offset: 2 },
       { key: "ringCurrentA", cpp: "ringCurrentA", type: 'number', offset: 3 },
@@ -256,8 +258,10 @@ export const DEVICE_STATE_LAYOUT: Readonly<Record<string, DeviceStateLayout>> = 
       { key: "ringPhase", cpp: "phase", type: 'number', offset: 6 },
       { key: "ringForceN", cpp: "forceN", type: 'number', offset: 7 },
       { key: "ringCouplingK", cpp: "couplingK", type: 'number', offset: 8 },
+      { key: "ringStepH", cpp: "stepH", type: 'number', offset: 9 },
+      { key: "ringStepErrOld", cpp: "stepErrOld", type: 'number', offset: 10 },
       { key: "energyLevel", cpp: null, type: 'number', offset: -1 },
-      { key: null, cpp: "drive", type: 'number', offset: 9 }
+      { key: null, cpp: "drive", type: 'number', offset: 11 }
     ]
   },
   'drop-tube': {

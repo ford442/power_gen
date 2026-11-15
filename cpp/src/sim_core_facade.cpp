@@ -198,3 +198,7 @@ float SEGSimulator::getEnergyLevel() const {
 const char* SEGSimulator::version() {
     return "sim_core 1.5.0";
 }
+
+void SEGSimulator::setIntegrator(int method) {
+    _integratorOverride = (method >= 0 && method <= 3) ? method : -1;
+}

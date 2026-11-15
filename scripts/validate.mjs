@@ -37,15 +37,16 @@ const GHA = process.env.GITHUB_ACTIONS === 'true';
 
 const npm = (script, needs = []) => ({ name: script, cmd: 'npm', args: ['run', '--silent', script], needs });
 
-const CODEGEN = ['codegen:constants', 'codegen:catalog', 'codegen:lab-config'];
+const CODEGEN = ['codegen:constants', 'codegen:catalog', 'codegen:lab-config', 'codegen:wasm-abi'];
 const STEPS = [
   // Serial chain: each codegen writes files the next may read.
   { stage: 'codegen', ...npm('codegen:constants') },
   { stage: 'codegen', ...npm('codegen:catalog', ['codegen:constants']) },
   { stage: 'codegen', ...npm('codegen:lab-config', ['codegen:catalog']) },
+  { stage: 'codegen', ...npm('codegen:wasm-abi', ['codegen:lab-config']) },
   // Ready steps start in this order, so the long poles come first.
   { stage: 'native', ...npm('wasm:native', CODEGEN) },
-  ...['lint', 'typecheck', 'check:constants', 'check:catalog', 'check:lab-config', 'check:bindings',
+  ...['lint', 'typecheck', 'check:constants', 'check:catalog', 'check:lab-config', 'check:wasm-abi', 'check:bindings',
     'check:file-size', 'check:post', 'check:wgsl', 'test:stacked-prs'].map((n) => ({ stage: 'checks', ...npm(n, CODEGEN) })),
   // Direct `node --test` (not the npm alias) so concurrency is the core count.
   {

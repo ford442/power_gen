@@ -1,0 +1,249 @@
+{
+  "$comment": "The whole JS ⇄ WASM surface of sim_core (#254 §3). Edit this file, then `npm run codegen:wasm-abi`: it writes cpp/src/sim_core_abi.cpp (the extern \"C\" shim), src/wasm/sim-core/abi.generated.ts (typed wrappers over instance.exports) and generated/sim-core-exports.json (EXPORTED_FUNCTIONS). Types: void f32 f64 i32 u32 bool ptr cstr, a struct name (returns only), f32[] (args only, staged through the class scratch). See docs/WASM_ABI.md.",
+  "structs": {
+    "Vec3": [
+      ["x", "f32"],
+      ["y", "f32"],
+      ["z", "f32"]
+    ],
+    "SimParticle": [
+      ["x", "f32"],
+      ["y", "f32"],
+      ["z", "f32"],
+      ["phase", "f32"],
+      ["vx", "f32"],
+      ["vy", "f32"],
+      ["vz", "f32"],
+      ["aux", "f32"]
+    ],
+    "ChoresReduceResult": [
+      ["sum", "f32"],
+      ["min", "f32"],
+      ["max", "f32"],
+      ["sumSq", "f32"],
+      ["count", "f32"]
+    ],
+    "EnergyNetworkSummary": [
+      ["couplingEnabled", "bool"],
+      ["labBudgetW", "f32"],
+      ["totalAllocatedW", "f32"],
+      ["residualW", "f32"]
+    ],
+    "EnergyNetworkDevicePower": [
+      ["powerInW", "f32"],
+      ["powerOutW", "f32"],
+      ["efficiency", "f32"]
+    ]
+  },
+  "functions": [
+    {
+      "name": "magneticDipoleField",
+      "args": [
+        ["r", "Vec3"],
+        ["m", "Vec3"]
+      ],
+      "ret": "Vec3"
+    },
+    {
+      "name": "magneticDipoleForce",
+      "args": [
+        ["pos1", "Vec3"],
+        ["m1", "Vec3"],
+        ["pos2", "Vec3"],
+        ["m2", "Vec3"]
+      ],
+      "ret": "Vec3"
+    },
+    {
+      "name": "axialBField",
+      "args": [
+        ["z", "f32"],
+        ["radius", "f32"],
+        ["height", "f32"],
+        ["Br", "f32"]
+      ],
+      "ret": "f32"
+    },
+    {
+      "name": "estimateHalbachFieldT",
+      "args": [
+        ["gapM", "f32"],
+        ["remanenceT", "f32", 0]
+      ],
+      "ret": "f32"
+    },
+    { "name": "sim_core_version", "ret": "cstr" },
+    {
+      "name": "sim_core_source_hash",
+      "ret": "cstr",
+      "cpp": "SIM_CORE_SOURCE_HASH"
+    },
+    {
+      "name": "chores_scratch_ptr",
+      "args": [
+        ["count", "i32"]
+      ],
+      "ret": "ptr"
+    },
+    {
+      "name": "chores_reduce_f32_scratch",
+      "args": [
+        ["count", "i32"]
+      ],
+      "ret": "ChoresReduceResult"
+    },
+    {
+      "name": "chores_map_scale_f32_scratch",
+      "args": [
+        ["count", "i32"],
+        ["scale", "f32"],
+        ["bias", "f32"]
+      ],
+      "ret": "void"
+    },
+    {
+      "name": "chores_fft_db_scratch",
+      "args": [
+        ["count", "i32"],
+        ["hann", "bool"],
+        ["floorDb", "f32"]
+      ],
+      "ret": "i32"
+    },
+    {
+      "name": "plant_state_layout_hash",
+      "ret": "u32",
+      "cpp": "PLANT_STATE_LAYOUT_HASH"
+    }
+  ],
+  "classes": {
+    "SEGSimulator": {
+      "prefix": "seg_",
+      "scratch": "getScratchPtr",
+      "methods": [
+        { "name": "step", "ret": "void", "args": [["dt", "f32"], ["loadTorque", "f32"]] },
+        { "name": "seedParticles", "ret": "void", "args": [["count", "i32"]] },
+        { "name": "stepParticles", "ret": "void", "args": [["dt", "f32"]] },
+        { "name": "getOmega", "ret": "f32" },
+        { "name": "getRPM", "ret": "f32" },
+        { "name": "getOmegaF64", "ret": "f64" },
+        { "name": "getRPMF64", "ret": "f64" },
+        { "name": "getAngle", "ret": "f32", "args": [["i", "i32"]] },
+        { "name": "numRollers", "ret": "i32" },
+        { "name": "numParticles", "ret": "i32" },
+        { "name": "getTime", "ret": "f32" },
+        { "name": "sampleBField", "ret": "Vec3", "args": [["worldPos", "Vec3"]] },
+        { "name": "rollerWorldPos", "ret": "Vec3", "args": [["i", "i32"]] },
+        { "name": "estimatePower", "ret": "f32", "args": [["loadTorque", "f32"]] },
+        { "name": "magneticEnergyDensity", "ret": "f32" },
+        { "name": "getParticle", "ret": "SimParticle", "args": [["i", "i32"]] },
+        { "name": "setRingLoadTorque", "ret": "void", "args": [["ring", "i32"], ["torque", "f32"]] },
+        { "name": "setRingLoadTorques", "ret": "void", "args": [["tInner", "f32"], ["tMiddle", "f32"], ["tOuter", "f32"]] },
+        { "name": "stepWithPerRingTorques", "ret": "void", "args": [["dt", "f32"]] },
+        { "name": "setMode", "ret": "void", "args": [["mode", "i32"]] },
+        { "name": "getMode", "ret": "i32" },
+        { "name": "setDrive", "ret": "void", "args": [["drive", "f32"]] },
+        { "name": "getDrive", "ret": "f32" },
+        { "name": "getHeronHead", "ret": "f32" },
+        { "name": "getHeronVExit", "ret": "f32" },
+        { "name": "getHeronFlowLmin", "ret": "f32" },
+        { "name": "getHeronPressureKPa", "ret": "f32" },
+        { "name": "getKelvinVoltage", "ret": "f32" },
+        { "name": "getKelvinVoltageN", "ret": "f32" },
+        { "name": "getKelvinE", "ret": "f32" },
+        { "name": "getKelvinSparkTimer", "ret": "f32" },
+        { "name": "getKelvinVbreak", "ret": "f32" },
+        { "name": "getKelvinSeedV", "ret": "f32" },
+        { "name": "setKelvinSeedV", "ret": "void", "args": [["seedV", "f32"]] },
+        { "name": "getSolarBattery", "ret": "f32" },
+        { "name": "getPeltierHotK", "ret": "f32" },
+        { "name": "getPeltierColdK", "ret": "f32" },
+        { "name": "getPeltierDeltaT", "ret": "f32" },
+        { "name": "getPeltierVoltage", "ret": "f32" },
+        { "name": "getPeltierCurrent", "ret": "f32" },
+        { "name": "getPeltierPowerW", "ret": "f32" },
+        { "name": "getPeltierCOP", "ret": "f32" },
+        { "name": "getMhdFlowU", "ret": "f32" },
+        { "name": "getMhdBFieldT", "ret": "f32" },
+        { "name": "getMhdHartmann", "ret": "f32" },
+        { "name": "getMhdVoltage", "ret": "f32" },
+        { "name": "getMhdCurrent", "ret": "f32" },
+        { "name": "getMhdPowerW", "ret": "f32" },
+        { "name": "getMaglevGap", "ret": "f32" },
+        { "name": "getMaglevGapVel", "ret": "f32" },
+        { "name": "getMaglevGapMm", "ret": "f32" },
+        { "name": "getMaglevFieldT", "ret": "f32" },
+        { "name": "getMaglevLiftN", "ret": "f32" },
+        { "name": "getMaglevRpm", "ret": "f32" },
+        { "name": "getHomopolarOmega", "ret": "f32" },
+        { "name": "getHomopolarAngle", "ret": "f32" },
+        { "name": "getHomopolarRpm", "ret": "f32" },
+        { "name": "getHomopolarEmfV", "ret": "f32" },
+        { "name": "getHomopolarCurrentA", "ret": "f32" },
+        { "name": "getHomopolarFieldT", "ret": "f32" },
+        { "name": "getTransformerI1", "ret": "f32" },
+        { "name": "getTransformerI2", "ret": "f32" },
+        { "name": "getTransformerV1", "ret": "f32" },
+        { "name": "getTransformerV2", "ret": "f32" },
+        { "name": "getTransformerK", "ret": "f32" },
+        { "name": "getTransformerFluxN", "ret": "f32" },
+        { "name": "getTransformerLeakage", "ret": "bool" },
+        { "name": "setTransformerLeakage", "ret": "void", "args": [["enabled", "bool"]] },
+        { "name": "getVdgVoltage", "ret": "f32" },
+        { "name": "getVdgBeltMps", "ret": "f32" },
+        { "name": "getVdgChargeC", "ret": "f32" },
+        { "name": "getVdgSparkHz", "ret": "f32" },
+        { "name": "getHallVoltage", "ret": "f32" },
+        { "name": "getHallCurrent", "ret": "f32" },
+        { "name": "getHallFieldT", "ret": "f32" },
+        { "name": "getHallCoeff", "ret": "f32" },
+        { "name": "getHallCarrierMetal", "ret": "bool" },
+        { "name": "setHallCarrierMetal", "ret": "void", "args": [["metal", "bool"]] },
+        { "name": "setHallFieldCoupledT", "ret": "void", "args": [["fieldT", "f32"]] },
+        { "name": "getLorentzSledVms", "ret": "f32" },
+        { "name": "getLorentzCurrentA", "ret": "f32" },
+        { "name": "getLorentzFieldT", "ret": "f32" },
+        { "name": "getLorentzForceN", "ret": "f32" },
+        { "name": "getLorentzPositionM", "ret": "f32" },
+        { "name": "setLorentzFieldT", "ret": "void", "args": [["fieldT", "f32"]] },
+        { "name": "getRingHeightM", "ret": "f32" },
+        { "name": "getRingCurrentA", "ret": "f32" },
+        { "name": "getRingPrimaryIA", "ret": "f32" },
+        { "name": "getRingForceN", "ret": "f32" },
+        { "name": "getRingCouplingK", "ret": "f32" },
+        { "name": "getRingVelocityMps", "ret": "f32" },
+        { "name": "getEnergyLevel", "ret": "f32" },
+        {
+          "name": "setNetworkEdges",
+          "ret": "void",
+          "args": [
+            ["flatEdges", "f32[]"]
+          ]
+        },
+        { "name": "getNetworkEdgeCount", "ret": "i32" },
+        { "name": "getScratchPtr", "ret": "ptr", "args": [["count", "i32"]] },
+        { "name": "updateEnergyNetworkFromScratch", "ret": "void", "args": [["couplingEnabled", "bool"], ["segPowerW", "f32"], ["segEfficiencyPct", "f32"], ["modeCount", "i32"]] },
+        { "name": "plantStateSize", "ret": "i32", "args": [["mode", "i32"]] },
+        { "name": "plantSave", "ret": "i32", "args": [["mode", "i32"]] },
+        { "name": "plantLoad", "ret": "bool", "args": [["mode", "i32"], ["count", "i32"], ["layoutHash", "u32"]] },
+        { "name": "getNetworkSummary", "ret": "EnergyNetworkSummary" },
+        { "name": "getNetworkEdgeAllocatedW", "ret": "f32", "args": [["edgeIndex", "i32"]] },
+        { "name": "getNetworkDevicePower", "ret": "EnergyNetworkDevicePower", "args": [["mode", "i32"]] },
+        { "name": "getParticleBufferPtr", "ret": "ptr" },
+        { "name": "getParticleFloatCount", "ret": "i32" },
+        { "name": "getRollerStatePtr", "ret": "ptr" },
+        { "name": "getRollerStateFloatCount", "ret": "i32" },
+        { "name": "packRollerState", "ret": "void" },
+        { "name": "setIntegrator", "ret": "void", "args": [["method", "i32"]] },
+        { "name": "getIntegrator", "ret": "i32" },
+        { "name": "getOdeRhsEvals", "ret": "f64" },
+        { "name": "getOdeSteps", "ret": "f64" },
+        { "name": "getOdeRejected", "ret": "f64" },
+        { "name": "resetOdeStats", "ret": "void" }
+      ],
+      "static": [
+        { "name": "version", "ret": "cstr" }
+      ]
+    }
+  }
+}

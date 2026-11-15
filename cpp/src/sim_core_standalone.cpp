@@ -109,7 +109,8 @@ int main(int argc, char** argv) {
             if (std::strcmp(argv[i + 1], "bench") == 0) return run_bench_smoke();
             if (std::strcmp(argv[i + 1], "golden") == 0) return run_golden();
             if (std::strcmp(argv[i + 1], "snapshots") == 0) return run_snapshots();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|lorentz-sled|jumping-ring|chores|energy-network|catalog|bench|golden|snapshots)\n", argv[i + 1]);
+            if (std::strcmp(argv[i + 1], "integrators") == 0) return run_integrators();
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|lorentz-sled|jumping-ring|chores|energy-network|catalog|bench|golden|snapshots|integrators)\n", argv[i + 1]);
             return 2;
         }
     }

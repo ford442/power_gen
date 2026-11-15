@@ -9,8 +9,8 @@
 
 #include <cstdint>
 
-static constexpr uint32_t PLANT_STATE_LAYOUT_HASH = 0x21801834u;
-static constexpr const char* DEVICE_CATALOG_HASH = "81caf605beca";
+static constexpr uint32_t PLANT_STATE_LAYOUT_HASH = 0x1d82ad14u;
+static constexpr const char* DEVICE_CATALOG_HASH = "60cbbf986925";
 
 static constexpr int PLANT_STATE_SIZES[] = {
     137, // SIM_MODE_SEG
@@ -20,12 +20,12 @@ static constexpr int PLANT_STATE_SIZES[] = {
     10, // SIM_MODE_PELTIER
     9, // SIM_MODE_MHD
     9, // SIM_MODE_MAGLEV
-    9, // SIM_MODE_HOMOPOLAR
+    11, // SIM_MODE_HOMOPOLAR
     11, // SIM_MODE_TRANSFORMER
     10, // SIM_MODE_VDG
     9, // SIM_MODE_HALL
     8, // SIM_MODE_LORENTZ_SLED
-    10, // SIM_MODE_JUMPING_RING
+    12, // SIM_MODE_JUMPING_RING
 };
 
 static_assert(sizeof(PLANT_STATE_SIZES) / sizeof(PLANT_STATE_SIZES[0]) == 13,
