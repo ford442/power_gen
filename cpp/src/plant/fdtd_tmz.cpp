@@ -110,8 +110,17 @@ void FdtdTmzGrid::setMaterials(const float* interleaved, int count) {
     _hasMaterials = true;
 }
 
+// Wasm SIMD for this kernel only (cpp/README.md → flag study): module-wide
+// -msimd128 vectorises the integrators' 4-wide loops badly and costs the
+// jumping ring 6–11 %, while this loop gets ~2.8×. Native builds ignore it.
+#if defined(__wasm__)
+#define SIM_CORE_SIMD_KERNEL __attribute__((target("simd128")))
+#else
+#define SIM_CORE_SIMD_KERNEL
+#endif
+
 template <bool kMaterials>
-void FdtdTmzGrid::_stepOnce() {
+SIM_CORE_SIMD_KERNEL void FdtdTmzGrid::_stepOnce() {
     const int n = _n;
     const float S = _courant;
     float* __restrict ez = _ez.data();

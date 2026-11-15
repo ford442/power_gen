@@ -3,8 +3,11 @@
  * 700-line gate for hand-written source under src/** and cpp/src/**.
  *
  * A file past the line is a module asking to be split. Skipped:
- *   - any `generated/` directory (codegen output)
- *   - `src/public/**` (static assets), `src/wasm/sim-core/**` (Emscripten glue)
+ *   - any `generated/` directory (codegen output), and any file whose first
+ *     line says AUTO-GENERATED (cpp/src/sim_core_abi.cpp,
+ *     src/wasm/sim-core/abi.generated.ts — cpp/abi.json's codegen)
+ *   - `src/public/**` (static assets), `src/wasm/sim-core/**` (the committed
+ *     binary and its generated ABI)
  *   - non-source extensions (json, md, images, …)
  *
  * ALLOWLIST pins a file that is over the line today at its current length so
@@ -47,8 +50,10 @@ for (const r of ROOTS) {
     const rel = relative(ROOT, full).split('\\').join('/');
     if (SKIP_PREFIXES.some((p) => rel.startsWith(p))) continue;
     if (!EXTENSIONS.has(extname(rel))) continue;
+    const text = readFileSync(full, 'utf8');
+    if (/AUTO-GENERATED/.test(text.split('\n', 2).slice(0, 2).join('\n'))) continue;
     scanned++;
-    const lines = countLines(readFileSync(full, 'utf8'));
+    const lines = countLines(text);
     const cap = ALLOWLIST[rel] ?? MAX_LINES;
     if (lines > cap) {
       failures.push(

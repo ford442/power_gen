@@ -59,7 +59,7 @@ export interface CppPlant {
   setKelvinSeedV(seedV: number): boolean;
   setLorentzFieldT(fieldT: number): void;
   getRollerStateFloatView?(): Float32Array | null;
-  /** The Embind simulator (`SEGSim.raw`), for `plantSave` / `plantLoad`. */
+  /** The C ABI simulator (`SEGSim.raw`), for `plantSave` / `plantLoad`. */
   readonly raw?: SEGSimulatorInstance | null;
 }
 

@@ -87,7 +87,7 @@ export class SEGSim {
 
   /**
    * A simulator on an already-instantiated module — the headless experiment
-   * runner in Node loads `sim_core.js` itself (no fetch, no `<script>`).
+   * runner in Node instantiates `sim_core.wasm` itself (no fetch, no `<script>`).
    */
   static fromModule(mod: SimCoreModule): SEGSim {
     return new SEGSim(new mod.SEGSimulator(), mod);
@@ -532,7 +532,7 @@ export class SEGSim {
   }
 
   /**
-   * The Embind instance, for lazy chunks that drive a binding this wrapper
+   * The C ABI instance (abi.generated.ts), for lazy chunks that drive an export this wrapper
    * does not (plant snapshots: src/wasm/plant-state-io.ts).
    */
   get raw(): SEGSimulatorInstance | null {

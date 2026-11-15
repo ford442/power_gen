@@ -95,7 +95,10 @@ npm run typecheck      # tsc on TS + checkJs on renderers/webgl2 + seg-geometry 
 npm run lint           # ESLint (typed); raw location/storage access, wgsl-include imports, floating promises
 npm run test:unit      # every scripts/tests/*.test.mjs under node:test, one summary
 npm run test:coverage  # same, with a coverage report (no gate yet)
-npm run codegen:catalog  # physics/devices.json → TS/C++/WGSL/docs
+npm run codegen:catalog  # physics/devices.json → TS/C++/WGSL/docs (+ generated/plant-ode.{h,ts})
+npm run codegen:wasm-abi # cpp/abi.json → C ABI shim + src/wasm/sim-core/abi.generated.ts (no Embind, no glue)
+npm run test:integrators # rk4 / dopri5 / ros23 vs the reference, native + TS (docs/INTEGRATORS.md)
+npm run bench:wasm       # sim_core.wasm throughput + size through the real ABI (flag study, cpp/README.md)
 npm run codegen:lab-config # config/lab-config.json → generated/lab-config.ts + docs/AGENTS.md matrix
 npm run check:lab-config # generated lab-config files are current (raw-access ban is now `lint`)
 npm run test:lab-config  # parser, precedence, #lab=v1 mapping, #lab2= round-trip

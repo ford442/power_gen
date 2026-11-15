@@ -22,3 +22,9 @@
 -sMALLOC=emmalloc
 -sFILESYSTEM=0
 -fno-exceptions
+# Flag study (cpp/README.md → "Compile-flag study", #254 §4): -flto is 1.2 %
+# smaller and +17 % on the jumping ring's RK4 path; everything else within
+# noise. SIMD is *not* module-wide (-msimd128 costs the integrators 6–11 %):
+# the FDTD kernel opts in with __attribute__((target("simd128"))) and runs
+# 2.8× faster. -Oz / an extra wasm-opt pass were measured and rejected.
+-flto

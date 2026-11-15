@@ -81,6 +81,7 @@
     "wasm:build-debug": "bash scripts/build-wasm.sh --debug",
     "wasm:native": "bash scripts/build-wasm.sh --native",
     "wasm:native:san": "bash scripts/native-san.sh",
+    "bench:wasm": "node scripts/bench-wasm.mjs",
     "check:post": "node scripts/check-post-contracts.mjs",
     "check:file-size": "node scripts/check-file-size.mjs",
     "check:entry-chunk": "node scripts/check-entry-chunk.mjs"
