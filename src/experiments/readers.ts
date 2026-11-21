@@ -6,12 +6,15 @@
  * ramp's own setpoint can be an X axis. Non-SEG keys are the device's
  * `physicsState` field of the same name — exactly what TelemetryHub publishes.
  * SEG keys come from the operator telemetry (SegOperatorTelemetry), mapped
- * below.
+ * below. Field-volume keys (`<bench>.field.probe.Bz`, `<bench>.field.drive.<group>`)
+ * are computed from the bench's state by src/physics/field-probe.ts — CPU,
+ * headless-safe (ADR-0017).
  */
 import { DEVICE_CATALOG } from '../../generated/device-catalog';
 import { SEG_SPEC } from '../seg-operator-state';
 import type { SegOperatorTelemetry } from '../telemetry/types';
 import { knobSpec, type KnobTarget } from './knobs';
+import { FIELD_RECORD_KEYS, readFieldRecordKey } from '../physics/field-probe';
 
 /** Telemetry key → owning catalog device id. */
 export const TELEMETRY_KEY_DEVICE: ReadonlyMap<string, string> = new Map(
@@ -37,13 +40,15 @@ export interface PlantView extends KnobTarget {
 }
 
 export function isRecordKey(key: string): boolean {
-  return TELEMETRY_KEY_DEVICE.has(key) || knobSpec(key) !== undefined;
+  return TELEMETRY_KEY_DEVICE.has(key) || FIELD_RECORD_KEYS.has(key) || knobSpec(key) !== undefined;
 }
 
 /** Device a key depends on (null for operator keys: SEG telemetry, `drive`). */
 export function recordKeyDevice(key: string): string | null {
   const dev = TELEMETRY_KEY_DEVICE.get(key);
   if (dev) return dev === 'seg' ? null : dev;
+  const field = FIELD_RECORD_KEYS.get(key);
+  if (field) return field.deviceId;
   return knobSpec(key)?.deviceId ?? null;
 }
 
@@ -59,6 +64,11 @@ export function readRecordKey(view: PlantView, key: string): number {
     const d = view.devices[dev];
     const v = ((d?.physicsState ?? d?.physics) as Record<string, unknown> | undefined)?.[key];
     return typeof v === 'number' && Number.isFinite(v) ? v : Number.NaN;
+  }
+  const field = FIELD_RECORD_KEYS.get(key);
+  if (field) {
+    const d = view.devices[field.deviceId];
+    return readFieldRecordKey(key, (d?.physicsState ?? d?.physics) as Record<string, unknown> | undefined);
   }
   const knob = knobSpec(key);
   return knob?.read(view) ?? Number.NaN;

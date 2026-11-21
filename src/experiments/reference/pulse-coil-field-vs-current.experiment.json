@@ -1,0 +1,15 @@
+{
+  "id": "pulse-coil-field-vs-current",
+  "title": "Coil field vs coil current (field-volume probe)",
+  "description": "Charge the bank and let the coil fire. The field probe sits at the centre of the 48-turn coil and reads the exact field of the modelled solenoid each sample; against the coil's signed current it is a line through the origin with slope μ0·N/√(L² + 4a²) ≈ 3.38 × 10⁻⁴ T/A for L = 154 mm, a = 45 mm. The ideal-solenoid model has no iron armature, so this checks the field model against its textbook formula, not the bench against a gaussmeter. Simulated, not metrology.",
+  "config": { "mode": "pulse-coil", "seed": 42 },
+  "steps": [
+    { "at": 0, "set": { "drive": 1, "pulse-coil.chargeV": 40, "pulse-coil.field.probe.x": 0, "pulse-coil.field.probe.y": 0.165, "pulse-coil.field.probe.z": 0 } },
+    { "at": 0, "record": ["pulse-coil.field.drive.coil", "pulse-coil.field.probe.By", "pulse-coil.field.probe.B", "pulseCoilVCap"], "hz": 60, "until": 8 },
+    { "at": 8, "expect": [
+      { "fit": { "x": "pulse-coil.field.drive.coil", "y": "pulse-coil.field.probe.By", "model": "linear", "r2": { "gt": 0.9999 }, "slope": { "approx": 3.3796e-4, "rel": 0.01 }, "intercept": { "between": [-1e-6, 1e-6] } } },
+      { "stat": { "key": "pulse-coil.field.probe.B", "of": "max", "gt": 0.001 } }
+    ] }
+  ],
+  "plots": [{ "x": "pulse-coil.field.drive.coil", "y": "pulse-coil.field.probe.By", "fit": "linear" }]
+}

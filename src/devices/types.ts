@@ -188,6 +188,8 @@ export interface SegFrameBuffers {
  * silently missing draw.
  */
 export interface VisualizerLike {
+  /** Device whose fallback flux lines the field-volume tracer replaces this frame (ADR-0017). */
+  fieldVolumeLinesOwner?: string | null;
   time: number;
   profiler?: {
     qualityLevel: number;

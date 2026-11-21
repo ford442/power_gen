@@ -12,6 +12,8 @@ import type { OverviewCullPass } from '../devices/overview-cull';
 import type { createIblResources } from '../ibl-prefilter';
 import type { IblPrefilterCompute } from '../ibl-prefilter-gpu';
 import type { FdtdSlicePass } from '../devices/quanta/fdtd-slice-pass';
+import type { FieldVolumePass } from './field-volume-pass';
+import type { FieldReadout, FieldViewState } from './field-volume-drive';
 import type { getPostQualityGates } from '../post-processing-config';
 import type { BloomChain, BloomChainPipelines } from './bloom-chain';
 import type { FrameGraph, FrameGraphReport } from './frame-graph';
@@ -51,6 +53,19 @@ export interface VisualizerHostFields {
 
   /** Lazily built on the first frame its gate could open; null if the build failed. */
   fdtdSlice?: FdtdSlicePass | null;
+  /** Field volume (ADR-0017): lazily built like fdtdSlice; null if the build failed. */
+  fieldVolume?: FieldVolumePass | null;
+  _fieldVolumeInit?: Promise<void> | null;
+  /** `?fieldVolume=0` kill switch (read once from LabConfig on first use). */
+  fieldVolumeEnabled?: boolean;
+  /** Slice / iso / particle choices the field panel edits. */
+  fieldView?: FieldViewState;
+  /** Last frame's probe and scaling numbers for the focused field bench. */
+  fieldReadout?: FieldReadout | null;
+  /** Device whose fallback flux lines the volume tracer replaces this frame. */
+  fieldVolumeLinesOwner?: string | null;
+  /** Isosurfaces drawn this frame (SEG anomaly walls stand aside). */
+  fieldIsoActive?: boolean;
   ssrPipeline?: GPUComputePipeline | null;
   ssrParamsBuffer?: GPUBuffer | null;
   ssrTexture?: GPUTexture | null;

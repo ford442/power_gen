@@ -25,6 +25,8 @@ import {
   speedMotionBlur
 } from './render-passes';
 import type { ShadowFit } from './shadow-map';
+import type { FieldVolumePass } from './field-volume-pass';
+import { fieldVolumeLifetime } from './field-volume-drive';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { DeviceInstance } from '../device-instance.js';
 import type { PerformanceProfiler } from '../performance-profiler';
@@ -67,6 +69,8 @@ export interface FrameCtx {
   cullActive: boolean;
   isDeviceVisible: (device: RenderDevice) => boolean;
   fdtdSlice: ReturnType<Host['updateFdtdSlice']>;
+  /** Field volume pass when its gate is open this frame (ADR-0017). */
+  fieldVolume: FieldVolumePass | null;
   overview: boolean;
   postGates: ReturnType<typeof getPostQualityGates>;
   /** 4× MSAA scene: `high` tier + focus (`'ultra'` is never assigned by auto-quality). */
@@ -92,7 +96,7 @@ export interface FrameCtx {
 function frameContext(
   host: Host,
   base: Pick<FrameCtx, 'profiler' | 'globalUniforms' | 'gpuContext' | 'cull' | 'cullActive'
-    | 'isDeviceVisible' | 'fdtdSlice'>
+    | 'isDeviceVisible' | 'fdtdSlice' | 'fieldVolume'>
 ): FrameCtx {
   const { profiler } = base;
   const overview = host.isOverviewMode();
@@ -186,12 +190,21 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
     // Last frame's image: valid at frame start, written at the end.
     .addResource('history', { imported: true, lifetime: life.history })
     .addResource('shadowMap', { lifetime: host.shadowMap!.lifetime() })
+    // n³ texture + line / particle buffers: focus, medium tier and up only.
+    .addResource('fieldVolume', { lifetime: fieldVolumeLifetime(host) })
     .addResource('bloom')
     .addResource('canvas');
 
   graph.addPass('compute', {
     writes: ['simBuffers'],
     encode: (encoder, res, ctx) => encodeCompute(host, encoder, ctx, res)
+  });
+  // Its own compute pass, so `?gpuTiming=1` reports it apart from the rest.
+  graph.addPass('field-volume', {
+    enabled: (ctx) => !!ctx.fieldVolume,
+    reads: ['simBuffers'],
+    writes: ['fieldVolume'],
+    encode: (encoder, res, ctx) => ctx.fieldVolume!.encode(encoder, res.timestamps('both'))
   });
   // Before the scene: receivers sample the map through the frame group.
   graph.addPass('shadow', {
@@ -204,7 +217,11 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
     }
   });
   graph.addPass('scene', {
-    reads: (ctx) => (ctx.shadow ? ['simBuffers', 'shadowMap'] : ['simBuffers']),
+    reads: (ctx) => [
+      'simBuffers',
+      ...(ctx.shadow ? ['shadowMap'] : []),
+      ...(ctx.fieldVolume ? ['fieldVolume'] : [])
+    ],
     // MSAA resolves colour + G-buffer into the single-sample targets; depth
     // has no resolveTarget, so the plain depth is not written on those frames.
     writes: (ctx) => (ctx.msaa
@@ -285,7 +302,8 @@ export const renderEncodeMethods: ThisType<Host> & {
     cull: Host['overviewCull'],
     cullActive: boolean,
     isDeviceVisible: (device: RenderDevice) => boolean,
-    fdtdSlice: ReturnType<Host['updateFdtdSlice']>
+    fdtdSlice: ReturnType<Host['updateFdtdSlice']>,
+    fieldVolume?: FieldVolumePass | null
   ): void;
 } = {
   renderAnomalyWalls(
@@ -415,9 +433,9 @@ export const renderEncodeMethods: ThisType<Host> & {
   },
 
   /** One frame: settle gates, run the graph, submit, schedule the timestamp readback. */
-  _encodeFrame(profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice) {
+  _encodeFrame(profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume = null) {
     const ctx = frameContext(this, {
-      profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice
+      profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume
     });
     const graph = (this._frameGraph ??= buildFrameGraph(this));
     const encoder = this.device.createCommandEncoder({ label: 'frame' });

@@ -46,7 +46,9 @@ export function encodeCompute(host: Host, encoder: GPUCommandEncoder, ctx: Frame
       pass.dispatchWorkgroups(Math.ceil(MAX_ROLLERS / 64));
     }
     // One thread per flux line (up to 168).
-    if (segDevice.fluxTracerPipeline && segDevice.fluxTracerBindGroup && profiler.qualityLevel > 0.32) {
+    // The volume tracer replaces it in focus (ADR-0017); it stays the overview / low-tier line source.
+    if (segDevice.fluxTracerPipeline && segDevice.fluxTracerBindGroup && profiler.qualityLevel > 0.32
+        && host.fieldVolumeLinesOwner !== 'seg') {
       pass.setPipeline(segDevice.fluxTracerPipeline);
       pass.setBindGroup(0, segDevice.fluxTracerBindGroup);
       pass.dispatchWorkgroups(Math.ceil((host.segLayout?.totalFluxLines ?? 168) / 64));
@@ -55,7 +57,7 @@ export function encodeCompute(host: Host, encoder: GPUCommandEncoder, ctx: Frame
 
   const xfmr = host.devices['transformer'] as RenderDevice | undefined;
   if (xfmr && isDeviceVisible(xfmr) && xfmr.transformerFluxPipeline && xfmr.transformerFluxBindGroup
-      && profiler.qualityLevel > 0.28) {
+      && profiler.qualityLevel > 0.28 && host.fieldVolumeLinesOwner !== 'transformer') {
     pass.setPipeline(xfmr.transformerFluxPipeline);
     pass.setBindGroup(0, xfmr.transformerFluxBindGroup);
     pass.dispatchWorkgroups(Math.ceil((xfmr.transformerFluxLineCount || 24) / 64));
@@ -195,9 +197,18 @@ export function encodeScene(host: Host, encoder: GPUCommandEncoder, ctx: FrameCt
   // Transparent panel: after the opaque device meshes it is depth-tested against.
   ctx.fdtdSlice?.draw(pass, msaa);
 
-  // Roschin–Godin magnetic wall shells overlay the SEG.
+  // Field-volume lines and particle trails for the focused bench (ADR-0017).
+  const field = ctx.fieldVolume;
+  const fieldDevice = field ? (host.devices[host.currentView] as RenderDevice | undefined) : undefined;
+  if (field && fieldDevice) field.drawLines(pass, msaa, fieldDevice);
+
+  // Roschin–Godin magnetic wall shells overlay the SEG — unless the computed
+  // |B| shells are on, which replace them.
   const segDevice = host.devices['seg'] as RenderDevice | undefined;
-  if (segDevice && isDeviceVisible(segDevice)) host.renderAnomalyWalls(pass, segDevice);
+  if (segDevice && isDeviceVisible(segDevice) && !host.fieldIsoActive) host.renderAnomalyWalls(pass, segDevice);
+
+  // Isosurfaces and the slice plane last: transparent, depth-tested, no depth write.
+  field?.drawOverlays(pass, msaa);
 
   if (ctx.overview && host.energyPipePipeline && quality > 0.35) {
     for (const pipe of host.energyPipes) pipe.render(pass, host.energyPipePipeline);

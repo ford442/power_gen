@@ -4,6 +4,7 @@
 // `init()` / `_bootGpuState()` / `recoverFromDeviceLoss()` methods delegate
 // here with `.call(this, …)` — no mixin is merged onto the instance or the
 // prototype (see ADR-0016; #244 was a WebGPU boot break from that pattern).
+import { fieldVolumeInfo, installFieldVolumeDebug } from './field-volume-drive';
 import { DEPTH_FORMAT, WebGPUManager } from '../webgpu-manager';
 import { PipelineLayoutCache } from '../pipeline-layout-cache';
 import { PerformanceProfiler } from '../performance-profiler';
@@ -51,6 +52,7 @@ export async function initVisualizer(this: Host): Promise<void> {
       device: this.device,
       pipelineCache: this.pipelineCache
     });
+    installFieldVolumeDebug(this);
     window.getRendererInfo = () => ({
       renderer: 'webgpu',
       fps: (this.profiler as { lastFps?: number; fps?: number } | null)?.fps
@@ -94,6 +96,7 @@ export async function initVisualizer(this: Host): Promise<void> {
         const estimate = this.profiler?.gpuMemoryEstimate();
         return estimate ? { ...estimate, postTargetBytes: postTargetBytes(estimate.textures) } : undefined;
       })(),
+      fieldVolume: fieldVolumeInfo(this),
       frameGraph: this._frameGraph
         ? {
             passes: this._frameGraph.passNames(),
@@ -246,6 +249,9 @@ export async function recoverFromDeviceLoss(
     this.fdtdSlice?.destroy();
     this.fdtdSlice = undefined;
     this._fdtdSliceInit = null;
+    this.fieldVolume?.destroy();
+    this.fieldVolume = undefined;
+    this._fieldVolumeInit = null;
     this.overviewCull?.destroy();
     this.overviewCull = null;
 

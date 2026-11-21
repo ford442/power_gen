@@ -53,13 +53,15 @@ export const drawSegWebgpu: NonNullable<DevicePlugin['drawWebgpu']> = (instance,
     renderPass.drawIndexed(v.cylinderBuffer!.indexCount, numCoils);
   }
 
-  if (instance.fluxSegmentRenderBindGroup && instance.pipelineManager?.fluxSegmentPipeline && instance.fieldLineEnabled) {
+  // In focus at medium+ the field-volume tracer draws the lines (ADR-0017); these are the fallback.
+  const volumeLines = v.fieldVolumeLinesOwner === instance.id;
+  if (!volumeLines && instance.fluxSegmentRenderBindGroup && instance.pipelineManager?.fluxSegmentPipeline && instance.fieldLineEnabled) {
     const qualityScale = v.profiler!.qualityLevel;
     const totalSegments = Math.floor(instance.geometry.fluxTotalSegments! * qualityScale);
     renderPass.setPipeline(instance.pipelineManager.fluxSegmentPipeline);
     renderPass.setBindGroup(1, instance.fluxSegmentRenderBindGroup, modeZero);
     renderPass.draw(4, totalSegments);
-  } else if (instance.fieldLineParticles && instance.fieldLineEnabled) {
+  } else if (!volumeLines && instance.fieldLineParticles && instance.fieldLineEnabled) {
     const qualityScale = v.profiler!.qualityLevel;
     const fieldLineCount = Math.floor(instance.fieldLineCount * qualityScale);
     const fieldLineBindGroup = instance._cacheBg(`field:${instance.id}`, 'fieldParticles', [
