@@ -85,7 +85,9 @@ class LiveRun implements LabExperimentClock {
     private readonly opts: LiveRunOpts,
     private readonly resolve: (run: RecordedRun) => void,
     private readonly reject: (err: Error) => void,
-    sweepPoint: Record<string, number> = {}
+    sweepPoint: Record<string, number> = {},
+    /** The experiment's wired circuit, when its config carries one. */
+    private readonly circuitHost: { readonly loaded: boolean; readonly message: string } | null = null
   ) {
     this.interp = new ExperimentInterpreter(v, sweepPoint);
     const w = window as unknown as Record<string, unknown>;
@@ -134,6 +136,10 @@ class LiveRun implements LabExperimentClock {
   afterPublish(): void {
     if (this.finished || !this.stepped) return;
     this.stepped = false;
+    // A circuit experiment whose solver stopped mid-batch must not record on
+    // (the host has released it, so its keys read NaN or the plant's own state).
+    const c = this.circuitHost;
+    if (c && !c.loaded) return void this.stop(`the circuit stopped: ${c.message}`);
     this.t = this.pendingT;
     this.interp.observe(this.t, this.host);
     const f = Math.min(1, this.t / this.v.duration);
@@ -225,16 +231,18 @@ export async function runLive(
   // A wired circuit (#256) loads without opening the wiring view over the run.
   const { circuit, ...rest } = live;
   await applyLabConfig(circuit == null ? live : rest);
+  let circuitHost: { readonly loaded: boolean; readonly message: string } | null = null;
   if (circuit != null) {
     const { applyCircuitConfig } = await import('../circuit/session-circuit');
     const host = await applyCircuitConfig(circuit, { open: false });
     if (!host?.loaded) throw new Error(`the experiment's circuit did not load: ${host?.message || 'no lab session'}`);
+    circuitHost = host;
   }
   if (session.plantFocus() !== v.focus) throw new Error(`could not switch to ${v.focus}`);
 
   if (!segOperator.isRunning) segOperator.start();
   const run = await new Promise<RecordedRun>((resolve, reject) => {
-    session.experimentClock = new LiveRun(session, v, segOperator.epoch, opts, resolve, reject, sweepPoint);
+    session.experimentClock = new LiveRun(session, v, segOperator.epoch, opts, resolve, reject, sweepPoint, circuitHost);
   });
   return { run, warnings };
 }

@@ -94,7 +94,7 @@ loop as a `TypeError`.
 | JS glue / loader chunk | `sim_core.js` 22,582 B raw, 9,157 B gzip | `instantiate-*.js` 10,084 B raw, **2,598 B gzip (−72 %)** |
 | Exports | 118 bound functions | 142 (adds the FDTD grid and integrator stats); 166 with the Circuit Lab's `CircuitSim` (#256) |
 | `.wasm`, same sources | 83,332 B | 68,135 B (Embind's class registry gone) |
-| `.wasm` today | | 121,992 B with the MNA solver (#256; was 74,145 B — [`cpp/bench-baseline.json`](../cpp/bench-baseline.json)) |
+| `.wasm` today | | 122,380 B with the MNA solver (#256; was 74,145 B — [`cpp/bench-baseline.json`](../cpp/bench-baseline.json)) |
 
 With no Emscripten JS left, there is no `MODULARIZE`, `EXPORTED_RUNTIME_METHODS`,
 `DYNAMIC_EXECUTION`, `--closure` or `SINGLE_FILE` to configure. The module has

@@ -45,31 +45,36 @@ export function runExperimentSync(v: ValidatedExperiment, opts: OfflineRunOpts):
 
   const circuitModule = v.config.circuit != null ? (opts.circuitModule ?? getSimCore()) : null;
   const bench = new ExperimentBench(v.focus, v.devices, v.config, opts.cpp, opts.cppModule ?? null, circuitModule);
-  if (v.snapshot) for (const w of bench.restore(v.snapshot)) opts.onWarning?.(w);
-  const interp = new ExperimentInterpreter(v, opts.sweepPoint);
-  const host = {
-    write: (k: string, value: number) => { knobSpec(k)?.write(bench, value); },
-    read: (k: string) => readRecordKey(bench, k)
-  };
+  try {
+    if (v.snapshot) for (const w of bench.restore(v.snapshot)) opts.onWarning?.(w);
+    const interp = new ExperimentInterpreter(v, opts.sweepPoint);
+    const host = {
+      write: (k: string, value: number) => { knobSpec(k)?.write(bench, value); },
+      read: (k: string) => readRecordKey(bench, k)
+    };
 
-  const steps = Math.max(1, Math.ceil(v.duration / v.dt - 1e-9));
-  const every = Math.max(1, Math.floor(steps / 50));
-  interp.applyDue(0, host);
-  interp.observe(0, host);
-  for (let i = 1; i <= steps; i++) {
-    bench.step(v.dt);
-    // i·dt, not a running sum: a long run must not drift off the step grid.
-    const t = i * v.dt;
-    interp.observe(t, host);
-    if (i < steps) interp.applyDue(t, host);
-    if (opts.onProgress && i % every === 0) opts.onProgress(i / steps);
+    const steps = Math.max(1, Math.ceil(v.duration / v.dt - 1e-9));
+    const every = Math.max(1, Math.floor(steps / 50));
+    interp.applyDue(0, host);
+    interp.observe(0, host);
+    for (let i = 1; i <= steps; i++) {
+      bench.step(v.dt);
+      // i·dt, not a running sum: a long run must not drift off the step grid.
+      const t = i * v.dt;
+      interp.observe(t, host);
+      if (i < steps) interp.applyDue(t, host);
+      if (opts.onProgress && i % every === 0) opts.onProgress(i / steps);
+    }
+    opts.onProgress?.(1);
+    return interp.toRun({
+      runner: 'offline',
+      backend: bench.backend,
+      startedAt: opts.startedAt ?? new Date().toISOString()
+    });
+  } finally {
+    // A sweep builds a bench per point; each circuit one holds a native solver.
+    bench.dispose();
   }
-  opts.onProgress?.(1);
-  return interp.toRun({
-    runner: 'offline',
-    backend: bench.backend,
-    startedAt: opts.startedAt ?? new Date().toISOString()
-  });
 }
 
 /** Column name → reducer over one run's window. */

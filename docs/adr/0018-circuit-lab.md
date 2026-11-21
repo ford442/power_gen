@@ -72,7 +72,9 @@ residual measured the estimate, not conservation.
      - `after` reads circuit → plant from the window integrals: the disc's
        torque k·ī with its own drive and drag, and the armature's ⟨i²⟩.
    - A wired bench is marked `_circuitOwned`: its JS plant skips it and its
-     C++ focus result is ignored, so it is never stepped twice.
+     C++ focus result is ignored, so it is never stepped twice. A bench takes
+     one PORT (validation refuses a second). If the solver stops mid-run,
+     the host releases it and the bench goes back to its own physics.
    - Replay freezes the circuit. Leaving replay and an operator RESET
      restore its initial conditions.
 5. **Energy books instead of estimates on the wired edges.** Per window:
@@ -80,8 +82,17 @@ residual measured the estimate, not conservation.
    M·i₁i₂ change. These are Tellegen's theorem on the discrete solution, so
    what is left is the trapezoid's O(h³). An exponential 1 s window gives
    the residual the energy network shows. Its disclaimer lists which edges
-   are solved (Σ v·i) and which are still estimated. A 3-D cable from the
-   bench to the circuit (EnergyPipe Bézier) flows ∝ the port's rms current.
+   are solved (Σ v·i) and which are still estimated. A port's edge is the
+   power across its terminals: minus Σ v·i over the port's own elements, so
+   a bench's winding losses are not counted as delivered. A 3-D cable from
+   the bench to the circuit (EnergyPipe Bézier) flows ∝ the port's rms
+   current.
+   - A live edit to a C, L or k keeps each capacitor's voltage and each
+     inductor's current, and re-derives charge and flux from them. Stored
+     energy then describes the state the next step starts from, and the
+     energy the edit adds or removes falls between two windows. (Keeping the
+     charge instead booked about 900 % of the moved energy as residual after
+     C was doubled mid-swing.)
 6. **Floating common modes.** A bridge's floating source or secondary,
    with every diode off, is held only by junction conductance: a near-null
    direction (cond 1e10–1e14) where LU round-off makes Newton 2-cycle at the
@@ -150,7 +161,8 @@ residual measured the estimate, not conservation.
 - **Wired edges are measured, not estimated.** The energy network's
   residual on wired edges is a real conservation check; the other edges
   stay estimates and the disclaimer says which are which.
-- **`sim_core.wasm` grows from 74 KB to 122 KB** (brotli 32 → 51 KB). The
+- **`sim_core.wasm` grows from 74 KB to 122 KB** (brotli 32 → 51 KB;
+  122,380 B raw). The
   plants' throughput is unchanged. About 8.5 KB of the growth is musl
   `printf` for the error texts. `cpp/bench-baseline.json` is re-baselined
   with that note.

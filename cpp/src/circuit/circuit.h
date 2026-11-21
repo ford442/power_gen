@@ -248,6 +248,8 @@ private:
     int _parse(const float* p, int count);
     void _layout();
     void _resetState();
+    /// q = C·v, λ = L·i + Σ M·i_other from the present v / i (and parameters).
+    void _syncCharges();
     void _writeReadout(int status);
 
     // stamps.cpp

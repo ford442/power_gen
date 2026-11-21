@@ -157,24 +157,10 @@ void CircuitSim::_accept(double t1, double h, Method m) {
     }
     // Reactive states: q = C·v, λ = L·i + Σ M·i_other (after every current is in).
     for (Element& e : _el) {
-        if (e.kind == Kind::C) {
-            e.dqPrev = e.dq;
-            e.dq = e.i;
-            e.q = e.p[0] * e.v;
-        } else if (e.kind == Kind::L) {
-            e.dqPrev = e.dq;
-            e.dq = e.v;
-            e.q = e.p[0] * e.i;
-        }
+        if (e.kind == Kind::C) { e.dqPrev = e.dq; e.dq = e.i; }
+        else if (e.kind == Kind::L) { e.dqPrev = e.dq; e.dq = e.v; }
     }
-    for (int ki : _coupling) {
-        const Element& k = _el[ki];
-        Element& a = _el[static_cast<int>(k.p[0])];
-        Element& b = _el[static_cast<int>(k.p[1])];
-        const double M = k.p[2] * std::sqrt(a.p[0] * b.p[0]);
-        a.q += M * b.i;
-        b.q += M * a.i;
-    }
+    _syncCharges();
     for (Element& e : _el) {
         if (e.kind == Kind::C || e.kind == Kind::L) e.qPeak = std::max(e.qPeak, std::abs(e.q));
     }

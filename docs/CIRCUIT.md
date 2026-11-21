@@ -38,12 +38,27 @@ without a GPU add `&renderer=webgl2`: the circuit solves on WebGL2 too.
 | **Palette** | R, C, L, diode, switch, V and I sources, voltmeter, ammeter, ground, and one **⎓ glyph per bench port** in the catalog. Drag a part onto the sheet. |
 | **Sheet** | Drag a part to move it. Click a terminal, then another, to wire them. Click a part or wire to select it. **Delete** / Backspace removes the selection; **R** rotates a part a quarter turn. |
 | **Inspector** | The selected part's values, typed with SI prefixes (`4.7k`, `100n`, `2.2m`, `1meg`, `10µ` or `10u`). Also a V / I source's waveform (DC, SIN, PULSE), a name for each terminal's node, and the part's live i / v / p. |
-| **Meters** | Every voltmeter and ammeter, each bench port's power, and the energy books' residual. |
+| **Meters** | Every voltmeter and ammeter, each bench port's power (what crosses its terminals), and the energy books' residual. |
 | **Scope** | Two channels of any `circuit.*` key, with a rising-edge trigger on channel 1 and a span from 5 ms to 1 s. **Send to analysis** hands the buffer to the uPlot analysis panel as a run ([`ANALYSIS.md`](ANALYSIS.md)). |
 
 A value edit on a running circuit is applied live: the run continues from
-where it is. A topology edit (adding, removing or rewiring a part)
-recompiles the netlist and restarts the circuit from its initial conditions.
+where it is. A capacitor keeps its voltage and an inductor its current (a
+coupling's `k` too), and charge and flux follow from the new value. The
+energy the edit adds or removes lands between two windows of the books,
+not inside one. A topology edit (adding, removing or rewiring a part)
+recompiles the netlist and restarts the circuit from its initial
+conditions. Deleting an inductor also deletes the couplings that name it.
+
+**Keyboard.** A palette button pressed with Enter or Space places its part
+on a free spot and focuses it. Tab walks the parts and terminals. Enter or
+Space on a part selects it; on a terminal it starts or finishes a wire, and
+Esc cancels a wire in progress. The arrow keys move the selected part; R
+rotates it and Delete removes it.
+
+If the solver stops mid-run (a singular matrix, or a step that will not
+converge), the status line says why. The circuit is detached, the wired
+benches go back to their own physics, and the sheet stays as it was, so a
+value can be fixed and the circuit reloaded.
 
 Coupling (K), VCVS (E), VCCS (G) and the level-1 MOSFET (M) are solver
 elements without a palette entry. They arrive in a document or a link; K
@@ -108,7 +123,11 @@ Tellegen's theorem on the discrete solution, so what remains is the
 trapezoid's O(h³): ≈ 1e-4 for the examples.
 
 In the overview, the energy network shows the circuit's port edges as
-**solved** (Σ v·i), with their residual. A 3-D cable runs from each wired
+**solved** (Σ v·i), with their residual. A port's power is what crosses its
+terminals: minus Σ v·i over the port's own internal elements. A bench's
+winding losses and stored field are not counted as delivered, so an open
+transformer secondary reads 0 W while its generator still feeds the
+primary. A 3-D cable runs from each wired
 bench, its flow ∝ the port's rms current. The disclaimer lists the edges
 that are still **estimated** (nameplates × activity).
 
@@ -159,10 +178,12 @@ C++ solver on both experiment backends.
 
 - A terminal ref is `<id>.<index>`, in the order of the element table.
 - A bench port is `{ "id": "P1", "k": "PORT", "dev": "transformer", "port":
-  "sec" }`, wired like any two-terminal part (`P1.0` is +).
+  "sec" }`, wired like any two-terminal part (`P1.0` is +). A bench takes
+  one port: a second PORT on the same `dev` is refused.
 - `x`, `y` are grid cells and `rot` is quarter turns.
 - Unknown kinds, bad refs, duplicate ids and out-of-range values are
-  refused with a message.
+  refused with a message. A terminal index is written plainly: `R1.0`, not
+  `R1.00`.
 
 `src/circuit/netlist.ts` compiles the document to the packed solver format:
 `[FORMAT_VERSION, nodes, elems, nOpt, options…, per element: kind, nTerm,
@@ -176,8 +197,12 @@ double. The limits are 96 nodes and 256 elements.
   switch exports open, with its clock in a comment. A bench port becomes a
   comment: put your own source there. The file ends with `.tran … UIC` and
   `.end`.
+- Export gives every card a name that is unique as SPICE compares names
+  (ignoring case), and generated node names never take a name the document
+  uses.
 - **Import** covers R, L, C, V, I (DC / SIN / PULSE), D with `.model D(IS
-  N RS)`, and K. The first line is the title, and `M` means milli.
+  N RS)`, and K. The first line is the title. Suffixes ignore case, as in
+  SPICE: `M` means milli, `10U` is 10 µ, and `1F` is 1 femto, not 1 farad.
   Anything else is skipped with a warning (for example a `Q` transistor or
   a subcircuit).
 

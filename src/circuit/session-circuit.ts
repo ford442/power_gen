@@ -17,6 +17,8 @@ function liveSession(): LabSession | null {
 }
 
 let host: CircuitHost | null = null;
+/** The one host creation in flight: concurrent first calls share it. */
+let hostInit: Promise<CircuitHost> | null = null;
 /** The example the document came from — shared as its id while unedited. */
 let sourceId: string | null = null;
 const listeners = new Set<() => void>();
@@ -25,11 +27,17 @@ const listeners = new Set<() => void>();
 export async function liveCircuitHost(): Promise<CircuitHost | null> {
   const session = liveSession();
   if (!session) return null;
-  if (!host) {
+  if (host) return host;
+  // A teacher link and the Circuit button can both get here before sim_core
+  // resolves: one host, or the document lands in one and the panel shows another.
+  hostInit ??= (async () => {
     const mod = getSimCore() ?? (await loadSimCore());
-    host = new CircuitHost(mod, () => session.devices);
-  }
-  return host;
+    const h = new CircuitHost(mod, () => session.devices);
+    h.onFail = () => syncSessionCircuit();
+    host = h;
+    return h;
+  })().finally(() => { hostInit = null; });
+  return hostInit;
 }
 
 /** The host if one was made (no load). */

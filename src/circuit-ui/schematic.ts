@@ -9,6 +9,11 @@
  *   - drag a part to move it; R rotates the selection; Delete removes it;
  *   - click one terminal, then another, to wire them; click a wire to select it.
  *
+ * Keyboard: a palette button pressed with Enter / Space places its part on a
+ * free spot and focuses it; Tab walks parts and terminals; Enter / Space on
+ * a part selects it, on a terminal starts or finishes a wire (Esc cancels);
+ * arrow keys move the selected part. Focus survives every redraw.
+ *
  * Read-only (no sim_core): nothing moves or wires; selection still shows
  * values. Edits call `onEdit` with the document already changed in place.
  */
@@ -52,6 +57,16 @@ function el<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, 
   const n = document.createElementNS(SVG_NS, tag);
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
   return n;
+}
+
+const ARROWS: Readonly<Record<string, Pt>> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+/** The selector that finds a focused part or terminal again after a redraw. */
+function focusSelector(n: Element): string | null {
+  const term = n.getAttribute('data-term');
+  if (term) return `[data-term="${term}"]`;
+  const id = n.getAttribute('data-elem');
+  return id ? `g[data-elem="${id}"]` : null;
 }
 
 /** Glyph path (rot 0, grid units scaled by GRID, centred on 0, 0). */
@@ -162,9 +177,13 @@ export class Schematic {
   selection: Selection = null;
   private pendingTerminal: string | null = null;
   private drag: { id: string; dx: number; dy: number; moved: boolean } | null = null;
+  /** A selector to focus after the next render (a part just placed from the keyboard). */
+  private focusNext: string | null = null;
 
   constructor(private doc: () => CircuitDoc | null, private readonly opts: SchematicOpts) {
-    this.svg = el('svg', { class: 'circuit-sheet', role: 'img', 'aria-label': 'Circuit schematic' });
+    // tabindex -1: focus can rest on the sheet itself (after a Delete) without a Tab stop.
+    this.svg = el('svg', { class: 'circuit-sheet', role: 'group', 'aria-label': 'Circuit schematic', tabindex: -1 });
+    this.svg.addEventListener('keydown', (ev) => this.keyDown(ev));
     this.svg.addEventListener('pointerdown', (ev) => this.pointerDown(ev));
     this.svg.addEventListener('pointermove', (ev) => this.pointerMove(ev));
     this.svg.addEventListener('pointerup', () => this.pointerUp());
@@ -199,6 +218,42 @@ export class Schematic {
     this.select({ kind: 'elem', id: e.id });
     this.opts.onEdit();
     return e;
+  }
+
+  /** Place a part on the first free grid spot (keyboard placement), focused. */
+  placeFree(part: { kind: DocKind; dev?: string; port?: string }): CircuitElemDoc | null {
+    const d = this.doc();
+    if (!d || this.opts.readOnly()) return null;
+    const busy = (x: number, y: number) =>
+      d.e.some((e) => e.k !== 'K' && Math.abs((e.x ?? 0) - x) < 5 && Math.abs((e.y ?? 0) - y) < 4);
+    let at: Pt = [3, 2];
+    search: for (let y = 2; y < 200; y += 4) {
+      for (let x = 3; x <= 27; x += 6) if (!busy(x, y)) { at = [x, y]; break search; }
+    }
+    this.focusNext = `g[data-elem="${this.nextId(part.kind)}"]`;
+    return this.place(part.kind, at[0], at[1], part.dev ? { dev: part.dev, port: part.port } : {});
+  }
+
+  private keyDown(ev: KeyboardEvent): void {
+    const target = ev.target as Element;
+    const term = target.closest?.('[data-term]')?.getAttribute('data-term');
+    const elemId = target.closest?.('[data-elem]')?.getAttribute('data-elem');
+    if (ev.key === 'Escape' && this.pendingTerminal) {
+      // Cancel the wire, not the panel.
+      this.pendingTerminal = null;
+      this.render();
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    if (term) {
+      ev.preventDefault();
+      if (!this.opts.readOnly()) this.clickTerminal(term);
+    } else if (elemId) {
+      ev.preventDefault();
+      this.select({ kind: 'elem', id: elemId });
+    }
   }
 
   private drop(ev: DragEvent): void {
@@ -291,10 +346,14 @@ export class Schematic {
     if (ev.key === 'Delete' || ev.key === 'Backspace') {
       if (sel.kind === 'wire') d.w.splice(sel.index, 1);
       else {
-        d.e = d.e.filter((e) => e.id !== sel.id);
+        // A coupling names its inductors: it goes with either one, or the
+        // document is invalid and the (undrawn) coupling cannot be selected.
+        d.e = d.e.filter((e) => e.id !== sel.id && !(e.k === 'K' && (e.p?.a === sel.id || e.p?.b === sel.id)));
         d.w = d.w.filter(([a, b]) => !a.startsWith(`${sel.id}.`) && !b.startsWith(`${sel.id}.`));
         for (const [name, ref] of Object.entries(d.n ?? {})) if (ref.startsWith(`${sel.id}.`)) delete d.n![name];
       }
+      // The focused part is gone: keep focus in the sheet, not on <body>.
+      if (this.svg.contains(document.activeElement)) this.svg.focus({ preventScroll: true });
       this.select(null);
       this.opts.onEdit();
       return true;
@@ -305,11 +364,31 @@ export class Schematic {
       this.render();
       return true;
     }
+    const move = ARROWS[ev.key];
+    if (move && sel.kind === 'elem') {
+      // The keyboard's drag: a move changes only the drawing (no reload).
+      const e = d.e.find((x) => x.id === sel.id);
+      if (!e) return false;
+      e.x = Math.max(0, (e.x ?? 0) + move[0]);
+      e.y = Math.max(0, (e.y ?? 0) + move[1]);
+      this.render();
+      return true;
+    }
     return false;
   }
 
   render(): void {
     const d = this.doc();
+    const svg = this.svg;
+    // The redraw replaces every node: put focus back on the same part or terminal.
+    const active = document.activeElement;
+    const refocus = this.focusNext ?? (active && svg.contains(active) ? focusSelector(active) : null);
+    this.focusNext = null;
+    this.draw(d);
+    if (refocus) (svg.querySelector(refocus) as SVGElement | null)?.focus({ preventScroll: true });
+  }
+
+  private draw(d: CircuitDoc | null): void {
     const svg = this.svg;
     svg.replaceChildren();
     const defs = el('defs');
@@ -344,7 +423,11 @@ export class Schematic {
       maxX = Math.max(maxX, cx + 3 * GRID);
       maxY = Math.max(maxY, cy + 3 * GRID);
       const selected = this.selection?.kind === 'elem' && this.selection.id === e.id;
-      const g = el('g', { 'data-elem': e.id, class: 'circuit-part', transform: `translate(${cx} ${cy})` });
+      const g = el('g', {
+        'data-elem': e.id, class: 'circuit-part', transform: `translate(${cx} ${cy})`,
+        tabindex: 0, role: 'button', 'aria-pressed': String(selected),
+        'aria-label': `${e.id}: ${KIND_SPECS[e.k].label}${e.k === 'GND' ? '' : `, ${valueLabel(e)}`}`
+      });
       const body = el('g', { transform: `rotate(${(e.rot ?? 0) * 90})` });
       body.append(el('rect', { x: -2 * GRID, y: -GRID, width: 4 * GRID, height: 2 * GRID, fill: selected ? 'rgba(242,207,115,0.08)' : 'transparent', stroke: 'none' }));
       body.append(glyph(e));
@@ -361,7 +444,8 @@ export class Schematic {
         const t = el('circle', {
           cx: tx * GRID, cy: ty * GRID, r: pending ? 5 : 3.5,
           fill: pending ? SELECT : '#0a1420', stroke: pending ? SELECT : ACCENT, 'stroke-width': 1.4,
-          'data-term': ref, class: 'circuit-term'
+          'data-term': ref, class: 'circuit-term', tabindex: 0, role: 'button',
+          'aria-label': `${e.id} terminal ${name}${pending ? ' (wire starts here: pick the other end, Esc cancels)' : ''}`
         });
         const title = el('title');
         title.textContent = `${e.id} ${name}${e.k === 'PORT' ? ' (bench terminal)' : ''}`;

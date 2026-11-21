@@ -115,13 +115,25 @@ export class ExperimentBench implements PlantView {
       // The headless clock steps at the experiment's dt; the solver needs no
       // extra calls for a scope here (records sample at the step grid).
       host.scopeHz = 0;
-      if (!host.load(doc)) throw new Error(`config.circuit: ${host.message}`);
+      if (!host.load(doc)) {
+        const why = host.message;
+        host.dispose();
+        throw new Error(`config.circuit: ${why}`);
+      }
       this.circuit = host;
     }
     this.cppFocus = !!cpp && WASM_MODE_BY_ID[focus] !== undefined;
     if (this.cppFocus) cpp!.setMode(WASM_MODE_BY_ID[focus]);
     // An experiment is a running plant: START, as the operator would.
     this.operator.start();
+  }
+
+  /**
+   * Free the circuit solver (a native CircuitSim in the WASM heap, with no
+   * finalizer). The bench is unusable after; a sweep makes one per point.
+   */
+  dispose(): void {
+    this.circuit?.dispose();
   }
 
   get operatorEpoch(): number {
@@ -203,7 +215,12 @@ export class ExperimentBench implements PlantView {
     }
     this.chargeNetwork.update({ devices: this.devices, devicesEnabled: this.enabled });
     this.fieldNetwork.update({ devices: this.devices, devicesEnabled: this.enabled });
-    this.circuit?.stepSubstep(dt, drive);
+    if (this.circuit) {
+      this.circuit.stepSubstep(dt, drive);
+      // A stopped solver must stop the run: recording on would pass stale
+      // values off as a result.
+      if (!this.circuit.loaded) throw new Error(`config.circuit: ${this.circuit.message}`);
+    }
 
     this.operator.step(dt);
     const focusState = this.devices[this.focus]?.physicsState;

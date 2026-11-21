@@ -21,6 +21,11 @@
 .circuit-sheet { display: block; user-select: none; touch-action: none; }
 .circuit-part { cursor: move; }
 .circuit-term { cursor: crosshair; }
+.circuit-sheet:focus { outline: none; }
+.circuit-part:focus { outline: none; }
+.circuit-part:focus-visible > g > rect { stroke: #f2cf73; stroke-dasharray: 3 2; }
+.circuit-term:focus { outline: none; }
+.circuit-term:focus-visible { stroke: #f2cf73; stroke-width: 2.6; }
 .circuit-wire { cursor: pointer; }
 .circuit-side { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
 .circuit-inspector h3 { font-size: 0.8rem; margin: 0 0 4px; }

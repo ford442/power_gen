@@ -426,7 +426,7 @@ build — a binary > 5 % larger fails (size is deterministic under the pinned
 emsdk), a throughput below 0.6× the baseline is an Actions warning (runners
 differ, but losing the SIMD kernel lands at 0.37× and shows). Re-baseline on
 purpose, numbers in the PR. The Circuit Lab's MNA solver (#256, ADR-0018) was
-the first: 74,145 → 121,992 B raw, 31,721 → 50,820 B brotli. About 8.5 KB of
+the first: 74,145 → 122,380 B raw, 31,721 → 50,695 B brotli. About 8.5 KB of
 that is musl `printf` behind the solver's error texts. Main's binary and the
 new one bench within noise of each other on the same VM, so the throughput
 rows stand.

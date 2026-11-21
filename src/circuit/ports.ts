@@ -64,11 +64,19 @@ export interface PortDriver {
   expand(b: NetBuilder, owner: string, plus: number, minus: number): Omit<CompiledPort, 'id' | 'device' | 'port' | 'decl' | 'driver'>;
   before(p: CompiledPort, ctx: PortStepContext): void;
   after(p: CompiledPort, ctx: PortStepContext): void;
-  /**
-   * Energy (J) the bench put into the circuit over the last window (> 0) or
-   * took out of it (< 0) — Σ v·i over the port's internal elements.
-   */
-  energyIn(p: CompiledPort, ro: ReadoutView): number;
+}
+
+/**
+ * Energy (J) that crossed the port's terminals over the last window: > 0 the
+ * bench put it into the circuit, < 0 it took it out. By Tellegen this is
+ * minus what the port's own elements absorbed, Σ ∫v·i over all of them, so
+ * the bench's winding losses and stored field are not counted as delivered:
+ * an open secondary reads 0 while the generator still feeds the primary.
+ */
+export function portEnergyIn(p: CompiledPort, ro: ReadoutView): number {
+  let absorbed = 0;
+  for (const e of Object.values(p.elems)) absorbed += ro.wE(e);
+  return -absorbed;
 }
 
 const num = (v: unknown, d = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -117,9 +125,6 @@ const homopolarEmf: PortDriver = {
     s.homopolarCurrent = iAvg;
     s.homopolarFieldT = field;
     s.energyLevel = Math.min(1, ctx.drive * 0.45 + (rpm / HOMOPOLAR.rpmMax) * 0.55);
-  },
-  energyIn(p, ro) {
-    return -ro.wE(p.elems.src);
   }
 };
 
@@ -162,9 +167,6 @@ const transformerSecondary: PortDriver = {
     s.transformerFluxN = Math.max(0, Math.min(1, Math.abs(t.lpH * i1 + M * i2) / (t.vPrimaryPeak / omega)));
     s.transformerTurnsRatio = t.ns / t.np;
     s.energyLevel = Math.min(1, ctx.drive * 0.55 + (Math.abs(i2) / 3) * 0.45);
-  },
-  energyIn(p, ro) {
-    return -ro.wE(p.elems.src);
   }
 };
 
@@ -206,9 +208,6 @@ const pulseCoilCoil: PortDriver = {
     s.pulseCoilArmatureVel = vArm;
     s.pulseCoilFiring = Math.abs(i) > 0.4;
     s.energyLevel = Math.min(1, Math.min(1, peakI / 80) * 0.7 + ctx.drive * 0.3);
-  },
-  energyIn(p, ro) {
-    return -(ro.wE(p.elems.r) + ro.wE(p.elems.l));
   }
 };
 

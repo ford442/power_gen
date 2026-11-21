@@ -189,18 +189,11 @@ void CircuitSim::_resetState() {
         e.v = 0.0; e.i = 0.0; e.q = 0.0; e.dq = 0.0; e.dqPrev = 0.0; e.qPeak = 0.0;
         e.vj = 0.0; e.vj2 = 0.0; e.gEq = 0.0; e.iEq = 0.0; e.gM = 0.0; e.swapped = false; e.on = false;
         e.wE = 0.0; e.wQ = 0.0; e.wI2 = 0.0;
-        if (e.kind == Kind::C) { e.v = e.p[1]; e.q = e.p[0] * e.p[1]; }
-        if (e.kind == Kind::L) { e.i = e.p[1]; e.q = e.p[0] * e.p[1]; }
+        if (e.kind == Kind::C) e.v = e.p[1];
+        if (e.kind == Kind::L) e.i = e.p[1];
         if (e.kind == Kind::S) e.sw = _switchClosedAt(e, 0.0);
     }
-    for (int ki : _coupling) {
-        const Element& k = _el[ki];
-        Element& a = _el[static_cast<int>(k.p[0])];
-        Element& b = _el[static_cast<int>(k.p[1])];
-        const double M = k.p[2] * std::sqrt(a.p[0] * b.p[0]);
-        a.q += M * b.i;
-        b.q += M * a.i;
-    }
+    _syncCharges();
     for (Element& e : _el) e.qPeak = std::abs(e.q);
     _hPrev = 0.0;
     _hNext = 0.0;
@@ -229,12 +222,34 @@ bool CircuitSim::setParam(int elem, int index, double value) {
     if (e.kind == Kind::K && index < 2) return false;
     if (e.p[index] == value) return true;
     e.p[index] = value;
-    // Before the first step a new C, L or initial condition re-derives the
-    // initial charge / flux (an experiment's `set` at t = 0 sweeps C with the
-    // same initial voltage); later a change keeps the stored charge / flux.
-    if (_first && (e.kind == Kind::C || e.kind == Kind::L || e.kind == Kind::K)) _resetState();
+    // Before the first step a new C, L, k or initial condition re-derives the
+    // initial state (an experiment's `set` at t = 0 sweeps C with the same
+    // initial voltage). Later, a capacitor keeps its voltage and an inductor
+    // its current, and charge / flux are re-derived from them. Stored energy
+    // (½Cv² + ½Li² + M·i₁i₂) then describes the state the next step starts
+    // from, so the energy an edit adds or removes falls between two windows of
+    // the books, not inside one.
+    if (e.kind == Kind::C || e.kind == Kind::L || e.kind == Kind::K) {
+        if (_first) _resetState();
+        else _syncCharges();
+    }
     if (e.kind == Kind::S && index >= 2) _scheduleRestart();
     return true;
+}
+
+void CircuitSim::_syncCharges() {
+    for (Element& e : _el) {
+        if (e.kind == Kind::C) e.q = e.p[0] * e.v;
+        else if (e.kind == Kind::L) e.q = e.p[0] * e.i;
+    }
+    for (int ki : _coupling) {
+        const Element& k = _el[ki];
+        Element& a = _el[static_cast<int>(k.p[0])];
+        Element& b = _el[static_cast<int>(k.p[1])];
+        const double M = k.p[2] * std::sqrt(a.p[0] * b.p[0]);
+        a.q += M * b.i;
+        b.q += M * a.i;
+    }
 }
 
 double CircuitSim::getParam(int elem, int index) const {

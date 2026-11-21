@@ -31,6 +31,7 @@ import {
   CIRCUIT_MAX_ELEMENTS,
   CIRCUIT_MAX_NODES,
   KIND_SPECS,
+  isDocKind,
   OPTION_NAMES,
   WAVE_IDS,
   WAVE_PARAMS,
@@ -78,6 +79,8 @@ export function validateCircuitDoc(raw: unknown): CircuitDoc {
   const elems = Array.isArray(d.e) ? (d.e as unknown[]) : (fail('e: an array of elements'), []);
   if (elems.length > CIRCUIT_MAX_ELEMENTS) fail(`${elems.length} elements (at most ${CIRCUIT_MAX_ELEMENTS})`);
   const ids = new Map<string, CircuitElemDoc>();
+  /** Bench → the PORT wired to it: one driver per bench, or it steps twice. */
+  const benches = new Map<string, string>();
   for (const [i, x] of elems.entries()) {
     const e = x as CircuitElemDoc;
     const where = `e[${i}]`;
@@ -85,8 +88,7 @@ export function validateCircuitDoc(raw: unknown): CircuitDoc {
     if (typeof e.id !== 'string' || !ELEM_ID.test(e.id)) { fail(`${where}: id ${JSON.stringify(e.id)} (letter, then letters / digits / _, ≤ 16)`); continue; }
     if (ids.has(e.id)) fail(`${where}: duplicate id ${e.id}`);
     ids.set(e.id, e);
-    const spec = KIND_SPECS[e.k as DocKind];
-    if (!spec) { fail(`${e.id}: unknown kind ${JSON.stringify(e.k)}`); continue; }
+    if (!isDocKind(e.k)) { fail(`${e.id}: unknown kind ${JSON.stringify(e.k)}`); continue; }
     for (const c of ['x', 'y', 'rot'] as const) {
       if (e[c] !== undefined && (typeof e[c] !== 'number' || !Number.isFinite(e[c]))) fail(`${e.id}.${c}: a number`);
     }
@@ -94,6 +96,8 @@ export function validateCircuitDoc(raw: unknown): CircuitDoc {
     if (e.k === 'PORT') {
       if (typeof e.dev !== 'string' || typeof e.port !== 'string') fail(`${e.id}: a PORT needs "dev" and "port"`);
       else if (!portDriver(e.dev, e.port)) fail(`${e.id}: no port ${e.dev}.${e.port} (physics/devices.json "ports")`);
+      else if (benches.has(e.dev)) fail(`${e.id}: ${e.dev} is already wired through ${benches.get(e.dev)} (one port per bench)`);
+      else benches.set(e.dev, e.id);
     }
     for (const err of paramErrors(e)) fail(`${e.id}: ${err}`);
   }
@@ -132,15 +136,39 @@ export function validateCircuitDoc(raw: unknown): CircuitDoc {
   return { ...(d as unknown as CircuitDoc), w: wires as [string, string][] };
 }
 
+/** A terminal index as written in a ref: `0`, `1`, … (no sign, space, exponent or leading zero). */
+const TERM_INDEX = /^(0|[1-9][0-9]*)$/;
+
 function refError(ids: Map<string, CircuitElemDoc>, ref: unknown): string | null {
   if (typeof ref !== 'string') return `terminal ref ${JSON.stringify(ref)} (a string <id>.<index>)`;
   const dot = ref.lastIndexOf('.');
   const e = ids.get(ref.slice(0, dot));
-  const t = Number(ref.slice(dot + 1));
+  const tail = ref.slice(dot + 1);
   if (!e) return `${ref}: no element ${ref.slice(0, dot)}`;
   const n = KIND_SPECS[e.k]?.terminals.length ?? 0;
-  if (!(dot > 0) || !Number.isInteger(t) || t < 0 || t >= n) return `${ref}: ${e.id} has terminals 0…${n - 1}`;
+  // `R1.00` would pass Number() as 0 but name a different net than `R1.0`.
+  if (!(dot > 0) || !TERM_INDEX.test(tail) || Number(tail) >= n) return `${ref}: ${e.id} has terminals 0…${n - 1}`;
   return null;
+}
+
+/**
+ * The document as the wiring view may draw it, or null: an object whose
+ * elements each have a string id and a known kind, and whose wires are pairs
+ * of strings. A document that fails validation but passes this stays on the
+ * sheet so it can be fixed; anything else (`e: [null]`) is not shown.
+ */
+export function renderableDoc(raw: unknown): CircuitDoc | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const d = raw as Partial<CircuitDoc>;
+  if (!Array.isArray(d.e) || !Array.isArray(d.w)) return null;
+  const okElem = (e: unknown) => {
+    const x = e as Partial<CircuitElemDoc> | null;
+    return !!x && typeof x === 'object' && typeof x.id === 'string' && isDocKind(x.k);
+  };
+  const okWire = (w: unknown) => Array.isArray(w) && w.length === 2 && typeof w[0] === 'string' && typeof w[1] === 'string';
+  if (!d.e.every(okElem) || !d.w.every(okWire)) return null;
+  if (d.n !== undefined && (!d.n || typeof d.n !== 'object' || Object.values(d.n).some((r) => typeof r !== 'string'))) return null;
+  return d as CircuitDoc;
 }
 
 /** The parameter specs an element takes (V / I: its waveform's). */

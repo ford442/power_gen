@@ -107,6 +107,11 @@ export const KIND_SPECS: Readonly<Record<DocKind, KindSpec>> = {
   PORT: { kind: 'PORT', wire: -1, label: 'Bench port', terminals: ['+', '−'], params: [] }
 };
 
+/** A document kind (own key of KIND_SPECS: `"constructor"` is not a kind). */
+export function isDocKind(k: unknown): k is DocKind {
+  return typeof k === 'string' && Object.prototype.hasOwnProperty.call(KIND_SPECS, k);
+}
+
 /** C++ `Kind` value → name, for the binary cross-check. */
 export const WIRE_KIND_NAMES: readonly SolverKind[] = (Object.values(KIND_SPECS) as KindSpec[])
   .filter((s) => s.wire >= 0)

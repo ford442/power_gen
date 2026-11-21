@@ -135,7 +135,8 @@ Circuit Lab keys (#256), with a `config.circuit`:
   `gnd`).
 - `circuit.elem.<id>.i|v|p`: element current (first terminal → second),
   voltage, and absorbed power.
-- `circuit.port.<id>.p`: the power a bench port puts in.
+- `circuit.port.<id>.p`: the power a bench port puts in, across its
+  terminals (its own winding losses are not counted).
 - `circuit.residual`: the energy books' residual.
 
 A wired bench's own telemetry keys still read: its port driver writes them.

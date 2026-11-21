@@ -26,8 +26,8 @@ import type { SolvedEnergyBooks } from '../renderers/shared/energy-network';
 import type { CircuitSimInstance, SimCoreModule } from '../wasm/sim-core/abi.generated';
 import { CIRCUIT_STATUS, ST } from './kinds';
 import { parseCircuitKey, type CircuitAccess } from './keys';
-import { compileCircuit, paramSlot, paramProblem, type CircuitDoc, type CompiledCircuit } from './netlist';
-import type { CompiledPort, PortState, PortStepContext } from './ports';
+import { compileCircuit, paramSlot, paramProblem, renderableDoc, type CircuitDoc, type CompiledCircuit } from './netlist';
+import { portEnergyIn, type CompiledPort, type PortState, type PortStepContext } from './ports';
 import { CircuitReadout, type ReadoutView } from './readout';
 
 export type CircuitHostState = 'empty' | 'ok' | 'error' | 'needs-wasm';
@@ -112,6 +112,8 @@ export class CircuitHost implements CircuitAccess {
   private wasReplay = false;
   /** Bumped on every load / reset (UI redraws, cables re-read). */
   generation = 0;
+  /** Called when the solver stops mid-run (the live lab detaches it). */
+  onFail: (() => void) | null = null;
 
   constructor(
     private readonly mod: SimCoreModule | null,
@@ -131,7 +133,9 @@ export class CircuitHost implements CircuitAccess {
   load(doc: CircuitDoc | unknown | null): boolean {
     this.release();
     this.generation++;
-    this.doc = (doc ?? null) as CircuitDoc | null;
+    // A rejected document stays on the sheet (so it can be fixed) only when
+    // the wiring view can draw it; anything else is not a CircuitDoc.
+    this.doc = renderableDoc(doc);
     if (doc == null) {
       if (this.state !== 'needs-wasm') { this.state = 'empty'; this.message = ''; }
       return true;
@@ -180,6 +184,11 @@ export class CircuitHost implements CircuitAccess {
     this.sim.reset();
     this.readout?.refresh();
     this.clearBooks();
+    // The solver's clock is back at 0: drop the old samples so the scope (and
+    // Send to analysis) never sees time run backwards. The channels stay.
+    this.scopeN = 0;
+    this.scopeHead = 0;
+    this.portIrms.clear();
     this.generation++;
   }
 
@@ -225,11 +234,7 @@ export class CircuitHost implements CircuitAccess {
     for (let k = 0; k < calls; k++) {
       const rc = sim.step(h);
       ro.refresh();
-      if (rc < 0) {
-        this.state = 'error';
-        this.message = `solver stopped (${CIRCUIT_STATUS[rc] ?? rc}): ${sim.errorText()}`;
-        return;
-      }
+      if (rc < 0) return this.fail(`solver stopped (${CIRCUIT_STATUS[rc] ?? rc}) at t = ${ro.time().toPrecision(4)} s: ${sim.errorText()}`);
       this.window.add(ro, this.portElems);
       source += ro.wSource();
       dissipated += ro.wDissipated();
@@ -242,6 +247,19 @@ export class CircuitHost implements CircuitAccess {
       this.portIrms.set(p.id, e === undefined ? 0 : Math.sqrt(Math.max(0, whole.wI2(e)) / dt));
     }
     this.closeBooks(dt, source, dissipated, sim.storedEnergy() - stored0, whole);
+  }
+
+  /**
+   * The solver stopped: drop it and hand the wired benches back to their own
+   * physics, so nothing is left owned with no stepper. The document stays on
+   * the sheet, so a value can be fixed and the circuit reloaded.
+   */
+  private fail(message: string): void {
+    this.release();
+    this.state = 'error';
+    this.message = message;
+    this.generation++;
+    this.onFail?.();
   }
 
   // ── energy books ───────────────────────────────────────────────────────
@@ -257,7 +275,7 @@ export class CircuitHost implements CircuitAccess {
     b.dissipated = b.dissipated * decay + dissipated;
     b.storedDelta = b.storedDelta * decay + dStored;
     for (const p of this.compiled?.ports ?? []) {
-      b.portJ.set(p.id, (b.portJ.get(p.id) ?? 0) * decay + p.driver.energyIn(p, ro));
+      b.portJ.set(p.id, (b.portJ.get(p.id) ?? 0) * decay + portEnergyIn(p, ro));
     }
   }
 

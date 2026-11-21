@@ -32,7 +32,7 @@ const X = await bundleTs({
   contents: `
 export * from './src/circuit/kinds';
 export { parseSi, formatSi, formatSpice } from './src/circuit/si';
-export { compileCircuit, validateCircuitDoc, circuitKeyProblem, paramSlot } from './src/circuit/netlist';
+export { compileCircuit, validateCircuitDoc, circuitKeyProblem, paramSlot, renderableDoc } from './src/circuit/netlist';
 export { toSpice, fromSpice } from './src/circuit/spice';
 export { circuitExample, CIRCUIT_EXAMPLE_IDS, resolveCircuitConfig } from './src/circuit/examples';
 export { CircuitHost } from './src/circuit/host';
@@ -184,6 +184,16 @@ describe('SI values', () => {
     assert.ok(Math.abs(X.parseSi('1M', { spice: true }) - 1e-3) < 1e-15);
     for (const bad of ['', 'abc', '1..2', 'k4', '4,7k']) assert.ok(Number.isNaN(X.parseSi(bad)), `${bad} is NaN`);
   });
+  it('SPICE suffixes are case-blind (10U is 10 µ, 1F is 1 femto); the editor keeps 2M = mega', () => {
+    const cases = [['10U', 10e-6], ['10UF', 10e-6], ['100N', 100e-9], ['3.3P', 3.3e-12], ['4.7K', 4700], ['2MEG', 2e6],
+      ['1Meg', 1e6], ['1F', 1e-15], ['2M', 2e-3], ['1G', 1e9], ['1T', 1e12]];
+    for (const [text, want] of cases) {
+      const got = X.parseSi(text, { spice: true });
+      assert.ok(Math.abs(got - want) <= 1e-12 * want, `${text} → ${got}`);
+    }
+    assert.equal(X.parseSi('2M'), 2e6);
+    assert.equal(X.parseSi('1F'), 1, 'the editor reads F as farads');
+  });
   it('formatSi / formatSpice round-trip through parseSi', () => {
     assert.equal(X.formatSi(4700, 'Ω'), '4.7 kΩ');
     assert.equal(X.formatSi(470e-6, 'F'), '470 µF');
@@ -234,9 +244,30 @@ describe('netlist documents', () => {
       { ...base, w: [...base.w, ['R1.0', 'Q7.1']] },
       { ...base, w: [...base.w, ['R1.0', 'R1.5']] },
       { ...base, e: base.e.map((e) => (e.id === 'R1' ? { ...e, p: { r: -1 } } : e)) },
-      { ...base, e: [...base.e, { id: 'P9', k: 'PORT', dev: 'seg', port: 'out' }] }
+      { ...base, e: [...base.e, { id: 'P9', k: 'PORT', dev: 'seg', port: 'out' }] },
+      // `R1.00` passes Number() as terminal 0 but would be its own net.
+      { ...base, w: [...base.w, ['R1.00', 'C1.1']] },
+      { ...base, w: [...base.w, ['R1. 1', 'C1.1']] },
+      { ...base, w: [...base.w, ['R1.1e0', 'C1.1']] },
+      // Inherited names are not kinds.
+      { ...base, e: [...base.e, { id: 'X1', k: 'constructor' }] },
+      { ...base, e: [...base.e, { id: 'X1', k: 'toString' }] },
+      // Two drivers on one bench would step it twice per substep.
+      { ...base, e: [...base.e, { id: 'P1', k: 'PORT', dev: 'homopolar', port: 'out' }, { id: 'P2', k: 'PORT', dev: 'homopolar', port: 'out' }],
+        w: [...base.w, ['P1.0', 'R1.1'], ['P1.1', 'C1.1'], ['P2.0', 'R1.1'], ['P2.1', 'C1.1']] }
     ];
-    for (const d of bad) assert.throws(() => X.compileCircuit(d), undefined, JSON.stringify(d).slice(0, 120));
+    for (const d of bad) assert.throws(() => X.compileCircuit(d), undefined, JSON.stringify(d).slice(0, 160));
+    assert.doesNotThrow(() => X.compileCircuit({ ...base, w: [...base.w, ['R1.1', 'C1.0']] }), 'canonical refs still pass');
+  });
+  it('renderableDoc: what the wiring view may draw of a rejected document', () => {
+    const base = X.circuitExample('rlc-ring');
+    for (const raw of [null, 7, [], { v: 1, e: [null], w: [] }, { v: 1, e: [{ id: 'R1', k: 'constructor' }], w: [] },
+      { v: 1, e: [], w: [['R1.0']] }, { v: 1, e: [] }, { v: 1, e: [], w: [], n: { a: 3 } }]) {
+      assert.equal(X.renderableDoc(raw), null, JSON.stringify(raw));
+    }
+    const dangling = { ...base, e: [...base.e, { id: 'K1', k: 'K', p: { a: 'L1', b: 'Lgone', k: 0.9 } }] };
+    assert.throws(() => X.compileCircuit(dangling));
+    assert.equal(X.renderableDoc(dangling), dangling, 'invalid but drawable: it stays on the sheet to be fixed');
   });
   it('LabConfig `circuit`: example id, document, JSON text; junk refused', () => {
     assert.equal(X.coerceLabField('circuit', 'transformer-bridge-rc'), 'transformer-bridge-rc');
@@ -281,6 +312,31 @@ describe('SPICE', () => {
       }
     }
   });
+  it('export names are unique as SPICE compares them (A / LA, r1 / R1) and nets stay apart (n2)', () => {
+    const doc = {
+      v: 1, title: 'names',
+      e: [
+        { id: 'V1', k: 'V', p: { w: 'dc', dc: 5 } },
+        { id: 'A', k: 'L', p: { l: 1e-3 } }, { id: 'LA', k: 'L', p: { l: 2e-3 } },
+        { id: 'K1', k: 'K', p: { a: 'A', b: 'LA', k: 0.5 } },
+        { id: 'r1', k: 'R', p: { r: 100 } }, { id: 'R1', k: 'R', p: { r: 200 } },
+        { id: 'G1', k: 'GND' }
+      ],
+      // V1+ = node "n2" (explicit); A and LA in series from it; r1, R1 to ground on another node.
+      w: [['V1.0', 'A.0'], ['A.1', 'LA.0'], ['LA.1', 'r1.0'], ['r1.0', 'R1.0'], ['V1.1', 'G1.0'], ['r1.1', 'G1.0'], ['R1.1', 'G1.0']],
+      n: { n2: 'V1.0' }
+    };
+    const c = X.compileCircuit(doc);
+    const cir = X.toSpice(doc);
+    const cards = cir.split('\n').filter((l) => /^[A-Z]/i.test(l) && !l.startsWith('.')).map((l) => l.split(/\s+/)[0].toUpperCase());
+    assert.equal(new Set(cards).size, cards.length, `card names unique: ${cards.join(' ')}`);
+    const { doc: back } = X.fromSpice(cir);
+    const b = X.compileCircuit(back);
+    assert.equal(b.nodeCount, c.nodeCount, 'same number of nets after the round trip');
+    const k = back.e.find((e) => e.k === 'K');
+    assert.ok(k && k.p.a !== k.p.b, `the coupling joins two inductors (${k?.p.a}, ${k?.p.b})`);
+  });
+
   it('diodes export with a .model; a port exports as a commented stand-in', () => {
     const text = X.toSpice(X.circuitExample('transformer-bridge-rc'));
     assert.match(text, /^D1 \S+ \S+ \S+/m);
@@ -394,6 +450,115 @@ describe('CircuitHost', () => {
       assert.ok(state._circuitOwned);
       assert.ok(host.energyBooks().residual < 0.01, `residual ${host.energyBooks().residual}`);
       assert.ok(Math.abs(host.readKey('circuit.node.cap.v')) < 1, 'the cap has rung down through the coil');
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('a live C, L or k edit keeps the books closed (v / i kept, charge / flux re-derived)', () => {
+    // RLC ring at full swing: doubling C at constant charge used to book ¾ of the energy as residual.
+    const { host } = runExample('rlc-ring', null, 0, 0);
+    try {
+      for (let i = 0; i < 6; i++) host.stepBatch([1 / 6000], 0); // 1 ms ≈ half a period: v ≈ −10 V
+      assert.ok(Math.abs(host.readKey('circuit.node.cap.v')) > 1, 'the cap is still swinging');
+      const v0 = host.readKey('circuit.node.cap.v');
+      assert.ok(host.writeKey('circuit.elem.C1.c', 2 * host.readKey('circuit.elem.C1.c')));
+      assert.ok(Math.abs(host.readKey('circuit.node.cap.v') - v0) < 1e-9, 'the edit keeps the voltage');
+      // Unedited, this run's books close to ≈ 1.5e-3 (the trapezoid at a 1/6000 s step); the
+      // constant-charge edit this replaces read ≈ 9 (900 %).
+      for (let i = 0; i < 30; i++) host.stepBatch([1 / 6000], 0);
+      assert.ok(host.energyBooks().residual < 5e-3, `residual after a C edit ${host.energyBooks().residual}`);
+      assert.ok(host.writeKey('circuit.elem.L1.l', 0.5 * host.readKey('circuit.elem.L1.l')));
+      for (let i = 0; i < 30; i++) host.stepBatch([1 / 6000], 0);
+      assert.ok(host.energyBooks().residual < 5e-3, `residual after an L edit ${host.energyBooks().residual}`);
+    } finally {
+      host.dispose();
+    }
+    // The transformer's k moves live with its leakage switch (ports.ts before()).
+    const tx = runExample('transformer-bridge-rc', 'transformer', 1, 0.5);
+    try {
+      tx.state.transformerLeakage = true;
+      for (let i = 0; i < 30; i++) tx.host.stepBatch([1 / 60], 1);
+      assert.equal(tx.host.state, 'ok');
+      assert.ok(tx.host.energyBooks().residual < 0.01, `residual after a leakage toggle ${tx.host.energyBooks().residual}`);
+    } finally {
+      tx.host.dispose();
+    }
+  });
+
+  it('port power is what crosses the terminals: an open secondary delivers ~0', () => {
+    const doc = {
+      v: 1, title: 'open secondary',
+      e: [{ id: 'P1', k: 'PORT', dev: 'transformer', port: 'sec' }, { id: 'R1', k: 'R', p: { r: 1e9 } }, { id: 'G1', k: 'GND' }],
+      w: [['P1.0', 'R1.0'], ['P1.1', 'R1.1'], ['P1.1', 'G1.0']]
+    };
+    const devices = { transformer: { physicsState: X.createDevicePhysicsState('transformer', {}) } };
+    const host = new X.CircuitHost(wasm, () => devices);
+    try {
+      assert.ok(host.load(doc), host.message);
+      for (let i = 0; i < 60; i++) host.stepBatch([1 / 60], 1);
+      const b = host.energyBooks();
+      assert.ok(b.source > 1e-4, `the generator still feeds the primary (${b.source} J)`);
+      assert.ok(Math.abs(b.portW.P1) < 1e-6, `port power ${b.portW.P1} W into 1 GΩ`);
+      assert.ok(b.residual < 0.01, `residual ${b.residual}`);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('reset drops the scope (time never runs backwards) and keeps its channels', () => {
+    const { host } = runExample('rc-step', null, 0, 0.05);
+    try {
+      assert.ok(host.scopeTrace().t.length > 10);
+      host.reset();
+      const tr = host.scopeTrace();
+      assert.equal(tr.t.length, 0);
+      assert.equal(tr.keys.length, 2, 'the channels stay');
+      for (let i = 0; i < 3; i++) host.stepBatch([1 / 60], 0);
+      const t = host.scopeTrace().t;
+      for (let i = 1; i < t.length; i++) assert.ok(t[i] > t[i - 1], `t[${i}] ${t[i]} after ${t[i - 1]}`);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('a solver that stops releases the bench and is not stepped again', () => {
+    // A gain-1 VCVS whose control is its own output cancels its own constraint: singular.
+    const doc = {
+      v: 1, title: 'singular',
+      e: [{ id: 'P1', k: 'PORT', dev: 'homopolar', port: 'out' }, { id: 'R1', k: 'R', p: { r: 10 } },
+        { id: 'E1', k: 'E', p: { gain: 1 } }, { id: 'G1', k: 'GND' }],
+      w: [['P1.0', 'R1.0'], ['R1.1', 'E1.0'], ['E1.0', 'E1.2'], ['P1.1', 'G1.0'], ['E1.1', 'G1.0'], ['E1.3', 'G1.0']]
+    };
+    const devices = { homopolar: { physicsState: X.createDevicePhysicsState('homopolar', {}) } };
+    const host = new X.CircuitHost(wasm, () => devices);
+    let fails = 0;
+    host.onFail = () => fails++;
+    try {
+      assert.ok(host.load(doc), `it compiles: ${host.message}`);
+      assert.ok(devices.homopolar.physicsState._circuitOwned);
+      for (let i = 0; i < 5; i++) host.stepBatch([1 / 60], 1);
+      assert.equal(host.state, 'error', host.message);
+      assert.match(host.message, /solver stopped/);
+      assert.equal(fails, 1, 'onFail once: later batches do not call the solver');
+      assert.equal(host.owns('homopolar'), false);
+      assert.ok(!devices.homopolar.physicsState._circuitOwned, 'the bench is back on its own physics');
+      assert.ok(host.doc, 'the document stays on the sheet');
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('a rejected document the view cannot draw is not exposed; a drawable one stays', () => {
+    const host = new X.CircuitHost(wasm, () => ({}));
+    try {
+      assert.equal(host.load({ v: 1, e: [null], w: [] }), false);
+      assert.equal(host.state, 'error');
+      assert.equal(host.doc, null);
+      const base = X.circuitExample('rlc-ring');
+      const dangling = { ...base, e: [...base.e, { id: 'K1', k: 'K', p: { a: 'L1', b: 'Lgone', k: 0.9 } }] };
+      assert.equal(host.load(dangling), false);
+      assert.ok(host.doc && host.doc.e.length === dangling.e.length);
     } finally {
       host.dispose();
     }

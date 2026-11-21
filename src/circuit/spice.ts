@@ -16,8 +16,34 @@ import { formatSpice, parseSi } from './si';
 
 const f = formatSpice;
 
-function spiceName(letter: string, id: string): string {
-  return id.toUpperCase().startsWith(letter) ? id : `${letter}${id}`;
+/** The SPICE letter an element's card starts with, and the id it is named from. */
+function cardStem(e: CircuitElemDoc): [string, string] | null {
+  switch (e.k) {
+    case 'S': return ['R', `S_${e.id}`];
+    case 'AM': return ['V', `AM_${e.id}`];
+    case 'VM': case 'PORT': case 'GND': return null;
+    default: return [e.k, e.id];
+  }
+}
+
+/**
+ * One SPICE name per element, unique as SPICE compares them (case-blind):
+ * `A` and `LA` must not both become `LA`, nor `r1` and `R1` one resistor.
+ */
+function spiceNames(doc: CircuitDoc): Map<string, string> {
+  const out = new Map<string, string>();
+  const used = new Set<string>();
+  for (const e of doc.e) {
+    const stem = cardStem(e);
+    if (!stem) continue;
+    const [letter, id] = stem;
+    const base = id.toUpperCase().startsWith(letter) ? id : `${letter}${id}`;
+    let name = base;
+    for (let k = 2; used.has(name.toUpperCase()); k++) name = `${base}_${k}`;
+    used.add(name.toUpperCase());
+    out.set(e.id, name);
+  }
+  return out;
 }
 
 function sourceSpec(e: CircuitElemDoc): string {
@@ -33,44 +59,56 @@ function sourceSpec(e: CircuitElemDoc): string {
 export function toSpice(doc: CircuitDoc): string {
   const c = compileCircuit(doc);
   const nameOf = new Map<number, string>([[0, '0']]);
-  for (const [name, n] of c.nodeByName) if (name !== 'gnd' && !nameOf.has(n)) nameOf.set(n, name);
+  // Every explicit name is reserved before any is generated, so an unnamed
+  // node never takes `n2` from a node the document calls n2 (one net, not two).
+  const taken = new Set<string>(['0']);
+  for (const [name, n] of c.nodeByName) {
+    if (name === 'gnd' || nameOf.has(n)) continue;
+    nameOf.set(n, name);
+    taken.add(name.toUpperCase());
+  }
   const node = (ref: string) => {
     const n = c.nodeOfRef.get(ref);
     if (n === undefined) return 'NC';
-    if (!nameOf.has(n)) nameOf.set(n, `n${n}`);
+    if (!nameOf.has(n)) {
+      let name = `n${n}`;
+      for (let k = 2; taken.has(name.toUpperCase()); k++) name = `n${n}_${k}`;
+      taken.add(name.toUpperCase());
+      nameOf.set(n, name);
+    }
     return nameOf.get(n)!;
   };
   const t = (e: CircuitElemDoc, i: number) => node(`${e.id}.${i}`);
   const lines: string[] = [`* ${doc.title ?? 'Circuit Lab netlist'}`, '* exported by the SEG lab Circuit Lab (#256) — simulated, not metrology'];
   const models: string[] = [];
-  const lName = new Map<string, string>();
-  for (const e of doc.e) if (e.k === 'L') lName.set(e.id, spiceName('L', e.id));
+  const names = spiceNames(doc);
+  const spiceName = (e: CircuitElemDoc) => names.get(e.id)!;
   let tMax = 0;
   for (const e of doc.e) {
     const p = (n: string) => f(paramValue(e, n));
     switch (e.k) {
-      case 'R': lines.push(`${spiceName('R', e.id)} ${t(e, 0)} ${t(e, 1)} ${p('r')}`); break;
-      case 'C': lines.push(`${spiceName('C', e.id)} ${t(e, 0)} ${t(e, 1)} ${p('c')} IC=${p('ic')}`); break;
-      case 'L': lines.push(`${lName.get(e.id)} ${t(e, 0)} ${t(e, 1)} ${p('l')} IC=${p('ic')}`); break;
-      case 'V': lines.push(`${spiceName('V', e.id)} ${t(e, 0)} ${t(e, 1)} ${sourceSpec(e)}`); break;
-      case 'I': lines.push(`${spiceName('I', e.id)} ${t(e, 0)} ${t(e, 1)} ${sourceSpec(e)}`); break;
+      case 'R': lines.push(`${spiceName(e)} ${t(e, 0)} ${t(e, 1)} ${p('r')}`); break;
+      case 'C': lines.push(`${spiceName(e)} ${t(e, 0)} ${t(e, 1)} ${p('c')} IC=${p('ic')}`); break;
+      case 'L': lines.push(`${spiceName(e)} ${t(e, 0)} ${t(e, 1)} ${p('l')} IC=${p('ic')}`); break;
+      case 'V': lines.push(`${spiceName(e)} ${t(e, 0)} ${t(e, 1)} ${sourceSpec(e)}`); break;
+      case 'I': lines.push(`${spiceName(e)} ${t(e, 0)} ${t(e, 1)} ${sourceSpec(e)}`); break;
       case 'K': {
-        const a = lName.get(String(e.p?.a)), b = lName.get(String(e.p?.b));
-        if (a && b) lines.push(`${spiceName('K', e.id)} ${a} ${b} ${p('k')}`);
+        const a = names.get(String(e.p?.a)), b = names.get(String(e.p?.b));
+        if (a && b) lines.push(`${spiceName(e)} ${a} ${b} ${p('k')}`);
         break;
       }
-      case 'E': lines.push(`${spiceName('E', e.id)} ${t(e, 0)} ${t(e, 1)} ${t(e, 2)} ${t(e, 3)} ${p('gain')}`); break;
-      case 'G': lines.push(`${spiceName('G', e.id)} ${t(e, 0)} ${t(e, 1)} ${t(e, 2)} ${t(e, 3)} ${p('gm')}`); break;
+      case 'E': lines.push(`${spiceName(e)} ${t(e, 0)} ${t(e, 1)} ${t(e, 2)} ${t(e, 3)} ${p('gain')}`); break;
+      case 'G': lines.push(`${spiceName(e)} ${t(e, 0)} ${t(e, 1)} ${t(e, 2)} ${t(e, 3)} ${p('gm')}`); break;
       case 'D': {
-        const model = `D_${e.id}`;
-        lines.push(`${spiceName('D', e.id)} ${t(e, 0)} ${t(e, 1)} ${model}`);
+        const model = `D_${spiceName(e)}`;
+        lines.push(`${spiceName(e)} ${t(e, 0)} ${t(e, 1)} ${model}`);
         models.push(`.model ${model} D(IS=${p('is')} N=${p('n')} RS=${p('rs')})`);
         break;
       }
       case 'M': {
         const pmos = paramValue(e, 'pol') < 0;
-        const model = `${pmos ? 'P' : 'N'}_${e.id}`;
-        lines.push(`${spiceName('M', e.id)} ${t(e, 0)} ${t(e, 1)} ${t(e, 2)} ${t(e, 2)} ${model}`);
+        const model = `${pmos ? 'P' : 'N'}_${spiceName(e)}`;
+        lines.push(`${spiceName(e)} ${t(e, 0)} ${t(e, 1)} ${t(e, 2)} ${t(e, 2)} ${model}`);
         models.push(`.model ${model} ${pmos ? 'PMOS' : 'NMOS'}(LEVEL=1 VTO=${f((pmos ? -1 : 1) * paramValue(e, 'vt'))} KP=${p('kp')} LAMBDA=${p('lambda')})`);
         break;
       }
@@ -78,12 +116,12 @@ export function toSpice(doc: CircuitDoc): string {
         const clocked = paramValue(e, 'period') > 0;
         const closed = !clocked && paramValue(e, 'closed') >= 0.5;
         lines.push(`* switch ${e.id}: ron ${p('ron')}, roff ${p('roff')}${clocked ? `, clock period ${p('period')} duty ${p('duty')} delay ${p('delay')} — exported open` : ''}`);
-        lines.push(`${spiceName('R', `S_${e.id}`)} ${t(e, 0)} ${t(e, 1)} ${closed ? p('ron') : p('roff')}`);
+        lines.push(`${spiceName(e)} ${t(e, 0)} ${t(e, 1)} ${closed ? p('ron') : p('roff')}`);
         if (clocked) tMax = Math.max(tMax, paramValue(e, 'delay') + 4 * paramValue(e, 'period'));
         break;
       }
       case 'VM': lines.push(`* voltmeter ${e.id} across ${t(e, 0)} ${t(e, 1)} (ideal: no element)`); break;
-      case 'AM': lines.push(`${spiceName('V', `AM_${e.id}`)} ${t(e, 0)} ${t(e, 1)} DC 0 ; ammeter ${e.id}`); break;
+      case 'AM': lines.push(`${spiceName(e)} ${t(e, 0)} ${t(e, 1)} DC 0 ; ammeter ${e.id}`); break;
       case 'PORT': {
         const decl = CIRCUIT_PORTS.find((x) => x.device === e.dev && x.id === e.port);
         lines.push(`* bench port ${e.id} = ${e.dev}.${e.port} between ${t(e, 0)} (+) and ${t(e, 1)} (−): ${decl?.model ?? ''}`);

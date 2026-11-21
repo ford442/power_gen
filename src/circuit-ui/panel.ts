@@ -130,7 +130,18 @@ class WiringView {
     this.palette.replaceChildren(...parts.map(({ label, title, part }) => {
       const b = h('button', { type: 'button', className: 'ctrl-btn circuit-part-btn', textContent: label, title, disabled: this.readOnly, draggable: !this.readOnly });
       if (this.armed && this.armed.kind === part.kind && this.armed.dev === part.dev) b.classList.add('armed');
-      b.onclick = () => { this.armed = this.armed?.kind === part.kind && this.armed.dev === part.dev ? null : part; this.renderPalette(); };
+      b.onclick = (ev) => {
+        // Enter / Space (a click with no pointer, detail 0): place it now on a
+        // free spot, focused, so a keyboard user can move it with the arrows.
+        if (ev.detail === 0 && !this.readOnly) {
+          this.armed = null;
+          this.renderPalette();
+          this.sheet.placeFree(part);
+          return;
+        }
+        this.armed = this.armed?.kind === part.kind && this.armed.dev === part.dev ? null : part;
+        this.renderPalette();
+      };
       b.ondragstart = (ev) => ev.dataTransfer?.setData('application/x-circuit-part', JSON.stringify(part));
       return b;
     }));
@@ -197,7 +208,8 @@ class WiringView {
     if (!e) {
       box.append(h('p', { className: 'circuit-hint', textContent: this.readOnly
         ? 'Read-only: the solver is C++ (sim_core.wasm) and it is not loaded.'
-        : 'Click a part to edit it. Click two terminals to wire them. R rotates, Delete removes. Drag parts to move them.' }));
+        : 'Click a part to edit it. Click two terminals to wire them. R rotates, Delete removes. Drag parts to move them. '
+          + 'Keyboard: Enter on a palette part places it, Tab reaches parts and terminals, Enter selects or wires, arrows move.' }));
       if (sel?.kind === 'wire') box.append(h('p', { textContent: `wire ${this.host.doc?.w[sel.index]?.join(' — ') ?? ''} (Delete removes it)` }));
       return;
     }

@@ -6,7 +6,9 @@
  * SPICE is case-insensitive and reads `m` as milli and `meg` as mega; the
  * wiring view follows it except for an uppercase `M` *on its own* (`2M`),
  * which a person typing a resistor means as mega — SPICE import uses
- * `{ spice: true }` and gets milli, as SPICE would.
+ * `{ spice: true }` and gets milli, as SPICE would. In SPICE mode every
+ * suffix is case-blind: `10U` is 10 µ, `1N` is 1 n, and `1F` is 1 femto
+ * (SPICE has no farad suffix — `1F` is the classic trap, and SPICE agrees).
  */
 
 const PREFIX: Readonly<Record<string, number>> = {
@@ -18,7 +20,7 @@ const NUM = /^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*(meg|Meg|MEG|[fpn
 
 /** Parse `4.7k`, `100nF`, `2.2e-3` … → number, or NaN. */
 export function parseSi(text: string, opts: { spice?: boolean } = {}): number {
-  const m = NUM.exec(text);
+  const m = NUM.exec(opts.spice ? text.toLowerCase() : text);
   if (!m) return Number.NaN;
   const base = Number(m[1]);
   const prefix = m[2];
