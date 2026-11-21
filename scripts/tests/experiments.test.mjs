@@ -29,6 +29,10 @@ const VERBOSE = process.argv.includes('--verbose') || !!process.env.SEG_EXPERIME
 const BACKEND_REL = 2e-3;
 const BACKEND_ABS = 1e-9;
 
+/** Benches with a C++ plant (physics/devices.json `wasmMode`). */
+const WASM_FOCUS = new Set(JSON.parse(readFileSync(join(ROOT, 'physics/devices.json'), 'utf8')).devices
+  .filter((d) => d.wasmMode !== null && d.wasmMode !== undefined).map((d) => d.id));
+
 const X = await bundleTs({
   contents: `
     export { validateExperiment, sweepGrid, ExperimentError } from './src/experiments/validate';
@@ -105,7 +109,9 @@ describe('reference experiments, offline on wasm + js', () => {
             const finite = run.rows.every((r) => r.every((x, j) => j === 0 || Number.isFinite(x) || Number.isNaN(x)));
             assert.ok(finite, `[${backend}]: no Inf in the table`);
           }
-          const want = backend === 'wasm' ? (v.devices.length > 1 ? 'mixed' : 'wasm') : 'js';
+          // A focus with no C++ plant (catalog wasmMode null, e.g. pulse-coil) runs JS on both.
+          const want = backend === 'wasm' && WASM_FOCUS.has(v.def.config?.mode ?? 'seg')
+            ? (v.devices.length > 1 ? 'mixed' : 'wasm') : 'js';
           assert.ok(res.runs.every((r) => r.backend === want), `[${backend}]: backend label — ${res.runs.map((r) => r.backend).join(',')}`);
           for (const e of res.verdicts) {
             if (VERBOSE) t.diagnostic(`${e.pass ? '✓' : '✗'} [${backend}] ${e.label}: ${fmt(e.measured)} (${e.condition})`);

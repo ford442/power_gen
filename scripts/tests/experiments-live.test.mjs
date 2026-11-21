@@ -46,6 +46,10 @@ import { fileURLToPath } from 'node:url';
 import { before, describe, it } from 'node:test';
 import { ROOT } from '../test-harness.mjs';
 
+/** Benches with a C++ plant (physics/devices.json `wasmMode`). */
+const WASM_FOCUS = new Set(JSON.parse(readFileSync(join(ROOT, 'physics/devices.json'), 'utf8')).devices
+  .filter((d) => d.wasmMode !== null && d.wasmMode !== undefined).map((d) => d.id));
+
 const VERBOSE = process.argv.includes('--verbose') || !!process.env.SEG_LIVE_VERBOSE;
 /** `--only=<id>[,<id>]` / SEG_LIVE_ONLY — debug one reference. */
 const ONLY = (process.argv.find((a) => a.startsWith('--only='))?.slice(7) ?? process.env.SEG_LIVE_ONLY)?.split(',') ?? null;
@@ -158,9 +162,9 @@ if (!BACKEND) {
     it(`${BACKEND}: no plant worker in Node (in-loop plant)`, () => {
       assert.equal(session.plantWorker, null);
     });
-    it('four reference experiments', () => {
+    it('five reference experiments', () => {
       const ids = X.referenceExperimentIds();
-      assert.ok(ids.length === 4, ids.join());
+      assert.ok(ids.length === 5, ids.join());
     });
   });
 
@@ -196,7 +200,9 @@ if (!BACKEND) {
           const worst = { rel: 0, what: '', series: 0 };
           try {
             assert.ok(run.runner === 'live', `${tag}: runner is live — ${run.runner}`);
-            assert.ok(BACKEND === 'js' ? run.backend === 'js' : run.backend !== 'js', `${tag}: backend — ${run.backend}`);
+            // A focus with no C++ plant (catalog wasmMode null, e.g. pulse-coil) runs JS under either flag.
+            const cpp = WASM_FOCUS.has(def.config?.mode ?? 'seg');
+            assert.ok(BACKEND === 'js' || !cpp ? run.backend === 'js' : run.backend !== 'js', `${tag}: backend — ${run.backend}`);
             assert.ok(run.expects.length > 0 && run.expects.every((e) => e.pass),
               `${tag}: every verdict passes live — ${run.expects.map((e) => `${e.pass ? 'PASS' : 'FAIL'} ${e.label} ${JSON.stringify(e.measured)}`).join(' | ')}`);
             if (def.sweep) {

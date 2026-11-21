@@ -403,6 +403,11 @@ in `src/`.
 | `fdtd` | `1` \| `0` | on | — | — | `0` kills the 2D wave slice (WebGPU panel **and** the WebGL2 micro-grid readout) — ADR-0010. |
 | `fdtdMaterials` | `1` \| `0` | on | — | — | μ_r armature + copper turns in the wave slice. `0` reverts to the ADR-0010 vacuum kernel, for a side-by-side comparison — ADR-0012. |
 | `fdtdDrive` | `coil` \| `transformer` | `coil` | — | — | What modulates the slice's source amplitude: the pulse coil's discharge current, or the transformer bench's core flux (continuous AC). Winding *geometry* is unchanged; falls back to `coil` if that bench isn't in the lab — ADR-0012. |
+| `fieldVolume` | `1` \| `0` | on | — | — | `0` kills the 3-D magnetostatic field volume and everything that reads it (volume field lines, slice, isosurfaces, charged particles, probe GPU readback; WebGL2's CPU slice readout) — ADR-0017. Focus view, `medium` tier and up (64³; 128³ at `high`), on benches with a catalog `fieldSources` row. |
+| `fieldSlice` | `off` \| `x` \| `y` \| `z` | `off` | — | yes | Field slice plane through the focused bench's volume, normal to the given axis (|B| colour map; the field panel drags the offset; a click on the plane sets the probe) — ADR-0017. |
+| `fieldSliceMode` | `heat` \| `arrows` \| `lic` | `arrows` | — | yes | Slice overlay: `heat` (|B| only), `arrows` (in-plane direction glyphs), `lic` (line-integral convolution). WebGPU only. |
+| `fieldIso` | `1` \| `0` | off | — | yes | |B| = k isosurfaces ray-marched through the volume — computed shells of the modelled sources; on SEG they replace the hand-modelled Roschin–Godin walls, labelled as a model. WebGPU only — ADR-0017. |
+| `fieldParticles` | `off` \| `electron` \| `proton` \| `alpha` | `off` | — | yes | Charged particles pushed through the volume (Boris, non-relativistic, time slowed so a gyration is visible; E from the bench's catalog `efield`). WebGPU, not on `low` tier — ADR-0017. |
 | `halbachLinear` | `1` \| `0` | off | — | yes | Lay the Halbach bench out as a linear array instead of a ring (read when the bench is created; share links switch it live). |
 | `audio` | `1` \| `0` | off | — | — | Lab sonification (spark clicks, coil buzz, SEG drone, MHD flow bed). Arms the graph; an `AudioContext` still waits for a user gesture, and the header badge mutes it — [`LAB_AUDIO.md`](./LAB_AUDIO.md). |
 | `offline` / `sw` | `1` \| `0` | on (production http(s) boots) | — | — | Offline PWA service worker: precaches the hashed build, WASM and GLBs so a classroom boots without a network, and asks before applying an update. `0` skips registration **and** unregisters a worker from an earlier visit (the kill switch for a bad deploy). Dev, `file:` and plain-http LAN hosts never register — [`CLASSROOM.md`](./CLASSROOM.md). |
@@ -520,6 +525,9 @@ switch; `#device-readout` is named `"<bench> readout"`.
 | `src/physics/fdtd-tmz.ts` | 2D TM_z Yee kernel + material map (CPU reference for `test:fdtd`) — ADR-0010/0012 |
 | `src/devices/quanta/fdtd-slice-pass.ts` | WebGPU wave-slice pass (pulse-coil focus, lazily built) |
 | `src/fdtd-heatmap-overlay.ts` | WebGL2 64² CPU micro-grid readout of the same kernel — ADR-0012 |
+| `src/physics/field-{sources,eval,builders,bench,volume,probe,pack,particles}.ts` | Magnetostatic field from catalog `fieldSources` rows: packed sources, exact kernels (WGSL twin `shaders/common/field-sources.wgsl`), per-bench builders, CPU probe + record keys, pass policy / uniform packing, particle time scaling — ADR-0017 |
+| `src/visualizer/field-volume-{pass,drive}.ts` | WebGPU field volume (n³ texture, tracer, slice, iso, Boris particles, GPU probe), lazily built; frame-graph pass + lifetime `field-volume` |
+| `src/field-panel.ts` | Field panel on both renderers: probe readout ("simulated, not metrology"), slice / iso / particle controls, CPU \|B\| slice on WebGL2 and below `medium` |
 | `src/audio/*` | Lab sonification: pure telemetry→parameter mapping, Web Audio graph, header mute badge — [`LAB_AUDIO.md`](./LAB_AUDIO.md) |
 | `src/classroom/*` | Classroom delivery (lazy chunk from `main.ts`): service-worker registration + "Update available" prompt, Record control, lazy recorder (`window.recordBench`) — [`CLASSROOM.md`](./CLASSROOM.md) |
 | `scripts/vite-plugin-precache.mjs` | Build step: writes `dist/sw.js` (precache list + content-hash version) from `src/classroom/sw-template.js` — [`CLASSROOM.md`](./CLASSROOM.md) |
@@ -637,6 +645,7 @@ Manual / agent checks (WebGPU needs a real GPU):
 | [`WEBGL2.md`](./WEBGL2.md) | Fallback parity gaps |
 | [`TELEMETRY.md`](./TELEMETRY.md) | TelemetryHub |
 | [`ANALYSIS.md`](./ANALYSIS.md) | Analysis panel: recorded runs, fits, FFT chore, exports ("Simulated — not metrology") |
+| [`adr/0017-field-volume.md`](./adr/0017-field-volume.md) | Field volume: catalog sources, kernels, consumers, probe keys, WGSL-on-CPU golden |
 | [`EXPERIMENTS.md`](./EXPERIMENTS.md) | Scripted experiments: format, knobs, live vs offline clock, sweeps, tour `run`, reference experiments |
 | [`SNAPSHOTS.md`](./SNAPSHOTS.md) | Plant snapshots: `state` blocks, `plantSave` / `plantLoad`, `window.lab.captureSnapshot`, replay take-over |
 | [`LIGHTING_RIG.md`](./LIGHTING_RIG.md) | Lighting looks + post quality gates |

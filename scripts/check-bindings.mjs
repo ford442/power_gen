@@ -85,6 +85,8 @@ function wgslKind(addrSpace, type) {
   if (t === 'texture_depth_multisampled_2d') return { kind: 'texture-depth-ms' };
   if (t === 'texture_2d<f32>') return { kind: 'texture' };
   if (t === 'texture_2d_array<f32>') return { kind: 'texture-array' };
+  if (t === 'texture_3d<f32>') return { kind: 'texture-3d' };
+  if (/^texture_storage_3d<(\w+),write>$/.test(t)) return { kind: 'storage-texture-3d', format: t.match(/<(\w+),/)[1] };
   let m = t.match(/^texture_storage_2d<(\w+),write>$/);
   if (m) return { kind: 'storage-texture', format: m[1] };
   m = t.match(/^texture_storage_2d_array<(\w+),write>$/);

@@ -14,6 +14,7 @@ import { registerSegEnhancedLayouts } from './layouts/seg-enhanced.js';
 import { registerDeviceMeshLayouts } from './layouts/device-mesh.js';
 import { registerPostLayouts } from './layouts/post.js';
 import { registerFdtdLayouts } from './layouts/fdtd.js';
+import { registerFieldLayouts } from './layouts/field.js';
 import {
   ensureDevicePipelines as ensureDevicePipelinesImpl,
   ensureShadowCasterPipelines as ensureShadowCasterPipelinesImpl,
@@ -48,6 +49,14 @@ import {
 export type { BindGroupLayoutName, PipelineLayoutName } from './types.js';
 export type { DevicePipelineOptions } from './factories/device-pipelines.js';
 export type { FdtdComputePipelines } from './factories/fdtd-pipelines.js';
+import {
+  ensureFieldComputePipelines as ensureFieldComputePipelinesImpl,
+  ensureFieldRenderPipelines as ensureFieldRenderPipelinesImpl,
+  type FieldComputePipelines,
+  type FieldRenderPipelines,
+  type FieldShaderSources
+} from './factories/field-pipelines.js';
+export type { FieldComputePipelines, FieldRenderPipelines, FieldShaderSources } from './factories/field-pipelines.js';
 export {
   VB_POS_NORMAL,
   VB_POS_NORMAL_UV,
@@ -133,6 +142,7 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     registerDeviceMeshLayouts(this);
     registerPostLayouts(this);
     registerFdtdLayouts(this);
+    registerFieldLayouts(this);
   }
 
   getLayout(name: BindGroupLayoutName): GPUBindGroupLayout {
@@ -309,5 +319,13 @@ export class PipelineLayoutCache implements LayoutRegistrar {
 
   async ensureFdtdSlicePipeline(code: string, opts?: { sampleCount?: number }): Promise<GPURenderPipeline> {
     return ensureFdtdSlicePipelineImpl(this, code, opts);
+  }
+
+  async ensureFieldComputePipelines(src: FieldShaderSources): Promise<FieldComputePipelines> {
+    return ensureFieldComputePipelinesImpl(this, src);
+  }
+
+  async ensureFieldRenderPipelines(src: FieldShaderSources, opts?: { sampleCount?: number }): Promise<FieldRenderPipelines> {
+    return ensureFieldRenderPipelinesImpl(this, src, opts);
   }
 }

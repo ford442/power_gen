@@ -199,6 +199,8 @@ export interface RendererInfoSnapshot {
     postTargetBytes: number;
   };
   /** WebGPU only: the frame graph (visualizer/frame-graph.ts) as of the last frame. */
+  /** Field volume (ADR-0017): build state, resolution, sweeps, probe readout. */
+  fieldVolume?: import('./visualizer/field-volume-drive').FieldVolumeInfo;
   frameGraph?: {
     /** Declared passes, in order. */
     passes: string[];
@@ -250,6 +252,8 @@ declare global {
     multiVisualizer?: MultiVisualizerWindowRef;
     currentRenderer?: string | null;
     /** Boot probe result (WebGPU required path). See renderers/webgpu-probe.ts. */
+    /** Field-volume debug hook (ADR-0017): info, GPU probe readback, panel state. */
+    fieldVolume?: import('./visualizer/field-volume-drive').FieldVolumeDebug;
     webgpuProbe?: {
       ok: boolean;
       error: string | null;

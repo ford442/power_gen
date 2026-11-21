@@ -6,6 +6,8 @@
  *                                 `setpoints`), e.g. `lorentz-sled.lorentzField`
  *   transformer.leakage           0 = ideal k, 1 = leakage k (classroom toggle)
  *   hall.carrierMetal             0 = semiconductor strip, 1 = metal
+ *   <bench>.field.probe.x|y|z     field probe position, device-local scene
+ *                                 units, within the catalog bounds (ADR-0017)
  *
  * plus a few readable aliases (`lorentz-sled.fieldT`). A knob writes the same
  * `physicsState` field, through the same helper, as the operator control it
@@ -18,6 +20,8 @@ import { setLorentzFieldT } from '../devices/quanta/lorentz-sled';
 import { setTransformerLeakage } from '../devices/quanta/transformer';
 import { setHallCarrierType } from '../devices/quanta/hall-effect';
 import type { DevicePhysicsState } from '../renderers/shared/device-physics';
+import { FIELD_DEVICE_IDS, FIELD_SOURCE_CATALOG } from '../../generated/field-sources';
+import { fieldProbePoint, setFieldProbeAxis } from '../physics/field-probe';
 
 type PhysicsBag = Partial<DevicePhysicsState> & Record<string, unknown>;
 
@@ -161,11 +165,36 @@ const HALL_CARRIER_METAL: KnobSpec = {
   }
 };
 
+function fieldProbeKnob(deviceId: string, axis: 0 | 1 | 2): KnobSpec {
+  const b = FIELD_SOURCE_CATALOG[deviceId].bounds;
+  const c = 'xyz'[axis];
+  return {
+    id: `${deviceId}.field.probe.${c}`,
+    label: `Field probe ${c}`,
+    unit: 'scene',
+    min: b[0][axis],
+    max: b[1][axis],
+    kind: 'number',
+    deviceId,
+    write(t, value) {
+      const phys = physicsOf(t, deviceId);
+      if (!phys) return false;
+      setFieldProbeAxis(deviceId, phys, axis, value);
+      return true;
+    },
+    read(t) {
+      const phys = physicsOf(t, deviceId);
+      return phys ? fieldProbePoint(deviceId, phys)[axis] : null;
+    }
+  };
+}
+
 export const EXPERIMENT_KNOBS: readonly KnobSpec[] = [
   DRIVE,
   ...DEVICE_SETPOINTS.map(setpointKnob),
   TRANSFORMER_LEAKAGE,
-  HALL_CARRIER_METAL
+  HALL_CARRIER_METAL,
+  ...FIELD_DEVICE_IDS.flatMap((id) => ([0, 1, 2] as const).map((a) => fieldProbeKnob(id, a)))
 ];
 
 /** Readable alternative names → canonical knob id. */

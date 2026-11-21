@@ -12,6 +12,15 @@
       "wasmMode": 0,
       "telemetryKeys": ["rpm", "omega", "corona", "voltage", "current", "power", "fieldSim", "energyDensity"],
       "fidelity": "WASM RK4 (full plant)",
+      "fieldSources": {
+        "unitM": 0.5,
+        "bounds": [[-3.8, -1.6, -3.8], [3.8, 1.6, 3.8]],
+        "probe": [1.55, 0.5, 0.0],
+        "model": "Roller magnets as uniformly magnetised spheres (dipole outside, uniform inside), tangential moment M·V of the drawn roller, alternating poles; vacuum, no stator iron; the coil rings sit outside the volume",
+        "groups": [
+          {"builder": "segRollers", "params": {"magnetizationAPerM": 1121660.0, "seedsPerRoller": 2}, "label": "rollers"}
+        ]
+      },
       "state": {
         "plant": null,
         "fields": [
@@ -320,6 +329,16 @@
       "wasmMode": 6,
       "telemetryKeys": ["maglevGapMm", "maglevFieldT", "maglevLiftN", "maglevRpm"],
       "fidelity": "WASM (spring–damper gap ODE), JS fallback mirrors it",
+      "fieldSources": {
+        "unitM": 0.01,
+        "bounds": [[-3.8, -0.6, -3.8], [3.8, 1.6, 3.8]],
+        "probe": [2.8, 0.95, 0.0],
+        "model": "12-block Halbach wheel (magnetisation turning 90° per block in the radial–Y plane, N52 Br) under an axially magnetised floater disc at the plant's gap; exact box / cylinder fields, vacuum",
+        "groups": [
+          {"builder": "halbachRing", "params": {"count": 12, "radius": 2.8, "y": 0.35, "halfSize": [0.6, 0.4, 0.7], "stepDeg": 90, "brT": 1.48}, "label": "Halbach track"},
+          {"builder": "floaterMagnet", "params": {"y0": 0.55, "gapKey": "maglevGap", "gapUnitM": 1, "radius": 0.8, "halfLength": 0.1, "brT": 1.2}, "label": "floater"}
+        ]
+      },
       "state": {
         "plant": "_maglev",
         "fields": [
@@ -365,6 +384,15 @@
       "wasmMode": null,
       "telemetryKeys": ["pulseCoilCurrentA", "pulseCoilVCap", "pulseCoilBPeakT", "pulseCoilArmatureMm"],
       "fidelity": "JS-only (fallback-physics for pulseCoilBPeakT)",
+      "fieldSources": {
+        "unitM": 0.05625,
+        "bounds": [[-1.6, -1.6, -1.6], [1.6, 2.0, 1.6]],
+        "probe": [0.0, 0.165, 0.0],
+        "model": "48-turn coil as an ideal solenoid (coil radius 45 mm, the drawn length) carrying the plant's signed current; the iron armature is not modelled (vacuum)",
+        "groups": [
+          {"kind": "cylinder", "center": [0, 0.165, 0], "axis": [0, 1, 0], "radius": 0.8, "halfLength": 1.37, "turns": 48, "currentA": 1, "drive": {"key": "pulseCoilCurrent"}, "label": "coil"}
+        ]
+      },
       "state": {
         "plant": null,
         "fields": [
@@ -429,6 +457,16 @@
       "wasmMode": 7,
       "telemetryKeys": ["homopolarRpm", "homopolarEmfV", "homopolarCurrentA", "homopolarFieldT"],
       "fidelity": "WASM (Faraday disc L–R + back-EMF)",
+      "fieldSources": {
+        "unitM": 0.3125,
+        "bounds": [[-1.0, -0.6, -1.0], [1.0, 0.95, 1.0]],
+        "probe": [0.3, 0.16, 0.0],
+        "model": "Axial pole pair solved so B at the disc equals the plant's homopolarFieldT; radial disc current from axle to rim brush as a straight segment; vacuum",
+        "groups": [
+          {"builder": "polePair", "params": {"shape": "cylinder", "center": [0, 0.16, 0], "gap": 0.18, "thickness": 0.25, "radius": 0.55}, "drive": {"key": "homopolarFieldT"}, "label": "pole pair"},
+          {"kind": "segment", "points": [[0, 0.16, 0], [0.448, 0.16, 0]], "currentA": 1, "wireM": 0.004, "drive": {"key": "homopolarCurrentA"}, "label": "disc current"}
+        ]
+      },
       "integrator": "euler",
       "ode": {
         "state": ["omega", "currentA"],
@@ -484,6 +522,15 @@
       "wasmMode": null,
       "telemetryKeys": ["halbachSegmentCount", "halbachMagAngleDeg", "halbachPeakBT", "halbachPeriodM", "halbachDipoleForceN"],
       "fidelity": "JS-only (CPU field-line viz); estimateHalbachFieldT is a free WASM helper, not a plant",
+      "fieldSources": {
+        "unitM": 0.1,
+        "bounds": [[-2.0, -0.6, -2.0], [2.0, 1.0, 2.0]],
+        "probe": [0.0, 0.2, 0.0],
+        "model": "N magnetised blocks (t × t × arc, N52 Br) at the plant's segment count, layout and magnetisation step; exact surface-charge box fields, vacuum",
+        "groups": [
+          {"builder": "halbachArray", "params": {"radiusM": 0.14, "thicknessM": 0.028, "y": 0.2, "brT": 1.48}, "label": "Halbach blocks"}
+        ]
+      },
       "state": {
         "plant": null,
         "clearOnLoad": ["halbachFieldLines"],
@@ -552,6 +599,17 @@
       "wasmMode": 8,
       "telemetryKeys": ["transformerVp", "transformerVs", "transformerIpA", "transformerIsA", "transformerK", "transformerFluxN"],
       "fidelity": "WASM coupled-inductor RK4 ODE (?wasmPhysics=1); JS fallback mirrors it",
+      "fieldSources": {
+        "unitM": 0.1,
+        "bounds": [[-1.1, -0.7, -0.6], [1.1, 1.2, 0.6]],
+        "probe": [0.0, 0.8, 0.0],
+        "model": "Iron core as equivalent ampere-turns on a toroidal winding (core B = |λ|/λref × 1 T, vacuum otherwise); primary 120 t and secondary 40 t as ideal solenoids on the limbs, live currents",
+        "groups": [
+          {"builder": "toroidCore", "params": {"majorRadius": 0.55, "minorRadius": 0.16, "cy": 0.25, "turns": 24, "pointsPerTurn": 12, "seedLines": 12}, "drive": {"key": "transformerFluxN", "abs": true}, "label": "core flux"},
+          {"kind": "cylinder", "center": [-0.55, 0.235, 0], "axis": [0, 1, 0], "radius": 0.24, "halfLength": 0.2, "turns": 120, "currentA": 1, "drive": {"key": "transformerIpA"}, "label": "primary"},
+          {"kind": "cylinder", "center": [0.55, 0.215, 0], "axis": [0, 1, 0], "radius": 0.24, "halfLength": 0.16, "turns": 40, "currentA": 1, "drive": {"key": "transformerIsA"}, "label": "secondary"}
+        ]
+      },
       "state": {
         "plant": "_transformer",
         "fields": [
@@ -657,6 +715,17 @@
       "wasmMode": 10,
       "telemetryKeys": ["hallVoltage", "hallCurrent", "hallFieldT", "hallCoeff"],
       "fidelity": "WASM I·B→Hall-voltage ODE (?wasmPhysics=1); JS fallback",
+      "fieldSources": {
+        "unitM": 1,
+        "bounds": [[-0.6, -0.3, -0.4], [0.6, 0.3, 0.4]],
+        "probe": [0.0, 0.0, 0.0],
+        "model": "Pole pair (not drawn) solved so B at the strip equals hallFieldT, along +Y; strip current along X; Hall field E = V_H / w across Z for the particle pusher; vacuum",
+        "efield": {"dir": [0, 0, 1], "key": "hallVoltage", "factor": 12.5},
+        "groups": [
+          {"builder": "polePair", "params": {"shape": "box", "center": [0, 0, 0], "gap": 0.06, "thickness": 0.06, "halfSize": [0.3, 0.15]}, "drive": {"key": "hallFieldT"}, "label": "pole pair"},
+          {"kind": "segment", "points": [[-0.25, 0, 0], [0.25, 0, 0]], "currentA": 1, "wireM": 0.01, "drive": {"key": "hallCurrent"}, "label": "strip current"}
+        ]
+      },
       "state": {
         "plant": "_hall",
         "fields": [
@@ -704,6 +773,16 @@
       "wasmMode": 11,
       "telemetryKeys": ["lorentzSledVms", "lorentzCurrentA", "lorentzFieldT", "lorentzForceN", "lorentzPositionM"],
       "fidelity": "WASM R–L + back-EMF + Lorentz force ODE (?wasmPhysics=1); JS fallback mirrors it",
+      "fieldSources": {
+        "unitM": 0.16667,
+        "bounds": [[-7.5, -2.6, -3.6], [7.5, 2.6, 3.6]],
+        "probe": [0.0, 0.0, 0.0],
+        "model": "Pole plates above and below the track solved so B at the centre equals lorentzFieldT; rails and armature as straight segments carrying the plant's current (X scale; the drawn Z is stretched); vacuum",
+        "groups": [
+          {"builder": "polePair", "params": {"shape": "box", "center": [0, 0, 0], "gap": 1.4, "thickness": 0.6, "halfSize": [6.0, 3.2]}, "drive": {"key": "lorentzFieldT"}, "label": "pole plates"},
+          {"builder": "lorentzCircuit", "params": {"x0": -6, "halfGap": 2.6, "y": 0, "posKey": "lorentzPositionM", "posScale": 6}, "drive": {"key": "lorentzCurrentA"}, "label": "rails + armature"}
+        ]
+      },
       "state": {
         "plant": "_lorentz",
         "fields": [
@@ -767,6 +846,16 @@
       "wasmMode": 12,
       "telemetryKeys": ["ringHeightM", "ringCurrentA", "ringPrimaryIA", "ringForceN", "ringCouplingK"],
       "fidelity": "WASM coupled L–M(h) ODE (adaptive Dormand–Prince 5(4)) with ring mass/gravity (?wasmPhysics=1); JS fallback mirrors it",
+      "fieldSources": {
+        "unitM": 0.012,
+        "bounds": [[-4.5, -8.0, -4.5], [4.5, 10.0, 4.5]],
+        "probe": [0.0, -4.4, 0.0],
+        "model": "Primary as an ideal 300-turn solenoid, ring as a single-turn loop at the plant's height, both live currents; the iron pole is not modelled (vacuum)",
+        "groups": [
+          {"kind": "cylinder", "center": [0, -4.4, 0], "axis": [0, 1, 0], "radius": 1.7, "halfLength": 1.6, "turns": 300, "currentA": 1, "drive": {"key": "ringPrimaryIA"}, "label": "primary"},
+          {"builder": "loop", "params": {"radius": 2.8, "segments": 32, "y": -1, "yKey": "ringHeightM", "yScale": 83.333, "wireM": 0.002}, "drive": {"key": "ringCurrentA"}, "label": "ring"}
+        ]
+      },
       "integrator": "dopri5",
       "ode": {
         "state": ["primaryIA", "ringCurrentA", "velocityMps", "heightM"],

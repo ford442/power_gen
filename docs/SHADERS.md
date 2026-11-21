@@ -149,6 +149,18 @@ and declared in WGSL.
 npm run test:fdtd           # scripts/tests/fdtd.test.mjs (ADR-0010)
 ```
 
+```bash
+npm run test:field-volume   # scripts/tests/field-volume.test.mjs (ADR-0017)
+```
+
+The field volume's kernels are checked against independent quadrature, and
+the shaders are **executed**: `scripts/lib/wgsl-mini.mjs` compiles a WGSL
+subset (no pointers; textures limited to the storage write) to JS with f32
+rounding and `workgroupBarrier()` as a lockstep yield, so `field-probe.wgsl`
+is held to the CPU reference at 20 points per bench (< 1 %) and the tiled
+`field-volume.wgsl` to `buildFieldVolume`. `scripts/tests/field-pack.test.mjs`
+holds every field uniform to its WGSL struct and the colour ramp to its TS twin.
+
 The FDTD wave slice has its own check: `FdtdParams` / `FdtdSliceParams` byte
 sizes and source capacity match `src/physics/fdtd-tmz.ts`, the workgroup size and
 cubic sponge profile match the CPU kernel, the gate stays shut outside

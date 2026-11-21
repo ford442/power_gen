@@ -59,6 +59,7 @@
     "test:plant-worker": "node --test scripts/tests/plant-worker.test.mjs",
     "test:coupling": "node --test scripts/tests/coupling.test.mjs",
     "test:pulse-coil": "node --test scripts/tests/pulse-coil.test.mjs",
+    "test:field-volume": "node --test scripts/tests/field-volume.test.mjs",
     "test:drop-tube": "node --test scripts/tests/drop-tube.test.mjs",
     "test:lab-mode": "node --test scripts/tests/lab-mode.test.mjs",
     "test:lab-url": "node --test scripts/tests/lab-url.test.mjs",

@@ -270,6 +270,30 @@ Built at sample count 1 and 4 like the other scene draws. Slot 1 is declared
 `src/devices/quanta/fdtd-slice-pass.ts`, built lazily on the first frame the
 gate could open.
 
+### Field volume (ADR-0017)
+
+Host: `src/visualizer/field-volume-pass.ts`, built lazily the first frame the
+gate (`physics/field-pack.ts` → `fieldVolumeGateOpen`) could open. The n³
+`rgba16float` texture and every buffer below are the frame-graph lifetime
+`field-volume`. Compute layouts are `@group(0)` alone; scene layouts are
+`[frame, <own>]` like every scene draw.
+
+| Layout | Pass | Bindings |
+|--------|------|----------|
+| `fieldVolume` | `field-volume.wgsl` (4×4×4, 64-source workgroup tile) | 0 uniform `FieldVolumeParams` (64 B); 1 storage (read) `FieldSource[]` (64 B each); 2 `texture_storage_3d<rgba16float, write>` |
+| `fieldProbe` | `field-probe.wgsl` (64) | 0 uniform info (unitM, count, points); 1 sources; 2 storage (read) points `vec4f[]`; 3 storage (rw) results `vec4f[]` (B in T, \|B\|) |
+| `fieldStreamlines` | `field-streamlines.wgsl` (64, one seed each) | 0 uniform `StreamParams` (48 B); 1 `texture_3d<f32>`; 2 sampler (linear, clamp); 3 storage (read) seeds; 4 storage (rw) `FieldLineSegment[]` (32 B) |
+| `fieldCharges` | `field-particles.wgsl` (64, Boris) | 0 uniform `ParticleParams` (96 B); 1 volume; 2 sampler; 3 storage (rw) particles (32 B); 4 storage (rw) trail ring `FieldLineSegment[]` |
+| `fieldLines` | `field-lines-vert.wgsl` + `flux-segment-frag.wgsl`, `@group(1)` | 1 uniform (dynamic) `DeviceUniforms`; 2 storage (read) segments; 3 uniform `FieldLineParams` (16 B) |
+| `fieldSlice` | `field-slice.wgsl` (`vsMain` / `fsMain`, 6 vertices), `@group(1)` | 1 uniform `SliceParams` (64 B); 2 volume; 3 sampler |
+| `fieldIso` | `field-iso.wgsl` (`vsMain` / `fsMain`, 36 vertices, back faces), `@group(1)` | 1 uniform `IsoParams` (64 B); 2 volume; 3 sampler |
+
+`fieldCharges`, not `fieldParticles` — that name is the SEG field-line
+particle billboard's. Scene pipelines are built at sample count 1 and 4 with
+the G-buffer slot `{ format: 'rg8unorm', writeMask: 0 }`, depth test on,
+depth write off; `field-iso.wgsl` writes `frag_depth` for its nearest shell.
+Byte sizes are held to the WGSL structs by `scripts/tests/field-pack.test.mjs`.
+
 ### Post-process / environment
 
 | Layout | Bindings |

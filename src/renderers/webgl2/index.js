@@ -215,7 +215,13 @@ export class WebGL2MultiDeviceVisualizer {
           'glTF CAD housing / coil former / stand / base plate',
           'Roschin–Godin magnetic wall shells',
           'WebGPU timestamp queries',
-          'key-light shadow map'
+          'key-light shadow map',
+          // ADR-0017: the field panel's probe and CPU |B| slice work here; the
+          // 3-D volume and everything that samples it do not.
+          'field volume (3-D texture) + volume field-line tracer',
+          'field slice arrows / LIC (CPU |B| slice in the field panel instead)',
+          'field |B| isosurfaces',
+          'charged particles (Boris pusher)'
         ],
         hardwareTwin: snap?.hardwareTwin ?? null,
         chores: gpuChores.breadcrumb(),

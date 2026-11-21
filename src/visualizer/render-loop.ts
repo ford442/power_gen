@@ -1,5 +1,6 @@
 // Per-frame simulation update. GPU encode (scene + bloom) lives in
 // render-encode.ts — split out to keep this file under the 700-line cap.
+import { updateFieldVolume } from './field-volume-drive';
 import { explainerState } from '../seg-explainer/explainer-state';
 import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
@@ -326,9 +327,11 @@ export const renderLoopMethods: ThisType<Host> & {
     // uniforms here so the dispatch and draw below see this frame's drive.
     const fdtdSlice = this.updateFdtdSlice(qualityTier, deltaTime);
     profiler.fdtdActive = !!fdtdSlice;
+    // Field volume (ADR-0017): focused field bench, medium tier and up.
+    const fieldVolume = updateFieldVolume(this, qualityTier);
 
     renderEncodeMethods._encodeFrame.call(
-      this, profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice
+      this, profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume
     );
   }
 };

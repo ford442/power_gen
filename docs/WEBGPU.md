@@ -248,7 +248,7 @@ orders the WebGPU frame. `src/visualizer/render-encode.ts` is the pass list;
 the bodies are in `render-passes.ts`. WebGL2 does not use it (ADR-0001).
 
 ```
-compute → shadow → scene (1× | 4× MSAA) → depth-resolve → taa → ssr → bloom → composite → history
+compute → field-volume → shadow → scene (1× | 4× MSAA) → depth-resolve → taa → ssr → bloom → composite → history
 ```
 
 Each pass declares `reads` / `writes` (static or a function of the frame
@@ -287,6 +287,15 @@ on a mock encoder, then runs the real pass list on a mock host for every tier ×
 view. It asserts which passes run and which lazy targets exist, that the first
 showroom frame runs without the not-yet-compiled MSAA / shadow tiers, and that
 overview never compiles or encodes them.
+
+- **Field volume** (ADR-0017). `field-volume` is its own compute pass (so
+  `?gpuTiming=1` times it apart from `compute`) writing the `fieldVolume`
+  lifetime — the n³ texture plus line / particle buffers (≈ 3 MB at 64³,
+  ≈ 17 MB at 128³), allocated the first focus frame at `medium`+ on a bench
+  with a field row and released after the usual idle frames. Overview and
+  `low` never allocate it. `getRendererInfo().fieldVolume` reports build
+  state, n, sweeps and bytes; `window.fieldVolume.probeGpu()` reads the GPU
+  probe back against the CPU reference.
 
 ## Key-light shadow map
 

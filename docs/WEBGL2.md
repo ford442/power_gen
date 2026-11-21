@@ -48,6 +48,7 @@ Do **not** expect these under WebGL2:
 | **Temporal AA** | `passes/taa-resolve.wgsl` — **skipped**, see below |
 | **FDTD wave slice** (pulse-coil focus) | `passes/fdtd-tmz-compute.wgsl` + `fdtd-slice.wgsl` — GPU panel **skipped**; a CPU micro-grid readout stands in, see below (ADR-0010/0012) |
 | Hardware bridge / electromagnet coils | CPU twin + panel work on WebGL2 (`?mockHardware=1`); **coil GPU viz** is WebGPU-only |
+| **Field volume** (ADR-0017): volume field lines, slice arrows / LIC, \|B\| isosurfaces, charged particles | `visualizer/field-volume-pass.ts` — **skipped**; the field panel's probe readout and a CPU \|B\| slice (32² exact samples, same colour ramp) stand in (`intentionalGaps`) |
 | **glTF CAD props** (housing, coil former, …) | `setup-gltf.ts` / `prop-registry.ts` — **skipped** (see below) |
 
 ### FDTD wave slice → CPU micro-grid readout
