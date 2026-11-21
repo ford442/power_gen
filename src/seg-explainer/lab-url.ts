@@ -168,6 +168,13 @@ export async function applyLabConfig(c: Partial<LabConfig>): Promise<void> {
     tour.goToStep(step);
   }
 
+  // Circuit Lab (#256): after the mode, so the wired bench exists. Its own
+  // lazy chunk — a link without a circuit never fetches it.
+  if (c.circuit !== undefined && (c.circuit !== null || window.multiVisualizer?.session?.circuitShare)) {
+    const { applyCircuitConfig } = await import('../circuit/session-circuit');
+    await applyCircuitConfig(c.circuit);
+  }
+
   if (c.experiment) window.lab?.openExperiment?.(c.experiment);
 }
 
@@ -225,7 +232,9 @@ export function captureShareConfig(): Partial<LabConfig> {
     tourStep: activeTour?.playing ? activeTour.stepIndex : undefined,
     halbachLinear: halbach ? halbach.halbachLayout === 'linear' : undefined,
     experiment: boot.experiment,
-    setpoints
+    setpoints,
+    // The wired netlist (an example id while it is unedited), else none.
+    circuit: v?.session?.circuitShare?.() ?? undefined
   };
   return sanitizeFields(raw, true);
 }

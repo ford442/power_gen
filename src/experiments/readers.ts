@@ -8,13 +8,15 @@
  * SEG keys come from the operator telemetry (SegOperatorTelemetry), mapped
  * below. Field-volume keys (`<bench>.field.probe.Bz`, `<bench>.field.drive.<group>`)
  * are computed from the bench's state by src/physics/field-probe.ts — CPU,
- * headless-safe (ADR-0017).
+ * headless-safe (ADR-0017). Circuit keys (`circuit.node.<name>.v`,
+ * `circuit.elem.<id>.i`, …, src/circuit/keys.ts) read the wired circuit (#256).
  */
 import { DEVICE_CATALOG } from '../../generated/device-catalog';
 import { SEG_SPEC } from '../seg-operator-state';
 import type { SegOperatorTelemetry } from '../telemetry/types';
 import { knobSpec, type KnobTarget } from './knobs';
 import { FIELD_RECORD_KEYS, readFieldRecordKey } from '../physics/field-probe';
+import { isCircuitKey, parseCircuitKey } from '../circuit/keys';
 
 /** Telemetry key → owning catalog device id. */
 export const TELEMETRY_KEY_DEVICE: ReadonlyMap<string, string> = new Map(
@@ -40,7 +42,7 @@ export interface PlantView extends KnobTarget {
 }
 
 export function isRecordKey(key: string): boolean {
-  return TELEMETRY_KEY_DEVICE.has(key) || FIELD_RECORD_KEYS.has(key) || knobSpec(key) !== undefined;
+  return TELEMETRY_KEY_DEVICE.has(key) || FIELD_RECORD_KEYS.has(key) || parseCircuitKey(key) !== null || knobSpec(key) !== undefined;
 }
 
 /** Device a key depends on (null for operator keys: SEG telemetry, `drive`). */
@@ -54,6 +56,7 @@ export function recordKeyDevice(key: string): string | null {
 
 /** The key's value now; NaN when the plant has not produced it. */
 export function readRecordKey(view: PlantView, key: string): number {
+  if (isCircuitKey(key)) return view.circuit?.readKey(key) ?? Number.NaN;
   const dev = TELEMETRY_KEY_DEVICE.get(key);
   if (dev === 'seg') {
     const t = view.segTelemetry();

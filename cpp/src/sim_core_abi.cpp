@@ -90,6 +90,102 @@ EMSCRIPTEN_KEEPALIVE uint32_t sc_plant_state_layout_hash() {
     return PLANT_STATE_LAYOUT_HASH;
 }
 
+EMSCRIPTEN_KEEPALIVE const char* sc_circuit_kind_name(int kind) {
+    return circuit_kind_name(kind);
+}
+
+EMSCRIPTEN_KEEPALIVE int sc_circuit_format_version() {
+    return circuit_format_version();
+}
+
+EMSCRIPTEN_KEEPALIVE CircuitSim* circ_new() {
+    return new CircuitSim();
+}
+
+EMSCRIPTEN_KEEPALIVE void circ_delete(CircuitSim* self) {
+    delete self;
+}
+
+EMSCRIPTEN_KEEPALIVE int circ_load(CircuitSim* self, const float* packed, int packedCount) {
+    return self->load(packed, packedCount);
+}
+
+EMSCRIPTEN_KEEPALIVE int circ_loaded(CircuitSim* self) {
+    return (self->loaded()) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* circ_errorText(CircuitSim* self) {
+    return self->errorText();
+}
+
+EMSCRIPTEN_KEEPALIVE void circ_reset(CircuitSim* self) {
+    self->reset();
+}
+
+EMSCRIPTEN_KEEPALIVE int circ_setParam(CircuitSim* self, int elem, int index, double value) {
+    return (self->setParam(elem, index, value)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double circ_getParam(CircuitSim* self, int elem, int index) {
+    return self->getParam(elem, index);
+}
+
+EMSCRIPTEN_KEEPALIVE int circ_step(CircuitSim* self, double h) {
+    return self->step(h);
+}
+
+EMSCRIPTEN_KEEPALIVE double circ_time(CircuitSim* self) {
+    return self->time();
+}
+
+EMSCRIPTEN_KEEPALIVE int circ_nodeCount(CircuitSim* self) {
+    return self->nodeCount();
+}
+
+EMSCRIPTEN_KEEPALIVE int circ_elemCount(CircuitSim* self) {
+    return self->elemCount();
+}
+
+EMSCRIPTEN_KEEPALIVE int circ_unknownCount(CircuitSim* self) {
+    return self->unknownCount();
+}
+
+EMSCRIPTEN_KEEPALIVE double circ_nodeVoltage(CircuitSim* self, int node) {
+    return self->nodeVoltage(node);
+}
+
+EMSCRIPTEN_KEEPALIVE double circ_elemCurrent(CircuitSim* self, int elem) {
+    return self->elemCurrent(elem);
+}
+
+EMSCRIPTEN_KEEPALIVE double circ_elemVoltage(CircuitSim* self, int elem) {
+    return self->elemVoltage(elem);
+}
+
+EMSCRIPTEN_KEEPALIVE double circ_elemPower(CircuitSim* self, int elem) {
+    return self->elemPower(elem);
+}
+
+EMSCRIPTEN_KEEPALIVE double circ_storedEnergy(CircuitSim* self) {
+    return self->storedEnergy();
+}
+
+EMSCRIPTEN_KEEPALIVE double circ_stat(CircuitSim* self, int which) {
+    return self->stat(which);
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t circ_readoutPtr(CircuitSim* self) {
+    return static_cast<uintptr_t>(self->readoutPtr());
+}
+
+EMSCRIPTEN_KEEPALIVE int circ_readoutCount(CircuitSim* self) {
+    return self->readoutCount();
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t circ_scratchPtr(CircuitSim* self, int count) {
+    return static_cast<uintptr_t>(self->scratchPtr(count));
+}
+
 EMSCRIPTEN_KEEPALIVE FdtdTmzGrid* fdtd_new() {
     return new FdtdTmzGrid();
 }

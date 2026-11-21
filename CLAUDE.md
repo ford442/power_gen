@@ -32,6 +32,7 @@ npm run dev          # http://localhost:5173/  (https: false; localhost is fine 
 | WASM plant | `?wasmPhysics=1` |
 | Mock hardware | `?mockHardware=1` |
 | Lab audio | `?audio=1` (silent until your first click/keypress; header badge mutes) |
+| Circuit Lab | `?circuit=transformer-bridge-rc` (with `&mode=transformer`); examples in `src/circuit/examples.ts`, docs/CIRCUIT.md |
 | Showroom / Lab / Twin | `?labMode=showroom\|lab\|twin` (header buttons; remembered). Explicit flags win: kiosk `?labMode=showroom&look=drama&audio=1`, class `?labMode=lab&class=1`, bench `?labMode=twin` |
 
 Default boot no longer falls back to WebGL2. Probe: `window.webgpuProbe`.
@@ -78,6 +79,10 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 - **SEG** is the highest-fidelity path (layout presets, flux, PBR).
 - **Peltier / MHD** are lighter models — geometry + particles, not full plant parity.
 - Overview can enable all; particles/meshes scale with quality and view LOD.
+- **Circuit Lab** (`src/circuit/`, ADR-0018): `pulse-coil`, `homopolar`,
+  `transformer` have catalog `ports`. A wired bench is stepped by its port
+  driver with the C++ MNA solver (`cpp/src/circuit/`, no TS mirror; it runs
+  on both renderers whenever sim_core loaded, whatever `wasmPhysics` says).
 
 ## Hardware / firmware — experimental
 
@@ -122,6 +127,7 @@ npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switche
 npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement
 npm run test:drop-tube # drop-tube k / end taper / loops vs quadrature, transit vs RK4
 npm run test:field-volume # field kernels vs quadrature; field-probe/-volume WGSL run on the CPU vs the reference (ADR-0017)
+npm run test:circuit  # Circuit Lab: native MNA goldens + their WASM replay (LC energy, RLC Q), SPICE, host, links (ADR-0018)
 npm run generate:gltf # regenerate every placeholder GLB (seg + quanta + lab)
 npm run test:device-draws # mock encoder: transformer flux, pickup coils + rings, bind-group token, camera scratch
 npm run test:stacked-prs # stacked-PR guard decision table (CI: .github/workflows/stacked-prs.yml)

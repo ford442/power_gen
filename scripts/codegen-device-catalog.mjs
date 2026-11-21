@@ -10,6 +10,7 @@
  *   generated/plant-state.h          (PLANT_STATE_LAYOUT_HASH + sizes)
  *   generated/plant-state-impl.h     (SEGSimulator::plantSave / plantLoad bodies)
  *   generated/field-sources.ts       (fieldSources blocks, ADR-0017 — scripts/lib/catalog-field-sources.mjs)
+ *   generated/circuit-ports.ts       (ports blocks, ADR-0018 — scripts/lib/catalog-ports.mjs)
  *   src/shaders/generated/device-catalog.wgsl
  *   src/shaders/generated/field-sources.wgsl (FIELD_KIND_* ids)
  *   docs/MODE_MATRIX.md
@@ -25,6 +26,7 @@ import { createHash } from 'node:crypto';
 
 import { emitPlantOdeH, emitPlantOdeTs, validateOde } from './lib/catalog-ode.mjs';
 import { emitFieldSourcesTs, emitFieldSourcesWgsl, validateFieldSources } from './lib/catalog-field-sources.mjs';
+import { emitCircuitPortsTs, emitPortsMatrix, validatePorts } from './lib/catalog-ports.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -42,6 +44,13 @@ const FIELD_BUILDERS = join(ROOT, 'src', 'physics', 'field-builders.ts');
 const FIELD_SHADER_OUT = join(ROOT, 'src', 'shaders', 'generated', 'field-sources.wgsl');
 
 /** `FIELD_BUILDER_NAMES = ['a', 'b'] as const` in src/physics/field-builders.ts. */
+/** Port driver names src/circuit/ports.ts registers (each driver's `name: '…'`). */
+function portDriverNames() {
+  let text;
+  try { text = readFileSync(join(ROOT, 'src', 'circuit', 'ports.ts'), 'utf8'); } catch { return []; }
+  return [...text.matchAll(/^\s+name: '([\w-]+)',$/gm)].map((m) => m[1]);
+}
+
 function fieldBuilderNames() {
   let text;
   try { text = readFileSync(FIELD_BUILDERS, 'utf8'); } catch { return []; }
@@ -1073,6 +1082,7 @@ followed by the block's \`cpp\` fields; layout hash
 |---|---|---|---|
 ${stateRows.join('\n')}
 
+${emitPortsMatrix(devices)}
 ## How to add a device
 
 1. Add a row to \`physics/devices.json\` (new unused \`shaderMode\`; \`wasmMode\` next reserved or \`null\`), including a \`telemetry\` entry (label / unit / digits) for every \`telemetryKeys\` entry, and a \`state\` block listing every field the plant's step reads before it writes.
@@ -1127,7 +1137,8 @@ function main() {
   const stateErrors = [
     ...validateState(devices),
     ...validateOde(devices),
-    ...validateFieldSources(devices, fieldBuilderNames())
+    ...validateFieldSources(devices, fieldBuilderNames()),
+    ...validatePorts(devices, portDriverNames())
   ];
   if (stateErrors.length) {
     for (const e of stateErrors) console.error(`[catalog] ${e}`);
@@ -1172,6 +1183,7 @@ function main() {
     [join(OUT_DIR, 'plant-ode.h'), emitPlantOdeH(devices)],
     [join(OUT_DIR, 'plant-ode.ts'), emitPlantOdeTs(devices)],
     [join(OUT_DIR, 'field-sources.ts'), emitFieldSourcesTs(devices)],
+    [join(OUT_DIR, 'circuit-ports.ts'), emitCircuitPortsTs(devices, HEADER_TS)],
     [FIELD_SHADER_OUT, emitFieldSourcesWgsl()],
     [SHADER_OUT, wgsl],
     [MODE_MATRIX, md],

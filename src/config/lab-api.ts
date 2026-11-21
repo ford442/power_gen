@@ -55,6 +55,12 @@ export interface LabApi {
   openExperiment(id?: string): Promise<void>;
   /** Add an experiment definition (e.g. from a `.lab.json`) and open it in the panel. */
   openExperimentDef(def: unknown): Promise<void>;
+  /**
+   * Circuit Lab (#256, docs/CIRCUIT.md): open the wiring view; with a value,
+   * first load it — an example id (`'transformer-bridge-rc'`), a netlist
+   * document, or null to clear.
+   */
+  openCircuit(value?: unknown): Promise<void>;
   /** Plant snapshot (§2): every plant, the operator, clock and seed — docs/SNAPSHOTS.md. */
   captureSnapshot(): Promise<PlantSnapshot>;
   /** Restore a {@link captureSnapshot} object; false when it is not one or the C++ plant refused it. */
@@ -105,6 +111,11 @@ export function installLabApi(): void {
     listExperiments: () => import('../experiments/registry').then((m) => m.listReferenceExperiments()),
     openExperiment: (id) => lazyPanel().then((m) => m.openExperimentPanel(id)),
     openExperimentDef: (def) => lazyPanel().then((m) => m.openExperimentDefinition(def)),
+    openCircuit: async (value) => {
+      const m = await import('../circuit/session-circuit');
+      if (value !== undefined) await m.applyCircuitConfig(value);
+      else await (await import('../circuit-ui/panel')).openWiringView();
+    },
     captureSnapshot: () => lazySnapshot().then((m) => m.captureLabSnapshot()),
     restoreSnapshot: (state) => lazySnapshot().then((m) => m.restoreLabSnapshot(state)),
     openTeacherConsole: () => import('../embed/teacher-console').then((m) => void m.openTeacherConsole())

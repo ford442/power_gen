@@ -23,6 +23,8 @@ export type SegLayoutSummary = Partial<Pick<SegLayout, 'name' | 'totalRollers' |
 
 /** Shared window hooks used by telemetry export, replay, and operator UI. */
 export interface MultiVisualizerWindowRef {
+  /** The shared plant host (both renderers) — the Circuit Lab hangs off it (#256). */
+  session?: import('./session/lab-session').LabSession;
   speedMult?: number;
   segLayoutPreset?: string;
   heronLayoutPreset?: string;

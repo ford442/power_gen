@@ -8,6 +8,10 @@
  * `set` / `ramp` / `sweep` must name knobs. The result is a normalised copy:
  * canonical knob ids, numeric knob values, steps in time order.
  */
+import { CIRCUIT_PORT_DEVICES } from '../../generated/circuit-ports';
+import { resolveCircuitConfig } from '../circuit/examples';
+import { isCircuitKey, isCircuitKnob } from '../circuit/keys';
+import { circuitKeyProblem, compileCircuit, type CompiledCircuit } from '../circuit/netlist';
 import { DEVICE_BY_ID } from '../../generated/device-catalog';
 import { LAB_CONFIG_DEFAULTS, LAB_CONFIG_FIELDS, type LabConfigKey } from '../../generated/lab-config';
 import { coerceLabField } from '../config/lab-config';
@@ -35,7 +39,7 @@ export const MAX_SWEEP_RUNS = 64;
 export const MAX_DURATION_S = 600;
 const MAX_RECORD_HZ = 10_000;
 
-const STATS: readonly StatKind[] = ['mean', 'min', 'max', 'rms', 'std', 'p2p', 'first', 'last'];
+const STATS: readonly StatKind[] = ['mean', 'min', 'max', 'rms', 'std', 'p2p', 'first', 'last', 'freq'];
 const FIELD_KEYS = new Set<string>(LAB_CONFIG_FIELDS.map((f) => f.key));
 
 export interface ValidatedExperiment {
@@ -94,7 +98,10 @@ export function benchConfigDefaults(v: { devices: readonly string[] }): Record<s
     fieldCoupling: LAB_CONFIG_DEFAULTS.fieldCoupling,
     chargeCoupling: LAB_CONFIG_DEFAULTS.chargeCoupling,
     ...(v.devices.includes('halbach-viz') ? { halbachLinear: LAB_CONFIG_DEFAULTS.halbachLinear } : {}),
-    ...(v.devices.includes('heron') ? { heronLayout: LAB_CONFIG_DEFAULTS.heronLayout } : {})
+    ...(v.devices.includes('heron') ? { heronLayout: LAB_CONFIG_DEFAULTS.heronLayout } : {}),
+    // A circuit wired to a bench this run steps would own its telemetry; the
+    // offline bench has none unless the experiment brings one (#256).
+    ...(v.devices.some((d) => CIRCUIT_PORT_DEVICES.includes(d)) ? { circuit: LAB_CONFIG_DEFAULTS.circuit } : {})
   };
 }
 
@@ -143,6 +150,29 @@ export function validateExperiment(raw: unknown): ValidatedExperiment {
     if (c === undefined) { err(`config.${k}: ${JSON.stringify(v)} does not parse`); continue; }
     config[k] = c;
   }
+  // A wired circuit (#256): compile it now, so a bad netlist or a key that
+  // names no node / element fails here rather than mid-run.
+  let circuit: CompiledCircuit | null = null;
+  if (config.circuit != null) {
+    const doc = resolveCircuitConfig(config.circuit);
+    if (!doc) err(`config.circuit: no example circuit ${JSON.stringify(config.circuit)}`);
+    else {
+      try {
+        circuit = compileCircuit(doc);
+      } catch (e) {
+        err(`config.circuit: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+  const circuitProblem = (where: string, key: string, knob: boolean): boolean => {
+    if (!isCircuitKey(key)) return false;
+    if (config.circuit == null) err(`${where}: ${key} needs a circuit in config.circuit`);
+    else if (circuit) {
+      const why = circuitKeyProblem(circuit, key, knob);
+      if (why) err(`${where}: ${why}`);
+    }
+    return true;
+  };
   const focus = typeof config.mode === 'string' ? config.mode : '';
   if (!focus || !DEVICE_BY_ID[focus]) {
     err(`config.mode must name a catalog device (got ${JSON.stringify(config.mode)})`);
@@ -155,6 +185,7 @@ export function validateExperiment(raw: unknown): ValidatedExperiment {
 
   // ── knobs (shared by set / ramp / sweep) ───────────────────────────────
   const knobUsable = (where: string, knobId: string, numericOnly = false): string | null => {
+    if (circuitProblem(where, knobId, true) && !isCircuitKnob(knobId)) return null;
     const spec = knobSpec(knobId);
     if (!spec) { err(`${where}: unknown knob ${JSON.stringify(knobId)} (see docs/EXPERIMENTS.md#knobs)`); return null; }
     if (spec.deviceId && focus && !devices.includes(spec.deviceId)) {
@@ -213,6 +244,11 @@ export function validateExperiment(raw: unknown): ValidatedExperiment {
       if (s.until !== undefined && (!isNum(s.until) || s.until <= at)) err(`${where}.until must be after at`);
       const keys: string[] = [];
       for (const k of s.record) {
+        if (typeof k === 'string' && circuitProblem(`${where}.record`, k, false)) {
+          if (!recordKeys.includes(k)) recordKeys.push(k);
+          keys.push(k);
+          continue;
+        }
         if (typeof k !== 'string' || !isRecordKey(k)) { err(`${where}.record: ${JSON.stringify(k)} is not a telemetry key or knob`); continue; }
         const dev = recordKeyDevice(k);
         if (dev && focus && !devices.includes(dev)) err(`${where}.record: ${k} is on ${dev}, which this run does not step (focus ${focus})`);
@@ -386,7 +422,7 @@ function normaliseExpect(where: string, e: unknown, err: (m: string) => void): E
   if (!isObj(body)) { err(`${where}.${kinds[0]}: not an object`); return {}; }
   if (kinds[0] === 'fit') {
     const model = body.model ?? 'linear';
-    if (model !== 'linear' && model !== 'proportional' && model !== 'exponential') err(`${where}.fit.model must be linear, proportional or exponential`);
+    if (model !== 'linear' && model !== 'proportional' && model !== 'exponential' && model !== 'power') err(`${where}.fit.model must be linear, proportional, exponential or power`);
     const fit: NonNullable<ExpectDef['fit']> = {
       x: String(body.x ?? ''),
       y: String(body.y ?? ''),

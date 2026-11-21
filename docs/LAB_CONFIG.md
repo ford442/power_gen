@@ -77,8 +77,11 @@ JSON = { "v": 2, "s": "<schema hash>", "c": { …non-default share fields… } }
 
 Only fields with `"share": true` travel: seed, WASM backend, prototype, lab
 mode, focused bench, layouts, look, frame, the three coupling buses, Halbach
-linear, drive/field/B×, classroom, highlight, tour + step, pinned setpoints and
-an experiment id. A link cannot choose the renderer or GPU flags. Defaults are
+linear, drive/field/B×, classroom, highlight, tour + step, pinned setpoints, an
+experiment id and a Circuit Lab netlist. An example circuit travels as its id
+until it is edited, then as the whole document (a few hundred characters
+compressed; [`CIRCUIT.md`](./CIRCUIT.md)). A link cannot choose the renderer
+or GPU flags. Defaults are
 dropped, so a typical link is well under 300 characters. The schema hash is
 metadata — an older link still loads field by field through the same coercion.
 
@@ -125,6 +128,7 @@ over it.
 | `openShareDialog()` | Link + QR code (`qrcode-generator`, lazy) + `.lab.json` download |
 | `exportLabFile()` / `downloadLabFile(name?)` | `.lab.json` of the running lab |
 | `captureSnapshot()` / `restoreSnapshot(state)` | Plant snapshot (§2) — the `state` above; [SNAPSHOTS.md](SNAPSHOTS.md) |
+| `openCircuit()` | The Circuit Lab wiring view (lazy chunk) — [`CIRCUIT.md`](./CIRCUIT.md) |
 | `openTeacherConsole()` | Teacher console over `BroadcastChannel('seg-lab')` — [`EMBED.md`](./EMBED.md) |
 | `embedOrigins()` | Under `?embed=1`: the origins the postMessage endpoint answers |
 

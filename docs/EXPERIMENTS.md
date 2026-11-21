@@ -74,7 +74,7 @@ the panel.
 | Field | Meaning |
 |-------|---------|
 | `id` | `^[a-z0-9][a-z0-9-]{0,63}$`; a shipped file is `<id>.experiment.json` |
-| `config` | [LabConfig](./LAB_CONFIG.md) fields, through the same coercion as the URL — an unknown or unparsable field is an **error**. `mode` (a catalog device) is required: it is the focus plant. `fieldCoupling` / `chargeCoupling` also step the coupling sources into the focus |
+| `config` | [LabConfig](./LAB_CONFIG.md) fields, through the same coercion as the URL — an unknown or unparsable field is an **error**. `mode` (a catalog device) is required: it is the focus plant. `fieldCoupling` / `chargeCoupling` also step the coupling sources into the focus. `circuit` (an example id or a netlist, [CIRCUIT.md](./CIRCUIT.md)) wires a Circuit Lab circuit for the run: its keys are checked against the netlist, and the run needs `sim_core.wasm` on either backend |
 | `dt` | Offline step, s (default 1/60, the live substep at 1×; 1e-5 … 0.1). Live runs use the frame loop's substeps (cut at the next event, see below) |
 | `duration` | Run length, s (default: the last step's end; cap 600) |
 | `steps` | Each has `at` (s on the run clock) and exactly one of `set`, `ramp`, `record`, `expect` |
@@ -101,6 +101,7 @@ Steps run in time order; at the same `at`, in file order.
 | `<deviceId>.<setpointId>` | every catalog setpoint (`physics/devices.json` `setpoints`): `pulse-coil.pulseCoilCharge`, `halbach-viz.halbachSegments`, `lorentz-sled.lorentzField`, `drop-tube.dropTubeSigma` | the setpoint's min … max (clamped, with a validation warning) |
 | `transformer.leakage` | the transformer's leakage toggle (k = 0.97 → 0.72) | 0 / 1 |
 | `hall.carrierMetal` | the Hall strip's carrier profile (semiconductor → metal) | 0 / 1 |
+| `circuit.elem.<id>.<param>` | a wired circuit's element value (`circuit.elem.C1.c`, `circuit.elem.R1.r`), a live `setParam`, so the circuit runs on ([CIRCUIT.md](./CIRCUIT.md)) | the parameter's range (`c` > 0, `k` < 1, …) |
 | `<bench>.field.probe.x\|y\|z` | the field probe position, device-local scene units, on every bench with a catalog `fieldSources` row (ADR-0017); no state field is written — the probe lives beside the plant, so snapshots are unchanged | the row's `bounds` |
 
 Aliases: `lorentz-sled.fieldT`, `halbach-viz.segments`, `pulse-coil.chargeV`,
@@ -128,10 +129,21 @@ the coil's **signed** current, where the `pulseCoilCurrentA` telemetry key
 peak-holds below 1 A). SEG field keys need the live roller layout and read NaN
 headless.
 
+Circuit Lab keys (#256), with a `config.circuit`:
+
+- `circuit.node.<name>.v`: a node voltage, named in the netlist's `n` (or
+  `gnd`).
+- `circuit.elem.<id>.i|v|p`: element current (first terminal → second),
+  voltage, and absorbed power.
+- `circuit.port.<id>.p`: the power a bench port puts in.
+- `circuit.residual`: the energy books' residual.
+
+A wired bench's own telemetry keys still read: its port driver writes them.
+
 ### `expect`
 
 ```json
-{ "fit":   { "x": "…", "y": "…", "model": "linear" | "proportional" | "exponential",
+{ "fit":   { "x": "…", "y": "…", "model": "linear" | "proportional" | "exponential" | "power",
              "r2": {…}, "slope": {…}, "intercept": {…}, "b": {…}, "from"?, "until"? } }
 { "stat":  { "key": "…", "of": "mean", "gt": 0, "from"?, "until"? } }
 { "ratio": { "num": "…", "den": "…", "of": "rms", "between": [0.3, 0.34] } }
@@ -139,8 +151,14 @@ headless.
 
 - `fit`: `linear` is OLS with intercept; `proportional` is y = k·x through the
   origin (R² against the mean of y); `exponential` is y = a·e^(b·x) on ln y, and
-  its `r2` is **log-space** (as in the analysis panel). At least one bound.
-- `stat`: `of` ∈ `mean min max rms std p2p first last`.
+  its `r2` is **log-space** (as in the analysis panel); `power` is y = a·xᵇ on
+  ln x, ln y (bounds on `a`, `b`, `r2`, the last log-space): a scaling law,
+  e.g. ripple ∝ 1/C is `b` ≈ −1. At least one bound.
+- `stat`: `of` ∈ `mean min max rms std p2p first last freq`. `freq` is the
+  cycle frequency in Hz, from the spacing of each cycle's peak, where the
+  cycles are cut at rising crossings of the window mean. Peaks are used
+  rather than crossings because a damped ring's mean is not its midline.
+  NaN with fewer than two cycles.
 - `ratio`: `of(num) / of(den)` — e.g. rms(V_s) / rms(V_p).
 - Conditions: `gt`, `gte`, `lt`, `lte`, `between: [lo, hi]`, `approx` with `rel`
   (relative, default 1 %) and/or `tol` (absolute). NaN never passes.
@@ -159,13 +177,17 @@ operator → focus plant (C++ with the knob sync and the shared
 `applyModePlantToDevices` write-back, or the JS fallback). Devices without a
 `wasmMode` (pulse-coil, halbach-viz, drop-tube) always step their TS plant.
 The run starts from the plant's created state, with the operator STARTed.
+With a `config.circuit` the bench also steps a `CircuitHost` on each substep,
+before the plants, as `LabSession` does. Live, the circuit loads into the
+session after the start state is restored, without opening the wiring view.
 
 **Live** hooks `LabSession.experimentClock`: `beforeStep(simSteps)` runs at the
 top of `stepPlant` (before the buses and the C++ knob sync), `afterPublish()`
 at the end of `publishFrame`. Run time is the sum of the substeps actually
 stepped, so **pause** stops the experiment, **`.`** advances it a frame and
-**slow-mo** stretches it — nothing reads a wall clock or a timer.
-`beforeStep` may cut the frame's batch: it never steps past the timeline's next
+**slow-mo** stretches it — nothing reads a wall clock or a timer. Like
+offline, the first `beforeStep` takes the start's samples (`observe(0)`)
+before anything steps. `beforeStep` may cut the frame's batch: it never steps past the timeline's next
 event (a set, a ramp's start or end, a record tick, an expect — the
 interpreter's `nextEvent(t)`) and never more than 0.1 s, re-split into equal
 substeps of at most 1/60 s. So steps and samples land on their own times even
@@ -251,7 +273,10 @@ counts the step's `durationSec` from there. Leaving the step stops the run.
 ## Reference experiments
 
 Each runs in CI on **both** backends; the measured numbers of every verdict
-must agree between the C++ plant and the JS fallback within 2e-3 relative.
+must agree between the C++ plant and the JS fallback within 2e-3 relative. A
+circuit experiment runs the C++ circuit solver under either flag, because the
+circuit owns its bench. Its numbers agree exactly, and the run's `backend`
+says `wasm`.
 
 Each also runs **live** in CI (`npm run test:experiments:live`): a headless
 `LabSession` with every device plant, the real window API, and a frame loop in
@@ -267,6 +292,8 @@ that stepped anything but the session's batch drifts well past that.
 | `homopolar-emf-vs-rpm` | EMF = ½·B·ω·r²: proportional to RPM with slope ½·B·r²·2π/60 = 5.645e-4 V/RPM (B 0.55 T, r 0.14 m). The 8 mΩ loop brakes the disc to ≈ 54 RPM at full drive | R² 0.99999, slope 5.636e-4 V/RPM (−0.15 %) |
 | `transformer-turns-ratio` | Sweep over the leakage toggle: tightly coupled, rms(V_s)/rms(V_p) sits just under N_s/N_p = 1/3; leakage (k 0.72) drops it sharply. 1/2400 s step and 2400 Hz sampling so the 60 Hz waveform is resolved (at 1/60 s every sample lands on the same phase) | 0.304 (k 0.97), 0.135 (k 0.72) |
 | `pulse-coil-field-vs-current` | The probe at the centre of the 48-turn coil reads B_y = μ0·N·I/√(L² + 4a²) through a discharge: linear in the coil's signed current, slope 3.380e-4 T/A (L 154 mm, a 45 mm). Checks the field model against its textbook formula, not the bench against a gaussmeter. No C++ plant for this bench — JS on both runs | R² 1.000, slope 3.3796e-4 T/A (formula 3.3796e-4), \|B\|max 3.09 mT |
+| `rectifier-ripple-vs-c` | Circuit Lab: the transformer's secondary → four-diode bridge → C ∥ 100 Ω. A sweep of C over 0.47 … 4.7 mF gives ripple p-p ∝ Cᵇ with b ≈ −1 (between charging pulses the capacitor alone feeds the load). Energy residual < 1 % per run. C++ solver on both backends | b −1.022, R² 0.99997, ripple 0.765 → 0.073 V |
+| `pulse-coil-rlc-resonance` | Circuit Lab: a capacitor at 24 V switched across the pulse coil's R and L. A sweep of C gives ring f ∝ Cᵇ with b ≈ −½, and the 0.47 mF ring sits at ½π·√(1/LC − (R/2L)²) = 211.6 Hz. Residual < 1 % once ringing (from 60 ms) | b −0.506, R² 0.99998, f 211.5 Hz (0.04 %) |
 | `hall-voltage-vs-field` | With field coupling on, the Halbach array (4 → 24 segments) sets the Hall strip's B; at fixed current V_H = I·B·R_H/t, proportional to B with slope I·R_H/t | R² 1.000, slope 8.988 V/T (0.72 A × 6.24e-3 m³/C / 0.5 mm = 8.99) |
 
 ## Adding one

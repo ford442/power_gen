@@ -29,7 +29,7 @@ import {
 import { writeQueueBuffer } from './gpu-buffer-write';
 import { type HardwareBridge } from './hardware-bridge';
 import { ElectromagnetController } from './electromagnet-controller';
-import { ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network';
+import { CIRCUIT_CABLE_EDGES, ENERGY_PIPE_EDGES, initEnergyCouplingDisclaimer } from './renderers/shared/energy-network';
 import type { EnergyNetwork } from './renderers/shared/energy-network';
 import type { FieldNetwork } from './renderers/shared/field-network';
 import type { ChargeNetwork } from './renderers/shared/charge-network';
@@ -464,7 +464,8 @@ export class MultiDeviceVisualizer implements VisualizerLike {
     // Reset rather than assume empty: device-lost recovery calls this again
     // on a fresh device, and the old pipes' GPU buffers died with it.
     this.energyPipes = [];
-    for (const config of ENERGY_PIPE_EDGES) {
+    // Catalog pipes, then the Circuit Lab cables (#256) — dark until wired.
+    for (const config of [...ENERGY_PIPE_EDGES, ...CIRCUIT_CABLE_EDGES]) {
       const pipe = new EnergyPipe(this.device, config, this);
       await pipe.init();
       this.energyPipes.push(pipe);

@@ -45,6 +45,23 @@ has always used (`new mod.SEGSimulator()`, `mod.HEAPF32`, …). No `ccall` /
 | `Vec3` arg | three `float` | `{x, y, z}` | |
 | `f32[]` arg | `const float*, int` | `ArrayLike<number>` | methods only: the wrapper stages it in the class's `scratch` |
 
+Classes: `SEGSimulator`, …, and `CircuitSim` (#256, ADR-0018), the Circuit
+Lab's MNA solver:
+
+- `load(packed: f32[])`, the netlist in [`CIRCUIT.md`](CIRCUIT.md) format,
+  staged through its scratch;
+- `step(h)`, `setParam(elem, index, value)` / `getParam`, `reset()`;
+- reads: node voltages, element current / voltage / power, stored energy and
+  `stat(which)`;
+- `readoutPtr()` / `readoutCount()`: one f64 block (header, node voltages,
+  per-element window integrals), read zero-copy as a `Float64Array` over the
+  module's heap (`src/circuit/readout.ts`, re-viewed when the heap grows);
+- `errorText()`: why a load or step failed.
+
+Two free functions, `circuit_kind_name(k)` and `circuit_format_version()`,
+let `scripts/tests/circuit.test.mjs` hold `src/circuit/kinds.ts` to the
+binary.
+
 An arg may carry a third element, its TS default (`["remanenceT", "f32", 0]`).
 A function may set `"cpp"` to an expression instead of a call
 (`"SIM_CORE_SOURCE_HASH"`). Exports are named `sc_<fn>`, and
@@ -75,8 +92,9 @@ loop as a `TypeError`.
 | | Embind (before) | C ABI (after) |
 |---|---|---|
 | JS glue / loader chunk | `sim_core.js` 22,582 B raw, 9,157 B gzip | `instantiate-*.js` 10,084 B raw, **2,598 B gzip (−72 %)** |
-| Exports | 118 bound functions | 142 (adds the FDTD grid and integrator stats) |
+| Exports | 118 bound functions | 142 (adds the FDTD grid and integrator stats); 166 with the Circuit Lab's `CircuitSim` (#256) |
 | `.wasm`, same sources | 83,332 B | 68,135 B (Embind's class registry gone) |
+| `.wasm` today | | 121,992 B with the MNA solver (#256; was 74,145 B — [`cpp/bench-baseline.json`](../cpp/bench-baseline.json)) |
 
 With no Emscripten JS left, there is no `MODULARIZE`, `EXPORTED_RUNTIME_METHODS`,
 `DYNAMIC_EXECUTION`, `--closure` or `SINGLE_FILE` to configure. The module has

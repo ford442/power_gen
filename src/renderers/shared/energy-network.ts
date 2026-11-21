@@ -8,6 +8,7 @@
  * Pipes are **not** metrology — see ADR-0004 and docs/TELEMETRY.md.
  */
 
+import { CIRCUIT_PORT_DEVICES } from '../../../generated/circuit-ports';
 import { ENERGY_NETWORK_NAMEPLATES } from '../../../generated/physics-constants';
 import { ENERGY_PIPE_CATALOG } from '../../../generated/lab-coupling';
 import { labConfig, persistLabConfig } from '../../config/lab-config';
@@ -163,6 +164,46 @@ export interface EnergyNetworkUpdateInput {
   deltaTime: number;
 }
 
+/** One bench ⇄ circuit edge the Circuit Lab solves (#256): Σ v·i at the port, not an estimate. */
+export interface SolvedEnergyEdge {
+  from: string;
+  to: string;
+  /** Mean power over the last second, W (> 0: into the circuit). */
+  powerW: number;
+  /** rms terminal current over the last substep, A — the cable's flow. */
+  currentA: number;
+}
+
+/** The Circuit Lab's end of a cable (#256): a bench in front of the overview, not a device. */
+export const CIRCUIT_ANCHOR_ID = 'circuit';
+export const CIRCUIT_BENCH_POSITION: readonly [number, number, number] = [0, 0, 14];
+const CIRCUIT_ANCHOR: DeviceAnchorInput = { id: CIRCUIT_ANCHOR_ID, position: CIRCUIT_BENCH_POSITION };
+
+/** One potential cable per bench with a catalog port; dark until it is wired. */
+export const CIRCUIT_CABLE_EDGES: readonly { from: string; to: string; speed: number }[] = CIRCUIT_PORT_DEVICES.map(
+  (from) => ({ from, to: CIRCUIT_ANCHOR_ID, speed: 2.2 })
+);
+
+/** A pipe endpoint: the device, or the circuit bench anchor. */
+export function pipeEndpoint<T extends DeviceAnchorInput>(devices: Record<string, T | undefined>, id: string): T | DeviceAnchorInput | undefined {
+  return devices[id] ?? (id === CIRCUIT_ANCHOR_ID ? CIRCUIT_ANCHOR : undefined);
+}
+
+/** Cable flow from current: ∝ |I| below ~1 A, saturating above (a glow, not a meter). */
+export function cableFlow(currentA: number): number {
+  const i = Math.abs(currentA);
+  return Number.isFinite(i) ? i / (i + 1) : 0;
+}
+
+/** The Circuit Lab's energy books for the wired subset (src/circuit/host.ts). */
+export interface SolvedEnergyBooks {
+  edges: SolvedEnergyEdge[];
+  /** |W_source − W_dissipated − ΔE_stored| / flow over the last second. */
+  residual: number;
+  sourceW: number;
+  dissipatedW: number;
+}
+
 export interface EnergyNetworkSnapshot {
   couplingEnabled: boolean;
   labBudgetW: number;
@@ -170,6 +211,8 @@ export interface EnergyNetworkSnapshot {
   residualW: number;
   pipes: Record<string, number>;
   devices: Record<string, DevicePowerReading>;
+  /** Present while a circuit is wired: the solved edges and their conservation check. */
+  solved?: SolvedEnergyBooks;
 }
 
 /** Effective preference: URL (or share link) wins over stored; default off. */
@@ -217,8 +260,19 @@ export class EnergyNetwork {
    */
   wasmFallbackReason: string | null = null;
 
+  private _solved: (() => SolvedEnergyBooks) | null = null;
+
   constructor(couplingEnabled?: boolean) {
     this.couplingEnabled = couplingEnabled ?? readEnergyCouplingPref();
+  }
+
+  /**
+   * The Circuit Lab's solved edges (#256): while a circuit is wired its port
+   * powers come from the solver, and its residual is a real conservation
+   * check for that subset. Every catalog pipe stays an estimate.
+   */
+  setSolvedEdges(provider: (() => SolvedEnergyBooks) | null): void {
+    this._solved = provider;
   }
 
   private _useWasmBus(): boolean {
@@ -246,15 +300,26 @@ export class EnergyNetwork {
   }
 
   update(input: EnergyNetworkUpdateInput): EnergyNetworkSnapshot {
+    let snap: EnergyNetworkSnapshot | null = null;
     if (this._useWasmBus()) {
       try {
-        return this._updateWasm(input);
+        snap = this._updateWasm(input);
       } catch (err) {
         this.wasmFallbackReason = err instanceof Error ? err.message : String(err);
         console.warn('[EnergyNetwork] WASM energy bus failed — JS bus for the rest of the session:', err);
       }
     }
-    return this._updateJs(input);
+    snap ??= this._updateJs(input);
+    this._updateCables(snap.solved);
+    return snap;
+  }
+
+  /** Circuit Lab cables: flow from the solved port currents; dark when unwired. */
+  private _updateCables(solved: SolvedEnergyBooks | undefined): void {
+    for (const c of CIRCUIT_CABLE_EDGES) {
+      const edge = solved?.edges.find((e) => e.from === c.from);
+      this._pipeFlows.set(pipeColorKey(c.from, c.to), edge ? Math.max(0.05, cableFlow(edge.currentA)) : 0);
+    }
   }
 
   private _updateWasm(input: EnergyNetworkUpdateInput): EnergyNetworkSnapshot {
@@ -449,7 +514,8 @@ export class EnergyNetwork {
       totalAllocatedW: this.totalAllocatedW,
       residualW: this.residualW,
       pipes: Object.fromEntries(this._pipeFlows),
-      devices: Object.fromEntries(this._devicePower)
+      devices: Object.fromEntries(this._devicePower),
+      ...(this._solved ? { solved: this._solved() } : {})
     };
   }
 }
@@ -457,7 +523,7 @@ export class EnergyNetwork {
 /** Small overview disclaimer — updated when coupling mode changes. */
 export function syncEnergyCouplingDisclaimer(
   couplingEnabled?: boolean,
-  snapshot?: Pick<EnergyNetworkSnapshot, 'labBudgetW' | 'totalAllocatedW' | 'residualW'>
+  snapshot?: Pick<EnergyNetworkSnapshot, 'labBudgetW' | 'totalAllocatedW' | 'residualW' | 'solved'>
 ): void {
   if (typeof document === 'undefined') return;
   const el = document.getElementById('energyNetworkDisclaimer');
@@ -479,6 +545,16 @@ export function syncEnergyCouplingDisclaimer(
       'Energy pipes: coupled power budget (simulated — not calibrated metrology)';
   } else {
     el.textContent = 'Energy pipes: visual only — glow is not measured watts';
+  }
+
+  const solved = snapshot?.solved;
+  if (solved?.edges.length) {
+    const edges = solved.edges.map((e) => `${e.from} → ${e.to} ${e.powerW.toPrecision(3)} W`).join(', ');
+    el.textContent += ` · solved (Circuit Lab, Σ v·i): ${edges}, residual ${(solved.residual * 100).toFixed(3)} %`
+      + ` · estimated: ${ENERGY_PIPE_EDGES.map((e) => `${e.from}→${e.to}`).join(', ')}`;
+    el.dataset.solvedResidual = String(solved.residual);
+  } else {
+    delete el.dataset.solvedResidual;
   }
 
   el.dataset.mode = coupled ? 'coupled' : 'visual';

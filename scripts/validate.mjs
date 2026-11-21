@@ -12,7 +12,8 @@
  *   native   wasm:native (the C++ plant), after codegen — it does not wait for
  *            the checks, so it overlaps lint (the slowest check)
  *   tests    node:test over scripts/tests/*.test.mjs (the goldens and snapshots
- *            need the native build) + the entry-chunk build
+ *            need the native build — test:circuit's ten circuit goldens and
+ *            their WASM replay among them) + the entry-chunk build
  *
  * Every step runs even after another fails, so one red run shows every
  * problem. Ends with a per-step pass/fail + seconds table and exits non-zero

@@ -1,0 +1,23 @@
+{
+  "id": "rectifier-ripple-vs-c",
+  "title": "Circuit Lab: bridge-rectifier ripple vs reservoir capacitance",
+  "description": "The transformer bench's secondary drives a four-diode bridge into a reservoir capacitor and a 100 Ω load, wired in the Circuit Lab and solved by the C++ MNA solver. Sweep the capacitor over a decade and read the output's peak-to-peak ripple once it has settled: between charging pulses the capacitor alone feeds the load, so the ripple falls as 1/C (textbook ΔV ≈ I/(2fC); the winding's leakage inductance stretches each pulse, so the level sits below it, but the exponent is the claim). The energy books' residual — source energy minus dissipation minus stored change — stays under 1 % on every run. Needs sim_core.wasm (no TS mirror of the solver). Simulated, not metrology.",
+  "config": { "mode": "transformer", "wasmPhysics": true, "seed": 42, "circuit": "transformer-bridge-rc" },
+  "dt": 0.00020833333333333335,
+  "steps": [
+    { "at": 0, "set": { "drive": 1 } },
+    { "at": 1, "record": ["circuit.node.out.v", "circuit.elem.R1.i", "circuit.residual"], "hz": 4800, "until": 1.5 },
+    { "at": 1.5, "expect": { "label": "energy books close: residual under 1 %", "stat": { "key": "circuit.residual", "of": "max", "lt": 0.01 } } }
+  ],
+  "sweep": { "circuit.elem.C1.c": { "values": [0.00047, 0.001, 0.0022, 0.0047] } },
+  "summary": {
+    "from": 1,
+    "until": 1.5,
+    "of": "mean",
+    "columns": { "rippleP2p": { "key": "circuit.node.out.v", "of": "p2p" } }
+  },
+  "summaryExpect": [
+    { "label": "ripple ∝ 1/C: log-log exponent ≈ −1", "fit": { "x": "circuit.elem.C1.c", "y": "rippleP2p", "model": "power", "b": { "between": [-1.15, -0.85] }, "r2": { "gt": 0.98 } } }
+  ],
+  "plots": [{ "x": "circuit.elem.C1.c", "y": "rippleP2p" }]
+}

@@ -63,6 +63,26 @@ followed by the block's `cpp` fields; layout hash
 | `jumping-ring` | 10 | 12 floats | 9 |
 | `drop-tube` | 13 | — | — |
 
+## Circuit Lab ports
+
+A `ports` block lets the Circuit Lab (#256, [ADR-0018](adr/0018-circuit-lab.md),
+[`CIRCUIT.md`](CIRCUIT.md)) wire a bench into a drawn circuit. The circuit is
+solved by the C++ MNA solver in `sim_core.wasm` on **both renderers and
+whatever `wasmPhysics` says** — `wasmPhysics` picks the plant backend, and
+sim_core loads at boot either way. While a circuit owns a bench, that
+bench's own plant (JS or C++) does not step it: its port driver does, with
+the circuit, once per substep — from the plant's own equations where it has
+mechanics (the disc's drive and drag), with the circuit's current in place
+of the bench's fixed load. Other benches keep their backend.
+Without `sim_core.wasm` the wiring view opens read-only with a
+"needs WASM" note: there is no TS mirror of the solver.
+
+| Device `id` | Port | Terminals (+ / −) | Driver | What the circuit sees |
+|---|---|---|---|---|
+| `pulse-coil` | `coil` (Coil) | coil + / coil − | `pulse-coil-coil` | The coil's R and L only — your capacitor and switch replace the bench's bank and auto-fire; the armature feels ⟨i²⟩ (pull ∝ I² proxy) |
+| `homopolar` | `out` (Disc brushes) | rim + / axle − | `homopolar-emf` | EMF k·ω (k = ½ B r²) in series with the disc's own R and L; the circuit's current brakes the disc with torque k·ī |
+| `transformer` | `sec` (Secondary winding) | s + / s − | `transformer-secondary` | The bench's 60 Hz generator (28 V pk × drive) through R_p into L_p, coupled (k, leakage toggle) to L_s + R_s; your circuit replaces the 12 Ω load |
+
 ## How to add a device
 
 1. Add a row to `physics/devices.json` (new unused `shaderMode`; `wasmMode` next reserved or `null`), including a `telemetry` entry (label / unit / digits) for every `telemetryKeys` entry, and a `state` block listing every field the plant's step reads before it writes.

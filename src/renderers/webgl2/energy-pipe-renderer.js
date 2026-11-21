@@ -5,8 +5,10 @@
 
 import { linkProgram, getUniformLocations } from './shader-utils.js';
 import {
+  CIRCUIT_CABLE_EDGES,
   ENERGY_PIPE_EDGES,
   bezierControlPoints,
+  pipeEndpoint,
   deviceAnchor,
   getPipeColor,
   isPipeEndpointEnabled
@@ -57,7 +59,8 @@ export class EnergyPipeRenderer {
     this.vao = gl.createVertexArray();
     this.vbo = gl.createBuffer();
     this.segments = 32;
-    this.pipes = ENERGY_PIPE_EDGES.map((c) => ({
+    // Catalog pipes, then the Circuit Lab cables (#256) — dark until wired.
+    this.pipes = [...ENERGY_PIPE_EDGES, ...CIRCUIT_CABLE_EDGES].map((c) => ({
       ...c,
       key: `${c.from}-${c.to}`,
       color: getPipeColor(c.from, c.to),
@@ -86,8 +89,8 @@ export class EnergyPipeRenderer {
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 
     for (const pipe of this.pipes) {
-      const a = devices[pipe.from];
-      const b = devices[pipe.to];
+      const a = pipeEndpoint(devices, pipe.from);
+      const b = pipeEndpoint(devices, pipe.to);
       if (!a || !b) continue;
 
       const enabled = isPipeEndpointEnabled(pipe.from, pipe.to, opts.devicesEnabled);

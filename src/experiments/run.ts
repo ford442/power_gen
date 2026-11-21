@@ -66,6 +66,7 @@ async function runOffline(
   if (typeof Worker === 'undefined') {
     const { SEGSim } = await import('../wasm/sim');
     const sim = wasm ? await SEGSim.create() : null;
+    if (v.config.circuit != null) await (await import('../wasm/index')).loadSimCore();
     try {
       return runExperimentSync(v, { cpp: sim?.wasmAvailable ? sim : null, sweepPoint, onProgress, onWarning });
     } finally {

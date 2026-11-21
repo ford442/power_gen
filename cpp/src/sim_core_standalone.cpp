@@ -111,7 +111,9 @@ int main(int argc, char** argv) {
             if (std::strcmp(argv[i + 1], "snapshots") == 0) return run_snapshots();
             if (std::strcmp(argv[i + 1], "integrators") == 0) return run_integrators();
             if (std::strcmp(argv[i + 1], "fdtd") == 0) return run_fdtd_smoke();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|lorentz-sled|jumping-ring|chores|energy-network|catalog|bench|golden|snapshots|integrators|fdtd)\n", argv[i + 1]);
+            if (std::strcmp(argv[i + 1], "circuit") == 0) return run_circuit();
+            if (std::strcmp(argv[i + 1], "circuit-json") == 0) return run_circuit_json();
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|lorentz-sled|jumping-ring|chores|energy-network|catalog|bench|golden|snapshots|integrators|fdtd|circuit|circuit-json)\n", argv[i + 1]);
             return 2;
         }
     }
@@ -198,6 +200,7 @@ int main(int argc, char** argv) {
     if (run_energy_network_smoke() != 0) return 1;
     if (run_snapshots() != 0) return 1;
     if (run_fdtd_smoke() != 0) return 1;
+    if (run_circuit() != 0) return 1;
 
     // Zero-copy packing smoke
     sim.setMode(SIM_MODE_SEG);

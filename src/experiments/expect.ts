@@ -45,10 +45,50 @@ function windowPairs(table: Table, x: string, y: string, win: ExpectWindow): { x
   return { xs, ys };
 }
 
+/**
+ * Cycle frequency (Hz) of `values` sampled at `times`: rising crossings of
+ * the window mean cut the trace into cycles, each cycle's maximum is timed
+ * (parabolic refinement), and f = (peaks − 1) / (last peak − first peak).
+ * Peaks, not crossings, because a damped ring's mean is not its midline —
+ * crossings of an offset level drift as the amplitude decays, while the
+ * peaks of e^(−αt)·sin ωt stay exactly 2π/ω apart. NaN with < 2 cycles.
+ */
+export function crossingFrequency(times: readonly number[], values: readonly number[]): number {
+  const n = Math.min(times.length, values.length);
+  let sum = 0, count = 0;
+  for (let i = 0; i < n; i++) if (Number.isFinite(values[i])) { sum += values[i]; count++; }
+  if (count < 3) return Number.NaN;
+  const mean = sum / count;
+  const rising: number[] = [];
+  for (let i = 1; i < n; i++) if (values[i - 1] < mean && values[i] >= mean) rising.push(i);
+  const peaks: number[] = [];
+  for (let c = 0; c + 1 < rising.length; c++) {
+    let k = rising[c];
+    for (let i = rising[c]; i < rising[c + 1]; i++) if (values[i] > values[k]) k = i;
+    let t = times[k];
+    if (k > 0 && k + 1 < n) {
+      const a = values[k - 1], b = values[k], d = values[k + 1];
+      const den = a - 2 * b + d;
+      if (den < 0) t += (0.5 * (a - d) / den) * 0.5 * (times[k + 1] - times[k - 1]);
+    }
+    peaks.push(t);
+  }
+  if (peaks.length < 2) return Number.NaN;
+  const span = peaks[peaks.length - 1] - peaks[0];
+  return span > 0 ? (peaks.length - 1) / span : Number.NaN;
+}
+
+/** `of` over `key` in a window — `freq` needs the table's `t` column too. */
+export function reduceWindow(table: Table, key: string, win: ExpectWindow, of: StatKind): number {
+  if (of !== 'freq') return reduce(windowColumn(table, key, win), of);
+  return crossingFrequency(windowColumn(table, 't', win), windowColumn(table, key, win));
+}
+
 export function reduce(values: readonly number[], of: StatKind): number {
   const v = values.filter((x) => Number.isFinite(x));
   if (!v.length) return Number.NaN;
   switch (of) {
+    case 'freq': return Number.NaN; // needs times: reduceWindow
     case 'first': return v[0];
     case 'last': return v[v.length - 1];
     case 'min': return Math.min(...v);
@@ -61,6 +101,19 @@ export function reduce(values: readonly number[], of: StatKind): number {
       return Math.sqrt(v.reduce((s, x) => s + (x - m) * (x - m), 0) / v.length);
     }
   }
+}
+
+/**
+ * y = a·x^b by least squares on (ln x, ln y) — positive pairs only; R² of the
+ * log-log line. A ripple ∝ 1/C has b ≈ −1, an LC frequency b ≈ −½.
+ */
+export function powerFit(xs: readonly number[], ys: readonly number[]): { a: number; b: number; r2: number; n: number } {
+  const lx: number[] = [], ly: number[] = [];
+  for (let i = 0; i < Math.min(xs.length, ys.length); i++) {
+    if (xs[i] > 0 && ys[i] > 0) { lx.push(Math.log(xs[i])); ly.push(Math.log(ys[i])); }
+  }
+  const fit = linearFit(lx, ly);
+  return { a: Math.exp(fit.intercept), b: fit.slope, r2: fit.r2, n: lx.length };
 }
 
 /** y = k·x through the origin; R² against the mean of y, like the free fit. */
@@ -142,6 +195,9 @@ function evalFit(f: FitExpect, table: Table, label?: string): ExpectResult {
   if (f.model === 'exponential') {
     const fit = exponentialFit(xs, ys);
     Object.assign(measured, { r2: fit.r2, a: fit.a, b: fit.b, tau: fit.tau });
+  } else if (f.model === 'power') {
+    const fit = powerFit(xs, ys);
+    Object.assign(measured, { r2: fit.r2, a: fit.a, b: fit.b });
   } else if (f.model === 'proportional') {
     const fit = proportionalFit(xs, ys);
     Object.assign(measured, { r2: fit.r2, slope: fit.slope });
@@ -172,7 +228,7 @@ export function evaluateExpect(e: ExpectDef, table: Table): ExpectResult {
   if (e.fit) return evalFit(e.fit, table, e.label);
   if (e.stat) {
     const s = e.stat;
-    const v = reduce(windowColumn(table, s.key, s), s.of);
+    const v = reduceWindow(table, s.key, s, s.of);
     const c = pickCondition(s);
     return {
       label: e.label ?? `${s.of}(${s.key})${windowText(s)}`,
@@ -183,8 +239,8 @@ export function evaluateExpect(e: ExpectDef, table: Table): ExpectResult {
   }
   if (e.ratio) {
     const r = e.ratio;
-    const num = reduce(windowColumn(table, r.num, r), r.of);
-    const den = reduce(windowColumn(table, r.den, r), r.of);
+    const num = reduceWindow(table, r.num, r, r.of);
+    const den = reduceWindow(table, r.den, r, r.of);
     const v = den !== 0 ? num / den : Number.NaN;
     const c = pickCondition(r);
     return {

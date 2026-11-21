@@ -43,7 +43,7 @@ export const PLANT_STATE_PREFIX = { time: 0, drive: 1, length: 2 } as const;
 export const PLANT_STATE_LAYOUT_HASH = 0x1d82ad14;
 
 /** First 12 hex of sha256(physics/devices.json) — which catalog wrote a snapshot. */
-export const DEVICE_CATALOG_HASH = '368b41efa428';
+export const DEVICE_CATALOG_HASH = '9db63df4764b';
 
 export const DEVICE_STATE_LAYOUT: Readonly<Record<string, DeviceStateLayout>> = {
   'seg': {

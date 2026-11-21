@@ -4,6 +4,7 @@
  * GPU backends consume this object; they do not own operator, WASM apply,
  * energy-network policy, or TelemetryHub.publishFrame.
  */
+import type { CircuitAccess } from '../circuit/keys';
 import { CameraController } from '../camera-controller';
 import { HardwareBridge, TWIN_MODES } from '../hardware-bridge';
 import type { MultiDeviceCamera } from '../multi-device-camera';
@@ -65,6 +66,15 @@ export interface LabSessionQuality {
  * A live scripted experiment riding the session clock (src/experiments/
  * live-runner.ts). Typed here so the entry chunk never imports the runner.
  */
+/** What the session needs of the Circuit Lab host (src/circuit/host.ts). */
+export interface LabCircuitStepper extends CircuitAccess {
+  /** ADR-0009 epoch rules: reset on operator RESET (standby) and around replay. */
+  syncEpoch(epoch: number, standby: boolean, replay: boolean): void;
+  stepBatch(simSteps: readonly number[], drive: number): void;
+  /** Whether the circuit steps this bench (its own plant skips it). */
+  owns(deviceId: string): boolean;
+}
+
 export interface LabExperimentClock {
   /**
    * Before the plant steps this frame's substeps (knob writes land here).
@@ -153,6 +163,20 @@ export class LabSession {
   /** The running live experiment, if any — see {@link LabExperimentClock}. */
   experimentClock: LabExperimentClock | null = null;
 
+  /**
+   * The wired Circuit Lab netlist (#256, ADR-0018), if one is loaded — a
+   * `CircuitHost` (src/circuit/host.ts, a lazy chunk). Stepped on the batch's
+   * substeps before any plant, so a circuit-owned bench reads this frame's
+   * circuit and its own plant skips (`_circuitOwned`).
+   */
+  circuit: LabCircuitStepper | null = null;
+  /**
+   * The circuit as a LabConfig `circuit` value for share links / `.lab.json`
+   * (an example id while unedited, else the document) — set by the lazy
+   * circuit chunk, so the entry chunk can capture it synchronously.
+   */
+  circuitShare: (() => string | Record<string, unknown> | null) | null = null;
+
   /** This frame's {@link PlantBatch} (null before the first `stepPlant`). */
   plantBatch: PlantBatch | null = null;
 
@@ -228,6 +252,13 @@ export class LabSession {
     if (!replayLocked) this.stepOffFocusCouplingSources(simSteps, drive);
     this.chargeNetwork.update({ devices: this.devices, devicesEnabled: this.devicesEnabled });
     this.fieldNetwork.update({ devices: this.devices, devicesEnabled: this.devicesEnabled });
+
+    // Circuit Lab: one plant ⇄ circuit exchange per substep, before the plants.
+    const circuit = this.circuit;
+    if (circuit) {
+      circuit.syncEpoch(segOperator.epoch, segOperator.status === 'standby', replayLocked);
+      if (!replayLocked) circuit.stepBatch(simSteps, drive);
+    }
 
     const worker = this.plantWorker;
     const fallbackReason = replayLocked
