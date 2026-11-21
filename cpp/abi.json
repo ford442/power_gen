@@ -114,9 +114,44 @@
       "name": "plant_state_layout_hash",
       "ret": "u32",
       "cpp": "PLANT_STATE_LAYOUT_HASH"
-    }
+    },
+    {
+      "name": "circuit_kind_name",
+      "args": [
+        ["kind", "i32"]
+      ],
+      "ret": "cstr"
+    },
+    { "name": "circuit_format_version", "ret": "i32" }
   ],
   "classes": {
+    "CircuitSim": {
+      "$comment": "Circuit Lab MNA transient solver (#256, ADR-0018): cpp/src/circuit/. load() takes the packed netlist (src/circuit/pack.ts); readoutPtr() is a C++-owned double buffer (layout in circuit.h / src/circuit/readout.ts).",
+      "prefix": "circ_",
+      "scratch": "scratchPtr",
+      "methods": [
+        { "name": "load", "ret": "i32", "args": [["packed", "f32[]"]] },
+        { "name": "loaded", "ret": "bool" },
+        { "name": "errorText", "ret": "cstr" },
+        { "name": "reset", "ret": "void" },
+        { "name": "setParam", "ret": "bool", "args": [["elem", "i32"], ["index", "i32"], ["value", "f64"]] },
+        { "name": "getParam", "ret": "f64", "args": [["elem", "i32"], ["index", "i32"]] },
+        { "name": "step", "ret": "i32", "args": [["h", "f64"]] },
+        { "name": "time", "ret": "f64" },
+        { "name": "nodeCount", "ret": "i32" },
+        { "name": "elemCount", "ret": "i32" },
+        { "name": "unknownCount", "ret": "i32" },
+        { "name": "nodeVoltage", "ret": "f64", "args": [["node", "i32"]] },
+        { "name": "elemCurrent", "ret": "f64", "args": [["elem", "i32"]] },
+        { "name": "elemVoltage", "ret": "f64", "args": [["elem", "i32"]] },
+        { "name": "elemPower", "ret": "f64", "args": [["elem", "i32"]] },
+        { "name": "storedEnergy", "ret": "f64" },
+        { "name": "stat", "ret": "f64", "args": [["which", "i32"]] },
+        { "name": "readoutPtr", "ret": "ptr" },
+        { "name": "readoutCount", "ret": "i32" },
+        { "name": "scratchPtr", "ret": "ptr", "args": [["count", "i32"]] }
+      ]
+    },
     "FdtdTmzGrid": {
       "prefix": "fdtd_",
       "scratch": "scratchPtr",

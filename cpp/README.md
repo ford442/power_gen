@@ -94,6 +94,8 @@ buffer packing
 ./build/sim_core_test --mode snapshots   # plantSave → plantLoad → step bit-identical, every mode
 ./build/sim_core_test --mode integrators # every integrator vs the reference it replaced + analytic checks
 ./build/sim_core_test --mode fdtd        # FDTD TM_z kernel: finite under drive, sponge absorbs
+./build/sim_core_test --mode circuit     # Circuit Lab MNA goldens: RC, RLC f/Q, ripple, transformer, LC energy, … (#256)
+./build/sim_core_test --mode circuit-json # the same goldens' netlists + samples as JSON (test:circuit replays them in WASM)
 ```
 
 `--mode golden` replays every **dual** device — one with a `wasmMode` *and*
@@ -423,7 +425,11 @@ bytes — no growth. (The WebGL2 micro-grid is 64², ~0.2 MB.)
 build — a binary > 5 % larger fails (size is deterministic under the pinned
 emsdk), a throughput below 0.6× the baseline is an Actions warning (runners
 differ, but losing the SIMD kernel lands at 0.37× and shows). Re-baseline on
-purpose, numbers in the PR.
+purpose, numbers in the PR. The Circuit Lab's MNA solver (#256, ADR-0018) was
+the first: 74,145 → 122,380 B raw, 31,721 → 50,695 B brotli. About 8.5 KB of
+that is musl `printf` behind the solver's error texts. Main's binary and the
+new one bench within noise of each other on the same VM, so the throughput
+rows stand.
 
 **Threads (`-pthread`, `SharedArrayBuffer`): not pursued.** The issue gates them
 on this study showing a single thread is the bottleneck for sweeps, and it does
@@ -468,7 +474,7 @@ cpp/
       plant.h               ← sim_core::Plant / ConstrainedPlant concepts
       integrate.h           ← euler / rk4_fixed / dopri5 / ros23 (docs/INTEGRATORS.md)
     sim_core_standalone.cpp ← native driver: main() + CSV export
-    standalone/             ← one TU per --mode family (plant smokes, system smokes, golden, bench, integrators)
+    standalone/             ← one TU per --mode family (plant smokes, system smokes, golden, bench, integrators, circuit)
     plant/
       plant_common.h        ← shared helpers (clampf, hash1/rnd, lcg, Swamee–Jain f)
       heron_plant.h/.cpp    ← HeronState + Bernoulli / Swamee–Jain
@@ -489,9 +495,16 @@ cpp/
       chores_reduce.cpp     ← GPU-chores CPU reduce fallback
       particles.cpp         ← mode-aware particle seed/step + accessors
       plant_state.cpp       ← compiles generated/plant-state-impl.h (plantSave / plantLoad)
+    circuit/              ← Circuit Lab MNA solver, CircuitSim (#256, ADR-0018, docs/CIRCUIT.md)
+      circuit.h             ← kinds, options, readout layout, CircuitSim
+      lu.h/.cpp             ← dense LU: analyse (pivot order + fill) / refactor / reuse
+      stamps.cpp            ← element stamps, diode / MOSFET models, readouts
+      newton.cpp            ← one time point: assemble → solve → limit → converge
+      transient.cpp         ← step(h): TR + BE restarts, breakpoints, LTE, halving
+      circuit_sim.cpp       ← packed-netlist load, parameters, energy books
   CMakeLists.txt     ← CMake / Emscripten + CMAKE_EXPORT_COMPILE_COMMANDS
   Makefile           ← make wasm / native / native-san / tidy / compile-db /
-                       compile-db-wasm ($(wildcard src/plant/*.cpp))
+                       compile-db-wasm ($(wildcard src/plant/*.cpp src/circuit/*.cpp))
   .clang-tidy        ← advisory profile (make tidy)
   build/             ← native CMake + sim_core_test (gitignored except README.md)
   build-wasm/        ← emcmake configure for clangd (gitignored)

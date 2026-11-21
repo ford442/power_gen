@@ -1,0 +1,42 @@
+/* Circuit Lab wiring view (#256) — dark surface, as the analysis panel. */
+.circuit-panel {
+  position: fixed; right: 12px; bottom: 12px; z-index: 60;
+  width: min(760px, calc(100vw - 24px)); max-height: calc(100vh - 80px); overflow: auto;
+  background: #0a1420; color: #d6ebf0; border: 1px solid rgba(56, 214, 255, 0.35);
+  border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  font: 12px/1.4 system-ui, sans-serif; padding: 8px 10px 10px;
+}
+.circuit-panel:focus { outline: none; }
+/* The app's .ctrl-btn is a flex: 1 operator button; here buttons size to their label. */
+.circuit-panel .ctrl-btn { flex: 0 0 auto; padding: 3px 8px; letter-spacing: 0.02em; }
+.circuit-header { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.circuit-header h2 { font-size: 0.95rem; margin: 0 auto 0 0; letter-spacing: 0.02em; }
+.circuit-header select, .circuit-scope-bar select, .circuit-field select { background: #10202c; color: inherit; border: 1px solid #2a4552; border-radius: 4px; font: inherit; }
+.circuit-status { margin: 6px 0; padding: 4px 6px; border-radius: 4px; background: rgba(56, 214, 255, 0.07); }
+.circuit-status[data-state='error'], .circuit-status[data-state='needs-wasm'] { background: rgba(242, 207, 115, 0.1); color: #f2cf73; }
+.circuit-palette { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.circuit-panel .circuit-part-btn { font-size: 0.7rem; min-width: 2.2em; text-transform: none; }
+.circuit-part-btn.armed { outline: 2px solid #f2cf73; }
+.circuit-sheet-wrap { overflow: auto; max-height: min(380px, 42vh); border: 1px solid #1c3340; border-radius: 4px; background: #08111a; }
+.circuit-sheet { display: block; user-select: none; touch-action: none; }
+.circuit-part { cursor: move; }
+.circuit-term { cursor: crosshair; }
+.circuit-sheet:focus { outline: none; }
+.circuit-part:focus { outline: none; }
+.circuit-part:focus-visible > g > rect { stroke: #f2cf73; stroke-dasharray: 3 2; }
+.circuit-term:focus { outline: none; }
+.circuit-term:focus-visible { stroke: #f2cf73; stroke-width: 2.6; }
+.circuit-wire { cursor: pointer; }
+.circuit-side { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.circuit-inspector h3 { font-size: 0.8rem; margin: 0 0 4px; }
+.circuit-field { display: inline-flex; align-items: center; gap: 2px; margin: 2px 8px 2px 0; }
+.circuit-field input { background: #10202c; color: inherit; border: 1px solid #2a4552; border-radius: 3px; font: inherit; padding: 1px 3px; }
+.circuit-err { color: #f2cf73; margin-left: 4px; }
+.circuit-hint { color: #9fbcc4; margin: 2px 0; }
+.circuit-live { color: #38d6ff; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.circuit-meter { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dotted #1c3340; font-variant-numeric: tabular-nums; }
+.circuit-scope-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+.circuit-scope { display: block; width: 100%; height: 150px; margin-top: 4px; border-radius: 4px; }
+.circuit-scope-legend { display: flex; gap: 14px; flex-wrap: wrap; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.circuit-foot { color: #7f9aa3; margin-top: 6px; font-size: 0.68rem; }
+@media (max-width: 640px) { .circuit-side { grid-template-columns: 1fr; } }

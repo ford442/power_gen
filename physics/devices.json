@@ -393,6 +393,10 @@
           {"kind": "cylinder", "center": [0, 0.165, 0], "axis": [0, 1, 0], "radius": 0.8, "halfLength": 1.37, "turns": 48, "currentA": 1, "drive": {"key": "pulseCoilCurrent"}, "label": "coil"}
         ]
       },
+      "ports": [
+        { "id": "coil", "label": "Coil", "terminals": ["coil +", "coil −"], "driver": "pulse-coil-coil",
+          "model": "The coil's R and L only — your capacitor and switch replace the bench's bank and auto-fire; the armature feels ⟨i²⟩ (pull ∝ I² proxy)" }
+      ],
       "state": {
         "plant": null,
         "fields": [
@@ -473,6 +477,10 @@
         "outputs": ["emfV"],
         "tolerance": { "rtol": 1e-4, "atol": { "omega": 1e-3, "currentA": 1e-3 } }
       },
+      "ports": [
+        { "id": "out", "label": "Disc brushes", "terminals": ["rim +", "axle −"], "driver": "homopolar-emf",
+          "model": "EMF k·ω (k = ½ B r²) in series with the disc's own R and L; the circuit's current brakes the disc with torque k·ī" }
+      ],
       "state": {
         "plant": "_homopolar",
         "fields": [
@@ -610,6 +618,10 @@
           {"kind": "cylinder", "center": [0.55, 0.215, 0], "axis": [0, 1, 0], "radius": 0.24, "halfLength": 0.16, "turns": 40, "currentA": 1, "drive": {"key": "transformerIsA"}, "label": "secondary"}
         ]
       },
+      "ports": [
+        { "id": "sec", "label": "Secondary winding", "terminals": ["s +", "s −"], "driver": "transformer-secondary",
+          "model": "The bench's 60 Hz generator (28 V pk × drive) through R_p into L_p, coupled (k, leakage toggle) to L_s + R_s; your circuit replaces the 12 Ω load" }
+      ],
       "state": {
         "plant": "_transformer",
         "fields": [

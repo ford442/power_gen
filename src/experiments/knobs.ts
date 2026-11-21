@@ -8,6 +8,8 @@
  *   hall.carrierMetal             0 = semiconductor strip, 1 = metal
  *   <bench>.field.probe.x|y|z     field probe position, device-local scene
  *                                 units, within the catalog bounds (ADR-0017)
+ *   circuit.elem.<id>.<param>     a wired circuit's element value (#256,
+ *                                 src/circuit/keys.ts), e.g. `circuit.elem.C1.c`
  *
  * plus a few readable aliases (`lorentz-sled.fieldT`). A knob writes the same
  * `physicsState` field, through the same helper, as the operator control it
@@ -22,6 +24,7 @@ import { setHallCarrierType } from '../devices/quanta/hall-effect';
 import type { DevicePhysicsState } from '../renderers/shared/device-physics';
 import { FIELD_DEVICE_IDS, FIELD_SOURCE_CATALOG } from '../../generated/field-sources';
 import { fieldProbePoint, setFieldProbeAxis } from '../physics/field-probe';
+import { isCircuitKnob, type CircuitAccess } from '../circuit/keys';
 
 type PhysicsBag = Partial<DevicePhysicsState> & Record<string, unknown>;
 
@@ -33,6 +36,8 @@ export interface KnobTarget {
   fieldCoupled?: (deviceId: string) => boolean;
   /** Live only: the `window` function an operator control owns, when present. */
   windowApi?: (name: string) => ((value: never) => void) | undefined;
+  /** The wired circuit (Circuit Lab, #256), when one is loaded. */
+  circuit?: CircuitAccess | null;
 }
 
 export interface KnobSpec {
@@ -209,7 +214,38 @@ const KNOB_BY_ID = new Map(EXPERIMENT_KNOBS.map((k) => [k.id, k]));
 
 /** Canonical knob for an id or alias, or undefined. */
 export function knobSpec(id: string): KnobSpec | undefined {
-  return KNOB_BY_ID.get(KNOB_ALIASES[id] ?? id);
+  return KNOB_BY_ID.get(KNOB_ALIASES[id] ?? id) ?? circuitKnob(id);
+}
+
+const CIRCUIT_KNOBS = new Map<string, KnobSpec>();
+
+/**
+ * `circuit.elem.<id>.<param>` (#256): a knob made on demand — the netlist is
+ * per run, so the registry cannot list them. Ranges are the element's own
+ * (the host refuses an out-of-range value); validate.ts checks the element
+ * and parameter exist when the experiment carries its circuit.
+ */
+function circuitKnob(id: string): KnobSpec | undefined {
+  if (!isCircuitKnob(id)) return undefined;
+  let k = CIRCUIT_KNOBS.get(id);
+  if (!k) {
+    k = {
+      id,
+      label: id.slice('circuit.elem.'.length),
+      unit: '',
+      min: -Infinity,
+      max: Infinity,
+      kind: 'number',
+      deviceId: null,
+      write: (t, value) => !!t.circuit?.writeKey(id, value),
+      read: (t) => {
+        const v = t.circuit?.readKey(id);
+        return typeof v === 'number' && Number.isFinite(v) ? v : null;
+      }
+    };
+    CIRCUIT_KNOBS.set(id, k);
+  }
+  return k;
 }
 
 /** Canonical id for an id or alias (the id itself when unknown). */

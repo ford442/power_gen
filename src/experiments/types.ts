@@ -39,9 +39,11 @@ export interface Condition {
 }
 
 /** Reduction of one column over a window of samples. */
-export type StatKind = 'mean' | 'min' | 'max' | 'rms' | 'std' | 'p2p' | 'first' | 'last';
+/** `freq`: cycle frequency (Hz) over the window, peak to peak — needs the `t` column. */
+export type StatKind = 'mean' | 'min' | 'max' | 'rms' | 'std' | 'p2p' | 'first' | 'last' | 'freq';
 
-export type FitModel = 'linear' | 'proportional' | 'exponential';
+/** `power`: y = a·x^b (log-log); `b` is the exponent. */
+export type FitModel = 'linear' | 'proportional' | 'exponential' | 'power';
 
 /** Sample window, seconds on the run clock (inclusive). Default: everything recorded so far. */
 export interface ExpectWindow {
@@ -56,7 +58,7 @@ export interface FitExpect extends ExpectWindow {
   r2?: Condition;
   slope?: Condition;
   intercept?: Condition;
-  /** Exponential only: rate b of y = a·e^(b·x). */
+  /** Exponential: rate b of y = a·e^(b·x). Power: exponent b of y = a·x^b. */
   b?: Condition;
 }
 

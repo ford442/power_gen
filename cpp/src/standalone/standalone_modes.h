@@ -34,5 +34,9 @@ int run_bench_smoke();
 // standalone_integrators.cpp — shared integrators vs the reference they replaced
 int run_integrators();
 
+// standalone_circuit.cpp — Circuit Lab MNA goldens (#256); -json dumps them for the WASM parity test
+int run_circuit();
+int run_circuit_json();
+
 // standalone_snapshots.cpp — plantSave/plantLoad round trip is bit-exact (#224 §2)
 int run_snapshots();

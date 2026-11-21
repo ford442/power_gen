@@ -46,6 +46,14 @@ import { fileURLToPath } from 'node:url';
 import { before, describe, it } from 'node:test';
 import { ROOT } from '../test-harness.mjs';
 
+/**
+ * Circuit Lab record keys that are signals (src/circuit/keys.ts) — not element
+ * parameters (knobs), and not `circuit.residual`: that is the solver's own
+ * truncation error, a function of how each host step is cut, not of the clock
+ * (its < 1 % verdict is judged live and offline alike).
+ */
+const CIRCUIT_MEASURED = /^circuit\.(node\.\w+\.v|elem\.\w+\.[ivp]|port\.\w+\.p)$/;
+
 /** Benches with a C++ plant (physics/devices.json `wasmMode`). */
 const WASM_FOCUS = new Set(JSON.parse(readFileSync(join(ROOT, 'physics/devices.json'), 'utf8')).devices
   .filter((d) => d.wasmMode !== null && d.wasmMode !== undefined).map((d) => d.id));
@@ -124,10 +132,22 @@ if (!BACKEND) {
    */
   function seriesGap(live, offline) {
     const tj = live.columns.indexOf('t');
-    const byT = new Map(offline.rows.map((r) => [r[tj].toFixed(6), r]));
+    // Rows pair on t to 50 ns (µs buckets ± 1): at 9600 Hz every sixth tick sits
+    // exactly on a toFixed(6) half-way point, where one ulp picks the digit.
+    const byT = new Map(offline.rows.map((r) => [Math.round(r[tj] * 1e6), r]));
+    const offlineAt = (t) => {
+      const k = Math.round(t * 1e6);
+      for (const c of [k, k - 1, k + 1]) {
+        const o = byT.get(c);
+        if (o && Math.abs(o[tj] - t) < 5e-8) return o;
+      }
+      return undefined;
+    };
     let worst = { gap: 0, what: '', matched: 0 };
     for (const [j, key] of live.columns.entries()) {
-      if (key === 't' || key.includes('.')) continue; // knobs are written, not measured
+      // Knobs are written, not measured: catalog knob ids are dotted; a circuit
+      // key (#256) is measured unless it is an element parameter (`circuit.elem.C1.c`).
+      if (key === 't' || (key.includes('.') && !CIRCUIT_MEASURED.test(key))) continue;
       const oj = offline.columns.indexOf(key);
       if (oj < 0) continue;
       const col = offline.rows.map((r) => r[oj]).filter(Number.isFinite);
@@ -141,7 +161,7 @@ if (!BACKEND) {
       let matched = 0;
       let sq = 0;
       for (const row of live.rows) {
-        const o = byT.get(row[tj].toFixed(6));
+        const o = offlineAt(row[tj]);
         if (!o || !Number.isFinite(row[j]) || !Number.isFinite(o[oj])) continue;
         matched++;
         sq += (row[j] - o[oj]) ** 2;
@@ -162,9 +182,9 @@ if (!BACKEND) {
     it(`${BACKEND}: no plant worker in Node (in-loop plant)`, () => {
       assert.equal(session.plantWorker, null);
     });
-    it('five reference experiments', () => {
+    it('seven reference experiments', () => {
       const ids = X.referenceExperimentIds();
-      assert.ok(ids.length === 5, ids.join());
+      assert.ok(ids.length === 7, ids.join());
     });
   });
 
@@ -200,9 +220,11 @@ if (!BACKEND) {
           const worst = { rel: 0, what: '', series: 0 };
           try {
             assert.ok(run.runner === 'live', `${tag}: runner is live — ${run.runner}`);
-            // A focus with no C++ plant (catalog wasmMode null, e.g. pulse-coil) runs JS under either flag.
+            // A focus with no C++ plant (catalog wasmMode null, e.g. pulse-coil) runs JS under either flag;
+            // a circuit-owned focus (#256) is the C++ circuit solver's under either flag.
             const cpp = WASM_FOCUS.has(def.config?.mode ?? 'seg');
-            assert.ok(BACKEND === 'js' || !cpp ? run.backend === 'js' : run.backend !== 'js', `${tag}: backend — ${run.backend}`);
+            if (def.config?.circuit != null) assert.equal(run.backend, 'wasm', `${tag}: backend — ${run.backend}`);
+            else assert.ok(BACKEND === 'js' || !cpp ? run.backend === 'js' : run.backend !== 'js', `${tag}: backend — ${run.backend}`);
             assert.ok(run.expects.length > 0 && run.expects.every((e) => e.pass),
               `${tag}: every verdict passes live — ${run.expects.map((e) => `${e.pass ? 'PASS' : 'FAIL'} ${e.label} ${JSON.stringify(e.measured)}`).join(' | ')}`);
             if (def.sweep) {

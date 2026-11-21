@@ -666,6 +666,18 @@
       "docValues": "`{ <setpoint id>: value }`",
       "docDefault": "none (plants free-run)",
       "doc": "Pinned catalog setpoints (`physics/devices.json` `setpoints[]`), clamped to each setpoint's range."
+    },
+    {
+      "key": "circuit",
+      "type": "circuit",
+      "default": null,
+      "url": ["circuit"],
+      "share": true,
+      "live": true,
+      "group": "state",
+      "docValues": "example id \\| netlist `{ v: 1, e, w, … }`",
+      "docDefault": "none",
+      "doc": "Circuit Lab netlist (#256): a bench port wired to drawn R, C, L, diodes, switches and meters, solved by the C++ MNA solver (needs sim_core.wasm). `?circuit=<id>` opens an example (`src/circuit/examples.ts`); share links and `.lab.json` carry the whole netlist — [`CIRCUIT.md`](./CIRCUIT.md)."
     }
   ]
 }

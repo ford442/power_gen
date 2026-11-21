@@ -30,6 +30,7 @@ WebGPU; it does **not** implement every WebGPU visual feature.
 | `captureCanvasFrame()` | Yes — `{ width, height, pixels, view, flipY? }` |
 | `getRendererInfo()` | Yes — fps, view, telemetry snapshot, gaps list, `chores` breadcrumbs |
 | gpu-chores meters | Yes — WASM/JS `reduce_f32` (no WebGPU device; exclusive session) |
+| Circuit Lab (#256, ADR-0018) | Yes — the wiring view, scope, meters and the overview cable (line-strip, flow ∝ port current) are renderer-independent, and the C++ solver runs whenever `sim_core.wasm` loaded, **including `?wasmPhysics=0`** (that flag picks the plant backend only). Without `sim_core.wasm` (badge "WASM failed") the wiring view is **read-only** with a "needs WASM" note — there is no TS solver ([`CIRCUIT.md`](./CIRCUIT.md)) |
 
 ## Intentional visual gaps vs WebGPU
 

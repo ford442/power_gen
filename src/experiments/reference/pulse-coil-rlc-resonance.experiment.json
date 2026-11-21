@@ -1,0 +1,23 @@
+{
+  "id": "pulse-coil-rlc-resonance",
+  "title": "Circuit Lab: pulse-coil RLC ring frequency vs capacitance",
+  "description": "A capacitor charged to 24 V is switched (at 50 ms) across the pulse-coil bench's winding — its catalog R and L, wired in the Circuit Lab and solved by the C++ MNA solver — and rings as a series RLC. Sweep the capacitor over a decade and read the ring's frequency from the coil current's peak spacing: f = ½π·√(1/LC − (R/2L)²), close to 1/(2π√(LC)) at this damping, so a log-log fit of f against C has exponent ≈ −½. The coil's armature feels the ring's ⟨i²⟩ through the bench port. The energy books are judged from 60 ms: in the first substeps after the switch closes almost no energy has moved, so their ratio there measures the restart step, not conservation. Needs sim_core.wasm (no TS mirror of the solver). Simulated, not metrology.",
+  "config": { "mode": "pulse-coil", "seed": 42, "circuit": "pulse-coil-ring" },
+  "dt": 0.00010416666666666667,
+  "steps": [
+    { "at": 0, "record": ["circuit.elem.AM1.i", "circuit.node.cap.v", "circuit.residual"], "hz": 9600, "until": 0.2 },
+    { "at": 0.2, "expect": { "label": "energy books close once the ring is under way: residual under 1 %", "stat": { "key": "circuit.residual", "of": "max", "from": 0.06, "lt": 0.01 } } }
+  ],
+  "sweep": { "circuit.elem.C1.c": { "values": [0.00047, 0.001, 0.0022, 0.0047] } },
+  "summary": {
+    "from": 0.05,
+    "until": 0.11,
+    "of": "max",
+    "columns": { "ringHz": { "key": "circuit.elem.AM1.i", "of": "freq" } }
+  },
+  "summaryExpect": [
+    { "label": "LC ring: log-log exponent of f vs C ≈ −½", "fit": { "x": "circuit.elem.C1.c", "y": "ringHz", "model": "power", "b": { "between": [-0.53, -0.47] }, "r2": { "gt": 0.999 } } },
+    { "label": "the 0.47 mF ring (the fastest) is at ½π·√(1/LC − (R/2L)²) = 211.6 Hz (coil R 0.18 Ω + switch 1 mΩ, L 1.2 mH)", "stat": { "key": "ringHz", "of": "max", "approx": 211.58, "rel": 0.01 } }
+  ],
+  "plots": [{ "x": "circuit.elem.C1.c", "y": "ringHz" }]
+}

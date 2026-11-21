@@ -11,7 +11,8 @@
  * when a module that must load on demand is in that closure: uPlot, the QR
  * library, the analysis panel and spectrum chore, the experiment interpreter /
  * runners / panel, plant snapshots, the classroom recorder and PWA shell, the
- * share dialog / .lab.json loader and the embed endpoint. Prints the
+ * share dialog / .lab.json loader, the embed endpoint and the Circuit Lab
+ * (host and wiring view). Prints the
  * closure's size.
  *
  * Usage: node scripts/check-entry-chunk.mjs [--dist <built dir>]   (exit 1 on failure)
@@ -45,7 +46,9 @@ const LAZY = [
   { prefix: 'src/classroom/', why: 'classroom shell (recorder, PWA register) — main.ts imports it lazily' },
   { prefix: 'src/config/share-dialog.ts', why: 'share dialog' },
   { prefix: 'src/config/lab-file.ts', why: '.lab.json import / export' },
-  { prefix: 'src/embed/', why: 'embed endpoint / teacher console — installed only under ?embed=1 / ?teacher=1' }
+  { prefix: 'src/embed/', why: 'embed endpoint / teacher console — installed only under ?embed=1 / ?teacher=1' },
+  { prefix: 'src/circuit/', why: 'Circuit Lab host, netlist compiler, ports, SPICE — loaded by ?circuit= / the Circuit button (#256)' },
+  { prefix: 'src/circuit-ui/', why: 'Circuit Lab wiring view, schematic, scope' }
 ];
 
 function violation(mod) {
