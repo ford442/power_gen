@@ -31,7 +31,14 @@ export type SchemaBindGroupLayoutName =
   | 'taaResolve'
   | 'depthResolve'
   | 'fdtdCompute'
-  | 'fdtdSlice';
+  | 'fdtdSlice'
+  | 'fieldVolume'
+  | 'fieldProbe'
+  | 'fieldStreamlines'
+  | 'fieldCharges'
+  | 'fieldLines'
+  | 'fieldSlice'
+  | 'fieldIso';
 
 /** `GPUBindGroupLayoutDescriptor.entries` per named layout (visibility: 1=VERTEX 2=FRAGMENT 4=COMPUTE). */
 export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGroupLayoutEntry[]>> = {
@@ -185,6 +192,46 @@ export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGro
     { binding: 5, visibility: 2, buffer: { type: 'read-only-storage' } },
     { binding: 6, visibility: 2, buffer: { type: 'read-only-storage' } },
   ],
+  fieldVolume: [
+    { binding: 0, visibility: 4, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 4, buffer: { type: 'read-only-storage' } },
+    { binding: 2, visibility: 4, storageTexture: { access: 'write-only', format: 'rgba16float', viewDimension: '3d' } },
+  ],
+  fieldProbe: [
+    { binding: 0, visibility: 4, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 4, buffer: { type: 'read-only-storage' } },
+    { binding: 2, visibility: 4, buffer: { type: 'read-only-storage' } },
+    { binding: 3, visibility: 4, buffer: { type: 'storage' } },
+  ],
+  fieldStreamlines: [
+    { binding: 0, visibility: 4, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 4, texture: { sampleType: 'float', viewDimension: '3d' } },
+    { binding: 2, visibility: 4, sampler: { type: 'filtering' } },
+    { binding: 3, visibility: 4, buffer: { type: 'read-only-storage' } },
+    { binding: 4, visibility: 4, buffer: { type: 'storage' } },
+  ],
+  fieldCharges: [
+    { binding: 0, visibility: 4, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 4, texture: { sampleType: 'float', viewDimension: '3d' } },
+    { binding: 2, visibility: 4, sampler: { type: 'filtering' } },
+    { binding: 3, visibility: 4, buffer: { type: 'storage' } },
+    { binding: 4, visibility: 4, buffer: { type: 'storage' } },
+  ],
+  fieldLines: [
+    { binding: 1, visibility: 3, buffer: { type: 'uniform', hasDynamicOffset: true } },
+    { binding: 2, visibility: 1, buffer: { type: 'read-only-storage' } },
+    { binding: 3, visibility: 1, buffer: { type: 'uniform' } },
+  ],
+  fieldSlice: [
+    { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
+    { binding: 2, visibility: 2, texture: { sampleType: 'float', viewDimension: '3d' } },
+    { binding: 3, visibility: 2, sampler: { type: 'filtering' } },
+  ],
+  fieldIso: [
+    { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
+    { binding: 2, visibility: 2, texture: { sampleType: 'float', viewDimension: '3d' } },
+    { binding: 3, visibility: 2, sampler: { type: 'filtering' } },
+  ],
 };
 
 /** `@group()` index each layout fills — scene pipelines are [frame (0), own (1)]. */
@@ -217,4 +264,11 @@ export const BGL_GROUP: Readonly<Record<SchemaBindGroupLayoutName, number>> = {
   depthResolve: 0,
   fdtdCompute: 0,
   fdtdSlice: 1,
+  fieldVolume: 0,
+  fieldProbe: 0,
+  fieldStreamlines: 0,
+  fieldCharges: 0,
+  fieldLines: 1,
+  fieldSlice: 1,
+  fieldIso: 1,
 };

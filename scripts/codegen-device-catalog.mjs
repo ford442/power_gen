@@ -43,7 +43,7 @@ const FIELD_SHADER_OUT = join(ROOT, 'src', 'shaders', 'generated', 'field-source
 
 /** `FIELD_BUILDER_NAMES = ['a', 'b'] as const` in src/physics/field-builders.ts. */
 function fieldBuilderNames() {
-  let text = '';
+  let text;
   try { text = readFileSync(FIELD_BUILDERS, 'utf8'); } catch { return []; }
   const list = text.match(/FIELD_BUILDER_NAMES\s*=\s*\[([^\]]*)\]/)?.[1] ?? '';
   return [...list.matchAll(/'([\w-]+)'/g)].map((m) => m[1]);

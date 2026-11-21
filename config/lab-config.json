@@ -435,6 +435,59 @@
       "doc": "What modulates the slice's source amplitude: the pulse coil's discharge current, or the transformer bench's core flux (continuous AC). Winding *geometry* is unchanged; falls back to `coil` if that bench isn't in the lab — ADR-0012."
     },
     {
+      "key": "fieldVolume",
+      "type": "bool",
+      "default": true,
+      "url": ["fieldVolume"],
+      "share": false,
+      "live": false,
+      "group": "scene",
+      "doc": "`0` kills the 3-D magnetostatic field volume and everything that reads it (volume field lines, slice, isosurfaces, charged particles, probe GPU readback; WebGL2's CPU slice readout) — ADR-0017. Focus view, `medium` tier and up (64³; 128³ at `high`), on benches with a catalog `fieldSources` row."
+    },
+    {
+      "key": "fieldSlice",
+      "type": "enum",
+      "values": ["off", "x", "y", "z"],
+      "default": "off",
+      "url": ["fieldSlice"],
+      "share": true,
+      "live": true,
+      "group": "scene",
+      "doc": "Field slice plane through the focused bench's volume, normal to the given axis (|B| colour map; the field panel drags the offset; a click on the plane sets the probe) — ADR-0017."
+    },
+    {
+      "key": "fieldSliceMode",
+      "type": "enum",
+      "values": ["heat", "arrows", "lic"],
+      "default": "arrows",
+      "url": ["fieldSliceMode"],
+      "share": true,
+      "live": true,
+      "group": "scene",
+      "doc": "Slice overlay: `heat` (|B| only), `arrows` (in-plane direction glyphs), `lic` (line-integral convolution). WebGPU only."
+    },
+    {
+      "key": "fieldIso",
+      "type": "bool",
+      "default": false,
+      "url": ["fieldIso"],
+      "share": true,
+      "live": true,
+      "group": "scene",
+      "doc": "|B| = k isosurfaces ray-marched through the volume — computed shells of the modelled sources; on SEG they replace the hand-modelled Roschin–Godin walls, labelled as a model. WebGPU only — ADR-0017."
+    },
+    {
+      "key": "fieldParticles",
+      "type": "enum",
+      "values": ["off", "electron", "proton", "alpha"],
+      "default": "off",
+      "url": ["fieldParticles"],
+      "share": true,
+      "live": true,
+      "group": "scene",
+      "doc": "Charged particles pushed through the volume (Boris, non-relativistic, time slowed so a gyration is visible; E from the bench's catalog `efield`). WebGPU, not on `low` tier — ADR-0017."
+    },
+    {
       "key": "halbachLinear",
       "type": "bool",
       "default": false,

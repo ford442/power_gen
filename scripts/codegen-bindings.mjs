@@ -35,8 +35,10 @@ export const KINDS = {
   'texture-depth': () => `texture: { sampleType: 'depth', viewDimension: '2d' }`,
   'texture-depth-ms': () => `texture: { sampleType: 'depth', viewDimension: '2d', multisampled: true }`,
   'texture-array': () => `texture: { sampleType: 'float', viewDimension: '2d-array' }`,
+  'texture-3d': () => `texture: { sampleType: 'float', viewDimension: '3d' }`,
   'storage-texture': (fmt) => `storageTexture: { access: 'write-only', format: '${fmt}', viewDimension: '2d' }`,
   'storage-texture-array': (fmt) => `storageTexture: { access: 'write-only', format: '${fmt}', viewDimension: '2d-array' }`,
+  'storage-texture-3d': (fmt) => `storageTexture: { access: 'write-only', format: '${fmt}', viewDimension: '3d' }`,
   sampler: () => `sampler: { type: 'filtering' }`,
   'sampler-comparison': () => `sampler: { type: 'comparison' }`
 };

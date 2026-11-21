@@ -292,3 +292,131 @@ describe('3. catalog benches', () => {
     assert.ok(Math.abs(k - (MU0 * 48) / Math.hypot(L, 2 * a)) / k < 1e-5);
   });
 });
+
+describe('4. volume texels, f16 and sampling', () => {
+  it('roundF16 agrees with Math.f16round', () => {
+    for (const v of [0, 1, -1.0001, 3.14159, 65504, 6.1e-5, 1e-6, -2.7e-7, 1234.567, 0.33333]) {
+      assert.equal(m.roundF16(v), Math.f16round(v), String(v));
+    }
+  });
+  it('FieldVolumeParams is 4 × vec4f', () => {
+    const body = read('src/shaders/passes/field-volume.wgsl').match(/struct FieldVolumeParams \{([^}]*)\}/)[1];
+    assert.equal((body.match(/: vec4f/g) ?? []).length * 16, m.FIELD_VOLUME_PARAMS_BYTES);
+    const p = m.packFieldVolumeParams({ n: 64, min: [-1, -2, -3], max: [1, 2, 3], unitM: 0.1 }, 77, 4, 8);
+    assert.deepEqual([...p].map((v) => Math.fround(v)), [-1, -2, -3, 0.1, 1, 2, 3, 77, 64, 4, 8, 0, 1000, 0, 0, 0].map(Math.fround));
+  });
+  it('sampling at a texel centre returns that texel; midway is the average', () => {
+    const desc = { n: 8, min: [-1, -1, -1], max: [1, 1, 1], unitM: 0.05 };
+    const list = new m.FieldSourceList().dipole([0.01, 0.02, 0], [0, 2, 0], 0.005);
+    const vol = m.buildFieldVolume(desc, list.data, list.count);
+    const c = m.texelCenter(desc, 2, 5, 3);
+    const s = m.sampleFieldVolume(vol, ...c);
+    const o = ((3 * 8 + 5) * 8 + 2) * 4;
+    for (let k = 0; k < 4; k++) assert.ok(Math.abs(s[k] * 1000 - vol.data[o + k]) < 1e-9 * Math.abs(vol.data[o + k]) + 1e-12);
+    const c2 = m.texelCenter(desc, 3, 5, 3);
+    const mid = m.sampleFieldVolume(vol, (c[0] + c2[0]) / 2, c[1], c[2]);
+    const o2 = o + 4;
+    assert.ok(Math.abs(mid[1] * 1000 - (vol.data[o + 1] + vol.data[o2 + 1]) / 2) < 1e-6 * Math.abs(vol.data[o + 1]) + 1e-12);
+  });
+  it('fieldVolumeResolution: low skips, medium 64³, high 128³', () => {
+    assert.equal(m.fieldVolumeResolution('low'), null);
+    assert.equal(m.fieldVolumeResolution('critical'), null);
+    assert.equal(m.fieldVolumeResolution('medium'), 64);
+    assert.equal(m.fieldVolumeResolution('high'), 128);
+  });
+});
+
+/** Deterministic points inside a bench's bounds (LCG). */
+function samplePoints(bounds, count, seed = 12345) {
+  let s = seed >>> 0;
+  const r = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const [lo, hi] = bounds;
+  return Array.from({ length: count }, () => [0, 1, 2].map((c) => lo[c] + (0.05 + 0.9 * r()) * (hi[c] - lo[c])));
+}
+
+function sourcesAsStructs(list) {
+  const out = [];
+  for (let i = 0; i < list.count; i++) {
+    const d = list.data.subarray(i * 16, i * 16 + 16);
+    out.push({ p0: [...d.subarray(0, 4)], p1: [...d.subarray(4, 8)], p2: [...d.subarray(8, 12)], p3: [...d.subarray(12, 16)] });
+  }
+  return out;
+}
+
+describe('5. WGSL vs CPU reference (shader text executed by scripts/lib/wgsl-mini.mjs)', async () => {
+  const { compileWgsl } = await import('../lib/wgsl-mini.mjs');
+  const { loadWgslFile } = await import('../../src/shaders/wgsl-include.js');
+  const probeSrc = loadWgslFile(join(ROOT, 'src/shaders/passes/field-probe.wgsl'));
+  const volumeSrc = loadWgslFile(join(ROOT, 'src/shaders/passes/field-volume.wgsl'));
+  const probeKernel = compileWgsl(probeSrc);
+
+  function gpuProbe(kernel, bench, pts) {
+    const results = pts.map(() => [0, 0, 0, 0]);
+    kernel.run('main', {
+      bindings: {
+        probe: { info: [Math.fround(bench.unitM), bench.sources.count, pts.length, 0] },
+        sources: sourcesAsStructs(bench.sources),
+        points: pts.map((p) => [...p.map(Math.fround), 0]),
+        results
+      },
+      workgroups: [Math.ceil(pts.length / 64)]
+    });
+    return results;
+  }
+
+  for (const id of Object.keys(BENCH_STATES)) {
+    it(`${id}: field-probe.wgsl within 1 % of the CPU reference at 20 points`, () => {
+      const bench = new m.BenchField(id);
+      bench.rebuild(benchInputs(m, id));
+      const pts = samplePoints(bench.decl.bounds, 20, 7 + id.length);
+      const gpu = gpuProbe(probeKernel, bench, pts);
+      let worst = 0;
+      pts.forEach((p, i) => {
+        const cpu = bench.probeT(...p, [0, 0, 0]);
+        const err = Math.hypot(gpu[i][0] - cpu[0], gpu[i][1] - cpu[1], gpu[i][2] - cpu[2]) / (Math.hypot(...cpu) + 1e-12);
+        worst = Math.max(worst, err);
+        assert.ok(err < 0.01, `${id} point ${i} ${p.map((v) => v.toFixed(3))}: GPU ${gpu[i].slice(0, 3)} vs CPU ${cpu}`);
+      });
+      assert.ok(worst < 0.01);
+    });
+  }
+
+  it('a deliberately broken shader fails the same comparison', () => {
+    const broken = compileWgsl(probeSrc.replace('return k * cross(a, b);', 'return k * cross(b, a);'));
+    const bench = new m.BenchField('hall');
+    bench.rebuild({ state: { hallFieldT: 0, hallCurrent: 1, hallVoltage: 0 } });
+    const p = [[0.05, 0.08, 0.02]];
+    const g = gpuProbe(broken, bench, p)[0];
+    const c = bench.probeT(...p[0], [0, 0, 0]);
+    assert.ok(Math.hypot(g[0] - c[0], g[1] - c[1], g[2] - c[2]) / Math.hypot(...c) > 0.5);
+  });
+
+  for (const id of ['seg', 'halbach-viz']) {
+    it(`${id}: field-volume.wgsl (tiled workgroup memory) reproduces buildFieldVolume texels`, () => {
+      const bench = new m.BenchField(id);
+      bench.rebuild(benchInputs(m, id));
+      const n = 8;
+      const desc = { n, min: bench.decl.bounds[0], max: bench.decl.bounds[1], unitM: bench.unitM };
+      const ref = m.buildFieldVolume(desc, bench.sources.data, bench.sources.count, { f16: true });
+      const tex = { format: 'rgba16float', size: [n, n, n], data: new Float32Array(n * n * n * 4) };
+      const params = [...m.packFieldVolumeParams(desc, bench.sources.count, 0, n / 4)].map(Math.fround);
+      const kernel = compileWgsl(volumeSrc);
+      kernel.run('main', {
+        bindings: {
+          params: { boundsMin: params.slice(0, 4), boundsMax: params.slice(4, 8), grid: params.slice(8, 12), scale: params.slice(12, 16) },
+          sources: sourcesAsStructs(bench.sources),
+          volume: tex
+        },
+        workgroups: [n / 4, n / 4, n / 4]
+      });
+      if (id === 'seg') assert.ok(bench.sources.count > 64, 'exercises more than one source tile');
+      for (let t = 0; t < n * n * n; t++) {
+        const o = t * 4;
+        const mag = ref.data[o + 3];
+        for (let c = 0; c < 4; c++) {
+          assert.ok(Math.abs(tex.data[o + c] - ref.data[o + c]) <= 0.01 * mag + 1e-6, `texel ${t} ch ${c}: ${tex.data[o + c]} vs ${ref.data[o + c]}`);
+        }
+      }
+    });
+  }
+});

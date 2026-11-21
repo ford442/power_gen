@@ -12,6 +12,9 @@
         ["flux-segment-vert.wgsl", "flux-segment-frag.wgsl"],
         ["energy-arc-vert.wgsl", "energy-arc-frag.wgsl"],
         ["field-line-vert.wgsl", "field-line-frag.wgsl"],
+        ["field-lines-vert.wgsl", "flux-segment-frag.wgsl"],
+        ["field-slice.wgsl"],
+        ["field-iso.wgsl"],
         ["coil-vert.wgsl", "coil-frag.wgsl"],
         ["energy-pipe-vert.wgsl", "energy-pipe-frag.wgsl"],
         ["seg-anomaly-walls.wgsl"],
@@ -152,6 +155,37 @@
         [1, "VF", "uniform"], [2, "F", "uniform"], [3, "F", "storage-ro"], [4, "F", "storage-ro"], [5, "F", "storage-ro"],
         [6, "F", "storage-ro"]
       ]
+    },
+    "fieldVolume": {
+      "pipelines": [["field-volume.wgsl"]],
+      "entries": [[0, "C", "uniform"], [1, "C", "storage-ro"], [2, "C", "storage-texture-3d", "rgba16float"]]
+    },
+    "fieldProbe": {
+      "pipelines": [["field-probe.wgsl"]],
+      "entries": [[0, "C", "uniform"], [1, "C", "storage-ro"], [2, "C", "storage-ro"], [3, "C", "storage"]]
+    },
+    "fieldStreamlines": {
+      "pipelines": [["field-streamlines.wgsl"]],
+      "entries": [[0, "C", "uniform"], [1, "C", "texture-3d"], [2, "C", "sampler"], [3, "C", "storage-ro"], [4, "C", "storage"]]
+    },
+    "fieldCharges": {
+      "pipelines": [["field-particles.wgsl"]],
+      "entries": [[0, "C", "uniform"], [1, "C", "texture-3d"], [2, "C", "sampler"], [3, "C", "storage"], [4, "C", "storage"]]
+    },
+    "fieldLines": {
+      "group": 1,
+      "pipelines": [["field-lines-vert.wgsl", "flux-segment-frag.wgsl"]],
+      "entries": [[1, "VF", "uniform-dynamic"], [2, "V", "storage-ro"], [3, "V", "uniform"]]
+    },
+    "fieldSlice": {
+      "group": 1,
+      "pipelines": [["field-slice.wgsl"]],
+      "entries": [[1, "VF", "uniform"], [2, "F", "texture-3d"], [3, "F", "sampler"]]
+    },
+    "fieldIso": {
+      "group": 1,
+      "pipelines": [["field-iso.wgsl"]],
+      "entries": [[1, "VF", "uniform"], [2, "F", "texture-3d"], [3, "F", "sampler"]]
     }
   },
   "unboundPasses": {

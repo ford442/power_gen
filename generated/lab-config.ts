@@ -76,6 +76,11 @@ export interface LabConfig {
   fdtd: boolean;
   fdtdMaterials: boolean;
   fdtdDrive: 'coil' | 'transformer';
+  fieldVolume: boolean;
+  fieldSlice: 'off' | 'x' | 'y' | 'z';
+  fieldSliceMode: 'heat' | 'arrows' | 'lic';
+  fieldIso: boolean;
+  fieldParticles: 'off' | 'electron' | 'proton' | 'alpha';
   halbachLinear: boolean;
   audio: boolean;
   offline: boolean;
@@ -137,6 +142,11 @@ const ROWS: readonly LabFieldRow[] = [
   { key: 'fdtd', type: 'bool', default: true },
   { key: 'fdtdMaterials', type: 'bool', default: true },
   { key: 'fdtdDrive', type: 'enum', default: "coil", values: ["coil","transformer"] },
+  { key: 'fieldVolume', type: 'bool', default: true },
+  { key: 'fieldSlice', type: 'enum', default: "off", values: ["off","x","y","z"], share: true, live: true },
+  { key: 'fieldSliceMode', type: 'enum', default: "arrows", values: ["heat","arrows","lic"], share: true, live: true },
+  { key: 'fieldIso', type: 'bool', default: false, share: true, live: true },
+  { key: 'fieldParticles', type: 'enum', default: "off", values: ["off","electron","proton","alpha"], share: true, live: true },
   { key: 'halbachLinear', type: 'bool', default: false, share: true, live: true },
   { key: 'audio', type: 'bool', default: false },
   { key: 'offline', type: 'bool', default: true, url: ["offline","sw"] },
@@ -163,4 +173,4 @@ export const LAB_CONFIG_DEFAULTS = Object.fromEntries(
 ) as unknown as Readonly<LabConfig>;
 
 /** Hash of the field specs — versions `.lab.json` and #lab2= payloads. */
-export const LAB_CONFIG_SCHEMA_HASH = '24699b3de8c8';
+export const LAB_CONFIG_SCHEMA_HASH = '791d4e30e466';

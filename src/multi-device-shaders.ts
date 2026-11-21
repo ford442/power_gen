@@ -12,6 +12,13 @@ import taaResolveWgsl from './shaders/passes/taa-resolve.wgsl?raw';
 import depthResolveWgsl from './shaders/passes/depth-resolve.wgsl?raw';
 import fdtdTmzComputeWgsl from './shaders/passes/fdtd-tmz-compute.wgsl?raw';
 import fdtdSliceWgsl from './shaders/passes/fdtd-slice.wgsl?raw';
+import fieldVolumeWgsl from './shaders/passes/field-volume.wgsl?raw';
+import fieldProbeWgsl from './shaders/passes/field-probe.wgsl?raw';
+import fieldStreamlinesWgsl from './shaders/passes/field-streamlines.wgsl?raw';
+import fieldParticlesWgsl from './shaders/passes/field-particles.wgsl?raw';
+import fieldLinesVertWgsl from './shaders/passes/field-lines-vert.wgsl?raw';
+import fieldSliceWgsl from './shaders/passes/field-slice.wgsl?raw';
+import fieldIsoWgsl from './shaders/passes/field-iso.wgsl?raw';
 
 import { getRollerVertShader, getRollerFragShader } from './shaders/generators/roller-shaders.js';
 import { getParticleVertShader, getParticleFragShader } from './shaders/generators/particle-shaders.js';
@@ -49,6 +56,7 @@ import {
   getBloomDownsampleShader,
   getBloomUpsampleShader
 } from './shaders/generators/bloom-shaders.js';
+import type { FieldShaderSources } from './pipeline-layout/factories/field-pipelines.js';
 
 /** Every accessor returns generated WGSL source. */
 export class MultiDeviceShaders {
@@ -226,6 +234,20 @@ export class MultiDeviceShaders {
   /** FDTD slice panel, vsMain/fsMain (ADR-0010 — see passes/fdtd-slice.wgsl). */
   get fdtdSliceShader(): string {
     return fdtdSliceWgsl;
+  }
+
+  /** Every field-volume pass (ADR-0017 — see passes/field-*.wgsl). */
+  get fieldShaders(): FieldShaderSources {
+    return {
+      volume: fieldVolumeWgsl,
+      probe: fieldProbeWgsl,
+      streamlines: fieldStreamlinesWgsl,
+      particles: fieldParticlesWgsl,
+      linesVert: fieldLinesVertWgsl,
+      linesFrag: getFluxSegmentFragShader(),
+      slice: fieldSliceWgsl,
+      iso: fieldIsoWgsl
+    };
   }
 
   // Legacy / compatibility alias sometimes referenced in older code

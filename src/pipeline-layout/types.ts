@@ -27,7 +27,14 @@ export type BindGroupLayoutName =
   | 'taaResolve'
   | 'depthResolve'
   | 'fdtdCompute'
-  | 'fdtdSlice';
+  | 'fdtdSlice'
+  | 'fieldVolume'
+  | 'fieldProbe'
+  | 'fieldStreamlines'
+  | 'fieldCharges'
+  | 'fieldLines'
+  | 'fieldSlice'
+  | 'fieldIso';
 
 /**
  * Pipeline layouts share their bind group layout's name. Scene pipelines are
