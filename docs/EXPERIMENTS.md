@@ -101,6 +101,7 @@ Steps run in time order; at the same `at`, in file order.
 | `<deviceId>.<setpointId>` | every catalog setpoint (`physics/devices.json` `setpoints`): `pulse-coil.pulseCoilCharge`, `halbach-viz.halbachSegments`, `lorentz-sled.lorentzField`, `drop-tube.dropTubeSigma` | the setpoint's min … max (clamped, with a validation warning) |
 | `transformer.leakage` | the transformer's leakage toggle (k = 0.97 → 0.72) | 0 / 1 |
 | `hall.carrierMetal` | the Hall strip's carrier profile (semiconductor → metal) | 0 / 1 |
+| `<bench>.field.probe.x\|y\|z` | the field probe position, device-local scene units, on every bench with a catalog `fieldSources` row (ADR-0017); no state field is written — the probe lives beside the plant, so snapshots are unchanged | the row's `bounds` |
 
 Aliases: `lorentz-sled.fieldT`, `halbach-viz.segments`, `pulse-coil.chargeV`,
 `drop-tube.sigma`. A knob writes the same `physicsState` field through the same
@@ -117,6 +118,15 @@ device's `physicsState` field, exactly what TelemetryHub publishes — plus the
 SEG operator keys (`rpm`, `omega`, `corona`, `voltage`, `current`, `power`,
 `fieldSim`, `energyDensity`) and any knob id (so a ramp's own setpoint can be
 an axis). `t` is always the first column.
+
+Field-volume keys (ADR-0017), on every bench with a `fieldSources` row:
+`<bench>.field.probe.Bx|By|Bz|B` (tesla at the probe point — the exact kernel
+sum over the catalog sources, computed from the plant state, so it works
+headless and on both renderers) and `<bench>.field.drive.<group>` (a source
+group's drive as the field model saw it — e.g. `pulse-coil.field.drive.coil`,
+the coil's **signed** current, where the `pulseCoilCurrentA` telemetry key
+peak-holds below 1 A). SEG field keys need the live roller layout and read NaN
+headless.
 
 ### `expect`
 
@@ -256,6 +266,7 @@ that stepped anything but the session's batch drifts well past that.
 | `lorentz-force-vs-field` | Ramping B 0.05 → 0.6 T at full supply, F = I·ℓ·B rises near-linearly with B (back-EMF B·ℓ·v trims I as the sled speeds up) | R² 0.998, slope 4.53 N/T, F_max 2.72 N |
 | `homopolar-emf-vs-rpm` | EMF = ½·B·ω·r²: proportional to RPM with slope ½·B·r²·2π/60 = 5.645e-4 V/RPM (B 0.55 T, r 0.14 m). The 8 mΩ loop brakes the disc to ≈ 54 RPM at full drive | R² 0.99999, slope 5.636e-4 V/RPM (−0.15 %) |
 | `transformer-turns-ratio` | Sweep over the leakage toggle: tightly coupled, rms(V_s)/rms(V_p) sits just under N_s/N_p = 1/3; leakage (k 0.72) drops it sharply. 1/2400 s step and 2400 Hz sampling so the 60 Hz waveform is resolved (at 1/60 s every sample lands on the same phase) | 0.304 (k 0.97), 0.135 (k 0.72) |
+| `pulse-coil-field-vs-current` | The probe at the centre of the 48-turn coil reads B_y = μ0·N·I/√(L² + 4a²) through a discharge: linear in the coil's signed current, slope 3.380e-4 T/A (L 154 mm, a 45 mm). Checks the field model against its textbook formula, not the bench against a gaussmeter. No C++ plant for this bench — JS on both runs | R² 1.000, slope 3.3796e-4 T/A (formula 3.3796e-4), \|B\|max 3.09 mT |
 | `hall-voltage-vs-field` | With field coupling on, the Halbach array (4 → 24 segments) sets the Hall strip's B; at fixed current V_H = I·B·R_H/t, proportional to B with slope I·R_H/t | R² 1.000, slope 8.988 V/T (0.72 A × 6.24e-3 m³/C / 0.5 mm = 8.99) |
 
 ## Adding one

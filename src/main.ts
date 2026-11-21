@@ -45,6 +45,7 @@ import {
 import type { TelemetryCsvRow } from './telemetry/telemetry-schema';
 import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
 import { initFdtdHeatmapOverlay } from './fdtd-heatmap-overlay';
+import { initFieldPanel } from './field-panel';
 import { LabAudio } from './audio/lab-audio';
 import { initLabAudioBadge } from './audio/lab-audio-badge';
 import { wireChargeCouplingControls } from './charge-coupling-ui';
@@ -287,6 +288,14 @@ function bootApp(): void {
       initFdtdHeatmapOverlay();
     } catch (e) {
       console.warn('[main] FDTD micro-grid heatmap init skipped:', e);
+    }
+
+    try {
+      // Field probe / slice / iso / particle panel (ADR-0017) — both renderers;
+      // hidden until a bench with a catalog field row is focused.
+      initFieldPanel();
+    } catch (e) {
+      console.warn('[main] field panel init skipped:', e);
     }
 
     try {

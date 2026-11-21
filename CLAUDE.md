@@ -121,6 +121,7 @@ npm run test:audio    # sonification mapping bounds (silent by default)
 npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switches
 npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement
 npm run test:drop-tube # drop-tube k / end taper / loops vs quadrature, transit vs RK4
+npm run test:field-volume # field kernels vs quadrature; field-probe/-volume WGSL run on the CPU vs the reference (ADR-0017)
 npm run generate:gltf # regenerate every placeholder GLB (seg + quanta + lab)
 npm run test:device-draws # mock encoder: transformer flux, pickup coils + rings, bind-group token, camera scratch
 npm run test:stacked-prs # stacked-PR guard decision table (CI: .github/workflows/stacked-prs.yml)

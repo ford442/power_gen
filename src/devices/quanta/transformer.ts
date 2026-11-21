@@ -231,7 +231,8 @@ const transformerDrawWebgpu: NonNullable<DevicePlugin['drawWebgpu']> = (
   if (!instance.fluxSegmentRenderBindGroup || !instance.pipelineManager?.fluxSegmentPipeline) return;
   if (instance.fieldLineEnabled === false) return;
   // The field-volume tracer draws this bench's lines in focus (ADR-0017).
-  if (instance.visualizer.fieldVolumeLinesOwner === instance.id) return;
+  const lineOwner = instance.visualizer.fieldVolumeLinesOwner;
+  if (lineOwner && lineOwner === instance.id) return;
   const qualityScale = instance.visualizer.profiler?.qualityLevel ?? 1;
   if (qualityScale <= 0.28) return;
   const totalSegments = Math.floor((instance.geometry.fluxTotalSegments ?? 0) * qualityScale);

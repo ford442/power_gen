@@ -525,6 +525,9 @@ switch; `#device-readout` is named `"<bench> readout"`.
 | `src/physics/fdtd-tmz.ts` | 2D TM_z Yee kernel + material map (CPU reference for `test:fdtd`) — ADR-0010/0012 |
 | `src/devices/quanta/fdtd-slice-pass.ts` | WebGPU wave-slice pass (pulse-coil focus, lazily built) |
 | `src/fdtd-heatmap-overlay.ts` | WebGL2 64² CPU micro-grid readout of the same kernel — ADR-0012 |
+| `src/physics/field-{sources,eval,builders,bench,volume,probe,pack,particles}.ts` | Magnetostatic field from catalog `fieldSources` rows: packed sources, exact kernels (WGSL twin `shaders/common/field-sources.wgsl`), per-bench builders, CPU probe + record keys, pass policy / uniform packing, particle time scaling — ADR-0017 |
+| `src/visualizer/field-volume-{pass,drive}.ts` | WebGPU field volume (n³ texture, tracer, slice, iso, Boris particles, GPU probe), lazily built; frame-graph pass + lifetime `field-volume` |
+| `src/field-panel.ts` | Field panel on both renderers: probe readout ("simulated, not metrology"), slice / iso / particle controls, CPU \|B\| slice on WebGL2 and below `medium` |
 | `src/audio/*` | Lab sonification: pure telemetry→parameter mapping, Web Audio graph, header mute badge — [`LAB_AUDIO.md`](./LAB_AUDIO.md) |
 | `src/classroom/*` | Classroom delivery (lazy chunk from `main.ts`): service-worker registration + "Update available" prompt, Record control, lazy recorder (`window.recordBench`) — [`CLASSROOM.md`](./CLASSROOM.md) |
 | `scripts/vite-plugin-precache.mjs` | Build step: writes `dist/sw.js` (precache list + content-hash version) from `src/classroom/sw-template.js` — [`CLASSROOM.md`](./CLASSROOM.md) |
@@ -642,6 +645,7 @@ Manual / agent checks (WebGPU needs a real GPU):
 | [`WEBGL2.md`](./WEBGL2.md) | Fallback parity gaps |
 | [`TELEMETRY.md`](./TELEMETRY.md) | TelemetryHub |
 | [`ANALYSIS.md`](./ANALYSIS.md) | Analysis panel: recorded runs, fits, FFT chore, exports ("Simulated — not metrology") |
+| [`adr/0017-field-volume.md`](./adr/0017-field-volume.md) | Field volume: catalog sources, kernels, consumers, probe keys, WGSL-on-CPU golden |
 | [`EXPERIMENTS.md`](./EXPERIMENTS.md) | Scripted experiments: format, knobs, live vs offline clock, sweeps, tour `run`, reference experiments |
 | [`SNAPSHOTS.md`](./SNAPSHOTS.md) | Plant snapshots: `state` blocks, `plantSave` / `plantLoad`, `window.lab.captureSnapshot`, replay take-over |
 | [`LIGHTING_RIG.md`](./LIGHTING_RIG.md) | Lighting looks + post quality gates |

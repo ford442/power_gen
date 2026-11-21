@@ -54,7 +54,7 @@ export const drawSegWebgpu: NonNullable<DevicePlugin['drawWebgpu']> = (instance,
   }
 
   // In focus at medium+ the field-volume tracer draws the lines (ADR-0017); these are the fallback.
-  const volumeLines = v.fieldVolumeLinesOwner === instance.id;
+  const volumeLines = !!v.fieldVolumeLinesOwner && v.fieldVolumeLinesOwner === instance.id;
   if (!volumeLines && instance.fluxSegmentRenderBindGroup && instance.pipelineManager?.fluxSegmentPipeline && instance.fieldLineEnabled) {
     const qualityScale = v.profiler!.qualityLevel;
     const totalSegments = Math.floor(instance.geometry.fluxTotalSegments! * qualityScale);

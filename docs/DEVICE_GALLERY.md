@@ -20,6 +20,18 @@ await window.captureCanvasFrame({ flipY: true });
 optional `docs/images/<device-id>-overview.png`). Regenerated on Cloud VMs with
 `?renderer=webgl2` because headless agents have no WebGPU adapter.
 
+## Field volume (ADR-0017)
+
+Nine benches carry a `fieldSources` row in the catalog — seg, maglev,
+pulse-coil, homopolar, halbach-viz, transformer, hall, lorentz-sled,
+jumping-ring — and get a 3-D field picture in focus (WebGPU, `medium` tier
+and up): field lines traced through the volume, a slice plane, |B|
+isosurfaces and charged particles, plus a probe readout on both renderers.
+The fidelity is the row's `model` text, shown under the readout: SEG rollers
+are magnetised spheres, Halbach blocks ideal N52 cuboids, coils ideal
+solenoids, and there is **no iron** anywhere (an iron core enters as
+equivalent ampere-turns). The volume does not feed back into any plant.
+
 ## Plugin registration
 
 New devices register through `src/devices/device-registry.ts` without editing

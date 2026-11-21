@@ -235,3 +235,15 @@ describe('5. probe click: ray × slice plane', () => {
     assert.equal(m.raySliceHit([3, 5, 0], [0, -1, 0], bounds, 'y', 0.5, [0, 0, 0]), null);
   });
 });
+
+describe('6. colour ramp: TS twin of field-colormap.wgsl', () => {
+  it('same five stops, same log mapping', async () => {
+    const c = await bundleTs({ contents: `export * from './src/physics/field-colormap.ts';`, sourcefile: 'cmap.ts' });
+    const wgsl = read('src/shaders/common/field-colormap.wgsl');
+    const stops = [...wgsl.matchAll(/let c\d = vec3f\(([^)]*)\)/g)].map((x) => x[1].split(',').map(Number));
+    assert.deepEqual(stops, c.FIELD_COLORMAP_STOPS.map((s) => [...s]));
+    assert.deepEqual(c.fieldColormap(0), [...c.FIELD_COLORMAP_STOPS[0]]);
+    assert.deepEqual(c.fieldColormap(1), [...c.FIELD_COLORMAP_STOPS[4]]);
+    assert.ok(Math.abs(c.fieldColorT(10, 1, 100) - 0.5) < 1e-12);
+  });
+});
