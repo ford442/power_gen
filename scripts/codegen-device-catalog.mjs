@@ -9,7 +9,9 @@
  *   generated/device-state.ts        (plant snapshot layout, #224 §2 — lazy chunk)
  *   generated/plant-state.h          (PLANT_STATE_LAYOUT_HASH + sizes)
  *   generated/plant-state-impl.h     (SEGSimulator::plantSave / plantLoad bodies)
+ *   generated/field-sources.ts       (fieldSources blocks, ADR-0017 — scripts/lib/catalog-field-sources.mjs)
  *   src/shaders/generated/device-catalog.wgsl
+ *   src/shaders/generated/field-sources.wgsl (FIELD_KIND_* ids)
  *   docs/MODE_MATRIX.md
  *
  * Usage:
@@ -22,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
 import { emitPlantOdeH, emitPlantOdeTs, validateOde } from './lib/catalog-ode.mjs';
+import { emitFieldSourcesTs, emitFieldSourcesWgsl, validateFieldSources } from './lib/catalog-field-sources.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -35,6 +38,16 @@ const TELEMETRY_HUB = join(ROOT, 'src', 'telemetry-hub.ts');
 const APPLY_WASM_PLANT = join(ROOT, 'src', 'session', 'apply-wasm-plant.ts');
 const TELEMETRY_SCHEMA = join(ROOT, 'src', 'telemetry', 'telemetry-schema.ts');
 const DEVICE_PHYSICS = join(ROOT, 'src', 'renderers', 'shared', 'device-physics.ts');
+const FIELD_BUILDERS = join(ROOT, 'src', 'physics', 'field-builders.ts');
+const FIELD_SHADER_OUT = join(ROOT, 'src', 'shaders', 'generated', 'field-sources.wgsl');
+
+/** `FIELD_BUILDER_NAMES = ['a', 'b'] as const` in src/physics/field-builders.ts. */
+function fieldBuilderNames() {
+  let text = '';
+  try { text = readFileSync(FIELD_BUILDERS, 'utf8'); } catch { return []; }
+  const list = text.match(/FIELD_BUILDER_NAMES\s*=\s*\[([^\]]*)\]/)?.[1] ?? '';
+  return [...list.matchAll(/'([\w-]+)'/g)].map((m) => m[1]);
+}
 
 /**
  * 'seg' publishes its telemetryKeys across SegOperatorTelemetry (rpm/voltage/
@@ -1111,7 +1124,11 @@ function main() {
   const telemetrySchemaErrors = checkTelemetrySchemaUsesCatalog();
   const chromeErrors = validateChrome(devices);
   const setpointErrors = validateSetpoints(devices);
-  const stateErrors = [...validateState(devices), ...validateOde(devices)];
+  const stateErrors = [
+    ...validateState(devices),
+    ...validateOde(devices),
+    ...validateFieldSources(devices, fieldBuilderNames())
+  ];
   if (stateErrors.length) {
     for (const e of stateErrors) console.error(`[catalog] ${e}`);
     process.exit(1);
@@ -1154,6 +1171,8 @@ function main() {
     [join(OUT_DIR, 'plant-state-impl.h'), emitPlantStateImplH(layout)],
     [join(OUT_DIR, 'plant-ode.h'), emitPlantOdeH(devices)],
     [join(OUT_DIR, 'plant-ode.ts'), emitPlantOdeTs(devices)],
+    [join(OUT_DIR, 'field-sources.ts'), emitFieldSourcesTs(devices)],
+    [FIELD_SHADER_OUT, emitFieldSourcesWgsl()],
     [SHADER_OUT, wgsl],
     [MODE_MATRIX, md],
   ];
