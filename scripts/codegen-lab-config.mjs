@@ -29,7 +29,7 @@ const CHECK = process.argv.includes('--check');
 const BEGIN = '<!-- lab-config:begin — AUTO-GENERATED from config/lab-config.json; edit that file, then npm run codegen:lab-config -->';
 const END = '<!-- lab-config:end -->';
 
-const TYPES = new Set(['bool', 'enum', 'number', 'int', 'string', 'list', 'setpoints']);
+const TYPES = new Set(['bool', 'enum', 'number', 'int', 'string', 'list', 'setpoints', 'circuit']);
 const CODECS = new Set(['bool', 'raw', 'int']);
 const KEY_RE = /^[a-z][A-Za-z0-9]*$/;
 
@@ -88,6 +88,7 @@ function validate(data) {
     if (f.type === 'setpoints' && (typeof f.default !== 'object' || Array.isArray(f.default))) {
       errors.push(`${where}: setpoints default must be an object`);
     }
+    if (f.type === 'circuit' && f.default !== null) errors.push(`${where}: circuit default must be null`);
   }
   return errors;
 }
@@ -102,6 +103,7 @@ function tsType(f) {
     case 'string': return `string${nul}`;
     case 'list': return 'readonly string[]';
     case 'setpoints': return 'Readonly<Record<string, number>>';
+    case 'circuit': return `string | Readonly<Record<string, unknown>>${nul}`;
     default: throw new Error(f.type);
   }
 }
@@ -147,7 +149,7 @@ function emitTs(data, schemaHash) {
  * generated matrix (doc text stays out of this file to keep the entry chunk small).
  */
 
-export type LabFieldType = 'bool' | 'enum' | 'number' | 'int' | 'string' | 'list' | 'setpoints';
+export type LabFieldType = 'bool' | 'enum' | 'number' | 'int' | 'string' | 'list' | 'setpoints' | 'circuit';
 
 export interface LabFieldStorage {
   key: string;

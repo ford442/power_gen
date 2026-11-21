@@ -21,5 +21,6 @@ Lightweight ADRs for the SEG WebGPU Visualizer. Each file is a short record of a
 | [0015](./0015-plant-snapshots.md) | Plant snapshots from the device catalog (`state` blocks, layout hash, bit-identical restore) |
 | [0016](./0016-node-test-and-eslint.md) | `node:test` as the one test runner; staged `validate`; ESLint in its own TS 6 toolchain |
 | [0017](./0017-field-volume.md) | 3-D magnetostatic field volume from catalog sources (exact kernels, one volume for lines / slice / iso / particles, CPU probe) |
+| [0018](./0018-circuit-lab.md) | Circuit Lab: MNA solver in sim_core (no TS mirror), catalog bench ports, solved energy edges |
 
 Status values: **Accepted** · **Superseded** · **Proposed**

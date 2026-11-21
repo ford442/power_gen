@@ -29,7 +29,7 @@
 # scripts/codegen-wasm-abi.mjs). It compiles natively too — EMSCRIPTEN_KEEPALIVE
 # is empty there — so `make native` type-checks every export against
 # sim_core.h under -Werror without Emscripten.
-SIM_CORE_SHARED := src/sim_core_facade.cpp src/sim_core_standalone.cpp src/sim_core_abi.cpp $(wildcard src/plant/*.cpp)
+SIM_CORE_SHARED := src/sim_core_facade.cpp src/sim_core_standalone.cpp src/sim_core_abi.cpp $(wildcard src/plant/*.cpp) $(wildcard src/circuit/*.cpp)
 SRC             := $(SIM_CORE_SHARED)
 # standalone/*.cpp are the native `--mode` runs; they compile to nothing
 # without SIM_CORE_STANDALONE, so they stay out of the WASM source list.
@@ -68,6 +68,8 @@ native:
 	./build/sim_core_test --mode catalog
 	./build/sim_core_test --mode integrators > build/integrators.txt
 	@echo "✓  Integrators vs reference → build/integrators.txt"
+	./build/sim_core_test --mode circuit > build/circuit.txt || (cat build/circuit.txt; exit 1)
+	@echo "✓  Circuit goldens (MNA) → build/circuit.txt"
 	./build/sim_core_test --export-csv 10 build/seg_telemetry.csv 10
 	@echo "✓  CSV export smoke → build/seg_telemetry.csv"
 
@@ -88,6 +90,7 @@ native-san:
 	$(SAN_ENV) ./build/sim_core_test_san --mode jumping-ring
 	$(SAN_ENV) ./build/sim_core_test_san --mode energy-network
 	$(SAN_ENV) ./build/sim_core_test_san --mode integrators > build/integrators_san.txt
+	$(SAN_ENV) ./build/sim_core_test_san --mode circuit > build/circuit_san.txt
 	$(SAN_ENV) ./build/sim_core_test_san --mode fdtd
 	@echo "✓  ASan + UBSan clean (default, golden, jumping-ring, energy-network, integrators, fdtd) — $(SAN_CXX)"
 

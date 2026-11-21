@@ -7,7 +7,7 @@
  * generated matrix (doc text stays out of this file to keep the entry chunk small).
  */
 
-export type LabFieldType = 'bool' | 'enum' | 'number' | 'int' | 'string' | 'list' | 'setpoints';
+export type LabFieldType = 'bool' | 'enum' | 'number' | 'int' | 'string' | 'list' | 'setpoints' | 'circuit';
 
 export interface LabFieldStorage {
   key: string;
@@ -97,6 +97,7 @@ export interface LabConfig {
   tour: boolean | null;
   tourStep: number | null;
   setpoints: Readonly<Record<string, number>>;
+  circuit: string | Readonly<Record<string, unknown>> | null;
 }
 
 export type LabConfigKey = keyof LabConfig;
@@ -162,7 +163,8 @@ const ROWS: readonly LabFieldRow[] = [
   { key: 'highlight', type: 'string', default: null, pattern: "^[A-Za-z0-9_-]{1,48}$", url: [], share: true, live: true },
   { key: 'tour', type: 'bool', default: null, url: [], share: true, live: true },
   { key: 'tourStep', type: 'int', default: null, min: 0, max: 999, url: [], share: true, live: true },
-  { key: 'setpoints', type: 'setpoints', default: {}, url: [], share: true, live: true }
+  { key: 'setpoints', type: 'setpoints', default: {}, url: [], share: true, live: true },
+  { key: 'circuit', type: 'circuit', default: null, share: true, live: true }
 ];
 
 export const LAB_CONFIG_FIELDS: readonly LabFieldSpec[] = ROWS.map((r) => ({ url: [r.key], share: false, live: false, ...r }));
@@ -173,4 +175,4 @@ export const LAB_CONFIG_DEFAULTS = Object.fromEntries(
 ) as unknown as Readonly<LabConfig>;
 
 /** Hash of the field specs — versions `.lab.json` and #lab2= payloads. */
-export const LAB_CONFIG_SCHEMA_HASH = '791d4e30e466';
+export const LAB_CONFIG_SCHEMA_HASH = 'd3ddcb932389';

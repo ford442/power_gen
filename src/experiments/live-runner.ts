@@ -70,6 +70,7 @@ class LiveRun implements LabExperimentClock {
   private t = 0;
   private pendingT = 0;
   private stepped = false;
+  private observedStart = false;
   private finished = false;
   private readonly startedAt = new Date().toISOString();
   private readonly interp: ExperimentInterpreter;
@@ -88,13 +89,17 @@ class LiveRun implements LabExperimentClock {
   ) {
     this.interp = new ExperimentInterpreter(v, sweepPoint);
     const w = window as unknown as Record<string, unknown>;
-    const target: KnobTarget = {
+    const view: PlantView = {
       devices: session.devices,
       operator: segOperator,
+      // The session's wired circuit (#256), read through so a reload is seen.
+      get circuit() { return session.circuit; },
       fieldCoupled: (id) => !!session.fieldNetwork.getLinkForDestination(id)?.active,
-      windowApi: (name) => (typeof w[name] === 'function' ? (w[name] as (x: never) => void) : undefined)
+      windowApi: (name) => (typeof w[name] === 'function' ? (w[name] as (x: never) => void) : undefined),
+      segTelemetry: () => telemetryHub.getSeg()
     };
-    this.view = { ...target, segTelemetry: () => telemetryHub.getSeg() };
+    const target: KnobTarget = view;
+    this.view = view;
     this.host = {
       write: (k, x) => {
         if (!knobSpec(k)?.write(target, x)) return;
@@ -111,6 +116,13 @@ class LiveRun implements LabExperimentClock {
     if (segOperator.epoch !== this.epoch) return this.stop('operator START / STOP / E-stop took over');
     if (this.session.plantFocus() !== this.v.focus) return this.stop(`left ${this.v.focus} for ${this.session.plantFocus()}`);
     this.interp.applyDue(this.t, this.host);
+    // The start's samples before the first step, as offline: a tick due at t
+    // is not a `nextEvent`, so unobserved it would let the first batch run
+    // uncut past every tick in it.
+    if (!this.observedStart) {
+      this.observedStart = true;
+      this.interp.observe(this.t, this.host);
+    }
     const steps = liveBatch(simSteps, this.interp.nextEvent(this.t) - this.t);
     let dt = 0;
     for (const s of steps) if (s > 0) dt += s;
@@ -133,6 +145,8 @@ class LiveRun implements LabExperimentClock {
   }
 
   private backend(): RunBackend {
+    // A circuit-owned focus is stepped by the C++ circuit solver whatever the plant backend.
+    if (this.session.circuit?.owns(this.v.focus)) return 'wasm';
     const cpp = segWasm.enabled && this.session.wasmPlantError === null && WASM_MODE_BY_ID[this.v.focus] !== undefined;
     if (!cpp) return 'js';
     return this.v.devices.length > 1 ? 'mixed' : 'wasm';
@@ -166,7 +180,8 @@ class LiveRun implements LabExperimentClock {
  */
 export function liveStartSnapshot(v: ValidatedExperiment, t: number): PlantSnapshot {
   if (v.snapshot) return v.snapshot;
-  const snap = new ExperimentBench(v.focus, v.devices, v.config, null).capture(t, null);
+  // Plant state only: the experiment's circuit is loaded into the session after the restore.
+  const snap = new ExperimentBench(v.focus, v.devices, { ...v.config, circuit: null }, null).capture(t, null);
   if (v.focus !== 'seg') delete snap.operator;
   return snap;
 }
@@ -207,7 +222,14 @@ export async function runLive(
     warnings.push(`the C++ ${v.focus} plant refused the fresh start state — it starts from its own state`);
   }
   const { applyLabConfig } = await import('../seg-explainer/lab-url');
-  await applyLabConfig(live);
+  // A wired circuit (#256) loads without opening the wiring view over the run.
+  const { circuit, ...rest } = live;
+  await applyLabConfig(circuit == null ? live : rest);
+  if (circuit != null) {
+    const { applyCircuitConfig } = await import('../circuit/session-circuit');
+    const host = await applyCircuitConfig(circuit, { open: false });
+    if (!host?.loaded) throw new Error(`the experiment's circuit did not load: ${host?.message || 'no lab session'}`);
+  }
   if (session.plantFocus() !== v.focus) throw new Error(`could not switch to ${v.focus}`);
 
   if (!segOperator.isRunning) segOperator.start();

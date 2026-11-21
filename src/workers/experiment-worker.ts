@@ -8,6 +8,7 @@ import type { RecordedRun } from '../analysis/run-types';
 import { runExperimentSync } from '../experiments/offline';
 import { validateExperiment } from '../experiments/validate';
 import { SEGSim } from '../wasm/sim';
+import { loadSimCore } from '../wasm/index';
 
 export interface ExperimentWorkerRequest {
   /** A (validated) experiment definition — re-validated here. */
@@ -37,6 +38,8 @@ ctx.onmessage = async (e) => {
       sim = await SEGSim.create();
       if (!sim.wasmAvailable) sim = null;
     }
+    // A wired circuit (#256) is solved in C++ whatever the plant backend.
+    if (v.config.circuit != null) await loadSimCore();
     const run = runExperimentSync(v, {
       cpp: sim,
       sweepPoint,

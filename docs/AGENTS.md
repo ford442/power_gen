@@ -417,6 +417,7 @@ in `src/`.
 | `teacher` | `1` \| `0` | off | — | — | Open the teacher console: broadcast a config / experiment to every student tab of this lab on the same origin (`BroadcastChannel('seg-lab')`) and see a roster — [`EMBED.md`](./EMBED.md). |
 | `experiment` | experiment id | none | — | yes | Open the experiment panel on this reference experiment (`src/experiments/*.experiment.json`) — [`EXPERIMENTS.md`](./EXPERIMENTS.md). |
 | `mode` | device id \| `overview` | overview | — | yes | Focused bench at boot (any catalog device id, or `overview`). |
+| `circuit` | example id \| netlist `{ v: 1, e, w, … }` | none | — | yes | Circuit Lab netlist (#256): a bench port wired to drawn R, C, L, diodes, switches and meters, solved by the C++ MNA solver (needs sim_core.wasm). `?circuit=<id>` opens an example (`src/circuit/examples.ts`); share links and `.lab.json` carry the whole netlist — [`CIRCUIT.md`](./CIRCUIT.md). |
 
 **Share-link state** — not query params; carried by `#lab2=` links and
 `.lab.json` (`window.lab.loadConfig`), applied live:
@@ -515,6 +516,7 @@ switch; `#device-readout` is named `"<bench> readout"`.
 | `src/telemetry-hub.ts` | Single telemetry write path for gauges / operator |
 | `src/analysis/*` | Recorded runs → analysis panel: run store + button in the entry chunk; uPlot panel (time / X–Y / spectrum, fits, CSV / PNG export) lazy-loaded by `window.openAnalysis()`; FFT chore in `src/gpu-chores/fft*.ts` — [`ANALYSIS.md`](./ANALYSIS.md) |
 | `src/experiments/*` | Scripted experiments (`*.experiment.json`): validator, knobs, one interpreter for the live runner (`LabSession.experimentClock`, session clock) and the offline bench (worker / Node, every plant), sweeps on a worker pool, panel + `window.lab.runExperiment` — [`EXPERIMENTS.md`](./EXPERIMENTS.md) |
+| `src/circuit/*` + `src/circuit-ui/*` | Circuit Lab (#256): netlist documents → packed solver netlist (`netlist.ts`), catalog bench-port drivers (`ports.ts`), `CircuitHost` (one exchange per substep, energy books, scope, `circuit.*` keys), SPICE import / export; the wiring view, scope and meters are a lazy chunk. The solver is C++ only (`cpp/src/circuit/`, `CircuitSim`) — no TS mirror; without `sim_core.wasm` the view is read-only — [`CIRCUIT.md`](./CIRCUIT.md), ADR-0018 |
 | `src/lab-mode.ts` | Showroom / Lab / Twin preset bundle: `planLabMode()` (pure, tested) + header control |
 | `src/setpoint-sliders.ts` | Generates per-bench setpoint sliders from the catalog `setpoints` block |
 | `src/focus-live-region.ts` | Polite live region: lab mode + one headline number on focus change |
@@ -646,6 +648,7 @@ Manual / agent checks (WebGPU needs a real GPU):
 | [`TELEMETRY.md`](./TELEMETRY.md) | TelemetryHub |
 | [`ANALYSIS.md`](./ANALYSIS.md) | Analysis panel: recorded runs, fits, FFT chore, exports ("Simulated — not metrology") |
 | [`adr/0017-field-volume.md`](./adr/0017-field-volume.md) | Field volume: catalog sources, kernels, consumers, probe keys, WGSL-on-CPU golden |
+| [`CIRCUIT.md`](./CIRCUIT.md) | Circuit Lab: teacher links, wiring view, elements, bench ports, energy books, `circuit.*` experiment keys, SPICE, limits ([ADR-0018](./adr/0018-circuit-lab.md)) |
 | [`EXPERIMENTS.md`](./EXPERIMENTS.md) | Scripted experiments: format, knobs, live vs offline clock, sweeps, tour `run`, reference experiments |
 | [`SNAPSHOTS.md`](./SNAPSHOTS.md) | Plant snapshots: `state` blocks, `plantSave` / `plantLoad`, `window.lab.captureSnapshot`, replay take-over |
 | [`LIGHTING_RIG.md`](./LIGHTING_RIG.md) | Lighting looks + post quality gates |

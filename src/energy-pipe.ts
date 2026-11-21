@@ -8,6 +8,7 @@ import {
   deviceAnchor,
   getPipeColor,
   isPipeEndpointEnabled,
+  pipeEndpoint,
   type DeviceAnchorInput
 } from './renderers/shared/energy-network';
 import { PARTICLE_LAYOUTS } from '../generated/physics-constants.js';
@@ -197,8 +198,8 @@ class EnergyPipe {
 
   update(deltaTime: number, devices: Record<string, DeviceAnchorInput>, time: number, opts: EnergyPipeUpdateOpts = {}): void {
     void deltaTime;
-    const fromDev = devices[this.config.from];
-    const toDev = devices[this.config.to];
+    const fromDev = pipeEndpoint(devices, this.config.from);
+    const toDev = pipeEndpoint(devices, this.config.to);
     if (!fromDev || !toDev) return;
 
     const enabled = isPipeEndpointEnabled(
@@ -276,4 +277,4 @@ class EnergyPipe {
 }
 
 export { EnergyPipe };
-export { PIPE_COLORS, ENERGY_PIPE_EDGES } from './renderers/shared/energy-network';
+export { PIPE_COLORS, ENERGY_PIPE_EDGES, CIRCUIT_CABLE_EDGES } from './renderers/shared/energy-network';

@@ -111,7 +111,9 @@ const FREE_ARGS = {
   chores_reduce_f32_scratch: [3],
   chores_map_scale_f32_scratch: [3, 2, 1],
   chores_fft_db_scratch: [3, true, -120],
-  plant_state_layout_hash: []
+  plant_state_layout_hash: [],
+  circuit_kind_name: [0],
+  circuit_format_version: []
 };
 
 /** SEGSimulator methods that take arguments; anything else is called with none. */
@@ -330,6 +332,64 @@ describe('FdtdTmzGrid exports', () => {
     } finally {
       g.delete();
       g.delete(); // idempotent
+    }
+  });
+});
+
+/**
+ * CircuitSim (#256, ADR-0018): every argful method needs a call spec. The
+ * netlist is V 1 V — R 1 kΩ — C 1 µF (packed format v1, cpp/src/circuit/circuit.h);
+ * scripts/tests/circuit.test.mjs replays the native goldens on this class.
+ */
+const RC_PACKED = new Float32Array([1, 3, 3, 0, 3, 2, 1, 0, 2, 0, 1, 0, 2, 1, 2, 1, 1000, 1, 2, 2, 0, 2, 1e-6, 0]);
+const CIRC_ARGS = {
+  load: [RC_PACKED],
+  setParam: [1, 0, 1000],
+  getParam: [1, 0],
+  step: [1e-4],
+  nodeVoltage: [2],
+  elemCurrent: [1],
+  elemVoltage: [1],
+  elemPower: [1],
+  stat: [0],
+  scratchPtr: [8]
+};
+const circMethods = (manifest.classes.CircuitSim?.methods ?? []).map((f) => f.name);
+
+describe('CircuitSim exports', () => {
+  it('every method has a call spec, and every spec is still exported', () => {
+    const argful = manifest.classes.CircuitSim.methods.filter((f) => f.args?.length).map((f) => f.name);
+    for (const n of argful) assert.ok(n in CIRC_ARGS, `CircuitSim.${n} has a call spec — add it to CIRC_ARGS`);
+    for (const n of Object.keys(CIRC_ARGS)) assert.ok(circMethods.includes(n), `CIRC_ARGS.${n} is stale`);
+  });
+  it('load → every method callable → RC charges as 1 − e^(−t/τ) → delete', () => {
+    const c = new mod.CircuitSim();
+    try {
+      assert.equal(c.load(new Float32Array([2, 1, 0, 0])), -1, 'an unknown format version is refused');
+      assert.match(c.errorText(), /format/);
+      assert.equal(c.load(RC_PACKED), 0, `load: ${c.errorText()}`);
+      const failed = [];
+      for (const n of circMethods) {
+        try {
+          c[n](...(CIRC_ARGS[n] ?? []));
+        } catch (err) {
+          failed.push(`${n}: ${String(err?.message ?? err).slice(0, 80)}`);
+        }
+      }
+      assert.deepEqual(failed, []);
+      assert.equal(c.load(RC_PACKED), 0);
+      for (let k = 0; k < 10; ++k) assert.ok(c.step(1e-4) > 0, 'step returns its internal step count');
+      const v = c.nodeVoltage(2);
+      assert.ok(Math.abs(v - (1 - Math.exp(-1))) < 2e-4, `v(τ) = ${v}`);
+      const ro = new Float64Array(mod.HEAPF32.buffer, c.readoutPtr(), c.readoutCount());
+      assert.equal(ro[0], c.time(), 'readout[RO_TIME] is the solver time');
+      assert.equal(c.unknownCount(), 3, 'two nodes + the source branch');
+      assert.equal(mod.circuit_kind_name(12), 'M');
+      assert.equal(mod.circuit_kind_name(99), '');
+      assert.equal(mod.circuit_format_version(), 1);
+    } finally {
+      c.delete();
+      c.delete(); // idempotent
     }
   });
 });

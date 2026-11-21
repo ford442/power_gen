@@ -60,6 +60,30 @@ export interface SimCoreExports {
   sc_chores_map_scale_f32_scratch(count: number, scale: number, bias: number): void;
   sc_chores_fft_db_scratch(count: number, hann: number, floorDb: number): number;
   sc_plant_state_layout_hash(): number;
+  sc_circuit_kind_name(kind: number): number;
+  sc_circuit_format_version(): number;
+  circ_new(): number;
+  circ_delete(self: number): void;
+  circ_load(self: number, packed: number, packedCount: number): number;
+  circ_loaded(self: number): number;
+  circ_errorText(self: number): number;
+  circ_reset(self: number): void;
+  circ_setParam(self: number, elem: number, index: number, value: number): number;
+  circ_getParam(self: number, elem: number, index: number): number;
+  circ_step(self: number, h: number): number;
+  circ_time(self: number): number;
+  circ_nodeCount(self: number): number;
+  circ_elemCount(self: number): number;
+  circ_unknownCount(self: number): number;
+  circ_nodeVoltage(self: number, node: number): number;
+  circ_elemCurrent(self: number, elem: number): number;
+  circ_elemVoltage(self: number, elem: number): number;
+  circ_elemPower(self: number, elem: number): number;
+  circ_storedEnergy(self: number): number;
+  circ_stat(self: number, which: number): number;
+  circ_readoutPtr(self: number): number;
+  circ_readoutCount(self: number): number;
+  circ_scratchPtr(self: number, count: number): number;
   fdtd_new(): number;
   fdtd_delete(self: number): void;
   fdtd_init(self: number, n: number, pmlCells: number, courant: number, lossMax: number, sourceRadius: number): number;
@@ -195,6 +219,28 @@ export interface SimCoreExports {
 
 /** Every function export the manifest declares, sorted (test:wasm-abi diffs the binary against it). */
 export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
+  'circ_delete',
+  'circ_elemCount',
+  'circ_elemCurrent',
+  'circ_elemPower',
+  'circ_elemVoltage',
+  'circ_errorText',
+  'circ_getParam',
+  'circ_load',
+  'circ_loaded',
+  'circ_new',
+  'circ_nodeCount',
+  'circ_nodeVoltage',
+  'circ_readoutCount',
+  'circ_readoutPtr',
+  'circ_reset',
+  'circ_scratchPtr',
+  'circ_setParam',
+  'circ_stat',
+  'circ_step',
+  'circ_storedEnergy',
+  'circ_time',
+  'circ_unknownCount',
   'fdtd_clearMaterials',
   'fdtd_delete',
   'fdtd_ezPtr',
@@ -215,6 +261,8 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'sc_chores_map_scale_f32_scratch',
   'sc_chores_reduce_f32_scratch',
   'sc_chores_scratch_ptr',
+  'sc_circuit_format_version',
+  'sc_circuit_kind_name',
   'sc_estimateHalbachFieldT',
   'sc_magneticDipoleField',
   'sc_magneticDipoleForce',
@@ -338,6 +386,38 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_updateEnergyNetworkFromScratch',
   'seg_version'
 ];
+
+export interface CircuitSimInstance {
+  /** Address of the C++ object (for diagnostics). */
+  readonly ptr: number;
+  load(packed: ArrayLike<number>): number;
+  loaded(): boolean;
+  errorText(): string;
+  reset(): void;
+  setParam(elem: number, index: number, value: number): boolean;
+  getParam(elem: number, index: number): number;
+  step(h: number): number;
+  time(): number;
+  nodeCount(): number;
+  elemCount(): number;
+  unknownCount(): number;
+  nodeVoltage(node: number): number;
+  elemCurrent(elem: number): number;
+  elemVoltage(elem: number): number;
+  elemPower(elem: number): number;
+  storedEnergy(): number;
+  stat(which: number): number;
+  readoutPtr(): number;
+  readoutCount(): number;
+  scratchPtr(count: number): number;
+  /** Free the C++ object. Idempotent; the instance is dead afterwards. */
+  delete(): void;
+}
+
+export interface CircuitSimConstructor {
+  new (): CircuitSimInstance;
+
+}
 
 export interface FdtdTmzGridInstance {
   /** Address of the C++ object (for diagnostics). */
@@ -490,6 +570,7 @@ export interface SEGSimulatorConstructor {
 }
 
 export interface SimCoreModule {
+  CircuitSim: CircuitSimConstructor;
   FdtdTmzGrid: FdtdTmzGridConstructor;
   SEGSimulator: SEGSimulatorConstructor;
   /** View over the instance memory; re-read after any call that may grow the heap. */
@@ -505,6 +586,8 @@ export interface SimCoreModule {
   chores_map_scale_f32_scratch(count: number, scale: number, bias: number): void;
   chores_fft_db_scratch(count: number, hann: boolean, floorDb: number): number;
   plant_state_layout_hash(): number;
+  circuit_kind_name(kind: number): string;
+  circuit_format_version(): number;
 }
 
 /** Wrap an instantiated sim_core.wasm. */
@@ -547,6 +630,81 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
     const b = (ptr >>> 0) >> 2;
     return { powerInW: h[b + 0], powerOutW: h[b + 1], efficiency: h[b + 2] };
   };
+
+  class CircuitSimImpl implements CircuitSimInstance {
+    ptr: number;
+    constructor() {
+      this.ptr = ex.circ_new() >>> 0;
+      if (this.ptr === 0) throw new Error('sim_core: CircuitSim allocation failed');
+    }
+
+    delete(): void {
+      if (this.ptr !== 0) ex.circ_delete(this.ptr);
+      this.ptr = 0;
+    }
+    load(packed: ArrayLike<number>): number {
+      const packedPtr = this.scratchPtr(packed.length);
+      heapF32().set(packed, packedPtr >> 2);
+      return ex.circ_load(this.ptr, packedPtr, packed.length);
+    }
+    loaded(): boolean {
+      return ex.circ_loaded(this.ptr) !== 0;
+    }
+    errorText(): string {
+      return cstr(ex.circ_errorText(this.ptr));
+    }
+    reset(): void {
+      ex.circ_reset(this.ptr);
+    }
+    setParam(elem: number, index: number, value: number): boolean {
+      return ex.circ_setParam(this.ptr, elem, index, value) !== 0;
+    }
+    getParam(elem: number, index: number): number {
+      return ex.circ_getParam(this.ptr, elem, index);
+    }
+    step(h: number): number {
+      return ex.circ_step(this.ptr, h);
+    }
+    time(): number {
+      return ex.circ_time(this.ptr);
+    }
+    nodeCount(): number {
+      return ex.circ_nodeCount(this.ptr);
+    }
+    elemCount(): number {
+      return ex.circ_elemCount(this.ptr);
+    }
+    unknownCount(): number {
+      return ex.circ_unknownCount(this.ptr);
+    }
+    nodeVoltage(node: number): number {
+      return ex.circ_nodeVoltage(this.ptr, node);
+    }
+    elemCurrent(elem: number): number {
+      return ex.circ_elemCurrent(this.ptr, elem);
+    }
+    elemVoltage(elem: number): number {
+      return ex.circ_elemVoltage(this.ptr, elem);
+    }
+    elemPower(elem: number): number {
+      return ex.circ_elemPower(this.ptr, elem);
+    }
+    storedEnergy(): number {
+      return ex.circ_storedEnergy(this.ptr);
+    }
+    stat(which: number): number {
+      return ex.circ_stat(this.ptr, which);
+    }
+    readoutPtr(): number {
+      return ex.circ_readoutPtr(this.ptr) >>> 0;
+    }
+    readoutCount(): number {
+      return ex.circ_readoutCount(this.ptr);
+    }
+    scratchPtr(count: number): number {
+      return ex.circ_scratchPtr(this.ptr, count) >>> 0;
+    }
+  }
 
   class FdtdTmzGridImpl implements FdtdTmzGridInstance {
     ptr: number;
@@ -961,6 +1119,7 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
   }
 
   return {
+    CircuitSim: CircuitSimImpl,
     FdtdTmzGrid: FdtdTmzGridImpl,
     SEGSimulator: SEGSimulatorImpl,
     get HEAPF32(): Float32Array {
@@ -998,6 +1157,12 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
     },
     plant_state_layout_hash(): number {
       return ex.sc_plant_state_layout_hash() >>> 0;
+    },
+    circuit_kind_name(kind: number): string {
+      return cstr(ex.sc_circuit_kind_name(kind));
+    },
+    circuit_format_version(): number {
+      return ex.sc_circuit_format_version();
     },
   };
 }

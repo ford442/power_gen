@@ -198,6 +198,8 @@ export function applyModePlantToDevices(
   kelvinSeedIgnored = _kelvinSeedIgnoredByWasm
 ): void {
   if (!plant) return;
+  // Wired into the Circuit Lab: the circuit host owns this bench's state.
+  if (devicePhysics(devices[focus])?._circuitOwned) return;
 
   if (focus === 'heron') {
     const heron = devicePhysics(devices.heron);

@@ -27,6 +27,11 @@ export interface HeronLayout {
 /** Core plant state shared by built-in devices. */
 export interface BaseDevicePhysicsState {
   deviceId: string;
+  /**
+   * Wired into the Circuit Lab (#256): the circuit host steps this device's
+   * electrical state and writes its telemetry, so its own plant must not.
+   */
+  _circuitOwned?: boolean;
   segOmega: number;
   corona: number;
   heronHead: number;
@@ -366,6 +371,9 @@ export function stepDevicePhysics(
   drive: number,
   opts: StepDevicePhysicsOpts = {}
 ): void {
+  // A circuit-owned bench is stepped by the circuit host on the same substeps
+  // (src/circuit/host.ts); stepping it here too would double-step it.
+  if (state._circuitOwned) return;
   if (stepPluginPhysics(state, dt, drive, opts)) return;
 
   const field = 0.4 + 0.6 * state.magneticFieldStrength;

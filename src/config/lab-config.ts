@@ -98,6 +98,34 @@ function coerceSetpoints(raw: unknown): Record<string, number> | undefined {
   return out;
 }
 
+/** Largest netlist a link / file may carry (JSON characters). */
+const CIRCUIT_JSON_MAX = 48_000;
+
+/**
+ * Circuit Lab netlist (#256): an example id (`?circuit=transformer-bridge-rc`),
+ * or a document `{ v: 1, e: [...], w: [...] }` — from a share link, a
+ * `.lab.json`, or a URL value that is JSON. Only the shape is checked here
+ * (entry chunk); src/circuit/netlist.ts validates the rest when it loads.
+ */
+function coerceCircuit(raw: unknown): string | Record<string, unknown> | undefined {
+  let v = raw;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (/^[a-z0-9][a-z0-9-]{0,47}$/.test(t)) return t;
+    if (!t.startsWith('{') || t.length > CIRCUIT_JSON_MAX) return undefined;
+    try {
+      v = JSON.parse(t);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const d = v as Record<string, unknown>;
+  if (d.v !== 1 || !Array.isArray(d.e) || d.e.length > 256 || (d.w !== undefined && !Array.isArray(d.w))) return undefined;
+  if (JSON.stringify(d).length > CIRCUIT_JSON_MAX) return undefined;
+  return d;
+}
+
 /**
  * Coerce one raw value (a URL / storage string, or a JSON value from a share
  * link or `.lab.json`) into the field's type, or undefined when unusable.
@@ -119,6 +147,7 @@ export function coerceLabField<K extends LabConfigKey>(key: K, raw: unknown): La
       break;
     }
     case 'setpoints': out = coerceSetpoints(raw); break;
+    case 'circuit': out = coerceCircuit(raw); break;
   }
   return out as LabConfig[K] | undefined;
 }
@@ -429,12 +458,12 @@ export function reloadWithLabParam<K extends LabConfigKey>(key: K, value: LabCon
 }
 
 /** Live fields only the share-link applier consumes — no boot-time reader owns them. */
-const URL_APPLIED: readonly LabConfigKey[] = ['mode', 'experiment'];
+const URL_APPLIED: readonly LabConfigKey[] = ['mode', 'experiment', 'circuit'];
 
 /**
  * What to apply once the dashboard exists: every field the share hash set
  * (boot-time readers already took the ones they own, and applying those
- * again is a no-op), plus `?mode=` / `?experiment=` from the query.
+ * again is a no-op), plus `?mode=` / `?experiment=` / `?circuit=` from the query.
  */
 export function bootLiveFields(): Partial<LabConfig> {
   const { config, sources } = labConfigResolved();

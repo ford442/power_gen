@@ -48,6 +48,16 @@ function fromField(key: string, deviceId: string, meta: TelemetryFieldMeta): Col
   };
 }
 
+/** Circuit Lab keys (#256, src/circuit/keys.ts): `circuit.node.out.v` → "out" [V]. */
+function circuitMeta(key: string): ColumnMeta | null {
+  const m = /^circuit\.(node|elem|port)\.([A-Za-z0-9_]+)\.([a-z0-9]+)$/.exec(key);
+  if (!m) return key === 'circuit.residual' ? { key, label: 'energy residual', unit: '', scale: 1, digits: 4, deviceId: null, deviceLabel: 'Circuit' } : null;
+  const [, kind, name, what] = m;
+  const unit = kind === 'node' || what === 'v' ? 'V' : what === 'i' ? 'A' : what === 'p' ? 'W' : '';
+  const label = kind === 'node' ? `v(${name})` : kind === 'port' ? `P(${name})` : `${what}(${name})`;
+  return { key, label, unit, scale: 1, digits: 4, deviceId: null, deviceLabel: 'Circuit' };
+}
+
 /** Label / unit / scale for a run column; unknown keys get their own name and no unit. */
 export function columnMeta(key: string): ColumnMeta {
   if (key === 't') return TIME_META;
@@ -65,6 +75,7 @@ export function columnMeta(key: string): ColumnMeta {
       }
     }
   }
+  meta ??= circuitMeta(key);
   meta ??= { key, label: key, unit: '', scale: 1, digits: 3, deviceId: null, deviceLabel: null };
   META_BY_KEY.set(key, meta);
   return meta;

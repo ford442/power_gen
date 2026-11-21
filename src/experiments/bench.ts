@@ -13,6 +13,12 @@
  *      JS fallback — which is every device without a `wasmMode`
  *      (pulse-coil, halbach-viz, drop-tube) and the whole run without WASM.
  *
+ * With a `circuit` in the config (#256) the bench also owns a CircuitHost on
+ * the sim_core module it was given: stepped per substep after the buses and
+ * before the plants, as LabSession steps it; a wired device is circuit-owned
+ * (its JS plant skips, a C++ focus plant is not stepped). No module, no
+ * circuit: the constructor throws — circuit experiments are WASM-only.
+ *
  * Each bench owns its own operator, devices and buses — nothing touches the
  * page's singletons, so a sweep can run many benches side by side.
  *
@@ -44,6 +50,8 @@ import {
 import { loadPlantState, savePlantState } from '../wasm/plant-state-io';
 import type { SEGSimulatorInstance, SimCoreModule } from '../wasm/types';
 import type { PlantView } from './readers';
+import { CircuitHost } from '../circuit/host';
+import { resolveCircuitConfig } from '../circuit/examples';
 
 const STATUSES = Object.values(OPERATOR_STATUS) as string[];
 
@@ -73,6 +81,8 @@ export class ExperimentBench implements PlantView {
   private seg: SegOperatorTelemetry | null = null;
   /** Set when the loaded binary could not take a coupled knob and JS stepped the focus. */
   private jsFallback = false;
+  /** The wired circuit (`config.circuit`), when the experiment carries one. */
+  readonly circuit: CircuitHost | null = null;
 
   constructor(
     readonly focus: string,
@@ -80,7 +90,9 @@ export class ExperimentBench implements PlantView {
     config: Record<string, unknown>,
     private readonly cpp: CppPlant | null,
     /** The sim_core module `cpp` lives in, when it is not the loaded global one (Node tests). */
-    private readonly cppModule: Pick<SimCoreModule, 'HEAPF32'> | null = null
+    private readonly cppModule: Pick<SimCoreModule, 'HEAPF32'> | null = null,
+    /** The module a `config.circuit` solver is built on (the loaded one in the browser). */
+    circuitModule: SimCoreModule | null = null
   ) {
     const heronLayoutId = typeof config.heronLayout === 'string' ? config.heronLayout : undefined;
     for (const id of deviceIds) {
@@ -95,6 +107,17 @@ export class ExperimentBench implements PlantView {
     this.enabled = Object.fromEntries(deviceIds.map((id) => [id, true]));
     this.fieldNetwork = new FieldNetwork(config.fieldCoupling === true);
     this.chargeNetwork = new ChargeNetwork(config.chargeCoupling === true);
+    if (config.circuit != null) {
+      const doc = resolveCircuitConfig(config.circuit);
+      if (!doc) throw new Error(`config.circuit: no example circuit ${JSON.stringify(config.circuit)}`);
+      if (!circuitModule?.CircuitSim) throw new Error('this experiment wires a circuit — it needs sim_core.wasm (the solver is C++ only)');
+      const host = new CircuitHost(circuitModule, () => this.devices);
+      // The headless clock steps at the experiment's dt; the solver needs no
+      // extra calls for a scope here (records sample at the step grid).
+      host.scopeHz = 0;
+      if (!host.load(doc)) throw new Error(`config.circuit: ${host.message}`);
+      this.circuit = host;
+    }
     this.cppFocus = !!cpp && WASM_MODE_BY_ID[focus] !== undefined;
     if (this.cppFocus) cpp!.setMode(WASM_MODE_BY_ID[focus]);
     // An experiment is a running plant: START, as the operator would.
@@ -106,6 +129,7 @@ export class ExperimentBench implements PlantView {
   }
 
   get backend(): RunBackend {
+    if (this.circuit?.owns(this.focus)) return 'wasm';
     if (!this.cppFocus || this.jsFallback) return 'js';
     return this.deviceIds.some((id) => id !== this.focus && id !== 'seg') ? 'mixed' : 'wasm';
   }
@@ -179,11 +203,12 @@ export class ExperimentBench implements PlantView {
     }
     this.chargeNetwork.update({ devices: this.devices, devicesEnabled: this.enabled });
     this.fieldNetwork.update({ devices: this.devices, devicesEnabled: this.enabled });
+    this.circuit?.stepSubstep(dt, drive);
 
     this.operator.step(dt);
     const focusState = this.devices[this.focus]?.physicsState;
     let stepJs = !this.cppFocus;
-    if (this.cppFocus) {
+    if (this.cppFocus && !this.circuit?.owns(this.focus)) {
       const cpp = this.cpp!;
       const ignored = this.syncKnobs(cpp);
       cpp.setDrive(drive);

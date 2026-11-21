@@ -10,12 +10,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # both targets (EMSCRIPTEN_KEEPALIVE is empty natively), so clangd and the
 # native build see every export.
 file(GLOB SIM_CORE_PLANT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/plant/*.cpp")
+# Circuit Lab MNA solver (#256, ADR-0018) — same targets as the plants.
+file(GLOB SIM_CORE_CIRCUIT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/circuit/*.cpp")
 set(SIM_CORE_ROOT_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_facade.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_standalone.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_abi.cpp"
 )
-add_executable(sim_core ${SIM_CORE_ROOT_SOURCES} ${SIM_CORE_PLANT_SOURCES})
+add_executable(sim_core ${SIM_CORE_ROOT_SOURCES} ${SIM_CORE_PLANT_SOURCES} ${SIM_CORE_CIRCUIT_SOURCES})
 target_include_directories(sim_core PRIVATE src)
 
 # ── Emscripten / WASM build ─────────────────────────────────────

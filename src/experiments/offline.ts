@@ -10,19 +10,25 @@ import { LAB_CONFIG_DEFAULTS } from '../../generated/lab-config';
 import type { RecordedRun, RunBackend } from '../analysis/run-types';
 import { setSimulationSeed } from '../telemetry/deterministic-rng';
 import { ExperimentBench, type CppPlant } from './bench';
-import { evaluateExpect, reduce, windowColumn } from './expect';
+import { evaluateExpect, reduceWindow } from './expect';
 import { ExperimentInterpreter, newExperimentRunId } from './interpreter';
 import { knobSpec } from './knobs';
 import { readRecordKey } from './readers';
 import type { StatKind } from './types';
 import type { ValidatedExperiment } from './validate';
 import type { SimCoreModule } from '../wasm/types';
+import { getSimCore } from '../wasm/index';
 
 export interface OfflineRunOpts {
   /** One fresh simulator for this run, or null for the JS plants. */
   cpp: CppPlant | null;
   /** The sim_core module `cpp` lives in, when not the loaded global one (Node). */
   cppModule?: Pick<SimCoreModule, 'HEAPF32'> | null;
+  /**
+   * The module a `config.circuit` solver runs on (#256) — default the loaded
+   * global one. Circuit experiments are WASM-only: none, and the run throws.
+   */
+  circuitModule?: SimCoreModule | null;
   /** Called with anything worth telling the user (e.g. a refused snapshot). */
   onWarning?: (message: string) => void;
   sweepPoint?: Record<string, number>;
@@ -37,7 +43,8 @@ export function runExperimentSync(v: ValidatedExperiment, opts: OfflineRunOpts):
   const seed = typeof v.config.seed === 'number' ? v.config.seed : (v.snapshot?.seed ?? LAB_CONFIG_DEFAULTS.seed);
   if (typeof seed === 'number') setSimulationSeed(seed, false);
 
-  const bench = new ExperimentBench(v.focus, v.devices, v.config, opts.cpp, opts.cppModule ?? null);
+  const circuitModule = v.config.circuit != null ? (opts.circuitModule ?? getSimCore()) : null;
+  const bench = new ExperimentBench(v.focus, v.devices, v.config, opts.cpp, opts.cppModule ?? null, circuitModule);
   if (v.snapshot) for (const w of bench.restore(v.snapshot)) opts.onWarning?.(w);
   const interp = new ExperimentInterpreter(v, opts.sweepPoint);
   const host = {
@@ -71,15 +78,15 @@ function summaryReducers(v: ValidatedExperiment): [string, (run: RecordedRun, wi
   const of: StatKind = s.of ?? 'mean';
   const cols: [string, (run: RecordedRun, win: { from: number; until: number }) => number][] = v.recordKeys.map((k) => [
     k,
-    (run, win) => reduce(windowColumn(run, k, win), of)
+    (run, win) => reduceWindow(run, k, win, of)
   ]);
   for (const [name, c] of Object.entries(s.columns ?? {})) {
     const cof = c.of ?? of;
     if ('ratio' in c) {
       const [num, den] = c.ratio;
-      cols.push([name, (run, win) => reduce(windowColumn(run, num, win), cof) / reduce(windowColumn(run, den, win), cof)]);
+      cols.push([name, (run, win) => reduceWindow(run, num, win, cof) / reduceWindow(run, den, win, cof)]);
     } else {
-      cols.push([name, (run, win) => reduce(windowColumn(run, c.key, win), cof)]);
+      cols.push([name, (run, win) => reduceWindow(run, c.key, win, cof)]);
     }
   }
   return cols;

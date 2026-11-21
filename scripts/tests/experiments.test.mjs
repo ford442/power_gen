@@ -54,7 +54,8 @@ const wasmMod = await loadSimCoreFromDisk(WASM_DIR);
 function runOnce(v, backend, sweepPoint) {
   const cpp = backend === 'wasm' ? X.SEGSim.fromModule(wasmMod) : null;
   try {
-    return X.runExperimentSync(v, { cpp, sweepPoint, startedAt: '2026-01-01T00:00:00.000Z' });
+    // A wired circuit (#256) is C++ on both backends: the solver has no TS mirror.
+    return X.runExperimentSync(v, { cpp, circuitModule: wasmMod, sweepPoint, startedAt: '2026-01-01T00:00:00.000Z' });
   } finally {
     cpp?.dispose();
   }
@@ -109,9 +110,11 @@ describe('reference experiments, offline on wasm + js', () => {
             const finite = run.rows.every((r) => r.every((x, j) => j === 0 || Number.isFinite(x) || Number.isNaN(x)));
             assert.ok(finite, `[${backend}]: no Inf in the table`);
           }
-          // A focus with no C++ plant (catalog wasmMode null, e.g. pulse-coil) runs JS on both.
-          const want = backend === 'wasm' && WASM_FOCUS.has(v.def.config?.mode ?? 'seg')
-            ? (v.devices.length > 1 ? 'mixed' : 'wasm') : 'js';
+          // A focus with no C++ plant (catalog wasmMode null, e.g. pulse-coil) runs JS on both;
+          // a circuit-owned focus is the C++ circuit solver's on both.
+          const want = v.config.circuit != null ? 'wasm'
+            : backend === 'wasm' && WASM_FOCUS.has(v.def.config?.mode ?? 'seg')
+              ? (v.devices.length > 1 ? 'mixed' : 'wasm') : 'js';
           assert.ok(res.runs.every((r) => r.backend === want), `[${backend}]: backend label — ${res.runs.map((r) => r.backend).join(',')}`);
           for (const e of res.verdicts) {
             if (VERBOSE) t.diagnostic(`${e.pass ? '✓' : '✗'} [${backend}] ${e.label}: ${fmt(e.measured)} (${e.condition})`);
