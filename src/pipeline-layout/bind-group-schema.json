@@ -148,6 +148,10 @@
         [0, "C", "uniform"], [1, "C", "storage"], [2, "C", "storage"], [3, "C", "storage"], [4, "C", "storage-ro"]
       ]
     },
+    "mpm": {
+      "pipelines": [["mpm-p2g.wgsl"], ["mpm-grid.wgsl"], ["mpm-g2p.wgsl"]],
+      "entries": [[0, "C", "uniform"], [1, "C", "storage"], [2, "C", "storage"], [3, "C", "storage"]]
+    },
     "fdtdSlice": {
       "group": 1,
       "pipelines": [["fdtd-slice.wgsl"]],

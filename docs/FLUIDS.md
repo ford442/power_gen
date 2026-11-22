@@ -15,6 +15,108 @@ the lab uses: **simulated, not a measurement**.
 | `kelvin` | Capacitive charging + spark | Independent droplets; charge does not deflect them | No |
 | `peltier` | **1-D finite-volume leg**: 24 cells + cold block, two plates, heat sink (`ros23`) | Three bodies coloured by their node temperatures; sparse air parcels beside them | The temperatures are the model's. The air is illustrative |
 
+A liquid solver now exists (**MLS-MPM**, below) and is tested on its own. No
+bench runs it yet: `heron` and `kelvin` still draw the closed-form droplets in
+the table until their steps of the epic land.
+
+## Liquid solver (MLS-MPM)
+
+`src/fluids/` and `src/shaders/passes/mpm-*.wgsl` — ADR-0022.
+
+### The model
+
+Particles carry mass, velocity, an affine velocity matrix `C` (APIC) and their
+own volume ratio `J = V/V₀`. A background grid carries momentum for one
+substep. Per substep:
+
+```text
+clear   fixed-point grid ← 0
+p2g     each particle → its 27 nodes: mass, and momentum = m·(v + C·d) − dt·V·(4/h²)·σ·d
+grid    v = momentum / mass + g·dt; wall nodes let nothing flow into the wall
+g2p     each particle ← its 27 nodes: v, C; x += v·dt; J ← J·exp(dt·tr C)
+
+σ = −p·I + μ·(C + Cᵀ)        p = B·(J^−γ − 1), never negative (no tension)
+```
+
+Weights are quadratic B-splines. The liquid is weakly compressible: Tait's
+equation with γ = 7 and the stiffness `B` the step can carry.
+
+### Units and scale
+
+SI inside the solver: metres, seconds, kilograms, pascals; gravity is
+9.80665 m/s². Positions are local to the box `[0, gridN·cellM]`. The solver
+has no scene scale of its own — the bench that uses it documents its
+metres-per-scene-unit.
+
+| Tier (`fluid=`) | Grid | Particles | GPU memory | Momentum resolution |
+|------|------|-----------|------------|---------------------|
+| low | 32³ | 15 000 | 2.1 MiB | `maxSpeedMS` / 170 000 |
+| default | 64³ | 40 000 | 11.1 MiB | `maxSpeedMS` / 64 000 |
+| high | 96³ | 120 000 | 36.2 MiB | `maxSpeedMS` / 21 000 |
+
+The `fluid=` flag itself arrives with the first bench that uses the solver.
+
+### What is exact and what is not
+
+- **Mass** is exact: a particle scatters its own mass to the count, and the
+  particle count only changes at an emitter or a sink.
+- **Momentum** is conserved by the transfers to the fixed-point resolution:
+  over 100 substeps, 5·10⁻⁶ of the total at a 4096-particle budget and
+  2·10⁻⁴ at the high tier's scales.
+- **Gravity is real.** A free block falls by `½·g·dt²·n(n+1)` in `n`
+  substeps to 1 part in 10⁴ — the discrete law of the integrator.
+- **Hydrostatics.** A settled column reads the weight of the liquid above
+  per unit area — ρ·g·h — within 0.5 % in the bulk, on the CPU reference and
+  on the GPU. The bottom two cells carry the floor's reaction and read up to
+  10 % off.
+
+### Limits
+
+- **Compressible, by an amount set by the step.** The speed of sound is at
+  most `0.5·h/dt`. On a 64³ grid over 0.64 m, a 1/240 s substep gives 1.2 m/s:
+  a 10 cm pool is squeezed 28 % at its base and a 2 m/s jet is supersonic.
+  At 1/2400 s it is 12 m/s and 0.7 %. `mpmColumnCompression` gives the figure
+  for any configuration; ADR-0022 has the table. A bench chooses its step —
+  and whether it therefore runs slower than real time — and says so here.
+- **Far more viscous than water.** The scheme's own damping is about
+  2·10⁻³ m²/s at a 1 cm cell, a thousand times water. The `viscosityPaS`
+  setting adds exactly what it should on top, which only shows for syrups.
+- **No surface tension**: no beading, no capillary pinch-off.
+- **`J` is integrated, never corrected** against the particle spacing, and
+  fixed-point noise makes free-flying liquid swell slightly (0.35 % in 400
+  substeps at the high tier's scales). Recycling through sinks and emitters
+  resets both.
+- **Box walls only**, free-slip. Boundaries from the props (signed-distance
+  fields), emitters, sinks and a body-force hook are not in yet.
+- **Points, not a surface.** Screen-space surface rendering is a later step.
+- **WebGPU only.** There is no WebGL2 liquid solver and there will not be
+  one; `MpmCpu` is a test reference, far too slow to stand in.
+- **The frame cost is unmeasured.** The epic's target is ≤ 2 ms of GPU time
+  on an integrated GPU at the default tier. Tests here run on a CPU
+  rasteriser, which cannot tell.
+
+### Fixed point
+
+WGSL has no float atomics, so the scatter accumulates `atomic<i32>`. Two
+things make that sound:
+
+1. **The scales are sized from the particle budget** so that even with every
+   particle on one grid node the sums fit. There is no overflow check because
+   there is no overflow.
+2. **Rounding carries its remainder** from one of a particle's 27 nodes to
+   the next, from a hashed start. Without it, anything slower than one count
+   is rounded away each step: a settling column creeps and reads 3 % low.
+
+Integer sums are order-independent, so two runs give the same bytes.
+
+### Tests
+
+| Command | Holds |
+|---------|-------|
+| `npm run test:mpm` | the CPU reference: overflow bound for any budget and the worst-case fill; WGSL struct layouts; mass, momentum; free fall at `g`; ρ·g·h within 5 % at default- and high-tier scales; viscous decay at `2νk²`; walls |
+| `npm run test:gpu-golden` (`golden-mpm`) | the WGSL passes on a real GPU against that reference: grid after one substep, 240 substeps of a dropped block within 2 % of a cell, momentum, ρ·g·h within 5 %, the default budget on one node without a wrap, two runs byte-identical, all three tiers allocate and step |
+| `npm run test:pipelines` | the three pipelines compile against the `mpm` layout |
+
 ## MHD duct
 
 ### The model

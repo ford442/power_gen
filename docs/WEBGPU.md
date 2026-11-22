@@ -426,6 +426,7 @@ multiply-adds differently) and each file says how its number was measured.
 | `particle-compute` | invariants: finite, inside the 16-unit cull sphere, `phase` bit-preserved, LOD tail untouched — 16 modes × 5 times × plant states | — | farthest particle 11.5 |
 | `ibl-prefilter-compute` | energy per layer vs the source environment; texel-for-texel vs the CPU bake | 4 % energy; 1 % of peak vs CPU | 3.2 % (24-tap roughness-1 layer); 8e-4 |
 | `overview-cull-compute` | sphere / frustum test from camera parameters, in double | exact | exact, 5 cameras × 32 spheres |
+| `mpm-p2g` / `mpm-grid` / `mpm-g2p` | `MpmCpu` (`src/fluids/mpm-cpu.ts`), same buffers and fixed-point scatter; plus physics: ρ·g·h, momentum, no i32 wrap, determinism | 32 counts on the grid after one substep; 2 % of a cell after 240; ρ·g·h within 5 % | 6 counts; 0.4 % of a cell; 0.5 % in the bulk |
 
 Notes on two of them:
 

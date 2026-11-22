@@ -164,6 +164,16 @@ is held to the CPU reference at 20 points per bench (< 1 %) and the tiled
 `field-volume.wgsl` to `buildFieldVolume`. `scripts/tests/field-pack.test.mjs`
 holds every field uniform to its WGSL struct and the colour ramp to its TS twin.
 
+The MLS-MPM liquid passes (`mpm-p2g.wgsl`, `mpm-grid.wgsl`, `mpm-g2p.wgsl`,
+ADR-0022) share `common/mpm.wgsl`. `scripts/tests/mpm.test.mjs` holds
+`MpmParams` and `MpmParticle` to the sizes and offsets the host packs, and the
+passes themselves run on Dawn against the CPU reference
+(`scripts/tests/gpu/golden-mpm.test.mjs`).
+
+```bash
+npm run test:mpm            # scripts/tests/mpm.test.mjs (ADR-0022)
+```
+
 The FDTD wave slice has its own check: `FdtdParams` / `FdtdSliceParams` byte
 sizes and source capacity match `src/physics/fdtd-tmz.ts`, the workgroup size and
 cubic sponge profile match the CPU kernel, the gate stays shut outside

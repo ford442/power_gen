@@ -15,6 +15,7 @@ import { registerDeviceMeshLayouts } from './layouts/device-mesh.js';
 import { registerPostLayouts } from './layouts/post.js';
 import { registerFdtdLayouts } from './layouts/fdtd.js';
 import { registerFieldLayouts } from './layouts/field.js';
+import { registerMpmLayouts } from './layouts/mpm.js';
 import {
   ensureDevicePipelines as ensureDevicePipelinesImpl,
   ensureShadowCasterPipelines as ensureShadowCasterPipelinesImpl,
@@ -49,6 +50,8 @@ import {
 export type { BindGroupLayoutName, PipelineLayoutName } from './types.js';
 export type { DevicePipelineOptions } from './factories/device-pipelines.js';
 export type { FdtdComputePipelines } from './factories/fdtd-pipelines.js';
+import { ensureMpmPipelines as ensureMpmPipelinesImpl, type MpmPipelines, type MpmShaderSources } from './factories/mpm-pipelines.js';
+export type { MpmPipelines, MpmShaderSources } from './factories/mpm-pipelines.js';
 import {
   ensureFieldComputePipelines as ensureFieldComputePipelinesImpl,
   ensureFieldRenderPipelines as ensureFieldRenderPipelinesImpl,
@@ -143,6 +146,7 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     registerPostLayouts(this);
     registerFdtdLayouts(this);
     registerFieldLayouts(this);
+    registerMpmLayouts(this);
   }
 
   getLayout(name: BindGroupLayoutName): GPUBindGroupLayout {
@@ -327,5 +331,9 @@ export class PipelineLayoutCache implements LayoutRegistrar {
 
   async ensureFieldRenderPipelines(src: FieldShaderSources, opts?: { sampleCount?: number }): Promise<FieldRenderPipelines> {
     return ensureFieldRenderPipelinesImpl(this, src, opts);
+  }
+
+  async ensureMpmPipelines(src: MpmShaderSources): Promise<MpmPipelines> {
+    return ensureMpmPipelinesImpl(this, src);
   }
 }

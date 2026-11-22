@@ -532,6 +532,7 @@ switch; `#device-readout` is named `"<bench> readout"`.
 | `src/fdtd-heatmap-overlay.ts` | WebGL2 64² CPU micro-grid readout of the same kernel — ADR-0012 |
 | `src/physics/field-{sources,eval,builders,bench,volume,probe,pack,particles}.ts` | Magnetostatic field from catalog `fieldSources` rows: packed sources, exact kernels (WGSL twin `shaders/common/field-sources.wgsl`), per-bench builders, CPU probe + record keys, pass policy / uniform packing, particle time scaling — ADR-0017 |
 | `src/visualizer/field-volume-{pass,drive}.ts` | WebGPU field volume (n³ texture, tracer, slice, iso, Boris particles, GPU probe), lazily built; frame-graph pass + lifetime `field-volume` |
+| `src/fluids/mpm-{params,cpu,seed,solver}.ts` | MLS-MPM liquid solver (ADR-0022): SI parameters and fixed-point scales, the CPU reference the WGSL is tested against (not a runtime fallback), deterministic seeding, the WebGPU host (`MpmSolver`, layout `mpm`, passes `mpm-{p2g,grid,g2p}.wgsl`). No bench uses it yet — [`FLUIDS.md`](./FLUIDS.md) |
 | `src/field-panel.ts` | Field panel on both renderers: probe readout ("simulated, not metrology"), slice / iso / particle controls, CPU \|B\| slice on WebGL2 and below `medium` |
 | `src/audio/*` | Lab sonification: pure telemetry→parameter mapping, Web Audio graph, header mute badge — [`LAB_AUDIO.md`](./LAB_AUDIO.md) |
 | `src/classroom/*` | Classroom delivery (lazy chunk from `main.ts`): service-worker registration + "Update available" prompt, Record control, lazy recorder (`window.recordBench`) — [`CLASSROOM.md`](./CLASSROOM.md) |

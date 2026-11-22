@@ -25,5 +25,6 @@ Lightweight ADRs for the SEG WebGPU Visualizer. Each file is a short record of a
 | [0019](./0019-calibrated-twin.md) | Calibrated digital twin: AD Jacobians, EKF estimate mode, output-error sysid with a HAC covariance, shareable `twinProfile`, protocol v3 timestamps |
 | [0020](./0020-webgpu-under-test.md) | WebGPU under test: Dawn-in-Node pipeline + compute goldens (test-only), headed SwiftShader e2e, report-only image baselines, one toolchain pin file |
 | [0021](./0021-resolved-thermal-models.md) | Resolved thermal models: the Peltier bench as a current-driven cooler with a 1-D finite-volume leg on `ros23`, keyed array state, `plantStateVersion` migrations |
+| [0022](./0022-gpu-liquid-mls-mpm.md) | GPU liquid: an MLS-MPM solver in WebGPU compute — SI units, per-particle volume ratio, budget-sized fixed-point `atomic<i32>` scatter with carried-remainder rounding, a CPU twin for tests |
 
 Status values: **Accepted** · **Superseded** · **Proposed**
