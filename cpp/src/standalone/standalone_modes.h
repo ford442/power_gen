@@ -40,3 +40,7 @@ int run_circuit_json();
 
 // standalone_snapshots.cpp — plantSave/plantLoad round trip is bit-exact (#224 §2)
 int run_snapshots();
+
+// standalone_twin.cpp — hardware twin (#257): AD vs central differences, EKF / sysid on a ground-truth rig
+int run_ad();
+int run_twin();

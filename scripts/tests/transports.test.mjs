@@ -19,10 +19,13 @@
  *      flushes before the link closes; a transport switch coasts the old link
  *      first; and a dropped link clears the manual override.
  *   7. BLE asks for a throttle the firmware watchdog can live with.
- *   8. Protocol v2 hello: the host parses what seg_safety.h prints, asks with
- *      `V2` (after the P, at most five times), gives up on a v1 board and still
+ *   8. Protocol v2/v3 hello: the host parses what seg_safety.h prints, asks with
+ *      `V3` (after the P, at most five times), gives up on a v1 board and still
  *      drives and coasts it with v1 lines only, forgets the hello with the link,
- *      and its version / watchdog match firmware/seg-driver/protocol.h.
+ *      and its version / watchdog match firmware/seg-driver/protocol.h. v3
+ *      (#257): `S t=<µs> …` samples parse, the 32-bit µs clock unwraps, a v2
+ *      board's plain S lines still parse (board ms clock), and the mock only
+ *      timestamps after `V3`.
  *   9. A WebUSB read pump from a previous open cannot report a drop on, or
  *      read alongside, the next open (generation counter + awaited loop).
  *  10. `bridge.on(...)` delivers to every subscriber, unsubscribes, and a
@@ -376,7 +379,7 @@ describe('7. slow-link throttle stays inside the watchdogs', () => {
   });
 });
 
-describe('8. protocol v2 hello (firmware/seg-driver, #217 WS C)', () => {
+describe('8. protocol v2/v3 hello (firmware/seg-driver, #217 WS C, #257)', () => {
   // The firmware's own numbers, read from the header the sketch compiles.
   const protocolH = read('firmware/seg-driver/protocol.h');
   const define = (name) => Number(protocolH.match(new RegExp(`#define\\s+${name}\\s+(\\d+)`))?.[1]);
@@ -398,7 +401,7 @@ describe('8. protocol v2 hello (firmware/seg-driver, #217 WS C)', () => {
   });
 
   /** Lines the host may ever put on the wire: v1 commands plus the hello. */
-  const WIRE = /^(P\d+(\.\d+)?,-?\d+(\.\d+)?,[012]|C\d+,\d+,\d+|CONF\d+,-?\d+\.\d,-?\d+\.\d,-?\d+\.\d|V2)$/;
+  const WIRE = /^(P\d+(\.\d+)?,-?\d+(\.\d+)?,[012]|C\d+,\d+,\d+|CONF\d+,-?\d+\.\d,-?\d+\.\d,-?\d+\.\d|V3)$/;
   const sent = (t) => t.written.map((w) => w.trim());
   const helloCount = (t) => sent(t).filter((l) => l === HELLO_COMMAND).length;
   /** Make the next update() eligible to send both a command and a hello. */
@@ -409,7 +412,7 @@ describe('8. protocol v2 hello (firmware/seg-driver, #217 WS C)', () => {
       `host protocol v${HOST_PROTOCOL_VERSION} = protocol.h PROTOCOL_VERSION: host ${HOST_PROTOCOL_VERSION}, firmware ${fwVersion}`);
     assert.ok(new HardwareBridge().watchdogMs === fwWatchdog,
       `host watchdogMs = protocol.h WATCHDOG_TIMEOUT_MS (${fwWatchdog} ms): host ${new HardwareBridge().watchdogMs}`);
-    assert.ok(HELLO_COMMAND === 'V2', `hello request is "V2": ${HELLO_COMMAND}`);
+    assert.ok(HELLO_COMMAND === 'V3', `hello request is "V3": ${HELLO_COMMAND}`);
   });
 
   it('parses the hello seg_safety.h prints', () => {
@@ -472,7 +475,7 @@ describe('8. protocol v2 hello (firmware/seg-driver, #217 WS C)', () => {
     assert.ok(v1.log.includes('write:P0,0,2') && v1.log.includes('write:C0,0,0'),
       `v1 board still coasts on disconnect: ${v1.log.join(' ')}`);
     const bad = sent(v1).filter((l) => !WIRE.test(l));
-    assert.ok(bad.length === 0, `every line sent to a v1 board is P / C / CONF / V2: ${bad.join(' | ')}`);
+    assert.ok(bad.length === 0, `every line sent to a v1 board is P / C / CONF / V3: ${bad.join(' | ')}`);
   });
 
   it('a v2 board answers the first request; the host stops asking and forgets it with the link', async () => {
@@ -523,13 +526,89 @@ describe('8. protocol v2 hello (firmware/seg-driver, #217 WS C)', () => {
     await bridge.disconnect();
   });
 
-  it('the mock answers like a v2 board, with the firmware\'s limits', () => {
+  it('v3: S t=<µs> samples parse and the 32-bit clock unwraps; v2 S lines keep working', async () => {
+    const v3Hello = printed.replace(/^I v=\d+/, 'I v=3');
+    class V3Board extends FakeTransport {
+      writeBytes(bytes) {
+        super.writeBytes(bytes);
+        if (new TextDecoder().decode(bytes).startsWith('V3')) this.feed(`${v3Hello}\n`);
+      }
+    }
+    const bridge = new HardwareBridge();
+    const board = new V3Board();
+    await bridge.connectTransport(board);
+    bridge.update();
+    assert.ok(bridge.firmware?.protocol === 3, `v3 hello stored: ${JSON.stringify(bridge.firmware)}`);
+    const fields = '12.50,450.0,1,2,3,1,3,999,4.20,0.55';
+    board.feed(`S t=4294960000 ${fields}\n`);
+    const t0 = bridge.sampleClock.t;
+    board.feed(`S t=1704 ${fields.replace('450.0', '451.0')}\n`);
+    const dt = bridge.sampleClock.t - t0;
+    assert.ok(bridge.sampleClock.source === 'board-us' && Math.abs(dt - (2 ** 32 - 4294960000 + 1704) / 1e6) < 1e-9,
+      `µs clock unwraps across 2³²: dt ${dt} s, source ${bridge.sampleClock.source}`);
+    assert.ok(bridge.actualRpm === 451 && bridge.actualCurrent === 0.55 && bridge.hasElectrical,
+      `v3 sample fields are the v1 fields: rpm ${bridge.actualRpm}, I ${bridge.actualCurrent}`);
+    const epoch = bridge.sampleClock.epoch;
+    board.feed(`S t=900 ${fields}\n`);
+    assert.ok(bridge.sampleClock.epoch === epoch + 1, `a small backward step is a board reset (new epoch): ${bridge.sampleClock.epoch}`);
+    for (const bad of ['S t=abc 1,2,3,4,5,6,7,8', 'S t=99999999999 1,2,3,4,5,6,7,8', 'S t= 1,2,3,4,5,6,7,8']) {
+      bridge.actualRpm = -1;
+      board.feed(`${bad}\n`);
+      assert.ok(bridge.actualRpm === -1, `malformed timestamp line ignored: ${bad}`);
+    }
+    await bridge.disconnect();
+
+    // A v2 board answers `I v=2` and keeps v1 lines: they still parse, on its ms clock.
+    const v2 = new FakeTransport();
+    await bridge.connectTransport(v2);
+    v2.feed(`${printed.replace(/^I v=\d+/, 'I v=2')}\n`);
+    v2.feed('S1.00,300.0,0,0,0,1,1,1000\n');
+    v2.feed('S2.00,301.0,0,0,0,1,1,1008\n');
+    assert.ok(bridge.firmware?.protocol === 2 && bridge.actualRpm === 301 && !bridge.hasElectrical
+      && bridge.sampleClock.source === 'board-ms' && Math.abs(bridge.sampleClock.t - 1.008) < 1e-9,
+    `v2 board: hello v2, v1 S lines, ms clock: ${bridge.sampleClock.source} t=${bridge.sampleClock.t}`);
+    await bridge.disconnect();
+  });
+
+  it('the mock keeps board time on a busy host: due samples queue, a long stall lags', () => {
+    const realNow = performance.now;
+    let now = 1000;
+    performance.now = () => now;
+    const mock = new MockSerialTransport();
+    try {
+      mock.start();
+      mock.stop(); // the timer is not needed: _pump is what it calls
+      now += 100;
+      mock._pump();
+      assert.ok(mock._ticks === 12, `100 ms late → the 12 samples due (8 ms each): ${mock._ticks}`);
+      now += 4;
+      mock._pump();
+      assert.ok(mock._ticks === 13, `catch-up keeps the phase: ${mock._ticks}`);
+      now += 10_000;
+      mock._pump();
+      assert.ok(mock._ticks === 13 + 32, `a 10 s stall replays at most 32 samples: ${mock._ticks}`);
+      now += 8;
+      mock._pump();
+      assert.ok(mock._ticks === 46, `then one per period again (the dropped backlog stays dropped): ${mock._ticks}`);
+    } finally {
+      performance.now = realNow;
+      mock.stop();
+    }
+  });
+
+  it('the mock answers like a v3 board, with the firmware\'s limits, and timestamps only after V3', () => {
     const mock = new MockSerialTransport();
     const lines = [];
     mock.onLine((l) => lines.push(l));
     mock.writeLine('V2');
+    mock._tick();
+    assert.ok(/^S\d/.test(lines[1] ?? ''), `after V2 the mock streams v1 S lines: ${lines[1]}`);
+    lines.length = 0;
+    mock.writeLine('V3');
+    mock._tick();
+    assert.ok(/^S t=\d+ /.test(lines[1] ?? ''), `after V3 the mock timestamps: ${lines[1]}`);
     const mh = parseFirmwareHello(lines[0] ?? '');
-    assert.ok(mh?.protocol === HOST_PROTOCOL_VERSION && mh.board === 'mock', `mock answers V2 with a hello: ${JSON.stringify(lines)}`);
+    assert.ok(mh?.protocol === HOST_PROTOCOL_VERSION && mh.board === 'mock', `mock answers V3 with a hello: ${JSON.stringify(lines)}`);
     assert.ok(mh?.watchdogMs === fwWatchdog && `${mh.brakePwmMax}/${mh.brakeMaxMs}` === fwBrake,
       `mock hello carries the firmware watchdog and brake caps: ${JSON.stringify(mh)}`);
     lines.length = 0;
@@ -631,6 +710,6 @@ describe('10. bridge events: multi-subscriber, unsubscribe, isolation', () => {
     const twinModes = [];
     bridge.on('twinMode', (m) => twinModes.push(m));
     bridge.setTwinMode('shadow');
-    assert.ok(twinModes[0] === 'shadow', `twinMode event fires: ${JSON.stringify(twinModes)}`);
+    assert.ok(twinModes[0] === 'estimate', `twinMode event fires; 'shadow' is the old name of 'estimate': ${JSON.stringify(twinModes)}`);
   });
 });

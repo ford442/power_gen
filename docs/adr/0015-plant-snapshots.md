@@ -50,3 +50,14 @@ step code the moment someone adds an integrator.
   a restored lab looks right within a frame because they are derived.
 - Simulated, not metrology: a snapshot is this model's state, not a recording
   of an instrument.
+
+## Amendment (#257, ADR-0019): the hardware twin's filter
+
+A snapshot may carry an optional `twin` block: the `TwinEstimator`'s own
+versioned double layout (`[layout v, N, NP, M, t, x, P, θ, q, σ, hMax]`), the
+calibration profile in use and the board-clock time of the last sample. It
+follows the same rules as the plant state: written by the C++ that owns it,
+refused (`load()` false) on a layout mismatch rather than misread, and
+restored bit for bit (`test:twin-snapshot`, `test:twin`, and `--mode twin`
+natively). A malformed block is a parse warning, not an error — the plant
+state still restores. See [`SNAPSHOTS.md`](../SNAPSHOTS.md#hardware-twin-which-ω-wins).

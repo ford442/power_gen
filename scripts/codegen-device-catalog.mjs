@@ -11,6 +11,7 @@
  *   generated/plant-state-impl.h     (SEGSimulator::plantSave / plantLoad bodies)
  *   generated/field-sources.ts       (fieldSources blocks, ADR-0017 — scripts/lib/catalog-field-sources.mjs)
  *   generated/circuit-ports.ts       (ports blocks, ADR-0018 — scripts/lib/catalog-ports.mjs)
+ *   generated/twin-rig.{h,ts}        (seg.twin: rig states / params / sensors, ADR-0019 — scripts/lib/catalog-twin.mjs)
  *   src/shaders/generated/device-catalog.wgsl
  *   src/shaders/generated/field-sources.wgsl (FIELD_KIND_* ids)
  *   docs/MODE_MATRIX.md
@@ -25,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
 import { emitPlantOdeH, emitPlantOdeTs, validateOde } from './lib/catalog-ode.mjs';
+import { emitTwinH, emitTwinTs, validateTwin } from './lib/catalog-twin.mjs';
 import { emitFieldSourcesTs, emitFieldSourcesWgsl, validateFieldSources } from './lib/catalog-field-sources.mjs';
 import { emitCircuitPortsTs, emitPortsMatrix, validatePorts } from './lib/catalog-ports.mjs';
 
@@ -1137,6 +1139,7 @@ function main() {
   const stateErrors = [
     ...validateState(devices),
     ...validateOde(devices),
+    ...validateTwin(devices),
     ...validateFieldSources(devices, fieldBuilderNames()),
     ...validatePorts(devices, portDriverNames())
   ];
@@ -1182,6 +1185,8 @@ function main() {
     [join(OUT_DIR, 'plant-state-impl.h'), emitPlantStateImplH(layout)],
     [join(OUT_DIR, 'plant-ode.h'), emitPlantOdeH(devices)],
     [join(OUT_DIR, 'plant-ode.ts'), emitPlantOdeTs(devices)],
+    [join(OUT_DIR, 'twin-rig.h'), emitTwinH(devices)],
+    [join(OUT_DIR, 'twin-rig.ts'), emitTwinTs(devices)],
     [join(OUT_DIR, 'field-sources.ts'), emitFieldSourcesTs(devices)],
     [join(OUT_DIR, 'circuit-ports.ts'), emitCircuitPortsTs(devices, HEADER_TS)],
     [FIELD_SHADER_OUT, emitFieldSourcesWgsl()],

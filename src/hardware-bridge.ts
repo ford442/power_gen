@@ -2,13 +2,13 @@
  * HardwareBridge — hardware-twin link for SEG electromagnet control.
  *
  * Protocol: docs/hardware_connection.md / firmware/seg-driver/protocol.h
- *   App → Arduino: P phase, C coils, CONF geometry, V2 hello request
- *   Arduino → App: S sensor stream, I info (a v2 board's `I v=2 …` hello)
+ *   App → Arduino: P phase, C coils, CONF geometry, V3 hello request
+ *   Arduino → App: S sensor stream (v3: `S t=<µs> …`), I info (`I v=N …` hello)
  *
  * Twin modes:
- *   open   — sim → hardware (visualize sim)
- *   closed — hardware RPM/phase → visualizer rollers
- *   shadow — sim → hardware; compare HW telemetry vs sim
+ *   open     — sim → hardware (visualize sim)
+ *   closed   — the twin's filtered rig state → visualizer rollers (#257)
+ *   estimate — sim → hardware; the EKF estimates the rig (was `shadow`)
  *
  * Transports (ADR-0005 WS3): the bridge owns the protocol and every safety
  * rule; a {@link HardwareTransport} only moves framed lines. `mock` needs no
@@ -34,6 +34,7 @@ import {
   MODE_COAST,
   HELLO_ATTEMPTS,
   HELLO_RETRY_MS,
+  SampleClock,
   clampRpm,
   clampPwmDuty
 } from './hardware-protocol-shared';
@@ -51,7 +52,7 @@ import { WebUsbCdcTransport } from './webusb-cdc-transport';
 import { labConfig } from './config/lab-config';
 
 export { MockSerialTransport } from './mock-serial-transport';
-export { TWIN_MODES, type TwinMode, type FirmwareHello, parseFirmwareHello } from './hardware-protocol-shared';
+export { TWIN_MODES, type TwinMode, type FirmwareHello, parseFirmwareHello, normalizeTwinMode } from './hardware-protocol-shared';
 export type { HardwareTransport, HardwareTransportKind } from './hardware-transport';
 
 import type { FiringPattern } from './electromagnet-controller';
@@ -185,6 +186,12 @@ export class HardwareBridge {
   coilMask: number;
   lastTimestampMs: number;
   lastSensorUpdate: number;
+  /** The last sample carried V / I (fields 9–10; the v2 sketch sends neither). */
+  hasElectrical = false;
+  /** Board time of each sample (v3 µs › v1 ms › host) — what the estimator integrates over. */
+  readonly sampleClock = new SampleClock();
+  /** The drive the host last wrote (`P` / `C` / a coast) — the estimator's input. */
+  driveSent: { rpm: number; mode: number; manual: boolean } = { rpm: 0, mode: MODE_COAST, manual: false };
 
   // Outgoing state
   targetPhase: number;
@@ -204,7 +211,7 @@ export class HardwareBridge {
 
   config: HardwareBridgeConfig;
 
-  /** The board's v2 hello, or null (not yet, or a v1 sketch). Cleared with the link. */
+  /** The board's v2/v3 hello, or null (not yet, or a v1 sketch). Cleared with the link. */
   firmware: FirmwareHello | null;
 
   // Not `private`: read/written from hardware-bridge-protocol.ts's functions too.
@@ -444,6 +451,8 @@ export class HardwareBridge {
 
     this._setStatus('connecting');
     this._forgetFirmware();
+    this.sampleClock.reset();
+    this.driveSent = { rpm: 0, mode: MODE_COAST, manual: false };
     const transport = preBuilt ?? this._createTransport(kind);
     try {
       this._unsubTransport = [
@@ -551,6 +560,7 @@ export class HardwareBridge {
     try {
       transport.writeLine('P0,0,2');
       transport.writeLine('C0,0,0');
+      this.driveSent = { rpm: 0, mode: MODE_COAST, manual: false };
       await transport.flush?.();
     } catch (_) { /* ignore — link may already be dead */ }
   }
@@ -567,6 +577,7 @@ export class HardwareBridge {
         this.targetSpeed = 0;
         this._writeLineImmediate('P0,0,2');
         this._writeLineImmediate('C0,0,0');
+        this.driveSent = { rpm: 0, mode: MODE_COAST, manual: false };
         console.warn('[HardwareBridge] Command timeout — coasting coils');
       }
     }, 50);

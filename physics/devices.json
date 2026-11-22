@@ -33,6 +33,29 @@
           { "cpp": "@_ringLoadTorques[]", "count": 3 }
         ]
       },
+      "twin": {
+        "$comment": "Hardware twin (#257, ADR-0019): the rig the estimator (cpp/src/twin/ekf.h) and system identification (cpp/src/twin/sysid.h) assume is on the bench — not the roller plant above. Edit, then npm run codegen:catalog (→ generated/twin-rig.{h,ts}).",
+        "model": "Lumped DC-machine equivalent of the commutated coil array and its rotor: J·dω/dt = k_e·I − b·ω and L·dI/dt = v − R·I − k_e·ω, where the board's drive v = vPerRpm × commanded RPM, clamped to ±vMax, in RUN and 0 in coast, brake or a manual coil override. Commutation ripple, cogging, saturation, temperature and the synchronous pull-in are not modelled; process noise stands in for them.",
+        "integrator": "rk4",
+        "hMax": 0.002,
+        "state": [
+          { "id": "omega", "label": "ω", "unit": "rad/s", "q": 1.0 },
+          { "id": "currentA", "label": "I", "unit": "A", "q": 0.0001 }
+        ],
+        "params": [
+          { "id": "inertia", "label": "J", "unit": "kg·m²", "nominal": 0.0025, "min": 0.0001, "max": 0.05 },
+          { "id": "friction", "label": "b", "unit": "N·m·s/rad", "nominal": 0.0015, "min": 0.00001, "max": 0.05 },
+          { "id": "coilR", "label": "R", "unit": "Ω", "nominal": 2.0, "min": 0.05, "max": 50 },
+          { "id": "coilL", "label": "L", "unit": "H", "nominal": 0.08, "min": 0.0001, "max": 2 },
+          { "id": "kE", "label": "k_e", "unit": "V·s/rad", "nominal": 0.1, "min": 0.001, "max": 1 }
+        ],
+        "input": { "vPerRpm": 0.0125, "vMax": 12 },
+        "sensors": [
+          { "id": "rpm", "label": "RPM", "unit": "RPM", "sigma": 2.0, "model": "ω·30/π (hall-pulse interval on the board)" },
+          { "id": "current", "label": "I", "unit": "A", "sigma": 0.02, "model": "coil current I (a shunt / INA219 channel; the v2 sketch has none)" },
+          { "id": "voltage", "label": "V", "unit": "V", "sigma": 0.05, "model": "pickup back-EMF k_e·ω (the v2 sketch has none)" }
+        ]
+      },
       "telemetry": {
         "rpm": {
           "label": "RPM",

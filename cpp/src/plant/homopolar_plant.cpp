@@ -18,23 +18,6 @@
 
 using HP = power_gen::ode::Homopolar;
 
-void HomopolarPlant::derivs(double, std::span<const float> x, const HomopolarInput& u,
-                            std::span<float> dxdt) const {
-    using HC = power_gen::HomopolarConstants;
-    const float omega = x[HP::omega];
-    const float current = x[HP::currentA];
-    const float B = s.fieldT;
-    const float omegaTarget = u.drive * HC::RPM_MAX * (PhysicsConstants::PI / 30.f);
-    const float tauDrive = s.tauDriveMax * u.drive
-                         * (HC::TAU_DRIVE_BASE
-                            + HC::TAU_DRIVE_SPAN
-                              * std::tanh((omegaTarget - omega) * HC::TAU_DRIVE_TANH_GAIN));
-    const float emf = 0.5f * B * omega * s.discRadiusM * s.discRadiusM;
-    const float tauLoad = current * B * s.discRadiusM * 0.5f;
-    dxdt[HP::currentA] = (emf - s.rOhm * current) / s.lHenry;
-    dxdt[HP::omega] = (tauDrive - tauLoad - s.drag * omega) / s.inertia;
-}
-
 void HomopolarPlant::outputs(std::span<const float> x, const HomopolarInput&, std::span<float> y) const {
     y[HP::emfV] = 0.5f * s.fieldT * x[HP::omega] * s.discRadiusM * s.discRadiusM;
 }

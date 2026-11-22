@@ -12,12 +12,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 file(GLOB SIM_CORE_PLANT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/plant/*.cpp")
 # Circuit Lab MNA solver (#256, ADR-0018) — same targets as the plants.
 file(GLOB SIM_CORE_CIRCUIT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/circuit/*.cpp")
+# Hardware twin estimator + calibration (#257, ADR-0019).
+file(GLOB SIM_CORE_TWIN_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/twin/*.cpp")
 set(SIM_CORE_ROOT_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_facade.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_standalone.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/sim_core_abi.cpp"
 )
-add_executable(sim_core ${SIM_CORE_ROOT_SOURCES} ${SIM_CORE_PLANT_SOURCES} ${SIM_CORE_CIRCUIT_SOURCES})
+add_executable(sim_core ${SIM_CORE_ROOT_SOURCES} ${SIM_CORE_PLANT_SOURCES} ${SIM_CORE_CIRCUIT_SOURCES} ${SIM_CORE_TWIN_SOURCES})
 target_include_directories(sim_core PRIVATE src)
 
 # ── Emscripten / WASM build ─────────────────────────────────────

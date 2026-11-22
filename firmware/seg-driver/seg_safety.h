@@ -2,7 +2,7 @@
 #define SEG_SAFETY_H
 
 // ============================================
-// SEG driver safety core (protocol v2)
+// SEG driver safety core (protocol v3)
 // ============================================
 // Everything that decides whether a coil may be energised lives here, with no
 // Arduino dependency, so the sketch and the host test (test/safety_test.cpp,
@@ -14,7 +14,8 @@
 //   it is commanded (CoilGuard). Anything the parser cannot fully read as a
 //   motor command stops the motor; it never refreshes the watchdog.
 //
-// Wire format is unchanged from v1 (see protocol.h); v2 only adds `V`.
+// Command bytes are unchanged from v1 (see protocol.h); v2 adds `V`, v3 the
+// `S t=<µs>` sample prefix after a `V3` request (never a command path).
 
 #include <stdint.h>
 #include <stdio.h>
@@ -231,7 +232,7 @@ class SafetyCore {
     switch (line[0]) {
       case 'P': return parsePhase(line + 1, nowMs);
       case 'C': return parseCoils(line + 1, nowMs);
-      case 'V': return LINE_HELLO;
+      case 'V': _helloAsked = parseHelloVersion(line + 1); return LINE_HELLO;
       default: return LINE_IGNORED;
     }
   }
@@ -290,7 +291,13 @@ class SafetyCore {
   void linkLost() {
     coast();
     _fed = false;
+    _helloAsked = 0;  // the next host negotiates afresh
   }
+
+  /** Version the host asked for in its last `V…` (0: never asked, or a bare `V`). */
+  uint8_t helloAsked() const { return _helloAsked; }
+  /** v3: prefix samples with `t=<µs>` — only once a host asked for v3 or newer. */
+  bool timestamped() const { return _helloAsked >= 3; }
 
   /** True once after the watchdog cut a live drive — report it as an E line. */
   bool takeWatchdogTrip() {
@@ -306,7 +313,7 @@ class SafetyCore {
     return c;
   }
 
-  /** "I v=2 ..." — the hello reply. v1 hosts just log it as info. */
+  /** "I v=3 ..." — the hello reply. v1 hosts just log it as info. */
   int formatHello(char* buf, size_t n, const char* board, const char* link, uint8_t halls) const {
     return snprintf(buf, n, "I v=%u fw=seg-driver board=%s link=%s coils=%u halls=%u wd=%u brake=%u/%u",
                     (unsigned)PROTOCOL_VERSION, board, link, (unsigned)_wired, (unsigned)halls,
@@ -334,7 +341,17 @@ class SafetyCore {
   uint32_t _manualDurationMs;
   bool _tripped;
   bool _configClamped;
+  uint8_t _helloAsked = 0;
   CoilConfig _config;
+
+  /** `V3` → 3; bare `V` or anything but 1–3 digits → 0 (no timestamps). */
+  static uint8_t parseHelloVersion(const char* p) {
+    unsigned v = 0;
+    int digits = 0;
+    while (*p >= '0' && *p <= '9' && digits < 3) v = v * 10 + (unsigned)(*p++ - '0'), digits++;
+    if (*p != '\0' || digits == 0) return 0;
+    return v > 255 ? 255 : (uint8_t)v;
+  }
 
   uint32_t configuredMask() const {
     return _config.numCoils >= 32 ? 0xFFFFFFFFUL : ((1UL << _config.numCoils) - 1UL);

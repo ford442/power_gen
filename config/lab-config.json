@@ -358,6 +358,19 @@
       "doc": "Hardware twin mock transport (no serial port). Other links (`serial` / `bluetooth` / `usb`) are chosen from the Hardware Twin panel — each needs a user gesture for its chooser."
     },
     {
+      "key": "mockParamError",
+      "type": "number",
+      "default": 0,
+      "min": 0,
+      "max": 0.5,
+      "url": ["mockParamError"],
+      "share": false,
+      "live": false,
+      "group": "session",
+      "docValues": "`0`–`0.5`",
+      "doc": "Mock rig parameter error (#257): with `?mockHardware=1` the mock board is a ground-truth rig whose catalog θ (inertia, friction, coil R/L, k_e) are off by ± this fraction, plus the catalog process and sensor noise — so the twin's estimator shows a model mismatch and **Calibrate** has a right answer to recover — [`adr/0019-calibrated-twin.md`](./adr/0019-calibrated-twin.md)."
+    },
+    {
       "key": "energyCoupling",
       "type": "bool",
       "default": false,
@@ -678,6 +691,19 @@
       "docValues": "example id \\| netlist `{ v: 1, e, w, … }`",
       "docDefault": "none",
       "doc": "Circuit Lab netlist (#256): a bench port wired to drawn R, C, L, diodes, switches and meters, solved by the C++ MNA solver (needs sim_core.wasm). `?circuit=<id>` opens an example (`src/circuit/examples.ts`); share links and `.lab.json` carry the whole netlist — [`CIRCUIT.md`](./CIRCUIT.md)."
+    },
+    {
+      "key": "twinProfile",
+      "type": "string",
+      "default": null,
+      "pattern": "^tp1;[A-Za-z0-9.;=,_+-]{8,600}$",
+      "url": ["twinProfile"],
+      "share": true,
+      "live": true,
+      "group": "state",
+      "docValues": "`tp1;…` calibration profile",
+      "docDefault": "catalog nominal",
+      "doc": "Hardware twin calibration profile (#257): the fitted rig parameters as deltas on the catalog nominal, their covariance and the fit R², from the Hardware Twin panel's **Calibrate**. The estimator uses it on any machine; a profile for another catalog rig is refused. Simulated, not metrology — [`adr/0019-calibrated-twin.md`](./adr/0019-calibrated-twin.md)."
     }
   ]
 }

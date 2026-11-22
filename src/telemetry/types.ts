@@ -154,7 +154,7 @@ export interface ChargeNetworkTelemetry {
   links: Record<string, ChargeCouplingLinkTelemetry>;
 }
 
-/** Sim vs hardware residual in shadow twin mode (ADR-0005). */
+/** Sim vs hardware residual (ADR-0005) — the raw comparison; estimate mode adds {@link HardwareTwinEstimate}. */
 export interface HardwareShadowResidual {
   phaseErrorDeg: number;
   rpmError: number;
@@ -170,7 +170,7 @@ export interface HardwareTwinTelemetry {
   mock: boolean;
   /** disconnected | mock | serial | bluetooth | usb — explicit connection state machine */
   connectionState: 'disconnected' | 'mock' | 'serial' | 'bluetooth' | 'usb';
-  twinMode: 'open' | 'closed' | 'shadow';
+  twinMode: 'open' | 'closed' | 'estimate';
   sensorRpm: number;
   sensorPhase: number;
   sensorVoltage: number;
@@ -179,6 +179,37 @@ export interface HardwareTwinTelemetry {
   shadowResidual: HardwareShadowResidual;
   /** Line protocol from the board's `I v=N` hello; null until one arrives (v1 never sends one). */
   firmwareProtocol: number | null;
+  /** Where sample times come from: v3 board µs, the v1 ms field, or host arrival. */
+  sampleClock: 'board-us' | 'board-ms' | 'host';
+  /** The twin's estimator (#257); null while it is off or without sim_core. */
+  estimate: HardwareTwinEstimate | null;
+}
+
+/**
+ * The twin's EKF (#257, cpp/src/twin/ekf.h) — what the residual gauge shows in
+ * estimate mode: the *normalised innovation* ν/σ_ν per channel and the χ²
+ * window, so "model wrong" (biased / correlated ν) and "sensor noisy" (white
+ * but large ν) read differently. Simulated, not metrology.
+ */
+export interface HardwareTwinEstimate {
+  /** Filtered rotor RPM and its σ. */
+  rpm: number;
+  rpmSd: number;
+  /** Filtered coil current (A) and its σ. */
+  currentA: number;
+  currentSd: number;
+  /** Last update's ν/σ_ν (NaN: channel not in the sample). */
+  innovation: { rpm: number; current: number; voltage: number };
+  /** Window NIS / dof and its two-sided 95 % χ² band (both / dof). */
+  nisPerDof: number;
+  chi2LoPerDof: number;
+  chi2HiPerDof: number;
+  consistent: boolean;
+  diagnosis: 'idle' | 'consistent' | 'sensor-noisy' | 'model-mismatch' | 'overcautious';
+  updates: number;
+  /** A calibration profile is in use (else the catalog nominal). */
+  calibrated: boolean;
+  calibration: 'idle' | 'exciting' | 'fitting' | 'done' | 'failed';
 }
 
 /** Literature refs with uncertainty metadata for gauges */

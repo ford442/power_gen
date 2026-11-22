@@ -753,8 +753,8 @@ test.describe('Hardware twin mock', () => {
     await page.evaluate(() => {
       const bridge = window.multiVisualizer?.hardwareBridge
         || window.currentVisualizer?.hardwareBridge;
-      // Prefer shadow so residual semantics match docs; mock auto-sets this.
-      bridge?.setTwinMode?.('shadow');
+      // Estimate mode (#257; 'shadow' is its old name) — the mock auto-sets it.
+      bridge?.setTwinMode?.('estimate');
       window.segOperator.start();
     });
 
@@ -800,13 +800,24 @@ test.describe('Hardware twin mock', () => {
     );
     expect(Number.isFinite(twin.hub.shadowResidual.voltageError)).toBe(true);
     expect(Number.isFinite(twin.hub.shadowResidual.currentError)).toBe(true);
+    expect(twin.twinMode).toBe('estimate');
 
-    // Protocol v2: the host asks with V2 and the mock answers like a v2 board.
+    // Protocol v3: the host asks with V3 and the mock answers like a v3 board.
     await waitForEval(page,
-      () => window.telemetryHub?.getSnapshot?.()?.hardwareTwin?.firmwareProtocol === 2,
+      () => window.telemetryHub?.getSnapshot?.()?.hardwareTwin?.firmwareProtocol === 3,
       { timeout: 10_000 }
     );
-    await expect(page.locator('#hwFirmware')).toHaveText('fw v2 · mock · 8 coils');
+    await expect(page.locator('#hwFirmware')).toHaveText('fw v3 · mock · 8 coils');
+
+    // The EKF estimate rides on the same telemetry (needs sim_core; the
+    // estimate is null — and the panel says so — without it).
+    await waitForEval(page,
+      () => {
+        const e = window.telemetryHub?.getSnapshot?.()?.hardwareTwin?.estimate;
+        return e && Number.isFinite(e.nisPerDof) && Number.isFinite(e.rpmSd);
+      },
+      { timeout: 15_000 }
+    );
   });
 
   test('mock reconnect after disconnect does not leave coils commanded', async ({ page }) => {
@@ -927,17 +938,20 @@ test.describe('Hardware twin mock', () => {
     );
 
     // Re-attaching is idempotent: one subscriber set, one panel, one click handler.
+    // (The session's twin estimator holds its own status subscription, #257.)
     const after = await page.evaluate(() => {
       const b = window.multiVisualizer.hardwareBridge;
+      const before = b._listeners.status.size;
       window.hardwarePanel.attach(window.multiVisualizer);
       window.hardwarePanel.attach(window.multiVisualizer);
       return {
         panels: document.querySelectorAll('#hardware-panel').length,
+        before,
         statusListeners: b._listeners.status.size
       };
     });
     expect(after.panels).toBe(1);
-    expect(after.statusListeners).toBe(1);
+    expect(after.statusListeners).toBe(after.before);
     expect(errors.pageErrors).toEqual([]);
   });
 

@@ -41,7 +41,28 @@ struct HomopolarPlant {
 
     explicit HomopolarPlant(HomopolarState& st) : s(st) {}
 
-    void derivs(double t, std::span<const float> x, const HomopolarInput& u, std::span<float> dxdt) const;
+    /// The right-hand side on any scalar (float, or a core/dual.h Dual for
+    /// ∂f/∂x). The float instantiation is the plant's arithmetic, term for term.
+    template <class S>
+    void derivs_t(double, std::span<const S> x, const HomopolarInput& u, std::span<S> dxdt) const {
+        using HC = power_gen::HomopolarConstants;
+        using std::tanh;
+        const S omega = x[ode::omega];
+        const S current = x[ode::currentA];
+        const float B = s.fieldT;
+        const float omegaTarget = u.drive * HC::RPM_MAX * (PhysicsConstants::PI / 30.f);
+        const S tauDrive = s.tauDriveMax * u.drive
+                         * (HC::TAU_DRIVE_BASE
+                            + HC::TAU_DRIVE_SPAN
+                              * tanh((omegaTarget - omega) * HC::TAU_DRIVE_TANH_GAIN));
+        const S emf = 0.5f * B * omega * s.discRadiusM * s.discRadiusM;
+        const S tauLoad = current * B * s.discRadiusM * 0.5f;
+        dxdt[ode::currentA] = (emf - s.rOhm * current) / s.lHenry;
+        dxdt[ode::omega] = (tauDrive - tauLoad - s.drag * omega) / s.inertia;
+    }
+    void derivs(double t, std::span<const float> x, const HomopolarInput& u, std::span<float> dxdt) const {
+        derivs_t<float>(t, x, u, dxdt);
+    }
     /// y = [emfV] at x.
     void outputs(std::span<const float> x, const HomopolarInput& u, std::span<float> y) const;
     void save(std::span<float> x) const;

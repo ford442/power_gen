@@ -45,8 +45,6 @@ export interface HardwareTransport {
   onLine(fn: (line: string) => void): () => void;
   /** Link lost without `close()` being called (unplug, GATT disconnect, read error). */
   onDrop(fn: (err: Error | null) => void): () => void;
-  /** Mock only: drive the synthetic V/I proxies used by the shadow charts. */
-  setElectricalTargets?(voltage: number, current: number): void;
 }
 
 /**

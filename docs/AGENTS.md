@@ -307,10 +307,11 @@ never calls `requestAdapter`).
 - **Button presses win.** START / STOP / E-stop / reset / replay bump
   `segOperator.epoch`; a result computed under an older epoch is dropped and its
   substeps re-run from the new state. Knobs (drive, field, load) are read at
-  post time and simply take effect one frame later. Known gap: in hardware
-  **closed-loop** twin mode the per-frame RPM override is applied after the
-  post, so the worker integrates from its own ω and the override re-applies
-  each frame (display unchanged; only the integration start point differs).
+  post time and simply take effect one frame later. In hardware
+  **closed-loop** twin mode the override is the twin's *filtered* ω (the EKF,
+  ADR-0019) and is written before the post (`PlantWorkerFrame.beforePost`) as
+  well as after the step, so the worker integrates from the estimate — the old
+  "integrates from its own ω" gap is closed (#257).
   A restored plant snapshot wins at its epoch boundary and holds the override
   until the next sensor sample ([`SNAPSHOTS.md`](./SNAPSHOTS.md#hardware-twin-which-ω-wins),
   `npm run test:twin-snapshot`).
@@ -396,6 +397,7 @@ in `src/`.
 | `labMode` | `showroom` \| `lab` \| `twin` | none | `seg-lab-mode` | yes | Apply a **preset bundle** (look, explainer/coupling chrome, twin panel, residual gauges, post floor). An explicit flag (URL or share link) still wins at boot — see [Lab mode & setpoints](#lab-mode--setpoints). The header control remembers the last choice. |
 | `class` | `1` \| `0` | off | — | yes | Classroom mode (large labels, reduced chrome), same switch as the explainer checkbox and `#lab=…;class=1`. Also keeps the explainer on screen under `labMode=showroom`. |
 | `mockHardware` | `1` \| `0` | off | — | — | Hardware twin mock transport (no serial port). Other links (`serial` / `bluetooth` / `usb`) are chosen from the Hardware Twin panel — each needs a user gesture for its chooser. |
+| `mockParamError` | `0`–`0.5` | `0` | — | — | Mock rig parameter error (#257): with `?mockHardware=1` the mock board is a ground-truth rig whose catalog θ (inertia, friction, coil R/L, k_e) are off by ± this fraction, plus the catalog process and sensor noise — so the twin's estimator shows a model mismatch and **Calibrate** has a right answer to recover — [`adr/0019-calibrated-twin.md`](./adr/0019-calibrated-twin.md). |
 | `energyCoupling` | `1` \| `0` | off (visual-only pipes) | `seg-energy-coupling` | yes | Clamp overview pipe flow by simulated lab power budget (`EnergyNetwork`). The pipe graph itself is `physics/coupling.json` → `generated/lab-coupling.{ts,h}` (ADR-0013 rider). |
 | `fieldCoupling` | `1` \| `0` | off (local bench B) | `seg-field-coupling` | yes | Feed a source device's simulated **B** estimate into a destination plant (`FieldNetwork`: `halbach-viz`→`hall`, `homopolar`→`hall` while Halbach is off, `mhd`→`lorentz-sled`), clamped to the destination's catalog range — ADR-0011. One live source per destination. Deliberately a **separate** switch from `energyCoupling`: one toggle cannot honestly claim both watts and tesla are live. |
 | `chargeCoupling` | `1` \| `0` | off (isolated bench voltages) | `seg-charge-coupling` | yes | Seed the Kelvin inductor with the Van de Graaff sphere's potential at the bench, `V·r/d`, clamped to Kelvin's breakdown (`ChargeNetwork`: `vdg`→`kelvin`) — ADR-0013. A **third** separate switch: never implied by, and never implies, `fieldCoupling` or `energyCoupling`. Not a Laplace solve, not calibrated kilovolts. |
@@ -418,6 +420,7 @@ in `src/`.
 | `experiment` | experiment id | none | — | yes | Open the experiment panel on this reference experiment (`src/experiments/*.experiment.json`) — [`EXPERIMENTS.md`](./EXPERIMENTS.md). |
 | `mode` | device id \| `overview` | overview | — | yes | Focused bench at boot (any catalog device id, or `overview`). |
 | `circuit` | example id \| netlist `{ v: 1, e, w, … }` | none | — | yes | Circuit Lab netlist (#256): a bench port wired to drawn R, C, L, diodes, switches and meters, solved by the C++ MNA solver (needs sim_core.wasm). `?circuit=<id>` opens an example (`src/circuit/examples.ts`); share links and `.lab.json` carry the whole netlist — [`CIRCUIT.md`](./CIRCUIT.md). |
+| `twinProfile` | `tp1;…` calibration profile | catalog nominal | — | yes | Hardware twin calibration profile (#257): the fitted rig parameters as deltas on the catalog nominal, their covariance and the fit R², from the Hardware Twin panel's **Calibrate**. The estimator uses it on any machine; a profile for another catalog rig is refused. Simulated, not metrology — [`adr/0019-calibrated-twin.md`](./adr/0019-calibrated-twin.md). |
 
 **Share-link state** — not query params; carried by `#lab2=` links and
 `.lab.json` (`window.lab.loadConfig`), applied live:
@@ -547,8 +550,9 @@ switch; `#device-readout` is named `"<bench> readout"`.
 |-------|--------|
 | `src/hardware-bridge.ts` + panel | **Experimental** — mock works (`?mockHardware=1`); Serial / BLE / WebUSB depend on browser + device |
 | Transports | `serial` (reference), `bluetooth` (Nordic UART, ~20 Hz), `usb` (CDC-ACM, only if Serial can't see the board), `mock`. Unsupported links are disabled in the panel, not hidden |
-| `firmware/seg-driver/` | **Experimental** Arduino-style coil/sensor sketch, line protocol v2 (v1 lines + a `V2` hello); Uno / Mega / ESP32 pin maps; on-board BLE deferred. Not required for the web app — [`firmware/seg-driver/README.md`](../firmware/seg-driver/README.md) |
-| Safety | Disconnect **and transport switching** coast coils on every link; a dropped link leans on the firmware watchdog. `npm run test:transports` pins this (v1 and v2 boards) |
+| `firmware/seg-driver/` | **Experimental** Arduino-style coil/sensor sketch, line protocol v3 (v1 lines + a `V3` hello, then `S t=<µs>` samples); Uno / Mega / ESP32 pin maps; on-board BLE opt-in (`SEG_BLE=1`, NimBLE 2.x) — its link plumbing is host-tested, the radio glue is **not compile-checked or benched**. Not required for the web app — [`firmware/seg-driver/README.md`](../firmware/seg-driver/README.md) |
+| Twin estimator / calibration | EKF estimate mode, one-click Calibrate, `twinProfile` share field — sim_core `TwinEstimator` / `TwinSysId` + `src/twin/`; reads only, never commands a coil ([ADR-0019](./adr/0019-calibrated-twin.md)). `npm run test:twin` |
+| Safety | Disconnect **and transport switching** coast coils on every link; a dropped link leans on the firmware watchdog. `npm run test:transports` pins this (v1, v2 and v3 boards) |
 | Lock-on test | `npm run test:firmware-safety` compiles the sketch's safety core + `setup()`/`loop()` with the host C++ compiler and checks watchdog / DC cap / bounded brake / wired pins every simulated ms. **By hand, never CI**; no compiler → SKIPPED |
 
 Do not present firmware as production-ready or as a CI dependency. The visualizer runs fully without hardware.
@@ -579,7 +583,7 @@ npm run wasm:build    # scripts/build-wasm.sh
 |----------|------|
 | `.github/workflows/static.yml` | typecheck + `build:site` → Pages |
 | `.github/workflows/validate.yml` | `npm run validate` in full (`REQUIRE_NAGA=1`; fails on a dirty tree after codegen), site build, ASan/UBSan native job, Playwright. New gates go in the `validate` script, never as a separate workflow step |
-| `.github/workflows/build-wasm.yml` | WASM rebuild when `cpp/`, `src/wasm/`, `generated/*.h`, `generated/sim-core-exports.json`, `physics/` or the build/codegen scripts change; `test:wasm-abi`, `test:snapshots`, `test:analysis`, `test:experiments`, `test:experiments:live`, `test:fdtd` on the **fresh** `.wasm` (+ `test:golden` / `test:integrators`, which are TS ⇄ native C++), then the size / bench check against `cpp/bench-baseline.json` |
+| `.github/workflows/build-wasm.yml` | WASM rebuild when `cpp/`, `src/wasm/`, `generated/*.h`, `generated/sim-core-exports.json`, `physics/` or the build/codegen scripts change; `test:wasm-abi`, `test:snapshots`, `test:analysis`, `test:experiments`, `test:experiments:live`, `test:fdtd`, `test:twin`, `test:twin-snapshot` on the **fresh** `.wasm` (+ `test:golden` / `test:integrators`, which are TS ⇄ native C++), then the size / bench check against `cpp/bench-baseline.json` |
 
 ---
 

@@ -20,6 +20,8 @@ import {
   clampPwmDuty,
   pwmDutyToWire,
   parseFirmwareHello,
+  normalizeTwinMode,
+  splitSensorLine,
   HELLO_COMMAND,
   HELLO_ATTEMPTS,
   HELLO_RETRY_MS
@@ -33,10 +35,12 @@ import {
 // ============================================
 
 export function parseLine(bridge: HardwareBridge, line: string): void {
-  // S{phase},{rpm},{magX},{magY},{magZ},{hallMask},{coilMask},{timestampMs}
+  // S{phase},{rpm},{magX},{magY},{magZ},{hallMask},{coilMask},{timestampMs}[,{V},{I}]
+  // v3 (after `V3`): S t={µs} {the same fields}
   if (line.startsWith('S')) {
-    const parts = line.slice(1).split(',');
-    if (parts.length >= 8) {
+    const split = splitSensorLine(line);
+    const parts = split?.fields ?? [];
+    if (split && parts.length >= 8) {
       bridge.actualPhase = finiteNum(parseFloat(parts[0]), 0);
       bridge.actualRpm = clampRpm(parseFloat(parts[1]));
       bridge.magnetometer.x = finiteNum(parseFloat(parts[2]), 0);
@@ -45,11 +49,14 @@ export function parseLine(bridge: HardwareBridge, line: string): void {
       bridge.hallMask = parseInt(parts[5], 10) || 0;
       bridge.coilMask = parseInt(parts[6], 10) || 0;
       bridge.lastTimestampMs = parseInt(parts[7], 10) || 0;
+      bridge.hasElectrical = parts.length >= 10
+        && Number.isFinite(parseFloat(parts[8])) && Number.isFinite(parseFloat(parts[9]));
       if (parts.length >= 10) {
         bridge.actualVoltage = finiteNum(parseFloat(parts[8]), 0);
         bridge.actualCurrent = finiteNum(parseFloat(parts[9]), 0);
       }
       bridge.lastSensorUpdate = performance.now();
+      bridge.sampleClock.stamp(split.tUs, bridge.lastTimestampMs, bridge.lastSensorUpdate);
 
       // Shadow error vs last sim setpoints
       let dPhase = bridge.actualPhase - bridge.shadow.simPhase;
@@ -67,7 +74,7 @@ export function parseLine(bridge: HardwareBridge, line: string): void {
   } else if (line.startsWith('E')) {
     console.error('[Arduino Error]', line.slice(1));
   } else if (line.startsWith('I')) {
-    // A v2 board says hello at boot and in answer to `V2`; v1 never does.
+    // A v2/v3 board says hello at boot and in answer to `V3`; v1 never does.
     const hello = parseFirmwareHello(line);
     if (hello) bridge.firmware = hello;
     console.log('[Arduino]', line.slice(1));
@@ -134,16 +141,13 @@ export function update(bridge: HardwareBridge, sim: UpdateSimInput = {}): void {
     bridge.shadow.simCurrent = sim.simCurrent;
   }
 
-  // Mock only: drive its synthetic V/I proxies so the shadow charts move.
-  bridge.transport?.setElectricalTargets?.(bridge.shadow.simVoltage, bridge.shadow.simCurrent);
-
   // Apply twin-mode side effects for setTarget authority
   if (bridge.twinMode === TWIN_MODES.CLOSED) {
     bridge.mirrorEnabled = true;
   } else if (bridge.twinMode === TWIN_MODES.OPEN) {
     bridge.mirrorEnabled = false;
   } else {
-    // shadow: visualize sim, still compare
+    // estimate: the sim drives the coils, the EKF follows the rig
     bridge.mirrorEnabled = false;
   }
 
@@ -163,13 +167,16 @@ export function update(bridge: HardwareBridge, sim: UpdateSimInput = {}): void {
   if (bridge.manualMode) {
     const wirePwm = pwmDutyToWire(bridge.manualPwmDuty);
     bridge._writeLine(`C${bridge.manualCoilMask},${wirePwm},0`);
+    noteDrive(bridge, 0, bridge.controlMode, true);
   } else {
     const phase = ((bridge.targetPhase % 360) + 360) % 360;
     const speed = clampRpm(bridge.targetSpeed);
     // Protocol: P{phase},{speed},{mode}
+    const wireSpeed = speed.toFixed(1);
     bridge._writeLine(
-      `P${phase.toFixed(2)},${speed.toFixed(1)},${bridge.controlMode}`
+      `P${phase.toFixed(2)},${wireSpeed},${bridge.controlMode}`
     );
+    noteDrive(bridge, Number(wireSpeed), bridge.controlMode, false);
   }
 
   while (bridge._commandQueue.length > 0) {
@@ -190,10 +197,21 @@ export function setConfig(bridge: HardwareBridge, newConfig: Partial<HardwareBri
   if (bridge.isConnected) bridge._sendConfig();
 }
 
+/**
+ * What the host last told the board to do — the estimator's input (the drive
+ * held over the next sample interval, docs/hardware_connection.md → v3). Only
+ * a line actually written counts, so the estimator sees what the board saw.
+ */
+export function noteDrive(bridge: HardwareBridge, rpm: number, mode: number, manual: boolean): void {
+  if (!bridge.isConnected) return;
+  bridge.driveSent = { rpm, mode, manual };
+}
+
 export function setTwinMode(bridge: HardwareBridge, mode: string): void {
-  if (!Object.values(TWIN_MODES).includes(mode as TwinMode)) return;
-  bridge.twinMode = mode as TwinMode;
-  bridge.mirrorEnabled = mode === TWIN_MODES.CLOSED;
+  const m: TwinMode | null = normalizeTwinMode(mode);
+  if (!m) return;
+  bridge.twinMode = m;
+  bridge.mirrorEnabled = m === TWIN_MODES.CLOSED;
   bridge._emit('twinMode', bridge.twinMode);
 }
 
@@ -220,6 +238,7 @@ export function clearManual(bridge: HardwareBridge): void {
   bridge.manualPwmDuty = 0;
   // Release override on device
   bridge._writeLineImmediate('C0,0,0');
+  noteDrive(bridge, 0, bridge.controlMode, false);
 }
 
 export function brake(bridge: HardwareBridge): void {

@@ -68,6 +68,12 @@ export interface PlantWorkerFrame {
   simSteps: number[];
   drive: number;
   useWasm: boolean;
+  /**
+   * Runs after the last result is applied and before the next batch is
+   * posted — closed-loop twin writes the filtered rig ω here, so the worker
+   * integrates from it (#257).
+   */
+  beforePost?: () => void;
 }
 
 interface InFlight {
@@ -196,6 +202,7 @@ export class PlantWorkerHost {
       if (phys) phys._wasmPlantActive = true;
     }
 
+    frame.beforePost?.();
     for (const dt of frame.simSteps) {
       if (dt > 0) this.pending.push(dt);
     }

@@ -37,6 +37,7 @@ import { runsCsvFilename, runsToCsv } from './run-export';
 import { addRun, clearRuns, getRun, listRuns, subscribeRuns } from './run-store';
 import type { RecordedRun } from './run-types';
 import { runFromTelemetryRows } from './telemetry-run';
+import { TwinAnalysisView } from './twin-view';
 
 /**
  * Dark categorical slots in fixed order (dataviz reference palette, dark
@@ -117,6 +118,10 @@ class AnalysisPanel {
   private readonly csvBtn = h('button', { type: 'button', textContent: 'CSV' });
   private readonly pngBtn = h('button', { type: 'button', textContent: 'PNG' });
   private readonly labBtn = h('button', { type: 'button', textContent: '.lab.json', hidden: true });
+  /** #257: the hardware twin's live estimator (not a recorded run). */
+  private readonly twinBtn = h('button', { type: 'button', textContent: 'Twin (live)' });
+  private readonly twinView = new TwinAnalysisView(() => window.multiVisualizer?.session?.twin ?? null);
+  private readonly runEls: HTMLElement[] = [];
 
   private plots: uPlot[] = [];
   private model: PlotModel | null = null;
@@ -168,6 +173,9 @@ class AnalysisPanel {
       this.viewBtns[v] = b;
       views.append(b);
     }
+    this.twinBtn.title = 'Hardware twin estimator: innovation and estimate with 3σ bands, covariance ellipse, calibration cost';
+    this.twinBtn.addEventListener('click', () => this.showTwin(true));
+    views.append(this.twinBtn);
 
     this.csvBtn.title = 'Download the run(s) as CSV with a # metadata header';
     this.csvBtn.addEventListener('click', () => this.exportCsv());
@@ -181,14 +189,11 @@ class AnalysisPanel {
       h('div', { className: 'analysis-row' },
         h('label', {}, 'Run ', this.runSel), h('label', {}, 'Overlay ', this.refSel), addRec, clear, this.statusEl),
       views,
-      this.controls,
-      this.plotsEl,
-      this.readout,
-      this.fitEl,
-      this.notesEl,
-      this.expectsEl,
-      h('div', { className: 'analysis-row analysis-foot' }, this.csvBtn, this.pngBtn, this.labBtn, this.metaEl)
+      this.twinView.el
     );
+    this.runEls.push(this.controls, this.plotsEl, this.readout, this.fitEl, this.notesEl, this.expectsEl,
+      h('div', { className: 'analysis-row analysis-foot' }, this.csvBtn, this.pngBtn, this.labBtn, this.metaEl));
+    this.dialog.append(...this.runEls);
     this.root.append(this.dialog);
     if (!document.getElementById('analysis-panel-styles')) {
       document.head.append(h('style', { id: 'analysis-panel-styles', textContent: `${uplotCss}\n${panelCss}` }));
@@ -224,8 +229,21 @@ class AnalysisPanel {
     this.closeBtn.focus();
   }
 
+  /** Twin view on (the live estimator) or off (back to the run views). */
+  showTwin(on: boolean): void {
+    this.twinBtn.setAttribute('aria-pressed', String(on));
+    for (const el of this.runEls) el.hidden = on;
+    if (on) {
+      for (const b of Object.values(this.viewBtns)) b.setAttribute('aria-pressed', 'false');
+      this.twinView.start();
+    } else {
+      this.twinView.hide();
+    }
+  }
+
   close(): void {
     if (this.root.hidden) return;
+    this.showTwin(false);
     this.root.hidden = true;
     document.removeEventListener('keydown', this.onDocKey, true);
     this.destroyPlots();
@@ -269,6 +287,7 @@ class AnalysisPanel {
   }
 
   private setView(view: AnalysisView): void {
+    this.showTwin(false);
     const run = this.runId ? getRun(this.runId) : undefined;
     if (!run) return;
     this.selection(run).view = view;
@@ -549,10 +568,11 @@ class AnalysisPanel {
 
 let panel: AnalysisPanel | null = null;
 
-/** Open (creating on first call) the panel; ids = [main run, overlay run]. */
-export function openAnalysisPanel(runIds?: string[]): void {
+/** Open (creating on first call) the panel; ids = [main run, overlay run]; `twin` opens the live twin view. */
+export function openAnalysisPanel(runIds?: string[], opts: { twin?: boolean } = {}): void {
   panel ??= new AnalysisPanel();
   panel.open(runIds);
+  panel.showTwin(!!opts.twin);
 }
 
 /** Close if open (e2e / console). */

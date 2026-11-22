@@ -58,6 +58,25 @@ Lab's MNA solver:
   module's heap (`src/circuit/readout.ts`, re-viewed when the heap grows);
 - `errorText()`: why a load or step failed.
 
+The hardware twin (#257, ADR-0019) adds two classes, both double-precision
+inside and both read zero-copy through C++-owned `f64` blocks:
+
+- `TwinEstimator` (`twin_*`), the EKF: `setParam` / `setProcessNoise` /
+  `setSensorSigma` / `setInitial`, `reset()`, `predict(dt, v)`,
+  `setMeasurement(c, z)` + `update()` (returns the NIS), `readoutPtr()` /
+  `readoutCount()` (estimate, P, innovations, χ² window — layout in
+  `cpp/src/twin/twin.h` and `src/twin/readout.ts`, checked by its count), and
+  `save()` / `load()` over `snapshotPtr()` / `snapshotCount()` (the snapshot
+  `twin` block).
+- `TwinSysId` (`sysid_*`), the calibration: `dataPtr(n)` takes the run as
+  n × [t, v, z…] doubles, `load(n)`, then `start()` and `iterate()` until it
+  reports done (one LM iteration per call, so the offline worker can post
+  progress), and the results: θ, covariance, x₀, R² per channel, condition,
+  residual autocorrelation and warning bits.
+
+`npm run test:unit` → `wasm-abi.test.mjs` exercises both through the shipped
+binary; `test:twin` runs them end to end.
+
 Two free functions, `circuit_kind_name(k)` and `circuit_format_version()`,
 let `scripts/tests/circuit.test.mjs` hold `src/circuit/kinds.ts` to the
 binary.
@@ -92,9 +111,9 @@ loop as a `TypeError`.
 | | Embind (before) | C ABI (after) |
 |---|---|---|
 | JS glue / loader chunk | `sim_core.js` 22,582 B raw, 9,157 B gzip | `instantiate-*.js` 10,084 B raw, **2,598 B gzip (−72 %)** |
-| Exports | 118 bound functions | 142 (adds the FDTD grid and integrator stats); 166 with the Circuit Lab's `CircuitSim` (#256) |
+| Exports | 118 bound functions | 142 (adds the FDTD grid and integrator stats); 166 with the Circuit Lab's `CircuitSim` (#256); 220 with the twin's `TwinEstimator` / `TwinSysId` (#257) |
 | `.wasm`, same sources | 83,332 B | 68,135 B (Embind's class registry gone) |
-| `.wasm` today | | 122,380 B with the MNA solver (#256; was 74,145 B — [`cpp/bench-baseline.json`](../cpp/bench-baseline.json)) |
+| `.wasm` today | | 163,244 B with the twin's EKF + sysid (#257); 122,380 B with the MNA solver (#256; was 74,145 B — [`cpp/bench-baseline.json`](../cpp/bench-baseline.json)) |
 
 With no Emscripten JS left, there is no `MODULARIZE`, `EXPORTED_RUNTIME_METHODS`,
 `DYNAMIC_EXECUTION`, `--closure` or `SINGLE_FILE` to configure. The module has

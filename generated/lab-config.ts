@@ -69,6 +69,7 @@ export interface LabConfig {
   labMode: 'showroom' | 'lab' | 'twin' | null;
   classroom: boolean | null;
   mockHardware: boolean;
+  mockParamError: number;
   energyCoupling: boolean;
   fieldCoupling: boolean;
   chargeCoupling: boolean;
@@ -98,6 +99,7 @@ export interface LabConfig {
   tourStep: number | null;
   setpoints: Readonly<Record<string, number>>;
   circuit: string | Readonly<Record<string, unknown>> | null;
+  twinProfile: string | null;
 }
 
 export type LabConfigKey = keyof LabConfig;
@@ -136,6 +138,7 @@ const ROWS: readonly LabFieldRow[] = [
   { key: 'labMode', type: 'enum', default: null, values: ["showroom","lab","twin"], storage: { key: 'seg-lab-mode', codec: 'raw' }, share: true, live: true },
   { key: 'classroom', type: 'bool', default: null, url: ["class"], share: true, live: true },
   { key: 'mockHardware', type: 'bool', default: false },
+  { key: 'mockParamError', type: 'number', default: 0, min: 0, max: 0.5 },
   { key: 'energyCoupling', type: 'bool', default: false, storage: { key: 'seg-energy-coupling', codec: 'bool' }, share: true, live: true },
   { key: 'fieldCoupling', type: 'bool', default: false, storage: { key: 'seg-field-coupling', codec: 'bool' }, share: true, live: true },
   { key: 'chargeCoupling', type: 'bool', default: false, storage: { key: 'seg-charge-coupling', codec: 'bool' }, share: true, live: true },
@@ -164,7 +167,8 @@ const ROWS: readonly LabFieldRow[] = [
   { key: 'tour', type: 'bool', default: null, url: [], share: true, live: true },
   { key: 'tourStep', type: 'int', default: null, min: 0, max: 999, url: [], share: true, live: true },
   { key: 'setpoints', type: 'setpoints', default: {}, url: [], share: true, live: true },
-  { key: 'circuit', type: 'circuit', default: null, share: true, live: true }
+  { key: 'circuit', type: 'circuit', default: null, share: true, live: true },
+  { key: 'twinProfile', type: 'string', default: null, pattern: "^tp1;[A-Za-z0-9.;=,_+-]{8,600}$", share: true, live: true }
 ];
 
 export const LAB_CONFIG_FIELDS: readonly LabFieldSpec[] = ROWS.map((r) => ({ url: [r.key], share: false, live: false, ...r }));
@@ -175,4 +179,4 @@ export const LAB_CONFIG_DEFAULTS = Object.fromEntries(
 ) as unknown as Readonly<LabConfig>;
 
 /** Hash of the field specs — versions `.lab.json` and #lab2= payloads. */
-export const LAB_CONFIG_SCHEMA_HASH = 'd3ddcb932389';
+export const LAB_CONFIG_SCHEMA_HASH = '124d47b68d36';

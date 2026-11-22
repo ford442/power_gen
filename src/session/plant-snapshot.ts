@@ -82,6 +82,13 @@ export interface PlantSnapshot {
   operator?: OperatorSnapshot;
   /** Speed multiplier (sim-rate slider). */
   speed?: number;
+  /**
+   * Hardware twin filter (#257, ADR-0015 amendment): the `TwinEstimator`
+   * snapshot doubles — [layout v, N, NP, M, t, x, P, θ, q, σ, hMax] — and the
+   * profile in use, and the board-clock time of the filter's last sample
+   * (`t`, null when unknown). Absent without a connected estimator.
+   */
+  twin?: { version: 1; values: number[]; profile: string | null; t?: number | null };
 }
 
 export const SNAPSHOT_FORMAT = 'seg-plant-snapshot';
@@ -353,6 +360,27 @@ export function parsePlantSnapshot(input: unknown): { snapshot: PlantSnapshot | 
     };
   }
 
+  let twin: PlantSnapshot['twin'];
+  if (o.twin !== undefined && o.twin !== null) {
+    const tw = o.twin as { version?: unknown; values?: unknown; profile?: unknown; t?: unknown };
+    const ok = tw.version === 1
+      && Array.isArray(tw.values)
+      && tw.values.length > 0
+      && tw.values.every((v) => typeof v === 'number' && Number.isFinite(v))
+      && (tw.profile === null || tw.profile === undefined || typeof tw.profile === 'string')
+      && (tw.t === null || tw.t === undefined || (typeof tw.t === 'number' && Number.isFinite(tw.t)));
+    if (ok) {
+      twin = {
+        version: 1,
+        values: tw.values as number[],
+        profile: (tw.profile as string | null | undefined) ?? null,
+        t: (tw.t as number | null | undefined) ?? null
+      };
+    } else {
+      warnings.push('twin: needs version 1, finite values, a string or null profile and a finite or null t — the twin filter is skipped');
+    }
+  }
+
   if (errors.length) return { snapshot: null, errors, warnings };
   const layoutHash = finiteOr(o.layoutHash, 0) >>> 0;
   if (wasm && layoutHash !== PLANT_STATE_LAYOUT_HASH) {
@@ -374,6 +402,7 @@ export function parsePlantSnapshot(input: unknown): { snapshot: PlantSnapshot | 
   if (typeof o.view === 'string') snapshot.view = o.view;
   if (operator) snapshot.operator = operator;
   if (typeof o.speed === 'number' && Number.isFinite(o.speed)) snapshot.speed = o.speed;
+  if (twin) snapshot.twin = twin;
   return { snapshot, errors, warnings };
 }
 

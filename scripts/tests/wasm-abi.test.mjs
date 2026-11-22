@@ -394,6 +394,97 @@ describe('CircuitSim exports', () => {
   });
 });
 
+/**
+ * TwinEstimator / TwinSysId (#257, ADR-0019): every argful method needs a call
+ * spec. The numbers (χ² consistency, sysid within 5 %) are checked natively by
+ * `--mode twin` and replayed on this module by scripts/tests/twin.test.mjs.
+ */
+const TWIN_ARGS = {
+  setInitial: [0, 0, 1],
+  setParam: [0, 0.0025],
+  getParam: [0],
+  setProcessNoise: [0, 1],
+  getProcessNoise: [0],
+  setSensorSigma: [0, 2],
+  getSensorSigma: [0],
+  predict: [0.008, 1],
+  setMeasurement: [0, 10],
+  state: [0],
+  cov: [0, 0]
+};
+const SYSID_ARGS = {
+  dataPtr: [4],
+  load: [4],
+  setParam: [0, 0.0025],
+  setFit: [0, true],
+  setInitialState: [0, 0],
+  setFitInitialState: [true],
+  setSensorSigma: [0, 2],
+  setMaxIterations: [5],
+  param: [0],
+  initialState: [0],
+  covariance: [0, 0],
+  r2: [0],
+  rmsNormalized: [0]
+};
+for (const [cls, specs] of [['TwinEstimator', TWIN_ARGS], ['TwinSysId', SYSID_ARGS]]) {
+  describe(`${cls} exports`, () => {
+    it('every argful method has a call spec, and every spec is still exported', () => {
+      const methods = manifest.classes[cls].methods;
+      for (const f of methods.filter((m) => m.args?.length)) assert.ok(f.name in specs, `${cls}.${f.name} has a call spec`);
+      for (const n of Object.keys(specs)) assert.ok(methods.some((m) => m.name === n), `${cls} spec ${n} is stale`);
+    });
+    it('every method callable, then delete (idempotent)', () => {
+      const o = new mod[cls]();
+      try {
+        const failed = [];
+        for (const { name } of manifest.classes[cls].methods) {
+          try {
+            o[name](...(specs[name] ?? []));
+          } catch (err) {
+            failed.push(`${name}: ${String(err?.message ?? err).slice(0, 80)}`);
+          }
+        }
+        assert.deepEqual(failed, []);
+      } finally {
+        o.delete();
+        o.delete();
+      }
+    });
+  });
+}
+
+describe('TwinEstimator readout + snapshot blocks', () => {
+  it('readout is C++-owned doubles; a save → load round trip restores state and covariance', () => {
+    const e = new mod.TwinEstimator();
+    try {
+      assert.equal(e.stateCount(), 2);
+      assert.equal(e.sensorCount(), 3);
+      for (let k = 0; k < 50; ++k) {
+        e.predict(0.008, 6);
+        e.setMeasurement(0, 400 + k);
+        e.setMeasurement(1, 0.5);
+        e.setMeasurement(2, 4);
+        assert.ok(e.update() >= 0, 'update returns the NIS');
+      }
+      const ro = new Float64Array(mod.HEAPF32.buffer, e.readoutPtr(), e.readoutCount());
+      assert.equal(ro[0], 1, 'readout version');
+      assert.equal(ro[1], e.time(), 'readout t');
+      assert.equal(ro[3], e.state(0), 'readout x[0]');
+      e.save();
+      const snap = new Float64Array(mod.HEAPF32.buffer, e.snapshotPtr(), e.snapshotCount()).slice();
+      const want = [e.time(), e.state(0), e.state(1), e.cov(0, 0), e.cov(0, 1), e.cov(1, 1)];
+      e.predict(0.5, 0);
+      e.reset();
+      new Float64Array(mod.HEAPF32.buffer, e.snapshotPtr(), e.snapshotCount()).set(snap);
+      assert.equal(e.load(), true);
+      assert.deepEqual([e.time(), e.state(0), e.state(1), e.cov(0, 0), e.cov(0, 1), e.cov(1, 1)], want);
+    } finally {
+      e.delete();
+    }
+  });
+});
+
 const HARNESS_ENTRY = `
   export { SEGSim } from './src/wasm/sim';
   export { segWasm } from './src/wasm/seg-physics-bridge';
