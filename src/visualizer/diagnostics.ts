@@ -40,7 +40,7 @@ export const diagnosticsMethods: ThisType<Host> & {
       slider.value = String(speedToSlider(speed));
       await new Promise((r) => setTimeout(r, 500));
 
-      const startFrame = (this.profiler as { frameCount?: number } | null)?.frameCount || 0;
+      const startFrame = this.framesSubmitted ?? 0;
       const startTime = performance.now();
       let minFps = 999;
       let maxFps = 0;
@@ -54,7 +54,7 @@ export const diagnosticsMethods: ThisType<Host> & {
         }
       }
 
-      const endFrame = (this.profiler as { frameCount?: number } | null)?.frameCount || startFrame;
+      const endFrame = this.framesSubmitted ?? startFrame;
       results.push({
         speed,
         fps: this.fps || 0,

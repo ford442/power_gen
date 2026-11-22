@@ -23,6 +23,8 @@ import { PipelineTiers } from './pipeline-tiers.js';
 import { ShadowMap, SHADOW_MAP_SIZE } from './shadow-map.js';
 import { FrameBindings } from './frame-bindings.js';
 import { StaticBundles } from './render-bundles.js';
+import { installWebgpuTestHooks } from './test-hooks.js';
+import { gpuErrorLog } from '../webgpu-init/gpu-errors.js';
 
 type Host = MultiDeviceVisualizer;
 
@@ -53,8 +55,11 @@ export async function initVisualizer(this: Host): Promise<void> {
       pipelineCache: this.pipelineCache
     });
     installFieldVolumeDebug(this);
+    installWebgpuTestHooks(this);
     window.getRendererInfo = () => ({
       renderer: 'webgpu',
+      frames: this.framesSubmitted ?? 0,
+      gpuErrors: { ...gpuErrorLog(), messages: [...gpuErrorLog().messages] },
       fps: (this.profiler as { lastFps?: number; fps?: number } | null)?.fps
         ?? (this.profiler as { lastFps?: number } | null)?.lastFps
         ?? 0,

@@ -39,6 +39,17 @@ export interface VisualizerHostFields {
    */
   _deviceRecovering?: boolean;
 
+  /**
+   * Debug / e2e (visualizer/test-hooks.ts): when set, the render loop holds
+   * scene time at this value and steps nothing (dt = 0), so two captures of
+   * the same view are the same image. `null` / unset → the clock runs.
+   */
+  frozenTime?: number | null;
+  /** True while `captureCanvasFrame()` renders one frame outside the rAF chain. */
+  _frameOnDemand?: boolean;
+  /** Frames submitted to the queue since boot (`getRendererInfo().frames`). */
+  framesSubmitted?: number;
+
   // Set later in init(); undefined until then (matches original runtime behavior).
   pipelineCache?: PipelineLayoutCache | null;
   segLayoutUniformBuffer?: GPUBuffer | null;

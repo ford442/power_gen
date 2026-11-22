@@ -35,8 +35,45 @@ export const viteRawStub = {
   }
 };
 
+/**
+ * Real shader text for `?raw` imports: `.wgsl?raw` loads the file with its
+ * `#include`s expanded by the same resolver the Vite plugin uses
+ * (src/shaders/wgsl-include.js), so a bundle sees the WGSL the browser gets.
+ * Pass it in `plugins` for tests that compile shaders (test:pipelines,
+ * test:gpu-golden); it takes the place of {@link viteRawStub}. Other `?raw`
+ * imports still resolve to "".
+ *
+ * `inputs` collects every file read, includes too — bundleTsFile adds them to
+ * the cache manifest, so editing a `common/*.wgsl` chunk rebuilds the bundle.
+ */
+export function wgslRaw() {
+  const inputs = new Set();
+  return {
+    name: 'wgsl-raw',
+    cacheKey: 'v1',
+    replacesRawStub: true,
+    inputs,
+    setup(build) {
+      build.onResolve({ filter: /\?raw$/ }, (args) => {
+        const bare = args.path.replace(/\?raw$/, '');
+        if (!bare.endsWith('.wgsl')) return { path: args.path, namespace: 'raw-stub' };
+        return { path: resolve(args.resolveDir, bare), namespace: 'wgsl-raw' };
+      });
+      build.onLoad({ filter: /.*/, namespace: 'raw-stub' }, () => ({ contents: 'export default "";', loader: 'js' }));
+      build.onLoad({ filter: /.*/, namespace: 'wgsl-raw' }, async (args) => {
+        const { resolveWgsl } = await import('../src/shaders/wgsl-include.js');
+        const included = new Set();
+        const code = resolveWgsl(readFileSync(args.path, 'utf8'), { fromFile: args.path, included });
+        inputs.add(args.path);
+        for (const f of included) inputs.add(f);
+        return { contents: code, loader: 'text' };
+      });
+    }
+  };
+}
+
 /** Bump when the defaults below change, so cached bundles are rebuilt. */
-const HARNESS_VERSION = 3;
+const HARNESS_VERSION = 4;
 
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 
@@ -68,8 +105,9 @@ function inputsUnchanged(manifest) {
  * `options` are esbuild overrides (`plugins`, `define`, `external`, `platform`, …).
  * The defaults match what Vite does to app sources: ESM, `platform: 'neutral'`,
  * `.wgsl` / `.glsl` as text, `?raw` imports stubbed. `plugins` are appended
- * after the raw stub. A plugin whose output depends on its arguments should
- * carry a `cacheKey` string so two configurations do not share a bundle.
+ * after the raw stub ({@link wgslRaw} replaces it). A plugin whose output
+ * depends on its arguments should carry a `cacheKey` string so two
+ * configurations do not share a bundle.
  */
 export async function bundleTsFile(entry, options = {}) {
   const { plugins = [], ...rest } = options;
@@ -104,10 +142,17 @@ export async function bundleTsFile(entry, options = {}) {
     loader: { '.wgsl': 'text', '.glsl': 'text' },
     ...rest,
     // esbuild rejects unknown plugin fields, so `cacheKey` stays harness-side.
-    plugins: [viteRawStub, ...plugins.map(({ name, setup }) => ({ name, setup }))]
+    plugins: [
+      ...(plugins.some((p) => p.replacesRawStub) ? [] : [viteRawStub]),
+      ...plugins.map(({ name, setup }) => ({ name, setup }))
+    ]
   });
 
   const inputs = {};
+  // Files a plugin read itself (wgslRaw's #include chunks) are not in the metafile.
+  for (const p of plugins) {
+    for (const file of p.inputs ?? []) inputs[file] = sha(readFileSync(file));
+  }
   for (const rel of Object.keys(result.metafile.inputs)) {
     // Plugin namespaces (`raw-stub:…`, `<stdin>`) have no file to hash.
     const file = resolve(ROOT, rel);

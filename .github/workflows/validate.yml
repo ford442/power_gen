@@ -5,6 +5,18 @@
 # the local promise cannot drift (no hand-picked subset here). Add a step to
 # that script, not to this file.
 #
+# Tool versions (naga, node, playwright, emsdk) come from
+# config/toolchain.json — `npm run check:toolchain` fails on a copy here.
+#
+# Jobs:
+#   validate     npm run validate (REQUIRE_NAGA + REQUIRE_GPU: Dawn-in-Node on
+#                Lavapipe compiles every pipeline and runs the GPU goldens)
+#                + site build + bundle budget
+#   native-san   C++ under ASan / UBSan
+#   e2e          Playwright, WebGL2 renderer (headless)
+#   webgpu-e2e   Playwright, WebGPU renderer (headed Chromium on SwiftShader)
+#                + report-only image baselines — docs/WEBGPU.md
+#
 # Runs on PRs and pushes (does not deploy Pages).
 # Pages deploy remains in static.yml (typecheck + build:site).
 # =============================================================
@@ -16,6 +28,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      update_baselines:
+        description: 'webgpu-e2e: regenerate e2e/baselines/** on this runner and upload them as an artefact (commit them from there)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,6 +49,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The runner image's own Node is enough to read the pin file.
+      - name: Read toolchain pins
+        id: pins
+        run: node scripts/toolchain.mjs --github-output
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -41,8 +63,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install C++ toolchain (wasm:native, test:snapshots)
-        run: sudo apt-get update && sudo apt-get install -y g++ make
+      # g++ / make: wasm:native, test:snapshots. mesa-vulkan-drivers: Lavapipe,
+      # the software Vulkan adapter Dawn-in-Node runs test:pipelines and
+      # test:gpu-golden on.
+      - name: Install C++ toolchain + software Vulkan
+        run: sudo apt-get update && sudo apt-get install -y g++ make mesa-vulkan-drivers libvulkan1
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -54,18 +79,23 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/registry
             ~/.cargo/git
-          key: naga-cli-0.19.0-${{ runner.os }}
+          key: naga-cli-${{ steps.pins.outputs.naga }}-${{ runner.os }}
 
-      - name: Install naga-cli
+      - name: Install naga-cli (pinned)
         run: |
-          if ! command -v naga >/dev/null 2>&1; then
-            cargo install naga-cli --version 0.19.0 --locked
+          want='${{ steps.pins.outputs.naga }}'
+          have="$(naga --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+          if [ "$have" != "$want" ]; then
+            cargo install naga-cli --version "$want" --locked --force
           fi
-          naga --version || true
+          naga --version
 
+      # REQUIRE_NAGA / REQUIRE_GPU: a missing tool or adapter is a failure
+      # here, a visible skip on a dev box.
       - name: npm run validate
         env:
           REQUIRE_NAGA: '1'
+          REQUIRE_GPU: '1'
         run: npm run validate
 
       # validate re-runs every codegen step; a diff means a committed
@@ -73,8 +103,12 @@ jobs:
       - name: Generated files committed
         run: git diff --exit-code
 
-      - name: Build site (no WASM rebuild)
-        run: npm run build:site
+      # The budget is checked inside validate too (its own build); this is
+      # the artefact a deploy would ship, so check that one as well.
+      - name: Build site (no WASM rebuild) + bundle budget
+        run: |
+          npm run build:site
+          node scripts/check-bundle-budget.mjs --dist dist
 
   native-san:
     name: C++ sanitizers + optional WASM build
@@ -126,3 +160,56 @@ jobs:
       # fresh build:site, its own port (docs/CLASSROOM.md).
       - name: E2E offline PWA (precache, offline reload, prompt-based update)
         run: npm run test:e2e:offline
+
+  # The primary renderer in a real browser. Headless Chromium gets no WebGPU
+  # adapter on a GPU-less runner; headed under a virtual display with
+  # SwiftShader's Vulkan does (scripts/e2e-webgpu.mjs adds xvfb-run).
+  webgpu-e2e:
+    name: Playwright (WebGPU, headed SwiftShader)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium + xvfb
+        run: |
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y xvfb
+
+      # Boot, every bench, high-tier passes, device loss, showroom — then the
+      # image baselines (report-only: they annotate and report, never fail).
+      - name: E2E tests (WebGPU)
+        if: ${{ !inputs.update_baselines }}
+        run: npm run test:e2e:webgpu
+
+      - name: Regenerate image baselines on this runner
+        if: ${{ inputs.update_baselines }}
+        run: npm run e2e:update-baselines
+
+      # Actual + diff PNGs and report.md / report.json for every view.
+      - name: Upload baseline report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: webgpu-baseline-report
+          path: test-results/webgpu-baselines/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload regenerated baselines
+        if: ${{ inputs.update_baselines }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: webgpu-baselines
+          path: e2e/baselines/
+          retention-days: 14

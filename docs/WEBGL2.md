@@ -152,6 +152,45 @@ const frame = window.captureCanvasFrame({ flipY: true });
 Debug keys (WebGL2 only): `W` wireframe, `P` particle debug, `N` normals,
 `Space` pause, `.` step, `[` / `]` slow-mo.
 
+Both hooks exist on WebGPU too since #258 (`getRendererInfo().renderer ===
+'webgpu'`; `captureCanvasFrame` renders one frame on demand there).
+
+## Measured parity with WebGPU
+
+`e2e/baselines.webgpu.js` captures the same six frozen views on both
+renderers (`?seed=1&taa=0`, scene time held at 8 s, particles left out,
+520×566, both on SwiftShader) and compares the frames with pixelmatch. This
+is a measurement, never a gate: the renderers differ by design (the gaps
+above), and both sides are software-rasterised frames — WebGPU at its `low`
+tier, without IBL or SSR. First numbers, 2026-11-22:
+
+| View | Pixels differing | Mean abs. channel difference (0–255) |
+|---|---|---|
+| SEG focus, studio | 71.5 % | 76.7 |
+| SEG focus, lab | 69.8 % | 69.1 |
+| SEG focus, drama | 76.1 % | 80.6 |
+| overview | 78.9 % | 114.6 |
+| transformer | 15.9 % | 29.6 |
+| heron | 36.0 % | 52.0 |
+
+What the pictures behind the SEG and overview numbers show
+(`e2e/baselines/{webgpu,webgl2}-swiftshader/`):
+
+- **Exposure.** The WebGPU frames are much brighter and less saturated than
+  the WebGL2 ones (overview's foreground cylinders are near white on WebGPU,
+  saturated red / green on WebGL2).
+- **SEG rollers.** On WebGPU the rollers lie at assorted tilts; on WebGL2
+  they stand upright on their rings. The WebGPU instance buffer comes from
+  `seg-roller-compute.wgsl`, whose rolling quaternion turns each roller about
+  the orbit tangent.
+- **SEG framing.** In SEG focus WebGL2 draws the CAD housing and base plate
+  large in frame; WebGPU shows the bench from further back.
+
+Whether the first two also show on a hardware GPU is not known from these
+captures. The report CI uploads (`webgpu-baseline-report` → `parity/`) has
+the per-view diff images; rerun `npm run test:e2e:webgpu` to refresh the
+table after a rendering change.
+
 ## Context attributes
 
 `WebGL2Context.init()` uses:

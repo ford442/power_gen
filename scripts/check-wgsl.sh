@@ -6,15 +6,17 @@
 #   scripts/check-wgsl.sh              # skip if naga missing (exit 0)
 #   REQUIRE_NAGA=1 scripts/check-wgsl.sh  # fail if naga missing
 #
-# Install naga:
-#   cargo install naga-cli --version 0.19.0 --locked
+# Install naga (version pinned in config/toolchain.json):
+#   cargo install naga-cli --version "$(node scripts/toolchain.mjs naga)" --locked
 #
 # Pipeline:
 #   1. node scripts/extract-wgsl.mjs  → build/wgsl-check/*.wgsl
 #      (expands #include, extracts generator templates with entry points)
 #   2. naga each extracted module
 #
-# Known Tint-only / WIP modules can be allowlisted in KNOWN_NAGA_FAILURES until fixed.
+# naga is the fast, portable gate and the proxy for Firefox / wgpu. Chrome
+# compiles with Tint: `npm run test:pipelines` covers that (docs/WEBGPU.md →
+# How the GPU is tested). Every module passes; there is no allowlist.
 # See docs/SHADERS.md for naga vs Chrome differences.
 # =============================================================
 set -euo pipefail
@@ -22,17 +24,29 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$ROOT/build/wgsl-check"
 
+NAGA_PIN="$(node "$ROOT/scripts/toolchain.mjs" naga)"
+INSTALL_HINT="cargo install naga-cli --version $NAGA_PIN --locked"
+
 if ! command -v naga >/dev/null 2>&1; then
   if [[ "${REQUIRE_NAGA:-}" == "1" ]]; then
-    echo "error: naga not found (REQUIRED). Install: cargo install naga-cli --version 0.19.0 --locked" >&2
+    echo "error: naga not found (REQUIRED). Install: $INSTALL_HINT" >&2
     exit 1
   fi
-  echo "[check-wgsl] naga not found — skipping WGSL validation"
-  echo "            install: cargo install naga-cli --version 0.19.0 --locked"
+  # validate.mjs surfaces `[tool] SKIP:` lines even when the step exits 0.
+  echo "[check-wgsl] SKIP: naga not found — WGSL not validated. Install: $INSTALL_HINT"
   exit 0
 fi
 
-echo "[check-wgsl] naga: $(naga --version 2>/dev/null || echo present)"
+NAGA_HAVE="$(naga --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+echo "[check-wgsl] naga: ${NAGA_HAVE:-present} (pinned $NAGA_PIN)"
+if [[ -n "$NAGA_HAVE" && "$NAGA_HAVE" != "$NAGA_PIN" ]]; then
+  # A different naga can accept or reject different WGSL; CI runs the pin.
+  if [[ "${REQUIRE_NAGA:-}" == "1" ]]; then
+    echo "error: naga $NAGA_HAVE ≠ pinned $NAGA_PIN (config/toolchain.json). Install: $INSTALL_HINT" >&2
+    exit 1
+  fi
+  echo "[check-wgsl] warning: naga $NAGA_HAVE ≠ pinned $NAGA_PIN — CI uses the pin. Install: $INSTALL_HINT" >&2
+fi
 
 echo "[check-wgsl] extracting / expanding shaders…"
 node "$ROOT/scripts/extract-wgsl.mjs"

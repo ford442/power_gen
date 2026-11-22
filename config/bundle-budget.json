@@ -1,0 +1,8 @@
+{
+  "$comment": "Gzip budgets for the chunks a first visit downloads (#258 §7), in kB (1000 B, the unit `vite build` prints). `module` is the source module that identifies the chunk in dist/.vite/manifest.json. Measured 2026-11-22 on main + #258: entry 139.8, webgpu 124.3, webgl2 18.8 — each budget is that plus about 8 %. Raising one is a decision: say in the PR what the bytes buy. Checked by `npm run check:bundle-budget` (scripts/check-bundle-budget.mjs).",
+  "chunks": {
+    "entry": { "module": "index.html", "maxGzipKB": 152 },
+    "webgpu": { "module": "multi-device-visualizer.ts", "maxGzipKB": 135 },
+    "webgl2": { "module": "renderers/webgl2/index.js", "maxGzipKB": 21 }
+  }
+}

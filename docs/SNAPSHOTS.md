@@ -229,6 +229,7 @@ telemetry is there at once.
 ## Adding a field
 
 Add it to the device's `state` block, run `npm run codegen:catalog`, rebuild
-the WASM if a `cpp` path changed (`npm run wasm:build`, emsdk 3.1.64), and run
+the WASM if a `cpp` path changed (`npm run wasm:build`, the emsdk pinned in
+`config/toolchain.json`), and run
 `npm run test:snapshots`. A field the step reads but the block misses shows up
 there as a divergence.

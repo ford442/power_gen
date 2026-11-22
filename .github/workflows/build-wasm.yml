@@ -10,8 +10,8 @@
 #   • sim_core.wasm  (uploaded as GitHub artefact; no JS glue since #254)
 #   • Committed back to src/wasm/sim-core/ on the main branch
 #
-# emsdk: cpp/emsdk-version is the one pin (scripts/build-wasm.sh warns on a
-# mismatch; cpp/README.md points at it).
+# emsdk: config/toolchain.json is the one pin (scripts/build-wasm.sh warns on
+# a mismatch; cpp/README.md's table is generated from it).
 # =============================================================
 
 name: Build WASM (sim_core)
@@ -27,6 +27,8 @@ on:
       - 'physics/**'
       - 'scripts/build-wasm.sh'
       - 'scripts/codegen-*.mjs'
+      # The emsdk pin is an input of sim_core_source_hash().
+      - 'config/toolchain.json'
       - '.github/workflows/build-wasm.yml'
   pull_request:
     paths:
@@ -38,6 +40,8 @@ on:
       - 'physics/**'
       - 'scripts/build-wasm.sh'
       - 'scripts/codegen-*.mjs'
+      # The emsdk pin is an input of sim_core_source_hash().
+      - 'config/toolchain.json'
       - '.github/workflows/build-wasm.yml'
   workflow_dispatch:
 
@@ -58,15 +62,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. Install emsdk (version from cpp/emsdk-version) ────
-      - name: Read emsdk pin
-        id: emsdk
-        run: echo "version=$(tr -d '[:space:]' < cpp/emsdk-version)" >> "$GITHUB_OUTPUT"
+      # ── 2. Install emsdk (version from config/toolchain.json) ─
+      # The runner image's own Node is enough to read the pin file.
+      - name: Read toolchain pins
+        id: pins
+        run: node scripts/toolchain.mjs --github-output
 
       - name: Set up Emscripten SDK
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: ${{ steps.emsdk.outputs.version }}
+          version: ${{ steps.pins.outputs.emsdk }}
           actions-cache-folder: '.emsdk-cache'
 
       # ── 3. Verify emcc ───────────────────────────────────────

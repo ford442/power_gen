@@ -29,11 +29,18 @@ const rawConfigAccess = [
 ];
 
 // ── CLAUDE.md "Do not": wgsl-include.js is Node/CI only ────────────────────
+// ── ADR-0020: Dawn-in-Node (`webgpu`) and the image-diff libraries are test
+//    dependencies; none of them may reach the browser bundle. ────────────────
 const noWgslInclude = {
   patterns: [{
     group: ['**/wgsl-include.js', '**/wgsl-include'],
     message: 'wgsl-include.js is Node/CI only; Vite expands `#include` in browser code (CLAUDE.md "Do not").'
-  }]
+  }],
+  paths: [
+    { name: 'webgpu', message: 'Dawn-in-Node is test-only (ADR-0020): import it from scripts/lib/node-gpu.mjs in a test, never from src/.' },
+    { name: 'pixelmatch', message: 'pixelmatch is an e2e test dependency (ADR-0020), not app code.' },
+    { name: 'pngjs', message: 'pngjs is an e2e test dependency (ADR-0020), not app code.' }
+  ]
 };
 
 export default tseslint.config(
@@ -107,6 +114,14 @@ export default tseslint.config(
       ...js.configs.recommended.rules,
       'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' }],
       eqeqeq: ['error', 'always', { null: 'ignore' }]
+    }
+  },
+  // Dawn-in-Node tests (ADR-0020): scripts/lib/node-gpu.mjs installs the
+  // WebGPU flag namespaces as globals before any of these run.
+  {
+    files: ['scripts/tests/gpu/**/*.mjs', 'scripts/lib/node-gpu.mjs', 'scripts/lib/gpu-app.mjs'],
+    languageOptions: {
+      globals: { GPUBufferUsage: 'readonly', GPUTextureUsage: 'readonly', GPUShaderStage: 'readonly', GPUMapMode: 'readonly' }
     }
   }
 );

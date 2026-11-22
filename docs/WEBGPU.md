@@ -240,6 +240,12 @@ window.simulateDeviceLost();
 
 - Logged as `[WebGPU] uncapturederror: …` (validation / OOM / internal).
 - Optional `onUncapturedError` callback on `WebGPUManager` options.
+- Counted in **`window.__gpuErrors`** (`src/webgpu-init/gpu-errors.ts`):
+  `{ uncaptured, scoped, lost, messages }`. `uncaptured` stays 0 in a healthy
+  session; `scoped` counts errors popped from a scope the app pushed itself
+  (a probe with a fallback, e.g. the IBL storage-texture check); `lost`
+  counts `device.lost`, the simulated one included. The log survives
+  device-lost recovery. `getRendererInfo().gpuErrors` is a copy.
 
 ## Frame graph
 
@@ -374,8 +380,128 @@ dropped rather than read as 0 ms. F3 lists milliseconds per pass under
 See **`docs/BINDINGS.md`**. Layouts live in `src/pipeline-layout-cache.ts`; devices do not call `layout: 'auto'`.
 `npm run check:bindings` catches `@group` / `@binding` drift between every layout and its WGSL, before it surfaces as a runtime bind-group mismatch.
 
+## How the GPU is tested
+
+Four layers, cheapest first (ADR-0020). The first three run in
+`npm run validate`; the last is its own CI job.
+
+| Layer | Command | Runs on | Catches |
+|---|---|---|---|
+| WGSL parses | `npm run check:wgsl` | naga, no GPU | syntax / type errors; the Firefox / wgpu proxy |
+| Layout ↔ WGSL | `npm run check:bindings`, `check:post` | Node, no GPU | binding numbers and kinds, CPU ↔ WGSL struct sizes |
+| Pipelines compile, compute passes are right | `npm run test:pipelines`, `npm run test:gpu-golden` | **Dawn in Node** on a software Vulkan adapter | what only Tint + Dawn validation see; wrong numbers |
+| The renderer runs | `npm run test:e2e:webgpu` | headed Chromium on SwiftShader | boot, draws, tiers, device loss; image baselines |
+
+### Dawn in Node (`scripts/tests/gpu/`)
+
+`scripts/lib/node-gpu.mjs` opens Dawn (the `webgpu` npm package — a
+devDependency, banned from `src/` by ESLint) and takes the software adapter
+(Lavapipe from `mesa-vulkan-drivers`, or SwiftShader) whenever there is one,
+so a dev box and CI run the same rasteriser. `SEG_GPU_ADAPTER=default` uses
+Dawn's default adapter instead. With no adapter both commands **skip with a
+notice** that `validate` prints; `REQUIRE_GPU=1` (CI) makes that a failure.
+
+**`test:pipelines`** builds the app's own `PipelineLayoutCache` on a device
+requested exactly as `webgpu-manager.ts` requests it and calls every
+`ensure*` factory with the real shader text, for five sessions (default
+linear, linear without `rg11b10ufloat-renderable`, `?hdr=1`, an `rgba8unorm`
+canvas, `?color=legacy`) × both depth formats × 1× and 4×: 54 pipelines per
+combination (53 on legacy, which has one bloom pass fewer). It fails on a shader compile error, a pipeline Dawn rejects, a
+validation error on a layout, an `ensure*` it does not call, or a pipeline
+layout no pipeline uses. It also enforces #171's "never ask for what no pass
+uses": every `OPTIONAL_DEVICE_FEATURES` entry must have a proven consumer,
+and every `PREFERRED_LIMITS` key must be exceeded by a need measured from the
+recorded layouts and pipelines (the device is created at core defaults, so a
+compiled pipeline *is* the proof that the defaults suffice).
+
+**`test:gpu-golden`** runs each compute pass and compares a readback with its
+CPU twin. Tolerances are set on a software rasteriser (a real GPU may fuse
+multiply-adds differently) and each file says how its number was measured.
+
+| Pass | Reference | Bound | Measured (Lavapipe) |
+|---|---|---|---|
+| `fdtd-tmz-compute` | `FdtdTmzGrid` (`src/physics/fdtd-tmz.ts`), same 256² grid, sources, drive, materials | 1e-4 of peak after 200 steps | 6e-6 |
+| `chores-reduce-f32` | `chores_reduce.cpp` — the shipped WASM on the same data, and the native fixture | 1e-5 relative; min / max exact | exact on the fixture |
+| `seg-roller-compute` | `buildAllRollerInstances` (`src/seg-roller-model.ts`) | 1e-3 rad per second of scene time | 4e-5 rad at 1 s |
+| `particle-compute` | invariants: finite, inside the 16-unit cull sphere, `phase` bit-preserved, LOD tail untouched — 16 modes × 5 times × plant states | — | farthest particle 11.5 |
+| `ibl-prefilter-compute` | energy per layer vs the source environment; texel-for-texel vs the CPU bake | 4 % energy; 1 % of peak vs CPU | 3.2 % (24-tap roughness-1 layer); 8e-4 |
+| `overview-cull-compute` | sphere / frustum test from camera parameters, in double | exact | exact, 5 cameras × 32 spheres |
+
+Notes on two of them:
+
+- The roller pass is closed-form kinematics of (time, plant ω, layout), not an
+  integrator, so its twin is the CPU instance builder, not a plant golden. Its
+  per-roller jitter seed is evaluated in f32 (`sin` of ~8600 at roller 67), so
+  GPU and CPU roller angles drift apart by about 1.7e-4 rad per second.
+  Deterministic on a given GPU; do not mix GPU and CPU roller positions late
+  in a session.
+- The IBL energy bound is 4 %, not 2 %: a GGX lobe preserves the mean only in
+  the continuum, and at 24–32 Hammersley taps the quadrature is off by up to
+  3.2 % — identically in the CPU bake.
+
+### WebGPU e2e (`e2e/*.webgpu.js`, `playwright.webgpu.config.js`)
+
+Headless Chromium gets no WebGPU adapter on a GPU-less machine (the device is
+lost at the first present). Headed Chromium with
+`--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan=swiftshader
+--use-angle=swiftshader` does; `scripts/e2e-webgpu.mjs` wraps the run in
+`xvfb-run` when there is no display. The specs run against `vite preview` of
+a fresh build.
+
+| Spec | Asserts |
+|---|---|
+| boot | default boot is WebGPU; `__gpuErrors.uncaptured === 0`; clean console |
+| every bench | each of the 16 benches focused once at the `low` tier: no GPU error, and the pipelines it must draw with did draw |
+| high tier | SEG and pulse-coil focus run shadow / MSAA / depth-resolve / TAA / field volume / FDTD on their `_msaa4` and shadow pipelines |
+| device loss | `window.simulateDeviceLost()` → frames resume, view kept, 0 validation errors (#221) |
+| showroom | `?labMode=showroom&look=drama` encodes the bloom chain; overview allocates no shadow / MSAA targets even at `high` |
+
+What the page gives a spec, instead of console text:
+
+- `window.__gpuErrors` — see `uncapturederror` above.
+- `window.getRendererInfo()` — `frames` (submitted since boot), `frameGraph`
+  (`ran`, `allocated`), `pipelineTiers`, `shadow`.
+- `window.captureCanvasFrame({ flipY })` — RGBA8 readback, same shape as the
+  WebGL2 hook. A WebGPU canvas only holds a frame until it is presented, so
+  the hook renders one frame on demand and copies it in the same task
+  (`src/visualizer/test-hooks.ts`).
+- `multiVisualizer.frozenTime = seconds | null` — hold scene time (dt = 0).
+
+The draw probe (`e2e/webgpu-helpers.js` `installDrawProbe`) is test-side: it
+wraps `setPipeline` / `draw*` / `dispatchWorkgroups` and records which
+pipeline labels drew. A pipeline that silently became `null` raises no GPU
+error — its draw is skipped — so "the transformer drew its flux ribbons" is
+observed, not inferred (#252). Keep pipeline `label`s stable, or update
+`MUST_DRAW` in `e2e/gpu.webgpu.js`.
+
+### Image baselines (report-only)
+
+`e2e/baselines.webgpu.js` captures six views — SEG focus in the three looks,
+overview, transformer, heron — with `?seed=1&taa=0`, the `low` tier pinned,
+scene time frozen at 8 s and the additive particle billboards left out (on a
+software rasteriser they blanket the frame). Each is compared with pixelmatch
+against `e2e/baselines/webgpu-swiftshader/<view>.png`; the same views on
+WebGL2 against `e2e/baselines/webgl2-swiftshader/`. Run-to-run the captures
+differ in under 0.1 % of pixels; the limits are 1 % (2 % for overview).
+
+- **Report-only until the baselines have been stable on CI for two weeks**
+  (landed 2026-11-22). A view over its limit is annotated on the test and
+  listed in `test-results/webgpu-baselines/report.md`, which CI uploads with
+  the actual and diff PNGs (artefact `webgpu-baseline-report`) and appends to
+  the job summary. `BASELINE_GATE=1` makes it fail the job — set it in
+  `validate.yml` when the two weeks are up.
+- `npm run e2e:update-baselines` rewrites the PNGs from a local run. The
+  baselines of record are the CI runner's: run **Validate** by hand with
+  `update_baselines` ticked and commit the `webgpu-baselines` artefact.
+- A baseline change needs the before / after image in the PR.
+- These are SwiftShader frames at the `low` tier (no IBL, no SSR). They pin
+  "what CI renders", not what a GPU shows.
+
 ## Related files
 
+- `scripts/lib/node-gpu.mjs`, `scripts/lib/gpu-app.mjs`, `scripts/tests/gpu/` — Dawn-in-Node helper, the bundled app modules, `test:pipelines` + `test:gpu-golden`
+- `e2e/webgpu-helpers.js`, `e2e/gpu.webgpu.js`, `e2e/baselines.webgpu.js` — WebGPU e2e and image baselines
+- `src/webgpu-init/gpu-errors.ts`, `src/visualizer/test-hooks.ts` — `window.__gpuErrors`, WebGPU `captureCanvasFrame`
 - `src/webgpu-manager.ts` — device lifetime (`init` / `reinit`), global uniforms; static helpers delegate to `src/webgpu-init/` (`adapter.ts` negotiation, `canvas.ts` configure + sizing, `color-pipeline.ts` scene / post / canvas formats, `device-lost.ts` hooks). Scene depth belongs to the post stack (`src/visualizer/scene-post-buffers.ts`) — the manager's own unused depth texture was removed in #223  
 - `src/pipeline-layout-cache.ts` — explicit layouts + shared pipelines  
 - `src/performance-profiler.ts` — timing + tier (consumes adapter info)  

@@ -20,6 +20,7 @@
 // name in src/shaders/common/pbr-eval.wgsl (asserted by assertIblShaderContract).
 
 import type { LightingPreset } from './seg-lighting-presets';
+import { recordGpuError } from './webgpu-init/gpu-errors';
 
 /** Octahedral face size, per array layer. */
 export const IBL_TEX_SIZE = 64;
@@ -403,6 +404,7 @@ export async function createIblResources(
     texture = device.createTexture(describe(sampledUsage | GPUTextureUsage.STORAGE_BINDING));
     const error = await device.popErrorScope();
     if (error) {
+      recordGpuError('scoped', error.message);
       console.warn('[ibl-prefilter] STORAGE_BINDING rejected — compute bake unavailable:', error.message);
       texture.destroy();
       storage = false;

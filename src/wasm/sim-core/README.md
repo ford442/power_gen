@@ -1,7 +1,7 @@
 # sim_core WASM artefacts
 
 `sim_core.wasm` is built by `make -C cpp wasm` (`npm run wasm:build`) with the
-emsdk pinned in `cpp/emsdk-version`. CI (`.github/workflows/build-wasm.yml`)
+emsdk pinned in `config/toolchain.json`. CI (`.github/workflows/build-wasm.yml`)
 rebuilds and commits it on `main` whenever anything compiled into the binary
 changes. It is a standalone reactor module — **there is no Emscripten JS glue**
 (#254 §3).

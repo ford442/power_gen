@@ -458,12 +458,15 @@ export const renderEncodeMethods: ThisType<Host> & {
 
     profiler.endFrameCpu();
     this.device.queue.submit([encoder.finish({ label: 'frame' })]);
+    this.framesSubmitted = (this.framesSubmitted ?? 0) + 1;
 
     // Resolve timestamps asynchronously (guarded against overlapping map/submit)
     if (profiler.timingEnabled) {
       profiler.scheduleResolveTimestamps(report.timedPasses, report.queriesUsed);
     }
 
-    requestAnimationFrame((t) => this.render(t));
+    // Not after a frame `captureCanvasFrame()` rendered on demand: that would
+    // start a second rAF chain beside the running one (test-hooks.ts).
+    if (!this._frameOnDemand) requestAnimationFrame((t) => this.render(t));
   }
 };

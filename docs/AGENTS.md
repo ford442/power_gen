@@ -626,17 +626,32 @@ production build: `npm run test:e2e:offline` runs `e2e/*.preview.js` against `vi
 on port 4183 ([`CLASSROOM.md`](./CLASSROOM.md#tests)).
 CI: `validate.yml` job **Playwright (WebGL2)** on PRs (both suites).
 
-Manual / agent checks (WebGPU needs a real GPU):
+The WebGPU renderer is tested too (#258, [`WEBGPU.md`](./WEBGPU.md#how-the-gpu-is-tested)):
+
+```bash
+npm run test:pipelines    # Dawn in Node: every pipeline compiles, on a software Vulkan adapter
+npm run test:gpu-golden   # Dawn in Node: compute passes vs their CPU twins
+npm run test:e2e:webgpu   # headed Chromium on SwiftShader (xvfb-run added when no display)
+```
+
+The first two are in `npm run validate` and skip with a notice when there is
+no adapter (`REQUIRE_GPU=1` fails instead). The third is the CI job
+**Playwright (WebGPU, headed SwiftShader)**: boot, all 16 benches, the
+`high`-tier passes, device loss, and report-only image baselines.
+
+Manual / agent checks:
 
 1. `?renderer=webgl2` — START plant, non-zero telemetry, mode focus buttons.
-2. WebGPU (real GPU) — same + bloom/flux where quality allows.
+2. WebGPU — same + bloom/flux where quality allows. A software adapter runs
+   it (that is what CI does) but boots at the `low` tier without IBL or SSR;
+   judging the showroom look still needs a real GPU.
 3. `npm run validate` before merge when touching physics/shaders/native (it includes `npm run test:lab-mode`: preset precedence, setpoint ranges vs plant constants, plants honouring a pin, announcement text).
 4. **Per-device CAD props** (WebGPU focus only — WebGL2 skips them): focus the
    bench and look for `[gltf] <view> CAD props ready: …` in the console. To see
    one prop on its own, `?gltfHousing=0&gltf<Prop>=1`. `npm run test:props`
    covers the registry, the byte budgets and the winding off-GPU;
    [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) has the per-bench table.
-5. Agent hooks: `window.getRendererInfo()`, `window.captureCanvasFrame({ flipY: true })`, `window.currentRenderer`.
+5. Agent hooks (both renderers): `window.getRendererInfo()`, `window.captureCanvasFrame({ flipY: true })`, `window.currentRenderer`. WebGPU also has `window.__gpuErrors` and `multiVisualizer.frozenTime`.
 
 ---
 

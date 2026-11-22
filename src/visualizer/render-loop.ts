@@ -36,7 +36,7 @@ export const renderLoopMethods: ThisType<Host> & {
       !this.lightingUniformBuffer ||
       !this.context
     ) {
-      requestAnimationFrame((t) => this.render(t));
+      if (!this._frameOnDemand) requestAnimationFrame((t) => this.render(t));
       return;
     }
 
@@ -46,7 +46,12 @@ export const renderLoopMethods: ThisType<Host> & {
     const lightingUniforms = this.lightingUniformBuffer;
     const gpuContext = this.context;
 
-    const deltaTime = (timestamp - this.lastFrameTime) / 1000;
+    // Capture / e2e hook (test-hooks.ts): `frozenTime` holds the scene at one
+    // instant — the plant, the particles and every time-driven shader see
+    // dt = 0. (The camera eases on performance.now(), so a focus transition
+    // still settles.)
+    const frozen = this.frozenTime != null;
+    const deltaTime = frozen ? 0 : (timestamp - this.lastFrameTime) / 1000;
     this.lastFrameTime = timestamp;
 
     if (timestamp % 500 < 20) {
@@ -70,7 +75,7 @@ export const renderLoopMethods: ThisType<Host> & {
     this.segOmega = this.session.segOmega;
     this.updateGltfHousingState?.();
     this.corona = this.session.corona;
-    this.time += deltaTime * speed;
+    this.time = frozen ? this.frozenTime! : this.time + deltaTime * speed;
 
     // Propagate current speedMult to all devices (needed by GPU compute uniforms)
     for (const device of Object.values(this.devices)) {
