@@ -146,6 +146,28 @@ export function drawnPipelines(page) {
 }
 
 /**
+ * Wait until every pipeline in `wanted` has drawn since the last
+ * `renderFrames()` / probe reset, and return the ones that never did (empty
+ * when all drew). Passes that are built lazily — the FDTD slice, the field
+ * volume, the tier pipelines — start drawing some frames after their gate
+ * opens, and how many depends on the machine; "has it drawn yet" is the
+ * condition, not a frame count.
+ * @param {import('@playwright/test').Page} page
+ * @param {string[]} wanted
+ * @returns {Promise<string[]>}
+ */
+export async function missingDraws(page, wanted, timeout = 240_000) {
+  await page.evaluate((list) => { /** @type {any} */ (window).__wantDraws = list; }, wanted);
+  // @ts-ignore
+  const missing = () => window.__wantDraws.filter((/** @type {string} */ p) => !(p in (window.__gpuDraws ?? {})));
+  try {
+    // @ts-ignore
+    await waitForEval(page, () => window.__wantDraws.every((/** @type {string} */ p) => p in (window.__gpuDraws ?? {})), { timeout });
+  } catch { /* report what is still missing */ }
+  return page.evaluate(missing);
+}
+
+/**
  * Pin the quality tier. SwiftShader boots at `low` (auto-quality reads its
  * frame time); `high` is where MSAA, the shadow map, TAA and the field volume
  * live, so the specs ask for it explicitly rather than depend on timing.

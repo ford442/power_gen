@@ -14,7 +14,7 @@
  */
 import { test, expect } from '@playwright/test';
 import {
-  bootWebgpu, drawnPipelines, focusView, gpuErrors, installDrawProbe, pinQualityTier,
+  bootWebgpu, drawnPipelines, focusView, gpuErrors, installDrawProbe, missingDraws, pinQualityTier,
   renderFrames, rendererInfo, trackErrors, waitForEval
 } from './webgpu-helpers.js';
 
@@ -74,12 +74,13 @@ test.describe('WebGPU on SwiftShader', () => {
     for (const id of ids) {
       await focusView(page, id);
       await renderFrames(page, 3);
+      // Normally all there after three frames; a lazily built pass gets up to a minute.
+      for (const want of await missingDraws(page, [...EVERY_BENCH, ...(MUST_DRAW[id] ?? [])], 60_000)) {
+        problems.push(`${id}: ${want} did not draw`);
+      }
       const drew = await drawnPipelines(page);
       const mesh = drew.some((p) => p === 'rollerPipeline' || p === 'segEnhancedPipeline');
       if (!mesh) problems.push(`${id}: no mesh pipeline drew (${drew.join(', ')})`);
-      for (const want of [...EVERY_BENCH, ...(MUST_DRAW[id] ?? [])]) {
-        if (!drew.includes(want)) problems.push(`${id}: ${want} did not draw`);
-      }
       const e = await gpuErrors(page);
       if (e?.uncaptured) problems.push(`${id}: ${e.uncaptured} GPU error(s) — ${e.messages.at(-1)}`);
     }
@@ -104,25 +105,21 @@ test.describe('WebGPU on SwiftShader', () => {
     let info = await rendererInfo(page);
     expect(info?.frameGraph?.ran).toEqual(expect.arrayContaining(['shadow', 'scene', 'depth-resolve', 'taa', 'bloom', 'composite', 'history']));
     expect(info?.frameGraph?.allocated).toEqual(expect.arrayContaining(['msaa', 'taa', 'history', 'shadow']));
-    let drew = await drawnPipelines(page);
-    for (const want of ['segEnhancedPipeline_msaa4', 'segEnhancedShadowPipeline', 'coilPipeline_msaa4', 'particlePipeline_msaa4',
-      'depthResolvePipeline', 'taa-resolve-pipeline']) {
-      expect(drew, `SEG at high tier draws ${want}`).toContain(want);
-    }
+    expect(await missingDraws(page, ['segEnhancedPipeline_msaa4', 'segEnhancedShadowPipeline', 'coilPipeline_msaa4',
+      'particlePipeline_msaa4', 'depthResolvePipeline', 'taa-resolve-pipeline']), 'SEG at high tier: pipelines that never drew').toEqual([]);
+    const drew = await drawnPipelines(page);
     expect(drew.filter((p) => /^(roller|segEnhanced|particle|coil)Pipeline$/.test(p)), '1× scene pipelines in an MSAA pass').toEqual([]);
     await expectNoGpuErrors(page, 'SEG focus at high tier');
 
     // Pulse coil: the FDTD wave slice steps and draws; the volume owns the field lines.
     await focusView(page, 'pulse-coil');
-    await waitForEval(page, () => window.getRendererInfo?.()?.frameGraph?.ran.includes('field-volume') ?? false, { timeout: 300_000 });
     await renderFrames(page, 3);
-    drew = await drawnPipelines(page);
-    // (The volume itself is only re-solved when its sources change, so its
-    // compute is not in every frame; its lines are.)
-    for (const want of ['compute:fdtd-updateH-pipeline', 'compute:fdtd-updateE-pipeline', 'fdtdSlicePipeline_msaa4',
-      'fieldLinesPipeline_msaa4', 'rollerPipeline_msaa4', 'rollerShadowPipeline']) {
-      expect(drew, `pulse-coil at high tier draws ${want}`).toContain(want);
-    }
+    // Both passes are built on the first frame their gate opens (async
+    // pipeline compiles), so they start drawing a few frames in. (The volume
+    // itself is only re-solved when its sources change; its lines draw every frame.)
+    expect(await missingDraws(page, ['compute:fdtd-updateH-pipeline', 'compute:fdtd-updateE-pipeline', 'fdtdSlicePipeline_msaa4',
+      'fieldLinesPipeline_msaa4', 'rollerPipeline_msaa4', 'rollerShadowPipeline'], 300_000), 'pulse-coil at high tier: pipelines that never drew').toEqual([]);
+    expect((await rendererInfo(page))?.frameGraph?.ran, 'frame-graph passes at pulse-coil focus').toEqual(expect.arrayContaining(['shadow', 'depth-resolve', 'taa']));
     await expectNoGpuErrors(page, 'pulse-coil focus at high tier');
 
     // Back in overview nothing tier-gated runs, and the lazy targets are released later, not kept busy.
