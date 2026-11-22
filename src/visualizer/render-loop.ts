@@ -1,6 +1,7 @@
 // Per-frame simulation update. GPU encode (scene + bloom) lives in
 // render-encode.ts — split out to keep this file under the 700-line cap.
 import { updateFieldVolume } from './field-volume-drive';
+import { updateHeronLiquid } from './heron-liquid-pass';
 import { explainerState } from '../seg-explainer/explainer-state';
 import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
@@ -334,9 +335,11 @@ export const renderLoopMethods: ThisType<Host> & {
     profiler.fdtdActive = !!fdtdSlice;
     // Field volume (ADR-0017): focused field bench, medium tier and up.
     const fieldVolume = updateFieldVolume(this, qualityTier);
+    // Heron's jet as a liquid (ADR-0022): Heron in focus, `fluid` allowing it.
+    const heronLiquid = updateHeronLiquid(this, qualityTier, deltaTime * speed);
 
     renderEncodeMethods._encodeFrame.call(
-      this, profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume
+      this, profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume, heronLiquid
     );
   }
 };

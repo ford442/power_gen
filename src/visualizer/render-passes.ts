@@ -67,6 +67,8 @@ export function encodeCompute(host: Host, encoder: GPUCommandEncoder, ctx: Frame
 
   for (const device of Object.values(host.devices) as RenderDevice[]) {
     if (!isDeviceVisible(device) || !device.computePipeline || !device.computeBindGroup) continue;
+    // The liquid solver draws this bench's particles this frame (ADR-0022).
+    if (host.liquidOwner === device.id) continue;
     pass.setPipeline(device.computePipeline);
     pass.setBindGroup(0, device.computeBindGroup);
     pass.dispatchWorkgroups(Math.ceil((device.scaledParticleCount || device.particleCount) / 64));

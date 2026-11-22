@@ -26,8 +26,8 @@ const session = skip ? null : await gpuSession(gpu, { label: 'golden-mpm-io' });
 const G = 9.80665;
 
 async function makeSolver(cfg, options) {
-  const { app, device, cache, shaders } = session;
-  return app.MpmSolver.create(device, cache, shaders.mpmShaders, cfg, options);
+  const { app, device, cache } = session;
+  return app.MpmSolver.create(device, cache, app.MPM_SHADERS, cfg, options);
 }
 
 function submit(encode) {

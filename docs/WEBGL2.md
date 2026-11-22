@@ -52,6 +52,7 @@ Do **not** expect these under WebGL2:
 | Hardware bridge / electromagnet coils | CPU twin + panel work on WebGL2 (`?mockHardware=1`); **coil GPU viz** is WebGPU-only |
 | **Field volume** (ADR-0017): volume field lines, slice arrows / LIC, \|B\| isosurfaces, charged particles | `visualizer/field-volume-pass.ts` — **skipped**; the field panel's probe readout and a CPU \|B\| slice (32² exact samples, same colour ramp) stand in (`intentionalGaps`) |
 | **glTF CAD props** (housing, coil former, …) | `setup-gltf.ts` / `prop-registry.ts` — **skipped** (see below) |
+| **Liquid solver** (MLS-MPM, ADR-0022) — Heron's jet as a liquid | `fluids/*`, `visualizer/heron-liquid-pass.ts` — **WebGPU only** (compute + atomics). Heron's droplets here are ballistic in SI (plant exit speed, `g` over the bench scale, no drag, no interaction), the bench says so in a note, and `heronJetHeightM` reads 0 ("not measured") — [`FLUIDS.md`](./FLUIDS.md) |
 
 ### FDTD wave slice → CPU micro-grid readout
 

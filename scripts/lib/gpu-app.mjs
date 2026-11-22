@@ -42,6 +42,7 @@ const ENTRY = `
   export { bakeMpmBoundary, mpmSolidDistance } from './src/fluids/mpm-boundary.ts';
   export { seedMpmBox, writeMpmParticle } from './src/fluids/mpm-seed.ts';
   export { MpmSolver } from './src/fluids/mpm-solver.ts';
+  export { MPM_SHADERS } from './src/fluids/mpm-shaders.ts';
   export * as heronLiquid from './src/fluids/heron-liquid.ts';
   export { getHeronLayout, computeHeronHydraulics } from './src/heron-layout.ts';
 `;

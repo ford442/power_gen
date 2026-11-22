@@ -190,6 +190,10 @@ export interface SegFrameBuffers {
 export interface VisualizerLike {
   /** Device whose fallback flux lines the field-volume tracer replaces this frame (ADR-0017). */
   fieldVolumeLinesOwner?: string | null;
+  /** Bench whose particles the liquid solver draws this frame (ADR-0022). */
+  liquidOwner?: string | null;
+  /** The liquid pass: its export is drawn through the bench's particle pipeline. */
+  heronLiquid?: { draw(): { buffer: GPUBuffer; count: number } | null } | null;
   time: number;
   profiler?: {
     qualityLevel: number;

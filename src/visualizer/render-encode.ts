@@ -27,6 +27,7 @@ import {
 import type { ShadowFit } from './shadow-map';
 import type { FieldVolumePass } from './field-volume-pass';
 import { fieldVolumeLifetime } from './field-volume-drive';
+import { heronLiquidLifetime, type HeronLiquidPass } from './heron-liquid-pass';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { DeviceInstance } from '../device-instance.js';
 import type { PerformanceProfiler } from '../performance-profiler';
@@ -71,6 +72,8 @@ export interface FrameCtx {
   fdtdSlice: ReturnType<Host['updateFdtdSlice']>;
   /** Field volume pass when its gate is open this frame (ADR-0017). */
   fieldVolume: FieldVolumePass | null;
+  /** Heron's liquid when its gate is open this frame (ADR-0022). */
+  heronLiquid: HeronLiquidPass | null;
   overview: boolean;
   postGates: ReturnType<typeof getPostQualityGates>;
   /** 4× MSAA scene: `high` tier + focus (`'ultra'` is never assigned by auto-quality). */
@@ -96,7 +99,7 @@ export interface FrameCtx {
 function frameContext(
   host: Host,
   base: Pick<FrameCtx, 'profiler' | 'globalUniforms' | 'gpuContext' | 'cull' | 'cullActive'
-    | 'isDeviceVisible' | 'fdtdSlice' | 'fieldVolume'>
+    | 'isDeviceVisible' | 'fdtdSlice' | 'fieldVolume' | 'heronLiquid'>
 ): FrameCtx {
   const { profiler } = base;
   const overview = host.isOverviewMode();
@@ -192,6 +195,8 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
     .addResource('shadowMap', { lifetime: host.shadowMap!.lifetime() })
     // n³ texture + line / particle buffers: focus, medium tier and up only.
     .addResource('fieldVolume', { lifetime: fieldVolumeLifetime(host) })
+    // Particles + two grids of the liquid solver: Heron in focus only.
+    .addResource('heronLiquid', { lifetime: heronLiquidLifetime(host) })
     .addResource('bloom')
     .addResource('canvas');
 
@@ -205,6 +210,14 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
     reads: ['simBuffers'],
     writes: ['fieldVolume'],
     encode: (encoder, res, ctx) => ctx.fieldVolume!.encode(encoder, res.timestamps('both'))
+  });
+  // The liquid's emit / substeps / export, in its own passes so `?gpuTiming=1`
+  // reports the solver apart from the stateless particles.
+  graph.addPass('heron-liquid', {
+    enabled: (ctx) => !!ctx.heronLiquid,
+    reads: ['simBuffers'],
+    writes: ['heronLiquid'],
+    encode: (encoder, _res, ctx) => ctx.heronLiquid!.encode(encoder)
   });
   // Before the scene: receivers sample the map through the frame group.
   graph.addPass('shadow', {
@@ -220,7 +233,8 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
     reads: (ctx) => [
       'simBuffers',
       ...(ctx.shadow ? ['shadowMap'] : []),
-      ...(ctx.fieldVolume ? ['fieldVolume'] : [])
+      ...(ctx.fieldVolume ? ['fieldVolume'] : []),
+      ...(ctx.heronLiquid ? ['heronLiquid'] : [])
     ],
     // MSAA resolves colour + G-buffer into the single-sample targets; depth
     // has no resolveTarget, so the plain depth is not written on those frames.
@@ -303,7 +317,8 @@ export const renderEncodeMethods: ThisType<Host> & {
     cullActive: boolean,
     isDeviceVisible: (device: RenderDevice) => boolean,
     fdtdSlice: ReturnType<Host['updateFdtdSlice']>,
-    fieldVolume?: FieldVolumePass | null
+    fieldVolume?: FieldVolumePass | null,
+    heronLiquid?: HeronLiquidPass | null
   ): void;
 } = {
   renderAnomalyWalls(
@@ -433,9 +448,9 @@ export const renderEncodeMethods: ThisType<Host> & {
   },
 
   /** One frame: settle gates, run the graph, submit, schedule the timestamp readback. */
-  _encodeFrame(profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume = null) {
+  _encodeFrame(profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume = null, heronLiquid = null) {
     const ctx = frameContext(this, {
-      profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume
+      profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume, heronLiquid
     });
     const graph = (this._frameGraph ??= buildFrameGraph(this));
     const encoder = this.device.createCommandEncoder({ label: 'frame' });

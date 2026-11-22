@@ -221,7 +221,10 @@ export class WebGL2MultiDeviceVisualizer {
           'field volume (3-D texture) + volume field-line tracer',
           'field slice arrows / LIC (CPU |B| slice in the field panel instead)',
           'field |B| isosurfaces',
-          'charged particles (Boris pusher)'
+          'charged particles (Boris pusher)',
+          // ADR-0022: Heron's jet is a simulated liquid on WebGPU; here it is
+          // ballistic droplets, and the bench's note says so.
+          'liquid solver (MLS-MPM) — Heron jet drawn as ballistic droplets'
         ],
         hardwareTwin: snap?.hardwareTwin ?? null,
         chores: gpuChores.breadcrumb(),

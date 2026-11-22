@@ -1,7 +1,7 @@
 import type { PipelineLayoutCache } from '../pipeline-layout-cache.js';
 import { hashString } from '../helpers.js';
 
-/** WGSL of the MLS-MPM passes (`MultiDeviceShaders.mpmShaders`). */
+/** WGSL of the MLS-MPM passes (`MPM_SHADERS`, fluids/mpm-shaders.ts). */
 export interface MpmShaderSources {
   p2g: string;
   grid: string;

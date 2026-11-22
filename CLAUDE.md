@@ -80,9 +80,12 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 - **SEG** is the highest-fidelity path (layout presets, flux, PBR).
 - **Peltier** is a resolved 1-D thermoelectric cooler (28 nodes, `ros23`). **MHD** is still one
   lumped speed; its picture is the analytic Hartmann profile, not a flow solve. Both: docs/FLUIDS.md.
-- **Liquid:** an MLS-MPM solver exists (`src/fluids/`, `passes/mpm-*.wgsl`, ADR-0022), and so does
-  Heron's fountain as a scene for it (`heron-liquid.ts`). Both are tested on CPU and GPU; the app
-  does not create either yet — Heron and Kelvin still draw closed-form droplets.
+- **Liquid:** an MLS-MPM solver (`src/fluids/`, `passes/mpm-*.wgsl`, ADR-0022). Heron's jet runs
+  on it — WebGPU, Heron in focus, `?fluid=auto|off|low|high` — through
+  `visualizer/heron-liquid-pass.ts` (frame-graph lifetime `heron-liquid`; overview allocates none).
+  That file is only the gate: the solver, `fluids/*` and the shaders are `heron-liquid-runtime.ts`,
+  a chunk fetched on first Heron focus — keep them out of the WebGPU chunk (`check:entry-chunk`).
+  It is shown at 1/6 speed. Kelvin still draws independent droplets.
 - **Heron's plant** is Bernoulli + Darcy–Weisbach, the same in TS and C++ (`test:golden`); the C++
   plant needs the layout preset sent to it (`setHeronLayout`). 0.64 m per scene unit, SI gravity.
 - Overview can enable all; particles/meshes scale with quality and view LOD.
@@ -125,7 +128,7 @@ npm run test:experiments:live # same files on the live runner: headless LabSessi
 npm run test:snapshots   # plant snapshots: native + shipped WASM + TS save→load→step bit-identical, JS→C++ cross-load
 npm run test:twin-snapshot # closed-loop twin: snapshot ω wins at the restore, the next ?mockHardware=1 sample after
 npm run test:twin       # EKF χ²-consistent, sysid within 5 % from 30 s, one Calibrate on the ±20 % mock, profile via #lab2= (ADR-0019)
-npm run check:entry-chunk # vite build → entry closure has no uPlot / experiments / analysis panel / recorder / embed
+npm run check:entry-chunk # vite build → entry closure has no uPlot / experiments / analysis panel / recorder / embed; WebGPU chunk has no liquid solver
 npm run test:embed      # embed postMessage validator, origin allowlist, hz clamp, classroom channel
 npm run test:frame-clock # UI frame clock: hz throttle, unsubscribe, LabSession.publishFrame tick
 npm run test:uniform-ring # per-draw uniform ring, key-light shadow fit, render-bundle replay
@@ -143,6 +146,7 @@ npm run test:drop-tube # drop-tube k / end taper / loops vs quadrature, transit 
 npm run test:hartmann # MHD duct: analytic Hartmann profile (TS vs C++), timeline parcels, Ha range (docs/FLUIDS.md)
 npm run test:mpm      # MLS-MPM liquid: CPU reference — i32 overflow bound, mass / momentum, free fall at g, ρ·g·h, viscous decay (ADR-0022; the WGSL runs in test:gpu-golden)
 npm run test:mpm-io   # …and what a bench adds: signed-distance solids, emitters, sinks, the height profile, a jet at v²/2g
+npm run test:heron-liquid # Heron's liquid scene per preset × tier, fluid= tier choice, focus gate, focus camera
 npm run test:peltier  # Peltier cooler: ΔT_max / I_opt / COP / energy balance on native + WASM + TS, array snapshots, v1 migration (ADR-0021)
 npm run test:field-volume # field kernels vs quadrature; field-probe/-volume WGSL run on the CPU vs the reference (ADR-0017)
 npm run test:circuit  # Circuit Lab: native MNA goldens + their WASM replay (LC energy, RLC Q), SPICE, host, links (ADR-0018)

@@ -14,9 +14,8 @@ import {
   MPM_BOUNDARY_FLOATS, MPM_COUNTER_WORDS, MPM_FLAG_BOUNDARY, MPM_GRID_CHANNELS, MPM_IO_PARAMS_BYTES, MPM_PARAMS_BYTES,
   MPM_PARTICLE_BYTES, MPM_PARTICLE_FLOATS, MPM_PROBE_EXTRA_WORDS, MPM_PROBE_MASS_SCALE,
   mpmDerived, mpmEmitCounts, mpmMemoryBytes, packMpmIoParams, packMpmParams, validateMpmConfig,
-  type MpmConfig, type MpmEmitter, type MpmSink
+  type MpmConfig, type MpmEmitter, type MpmProfile, type MpmSink
 } from './mpm-params.js';
-import type { MpmProfile } from './mpm-cpu.js';
 
 /** Invocations per workgroup of the particle passes (mpm-p2g, mpm-g2p, mpm-emit, mpm-export). */
 export const MPM_PARTICLE_WORKGROUP = 64;
@@ -90,6 +89,16 @@ export class MpmSolver {
     const errors = validateMpmConfig(config);
     if (errors.length) throw new Error(`MpmSolver: ${errors.join('; ')}`);
     const pipelines = await cache.ensureMpmPipelines(shaders);
+    return new MpmSolver(device, cache, pipelines, config, options);
+  }
+
+  /**
+   * Allocate with pipelines already built (`cache.ensureMpmPipelines`):
+   * synchronous, for a frame-graph lifetime's `ensure()`.
+   */
+  static build(device: GPUDevice, cache: PipelineLayoutCache, pipelines: MpmPipelines, config: MpmConfig, options: MpmSolverOptions = {}): MpmSolver {
+    const errors = validateMpmConfig(config);
+    if (errors.length) throw new Error(`MpmSolver: ${errors.join('; ')}`);
     return new MpmSolver(device, cache, pipelines, config, options);
   }
 

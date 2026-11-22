@@ -6,7 +6,7 @@
  */
 import type { HeronLayout } from './renderers/shared/device-physics';
 import { labConfigFor } from './config/lab-config';
-import { PHYSICAL_CONSTANTS } from '../generated/physics-constants';
+import { HERON_CONSTANTS, PHYSICAL_CONSTANTS } from '../generated/physics-constants';
 
 export type HeronLayoutPresetId = 'classic' | 'compact' | 'tower' | 'wide' | 'spiral';
 
@@ -397,4 +397,29 @@ export function parseHeronLayoutPreset(params?: URLSearchParams): HeronLayoutPre
     return win.HERON_LAYOUT_PRESET as HeronLayoutPresetId;
   }
   return HERON_LAYOUT_PRESETS.classic;
+}
+
+/**
+ * Where the focus camera stands for a preset, bench-local: far enough back to
+ * hold the whole apparatus — from the platform to the top of the tallest jet
+ * the preset can make (C_d²·H_max above the nozzle, in scene units) — and
+ * aimed at its middle. The old fixed view looked at the floor of the bench
+ * and cut the fountain off above the upper vessel.
+ */
+export function heronFocusCamera(presetId?: string): { cameraOffset: [number, number, number]; cameraTarget: [number, number, number] } {
+  const layout = getHeronLayout(presetId);
+  const cd = layout.dischargeCoeff ?? 0.35;
+  const jetScene = (cd * cd * layout.headMaxM) / HERON_CONSTANTS.METRES_PER_SCENE_UNIT;
+  let bottom = Infinity;
+  let halfWidth = 0;
+  for (const inst of [...layout.vessels, ...layout.platform]) {
+    bottom = Math.min(bottom, inst[1] - 1.25);
+    halfWidth = Math.max(halfWidth, Math.abs(inst[0]) + 0.8);
+  }
+  const top = layout.flow.apexY + 1.2 * jetScene;
+  const centre = (top + bottom) / 2;
+  // 45° vertical field of view: half the span over tan(22.5°), plus a margin.
+  const span = Math.max(top - bottom, 2 * halfWidth);
+  const distance = (0.5 * span) / Math.tan(Math.PI / 8) * 1.12;
+  return { cameraOffset: [0, centre + 0.12 * distance, distance], cameraTarget: [0, centre, 0] };
 }

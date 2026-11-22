@@ -13,6 +13,7 @@ import type { createIblResources } from '../ibl-prefilter';
 import type { IblPrefilterCompute } from '../ibl-prefilter-gpu';
 import type { FdtdSlicePass } from '../devices/quanta/fdtd-slice-pass';
 import type { FieldVolumePass } from './field-volume-pass';
+import type { FluidCeiling, FluidChoice, FluidPreset, HeronLiquidPass } from './heron-liquid-pass';
 import type { FieldReadout, FieldViewState } from './field-volume-drive';
 import type { getPostQualityGates } from '../post-processing-config';
 import type { BloomChain, BloomChainPipelines } from './bloom-chain';
@@ -64,6 +65,17 @@ export interface VisualizerHostFields {
 
   /** Lazily built on the first frame its gate could open; null if the build failed. */
   fdtdSlice?: FdtdSlicePass | null;
+  /** Heron's liquid (ADR-0022): lazily built like fdtdSlice; null if the build failed. */
+  heronLiquid?: HeronLiquidPass | null;
+  _heronLiquidInit?: Promise<void> | null;
+  /** `?fluid=` choice (read once from LabConfig on first use). */
+  fluidChoice?: FluidChoice;
+  /** What the lab mode asks of the liquid while `fluid` is `auto` (lab-mode.ts `LabModePreset.fluid`). */
+  fluidPreset?: FluidPreset;
+  /** The largest tier `auto` may still build on this page; lowered when the profiler could not hold one. */
+  fluidCeiling?: FluidCeiling;
+  /** Bench whose particles the liquid solver draws this frame, in place of its stateless ones. */
+  liquidOwner?: string | null;
   /** Field volume (ADR-0017): lazily built like fdtdSlice; null if the build failed. */
   fieldVolume?: FieldVolumePass | null;
   _fieldVolumeInit?: Promise<void> | null;

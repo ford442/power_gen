@@ -37,7 +37,10 @@ const MUST_DRAW = {
   seg: ['segEnhancedPipeline', 'coilPipeline', 'fluxSegmentPipeline', 'particlePipeline', 'compute:seg-roller-compute-pipeline', 'compute:flux-tracer-pipeline'],
   // Flux ribbons around the core: never drew on WebGPU before #252.
   transformer: ['rollerPipeline', 'particlePipeline', 'fluxSegmentPipeline', 'compute:transformer-flux-compute-pipeline'],
-  heron: ['rollerPipeline', 'particlePipeline', 'fieldLinePipeline'],
+  // The liquid solver (ADR-0022): on at the low tier this file pins, so its
+  // emit, substep and export passes all have to dispatch.
+  heron: ['rollerPipeline', 'particlePipeline', 'fieldLinePipeline',
+    'compute:mpm-emit-pipeline', 'compute:mpm-p2g-pipeline', 'compute:mpm-grid-pipeline', 'compute:mpm-g2p-pipeline', 'compute:mpm-export-pipeline'],
   kelvin: ['rollerPipeline', 'particlePipeline', 'fieldLinePipeline'],
   solar: ['rollerPipeline', 'particlePipeline', 'fieldLinePipeline']
 };
@@ -54,6 +57,10 @@ test.describe('WebGPU on SwiftShader', () => {
     expect(info?.renderer).toBe('webgpu');
     expect(await page.evaluate(() => window.currentRenderer)).toBe('webgpu');
     expect(info?.frameGraph?.ran, 'passes of a default overview frame').toEqual(expect.arrayContaining(['scene', 'composite']));
+    // Overview, every bench enabled: the liquid solver is neither built nor allocated.
+    expect(info?.fluid?.allocated, 'liquid solver buffers in overview').toBe(false);
+    expect(info?.fluid?.build).toBe('pending');
+    expect(info?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['heron-liquid']));
     expect(await page.evaluate(() => document.getElementById('webgpu-device-lost'))).toBeNull();
     await expectNoGpuErrors(page, 'after boot');
     expect(errors, 'console errors / uncaught exceptions').toEqual([]);
@@ -171,9 +178,65 @@ test.describe('WebGPU on SwiftShader', () => {
     expect(info?.frameGraph?.allocated ?? [], 'lazy targets in overview').not.toEqual(expect.arrayContaining(['shadow']));
     expect(info?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['msaa']));
     expect(info?.shadow?.allocated, 'shadow map texture').toBe(false);
+    // …and no fluid resources, with all benches on the floor (ADR-0022).
+    expect(info?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['heron-liquid']));
+    expect(info?.fluid?.allocated, 'liquid solver buffers in overview').toBe(false);
+    expect(info?.fluid?.bytes).toBe(0);
     expect(info?.pipelineTiers?.states.msaa, 'MSAA pipelines never compiled').toBe('idle');
     expect(info?.pipelineTiers?.states.shadow, 'shadow casters never compiled').toBe('idle');
     await expectNoGpuErrors(page, 'showroom overview');
+    expect(errors, 'console errors / uncaught exceptions').toEqual([]);
+  });
+  test('6. Heron liquid: runs in Heron focus with finite numbers, and is released in overview', async ({ page }) => {
+    const errors = trackErrors(page);
+    await bootWebgpu(page);
+    await pinQualityTier(page, 'low');
+    await focusView(page, 'heron');
+    // Start the plant so there is a jet to simulate.
+    await page.getByText('SPIN-UP', { exact: false }).first().click();
+    await page.evaluate(() => {
+      const d = /** @type {HTMLInputElement} */ (document.querySelector('#driveControl'));
+      d.value = '90';
+      d.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // Lazily built, then a jet takes a few seconds to rise at one sixth speed.
+    await waitForEval(page, () => {
+      const f = window.getRendererInfo?.()?.fluid;
+      return !!f && f.allocated && f.emitted > 200 && f.jetHeightM > 0.05;
+    }, { timeout: 180_000 });
+
+    const info = await rendererInfo(page);
+    const fluid = info?.fluid;
+    expect(fluid?.tier, 'the tier `auto` picks at low quality').toBe('low');
+    expect(info?.frameGraph?.allocated ?? []).toEqual(expect.arrayContaining(['heron-liquid']));
+    expect(info?.frameGraph?.ran ?? []).toEqual(expect.arrayContaining(['heron-liquid']));
+    for (const key of ['live', 'emitted', 'drained', 'jetHeightM', 'cellM', 'bytes', 'substeps']) {
+      expect(Number.isFinite(fluid?.[key]), `fluid.${key} = ${fluid?.[key]}`).toBe(true);
+    }
+    expect(fluid.live, 'particles in the box = emitted − drained').toBe(fluid.emitted - fluid.drained);
+    expect(fluid.live).toBeGreaterThan(0);
+    expect(fluid.live).toBeLessThanOrEqual(fluid.maxParticles);
+    // The measured jet is on the hub next to the plant's v²/2g, and is of its order.
+    const plant = await page.evaluate(() => {
+      const p = /** @type {any} */ (window.multiVisualizer).devices.heron.physicsState;
+      return { v: p.heronVExit, ideal: p.heronJetIdealM, jet: p.heronJetHeightM };
+    });
+    expect(plant.v).toBeGreaterThan(1);
+    expect(plant.jet).toBeGreaterThan(0);
+    expect(plant.jet).toBeLessThan(1.5 * plant.ideal + 0.05);
+    await expectNoGpuErrors(page, 'Heron liquid running');
+
+    // Back to overview: nothing steps at once, and the buffers go after the frame graph's hysteresis.
+    await focusView(page, 'overview');
+    await renderFrames(page, 3);
+    expect((await rendererInfo(page))?.fluid?.active, 'liquid stepping in overview').toBe(false);
+    await waitForEval(page, () => window.getRendererInfo?.()?.fluid?.allocated === false, { timeout: 180_000 });
+    const after = await rendererInfo(page);
+    expect(after?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['heron-liquid']));
+    expect(after?.fluid?.bytes).toBe(0);
+    const jetAfter = await page.evaluate(() => /** @type {any} */ (window.multiVisualizer).devices.heron.physicsState.heronJetHeightM);
+    expect(jetAfter, 'the measured-jet channel reads "not measured" without a solver').toBe(0);
+    await expectNoGpuErrors(page, 'after releasing the liquid');
     expect(errors, 'console errors / uncaught exceptions').toEqual([]);
   });
 });

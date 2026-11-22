@@ -19,12 +19,6 @@ import fieldParticlesWgsl from './shaders/passes/field-particles.wgsl?raw';
 import fieldLinesVertWgsl from './shaders/passes/field-lines-vert.wgsl?raw';
 import fieldSliceWgsl from './shaders/passes/field-slice.wgsl?raw';
 import fieldIsoWgsl from './shaders/passes/field-iso.wgsl?raw';
-import mpmP2gWgsl from './shaders/passes/mpm-p2g.wgsl?raw';
-import mpmGridWgsl from './shaders/passes/mpm-grid.wgsl?raw';
-import mpmG2pWgsl from './shaders/passes/mpm-g2p.wgsl?raw';
-import mpmEmitWgsl from './shaders/passes/mpm-emit.wgsl?raw';
-import mpmProbeWgsl from './shaders/passes/mpm-probe.wgsl?raw';
-import mpmExportWgsl from './shaders/passes/mpm-export.wgsl?raw';
 
 import { getRollerVertShader, getRollerFragShader } from './shaders/generators/roller-shaders.js';
 import { getParticleVertShader, getParticleFragShader } from './shaders/generators/particle-shaders.js';
@@ -63,7 +57,6 @@ import {
   getBloomUpsampleShader
 } from './shaders/generators/bloom-shaders.js';
 import type { FieldShaderSources } from './pipeline-layout/factories/field-pipelines.js';
-import type { MpmShaderSources } from './pipeline-layout/factories/mpm-pipelines.js';
 
 /** Every accessor returns generated WGSL source. */
 export class MultiDeviceShaders {
@@ -255,11 +248,6 @@ export class MultiDeviceShaders {
       slice: fieldSliceWgsl,
       iso: fieldIsoWgsl
     };
-  }
-
-  /** The MLS-MPM liquid passes: the substep, emitters / sinks, read-back, draw export (ADR-0022 — see passes/mpm-*.wgsl). */
-  get mpmShaders(): MpmShaderSources {
-    return { p2g: mpmP2gWgsl, grid: mpmGridWgsl, g2p: mpmG2pWgsl, emit: mpmEmitWgsl, probe: mpmProbeWgsl, exportDraw: mpmExportWgsl };
   }
 
   // Legacy / compatibility alias sometimes referenced in older code

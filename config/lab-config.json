@@ -448,6 +448,19 @@
       "doc": "What modulates the slice's source amplitude: the pulse coil's discharge current, or the transformer bench's core flux (continuous AC). Winding *geometry* is unchanged; falls back to `coil` if that bench isn't in the lab — ADR-0012."
     },
     {
+      "key": "fluid",
+      "type": "enum",
+      "values": ["auto", "off", "low", "high"],
+      "aliases": { "0": "off" },
+      "default": "auto",
+      "url": ["fluid"],
+      "share": false,
+      "live": false,
+      "group": "scene",
+      "docValues": "`auto` \\| `off` \\| `low` \\| `high`",
+      "doc": "The GPU liquid solver (MLS-MPM, ADR-0022), on the benches that own a liquid — Heron's jet so far. WebGPU and focus view only. `auto`: a 64³-class grid and 40k particles at the `high` quality tier, 32³ / 15k at `medium` and `low`, off at `critical`. `high` forces the 96³ / 120k tier, which `auto` never picks (its frame cost is unmeasured). `off` (or `0`) leaves the stand-in droplets on a fixed path, which the bench's note says are not a liquid. Left at `auto`, Showroom asks for the largest tier the profiler allows and Twin for none, and a tier the profiler could not hold is not built again on that page. Shown at one sixth of real speed — [`FLUIDS.md`](./FLUIDS.md)."
+    },
+    {
       "key": "fieldVolume",
       "type": "bool",
       "default": true,

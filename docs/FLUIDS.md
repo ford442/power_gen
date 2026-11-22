@@ -11,14 +11,13 @@ the lab uses: **simulated, not a measurement**.
 | Bench | Plant (authoritative numbers) | Picture | Solved in the picture? |
 |-------|-------------------------------|---------|------------------------|
 | `mhd` | One lumped mean speed `Ū` with `σB²`-style braking and wall friction as tuned coefficients; `V = B·Ū·w` | Timelines on the **analytic Hartmann profile** at the plant's `Ū` and `Ha`, plus a profile card | Exact steady solution, evaluated — not a numerical flow solve |
-| `heron` | Head ODE; exit speed from Bernoulli with a discharge coefficient and Darcy–Weisbach pipe friction | Closed-form droplet paths (WebGPU), ballistic droplets (WebGL2). The jet as a simulated liquid exists and is tested, and is not drawn by the app yet | Not yet |
+| `heron` | Head ODE; exit speed from Bernoulli with a discharge coefficient and Darcy–Weisbach pipe friction | **WebGPU, in focus:** the jet as a simulated liquid (MLS-MPM), fed at the plant's exit speed, drawn as particles. WebGL2: ballistic droplets in SI, each on its own. WebGPU overview or `fluid=off`: stand-in droplets on a fixed path, labelled as such | The jet and its fall, yes. The vessels and the basin's own water, no |
 | `kelvin` | Capacitive charging + spark | Independent droplets; charge does not deflect them | No |
 | `peltier` | **1-D finite-volume leg**: 24 cells + cold block, two plates, heat sink (`ros23`) | Three bodies coloured by their node temperatures; sparse air parcels beside them | The temperatures are the model's. The air is illustrative |
 
-A liquid solver now exists (**MLS-MPM**, below) and is tested on its own, and
-so does Heron's fountain as a scene for it ([Heron](#herons-fountain)). The
-app does not run either yet: `heron` and `kelvin` still draw the closed-form
-droplets in the table until that wiring lands.
+The liquid solver (**MLS-MPM**, below) runs on one bench so far:
+[Heron's fountain](#herons-fountain). `kelvin` still draws the independent
+droplets in the table.
 
 ## Liquid solver (MLS-MPM)
 
@@ -55,7 +54,32 @@ metres-per-scene-unit.
 | default | 64³ | 40 000 | 11.1 MiB | `maxSpeedMS` / 64 000 |
 | high | 96³ | 120 000 | 36.2 MiB | `maxSpeedMS` / 21 000 |
 
-The `fluid=` flag itself arrives with the first bench that uses the solver.
+The grid column is a node budget; a bench shapes its own box inside it
+(Heron's `classic` preset is 61³ with 12.5 mm cells at the default tier, the
+`tower` preset 49 × 111 × 49 with 15.7 mm cells).
+
+`fluid=auto` (the default) takes the **default** tier at the `high` quality
+tier, the **low** tier at `medium` and `low`, and nothing at `critical`.
+`fluid=low` / `fluid=high` force a tier; `fluid=off` (or `0`) is no solver.
+`auto` never picks `high` by itself: the frame cost of 96³ has not been
+measured on hardware. There is no device sniffing — a phone lands on the low
+tier or off because its quality tier does.
+
+| `fluid=auto` at quality tier | `high` | `medium` | `low` | `critical` |
+|------------------------------|--------|----------|-------|------------|
+| no lab mode, or Lab | default | low | low | none |
+| Showroom (asks for the most) | high | default | low | none |
+| Twin (asks for none) | none | none | none | none |
+
+**`auto` steps down and does not climb back.** A solver is held at the tier
+it was built at while the profiler allows at least that much — a rebuild
+empties the fountain. When the profiler falls below the tier that is running,
+that tier is not built again on this page: the liquid is rebuilt at what the
+profiler allows, and falling to `critical` costs one more step, so the next
+attempt is smaller and the third is none (`liquidCeilingAfter`). The profiler
+cannot tell whether the liquid was the cause; stepping down anyway is the
+safe side of that. A tier asked for by hand is left alone at any frame rate.
+`window.getRendererInfo().fluid` reports `choice`, `preset` and `ceiling`.
 
 ### What is exact and what is not
 
@@ -205,6 +229,15 @@ jet the preset can make; the nozzle as a round emitter at the plant's exit
 speed; and the box floor as the basin — a perforated tray that drains
 whatever settles on it.
 
+| Tier (`classic`) | Grid | Cell | Cells across the nozzle | Substeps a frame | Sound speed |
+|------|------|------|------|------|------|
+| low | 32 × 33 × 32 | 25.2 mm | 1.6 | 2 | 9.1 m/s |
+| default | 61³ | 12.5 mm | 3.2 | 4 | 9.0 m/s |
+| high | 88 × 89 × 88 | 8.3 mm | 4.8 | 6 | 9.0 m/s |
+
+The fastest `classic` jet is 3.29 m/s, so the liquid's sound speed is 2.7 ×
+that at every tier; a 5 cm layer of it compresses 0.6 % under its own weight.
+
 | Choice | Why |
 |--------|-----|
 | **One sixth speed** | The solver is explicit. At this scale a real-time step gives the liquid a sound speed of about 1 m/s, slower than the jet. A sixth of real time keeps it at 2.7 × the fastest jet with 2–6 substeps a frame. The plant still runs in real time, so after a change of drive the jet takes its rise time × 6 to follow. |
@@ -217,10 +250,65 @@ ceiling): the jet's top is 0.995 (`classic`), 0.983 (`compact`) and 0.937
 most of that last figure. In every run the particles in the box equal
 emitted minus drained, exactly.
 
-**Not done yet:** the app does not create this solver. The frame-graph pass,
-the `fluid=` flag, the measured `heronJetHeightM` channel (it reads 0, "not
-measured", until then), the reference experiment and the WebGL2 notice are
-the next change.
+**Volume over a minute.** The basin is a drain, so "the volume in the scene"
+is the jet in the air, fed by the nozzle and emptied by the tray. Over 60 s
+on screen (`classic`, same test): the nozzle made 36.62 L, the plant's
+`Q·t = A_nozzle·v·t` is 36.62 L (gate 1 %); every particle made is either in
+the box or counted as drained; and the liquid in the air averaged 1,065
+particles over seconds 30–45 and 1,065 over 45–60 (−0.03 %, gate 1 %) — it
+neither builds up nor runs down.
+
+### In the app
+
+`src/visualizer/heron-liquid-pass.ts` is the gate and
+`heron-liquid-runtime.ts` the pass that owns the solver. The runtime, the
+solver (`src/fluids/`) and the six shaders (`fluids/mpm-shaders.ts`) are one
+chunk of about 56 kB (12 kB gzip) that the gate imports the first frame it
+opens; the WebGPU chunk every visit downloads holds none of it, and
+`check:entry-chunk` fails if it does. The offline shell precaches the chunk
+like any other. The pass is built the first
+frame Heron is in focus with `fluid` allowing it, allocated by the frame graph
+(lifetime `heron-liquid`), stepped in its own pass, and released after the
+graph's hysteresis once the bench is left. **Overview allocates none of it** —
+`test:e2e:webgpu` asserts that with every bench on the floor. A change of
+layout preset rebuilds it; it is then empty until the jet rises again.
+
+- The nozzle follows the plant every frame: `heronVExit` in, and the top of
+  the jet read back into **`heronJetHeightM`** next to the plant's
+  **`heronJetIdealM`** (`v²/2g`). The read-back is a few frames old and reads
+  0 — "not measured" — whenever no solver runs (WebGL2, overview, `fluid=off`,
+  headless plants, the first second after focus).
+- Substeps are fixed in size and their number follows the displayed time at
+  the time scale, at most twice the nominal count a frame: a slow frame slows
+  the liquid, it does not queue a burst.
+- The particles are drawn by the bench's existing particle pipeline from the
+  solver's export. The mist clusters and impact ripples the bench used as
+  stand-ins are not pushed while the liquid is drawn.
+- The focus camera is fitted to the layout preset, from the platform to the
+  top of the tallest jet. The old fixed view looked at the floor of the bench
+  and cut the fountain off above the upper vessel on every preset.
+
+### Limits
+
+- **Points, not a surface**: at the low tier (32³-class, 25 mm cells on
+  `classic`) the jet is a sparse column of droplets. The surface pass is a
+  later step.
+- **The basin is a drain**, and the tray that stands for it is not drawn.
+- **The jet lags the plant** by its rise time × 6; a fast change of drive
+  shows as a jet that is briefly too tall or too short for the readout.
+- **Not in a snapshot, not replayed.** A restore or a scrub re-grows the jet
+  from the plant's current exit speed.
+- **Frame cost unmeasured on hardware** (see the solver's limits). On the CPU
+  rasteriser the e2e runs on, the low tier takes about 2 ms a substep.
+
+### Tests
+
+| Command | Holds |
+|---------|-------|
+| `npm run test:golden` | the plant: TS ≈ native C++ on `classic` at a partial head and `tower` at full drive |
+| `npm run test:heron-liquid` | the scene on all five presets × three tiers: budgets, sound speed against the fastest jet, the nozzle, riser and drain; which tier a `fluid` choice gets, with a lab mode's say and the profiler's step-down; the gate (Heron focus only); the focus camera holding platform and jet; the note's text; the WebGL2 droplets (apex at `v²/2g`, a stream after a spin-up from rest at 60 and 20 fps) |
+| `npm run test:gpu-golden` (`golden-heron-liquid`) | on a GPU: the jet within 10 % of `v²/2g` on three presets, the particle books, a taller jet for a higher head, nothing below a dribble; over 60 s on screen the emitted volume is the plant's `Q·t` within 1 % (36.62 L of 36.62 L on `classic`), every particle is in the box or drained, and the liquid in the air holds steady (−0.03 % between the last two quarters) |
+| `npm run test:e2e:webgpu` | in the app: the liquid passes dispatch in Heron focus with no validation error and finite numbers, the measured jet reaches the hub, overview holds no fluid resources and releases them after leaving the bench |
 
 ## MHD duct
 
@@ -406,6 +494,16 @@ view.
 | `sim_core_test --mode peltier-textbook` | the same sweep natively, with its own assertions |
 
 ## WebGL2
+
+There is no liquid solver on WebGL2 and there will not be one: no compute, no
+atomics. Heron's droplets there are ballistic in SI (`stepParticles`, mode 1 in
+`renderers/shared/particle-physics.ts`): launched at the plant's exit speed,
+`g = 9.80665` over the bench's 0.64 m per scene unit, no drag, so each rises
+`v²/2g`. They do not see each other. The nozzle releases a waiting droplet at
+a random moment (on average a quarter of a flight after it came back), which
+is what keeps them a stream: let go together, with nothing to spread them,
+they would rise and fall as one sheet. The bench's note reads "Liquid solver
+needs WebGPU", and `heronJetHeightM` reads 0 (not measured).
 
 The Peltier plant and its body colours are renderer-independent. The fallback
 gets the same analytic Hartmann profile: the same closed-form parcels

@@ -3,6 +3,7 @@
  * Manages orbital camera controls, device focus transitions, and view animations.
  * Depends on: canvas, camera state, visualizer instance (for devicesEnabled, debugPanel, currentView)
  */
+import { heronFocusCamera } from './heron-layout';
 import { getMergedDeviceConfig } from './devices/device-registry';
 import type { CameraState } from './camera-controller';
 
@@ -35,15 +36,23 @@ export class MultiDeviceCamera {
     if (viewEl) viewEl.textContent = deviceId.toUpperCase();
 
     const devicePos = config.position;
-    const offset = config.cameraOffset;
+    // Heron's apparatus changes height with its layout preset, and the jet
+    // stands above it: its view is fitted to the preset rather than fixed.
+    const fitted = deviceId === 'heron'
+      ? heronFocusCamera((this.visualizer as { heronLayoutPreset?: string }).heronLayoutPreset)
+      : null;
+    const offset = fitted?.cameraOffset ?? config.cameraOffset;
     if (!devicePos || !offset) return;
     const rotY = config.rotation?.[1] ?? 0;
     const cosY = Math.cos(rotY);
     const sinY = Math.sin(rotY);
     const rotatedOffset = [offset[0] * cosY - offset[2] * sinY, offset[1], offset[0] * sinY + offset[2] * cosY];
     const endPos = [devicePos[0] + rotatedOffset[0], devicePos[1] + rotatedOffset[1], devicePos[2] + rotatedOffset[2]];
+    const lookAt = fitted
+      ? [devicePos[0] + fitted.cameraTarget[0], devicePos[1] + fitted.cameraTarget[1], devicePos[2] + fitted.cameraTarget[2]]
+      : devicePos;
 
-    this.startCameraTransition(endPos, devicePos);
+    this.startCameraTransition(endPos, lookAt);
   }
 
   showOverview(): void {

@@ -108,6 +108,8 @@ export interface MultiVisualizerWindowRef {
   captureOverviewCull?: () => Promise<unknown>;
   /** Active lighting look (`studio` | `lab` | `drama`). */
   lightingLook?: string;
+  /** The lab mode's say on the liquid solver while `fluid=auto` (lab-mode.ts; read by WebGPU only). */
+  fluidPreset?: 'high' | 'off' | null;
   /** Hardware twin bridge, once the panel has attached one. */
   hardwareBridge?: { isConnected: boolean; coast: () => void } | null;
   profiler?: {
@@ -422,6 +424,7 @@ declare global {
     fdtdHeatmapOverlay?: FdtdHeatmapOverlay;
     /** MHD velocity-profile card (mhd-profile-overlay.ts): Hartmann profile vs the B = 0 parabola. */
     mhdProfileOverlay?: MhdProfileOverlay;
+    heronLiquidNote?: import('./heron-liquid-note').HeronLiquidNote;
 
     /** Lab sonification singleton (audio/lab-audio.ts); only live under `?audio=1`. */
     labAudio?: LabAudio;

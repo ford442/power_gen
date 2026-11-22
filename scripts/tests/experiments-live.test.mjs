@@ -182,9 +182,9 @@ if (!BACKEND) {
     it(`${BACKEND}: no plant worker in Node (in-loop plant)`, () => {
       assert.equal(session.plantWorker, null);
     });
-    it('seven reference experiments', () => {
+    it('eight reference experiments', () => {
       const ids = X.referenceExperimentIds();
-      assert.ok(ids.length === 7, ids.join());
+      assert.ok(ids.length === 8, ids.join());
     });
   });
 

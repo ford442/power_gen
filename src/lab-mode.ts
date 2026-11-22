@@ -33,7 +33,7 @@ export const LAB_MODE_STORAGE_KEY = 'seg-lab-mode';
 
 /** Flags a user can set by hand that a preset would otherwise decide. */
 export type LabModeFlag =
-  | 'look' | 'audio' | 'classroom' | 'fieldCoupling' | 'chargeCoupling' | 'energyCoupling';
+  | 'look' | 'audio' | 'classroom' | 'fieldCoupling' | 'chargeCoupling' | 'energyCoupling' | 'fluid';
 
 export interface LabModePreset {
   label: string;
@@ -53,6 +53,11 @@ export interface LabModePreset {
   residualGauges: boolean;
   /** Hold the post stack at this tier (the highest the profiler reaches). */
   postFloor: 'high' | null;
+  /**
+   * The liquid solver when `fluid` is left at `auto` (visualizer/heron-liquid-pass.ts):
+   * 'high' asks for the largest tier the profiler allows, 'off' for none, null leaves `auto` alone.
+   */
+  fluid: 'high' | 'off' | null;
   /** Leaving this mode with a live link sends the coils a coast. */
   coastOnLeave: boolean;
 }
@@ -75,6 +80,7 @@ export const LAB_MODE_PRESETS: Readonly<Record<LabMode, LabModePreset>> = {
     twinPanelCollapsed: true,
     residualGauges: false,
     postFloor: 'high',
+    fluid: 'high',
     coastOnLeave: false
   },
   lab: {
@@ -89,6 +95,7 @@ export const LAB_MODE_PRESETS: Readonly<Record<LabMode, LabModePreset>> = {
     twinPanelCollapsed: false,
     residualGauges: false,
     postFloor: null,
+    fluid: null,
     coastOnLeave: false
   },
   twin: {
@@ -103,6 +110,7 @@ export const LAB_MODE_PRESETS: Readonly<Record<LabMode, LabModePreset>> = {
     twinPanelCollapsed: false,
     residualGauges: true,
     postFloor: null,
+    fluid: 'off',
     coastOnLeave: true
   }
 };
@@ -115,7 +123,7 @@ export function isLabMode(v: unknown): v is LabMode {
 export type LabModeOverrides = Partial<Pick<LabConfig, LabModeFlag>>;
 
 const BUS_FLAGS = ['fieldCoupling', 'chargeCoupling', 'energyCoupling'] as const;
-const OVERRIDE_FLAGS: readonly LabModeFlag[] = ['look', 'audio', 'classroom', ...BUS_FLAGS];
+const OVERRIDE_FLAGS: readonly LabModeFlag[] = ['look', 'audio', 'classroom', ...BUS_FLAGS, 'fluid'];
 
 /** The preset-controlled flags a resolved config sets explicitly. */
 export function labModeOverridesFrom(r: ResolvedLabConfig): LabModeOverrides {
@@ -155,6 +163,8 @@ export interface LabModePlan {
   twinPanelCollapsed: boolean;
   residualGauges: boolean;
   postFloor: 'high' | null;
+  /** The preset's say on the liquid solver; null when `fluid=` was given by hand or the preset has none. */
+  fluid: 'high' | 'off' | null;
   coastOnLeave: boolean;
 }
 
@@ -182,6 +192,7 @@ export function planLabMode(mode: LabMode, overrides: LabModeOverrides = {}): La
     twinPanelCollapsed: p.twinPanelCollapsed,
     residualGauges: p.residualGauges,
     postFloor: p.postFloor,
+    fluid: overrides.fluid != null ? null : p.fluid,
     coastOnLeave: p.coastOnLeave
   };
 }
@@ -260,6 +271,7 @@ function applyPlan(plan: LabModePlan, previous: LabMode | null): void {
   }
 
   if (v?.profiler) v.profiler.postTierFloor = plan.postFloor;
+  if (v) v.fluidPreset = plan.fluid;
 
   // Leaving Twin with a live link: coast, don't leave coils on the last command.
   // (Never disconnects — the link and its safety logic stay the bridge's.)

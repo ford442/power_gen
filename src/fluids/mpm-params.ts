@@ -481,3 +481,36 @@ export function mpmEmitParticle(e: MpmEmitter, id: number, ticket: number, count
     vel: dir.map((x) => (x / dl) * e.speedMS)
   };
 }
+
+/** What the profile read-back holds (passes/mpm-probe.wgsl). */
+export interface MpmProfile {
+  /** Liquid mass on each horizontal layer of grid nodes, in particle masses; index = node row, height = index · cellM. */
+  layers: Float32Array;
+  /** Particles released by emitters / removed by sinks since the solver was created. */
+  emitted: number;
+  sunk: number;
+}
+
+
+/**
+ * Height (m) of the top of the liquid: the highest layer holding at least
+ * `threshold` particle masses, moved up by the fraction of a cell the
+ * crossing to the layer above implies. NaN when no layer reaches the
+ * threshold. A threshold of a few particles ignores stray droplets.
+ */
+export function mpmProfileTop(config: MpmConfig, layers: ArrayLike<number>, threshold: number): number {
+  for (let j = layers.length - 1; j >= 0; j--) {
+    if (layers[j] < threshold) continue;
+    const above = j + 1 < layers.length ? layers[j + 1] : 0;
+    const frac = layers[j] > above ? (layers[j] - threshold) / (layers[j] - above) : 0;
+    return (j + Math.min(1, Math.max(0, frac))) * config.cellM;
+  }
+  return NaN;
+}
+
+/** Live particles implied by a profile: every unit of grid mass is one particle. */
+export function mpmProfileMass(layers: ArrayLike<number>): number {
+  let m = 0;
+  for (let j = 0; j < layers.length; j++) m += layers[j];
+  return m;
+}

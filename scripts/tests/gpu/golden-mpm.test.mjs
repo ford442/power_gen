@@ -34,8 +34,8 @@ const G = 9.80665;
 const I32_MAX = 2147483647;
 
 async function makeSolver(cfg, records) {
-  const { app, device, cache, shaders } = session;
-  const solver = await app.MpmSolver.create(device, cache, shaders.mpmShaders, cfg);
+  const { app, device, cache } = session;
+  const solver = await app.MpmSolver.create(device, cache, app.MPM_SHADERS, cfg);
   solver.writeParticles(records);
   return solver;
 }

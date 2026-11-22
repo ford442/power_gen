@@ -1,6 +1,6 @@
 # ADR-0022: GPU liquid — an MLS-MPM solver in WebGPU compute
 
-- **Status:** Accepted (solver core, boundaries, emitters and sinks; Heron's scene is built and tested, the app does not run it yet)
+- **Status:** Accepted (solver core, boundaries, emitters and sinks; Heron's fountain runs on it in the app; surface rendering and Kelvin not yet)
 - **Date:** 2026-11
 - **Context issue:** fluids and heat epic, step 3
 
@@ -152,6 +152,12 @@ choice.
   measured with `?gpuTiming=1` on real hardware once a bench runs it.
 - A new compute pass family: `mpm` in `bind-group-schema.json`,
   `ensureMpmPipelines`, `test:pipelines` compiles it for every colour mode.
+- **The solver is a chunk of its own** (56 kB, 12 kB gzip: the host, the
+  boundary bake, the bench scene and six shaders). With it inside, the WebGPU
+  chunk was 138 kB gzip against a budget of 135; outside, 126.5. The bench's
+  gate imports it the first frame it opens, so a visit that never brings a
+  liquid bench into focus does not download it. `check:entry-chunk` holds the
+  split.
 
 ## Tests
 

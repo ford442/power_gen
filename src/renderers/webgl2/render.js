@@ -11,6 +11,7 @@
 
 /** @typedef {import('./index.js').WebGL2MultiDeviceVisualizer} WebGL2MultiDeviceVisualizer */
 
+import { getHeronLayout } from '../../heron-layout';
 import { buildMagLevMesh } from '../../devices/quanta/magnetic-levitation';
 import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator';
 import { buildHalbachVizMesh, halbachConfigFromState } from '../../devices/quanta/halbach-viz';
@@ -40,6 +41,14 @@ import { resolveScaledParticleCount } from '../../devices/particle-budgets';
 import { segLayoutRingsForDraw } from '../shared/url-params';
 import { segOperator } from '../../seg-operator-state';
 import { stepJsDevicePlant } from '../../session/apply-wasm-plant';
+
+/** Scene height of the Heron nozzle mouth for the active layout preset (its `flow.apexY`). */
+let heronNozzleCache = { preset: '', y: 6.1 };
+function heronNozzleY(viz) {
+  const preset = viz?.heronLayoutPreset || 'classic';
+  if (heronNozzleCache.preset !== preset) heronNozzleCache = { preset, y: getHeronLayout(preset).flow.apexY };
+  return heronNozzleCache.y;
+}
 
 /** Build flat [x,z,...] roller positions from SEG layout + spin. */
 function layoutRollerPositions(layout, time, speedMult, segOmega) {
@@ -139,6 +148,7 @@ export function stepSimulation(viz, deltaTime, speed) {
         dt: subDt,
         segOmega: device.physics.segOmega,
         heronVExit: device.physics.heronVExit,
+        heronNozzleY: device.id === 'heron' ? heronNozzleY(viz) : undefined,
         kelvinE: device.physics.kelvinE,
         kelvinVoltageN: device.physics.kelvinVoltageN,
         solarN2: device.physics.solarN2,

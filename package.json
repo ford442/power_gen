@@ -71,6 +71,7 @@
     "test:peltier": "node --test scripts/tests/peltier.test.mjs",
     "test:mpm": "node --test scripts/tests/mpm.test.mjs",
     "test:mpm-io": "node --test scripts/tests/mpm-io.test.mjs",
+    "test:heron-liquid": "node --test scripts/tests/heron-liquid.test.mjs",
     "test:lab-mode": "node --test scripts/tests/lab-mode.test.mjs",
     "test:lab-url": "node --test scripts/tests/lab-url.test.mjs",
     "test:lab-config": "node --test scripts/tests/lab-config.test.mjs",

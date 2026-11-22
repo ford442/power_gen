@@ -137,7 +137,7 @@ async function buildSession(session, depthFormat) {
         () => cache.ensureFieldComputePipelines(field),
         () => cache.ensureFieldRenderPipelines(field),
         () => cache.ensureFieldRenderPipelines(field, msaa),
-        () => cache.ensureMpmPipelines(shaders.mpmShaders)
+        () => cache.ensureMpmPipelines(app.MPM_SHADERS)
       ];
       rec.ensureCalls = jobs.length;
       // A factory can also reject before it creates anything (a missing

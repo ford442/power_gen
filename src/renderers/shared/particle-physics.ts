@@ -6,6 +6,7 @@
  */
 
 import { ValidatedConstants } from '../../ValidatedConstants';
+import { HERON_CONSTANTS, PHYSICAL_CONSTANTS } from '../../../generated/physics-constants';
 import { simRandom } from '../../telemetry/deterministic-rng.js';
 import { VDG_V_BREAK } from '../../devices/quanta/van-de-graaff';
 import { HALL } from '../../devices/quanta/hall-effect';
@@ -39,6 +40,8 @@ export interface ParticleUniforms {
   dt: number;
   segOmega: number;
   heronVExit: number;
+  /** Scene height of the Heron nozzle mouth (the layout's `flow.apexY`); the classic preset's when absent. */
+  heronNozzleY?: number;
   kelvinE: number;
   kelvinVoltageN: number;
   solarN2: number;
@@ -144,14 +147,40 @@ function spawnSEG(idx: number, u: ParticleUniforms): SpawnParticle {
   };
 }
 
+/** Scene units per metre on the Heron bench (physics/constants.json `heron.metresPerSceneUnit`). */
+const HERON_SCENE_PER_M = 1 / HERON_CONSTANTS.METRES_PER_SCENE_UNIT;
+/** Gravity on the Heron bench in scene units: SI over the bench scale, no fudge. */
+const HERON_GRAV = PHYSICAL_CONSTANTS.G * HERON_SCENE_PER_M;
+/** Nozzle mouth when the layout does not say (the `classic` preset's). */
+const HERON_NOZZLE_Y = 6.1;
+/** Exit speed below which the nozzle only dribbles, m/s (HERON_MIN_JET_MS in fluids/heron-liquid.ts). */
+const HERON_MIN_JET_MS = 0.2;
+/** A droplet is back at the basin this far under the nozzle mouth, scene units. */
+const HERON_BASIN_DROP = 0.35;
+/** A returned droplet waits in the nozzle this fraction of a flight (2v/g) on average, and at least… */
+const HERON_WAIT_FRACTION = 0.25;
+/** …this long, s. */
+const HERON_MIN_WAIT_S = 0.05;
+/** Where a waiting droplet is kept, scene units under the nozzle mouth: far outside any view. */
+export const HERON_PARK_DROP = 1e4;
+
+/** Height of the droplets' apex above the nozzle, scene units, for an exit speed in m/s: v²/2g over the bench scale. */
+export function heronDropletApex(vExitMS: number): number {
+  return ((vExitMS * vExitMS) / (2 * PHYSICAL_CONSTANTS.G)) * HERON_SCENE_PER_M;
+}
+
 function spawnHeron(idx: number, u: ParticleUniforms): SpawnParticle {
+  // A droplet leaves the nozzle at the plant's exit speed (m/s → scene units/s),
+  // within the nozzle's bore, with a few percent of that speed sideways so
+  // the stream fans instead of falling back down its own line.
   const ang = rnd(idx, 1, u.simClock) * TAU;
-  const rad = rnd(idx, 2, u.simClock) * 0.18;
-  const spread = 0.9;
+  const rad = rnd(idx, 2, u.simClock) * 0.03;
+  const v = Math.max(0, u.heronVExit) * HERON_SCENE_PER_M;
+  const side = 0.06 * v * rnd(idx, 4, u.simClock);
   return {
-    pos: [Math.cos(ang) * rad, 5.6, Math.sin(ang) * rad],
+    pos: [Math.cos(ang) * rad, u.heronNozzleY ?? HERON_NOZZLE_Y, Math.sin(ang) * rad],
     phase: rnd(idx, 3, u.simClock),
-    vel: [Math.cos(ang) * rad * spread, u.heronVExit, Math.sin(ang) * rad * spread],
+    vel: [Math.cos(ang) * side, v, Math.sin(ang) * side],
     aux: 0
   };
 }
@@ -246,19 +275,45 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
         aux = s.aux;
       }
     } else if (mode < 1.5) {
-      const speed = Math.sqrt(vx * vx + vy * vy + vz * vz);
-      vx += (0 - vx * (0.18 + 0.05 * speed)) * dt;
-      vy += (-GRAV - vy * (0.18 + 0.05 * speed)) * dt;
-      vz += (0 - vz * (0.18 + 0.05 * speed)) * dt;
-      px += vx * dt;
-      py += vy * dt;
-      pz += vz * dt;
-      if (py < 3.4 || Math.abs(px) > 6.0 || Math.abs(pz) > 6.0) {
-        const s = spawnHeron(idx, u);
-        px = s.pos[0]; py = s.pos[1]; pz = s.pos[2];
-        particles[base + 3] = s.phase;
-        vx = s.vel[0]; vy = s.vel[1]; vz = s.vel[2];
-        aux = s.aux;
+      // Heron: ballistic in SI, drawn in scene units. No drag — each droplet
+      // is on its own, so it rises exactly v²/2g (heronDropletApex).
+      // `aux` is 1 in flight and 0 while a droplet waits in the nozzle.
+      const nozzleY = u.heronNozzleY ?? HERON_NOZZLE_Y;
+      if (aux !== 0) {
+        vy -= HERON_GRAV * dt;
+        px += vx * dt;
+        py += vy * dt;
+        pz += vz * dt;
+        // Back at the basin, just under the nozzle.
+        if (py < nozzleY - HERON_BASIN_DROP || Math.abs(px) > 6.0 || Math.abs(pz) > 6.0) aux = 0;
+      }
+      if (aux === 0) {
+        // The nozzle lets waiting droplets go at random moments, on average
+        // HERON_WAIT_FRACTION of a flight after they came back. Droplets that
+        // all left on one frame would, with no drag to spread them, rise and
+        // fall as one sheet for ever; the random wait pulls any such pulse
+        // apart within a couple of flights. Below a dribble nothing leaves.
+        const v = Math.max(0, u.heronVExit) * HERON_SCENE_PER_M;
+        const meanWait = Math.max(HERON_MIN_WAIT_S, (HERON_WAIT_FRACTION * 2 * v) / HERON_GRAV);
+        const leaves = u.heronVExit >= HERON_MIN_JET_MS && dt > 0
+          && rnd(idx, 5, u.simClock) < 1 - Math.exp(-dt / meanWait);
+        if (leaves) {
+          const s = spawnHeron(idx, u);
+          particles[base + 3] = s.phase;
+          vx = s.vel[0]; vy = s.vel[1]; vz = s.vel[2];
+          // It left at some moment within this step, not on its edge: without
+          // this the stream is drawn as one band per frame.
+          const tau = rnd(idx, 6, u.simClock) * dt;
+          px = s.pos[0] + vx * tau;
+          py = s.pos[1] + vy * tau - 0.5 * HERON_GRAV * tau * tau;
+          pz = s.pos[2] + vz * tau;
+          vy -= HERON_GRAV * tau;
+          aux = 1;
+        } else {
+          // Waiting: inside the riser, out of the picture.
+          px = 0; py = nozzleY - HERON_PARK_DROP; pz = 0;
+          vx = 0; vy = 0; vz = 0;
+        }
       }
     } else if (mode < 2.5) {
       const q = aux;
