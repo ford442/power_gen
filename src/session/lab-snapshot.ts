@@ -29,6 +29,7 @@ import {
   DEVICE_CATALOG_HASH,
   DEVICE_STATE_LAYOUT,
   PLANT_STATE_LAYOUT_HASH,
+  PLANT_STATE_VERSION,
   SNAPSHOT_FORMAT,
   captureOperatorState,
   cppStateFromKeys,
@@ -122,6 +123,7 @@ export async function captureLabSnapshot(): Promise<PlantSnapshot> {
   const snap: PlantSnapshot = {
     format: SNAPSHOT_FORMAT,
     version: 1,
+    plantStateVersion: PLANT_STATE_VERSION,
     layoutHash: PLANT_STATE_LAYOUT_HASH,
     catalogHash: DEVICE_CATALOG_HASH,
     backend,

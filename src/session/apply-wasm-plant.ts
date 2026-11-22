@@ -62,6 +62,12 @@ export interface WasmModePlant {
   current?: number;
   powerW?: number;
   cop?: number;
+  /** Peltier: heat pumped out of the cold plate / delivered to the hot plate, W. */
+  qcW?: number;
+  qhW?: number;
+  /** Peltier: cold block and heat sink temperatures, K (the profile's two ends). */
+  blockK?: number;
+  sinkK?: number;
   energyLevel?: number;
   flowU?: number;
   bFieldT?: number;
@@ -243,6 +249,9 @@ export function applyModePlantToDevices(
     peltier.peltierCurrent = plant.current ?? 0;
     peltier.peltierPowerW = plant.powerW ?? 0;
     peltier.peltierCOP = plant.cop ?? 0;
+    peltier.peltierQcW = plant.qcW ?? 0;
+    peltier.peltierQhW = plant.qhW ?? 0;
+    writePeltierProfile(peltier, plant);
     peltier.energyLevel = plant.energyLevel ?? 0;
     peltier._wasmPlantActive = true;
     return;
@@ -359,6 +368,26 @@ export function applyModePlantToDevices(
   }
 }
 
+/**
+ * Mirror the C++ cooler's temperatures into `peltierNodesK` for the mesh.
+ * Only the four end nodes cross the bridge each frame; the leg cells between
+ * the plates are filled with the straight line joining them — what the mesh
+ * needs, not the plant's state (a snapshot reads the C++ vector itself).
+ */
+function writePeltierProfile(peltier: DevicePhysicsState, plant: WasmModePlant): void {
+  const nodes = peltier.peltierNodesK;
+  if (!nodes || nodes.length < 4) return;
+  const n = nodes.length;
+  const cold = plant.coldK ?? nodes[1];
+  const hot = plant.hotK ?? nodes[n - 2];
+  nodes[0] = plant.blockK || cold;
+  nodes[1] = cold;
+  nodes[n - 2] = hot;
+  nodes[n - 1] = plant.sinkK || hot;
+  const cells = n - 4;
+  for (let i = 0; i < cells; i++) nodes[2 + i] = cold + ((hot - cold) * (i + 0.5)) / cells;
+}
+
 export function syncWasmFocusKnobs(devices: SessionDeviceMap, focus: string): void {
   if (isWasmPlantMode(focus)) {
     segWasm.setMode(focus);
@@ -404,6 +433,12 @@ export function syncWasmFocusKnobs(devices: SessionDeviceMap, focus: string): vo
     }
   } else {
     _hallCouplingIgnoredByWasm = false;
+  }
+  if (focus === 'peltier') {
+    // Catalog setpoints: the load slider and the current direction.
+    const peltier = devicePhysics(devices.peltier);
+    segWasm.setPeltierLoadW?.(peltier?.peltierLoadW ?? 0);
+    segWasm.setPeltierPolarity?.(peltier?.peltierPolarity ?? 1);
   }
   if (focus === 'lorentz-sled') {
     // Local bench slider or FieldNetwork setpoint — both land in lorentzFieldT,

@@ -32,6 +32,7 @@ const MAX_ERR = 5e-4;
 const ENTRY = `
 export { createJumpingRingPhysicsState, stepJumpingRingPhysics } from './src/devices/quanta/jumping-ring.ts';
 export { createHomopolarPhysicsState, stepHomopolarPhysics } from './src/devices/quanta/homopolar-generator.ts';
+export { createPeltierPhysicsState, stepPeltierPhysics } from './src/devices/core/peltier-plant.ts';
 export * from './src/renderers/shared/integrate.ts';
 export { PLANT_ODE } from './generated/plant-ode.ts';
 `;
@@ -60,7 +61,7 @@ describe('native --mode integrators', () => {
     assert.ok(/^integrators\.done /m.test(run.stdout), 'no integrators.done line');
   });
   it('every analytic check passes', () => {
-    assert.ok(analytic.length >= 6, `expected ≥ 6 analytic checks, got ${analytic.length}`);
+    assert.ok(analytic.length >= 9, `expected ≥ 9 analytic checks, got ${analytic.length}`);
     for (const a of analytic) assert.ok(a.ok, `${a.what}: ${a.value} vs limit ${a.limit}`);
   });
   for (const [id, spec] of Object.entries(js.PLANT_ODE)) {
@@ -85,6 +86,20 @@ const PLANTS = {
     create: js.createHomopolarPhysicsState,
     step: js.stepHomopolarPhysics,
     read: (s) => [s.homopolarOmega, s.homopolarCurrentA],
+  },
+  // The cooler's four end nodes (cold block, cold plate, hot plate, sink).
+  // Its reference is RK4 in 0.5 ms substeps, which the C++ plant runs on
+  // ~300 K float32 temperatures: ~1 mK increments, 20,400 of them, leave
+  // ~1e-4 of amplitude in rounding, and that — not the method under test — is
+  // what the native err measures.
+  peltier: {
+    create: js.createPeltierPhysicsState,
+    step: js.stepPeltierPhysics,
+    read: (s) => { const n = s.peltierNodesK; return [n[0], n[1], n[n.length - 2], n[n.length - 1]]; },
+    nativeRefIsFloatLimited: true,
+    // Supplies OdePlant.jacobian (exact, tridiagonal), so — like the native
+    // Dual evaluation — a Jacobian costs it no RHS calls.
+    analyticJacobian: true,
   },
 };
 
@@ -126,14 +141,26 @@ describe('TS mirror (src/renderers/shared/integrate.ts)', () => {
         const { err, ratio } = compare(ref, tr);
         const kv = native.get(`${id}@${method}`);
         // Native ros23 takes J from one Dual evaluation (core/dual.h, #257);
-        // the TS mirror differences it, n RHS per Jacobian. Same path ⇔ the
-        // TS count matches native RHS + n·jacobians.
-        const nativeRhs = Number(kv.rhs) + (method === 'ros23' ? Number(kv.n) * Number(kv.jac) : 0);
+        // the TS mirror differences it, n RHS per Jacobian, unless the plant
+        // supplies OdePlant.jacobian. Same path ⇔ the TS count matches native
+        // RHS + n·jacobians (or native RHS alone).
+        // `states` is the ODE's size (28 for the cooler, whose trace is 4 of them).
+        const fdJacobian = method === 'ros23' && !PLANTS[id].analyticJacobian;
+        const nativeRhs = Number(kv.rhs) + (fdJacobian ? Number(kv.states ?? kv.n) * Number(kv.jac) : 0);
         assert.ok(Number.isFinite(nativeRhs), `native case line lacks rhs / jac / n: ${JSON.stringify(kv)}`);
         assert.ok(Math.abs(tr.rhs - nativeRhs) <= 0.03 * nativeRhs,
           `TS ${tr.rhs} RHS vs native ${nativeRhs} — the plants left each other's adaptive path`);
-        assert.ok(Math.abs(err - Number(kv['err.max'])) <= 0.5 * Number(kv['err.max']) + 1e-6,
-          `TS err ${err.toExponential(2)} vs native ${kv['err.max']}`);
+        if (PLANTS[id].nativeRefIsFloatLimited) {
+          // The two errors are measured against different references (float32
+          // vs double RK4), so they are not compared with each other: each
+          // must simply meet the budget. The RHS count above is what shows
+          // the two plants took the same adaptive path.
+          assert.ok(err <= MAX_ERR && Number(kv['err.max']) <= MAX_ERR,
+            `TS err ${err.toExponential(2)}, native ${kv['err.max']} — budget ${MAX_ERR}`);
+        } else {
+          assert.ok(Math.abs(err - Number(kv['err.max'])) <= 0.5 * Number(kv['err.max']) + 1e-6,
+            `TS err ${err.toExponential(2)} vs native ${kv['err.max']}`);
+        }
         if (js.PLANT_ODE[id].integrator === method) {
           assert.ok(ratio >= MIN_RATIO, `TS ratio ${ratio.toFixed(2)}`);
           assert.ok(err <= MAX_ERR, `TS err ${err.toExponential(2)}`);
@@ -182,6 +209,56 @@ describe('TS analytic checks', () => {
       }
     }
     assert.ok(steps.ros23 * 20 <= steps.dopri5, `ros23 ${steps.ros23} vs dopri5 ${steps.dopri5} steps`);
+  });
+
+  it('luFactor / luSolve: pivots off the diagonal, residual at round-off', () => {
+    let seed = 0x1234567;
+    const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32) - 0.5;
+    for (const n of [2, 3, 6, 12, 28]) {
+      const a = new Float64Array(n * n);
+      const b = new Float64Array(n);
+      // A large entry two columns right of the diagonal: every pivot is an interchange.
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) a[i * n + j] = rnd() + (j === (i + 2) % n ? 4 : 0);
+        b[i] = rnd();
+      }
+      const a0 = a.slice();
+      const b0 = b.slice();
+      const piv = new Int32Array(n);
+      assert.ok(js.luFactor(a, piv, n));
+      assert.ok(n < 3 || piv.some((p, k) => k > 0 && p !== k), 'the test matrix must pivot past column 0');
+      js.luSolve(a, piv, b, n);
+      let resid = 0;
+      for (let i = 0; i < n; i++) {
+        let r = -b0[i];
+        for (let j = 0; j < n; j++) r += a0[i * n + j] * b[j];
+        resid = Math.max(resid, Math.abs(r));
+      }
+      assert.ok(resid < 1e-12, `n = ${n}: residual ${resid}`);
+    }
+  });
+
+  it('ros23 on a conduction chain between held ends: ends stay put, cells reach the straight line', () => {
+    // W = I − h·d·J needs a pivot past column 0 here once h·d·480 > 1.
+    const chain = {
+      stateSize: 6,
+      derivs(_t, x, _u, d) {
+        d[0] = 0;
+        d[5] = 0;
+        for (let i = 1; i <= 4; i++) d[i] = 480 * (x[i - 1] - 2 * x[i] + x[i + 1]);
+      },
+    };
+    const x = new Float64Array([0, 0, 0, 0, 0, 1]);
+    const st = { h: 0, errOld: 1e-4 };
+    let steps = 0;
+    for (let f = 0; f < 60; f++) {
+      const s = js.ros23Advance(chain, x, null, dt, { rtol: 1e-5, atol: Array(6).fill(1e-6) }, st);
+      assert.ok(s.ok);
+      steps += s.steps;
+    }
+    assert.ok(Math.abs(x[0]) < 1e-9 && Math.abs(x[5] - 1) < 1e-9, `held ends moved: ${x[0]}, ${x[5]}`);
+    for (let i = 1; i <= 4; i++) assert.ok(Math.abs(x[i] - 0.2 * i) < 1e-4, `cell ${i}: ${x[i]}`);
+    assert.ok(steps <= 400, `${steps} steps: ros23 is being held to the explicit stability limit`);
   });
 
   it('rk4Fixed is fourth order (halving h cuts the error ~16×)', () => {

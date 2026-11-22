@@ -11,6 +11,7 @@ import { HALL } from './devices/quanta/hall-effect';
 import { RING } from './devices/quanta/jumping-ring';
 import { dropTubeParticleUniforms } from './devices/quanta/drop-tube';
 import { advanceMhdTravel } from './devices/core/mhd-parcels';
+import { advancePeltierAir } from './devices/core/peltier-mesh';
 
 interface ComputeGeometryHost {
   particles: GPUBuffer;
@@ -95,9 +96,8 @@ class DeviceComputeManager {
       } else if (physicsState.deviceId === 'solar') {
         p0 = physicsState.batteryCharge;
       } else if (physicsState.deviceId === 'peltier') {
-        p0 = Math.min(1, Math.abs(physicsState.peltierDeltaT ?? 0) / 80);
-        p1 = Math.min(1, physicsState.peltierCOP ?? 0);
-        p2 = Math.min(1, ((physicsState.peltierHotK ?? 300) - 280) / 150);
+        // posPeltier: air-parcel drift beside the sink and beside the block.
+        [p0, p1] = advancePeltierAir(physicsState, time);
       } else if (physicsState.deviceId === 'mhd') {
         // posMhd: centre-line transits (fractional) and the raw Hartmann
         // number — the profile is evaluated in the shader, not normalised here.

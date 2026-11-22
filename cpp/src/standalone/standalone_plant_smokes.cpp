@@ -18,16 +18,16 @@ int run_peltier_smoke() {
     sim.setDrive(1.f);
     sim.seedParticles(500);
     const float dt = 1.f / 60.f;
-    for (int i = 0; i < 3600; ++i) { // 60 s to let the stack heat up
+    for (int i = 0; i < 3600; ++i) { // 60 s: past the block's and the sink's time constants
         sim.step(dt, 0.f);
         if ((i & 7) == 0) sim.stepParticles(dt);
     }
-    printf("Peltier Th=%.1f K  Tc=%.1f K  dT=%.1f K  V=%.3f V  I=%.3f A  P=%.3f W  eff=%.3f\n",
+    printf("Peltier Th=%.1f K  Tc=%.1f K  dT=%.1f K  V=%.3f V  I=%.3f A  P_in=%.3f W  COP=%.3f\n",
            sim.getPeltierHotK(), sim.getPeltierColdK(), sim.getPeltierDeltaT(),
            sim.getPeltierVoltage(), sim.getPeltierCurrent(),
            sim.getPeltierPowerW(), sim.getPeltierCOP());
     if (sim.getPeltierDeltaT() <= 1.f || sim.getPeltierPowerW() <= 0.f) {
-        printf("FAIL: Peltier stack did not develop dT / power\n");
+        printf("FAIL: Peltier cooler did not develop dT / draw power\n");
         return 1;
     }
     if (sim.getEnergyLevel() < 0.f || sim.getEnergyLevel() > 1.f) {

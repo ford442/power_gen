@@ -24,7 +24,7 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 | `heron` | 1 | 1 (`SIM_MODE_HERON`) | `heronHead` (m), `heronHeadMax` (m), `heronVExit` (m/s), `heronFlowRateLmin` (L/min), `heronPressureKPa` (kPa) | WASM (Bernoulli/Swamee–Jain) |
 | `kelvin` | 2 | 2 (`SIM_MODE_KELVIN`) | `kelvinV` (V), `kelvinVoltageN` (%), `kelvinVbreak` (V), `kelvinE` (V/m), `kelvinSparkTimer` (s) | WASM (capacitive + spark) |
 | `solar` | 3 | 3 (`SIM_MODE_SOLAR`) | `batteryCharge` (%) | WASM (battery SOC) |
-| `peltier` | 4 | 4 (`SIM_MODE_PELTIER`) | `peltierHotK` (K), `peltierColdK` (K), `peltierDeltaT` (K), `peltierVoltage` (V), `peltierCurrent` (A), `peltierPowerW` (W), `peltierCOP` | WASM (two-node Seebeck/Peltier stack) |
+| `peltier` | 4 | 4 (`SIM_MODE_PELTIER`) | `peltierHotK` (K), `peltierColdK` (K), `peltierDeltaT` (K), `peltierVoltage` (V), `peltierCurrent` (A), `peltierPowerW` (W), `peltierCOP`, `peltierQcW` (W), `peltierQhW` (W) | WASM (thermoelectric cooler: 1-D leg, 24 cells + 4 end nodes, ros23) |
 | `mhd` | 5 | 5 (`SIM_MODE_MHD`) | `mhdFlowU` (m/s), `mhdBFieldT` (T), `mhdHartmann`, `mhdVoltage` (V), `mhdCurrent` (A), `mhdPowerW` (W) | WASM (Hartmann channel) |
 | `maglev` | 6 | 6 (`SIM_MODE_MAGLEV`) | `maglevGapMm` (mm), `maglevFieldT` (T), `maglevLiftN` (N), `maglevRpm` (RPM) | WASM (spring–damper gap ODE), JS fallback mirrors it |
 | `pulse-coil` | 7 | none (`wasmMode: null`) | `pulseCoilCurrentA` (A), `pulseCoilVCap` (V), `pulseCoilBPeakT` (T), `pulseCoilArmatureMm` (mm) | JS-only (fallback-physics for pulseCoilBPeakT) |
@@ -42,7 +42,7 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 Each device's `state` block lists what a plant snapshot saves (see
 [`SNAPSHOTS.md`](SNAPSHOTS.md)). The C++ vector is `[_time, _drive, …]`
 followed by the block's `cpp` fields; layout hash
-`0x1d82ad14` (`PLANT_STATE_LAYOUT_HASH`).
+`0x7316415e` (`PLANT_STATE_LAYOUT_HASH`).
 
 | Device `id` | TS keys | C++ `plantStateSize` | Keys shared with C++ |
 |---|---|---|---|
@@ -50,7 +50,7 @@ followed by the block's `cpp` fields; layout hash
 | `heron` | 7 | 8 floats | 5 |
 | `kelvin` | 6 | 8 floats | 5 |
 | `solar` | 2 | 4 floats | 1 |
-| `peltier` | 8 | 10 floats | 7 |
+| `peltier` | 42 | 44 floats | 41 |
 | `mhd` | 7 | 9 floats | 6 |
 | `maglev` | 7 | 9 floats | 6 |
 | `pulse-coil` | 12 | — | — |

@@ -110,12 +110,16 @@
             // Solar: warm yellow photons
             let intensity = 0.55 + 0.45 * device.batteryCharge;
             color = vec3f(1.0, 0.88, 0.28) * intensity;
+          } else if (mode > 3.5 && mode < 4.5) {
+            // Peltier: pale air parcels. Which way they drift says warm or cold.
+            color = vec3f(0.80, 0.88, 1.0);
+            alpha *= 0.3;
           } else if (mode > 4.5 && mode < 5.5) {
             // MHD: liquid-metal timeline markers, one colour — speed is read from their shape.
             color = vec3f(0.55, 0.78, 1.0);
             alpha *= 0.55;
           } else {
-            // Peltier TEG: Colors based on thermal regions
+            // Quanta benches (mode ≥ 6): colours by phase band
             if (phase < 0.4) {
               color = vec3f(1.0, 0.25 + 0.1 * sin(t * 3.0 + phase * 10.0), 0.0);
             } else if (phase < 0.8) {

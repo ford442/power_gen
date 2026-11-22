@@ -1,106 +1,137 @@
 /**
- * Peltier thermoelectric stack — mesh + JS plant fallback + heat-tint.
- * WASM two-node Seebeck plant remains authoritative with `?wasmPhysics=1`.
+ * Peltier thermoelectric cooler — mesh + heat-tint. The plant (JS fallback,
+ * mirrored by the WASM one under `?wasmPhysics=1`) is ./peltier-plant.ts.
  */
 
 import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
 import { PELTIER } from '../../../generated/physics-constants';
 import { MATERIAL_STEEL_BASE, MATERIAL_STRUCTURAL, MATERIAL_QUANTA_COIL } from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
-import type { DeviceInstanceLike, DevicePlugin } from '../types';
-import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
+import type { DeviceInstanceLike } from '../types';
 
-/**
- * Classroom module parameters — the single set shared with the C++ plant.
- * Generated from physics/constants.json (`peltier` block) into
- * `PELTIER` (TS) and `power_gen::PeltierConstants` (C++). Do not re-literal
- * SI numbers here; edit the JSON and rerun `npm run codegen:constants`.
- */
-export const PELTIER_PARAMS = PELTIER;
 export { PELTIER };
+export { PELTIER_PARAMS, createPeltierPhysicsState, stepPeltierPhysics } from './peltier-plant';
+
+/** Half-height of the shared instance cylinder (setup-geometry.ts `generateCylinder(0.8, 2.5)`). */
+const CYL_H = 2.5;
+
+/** What the three drawn bodies are coloured by, K. */
+export interface PeltierMeshTemps {
+  /** Heat sink (bottom). */
+  sinkK: number;
+  /** The module between its plates (middle): mean of the two plate temperatures. */
+  moduleK: number;
+  /** Cold block (top). */
+  blockK: number;
+}
+
+/** Read the three body temperatures off a plant state (ambient before the first step). */
+export function peltierMeshTemps(state?: {
+  peltierNodesK?: readonly number[];
+  peltierHotK?: number;
+  peltierColdK?: number;
+} | null): PeltierMeshTemps {
+  const ambient = PELTIER.ambientK;
+  const nodes = state?.peltierNodesK;
+  const hot = state?.peltierHotK ?? ambient;
+  const cold = state?.peltierColdK ?? ambient;
+  return {
+    sinkK: nodes?.[nodes.length - 1] ?? hot,
+    moduleK: 0.5 * (hot + cold),
+    blockK: nodes?.[0] ?? cold
+  };
+}
 
 /**
- * Two-node thermal plates: hot (bottom, red tint) + cold (top, blue tint).
- * Emissive scales with ΔT for a cheap heat-map look.
+ * Air parcels beside the two end bodies (posPeltier / integratePeltier): where
+ * they sit and how fast they drift. Illustrative — a plume speed that goes as
+ * √|ΔT| like a buoyant one, not a convection solve.
  */
-export function buildPeltierMesh(hotK: number = PELTIER.ambientK + 27, coldK: number = PELTIER.ambientK - 3, deltaT = 30): { cylinders: () => InstanceArray } {
-  const ambient = PELTIER_PARAMS.ambientK;
-  const hotN = Math.max(0, Math.min(1, (hotK - ambient) / 120));
-  const coldN = Math.max(0, Math.min(1, (ambient - coldK + 40) / 80));
-  const dN = Math.max(0, Math.min(1, Math.abs(deltaT) / 80));
-  const hotColor = [0.55 + hotN * 0.4, 0.22 + (1 - hotN) * 0.15, 0.16];
-  const coldColor = [0.2, 0.35 + coldN * 0.35, 0.75 + coldN * 0.2];
+export const PELTIER_AIR = Object.freeze({
+  /** Centre height of the sink (−) and block (+) bodies. */
+  bodyY: CYL_H,
+  /** Vertical extent a parcel travels. */
+  spanU: 2.6,
+  /** Inner radius and radial spread of the parcels. */
+  radiusU: 0.95,
+  spreadU: 0.5,
+  /** Transits per second at |T − T_ambient| = deltaTRefK. */
+  transitHzAtRef: 0.35
+});
+
+/** View-side drift state kept on the physics state (not plant state, not snapshotted). */
+export interface PeltierAirState {
+  peltierNodesK?: readonly number[];
+  peltierHotK?: number;
+  peltierColdK?: number;
+  _peltierAirSink?: number;
+  _peltierAirBlock?: number;
+  _peltierAirClock?: number;
+}
+
+const fract = (v: number): number => v - Math.floor(v);
+
+/**
+ * Advance the two drifts to scene time `time`: up beside a body warmer than
+ * the room, down beside a colder one, still at ambient. Idempotent within a
+ * frame. Returns the fractional drifts [sink, block].
+ */
+export function advancePeltierAir(state: PeltierAirState, time: number): [number, number] {
+  let sink = state._peltierAirSink ?? 0;
+  let block = state._peltierAirBlock ?? 0;
+  const last = state._peltierAirClock;
+  if (last !== undefined && Number.isFinite(time)) {
+    const dt = Math.min(0.1, time - last);
+    if (dt > 0) {
+      const t = peltierMeshTemps(state);
+      const rate = (k: number): number => {
+        const d = (k - PELTIER.ambientK) / PELTIER.deltaTRefK;
+        return Math.sign(d) * Math.sqrt(Math.min(1, Math.abs(d))) * PELTIER_AIR.transitHzAtRef;
+      };
+      sink = fract(sink + rate(t.sinkK) * dt);
+      block = fract(block + rate(t.blockK) * dt);
+    }
+  }
+  if (Number.isFinite(time)) state._peltierAirClock = time;
+  state._peltierAirSink = sink;
+  state._peltierAirBlock = block;
+  return [sink, block];
+}
+
+/**
+ * Temperature → colour: blue 60 K below ambient, neutral grey at ambient, red
+ * 80 K above. A stand-in for a thermal camera until the IR view lands.
+ */
+export function peltierTempColor(tempK: number): [number, number, number] {
+  const d = tempK - PELTIER.ambientK;
+  const neutral = [0.5, 0.52, 0.55];
+  const end = d < 0 ? [0.12, 0.35, 0.95] : [0.95, 0.22, 0.1];
+  const w = Math.max(0, Math.min(1, d < 0 ? -d / 60 : d / 80));
+  return [
+    neutral[0] + (end[0] - neutral[0]) * w,
+    neutral[1] + (end[1] - neutral[1]) * w,
+    neutral[2] + (end[2] - neutral[2]) * w
+  ];
+}
+
+/**
+ * Three stacked bodies, each one instance cylinder, each coloured by its own
+ * temperature from the plant: heat sink (bottom), module (middle), cold block
+ * (top). With the current reversed the block turns red and the sink side
+ * cools — the colours follow the plant, not a fixed hot-below-cold picture.
+ */
+export function buildPeltierMesh(temps: PeltierMeshTemps = peltierMeshTemps()): { cylinders: () => InstanceArray } {
+  const upright = [0, 0, 0, 1];
+  const glow = (k: number): number => 0.04 + 0.3 * Math.min(1, Math.abs(k - PELTIER.ambientK) / PELTIER.deltaTRefK);
   return {
     cylinders: () => [
-      packInstance([0, -0.55, 0], MATERIAL_STEEL_BASE, [0, 0, 0, 1], [0.35, 0.36, 0.38], 0.03),
-      // Hot plate
-      packInstance([0, -0.15, 0], MATERIAL_STRUCTURAL, [0, 0, 0, 1], hotColor, 0.08 + hotN * 0.55),
-      // Ceramic junction stack
-      packInstance([0, 0.05, 0], MATERIAL_QUANTA_COIL, [0, 0, 0, 1], [0.72, 0.74, 0.78], 0.05 + dN * 0.15),
-      // Cold plate
-      packInstance([0, 0.28, 0], MATERIAL_STRUCTURAL, [0, 0, 0, 1], coldColor, 0.06 + coldN * 0.4),
-      // Heat sink fins (visual)
-      packInstance([0, 0.55, 0], MATERIAL_STEEL_BASE, [0, 0, 0, 1], [0.55, 0.58, 0.62], 0.04)
+      packInstance([0, -CYL_H, 0], MATERIAL_STEEL_BASE, upright, peltierTempColor(temps.sinkK), glow(temps.sinkK)),
+      packInstance([0, 0, 0], MATERIAL_QUANTA_COIL, upright, peltierTempColor(temps.moduleK), glow(temps.moduleK)),
+      packInstance([0, CYL_H, 0], MATERIAL_STRUCTURAL, upright, peltierTempColor(temps.blockK), glow(temps.blockK))
     ]
   };
 }
 
-/**
- * JS fallback when WASM plant is off — same two-node spirit as C++.
- * @param drive 0..1
- */
-export const stepPeltierPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
-  const p = PELTIER_PARAMS;
-  const S = p.seebeckVK * p.couples;
-  let hotK = state.peltierHotK ?? p.ambientK;
-  let coldK = state.peltierColdK ?? p.ambientK;
-  let deltaTK = hotK - coldK;
-  const qHeater = drive * p.heaterMaxW;
-  const qCond = p.conductanceWK * deltaTK;
-  let I = S * deltaTK / (p.rInternalOhm + p.rLoadOhm);
-  const qJoule = 0.5 * I * I * p.rInternalOhm;
-  const dTh = (qHeater - qCond - S * I * hotK + qJoule) / p.heatCapHotJK;
-  const dTc = (qCond + S * I * coldK + qJoule - p.sinkWK * (coldK - p.ambientK)) / p.heatCapColdJK;
-  hotK = Math.max(p.ambientK - p.clampBelowAmbientK,
-    Math.min(p.ambientK + p.hotClampAboveAmbientK, hotK + dTh * dt));
-  coldK = Math.max(p.ambientK - p.clampBelowAmbientK,
-    Math.min(p.ambientK + p.coldClampAboveAmbientK, coldK + dTc * dt));
-  deltaTK = hotK - coldK;
-  I = S * deltaTK / (p.rInternalOhm + p.rLoadOhm);
-  const voltageV = I * p.rLoadOhm;
-  const powerW = I * voltageV;
-  const cop = qHeater > 1e-3 ? Math.max(0, Math.min(1, powerW / qHeater)) : 0;
-
-  state.peltierHotK = hotK;
-  state.peltierColdK = coldK;
-  state.peltierDeltaT = deltaTK;
-  state.peltierVoltage = voltageV;
-  state.peltierCurrent = I;
-  state.peltierPowerW = powerW;
-  state.peltierCOP = cop;
-  state.energyLevel = Math.min(1, Math.abs(deltaTK) / p.deltaTRefK);
-};
-
-export function createPeltierPhysicsState(): Partial<DevicePhysicsState> {
-  const p = PELTIER_PARAMS;
-  // Seeded at ambient on both faces, exactly like PeltierState's C++
-  // defaults — the heater drive is what opens ΔT.
-  return {
-    peltierHotK: p.ambientK,
-    peltierColdK: p.ambientK,
-    peltierDeltaT: 0,
-    peltierVoltage: 0,
-    peltierCurrent: 0,
-    peltierPowerW: 0,
-    peltierCOP: 0,
-    energyLevel: 0
-  };
-}
-
 export function peltierUpdateMesh(instance: DeviceInstanceLike): void {
-  const s = instance.physicsState;
-  writeMeshCylinders(
-    instance,
-    buildPeltierMesh(s?.peltierHotK ?? 320, s?.peltierColdK ?? 290, s?.peltierDeltaT ?? 30)
-  );
+  writeMeshCylinders(instance, buildPeltierMesh(peltierMeshTemps(instance.physicsState)));
 }

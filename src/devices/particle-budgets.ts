@@ -37,7 +37,9 @@ export const DEVICE_PARTICLE_BUDGETS: Record<string, TierBudget> = {
   heron: { high: 8000, medium: 5200, low: 3000, critical: 1400 },
   kelvin: { high: 8000, medium: 5200, low: 3000, critical: 1400 },
   solar: { high: 7500, medium: 4800, low: 2800, critical: 1200 },
-  peltier: { high: 9000, medium: 5500, low: 3000, critical: 1400 },
+  // Air parcels beside two bodies: a sparse drift, not a cloud that hides
+  // the temperature colours they are there to accompany.
+  peltier: { high: 900, medium: 700, low: 500, critical: 300 },
   mhd: { high: 10000, medium: 6000, low: 3200, critical: 1500 },
   maglev: { high: 4500, medium: 2800, low: 1600, critical: 800 },
   homopolar: { high: 5000, medium: 3200, low: 1800, critical: 900 },

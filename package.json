@@ -68,6 +68,7 @@
     "test:circuit": "node --test scripts/tests/circuit.test.mjs",
     "test:drop-tube": "node --test scripts/tests/drop-tube.test.mjs",
     "test:hartmann": "node --test scripts/tests/hartmann.test.mjs",
+    "test:peltier": "node --test scripts/tests/peltier.test.mjs",
     "test:lab-mode": "node --test scripts/tests/lab-mode.test.mjs",
     "test:lab-url": "node --test scripts/tests/lab-url.test.mjs",
     "test:lab-config": "node --test scripts/tests/lab-config.test.mjs",

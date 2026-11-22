@@ -122,15 +122,48 @@ export interface PulseCoilPhysicsExtension {
   _wasmPlantActive?: boolean;
 }
 
-/** Core Peltier two-node stack fields (WASM or JS fallback). */
+/**
+ * Thermoelectric cooler with a resolved leg (WASM or JS fallback) —
+ * devices/core/peltier-plant.ts, cpp/src/plant/peltier_plant.h.
+ */
 export interface PeltierPhysicsExtension {
+  /**
+   * Temperatures, K, cold end → hot end: [0] cold block, [1] cold plate,
+   * [2 … 25] the 24 leg cells, [26] hot plate, [27] heat sink.
+   */
+  peltierNodesK?: number[];
+  /** Setpoint: heat fed into the cold block, W. */
+  peltierLoadW?: number;
+  /** Setpoint: current direction, +1 cools the block, −1 reverses. */
+  peltierPolarity?: number;
+  /** Hot plate (sink side), K. */
   peltierHotK?: number;
+  /** Cold plate (load side), K. */
   peltierColdK?: number;
+  /** peltierHotK − peltierColdK; negative with the current reversed. */
   peltierDeltaT?: number;
+  /** Terminal voltage, Seebeck EMF + I·R. */
   peltierVoltage?: number;
+  /** Signed drive current, A. */
   peltierCurrent?: number;
+  /** Electrical input I·V, W. */
   peltierPowerW?: number;
+  /** Cooling COP, peltierQcW / peltierPowerW. */
   peltierCOP?: number;
+  /** Heat pumped out of the cold plate, W. */
+  peltierQcW?: number;
+  /** Heat delivered to the hot plate, W. */
+  peltierQhW?: number;
+  /** Adaptive-integrator carry-over (renderers/shared/integrate.ts StepperState). */
+  peltierStepH?: number;
+  peltierStepErrOld?: number;
+  /**
+   * Air-parcel drift beside the sink / the block and the scene time it was
+   * advanced to — devices/core/peltier-mesh.ts. View state, not plant state.
+   */
+  _peltierAirSink?: number;
+  _peltierAirBlock?: number;
+  _peltierAirClock?: number;
   _wasmPlantActive?: boolean;
 }
 

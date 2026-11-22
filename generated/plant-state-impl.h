@@ -13,6 +13,8 @@ int SEGSimulator::plantSave(int mode) {
                   "physics/devices.json seg state: @_rollers[].omega count must match the array length");
     static_assert(sizeof(_ringLoadTorques) / sizeof(_ringLoadTorques[0]) == 3,
                   "physics/devices.json seg state: @_ringLoadTorques[] count must match the array length");
+    static_assert(sizeof(_peltier.nodesK) / sizeof(_peltier.nodesK[0]) == 28,
+                  "physics/devices.json peltier state: nodesK[] count must match the array length");
     const int n = plantStateSize(mode);
     if (n <= 0) return 0;
     float* s = reinterpret_cast<float*>(getScratchPtr(n));
@@ -45,14 +47,21 @@ int SEGSimulator::plantSave(int mode) {
             s[3] = _solar.ledPower;
             break;
         case SIM_MODE_PELTIER:
-            s[2] = _peltier.hotK;
-            s[3] = _peltier.coldK;
-            s[4] = _peltier.deltaTK;
-            s[5] = _peltier.voltageV;
-            s[6] = _peltier.currentA;
-            s[7] = _peltier.powerW;
-            s[8] = _peltier.cop;
-            s[9] = _peltier.drive;
+            for (int i = 0; i < 28; ++i) s[2 + i] = _peltier.nodesK[i];
+            s[30] = _peltier.loadW;
+            s[31] = _peltier.polarity;
+            s[32] = _peltier.hotK;
+            s[33] = _peltier.coldK;
+            s[34] = _peltier.deltaTK;
+            s[35] = _peltier.voltageV;
+            s[36] = _peltier.currentA;
+            s[37] = _peltier.powerW;
+            s[38] = _peltier.cop;
+            s[39] = _peltier.qcW;
+            s[40] = _peltier.qhW;
+            s[41] = _peltier.stepH;
+            s[42] = _peltier.stepErrOld;
+            s[43] = _peltier.drive;
             break;
         case SIM_MODE_MHD:
             s[2] = _mhd.flowU;
@@ -176,14 +185,21 @@ bool SEGSimulator::plantLoad(int mode, int count, uint32_t layoutHash) {
             _solar.ledPower = s[3];
             break;
         case SIM_MODE_PELTIER:
-            _peltier.hotK = s[2];
-            _peltier.coldK = s[3];
-            _peltier.deltaTK = s[4];
-            _peltier.voltageV = s[5];
-            _peltier.currentA = s[6];
-            _peltier.powerW = s[7];
-            _peltier.cop = s[8];
-            _peltier.drive = s[9];
+            for (int i = 0; i < 28; ++i) _peltier.nodesK[i] = s[2 + i];
+            _peltier.loadW = s[30];
+            _peltier.polarity = s[31];
+            _peltier.hotK = s[32];
+            _peltier.coldK = s[33];
+            _peltier.deltaTK = s[34];
+            _peltier.voltageV = s[35];
+            _peltier.currentA = s[36];
+            _peltier.powerW = s[37];
+            _peltier.cop = s[38];
+            _peltier.qcW = s[39];
+            _peltier.qhW = s[40];
+            _peltier.stepH = s[41];
+            _peltier.stepErrOld = s[42];
+            _peltier.drive = s[43];
             break;
         case SIM_MODE_MHD:
             _mhd.flowU = s[2];

@@ -19,7 +19,11 @@ export interface DeviceStateField {
   type: DeviceStateFieldType;
   /** enum: the value for index 0, 1, … */
   values?: readonly string[];
-  /** Floats this cpp path takes (arrays only). */
+  /**
+   * Floats this cpp path takes (arrays only). With a `key`, physicsState
+   * holds a number[] of this length and a snapshot saves it element by
+   * element as `key[0]` … `key[count-1]`.
+   */
   count?: number;
   /** nullable: what the C++ plant stores for "none". */
   cppNull?: number;
@@ -40,10 +44,19 @@ export interface DeviceStateLayout {
 export const PLANT_STATE_PREFIX = { time: 0, drive: 1, length: 2 } as const;
 
 /** FNV-1a of every state block — `PLANT_STATE_LAYOUT_HASH` in generated/plant-state.h. */
-export const PLANT_STATE_LAYOUT_HASH = 0x1d82ad14;
+export const PLANT_STATE_LAYOUT_HASH = 0x7316415e;
+
+/**
+ * `plantStateVersion` in physics/devices.json: bumped by hand when a plant's
+ * saved state changes *meaning* (not merely layout — the hash covers that), so
+ * a snapshot written before the change can be migrated on load. A snapshot
+ * with no `plantStateVersion` is version 1. Migrations:
+ * src/session/plant-snapshot-migrate.ts.
+ */
+export const PLANT_STATE_VERSION = 2;
 
 /** First 12 hex of sha256(physics/devices.json) — which catalog wrote a snapshot. */
-export const DEVICE_CATALOG_HASH = '107195ad056a';
+export const DEVICE_CATALOG_HASH = 'a878859327bd';
 
 export const DEVICE_STATE_LAYOUT: Readonly<Record<string, DeviceStateLayout>> = {
   'seg': {
@@ -97,17 +110,24 @@ export const DEVICE_STATE_LAYOUT: Readonly<Record<string, DeviceStateLayout>> = 
   },
   'peltier': {
     wasmMode: 4,
-    cppSize: 10,
+    cppSize: 44,
     fields: [
-      { key: "peltierHotK", cpp: "hotK", type: 'number', offset: 2 },
-      { key: "peltierColdK", cpp: "coldK", type: 'number', offset: 3 },
-      { key: "peltierDeltaT", cpp: "deltaTK", type: 'number', offset: 4 },
-      { key: "peltierVoltage", cpp: "voltageV", type: 'number', offset: 5 },
-      { key: "peltierCurrent", cpp: "currentA", type: 'number', offset: 6 },
-      { key: "peltierPowerW", cpp: "powerW", type: 'number', offset: 7 },
-      { key: "peltierCOP", cpp: "cop", type: 'number', offset: 8 },
+      { key: "peltierNodesK", cpp: "nodesK[]", type: 'number', count: 28, offset: 2 },
+      { key: "peltierLoadW", cpp: "loadW", type: 'number', offset: 30 },
+      { key: "peltierPolarity", cpp: "polarity", type: 'number', offset: 31 },
+      { key: "peltierHotK", cpp: "hotK", type: 'number', offset: 32 },
+      { key: "peltierColdK", cpp: "coldK", type: 'number', offset: 33 },
+      { key: "peltierDeltaT", cpp: "deltaTK", type: 'number', offset: 34 },
+      { key: "peltierVoltage", cpp: "voltageV", type: 'number', offset: 35 },
+      { key: "peltierCurrent", cpp: "currentA", type: 'number', offset: 36 },
+      { key: "peltierPowerW", cpp: "powerW", type: 'number', offset: 37 },
+      { key: "peltierCOP", cpp: "cop", type: 'number', offset: 38 },
+      { key: "peltierQcW", cpp: "qcW", type: 'number', offset: 39 },
+      { key: "peltierQhW", cpp: "qhW", type: 'number', offset: 40 },
+      { key: "peltierStepH", cpp: "stepH", type: 'number', offset: 41 },
+      { key: "peltierStepErrOld", cpp: "stepErrOld", type: 'number', offset: 42 },
       { key: "energyLevel", cpp: null, type: 'number', offset: -1 },
-      { key: null, cpp: "drive", type: 'number', offset: 9 }
+      { key: null, cpp: "drive", type: 'number', offset: 43 }
     ]
   },
   'mhd': {

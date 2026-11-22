@@ -198,6 +198,14 @@ export interface SimCoreExports {
   seg_getPeltierCurrent(self: number): number;
   seg_getPeltierPowerW(self: number): number;
   seg_getPeltierCOP(self: number): number;
+  seg_getPeltierQcW(self: number): number;
+  seg_getPeltierQhW(self: number): number;
+  seg_getPeltierNodeK(self: number, index: number): number;
+  seg_getPeltierNodeCount(self: number): number;
+  seg_getPeltierLoadW(self: number): number;
+  seg_getPeltierPolarity(self: number): number;
+  seg_setPeltierLoadW(self: number, watts: number): void;
+  seg_setPeltierPolarity(self: number, sign: number): void;
   seg_getMhdFlowU(self: number): number;
   seg_getMhdBFieldT(self: number): number;
   seg_getMhdHartmann(self: number): number;
@@ -385,7 +393,13 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_getPeltierCurrent',
   'seg_getPeltierDeltaT',
   'seg_getPeltierHotK',
+  'seg_getPeltierLoadW',
+  'seg_getPeltierNodeCount',
+  'seg_getPeltierNodeK',
+  'seg_getPeltierPolarity',
   'seg_getPeltierPowerW',
+  'seg_getPeltierQcW',
+  'seg_getPeltierQhW',
   'seg_getPeltierVoltage',
   'seg_getRPM',
   'seg_getRPMF64',
@@ -431,6 +445,8 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_setLorentzFieldT',
   'seg_setMode',
   'seg_setNetworkEdges',
+  'seg_setPeltierLoadW',
+  'seg_setPeltierPolarity',
   'seg_setRingLoadTorque',
   'seg_setRingLoadTorques',
   'seg_setTransformerLeakage',
@@ -671,6 +687,14 @@ export interface SEGSimulatorInstance {
   getPeltierCurrent(): number;
   getPeltierPowerW(): number;
   getPeltierCOP(): number;
+  getPeltierQcW(): number;
+  getPeltierQhW(): number;
+  getPeltierNodeK(index: number): number;
+  getPeltierNodeCount(): number;
+  getPeltierLoadW(): number;
+  getPeltierPolarity(): number;
+  setPeltierLoadW(watts: number): void;
+  setPeltierPolarity(sign: number): void;
   getMhdFlowU(): number;
   getMhdBFieldT(): number;
   getMhdHartmann(): number;
@@ -1260,6 +1284,30 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
     }
     getPeltierCOP(): number {
       return ex.seg_getPeltierCOP(this.ptr);
+    }
+    getPeltierQcW(): number {
+      return ex.seg_getPeltierQcW(this.ptr);
+    }
+    getPeltierQhW(): number {
+      return ex.seg_getPeltierQhW(this.ptr);
+    }
+    getPeltierNodeK(index: number): number {
+      return ex.seg_getPeltierNodeK(this.ptr, index);
+    }
+    getPeltierNodeCount(): number {
+      return ex.seg_getPeltierNodeCount(this.ptr);
+    }
+    getPeltierLoadW(): number {
+      return ex.seg_getPeltierLoadW(this.ptr);
+    }
+    getPeltierPolarity(): number {
+      return ex.seg_getPeltierPolarity(this.ptr);
+    }
+    setPeltierLoadW(watts: number): void {
+      ex.seg_setPeltierLoadW(this.ptr, watts);
+    }
+    setPeltierPolarity(sign: number): void {
+      ex.seg_setPeltierPolarity(this.ptr, sign);
     }
     getMhdFlowU(): number {
       return ex.seg_getMhdFlowU(this.ptr);

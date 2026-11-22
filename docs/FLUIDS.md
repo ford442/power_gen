@@ -13,7 +13,7 @@ the lab uses: **simulated, not a measurement**.
 | `mhd` | One lumped mean speed `Ū` with `σB²`-style braking and wall friction as tuned coefficients; `V = B·Ū·w` | Timelines on the **analytic Hartmann profile** at the plant's `Ū` and `Ha`, plus a profile card | Exact steady solution, evaluated — not a numerical flow solve |
 | `heron` | Head ODE + Bernoulli + Swamee–Jain friction | Closed-form droplet paths (WebGPU), ballistic droplets (WebGL2) | No |
 | `kelvin` | Capacitive charging + spark | Independent droplets; charge does not deflect them | No |
-| `peltier` | Two thermal nodes | A hand-steered convection loop | No |
+| `peltier` | **1-D finite-volume leg**: 24 cells + cold block, two plates, heat sink (`ros23`) | Three bodies coloured by their node temperatures; sparse air parcels beside them | The temperatures are the model's. The air is illustrative |
 
 ## MHD duct
 
@@ -116,9 +116,92 @@ developed laminar duct flow has no swirl.
 | `npm run test:gpu-golden` (`golden-particles`) | `posMhd` on a real GPU against `mhdParcelPosition`, position for position; a larger `Ha` flattens the line |
 | `sim_core_test --mode hartmann` | native profile table and the stateful parcel step |
 
+## Peltier cooler
+
+### The model
+
+A thermoelectric module run as a cooler (ADR-0021). One equivalent leg carries
+the whole module — `S = seebeckVK·couples`, `R`, `K` — cut into 24 finite
+volumes, with four lumped nodes closing the ends:
+
+```text
+[0] cold block ─ [1] cold plate ─ [2 … 25] leg cells ─ [26] hot plate ─ [27] heat sink ─ ambient
+     ↑ load W        ↑ −S·I·T                               ↑ +S·I·T            ↑ sinkWK
+```
+
+Per cell: Fourier conduction to its neighbours and Joule heat `I²R/24`. At the
+junctions: Peltier heat `S·I·T`, absorbed on the cold side and released on the
+hot side. Optionally the Thomson heat, when `seebeckSlopeVK2` gives `S` a slope
+(off by default). The discrete system conserves energy exactly, so at steady
+state `Q_h = Q_c + I·V`, and with constant properties it reduces to the
+textbook lumped result `Q_c = S·I·T_c − ½·I²R − K·ΔT`.
+
+It is linear in `T` for a fixed current and stiff — cells relax in
+milliseconds, the sink in tens of seconds — so it runs on `ros23`
+([`INTEGRATORS.md`](./INTEGRATORS.md)). `cpp/src/plant/peltier_plant.h` and
+`src/devices/core/peltier-plant.ts` are the same arithmetic term for term; the
+C++ Jacobian comes from one Dual evaluation, the TS one is written out
+(`peltierJacobian`, checked against differences).
+
+Inputs: the drive slider sets `|I|` up to `iMaxA` (8 A, deliberately past the
+optimum); the `peltierPolarity` setpoint its sign; `peltierLoad` feeds heat
+into the cold block.
+
+### Numbers (physics/constants.json `peltier`)
+
+| Quantity | Value |
+|----------|-------|
+| Module Seebeck `S` | 127 × 0.44 mV/K = 0.0559 V/K |
+| `R`, `K` | 2.5 Ω, 0.5 W/K |
+| Figure of merit `Z = S²/(R·K)` | 2.5·10⁻³ /K |
+| `ΔT_max = Z·T_c²/2` | ≈ 76 K on this bench, at `I_opt = S·T_c/R` ≈ 5.5 A |
+| Coldest block (zero load) | ≈ 241.6 K (−32 °C) at 4 A — lower current than `I_opt`, because the sink warms with every watt |
+| Heat sink | 4 W/K to a 293 K room, 40 J/K |
+| 10 W load at 4 A | block ≈ 15 K warmer, COP 0.19 |
+
+### Units, scale and the picture
+
+Temperatures are kelvin throughout; nothing is normalised in the plant. The
+three drawn bodies (sink below, module, block above) are one instance cylinder
+each and are coloured by node 27, the mean of the two plates, and node 0: blue
+60 K below ambient, grey at ambient, red 80 K above. Reverse the current and
+the colours swap because the temperatures do. The leg's own profile is in the
+state but not drawn yet (the IR view step of the epic).
+
+The air parcels beside the two end bodies drift up beside a warm body and down
+beside a cold one at a rate ∝ √|ΔT|. They are **illustrative**: a hand-written
+path with the right sign and a plume-like scaling, not a convection solve, and
+they do not feed back into the plant. Whether they stay is decided with the IR
+view.
+
+### Limits
+
+- **One equivalent leg**, not 127 couples; constant `S`, `R`, `K` unless the
+  Thomson slope is switched on.
+- **The cold block is insulated** (`coldLeakWK` 0): the load setpoint is its
+  only heat source. A bare plate in room air would leak a watt or two.
+- No contact resistance inside the module, no radiation, no frost.
+- Temperatures are clamped 150 K below and 250 K above ambient. A reversed
+  current into the insulated block has no other limit; a real module has
+  failed long before.
+- Until this epic the bench was a two-node thermoelectric *generator* (heater
+  in, Seebeck power out). `peltierPowerW` is now electrical **input** and
+  `peltierCOP` the cooling COP. Snapshots from before are migrated
+  ([`SNAPSHOTS.md`](./SNAPSHOTS.md#plant-state-version)).
+
+### Tests
+
+| Command | Holds |
+|---------|-------|
+| `npm run test:peltier` | the four textbook checks (`ΔT_max`, `I_opt`, COP vs current, `Q_h = Q_c + P_in` to 1e-3) on native, the shipped WASM and TS; the leg alone at fixed plates against the textbook `COP(I)` peak; exact Jacobian; Thomson energy closure; array snapshots; the version-1 migration; mesh colours |
+| `npm run test:golden` | TS ≈ native on five schedules: default, loaded, reversed, `@dopri5` |
+| `npm run test:integrators` | `ros23` ≥ 10× fewer RHS calls than fine-stepped RK4 on the leg; the LU pivoting case this plant exposed |
+| `sim_core_test --mode peltier-textbook` | the same sweep natively, with its own assertions |
+
 ## WebGL2
 
-The fallback gets the same analytic profile: the same closed-form parcels
+The Peltier plant and its body colours are renderer-independent. The fallback
+gets the same analytic Hartmann profile: the same closed-form parcels
 (`mhdParcelPosition` is the CPU twin of the shader) and the same card. Its
 markers are additionally tinted by `u/u(0)`, which the 16-byte WebGPU particle
 has no room for.

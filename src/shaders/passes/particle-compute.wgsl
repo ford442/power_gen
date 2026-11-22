@@ -101,22 +101,24 @@ fn posSolar(phase: f32, t: f32, idx: u32, speedMult: f32) -> vec3f {
   return pos;
 }
 
+/// Mode 4 — Peltier: air beside the two end bodies of the stack (odd idx: the
+/// cold block above, even: the heat sink below). A parcel drifts up beside a
+/// body warmer than the room and down beside a colder one; the drift is
+/// integrated on the CPU from each body's temperature (advancePeltierAir), so
+/// reversing the current reverses it. Illustrative paths — not a convection
+/// solve, and the air does not feed back into the plant.
+///   physics0  sink-side travel, fractional (rises when > 0 over time)
+///   physics1  block-side travel, fractional
+/// 2.5 / 2.6 / 0.95 / 0.5 mirror PELTIER_AIR in devices/core/peltier-mesh.ts;
+/// integratePeltier (particle-orbits.ts) is the CPU twin.
 fn posPeltier(phase: f32, t: f32, idx: u32) -> vec3f {
-  let deltaTN = uniforms.physics0;
-  let hotN = uniforms.physics2;
-  let speed = 0.35 + deltaTN * 0.55;
-  let cycleT = fract(t * speed + phase);
-  let x = (fract(f32(idx) * 0.173 + phase) - 0.5) * 1.8;
-  let z = (fract(f32(idx) * 0.211 + phase * 0.7) - 0.5) * 1.4;
-  // Hot parcels rise from bottom plate; cold sink from top — strength from ΔT
-  let rising = (idx % 2u) == 0u;
-  var y: f32;
-  if (rising) {
-    y = mix(-0.35, 0.55, cycleT) + sin(t * 3.0 + phase * 9.0) * 0.04 * (0.3 + hotN);
-  } else {
-    y = mix(0.55, -0.25, cycleT) - sin(t * 2.5 + phase * 7.0) * 0.03 * (0.3 + deltaTN);
-  }
-  return vec3f(x, y, z);
+  let onBlock = (idx % 2u) == 1u;
+  let travel = select(uniforms.physics0, uniforms.physics1, onBlock);
+  let yBody = select(-2.5, 2.5, onBlock);
+  let a = fract(f32(idx) * 0.618034) * 6.28318;
+  let r = 0.95 + fract(f32(idx) * 0.211 + phase) * 0.5;
+  let u = fract(phase + travel);
+  return vec3f(cos(a) * r, yBody + (u - 0.5) * 2.6, sin(a) * r);
 }
 
 /// u(eta) / u(0) for fully developed Hartmann flow, eta = y/a in [-1, 1]:

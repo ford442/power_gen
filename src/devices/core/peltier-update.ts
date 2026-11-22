@@ -17,20 +17,9 @@ export const peltierComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy
     : Math.min(1.0, ctx.speedNorm * 0.6 + ctx.overdriveBoost * 0.4);
 };
 
-export const peltierUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
-  const { budget, energy, gate, pushParticle } = ctx;
-  const deltaTN = Math.min(1, Math.abs(instance.physicsState?.peltierDeltaT ?? 20) / 80);
-  const thermalGate = Math.pow(gate(energy, 0.2, 0.68), 1.35) * (0.45 + deltaTN * 0.55);
-  const thermalCount = Math.floor(budget * 0.4 * thermalGate);
-  for (let i = 0; i < thermalCount; i++) {
-    // Hot rising from bottom plate, cold sinking from top
-    const rising = Math.random() < 0.55;
-    const x = (Math.random() - 0.5) * 1.8;
-    const z = (Math.random() - 0.5) * 1.5;
-    const y = rising
-      ? -0.2 + Math.random() * 0.5
-      : 0.15 + Math.random() * 0.45;
-    pushParticle(x, y, z, 3.0 + Math.random() + (rising ? 0.2 : 0));
-  }
-  return true;
-};
+/**
+ * No effect sprites: the old ones were electric "filaments" flickering at
+ * random points around the stack, which is nothing a thermoelectric module
+ * does. The bodies' temperature colours and the air parcels carry the picture.
+ */
+export const peltierUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = () => true;

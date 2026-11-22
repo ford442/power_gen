@@ -102,15 +102,17 @@ const peltierPlugin: DevicePlugin = {
     cylinders: () => buildPeltierMesh().cylinders()
   },
   telemetrySchema: {
-    peltierHotK: { label: 'Hot junction', unit: 'K', source: 'sim' },
-    peltierColdK: { label: 'Cold junction', unit: 'K', source: 'sim' },
+    peltierHotK: { label: 'Sink-side plate', unit: 'K', source: 'sim' },
+    peltierColdK: { label: 'Load-side plate', unit: 'K', source: 'sim' },
     peltierDeltaT: { label: 'ΔT', unit: 'K', source: 'sim' },
     peltierVoltage: { label: 'Voltage', unit: 'V', source: 'sim' },
     peltierCurrent: { label: 'Current', unit: 'A', source: 'sim' },
-    peltierPowerW: { label: 'Power', unit: 'W', source: 'sim' },
-    peltierCOP: { label: 'COP proxy', unit: '', source: 'sim' }
-  },
-  wantsThermalHaze: true
+    peltierPowerW: { label: 'Electrical input', unit: 'W', source: 'sim' },
+    peltierCOP: { label: 'Cooling COP', unit: '', source: 'sim' },
+    peltierQcW: { label: 'Heat pumped', unit: 'W', source: 'sim' },
+    peltierQhW: { label: 'Heat rejected', unit: 'W', source: 'sim' }
+  }
+  // No generic haze ring: it sat at a fixed radius whatever was warm.
 };
 registerDevice(peltierPlugin);
 

@@ -163,6 +163,29 @@ describe('gpu-golden: particle-compute.wgsl invariants', { skip }, () => {
     console.log(`  worst |GPU − CPU| = ${worst.toExponential(2)} units`);
   });
 
+  it('peltier: posPeltier is integratePeltier — air beside the sink (even) and the block (odd), drift from the plant', async () => {
+    const mode = modes.find((d) => d.id === 'peltier').mode;
+    const { integratePeltier } = session.app;
+    const { initial } = await setup();
+    let worst = 0;
+    for (const [sink, block] of [[0, 0], [0.31, 0.77], [0.999, 0.002]]) {
+      const out = await run({ mode, time: 40, physics: [sink, block, 0, 0] });
+      for (let i = 0; i < COUNT; i++) {
+        const o = i * 4;
+        const want = integratePeltier({ phase: initial[o + 3] }, i, 40, sink, block);
+        const d = Math.max(Math.abs(out[o] - want[0]), Math.abs(out[o + 1] - want[1]), Math.abs(out[o + 2] - want[2]));
+        worst = Math.max(worst, d);
+        // f32 fract(idx·0.618) against double: 2e-3 of a 2.6-unit run at the wrap, nothing structural.
+        const wrapped = Math.abs(d - 2.6) < 5e-3;
+        assert.ok(d <= 5e-3 || wrapped, `particle ${i}, drift (${sink}, ${block}): GPU (${out[o]}, ${out[o + 1]}, ${out[o + 2]}) vs CPU (${want})`);
+        assert.ok((i % 2 === 1) === (out[o + 1] > 0), `particle ${i} is beside the wrong body (y = ${out[o + 1]})`);
+        assert.ok(Math.hypot(out[o], out[o + 2]) >= 0.94, `particle ${i} is inside the stack`);
+      }
+    }
+    assert.deepEqual(session.device.uncaptured, [], 'GPU validation errors');
+    console.log(`  worst |GPU − CPU| = ${worst.toExponential(2)} units`);
+  });
+
   it('mhd: a larger Hartmann number flattens the timeline — more of it keeps up with the centre', async () => {
     const mode = modes.find((d) => d.id === 'mhd').mode;
     const { MHD_DUCT } = session.app;

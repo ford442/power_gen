@@ -36,6 +36,7 @@ const ENTRY = `
   export { getLightingPreset, LIGHTING_LOOKS } from './src/seg-lighting-presets.ts';
   export { DEVICE_CATALOG } from './generated/device-catalog.ts';
   export { mhdParcelPosition, MHD_DUCT } from './src/devices/core/mhd-parcels.ts';
+  export { integratePeltier } from './src/renderers/shared/particle-orbits.ts';
 `;
 
 let app = null;

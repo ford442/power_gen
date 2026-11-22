@@ -13,7 +13,10 @@
  *   }
  *
  * Every `state` / `outputs` name is a cpp field of the device's `state`
- * block, so whatever the integrator works on is also what a snapshot saves;
+ * block, so whatever the integrator works on is also what a snapshot saves. A
+ * state name may be an array field (`"nodesK"` for cpp `nodesK[]`, count 28):
+ * it takes `count` consecutive indices, its enum entry is the first of them,
+ * `<name>_COUNT` its length, and its one `atol` applies to every element;
  * and the block must also save `stepH` / `stepErrOld` (the adaptive steppers'
  * carry-over), so a restored plant steps on bit-identically under any method.
  *
@@ -41,7 +44,7 @@ export function validateOde(devices) {
     const integ = d.integrator ?? 'rk4';
     if (!INTEGRATORS.includes(integ)) errors.push(`${d.id}: integrator must be one of ${INTEGRATORS.join(', ')}`);
     const o = d.ode;
-    const cppFields = new Set((d.state?.fields ?? []).map((f) => f.cpp).filter((c) => typeof c === 'string'));
+    const cppFields = new Set(odeFieldCounts(d).keys());
     for (const k of Object.keys(o)) {
       if (!['state', 'outputs', 'tolerance'].includes(k)) errors.push(`${where}: unknown property "${k}"`);
     }
@@ -81,6 +84,39 @@ export function validateOde(devices) {
 
 const odeDevices = (devices) => devices.filter((d) => d.ode != null).sort((a, b) => a.wasmMode - b.wasmMode);
 
+/** ODE-nameable cpp fields of a device → how many floats each takes (`x[]` is named `x`). */
+function odeFieldCounts(d) {
+  const out = new Map();
+  for (const f of d.state?.fields ?? []) {
+    if (typeof f.cpp !== 'string') continue;
+    out.set(f.cpp.endsWith('[]') ? f.cpp.slice(0, -2) : f.cpp, f.cpp.endsWith('[]') ? (f.count ?? 1) : 1);
+  }
+  return out;
+}
+
+/**
+ * The ODE state vector laid out: one row per `ode.state` name with its first
+ * index and length, plus the per-element names and tolerances.
+ */
+function odeStateLayout(d) {
+  const counts = odeFieldCounts(d);
+  const atol = d.ode.tolerance.atol ?? {};
+  const fields = [];
+  const names = [];
+  const atols = [];
+  let index = 0;
+  for (const name of d.ode.state) {
+    const count = counts.get(name) ?? 1;
+    fields.push({ name, index, count, array: count > 1 });
+    for (let i = 0; i < count; i++) {
+      names.push(count > 1 ? `${name}[${i}]` : name);
+      atols.push(atol[name]);
+    }
+    index += count;
+  }
+  return { fields, names, atols, size: index };
+}
+
 /** Shortest round-tripping float literal. */
 function f32(v) {
   const s = String(Math.fround(v) === v ? v : v);
@@ -92,18 +128,21 @@ export function emitPlantOdeH(devices) {
     const o = d.ode;
     const tol = o.tolerance;
     const outputs = o.outputs ?? [];
-    const idx = o.state.map((n, i) => `${n} = ${i}`).join(', ');
+    const lay = odeStateLayout(d);
+    const idx = lay.fields.map((f) => `${f.name} = ${f.index}`).join(', ');
+    const counts = lay.fields.filter((f) => f.array)
+      .map((f) => `static constexpr std::size_t ${f.name}_COUNT = ${f.count};\n    `).join('');
     const outIdx = outputs.map((n, i) => `${n} = ${i}`).join(', ');
     return `/// ${d.label} (wasmMode ${d.wasmMode}, physics/devices.json "${d.id}").
 struct ${odeStructName(d.id)} {
     enum State : std::size_t { ${idx} };
-    static constexpr std::size_t STATE_SIZE = ${o.state.length};
+    ${counts}static constexpr std::size_t STATE_SIZE = ${lay.size};
     ${outputs.length ? `enum Output : std::size_t { ${outIdx} };\n    ` : ''}static constexpr std::size_t OUTPUT_SIZE = ${outputs.length};
     static constexpr sim_core::Integrator INTEGRATOR = sim_core::Integrator::${INTEGRATOR_ENUM[d.integrator ?? 'rk4']};
     static constexpr float RTOL = ${f32(tol.rtol)};
-    static constexpr std::array<float, STATE_SIZE> ATOL = { ${o.state.map((n) => f32(tol.atol[n])).join(', ')} };
+    static constexpr std::array<float, STATE_SIZE> ATOL = { ${lay.atols.map((a) => f32(a)).join(', ')} };
     static constexpr double H_MAX = ${tol.hMax != null ? String(tol.hMax) : 'std::numeric_limits<double>::infinity()'};
-    static constexpr const char* STATE_NAMES[STATE_SIZE] = { ${o.state.map((n) => `"${n}"`).join(', ')} };
+    static constexpr const char* STATE_NAMES[STATE_SIZE] = { ${lay.names.map((n) => `"${n}"`).join(', ')} };
 
     static sim_core::Tolerance<STATE_SIZE> tolerance() {
         sim_core::Tolerance<STATE_SIZE> t;
@@ -142,20 +181,26 @@ export function emitPlantOdeTs(devices) {
     const o = d.ode;
     const tol = o.tolerance;
     const outputs = o.outputs ?? [];
+    const lay = odeStateLayout(d);
     return `  '${d.id}': {
     wasmMode: ${d.wasmMode},
     integrator: '${d.integrator ?? 'rk4'}',
-    state: [${o.state.map((n) => `'${n}'`).join(', ')}],
+    state: [${lay.names.map((n) => `'${n}'`).join(', ')}],
     outputs: [${outputs.map((n) => `'${n}'`).join(', ')}],
     rtol: ${tol.rtol},
-    atol: [${o.state.map((n) => tol.atol[n]).join(', ')}],
+    atol: [${lay.atols.join(', ')}],
     hMax: ${tol.hMax != null ? tol.hMax : 'Infinity'}
   }`;
   }).join(',\n');
   const enums = odeDevices(devices).map((d) => {
     const name = odeStructName(d.id);
-    return `/** ${d.label}: index of each ODE state in x. */
-export const ${name}State = { ${d.ode.state.map((n, i) => `${n}: ${i}`).join(', ')} } as const;`;
+    const lay = odeStateLayout(d);
+    const arrays = lay.fields.filter((f) => f.array);
+    const counts = arrays.length
+      ? `\n\n/** ${d.label}: length of each array ODE state. */\nexport const ${name}StateCount = { ${arrays.map((f) => `${f.name}: ${f.count}`).join(', ')} } as const;`
+      : '';
+    return `/** ${d.label}: index of each ODE state in x (an array state: its first element). */
+export const ${name}State = { ${lay.fields.map((f) => `${f.name}: ${f.index}`).join(', ')} } as const;${counts}`;
   }).join('\n\n');
   return `/**
  * AUTO-GENERATED from physics/devices.json — do not edit.

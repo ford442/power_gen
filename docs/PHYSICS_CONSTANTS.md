@@ -87,12 +87,15 @@ JS in `double`:
 |a − b| ≤ max(ABS_EPS, REL_EPS · max(|a|, |b|))     REL_EPS = 2e-4, ABS_EPS = 1e-9
 ```
 
-The worst key on the current schedule sits at **4.1e-5** relative (Peltier
-COP / power, 240 frames of a two-node thermal integration), so 2e-4 is
-about 5× headroom. A failure at this tolerance means the *models* have
+Most keys sit one to two orders of magnitude inside it; the adaptive plants
+(jumping ring, Peltier leg) come closest, at a few 1e-5, because a float32
+and a float64 run take the same steps but not bit-identical ones. So 2e-4 is
+several times headroom. A failure at this tolerance means the *models* have
 drifted apart, not that rounding accumulated — go and find the term that
-differs. `PER_KEY_EPS` in the script records the one key that needs a
-different bound, with its reason; keep that list short.
+differs. `PER_KEY_EPS` in the script records the few keys that need a
+different bound, each with its reason (a value sampled at a zero crossing; a
+small difference of large heat flows computed from float32 temperatures);
+keep that list short.
 
 The script also fails when a dual device has no native case, when the
 native side emits a case with no JS plant wired up, and when a native key

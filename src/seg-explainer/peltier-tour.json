@@ -1,17 +1,21 @@
 {
   "tourVersion": 1,
   "id": "peltier-intro",
-  "title": "Thermoelectric Stack Tour",
-  "description": "Guided walkthrough of a two-node Seebeck/Peltier stack: where ΔT comes from, how it becomes volts, why drawing current cools the hot side, and what the COP readout does and does not mean.",
+  "title": "Thermoelectric Cooler Tour",
+  "description": "Guided walkthrough of a thermoelectric module run as a cooler: a current pumps heat from the block to the sink, Joule heating and conduction work against it, and reversing the current swaps hot and cold.",
   "steps": [
     {
       "id": "welcome",
-      "durationSec": 7,
+      "durationSec": 8,
       "view": "peltier",
-      "cameraOffset": [0, 4, 15],
+      "cameraOffset": [
+        0,
+        4,
+        17
+      ],
       "cameraTargetY": 0,
-      "title": "Heat in, a little electricity out",
-      "body": "A heater warms the bottom plate of a thermoelectric stack; the top plate leaks heat to the room. The temperature difference between them drives a voltage across a load. Raise the drive slider and the heater power, the plate tints and the electrical readouts all climb together.",
+      "title": "Electricity in, heat moved",
+      "body": "A current through a thermoelectric module pumps heat from the block on top to the heat sink below. The drive slider sets the current, up to 8 A. Each of the three bodies is coloured by its own temperature from the model: blue below room temperature, red above it.",
       "highlights": [],
       "showDiagram": false,
       "showAnnotations": false,
@@ -19,25 +23,33 @@
     },
     {
       "id": "nodes",
-      "durationSec": 9,
+      "durationSec": 10,
       "view": "peltier",
-      "cameraOffset": [-3.5, 1.8, 8],
+      "cameraOffset": [
+        -5,
+        2,
+        13
+      ],
       "cameraTargetY": 0,
-      "title": "Step 1 — two temperatures, nothing else",
-      "body": "The whole stack is two lumps: a hot plate (40 J/K) and a cold plate (60 J/K), joined by 0.5 W/K of conduction. Only the cold plate is tied to the 293 K room, through 1.6 W/K. Each plate has a single temperature — there is no gradient inside it. The heater adds up to 60 W to the hot plate, and the plates lag it because they have heat capacity; raise Time Dilation to watch them settle.",
+      "title": "Step 1 — a leg with a temperature profile",
+      "body": "The module is modelled as one equivalent leg cut into 24 cells between a cold plate and a hot plate. A block sits on the cold plate and a finned sink on the hot one; the sink sheds heat to the 293 K room at 4 W/K. Every cell conducts to its neighbours and is warmed by the current passing through it. The cells settle in a fraction of a second, the block and the sink in tens of seconds — raise Time Dilation to watch them.",
       "highlights": [],
       "showDiagram": false,
       "showAnnotations": false,
-      "glossaryTerm": "thermal-two-node"
+      "glossaryTerm": "thermal-leg"
     },
     {
       "id": "seebeck",
-      "durationSec": 9,
+      "durationSec": 10,
       "view": "peltier",
-      "cameraOffset": [0, 1.2, 6.5],
+      "cameraOffset": [
+        0,
+        1.5,
+        12
+      ],
       "cameraTargetY": 0,
-      "title": "Step 2 — ΔT becomes volts",
-      "body": "127 junction pairs at 0.44 mV/K each give the stack S ≈ 0.056 V/K. The open-circuit voltage is S·ΔT, and with a 2.5 Ω load against the stack's own 2.5 Ω the current is I = S·ΔT / 5 Ω. At full drive the model settles near ΔT ≈ 80 K, I ≈ 0.9 A and about 2 W of electrical power.",
+      "title": "Step 2 — the junctions pump",
+      "body": "127 junction pairs at 0.44 mV/K each give the module S ≈ 0.056 V/K. A current I absorbs heat S·I·T at the cold junction and releases S·I·T at the hot one: about 54 W at 4 A and 242 K. This is the Peltier effect, the Seebeck effect run backwards. The same S makes the module push back with a voltage S·ΔT, which the supply has to overcome on top of I·R.",
       "highlights": [],
       "showDiagram": false,
       "showAnnotations": false,
@@ -45,12 +57,16 @@
     },
     {
       "id": "peltier-heat",
-      "durationSec": 10,
+      "durationSec": 11,
       "view": "peltier",
-      "cameraOffset": [4, 1.6, 7.5],
+      "cameraOffset": [
+        6,
+        2,
+        13
+      ],
       "cameraTargetY": 0,
-      "title": "Step 3 — current carries heat back",
-      "body": "Drawing current has a price. The Peltier term S·I·T pulls heat out of the hot plate and deposits it on the cold plate, and half the Joule heating I²R lands on each side. Both effects shrink ΔT, so the current the stack produces feeds back on the very temperature difference that drives it. The model keeps the Seebeck, Peltier and Joule terms and drops the Thomson term.",
+      "title": "Step 3 — two things work against it",
+      "body": "The current also heats the leg, I²R in all, and half of that flows back to the cold side. Conduction leaks K·ΔT from hot to cold. What is actually pumped is Q = S·I·T − ½·I²R − K·ΔT. Pumping grows with I and Joule heating with I², so more current stops helping: at 4 A the block reaches about −32 °C, at 8 A only −3 °C, because every extra watt also warms the sink.",
       "highlights": [],
       "showDiagram": false,
       "showAnnotations": false,
@@ -58,12 +74,33 @@
     },
     {
       "id": "cop",
-      "durationSec": 11,
+      "durationSec": 12,
       "view": "peltier",
-      "cameraOffset": [0, 3, 10],
+      "cameraOffset": [
+        0,
+        3,
+        15
+      ],
       "cameraTargetY": 0,
-      "title": "Step 4 — what the COP readout means",
-      "body": "COP here is electrical power out divided by heater power in, held between 0 and 1: a generator efficiency, a few percent at best (about 3% at full drive). It is not the cooling COP of a Peltier cooler, which compares heat pumped to electricity put in — this bench never applies a supply voltage to pump heat, so it never runs that way. For scale, the Carnot limit at these plate temperatures is near 20%, and the stack sits far below it.",
+      "title": "Step 4 — the load and the COP",
+      "body": "With nothing to cool, the block is insulated, the pumped heat falls to zero and ΔT across the module can reach at most Z·T²/2 with Z = S²/(R·K) ≈ 0.0025 per kelvin: 76 K here, at about 5.5 A. The load slider feeds heat into the block. At 10 W and 4 A the block sits about 15 K warmer, and the COP — heat pumped over electrical power in — is 0.19. A cooler like this moves one watt of heat for several watts of electricity.",
+      "highlights": [],
+      "showDiagram": false,
+      "showAnnotations": false,
+      "glossaryTerm": null
+    },
+    {
+      "id": "reverse",
+      "durationSec": 9,
+      "view": "peltier",
+      "cameraOffset": [
+        -4,
+        2.5,
+        14
+      ],
+      "cameraTargetY": 0,
+      "title": "Step 5 — reverse the current",
+      "body": "The current-direction slider flips the sign of I. The junctions swap roles: the block is now heated and the sink side cools. Nothing in the picture is painted hot or cold — the colours follow the temperatures, so they swap too. Keep the current low: with no load path the heated block climbs quickly.",
       "highlights": [],
       "showDiagram": false,
       "showAnnotations": false,
@@ -71,12 +108,16 @@
     },
     {
       "id": "honesty",
-      "durationSec": 9,
+      "durationSec": 10,
       "view": "peltier",
-      "cameraOffset": [0, 5, 17],
+      "cameraOffset": [
+        0,
+        5,
+        18
+      ],
       "cameraTargetY": 0,
       "title": "What this model is not",
-      "body": "A lumped two-node classroom model with constant material properties: the Seebeck coefficient, resistance and conductance do not change with temperature, there is no thermal contact resistance and no temperature gradient inside a plate. Plate temperatures are clamped to fixed limits. It is not a datasheet for any real module and not a cooler or heat-sink design tool.",
+      "body": "One equivalent leg stands for all 127 couples, with constant S, R and K; a slope on S, and the Thomson heat that comes with it, exists in the model but is switched off. There is no contact resistance inside the module, no radiation and no frost on the cold plate, and the block loses no heat to the air — the load slider is its only heat source. Temperatures are clamped 150 K below and 250 K above ambient; a real module has failed long before either. It is not a datasheet for any real module and not a cooler or heat-sink design tool.",
       "highlights": [],
       "showDiagram": false,
       "showAnnotations": false,

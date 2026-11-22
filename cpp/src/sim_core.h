@@ -90,7 +90,7 @@ void  seg_particle_step(SimParticle& p, float omega, float corona, float dt);
 void heron_particle_step(SimParticle& p, float vExit, float dt, float simTime);
 void kelvin_particle_step(SimParticle& p, float kelvinE, float dt, float simTime);
 void solar_particle_step(SimParticle& p, float transmittance, float dt, float simTime);
-void peltier_particle_step(SimParticle& p, float deltaTN, float dt, float simTime);
+void peltier_particle_step(SimParticle& p, float sinkN, float blockN, float dt, float simTime);
 void mhd_particle_step(SimParticle& p, float flowU, float bField, float hartmannNumber, float dt, float simTime);
 
 /// gpu-chores: packed f32 reduce. out[5] = {sum, min, max, sumSq, count}.
@@ -202,6 +202,19 @@ public:
     float getPeltierCurrent() const { return _peltier.currentA; }
     float getPeltierPowerW() const { return _peltier.powerW; }
     float getPeltierCOP() const { return _peltier.cop; }
+    float getPeltierQcW() const { return _peltier.qcW; }
+    float getPeltierQhW() const { return _peltier.qhW; }
+    /// Temperature of node i, cold block → heat sink (PeltierState::nodesK); ambient out of range.
+    float getPeltierNodeK(int i) const {
+        return (i >= 0 && i < PeltierState::NODES) ? _peltier.nodesK[i] : _peltier.ambientK;
+    }
+    int getPeltierNodeCount() const { return PeltierState::NODES; }
+    float getPeltierLoadW() const { return _peltier.loadW; }
+    float getPeltierPolarity() const { return _peltier.polarity < 0.f ? -1.f : 1.f; }
+    /// Cold-block heat load, W (clamped to the catalog range when stepped).
+    void setPeltierLoadW(float w) { _peltier.loadW = std::isfinite(w) ? w : 0.f; }
+    /// Current direction: ≥ 0 cools the block, < 0 reverses.
+    void setPeltierPolarity(float sign) { _peltier.polarity = sign < 0.f ? -1.f : 1.f; }
     float getMhdFlowU() const { return _mhd.flowU; }
     float getMhdBFieldT() const { return _mhd.bFieldT; }
     float getMhdHartmann() const { return _mhd.hartmann; }

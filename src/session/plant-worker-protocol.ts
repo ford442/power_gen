@@ -29,7 +29,8 @@ export const PLANT_PACK_KEYS = [
   'energyLevel', 'flowU', 'bFieldT', 'hartmann', 'gap', 'gapVel', 'gapMm', 'fieldT', 'liftN',
   'rpm', 'angle', 'emfV', 'currentA', 'i1', 'i2', 'v1', 'v2', 'k', 'fluxN', 'beltMps',
   'chargeC', 'sparkHz', 'coeff', 'sledVms', 'forceN', 'positionM', 'ringHeightM',
-  'ringCurrentA', 'ringPrimaryIA', 'ringForceN', 'ringCouplingK'
+  'ringCurrentA', 'ringPrimaryIA', 'ringForceN', 'ringCouplingK',
+  'qcW', 'qhW', 'blockK', 'sinkK'
 ] as const satisfies readonly (keyof WasmModePlant)[];
 
 /**
@@ -72,6 +73,9 @@ export interface PlantKnobs {
   lorentzFieldT?: number;
   /** Kelvin charge-bus seed (V). Null clears it. Absent outside Kelvin focus. */
   kelvinSeedCoupledV?: number | null;
+  /** Peltier setpoints: cold-block load (W) and current direction (±1). */
+  peltierLoadW?: number;
+  peltierPolarity?: number;
 }
 
 export interface PlantWorkerInit {

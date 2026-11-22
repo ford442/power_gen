@@ -85,23 +85,26 @@ export function integrateMHD(idx: number, travel = 0, hartmann = 0): MhdParcel {
   return mhdParcelPosition(idx, travel, hartmann);
 }
 
+/**
+ * Mode 4 — Peltier air parcels beside the heat sink (even idx) and the cold
+ * block (odd idx). Mirrors posPeltier in particle-compute.wgsl.
+ * @param sinkTravel / blockTravel fractional drift (devices/core/peltier-mesh.ts advancePeltierAir)
+ */
 export function integratePeltier(
   p: ParticlePhase,
   idx: number,
-  t: number,
-  deltaTN = 0.4,
-  hotN = 0.3
+  _t: number,
+  sinkTravel = 0,
+  blockTravel = 0
 ): [number, number, number] {
   const phase = p.phase;
-  const speed = 0.35 + deltaTN * 0.55;
-  const cycleT = (((t * speed + phase) % 1) + 1) % 1;
-  const x = ((((idx * 0.173 + phase) % 1) + 1) % 1 - 0.5) * 1.8;
-  const z = ((((idx * 0.211 + phase * 0.7) % 1) + 1) % 1 - 0.5) * 1.4;
-  const rising = idx % 2 === 0;
-  const y = rising
-    ? -0.35 + cycleT * 0.9 + Math.sin(t * 3.0 + phase * 9.0) * 0.04 * (0.3 + hotN)
-    : 0.55 - cycleT * 0.8 - Math.sin(t * 2.5 + phase * 7.0) * 0.03 * (0.3 + deltaTN);
-  return [x, y, z];
+  const onBlock = idx % 2 === 1;
+  const travel = onBlock ? blockTravel : sinkTravel;
+  const yBody = onBlock ? 2.5 : -2.5;
+  const a = ((((idx * 0.618034) % 1) + 1) % 1) * 6.28318;
+  const r = 0.95 + ((((idx * 0.211 + phase) % 1) + 1) % 1) * 0.5;
+  const u = (((phase + travel) % 1) + 1) % 1;
+  return [Math.cos(a) * r, yBody + (u - 0.5) * 2.6, Math.sin(a) * r];
 }
 
 export function integrateTransformer(

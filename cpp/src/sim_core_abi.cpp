@@ -659,6 +659,38 @@ EMSCRIPTEN_KEEPALIVE float seg_getPeltierCOP(SEGSimulator* self) {
     return self->getPeltierCOP();
 }
 
+EMSCRIPTEN_KEEPALIVE float seg_getPeltierQcW(SEGSimulator* self) {
+    return self->getPeltierQcW();
+}
+
+EMSCRIPTEN_KEEPALIVE float seg_getPeltierQhW(SEGSimulator* self) {
+    return self->getPeltierQhW();
+}
+
+EMSCRIPTEN_KEEPALIVE float seg_getPeltierNodeK(SEGSimulator* self, int index) {
+    return self->getPeltierNodeK(index);
+}
+
+EMSCRIPTEN_KEEPALIVE int seg_getPeltierNodeCount(SEGSimulator* self) {
+    return self->getPeltierNodeCount();
+}
+
+EMSCRIPTEN_KEEPALIVE float seg_getPeltierLoadW(SEGSimulator* self) {
+    return self->getPeltierLoadW();
+}
+
+EMSCRIPTEN_KEEPALIVE float seg_getPeltierPolarity(SEGSimulator* self) {
+    return self->getPeltierPolarity();
+}
+
+EMSCRIPTEN_KEEPALIVE void seg_setPeltierLoadW(SEGSimulator* self, float watts) {
+    self->setPeltierLoadW(watts);
+}
+
+EMSCRIPTEN_KEEPALIVE void seg_setPeltierPolarity(SEGSimulator* self, float sign) {
+    self->setPeltierPolarity(sign);
+}
+
 EMSCRIPTEN_KEEPALIVE float seg_getMhdFlowU(SEGSimulator* self) {
     return self->getMhdFlowU();
 }

@@ -78,7 +78,7 @@ Client-side **multi-device physics lab**: real-time visualization of research ap
 | `heron` | Heron’s Fountain | Layout presets + Bernoulli/Swamee–Jain plant; good meshes |
 | `kelvin` | Kelvin’s Thunderstorm | Capacitive plant + droplet viz |
 | `solar` | LEDs + solar + battery | Photon paths + SOC; separate LED/solar TS/WGSL suite exists |
-| `peltier` | Thermoelectric | Two-node ΔT/COP telemetry + heat-map plate tint; WASM Seebeck stack (`?wasmPhysics=1`) with matching JS fallback |
+| `peltier` | Thermoelectric cooler | Current-driven module with a **resolved 1-D leg** (24 finite-volume cells + cold block, two plates, heat sink) on `ros23`; reproduces the textbook `ΔT_max = Z·T_c²/2`, `I_opt`, COP and `Q_h = Q_c + P_in` on native, WASM and TS. Load and current-direction setpoints; bodies coloured by their own temperature — [`FLUIDS.md`](./FLUIDS.md#peltier-cooler) |
 | `mhd` | MHD channel | Lumped mean-speed plant with Lorentz braking (WASM with `?wasmPhysics=1`, JS fallback). The picture is the **analytic Hartmann profile**: parcels are timelines advected at `u(y)`, plus a profile card against the `B = 0` parabola, on both renderers. No numerical flow solve yet — [`FLUIDS.md`](./FLUIDS.md) |
 | `maglev` | Quanta MagLev (plugin) | Spring–damper gap + Halbach B est.; WASM plant with `?wasmPhysics=1` — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
 | `homopolar` | Quanta Faraday disc (plugin) | L–R + back-EMF; WASM plant with `?wasmPhysics=1` — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |

@@ -62,6 +62,9 @@ export interface ParticleUniforms {
   /** Peltier (mode 4) / MHD (mode 5) */
   peltierDeltaT?: number;
   peltierCOP?: number;
+  /** Air-parcel drift beside the sink / the cold block, fractional (peltier-mesh.ts advancePeltierAir). */
+  peltierAirSink?: number;
+  peltierAirBlock?: number;
   mhdFlowU?: number;
   mhdBFieldT?: number;
   /** Hartmann number, not normalised — the profile the parcels follow. */
@@ -309,9 +312,7 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
         aux = s.aux;
       }
     } else if (mode < 4.5) {
-      const deltaTN = Math.min(1, Math.abs(u.peltierDeltaT ?? 30) / 80);
-      const hotN = Math.min(1, ((u.peltierDeltaT ?? 30) > 0 ? deltaTN : 0.2));
-      const pos = integratePeltier({ phase }, idx, u.time, deltaTN, hotN);
+      const pos = integratePeltier({ phase }, idx, u.time, u.peltierAirSink ?? 0, u.peltierAirBlock ?? 0);
       px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode < 5.5) {
       const pos = integrateMHD(idx, u.mhdTravel ?? 0, u.mhdHartmann ?? 0);

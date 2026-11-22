@@ -75,6 +75,8 @@ export interface SegWasmBridge {
   setHallFieldCoupledT(fieldT: number): boolean;
   setKelvinSeedV(seedV: number): boolean;
   setLorentzFieldT(fieldT: number): void;
+  setPeltierLoadW(watts: number): void;
+  setPeltierPolarity(sign: number): void;
   getModePlant(): unknown;
   /** This thread's C ABI simulator (null before init / without WASM) — see SEGSim.raw. */
   rawSim(): SEGSimulatorInstance | null;
@@ -249,6 +251,14 @@ export const segWasm: SegWasmBridge = {
 
   setTransformerLeakage(enabled: boolean) {
     _instance?.setTransformerLeakage?.(!!enabled);
+  },
+
+  setPeltierLoadW(watts: number) {
+    _instance?.setPeltierLoadW?.(Number(watts) || 0);
+  },
+
+  setPeltierPolarity(sign: number) {
+    _instance?.setPeltierPolarity?.(Number(sign) < 0 ? -1 : 1);
   },
 
   setLorentzFieldT(fieldT: number) {

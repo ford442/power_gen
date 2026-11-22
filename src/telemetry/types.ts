@@ -59,6 +59,8 @@ export interface DeviceTelemetrySnap {
   peltierCurrent: number;
   peltierPowerW: number;
   peltierCOP: number;
+  peltierQcW: number;
+  peltierQhW: number;
   mhdFlowU: number;
   mhdBFieldT: number;
   mhdHartmann: number;
