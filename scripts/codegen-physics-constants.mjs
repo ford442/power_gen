@@ -178,6 +178,13 @@ struct PeltierConstants {
   static constexpr float CLAMP_ABOVE_AMBIENT_K = ${f32(pel.clampAboveAmbientK)};
 };
 
+struct HeronConstants {
+  /// Metres per scene unit on the Heron bench. Particle gravity and launch
+  /// speed are SI divided by this; there is no separate scene gravity.
+  static constexpr float METRES_PER_SCENE_UNIT = ${f32(data.heron.metresPerSceneUnit)};
+  static constexpr float LIQUID_TIME_SCALE     = ${f32(data.heron.liquidTimeScale)};
+};
+
 struct MhdConstants {
   static constexpr float PUMP_ACCEL_MS2 = ${f32(mhd.pumpAccelMs2)};
   static constexpr float LORENTZ_K      = ${f32(mhd.lorentzK)};
@@ -329,6 +336,7 @@ const KELVIN_E_BREAKDOWN: f32 = ${wgslF32(k.eBreakdownVm)};
 const HERON_RHO_0: f32 = ${wgslF32(h.restDensity)};
 const HERON_GAS_CONST: f32 = ${wgslF32(h.gasConstant)};
 const HERON_GAMMA: f32 = ${wgslF32(h.gamma)};
+const HERON_METRES_PER_SCENE_UNIT: f32 = ${wgslF32(h.metresPerSceneUnit)};
 
 const LED_WALL_PLUG_EFF: f32 = ${wgslF32(ls.wallPlugEfficiency)};
 const SOLAR_SI_EFFICIENCY: f32 = ${wgslF32(ls.siEfficiency)};
@@ -416,6 +424,10 @@ export const HERON_CONSTANTS = {
   SMOOTHING_LENGTH: ${h.smoothingLengthM},
   GRAVITY: ${p.G},
   ATMOSPHERIC_PRESSURE: ${h.atmosphericPressurePa},
+  /** Metres per scene unit on the Heron bench: jet heights, particle gravity, the liquid box. */
+  METRES_PER_SCENE_UNIT: ${h.metresPerSceneUnit},
+  /** Simulated seconds per displayed second for the jet and pool (docs/FLUIDS.md). */
+  LIQUID_TIME_SCALE: ${h.liquidTimeScale},
 } as const;
 
 export const LED_SOLAR_CORE = {

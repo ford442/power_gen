@@ -39,11 +39,12 @@ inline float rnd(uint32_t idx, float salt, float simClock = 0.f) {
 }
 
 /// Swamee–Jain friction factor (approximate) for turbulent pipe flow.
-inline float swameeJainF(float Re, float eps, float D) {
+/// Swamee–Jain friction factor for a relative roughness ε/D and a pipe
+/// Reynolds number, held to [0.008, 0.1] (`swameeJainFriction` in
+/// src/heron-layout.ts).
+inline float swameeJainF(float relRoughness, float Re) {
     if (Re < 1.f) return 0.05f;
-    float a = eps / (3.7f * D);
-    float b = 5.74f / std::pow(Re, 0.9f);
-    float invSqrt = -2.f * std::log10(a + b);
+    float invSqrt = -2.f * std::log10(relRoughness / 3.7f + 5.74f / std::pow(Re, 0.9f));
     float f = 1.f / (invSqrt * invSqrt);
     return clampf(f, 0.008f, 0.1f);
 }

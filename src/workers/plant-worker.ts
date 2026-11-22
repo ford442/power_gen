@@ -53,7 +53,8 @@ function knobDevices(knobs: PlantKnobs): SessionDeviceMap {
     },
     peltier: {
       physicsState: { peltierLoadW: knobs.peltierLoadW ?? 0, peltierPolarity: knobs.peltierPolarity ?? 1 } as never
-    }
+    },
+    heron: { physicsState: { heronLayoutId: knobs.heronLayoutId } as never }
   };
 }
 

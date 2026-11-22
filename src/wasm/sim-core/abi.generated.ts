@@ -183,6 +183,8 @@ export interface SimCoreExports {
   seg_getHeronVExit(self: number): number;
   seg_getHeronFlowLmin(self: number): number;
   seg_getHeronPressureKPa(self: number): number;
+  seg_getHeronHeadMax(self: number): number;
+  seg_setHeronLayout(self: number, headMaxM: number, pipeLengthM: number, pipeDiameterM: number, nozzleDiameterM: number, dischargeCoeff: number, roughness: number, pumpRate: number, drainCoeff: number): void;
   seg_getKelvinVoltage(self: number): number;
   seg_getKelvinVoltageN(self: number): number;
   seg_getKelvinE(self: number): number;
@@ -343,6 +345,7 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_getHallVoltage',
   'seg_getHeronFlowLmin',
   'seg_getHeronHead',
+  'seg_getHeronHeadMax',
   'seg_getHeronPressureKPa',
   'seg_getHeronVExit',
   'seg_getHomopolarAngle',
@@ -440,6 +443,7 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_setDrive',
   'seg_setHallCarrierMetal',
   'seg_setHallFieldCoupledT',
+  'seg_setHeronLayout',
   'seg_setIntegrator',
   'seg_setKelvinSeedV',
   'seg_setLorentzFieldT',
@@ -672,6 +676,8 @@ export interface SEGSimulatorInstance {
   getHeronVExit(): number;
   getHeronFlowLmin(): number;
   getHeronPressureKPa(): number;
+  getHeronHeadMax(): number;
+  setHeronLayout(headMaxM: number, pipeLengthM: number, pipeDiameterM: number, nozzleDiameterM: number, dischargeCoeff: number, roughness: number, pumpRate: number, drainCoeff: number): void;
   getKelvinVoltage(): number;
   getKelvinVoltageN(): number;
   getKelvinE(): number;
@@ -1239,6 +1245,12 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
     }
     getHeronPressureKPa(): number {
       return ex.seg_getHeronPressureKPa(this.ptr);
+    }
+    getHeronHeadMax(): number {
+      return ex.seg_getHeronHeadMax(this.ptr);
+    }
+    setHeronLayout(headMaxM: number, pipeLengthM: number, pipeDiameterM: number, nozzleDiameterM: number, dischargeCoeff: number, roughness: number, pumpRate: number, drainCoeff: number): void {
+      ex.seg_setHeronLayout(this.ptr, headMaxM, pipeLengthM, pipeDiameterM, nozzleDiameterM, dischargeCoeff, roughness, pumpRate, drainCoeff);
     }
     getKelvinVoltage(): number {
       return ex.seg_getKelvinVoltage(this.ptr);

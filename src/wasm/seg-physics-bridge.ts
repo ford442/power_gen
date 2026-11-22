@@ -77,6 +77,8 @@ export interface SegWasmBridge {
   setLorentzFieldT(fieldT: number): void;
   setPeltierLoadW(watts: number): void;
   setPeltierPolarity(sign: number): void;
+  /** The active Heron layout preset's hydraulics (see SEGSim.setHeronLayout). */
+  setHeronLayout(layout: Parameters<SEGSim['setHeronLayout']>[0]): void;
   getModePlant(): unknown;
   /** This thread's C ABI simulator (null before init / without WASM) — see SEGSim.raw. */
   rawSim(): SEGSimulatorInstance | null;
@@ -259,6 +261,10 @@ export const segWasm: SegWasmBridge = {
 
   setPeltierPolarity(sign: number) {
     _instance?.setPeltierPolarity?.(Number(sign) < 0 ? -1 : 1);
+  },
+
+  setHeronLayout(layout) {
+    _instance?.setHeronLayout?.(layout);
   },
 
   setLorentzFieldT(fieldT: number) {

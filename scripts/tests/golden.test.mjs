@@ -90,6 +90,7 @@ const PER_KEY_EPS = {
 const PLANTS = {
   // Kelvin is a core device: its JS plant is the shared stepDevicePhysics, not
   // a plugin, so the entry below wraps it under the same create/step names.
+  heron: { create: 'createHeronPhysicsState', step: 'stepHeronPhysics' },
   kelvin: { create: 'createKelvinPhysicsState', step: 'stepKelvinPhysics' },
   peltier: { create: 'createPeltierPhysicsState', step: 'stepPeltierPhysics' },
   mhd: { create: 'createMhdPhysicsState', step: 'stepMhdPhysics' },
@@ -118,6 +119,8 @@ export { DEVICE_CATALOG } from './generated/device-catalog.ts';
 import { createDevicePhysicsState, stepDevicePhysics } from './src/renderers/shared/device-physics.ts';
 export const createKelvinPhysicsState = () => createDevicePhysicsState('kelvin');
 export const stepKelvinPhysics = (state, dt, drive) => stepDevicePhysics(state, dt, drive);
+export const createHeronPhysicsState = () => createDevicePhysicsState('heron');
+export const stepHeronPhysics = (state, dt, drive) => stepDevicePhysics(state, dt, drive);
 `;
 
 /** Problems found while parsing the native output (reported by a test below). */
@@ -161,6 +164,7 @@ function parseGolden(stdout) {
         // Peltier setpoints — the bench defaults when the case does not say.
         peltierLoadW: Number(kv.get('peltierLoadW') ?? 0),
         peltierPolarity: Number(kv.get('peltierPolarity') ?? 1),
+        heronLayout: kv.get('heronLayout') ?? 'classic',
         values: new Map(),
       });
       continue;
@@ -210,6 +214,10 @@ function seedCoupling(state, kase) {
     state.peltierLoadW = kase.peltierLoadW;
     state.peltierPolarity = kase.peltierPolarity;
   }
+  // What setHeronLayout gave the C++ plant: the preset by name. The numbers
+  // behind the name live in src/heron-layout.ts here and in HERON_LAYOUTS
+  // there, and this test is what holds the two tables together.
+  if (kase.device === 'heron') state.heronLayoutId = kase.heronLayout;
 }
 
 // ── 1. native side ───────────────────────────────────────────────────────

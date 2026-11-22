@@ -267,6 +267,20 @@ export class SEGSim {
     return true;
   }
 
+  /**
+   * The Heron layout preset's hydraulics (src/heron-layout.ts). The C++ plant
+   * defaults to `classic`; without this call every preset would step as that one.
+   */
+  setHeronLayout(layout: {
+    headMaxM: number; pipeLengthM: number; pipeDiameterM: number; nozzleDiameterM?: number;
+    dischargeCoeff?: number; roughness?: number; pumpRate?: number; drainCoeff?: number;
+  }): void {
+    this._sim?.setHeronLayout?.(
+      layout.headMaxM, layout.pipeLengthM, layout.pipeDiameterM, layout.nozzleDiameterM ?? 0.04,
+      layout.dischargeCoeff ?? 0.35, layout.roughness ?? 0.02, layout.pumpRate ?? 2.2, layout.drainCoeff ?? 0.30
+    );
+  }
+
   /** Cold-block heat load, W (catalog setpoint `peltierLoad`). */
   setPeltierLoadW(watts: number): void {
     this._sim?.setPeltierLoadW?.(Number(watts) || 0);

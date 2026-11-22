@@ -189,15 +189,15 @@ export const SEG_GLOSSARY: Record<string, GlossaryEntry> = {
   },
   'bernoulli-exit': {
     title: 'Bernoulli exit speed',
-    body: 'Ideal jet speed from a head h is \u221a(2 g h). The model subtracts pipe head loss and multiplies by the nozzle discharge coefficient, so the exit speed never exceeds the ideal figure.',
+    body: 'Ideal jet speed from a head h is \u221a(2 g h). The model shares the head between the nozzle, through its discharge coefficient C_d, and friction in the supply pipe, so the exit speed never exceeds the ideal figure. A jet leaving at v rises v\u00b2/2g.',
     unit: 'm/s',
-    value: 'v = C_d \u221a(2 g (h \u2212 h_loss))',
+    value: 'h = v\u00b2/2g \u00b7 (1/C_d\u00b2 + f (L/D)(A_n/A_p)\u00b2)',
     source: 'heron-layout.ts computeHeronHydraulics'
   },
   'swamee-jain': {
     title: 'Swamee\u2013Jain friction',
-    body: 'An explicit fit for the Darcy friction factor at a given Reynolds number and relative roughness. Head loss is h_loss = f (L/D) v\u00b2/2g, so longer or thinner pipe costs more head.',
-    value: 'h_loss = f (L/D) v\u00b2/2g',
+    body: 'An explicit fit for the Darcy friction factor at a given Reynolds number and relative roughness. Head loss is h_loss = f (L/D) v_pipe\u00b2/2g at the speed in the pipe, which is the nozzle speed times the area ratio A_n/A_p, so longer or thinner pipe costs more head.',
+    value: 'h_loss = f (L/D) v_pipe\u00b2/2g',
     source: 'heron-layout.ts swameeJainFriction'
   },
   'capacitor-discharge': {

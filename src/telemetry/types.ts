@@ -29,6 +29,8 @@ export interface DeviceTelemetrySnap {
   heronVExit: number;
   heronFlowRateLmin: number;
   heronPressureKPa: number;
+  heronJetIdealM: number;
+  heronJetHeightM: number;
   kelvinV: number;
   kelvinVoltageN: number;
   kelvinVbreak: number;

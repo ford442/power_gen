@@ -21,7 +21,7 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 | Device `id` | `shaderMode` (JS/WGSL) | `wasmMode` / `SimMode` | Telemetry keys (unit) | Fidelity |
 |---|---|---|---|---|
 | `seg` | 0 | 0 (`SIM_MODE_SEG`) | `rpm` (RPM), `omega` (rad/s), `corona` (%), `voltage` (V), `current` (A), `power` (W), `fieldSim` (T), `energyDensity` (J/m³) | WASM RK4 (full plant) |
-| `heron` | 1 | 1 (`SIM_MODE_HERON`) | `heronHead` (m), `heronHeadMax` (m), `heronVExit` (m/s), `heronFlowRateLmin` (L/min), `heronPressureKPa` (kPa) | WASM (Bernoulli/Swamee–Jain) |
+| `heron` | 1 | 1 (`SIM_MODE_HERON`) | `heronHead` (m), `heronHeadMax` (m), `heronVExit` (m/s), `heronFlowRateLmin` (L/min), `heronPressureKPa` (kPa), `heronJetIdealM` (m), `heronJetHeightM` (m) | WASM (Bernoulli + Darcy–Weisbach); jet and pool: MLS-MPM liquid on WebGPU |
 | `kelvin` | 2 | 2 (`SIM_MODE_KELVIN`) | `kelvinV` (V), `kelvinVoltageN` (%), `kelvinVbreak` (V), `kelvinE` (V/m), `kelvinSparkTimer` (s) | WASM (capacitive + spark) |
 | `solar` | 3 | 3 (`SIM_MODE_SOLAR`) | `batteryCharge` (%) | WASM (battery SOC) |
 | `peltier` | 4 | 4 (`SIM_MODE_PELTIER`) | `peltierHotK` (K), `peltierColdK` (K), `peltierDeltaT` (K), `peltierVoltage` (V), `peltierCurrent` (A), `peltierPowerW` (W), `peltierCOP`, `peltierQcW` (W), `peltierQhW` (W) | WASM (thermoelectric cooler: 1-D leg, 24 cells + 4 end nodes, ros23) |

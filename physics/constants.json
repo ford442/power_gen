@@ -39,11 +39,14 @@
     "bucketDistanceM": 6.0
   },
   "heron": {
+    "comment": "metresPerSceneUnit: the bench is drawn at 0.64 m per scene unit — the head each layout preset declares over the drawn span of its vessel stack is 0.62–0.67 m/unit for all five. Jet heights, particle gravity and the liquid box all use it; there is no separate 'scene gravity'. liquidTimeScale: simulated seconds per displayed second for the jet and pool — an explicit solver at this scale is only weakly compressible at sub-millisecond steps, so the liquid is shown at one sixth speed (docs/FLUIDS.md → Heron, ADR-0022).",
     "restDensity": 1000,
     "gasConstant": 560571,
     "gamma": 7,
     "smoothingLengthM": 0.012,
-    "atmosphericPressurePa": 101325
+    "atmosphericPressurePa": 101325,
+    "metresPerSceneUnit": 0.64,
+    "liquidTimeScale": 0.16666667
   },
   "vdg": {
     "comment": "Classroom Van de Graaff lumped ODE — not an HV engineering design. C = 4πε₀r; V_break = kelvin.eBreakdownVm × gapM.",

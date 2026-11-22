@@ -6,6 +6,7 @@
  */
 import type { HeronLayout } from './renderers/shared/device-physics';
 import { labConfigFor } from './config/lab-config';
+import { PHYSICAL_CONSTANTS } from '../generated/physics-constants';
 
 export type HeronLayoutPresetId = 'classic' | 'compact' | 'tower' | 'wide' | 'spiral';
 
@@ -280,12 +281,15 @@ export function getHeronLayout(presetId: string = HERON_LAYOUT_PRESETS.classic):
 }
 
 /**
- * Swamee–Jain friction factor (turbulent pipe flow).
+ * Swamee–Jain friction factor (turbulent pipe flow) for a relative roughness
+ * ε/D and a pipe Reynolds number, held to [0.008, 0.1] — below Re ≈ 4000 the
+ * correlation does not apply and the flow is too slow for the loss to matter.
+ * Same arithmetic as `swameeJainF` in cpp/src/plant/plant_common.h.
  */
-export function swameeJainFriction(f: number, Re: number, D: number): number {
-  const ReClamped = Math.max(Re, 1);
-  const term = f / 3.7 + 5.74 / Math.pow(ReClamped, 0.9);
-  return 0.25 / Math.pow(Math.log10(Math.max(term, 1e-6)), 2);
+export function swameeJainFriction(relRoughness: number, Re: number): number {
+  if (Re < 1) return 0.05;
+  const invSqrt = -2 * Math.log10(relRoughness / 3.7 + 5.74 / Math.pow(Re, 0.9));
+  return Math.max(0.008, Math.min(0.1, 1 / (invSqrt * invSqrt)));
 }
 
 export interface HeronHydraulics {
@@ -298,29 +302,53 @@ export interface HeronHydraulics {
   vIdeal: number;
 }
 
+/** Friction-factor passes in the exit-speed solve; the factor moves by < 1 % after the first. */
+export const HERON_FRICTION_PASSES = 3;
+
 /**
- * Bernoulli exit velocity with Swamee–Jain head loss.
+ * Exit speed of the nozzle under a driving head: Bernoulli with the nozzle's
+ * discharge coefficient and Darcy–Weisbach friction in the supply pipe,
+ *
+ *   H = v²/2g · ( 1/C_d² + f·(L/D)·(A_n/A_p)² )
+ *
+ * The friction term is at the pipe's own speed, v·A_n/A_p (continuity), with
+ * f from Swamee–Jain at the pipe Reynolds number — a few fixed passes, since
+ * f depends on v. `roughness` is the pipe's relative roughness ε/D.
+ * The C++ plant (`_stepHeron`) is the same arithmetic in float32.
+ *
+ * Until the fluids epic this took the friction loss at the *ideal* exit speed
+ * over the whole pipe, which exceeds the head for every preset: the exit
+ * speed, the flow and the energy level were identically zero on the JS plant.
+ *
  * @param headM  driving head (m)
  * @param layout  from getHeronLayout()
  */
 export function computeHeronHydraulics(headM: number, layout: HeronLayout): HeronHydraulics {
-  const g = 9.81;
+  const g = PHYSICAL_CONSTANTS.G;
   const rho = 1000;
+  const nu = 1e-6;
   const L = layout.pipeLengthM;
   const D = layout.pipeDiameterM;
-  const f = layout.roughness ?? 0.02;
+  const rel = layout.roughness ?? 0.02;
   const Cd = layout.dischargeCoeff ?? 0.35;
   const head = Math.max(headM, 0);
-
-  const vIdeal = Math.sqrt(2 * g * head);
-  const nu = 1e-6;
-  const Re = vIdeal * D / nu;
-  const fSw = swameeJainFriction(f, Re, D);
-  const headLoss = fSw * (L / D) * (vIdeal * vIdeal / (2 * g));
-  const vExit = Math.sqrt(2 * g * Math.max(head - headLoss, 0)) * Cd;
-
   const nozzleR = (layout.nozzleDiameterM ?? 0.04) * 0.5;
   const areaNozzle = Math.PI * nozzleR * nozzleR;
+  const areaRatio = Math.min(1, areaNozzle / (Math.PI * D * D * 0.25));
+
+  const vIdeal = Math.sqrt(2 * g * head);
+  const k0 = 1 / (Cd * Cd);
+  let vExit = Math.sqrt((2 * g * head) / k0);
+  let fSw = 0;
+  let Re = 0;
+  for (let pass = 0; pass < HERON_FRICTION_PASSES; pass++) {
+    Re = (vExit * areaRatio * D) / nu;
+    fSw = swameeJainFriction(rel, Re);
+    vExit = Math.sqrt((2 * g * head) / (k0 + fSw * (L / D) * areaRatio * areaRatio));
+  }
+  const vPipe = vExit * areaRatio;
+  const headLoss = fSw * (L / D) * ((vPipe * vPipe) / (2 * g));
+
   const flowM3s = areaNozzle * vExit;
   const flowLmin = flowM3s * 60000;
   const pressureKPa = (rho * g * head) / 1000;

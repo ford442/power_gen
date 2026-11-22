@@ -10,7 +10,7 @@
 #include <cstdint>
 
 static constexpr uint32_t PLANT_STATE_LAYOUT_HASH = 0x7316415eu;
-static constexpr const char* DEVICE_CATALOG_HASH = "a878859327bd";
+static constexpr const char* DEVICE_CATALOG_HASH = "31b9dafbad8a";
 
 static constexpr int PLANT_STATE_SIZES[] = {
     137, // SIM_MODE_SEG

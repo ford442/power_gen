@@ -54,6 +54,10 @@ export const HERON_CONSTANTS = {
   SMOOTHING_LENGTH: 0.012,
   GRAVITY: 9.80665,
   ATMOSPHERIC_PRESSURE: 101325,
+  /** Metres per scene unit on the Heron bench: jet heights, particle gravity, the liquid box. */
+  METRES_PER_SCENE_UNIT: 0.64,
+  /** Simulated seconds per displayed second for the jet and pool (docs/FLUIDS.md). */
+  LIQUID_TIME_SCALE: 0.16666667,
 };
 
 export const LED_SOLAR_CORE = {

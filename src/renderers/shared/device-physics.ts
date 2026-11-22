@@ -4,6 +4,7 @@
  */
 
 import { ValidatedConstants } from '../../ValidatedConstants';
+import { PHYSICAL_CONSTANTS } from '../../../generated/physics-constants';
 import { extendPhysicsState, getDeviceModeIndex, stepPluginPhysics } from '../../devices/device-registry.js';
 import {
   computeHeronHydraulics,
@@ -41,6 +42,14 @@ export interface BaseDevicePhysicsState {
   heronFlowRateLmin: number;
   heronPressureKPa: number;
   heronReynolds: number;
+  /** v²/2g for the current exit speed, m: how high a jet leaving at heronVExit rises with no losses in flight. */
+  heronJetIdealM: number;
+  /**
+   * Height of the simulated jet above the nozzle, m, read back from the
+   * liquid solver. 0 when no liquid solver is running (WebGL2, `fluid=off`,
+   * headless plants): 0 means "not measured", not "no jet".
+   */
+  heronJetHeightM: number;
   kelvinV: number;
   kelvinSparkTimer: number;
   kelvinSparkDur: number;
@@ -359,6 +368,8 @@ export function createDevicePhysicsState(
     heronFlowRateLmin: 0,
     heronPressureKPa: 0,
     heronReynolds: 0,
+    heronJetIdealM: 0,
+    heronJetHeightM: 0,
     kelvinV: 0,
     kelvinSparkTimer: 0,
     kelvinSparkDur: 0.18,
@@ -442,7 +453,8 @@ export function stepDevicePhysics(
     state.heronFlowRateLmin = hydro.flowLmin;
     state.heronPressureKPa = hydro.pressureKPa;
     state.heronReynolds = hydro.Re;
-    const vRef = Math.sqrt(2 * 9.81 * layout.headMaxM) * (layout.dischargeCoeff ?? 0.35);
+    state.heronJetIdealM = (hydro.vExit * hydro.vExit) / (2 * PHYSICAL_CONSTANTS.G);
+    const vRef = Math.sqrt(2 * PHYSICAL_CONSTANTS.G * layout.headMaxM) * (layout.dischargeCoeff ?? 0.35);
     state.energyLevel = Math.min(1, state.heronVExit / Math.max(vRef, 0.5));
   } else if (state.deviceId === 'kelvin') {
     const chargeRate = 8000;

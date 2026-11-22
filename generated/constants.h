@@ -98,6 +98,13 @@ struct PeltierConstants {
   static constexpr float CLAMP_ABOVE_AMBIENT_K = 250.0f;
 };
 
+struct HeronConstants {
+  /// Metres per scene unit on the Heron bench. Particle gravity and launch
+  /// speed are SI divided by this; there is no separate scene gravity.
+  static constexpr float METRES_PER_SCENE_UNIT = 0.64f;
+  static constexpr float LIQUID_TIME_SCALE     = 0.16666667f;
+};
+
 struct MhdConstants {
   static constexpr float PUMP_ACCEL_MS2 = 6.0f;
   static constexpr float LORENTZ_K      = 2.5f;

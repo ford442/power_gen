@@ -121,6 +121,7 @@ function collectKnobs(devices: SessionDeviceMap, focus: string): PlantKnobs {
     knobs.peltierLoadW = peltier?.peltierLoadW ?? 0;
     knobs.peltierPolarity = peltier?.peltierPolarity ?? 1;
   }
+  if (focus === 'heron') knobs.heronLayoutId = devicePhysics(devices.heron)?.heronLayoutId;
   return knobs;
 }
 
