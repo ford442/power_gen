@@ -130,6 +130,48 @@ struct PeltierPlant {
     void derivs(double t, std::span<const float> x, const PeltierInput& u, std::span<float> dxdt) const {
         derivs_t<float>(t, x, u, dxdt);
     }
+    /// ∂f/∂x written out: tridiagonal, the derivative of derivs_t term by
+    /// term (sim_core::AnalyticJacobianPlant). Same expressions as
+    /// `peltierJacobian` in src/devices/core/peltier-plant.ts.
+    void jacobian(double, std::span<const float> x, const PeltierInput& u, std::span<float> J) const {
+        constexpr int N = PeltierState::LEG_CELLS;
+        constexpr int n = PeltierState::NODES;
+        constexpr int CB = PeltierState::COLD_BLOCK, CP = PeltierState::COLD_PLATE;
+        constexpr int C0 = PeltierState::FIRST_CELL, HP = PeltierState::HOT_PLATE, SK = PeltierState::SINK;
+        const float I = u.currentA;
+        const float a0 = s.seebeck * s.couples;
+        const float a1 = s.seebeckSlope * s.couples;
+        const float G = s.conductanceWK * static_cast<float>(N);
+        const float Gf = 2.f * G;
+        const float cCell = s.legHeatCapJK / static_cast<float>(N);
+        for (int i = 0; i < n * n; ++i) J[i] = 0.f;
+        // d/dT of (a0 + a1·(T − Tref))·I·T
+        const auto dPeltier = [&](float T) { return I * (a0 + a1 * (2.f * T - s.seebeckRefK)); };
+
+        J[CB * n + CB] = -(s.blockContactWK + s.coldLeakWK) / s.coldBlockHeatCapJK;
+        J[CB * n + CP] = s.blockContactWK / s.coldBlockHeatCapJK;
+        J[CP * n + CB] = s.blockContactWK / s.plateHeatCapJK;
+        J[CP * n + CP] = (-s.blockContactWK - Gf - dPeltier(x[CP])) / s.plateHeatCapJK;
+        J[CP * n + C0] = Gf / s.plateHeatCapJK;
+        // Thomson heat −½·a1·I·(faceH² − faceC²): each face is a plate or a two-cell mean.
+        const float th = -a1 * I;
+        for (int i = 0; i < N; ++i) {
+            const int k = C0 + i;
+            const bool first = i == 0, last = i == N - 1;
+            const float faceC = first ? x[CP] : 0.5f * (x[k - 1] + x[k]);
+            const float faceH = last ? x[HP] : 0.5f * (x[k] + x[k + 1]);
+            const float gC = first ? Gf : G;
+            const float gH = last ? Gf : G;
+            J[k * n + k - 1] = (gC - th * faceC * (first ? 1.f : 0.5f)) / cCell;
+            J[k * n + k] = (-gC - gH + th * (faceH * (last ? 0.f : 0.5f) - faceC * (first ? 0.f : 0.5f))) / cCell;
+            J[k * n + k + 1] = (gH + th * faceH * (last ? 1.f : 0.5f)) / cCell;
+        }
+        J[HP * n + HP - 1] = Gf / s.plateHeatCapJK;
+        J[HP * n + HP] = (-Gf - s.sinkContactWK + dPeltier(x[HP])) / s.plateHeatCapJK;
+        J[HP * n + SK] = s.sinkContactWK / s.plateHeatCapJK;
+        J[SK * n + HP] = s.sinkContactWK / s.sinkHeatCapJK;
+        J[SK * n + SK] = -(s.sinkContactWK + s.sinkWK) / s.sinkHeatCapJK;
+    }
     /// y = [hotK, coldK, deltaTK, voltageV, powerW, cop, qcW, qhW] at x.
     void outputs(std::span<const float> x, const PeltierInput& u, std::span<float> y) const;
     void save(std::span<float> x) const;

@@ -296,6 +296,26 @@ int run_ad() {
         }
     }
     {
+        // The cooler writes its Jacobian out (AnalyticJacobianPlant), so
+        // .dfdx.f32 here is that hand-written one against central
+        // differences, and .dfdx.f64 the Dual it replaced. With the Thomson
+        // slope on, so the temperature-dependent entries are exercised, at a
+        // flat profile, a steep one and a bent one, both current directions.
+        PeltierState st;
+        st.seebeckSlope = 1.5e-6f;
+        PeltierPlant p(st);
+        constexpr int NN = PeltierState::NODES;
+        for (const int shape : { 0, 1, 2 }) {
+            std::array<double, NN> x{};
+            for (int i = 0; i < NN; ++i) {
+                const double s = static_cast<double>(i) / (NN - 1);
+                x[static_cast<std::size_t>(i)] = shape == 0 ? 293.0 : shape == 1 ? 240.0 + 110.0 * s
+                                                                                  : 250.0 + 90.0 * s * s + 6.0 * std::sin(9.0 * s);
+            }
+            check_plant("peltier", p, 0.0, x, PeltierInput{ shape == 2 ? -3.f : 4.f, 6.f });
+        }
+    }
+    {
         twin::RigPlant rig;
         for (const auto& x : { std::array<double, 2>{ 10.0, 0.5 }, std::array<double, 2>{ 60.0, 0.9 },
                                std::array<double, 2>{ -5.0, -0.2 } }) {

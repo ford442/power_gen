@@ -242,8 +242,8 @@ It is linear in `T` for a fixed current and stiff — cells relax in
 milliseconds, the sink in tens of seconds — so it runs on `ros23`
 ([`INTEGRATORS.md`](./INTEGRATORS.md)). `cpp/src/plant/peltier_plant.h` and
 `src/devices/core/peltier-plant.ts` are the same arithmetic term for term; the
-C++ Jacobian comes from one Dual evaluation, the TS one is written out
-(`peltierJacobian`, checked against differences).
+Jacobian is written out in both (tridiagonal; `PeltierPlant::jacobian`,
+`peltierJacobian`), and each is checked against differences.
 
 Inputs: the drive slider sets `|I|` up to `iMaxA` (8 A, deliberately past the
 optimum); the `peltierPolarity` setpoint its sign; `peltierLoad` feeds heat

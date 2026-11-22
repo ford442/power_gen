@@ -69,7 +69,17 @@ profile for a thermal view to draw.
   `W = I − h·d·J` stays diagonally dominant); fixed in both languages, with a
   pivoting matrix and a stiff held-end chain added to `test:integrators`.
 - The TS `OdePlant` gained an optional `jacobian` hook. Without it the 28-node
-  leg spends 28 RHS calls per step on differences.
+  leg spends 28 RHS calls per step on differences. C++ has the same hook
+  (`sim_core::AnalyticJacobianPlant`) and the plant uses it: the dual-number
+  Jacobian over 28 states cost 11.3 KB of the release binary.
+- **`sim_core.wasm` is 189,952 B (was 163,244 B)**, +5.7 KB brotli: the shared
+  integrators instantiated for 28 states, and the plant.
+  `cpp/bench-baseline.json` is re-baselined with the breakdown. As first
+  merged the binary was 201,274 B and over the 5 % gate, which CI did not
+  report because an earlier step of the same job was already failing.
+- **No explicit-integrator golden case.** `peltier@dopri5` was removed: on a
+  stiff plant in float32 it compares rounding, and it failed on a compiler
+  that contracts to FMA ([`INTEGRATORS.md`](../INTEGRATORS.md)).
 - Explicit overrides (`euler`, `rk4`) on this plant substep at 0.5 ms. In
   float32 that accumulates ~20 mK of rounding over a few seconds, so they are
   a budget reference in `test:integrators`, not a golden case.

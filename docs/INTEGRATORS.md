@@ -101,9 +101,14 @@ method for benches and goldens. The override is not saved in snapshots.
   pivot there, so it had never fired. Both languages now apply every
   interchange first. `test:integrators` holds it with a matrix whose pivots
   are all off the diagonal and with a held-end conduction chain.
-- **Jacobian in TS.** `OdePlant.jacobian` is optional; the Peltier plant
-  supplies its exact tridiagonal one. The RHS-count parity check knows which
-  plants do.
+- **A written-out Jacobian, in both languages.** `OdePlant.jacobian` (TS) and
+  `sim_core::AnalyticJacobianPlant` (C++, `core/plant.h`) are optional; the
+  Peltier plant supplies its exact tridiagonal one in each. In C++ the Dual
+  route worked but carried 28 partials through every operation, and that one
+  instantiation was 11.3 KB of `sim_core.wasm`. `--mode ad` holds the
+  written-out Jacobian to central differences (≤ 1e-7 relative, three states,
+  Thomson slope on); the RHS-count parity check knows which plants supply
+  their own.
 - **Explicit overrides.** `euler` / `rk4` on this plant substep at 0.5 ms (the
   stability limit is about 1.4 ms), and `dopri5` is held to the same limit by
   its own error control. The C++ plant holds temperatures in float32, and
