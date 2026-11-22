@@ -151,12 +151,18 @@ test.describe('image baselines (report-only)', () => {
         writeFileSync(join(outDir, `${view.name}.actual.png`), shot.png);
 
         const actual = decode(shot.png);
-        // A black or flat frame is a capture failure, not a look change.
+        // A black or flat frame is a capture failure, not a look change — and
+        // must never be written as a baseline. Non-black alone would accept a
+        // uniform grey frame, so the frame also has to vary.
         let lit = 0;
+        const colours = new Set();
         for (let i = 0; i < actual.data.length; i += 4) {
           if (actual.data[i] + actual.data[i + 1] + actual.data[i + 2] > 24) lit++;
+          // 4 bits per channel: counts distinct colours, not dither noise.
+          colours.add(((actual.data[i] >> 4) << 8) | ((actual.data[i + 1] >> 4) << 4) | (actual.data[i + 2] >> 4));
         }
         expect(lit / (actual.width * actual.height), 'share of non-black pixels').toBeGreaterThan(0.02);
+        expect(colours.size, 'distinct colours in the frame (a flat frame has one)').toBeGreaterThan(16);
 
         /** @type {Record<string, any>} */
         const row = { renderer, view: view.name, width: actual.width, height: actual.height, maxDiff: view.maxDiff, status: 'ok', ratio: null };

@@ -16,7 +16,7 @@
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
@@ -70,7 +70,8 @@ export function entryClosure(manifest, readFile) {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const distArg = process.argv.indexOf('--dist');
-  const dist = distArg > 0 ? join(process.cwd(), process.argv[distArg + 1]) : await buildSite();
+  // resolve(): relative to the cwd, and an absolute --dist stays absolute.
+  const dist = distArg > 0 ? resolve(process.argv[distArg + 1]) : await buildSite();
   try {
     const manifestPath = join(dist, '.vite', 'manifest.json');
     if (!existsSync(manifestPath)) throw new Error(`no ${relative(ROOT, manifestPath)} — vite.config.js must keep build.manifest`);

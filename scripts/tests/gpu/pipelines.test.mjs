@@ -63,7 +63,7 @@ async function buildSession(session, depthFormat) {
   });
   const device = await nodeDevice(gpu, { requiredFeatures, requiredLimits, label: 'test-pipelines' });
 
-  const rec = { modules: [], pipelines: [], failures: [], bgls: [], layouts: [], usedLayouts: new Set() };
+  const rec = { modules: [], pipelines: [], failures: [], ensureFailures: [], bgls: [], layouts: [], usedLayouts: new Set() };
   const wrap = (name, fn) => {
     const orig = device[name].bind(device);
     device[name] = (desc) => fn(orig, desc);
@@ -139,7 +139,11 @@ async function buildSession(session, depthFormat) {
         () => cache.ensureFieldRenderPipelines(field, msaa)
       ];
       rec.ensureCalls = jobs.length;
-      await Promise.all(jobs.map((job) => job().catch(() => {})));
+      // A factory can also reject before it creates anything (a missing
+      // layout, a thrown TypeError) — that never reaches the wrappers above.
+      await Promise.all(jobs.map((job, i) => job().catch((err) => {
+        rec.ensureFailures.push(`ensure job ${i} (${job.toString().replace(/^\(\) => /, '')}): ${String(err?.message ?? err).trim()}`);
+      })));
     });
   } finally {
     console.log = quiet;
@@ -173,6 +177,10 @@ describe('test:pipelines — Tint + Dawn compile of every production pipeline', 
         const errors = r.compile.filter((c) => c.type === 'error').map((c) => c.text);
         assert.deepEqual(errors, [], 'shader compile errors');
         assert.deepEqual(r.failures, [], 'pipelines Dawn rejected');
+        // A rejected pipeline rejects its factory too (already listed above);
+        // what is left is a factory that threw on its own.
+        const own = r.ensureFailures.filter((e) => !r.failures.some((f) => e.endsWith(f.slice(f.indexOf(': ') + 2))));
+        assert.deepEqual(own, [], 'ensure* factories that rejected before creating a pipeline');
         assert.deepEqual(r.scopeErrors, [], 'validation errors outside pipeline creation (layouts, modules)');
         assert.deepEqual(r.device.uncaptured, [], 'uncaptured device errors');
         assert.ok(r.pipelines.length >= 40, `only ${r.pipelines.length} pipelines were created`);

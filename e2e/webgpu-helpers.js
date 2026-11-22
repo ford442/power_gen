@@ -186,12 +186,45 @@ export async function focusView(page, id, timeout = 300_000) {
  */
 export async function captureFramePng(page) {
   const shot = await page.evaluate(async () => {
-    // WebGL2 reads the back buffer, which is only intact between the app's
-    // render and the browser's composite — so read inside a rAF callback
-    // (queued after the app's own). WebGPU's hook renders on demand.
-    if (window.currentRenderer === 'webgl2') await new Promise((resolve) => requestAnimationFrame(resolve));
-    const frame = window.captureCanvasFrame?.({ flipY: true });
-    if (!frame) throw new Error('window.captureCanvasFrame is not installed');
+    const capture = () => {
+      const f = window.captureCanvasFrame?.({ flipY: true });
+      if (!f) throw new Error('window.captureCanvasFrame is not installed');
+      return f;
+    };
+    const blank = (/** @type {{ pixels: Uint8Array }} */ f) => {
+      for (let i = 0; i < f.pixels.length; i += 4) {
+        if (f.pixels[i] | f.pixels[i + 1] | f.pixels[i + 2]) return false;
+      }
+      return true;
+    };
+    let frame;
+    if (window.currentRenderer === 'webgl2') {
+      // WebGL2's hook reads the back buffer, which the browser clears once
+      // the frame is composited (no preserveDrawingBuffer). The only safe
+      // moment is inside the app's own frame, right after it drew — so wrap
+      // `render` (the rAF callback looks it up on each call) and read there.
+      // A frame the loop skipped is blank; take the next one, up to eight.
+      const viz = /** @type {any} */ (window.multiVisualizer);
+      const own = Object.prototype.hasOwnProperty.call(viz, 'render');
+      const original = viz.render;
+      frame = await new Promise((resolve, reject) => {
+        let tries = 0;
+        const restore = () => { if (own) viz.render = original; else delete viz.render; };
+        viz.render = function (/** @type {number} */ t) {
+          original.call(this, t);
+          try {
+            const f = capture();
+            if (!blank(f) || ++tries >= 8) { restore(); resolve(f); }
+          } catch (err) {
+            restore();
+            reject(err);
+          }
+        };
+      });
+    } else {
+      // WebGPU's hook renders one frame on demand and copies it in the same task.
+      frame = capture();
+    }
     const canvas = document.createElement('canvas');
     canvas.width = frame.width;
     canvas.height = frame.height;

@@ -62,6 +62,8 @@ export function wgslRaw() {
       build.onLoad({ filter: /.*/, namespace: 'raw-stub' }, () => ({ contents: 'export default "";', loader: 'js' }));
       build.onLoad({ filter: /.*/, namespace: 'wgsl-raw' }, async (args) => {
         const { resolveWgsl } = await import('../src/shaders/wgsl-include.js');
+        // The resolver decides the expanded text, so it is an input too.
+        inputs.add(join(ROOT, 'src/shaders/wgsl-include.js'));
         const included = new Set();
         const code = resolveWgsl(readFileSync(args.path, 'utf8'), { fromFile: args.path, included });
         inputs.add(args.path);
@@ -73,7 +75,7 @@ export function wgslRaw() {
 }
 
 /** Bump when the defaults below change, so cached bundles are rebuilt. */
-const HARNESS_VERSION = 4;
+const HARNESS_VERSION = 5;
 
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 

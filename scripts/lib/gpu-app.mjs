@@ -70,14 +70,19 @@ export async function gpuSession(gpu, opts = {}) {
   return { app: a, device, cache, shaders: new a.MultiDeviceShaders(), colorTargets, requiredFeatures, requiredLimits };
 }
 
-/** Largest |a[i] - b[i]| and where, for failure messages. */
+/**
+ * Largest |a[i] - b[i]| and where, for failure messages. A non-finite
+ * difference (NaN / Inf in either array) is returned at once as `max: NaN`,
+ * so a later finite element cannot hide it; a length mismatch is NaN too.
+ */
 export function maxAbsDiff(a, b) {
+  if (a.length !== b.length) return { max: Number.NaN, at: Math.min(a.length, b.length) };
   let max = 0;
   let at = -1;
-  const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < a.length; i++) {
     const d = Math.abs(a[i] - b[i]);
-    if (!(d <= max)) { max = d; at = i; }
+    if (!Number.isFinite(d)) return { max: Number.NaN, at: i };
+    if (d > max) { max = d; at = i; }
   }
   return { max, at };
 }

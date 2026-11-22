@@ -31,11 +31,17 @@ export function captureWebgpuFrame(
   const ctx = scratch.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('captureCanvasFrame: no 2D context for the readback');
 
+  const submitted = host.framesSubmitted ?? 0;
   host._frameOnDemand = true;
   try {
     host.render(performance.now());
   } finally {
     host._frameOnDemand = false;
+  }
+  // render() returns without submitting while the device is recovering or
+  // before the targets exist; the canvas then holds nothing of this view.
+  if ((host.framesSubmitted ?? 0) === submitted) {
+    throw new Error('captureCanvasFrame: no frame was rendered (device recovering, or the renderer is not ready)');
   }
   ctx.drawImage(host.canvas, 0, 0);
   const rgba = ctx.getImageData(0, 0, width, height).data;
