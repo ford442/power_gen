@@ -30,7 +30,7 @@ npm run dev          # http://localhost:5173/  (https: false; localhost is fine 
 |------|-----|
 | No GPU / agents | `http://localhost:5173/?renderer=webgl2` (required — default WebGPU hard-fails without GPU) |
 | WASM plant | `?wasmPhysics=1` |
-| Mock hardware | `?mockHardware=1` |
+| Mock hardware | `?mockHardware=1` (add `&mockParamError=0.2` for a ±20 % rig to **Calibrate** against — ADR-0019) |
 | Lab audio | `?audio=1` (silent until your first click/keypress; header badge mutes) |
 | Circuit Lab | `?circuit=transformer-bridge-rc` (with `&mode=transformer`); examples in `src/circuit/examples.ts`, docs/CIRCUIT.md |
 | Showroom / Lab / Twin | `?labMode=showroom\|lab\|twin` (header buttons; remembered). Explicit flags win: kiosk `?labMode=showroom&look=drama&audio=1`, class `?labMode=lab&class=1`, bench `?labMode=twin` |
@@ -88,9 +88,15 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 
 - Transports: mock / Web Serial / Web Bluetooth (Nordic UART) / WebUSB CDC —
   `hardware-transport.ts` + `hardware-bridge.ts` / panel. Demo with `?mockHardware=1`.
+- Twin modes: open / closed / **estimate** (was shadow; `'shadow'` still accepted).
+  The EKF + calibration live in sim_core (`cpp/src/twin/`) and `src/twin/`;
+  they only read — coil commands stay with the bridge (ADR-0019). Closed loop
+  writes the *filtered* ω. A calibration profile is the `twinProfile` share field.
 - `firmware/seg-driver/` is **not** required for the web app; treat as experimental.
-  Line protocol v2 = v1 lines + a `V2` → `I v=2 …` hello (`bridge.firmware`).
-  On-board ESP32 BLE is deferred (its README says why).
+  Line protocol v3 = v1 lines + a `V3` → `I v=3 …` hello (`bridge.firmware`),
+  then `S t=<µs> …` samples; v1 / v2 boards keep working.
+  On-board ESP32 BLE (`SEG_BLE=1`, NimBLE 2.x) is written but not compile-checked
+  or benched here (its README says what is tested).
 - Spec: **docs/hardware_connection.md**.
 
 ## Commands
@@ -111,6 +117,7 @@ npm run test:experiments # reference experiments headless on wasm + js (docs/EXP
 npm run test:experiments:live # same files on the live runner: headless LabSession, js + wasm, 60/20 fps, ≈ offline
 npm run test:snapshots   # plant snapshots: native + shipped WASM + TS save→load→step bit-identical, JS→C++ cross-load
 npm run test:twin-snapshot # closed-loop twin: snapshot ω wins at the restore, the next ?mockHardware=1 sample after
+npm run test:twin       # EKF χ²-consistent, sysid within 5 % from 30 s, one Calibrate on the ±20 % mock, profile via #lab2= (ADR-0019)
 npm run check:entry-chunk # vite build → entry closure has no uPlot / experiments / analysis panel / recorder / embed
 npm run test:embed      # embed postMessage validator, origin allowlist, hz clamp, classroom channel
 npm run test:frame-clock # UI frame clock: hz throttle, unsubscribe, LabSession.publishFrame tick
@@ -120,8 +127,8 @@ npm run check:file-size # 700-line gate on src/** + cpp/src/** (generated/ skipp
 npm run build:site    # no Emscripten
 npm run check:wgsl    # naga offline
 npm run check:post    # post uniform contracts
-npm run test:transports # twin transport framing + coast-on-disconnect + v2 hello
-npm run test:firmware-safety # coil lock-on test, host C++ (by hand — not in validate/CI)
+npm run test:transports # twin transport framing + coast-on-disconnect + v2/v3 hello, S t= µs clock
+npm run test:firmware-safety # coil lock-on test + v3 hello + BLE link watchdog, host C++ (by hand — not in validate/CI)
 npm run test:audio    # sonification mapping bounds (silent by default)
 npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switches
 npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement

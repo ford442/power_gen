@@ -1,55 +1,92 @@
 /**
- * In-memory mock Arduino for demos/CI (no navigator.serial).
- * Accepts P/C/CONF lines, answers V with a v2 hello; streams S at ~120 Hz.
+ * In-memory mock board for demos/CI (no navigator.serial). Accepts P/C/CONF
+ * lines, answers `V…` with a v3 hello (and timestamps every sample after a
+ * `V3`), and streams S at 125 Hz.
  *
- * Split out of hardware-bridge.ts (issues #142/#143/#187): self-contained
- * fake serial-port transport used for `?mockHardware=1` / no-Arduino development.
- * Doesn't need anything from HardwareBridge.
+ * Since #257 the mock is a *ground-truth rig* (src/twin/rig-model.ts): the
+ * catalog's lumped DC-machine with θ × (1 ± `?mockParamError=`), process noise
+ * at the catalog q and sensor noise at the catalog σ, driven by the board drive
+ * the host commands (`rigDriveVolts`). The estimator and the calibration then
+ * have a right answer — `truth` — to find.
+ *
+ * Its clock is its own: each tick advances 8 ms of rig time and the `t=` µs
+ * counter by 8000 whatever the host timer did, like a real board's `micros()`.
  *
  * Implements {@link HardwareTransport} so the bridge treats it like any other
  * link (ADR-0005 WS3). It cannot emulate GATT or USB descriptors — it emulates
  * the *protocol*, which is the layer the twin actually depends on.
  */
-import { MODE_RUN, MODE_BRAKE, MODE_COAST, HOST_PROTOCOL_VERSION, finiteNum, clampRpm } from './hardware-protocol-shared';
+import { MODE_RUN, HOST_PROTOCOL_VERSION, clampRpm } from './hardware-protocol-shared';
 import type { HardwareTransport, HardwareTransportKind } from './hardware-transport';
+import { labConfig } from './config/lab-config';
+import { RigTruth, rigDriveVolts, type RigTruthOptions } from './twin/rig-model';
+
+/** Board sample period (s) — 125 Hz, the rate the sketch streams at. */
+export const MOCK_SAMPLE_S = 0.008;
+/** At most this many queued samples per timer callback (≈ 0.25 s of board time). */
+const MOCK_MAX_CATCHUP = 32;
 
 export class MockSerialTransport implements HardwareTransport {
   readonly kind: HardwareTransportKind = 'mock';
   readonly label = 'Mock stream';
 
+  /** The rig the mock is (truth θ, state) — tests and the panel compare against it. */
+  readonly truth: RigTruth;
+  /** `mockParamError` it was built with. */
+  readonly paramError: number;
+
   private _listeners: Set<(line: string) => void>;
   private _phase: number;
-  private _rpm: number;
   private _targetRpm: number;
-  private _targetVoltage: number;
-  private _targetCurrent: number;
-  private _voltage: number;
-  private _current: number;
   private _controlMode: number;
   private _coilMask: number;
   private _manual: boolean;
   private _timer: ReturnType<typeof setInterval> | null;
-  private _t0: number;
+  /** Samples since open: the board clock (`micros()` / `millis()` both wrap at 2³²). */
+  private _ticks: number;
+  /** The host asked for v3 (`V3`+): prefix samples with `t=`. */
+  private _v3: boolean;
+  /** Wall time (performance.now) at which tick 0 was due, while the timer runs. */
+  private _clockStartMs: number;
 
-  constructor() {
+  constructor(opts: RigTruthOptions = {}) {
+    this.paramError = opts.paramError ?? labConfig().mockParamError;
+    this.truth = new RigTruth({ ...opts, paramError: this.paramError });
     this._listeners = new Set();
     this._phase = 0;
-    this._rpm = 0;
     this._targetRpm = 0;
-    this._targetVoltage = 0;
-    this._targetCurrent = 0;
-    this._voltage = 0;
-    this._current = 0;
     this._controlMode = MODE_RUN;
     this._coilMask = 0;
     this._manual = false;
     this._timer = null;
-    this._t0 = performance.now();
+    this._ticks = 0;
+    this._v3 = false;
+    this._clockStartMs = NaN;
   }
 
   start(): void {
     if (this._timer) return;
-    this._timer = setInterval(() => this._tick(), 8); // ~125 Hz
+    this._clockStartMs = performance.now() - this._ticks * MOCK_SAMPLE_S * 1000;
+    this._timer = setInterval(() => this._pump(), MOCK_SAMPLE_S * 1000);
+  }
+
+  /**
+   * Timer callback: every sample due by wall time, the way a board keeps
+   * sampling and its lines queue while the host's thread is busy (a slow
+   * frame delays the 8 ms timer, and setInterval never catches up). Without
+   * this the mock's board clock — and so the rig — ran slower than the
+   * calibration staircase, which is timed on the wall clock. More than
+   * {@link MOCK_MAX_CATCHUP} behind (a background tab, a debugger pause), the
+   * backlog is dropped and the board clock lags the wall from there on.
+   */
+  private _pump(): void {
+    const periodMs = MOCK_SAMPLE_S * 1000;
+    let due = Math.floor((performance.now() - this._clockStartMs) / periodMs) - this._ticks;
+    if (due > MOCK_MAX_CATCHUP) {
+      this._clockStartMs += (due - MOCK_MAX_CATCHUP) * periodMs;
+      due = MOCK_MAX_CATCHUP;
+    }
+    for (let k = 0; k < due; k++) this._tick();
   }
 
   stop(): void {
@@ -93,23 +130,33 @@ export class MockSerialTransport implements HardwareTransport {
       this._coilMask = parseInt(parts[0], 10) || 0;
       this._manual = this._coilMask !== 0;
     } else if (line.startsWith('V')) {
-      // Answer like a v2 board (seg_safety.h formatHello), so the panel and the
-      // hub show the hello path without hardware.
+      // Answer like a v3 board (seg_safety.h formatHello); `V3` or newer also
+      // switches the stream to `S t=<µs> …` (an older host keeps v1 lines).
+      const asked = parseInt(line.slice(1), 10);
+      this._v3 = asked >= 3;
       this._emit(`I v=${HOST_PROTOCOL_VERSION} fw=mock board=mock link=mock coils=8 halls=0 wd=100 brake=128/1000`);
     }
   }
 
-  private _tick(): void {
-    const dt = 0.008;
-    if (this._controlMode === MODE_COAST) {
-      this._rpm *= 0.98;
-    } else if (this._controlMode === MODE_BRAKE) {
-      this._rpm *= 0.85;
-    } else {
-      // First-order lag toward target RPM
-      this._rpm += (this._targetRpm - this._rpm) * Math.min(1, dt * 4);
-    }
-    this._phase = (this._phase + this._rpm * 6 * dt) % 360;
+  /** The drive the rig sees this tick (V). */
+  get driveVolts(): number {
+    return rigDriveVolts(this._targetRpm, this._controlMode, this._manual);
+  }
+
+  /** Put the rotor at `rpm` with its holding current (tests drive samples by hand). */
+  pinRpm(rpm: number): void {
+    this.truth.pin(clampRpm(rpm));
+  }
+
+  _tick(): void {
+    const dt = MOCK_SAMPLE_S;
+    this.truth.advance(this.driveVolts, dt);
+    this._ticks++;
+    const us = (this._ticks * Math.round(dt * 1e6)) % 2 ** 32;
+    const ms = (this._ticks * Math.round(dt * 1e3)) % 2 ** 32;
+    const [rpmRead, currentRead, voltageRead] = this.truth.read();
+    const omega = this.truth.x[0];
+    this._phase = (this._phase + omega * (180 / Math.PI) * dt) % 360;
     if (this._phase < 0) this._phase += 360;
 
     // Simulated magnetometer (unit vector in plane * ~50 µT)
@@ -123,22 +170,13 @@ export class MockSerialTransport implements HardwareTransport {
       const coil = Math.floor(this._phase / 45) % 8;
       this._coilMask = (1 << coil) | (1 << ((coil + 1) % 8));
     }
-    // Lagging electrical proxies for shadow V/I charts (mock only — not metrology)
-    this._voltage += (this._targetVoltage - this._voltage) * Math.min(1, dt * 3);
-    this._current += (this._targetCurrent - this._current) * Math.min(1, dt * 3);
-
-    const ts = Math.floor(performance.now() - this._t0);
-    this._emit(
-      `S${this._phase.toFixed(2)},${this._rpm.toFixed(1)},` +
+    const rpm = clampRpm(rpmRead);
+    const fields =
+      `${this._phase.toFixed(2)},${rpm.toFixed(2)},` +
       `${magX.toFixed(2)},${magY.toFixed(2)},${magZ.toFixed(2)},` +
-      `${hallMask},${this._coilMask},${ts},` +
-      `${this._voltage.toFixed(2)},${this._current.toFixed(2)}`
-    );
-  }
-
-  setElectricalTargets(voltage: number, current: number): void {
-    this._targetVoltage = finiteNum(voltage, 0);
-    this._targetCurrent = finiteNum(current, 0);
+      `${hallMask},${this._coilMask},${ms},` +
+      `${voltageRead.toFixed(4)},${currentRead.toFixed(5)}`;
+    this._emit(this._v3 ? `S t=${us} ${fields}` : `S${fields}`);
   }
 
   private _emit(line: string): void {

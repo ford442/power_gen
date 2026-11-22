@@ -458,12 +458,12 @@ export function reloadWithLabParam<K extends LabConfigKey>(key: K, value: LabCon
 }
 
 /** Live fields only the share-link applier consumes — no boot-time reader owns them. */
-const URL_APPLIED: readonly LabConfigKey[] = ['mode', 'experiment', 'circuit'];
+const URL_APPLIED: readonly LabConfigKey[] = ['mode', 'experiment', 'circuit', 'twinProfile'];
 
 /**
  * What to apply once the dashboard exists: every field the share hash set
  * (boot-time readers already took the ones they own, and applying those
- * again is a no-op), plus `?mode=` / `?experiment=` / `?circuit=` from the query.
+ * again is a no-op), plus `?mode=` / `?experiment=` / `?circuit=` / `?twinProfile=` from the query.
  */
 export function bootLiveFields(): Partial<LabConfig> {
   const { config, sources } = labConfigResolved();

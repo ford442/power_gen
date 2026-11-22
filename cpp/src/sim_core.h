@@ -145,6 +145,7 @@ int chores_fft_db_scratch(int count, bool hann, float floorDb);
 #include "plant/energy_network.h"
 #include "plant/fdtd_tmz.h"
 #include "circuit/circuit.h"
+#include "twin/twin.h"
 
 // ─────────────────────────────────────────────────────────────
 // SEGSimulator
@@ -270,6 +271,8 @@ public:
     double getOdeRhsEvals() const { return static_cast<double>(_odeStats.rhs); }
     double getOdeSteps() const { return static_cast<double>(_odeStats.steps); }
     double getOdeRejected() const { return static_cast<double>(_odeStats.rejected); }
+    /// ros23 Jacobian builds (exact Dual ones for a DifferentiablePlant — not RHS calls).
+    double getOdeJacobians() const { return static_cast<double>(_odeStats.jacobians); }
     void   resetOdeStats() { _odeStats = {}; }
 
     // ── Accessors ─────────────────────────────────────────────

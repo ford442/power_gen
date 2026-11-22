@@ -11,6 +11,8 @@ import { HardwareBridge, TWIN_MODES, type SensorSnapshot } from './hardware-brid
 import { syncHardwareTwinBadgeFromBridge } from './hardware-twin-badge';
 import { ElectromagnetController } from './electromagnet-controller';
 import { onFrame } from './frame-clock';
+import { TwinPanelSection, TWIN_SECTION_CSS } from './twin/twin-panel-section';
+import type { SessionTwin } from './twin/session-twin';
 
 function bits(mask: number, n: number): number[] {
   const out: number[] = [];
@@ -21,6 +23,8 @@ function bits(mask: number, n: number): number[] {
 export interface HardwarePanelVisualizer {
   hardwareBridge?: HardwareBridge | null;
   emController?: ElectromagnetController | null;
+  /** The session (its `twin` is the estimator the panel's Estimator section shows). */
+  session?: { twin?: SessionTwin } | null;
 }
 
 export interface HardwarePanelOptions {
@@ -39,6 +43,8 @@ export class HardwarePanel {
   /** Frame-clock unsubscribe: set while a bridge is attached and the panel is open. */
   private _offFrame: (() => void) | null;
   private _collapsed: boolean;
+  /** #257: EKF verdict, innovation, Q/R, Calibrate. */
+  private _twinSection: TwinPanelSection | null = null;
 
   constructor(options: HardwarePanelOptions = {}) {
     this.visualizer = options.visualizer || null;
@@ -130,7 +136,7 @@ export class HardwarePanel {
           <select id="hwTwinMode" class="hw-select">
             <option value="open">Open-loop (sim → HW)</option>
             <option value="closed">Closed-loop (HW → viz)</option>
-            <option value="shadow">Shadow (compare)</option>
+            <option value="estimate">Estimate (EKF)</option>
           </select>
         </label>
       </div>
@@ -147,6 +153,7 @@ export class HardwarePanel {
           · <span class="hw-k">ΔI</span> <span id="hwCurrErr">—</span>
         </div>
       </div>
+      <div id="hwTwinSectionSlot"></div>
       <div class="ctrl-section-title" style="margin-top:10px">Coil override</div>
       <div class="hw-coil-pad" id="hwCoilPad"></div>
       <div class="hw-btn-row">
@@ -158,6 +165,8 @@ export class HardwarePanel {
     `;
     left.appendChild(el);
     this._root = el;
+    this._twinSection = new TwinPanelSection(() => this.visualizer?.session?.twin ?? null);
+    el.querySelector('#hwTwinSectionSlot')?.replaceWith(this._twinSection.el);
 
     // Lab mode (src/lab-mode.ts) decides whether the panel starts folded away.
     const title = el.querySelector<HTMLElement>('#hwTitle');
@@ -233,6 +242,7 @@ export class HardwarePanel {
       .hw-coil-btn.on { background: #063; border-color: #0f8; color: #0f8; box-shadow: 0 0 8px #0f84; }
       .hw-error { color: #f66; min-height: 1em; margin-top: 4px; font-size: 0.7rem; }
       .hw-hint { color: #456; font-size: 0.65rem; margin: 6px 0 0; line-height: 1.3; }
+      ${TWIN_SECTION_CSS}
     `;
     document.head.appendChild(s);
   }
@@ -283,6 +293,7 @@ export class HardwarePanel {
       this._paintCoilPad(0);
     }, { signal });
     document.getElementById('hwBrakeBtn')?.addEventListener('click', () => b.brake(), { signal });
+    this._twinSection?.wire(signal);
 
     document.getElementById('hwCoilPad')?.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest('[data-coil]') as HTMLElement | null;
@@ -358,7 +369,7 @@ export class HardwarePanel {
     syncHardwareTwinBadgeFromBridge(this.bridge);
   }
 
-  /** The board's v2 hello (or its absence). Arrives after connect, so the loop polls it. */
+  /** The board's v2/v3 hello (or its absence). Arrives after connect, so the loop polls it. */
   private _renderFirmware(): void {
     const el = document.getElementById('hwFirmware');
     const b = this.bridge;
@@ -372,7 +383,7 @@ export class HardwarePanel {
         + (fw.watchdogMs !== null ? ` · watchdog ${fw.watchdogMs} ms` : '')
         + (fw.brakePwmMax !== null && fw.brakeMaxMs !== null
           ? ` · brake ≤ ${fw.brakePwmMax}/255 for ≤ ${fw.brakeMaxMs} ms` : '')
-      : label ? 'No v2 hello yet. A v1 sketch never answers; it is still driven, and coasted, with v1 lines.' : '';
+      : label ? 'No hello yet. A v1 sketch never answers; it is still driven, and coasted, with v1 lines.' : '';
   }
 
   private _renderSensors(snap: SensorSnapshot | null): void {
@@ -398,7 +409,7 @@ export class HardwarePanel {
 
     const shadowRow = document.getElementById('hwShadowRow');
     if (shadowRow) {
-      const show = this.bridge?.twinMode === TWIN_MODES.SHADOW;
+      const show = this.bridge?.twinMode === TWIN_MODES.ESTIMATE;
       shadowRow.style.display = show ? 'block' : 'none';
       if (show && snap.shadow) {
         set('hwPhaseErr', snap.shadow.phaseErrorDeg.toFixed(1));
@@ -422,7 +433,7 @@ export class HardwarePanel {
     const sel = document.getElementById('hwTwinMode') as HTMLSelectElement | null;
     if (sel && sel.value !== mode) sel.value = mode;
     const shadowRow = document.getElementById('hwShadowRow') as HTMLElement | null;
-    if (shadowRow) shadowRow.style.display = mode === TWIN_MODES.SHADOW ? 'block' : 'none';
+    if (shadowRow) shadowRow.style.display = mode === TWIN_MODES.ESTIMATE ? 'block' : 'none';
   }
 
   private _setError(msg: string): void {
@@ -444,6 +455,7 @@ export class HardwarePanel {
         this._renderSensors(this.bridge.getSensorSnapshot());
       }
       this._renderFirmware();
+      this._twinSection?.render();
     };
     tick();
     this._offFrame = onFrame(tick, { hz: 10 });

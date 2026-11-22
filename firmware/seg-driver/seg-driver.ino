@@ -1,7 +1,8 @@
 // ============================================
-// SEG Electromagnet Driver — line protocol v2
+// SEG Electromagnet Driver — line protocol v3
 // ============================================
-// Receives phase/speed commands over USB Serial from the WebGPU Visualizer.
+// Receives phase/speed commands over USB Serial (and, on an ESP32 built with
+// SEG_BLE=1, over BLE Nordic UART) from the WebGPU Visualizer.
 // Drives a configurable electromagnet array; streams back sensor fusion data
 // (hall, magnetometer, phase, RPM).
 //
@@ -16,12 +17,26 @@
 //   - Hall effect sensors (active low, pullup enabled)
 //   - QMC5883L or HMC5883L magnetometer (I2C)
 //
-// Protocol: docs/hardware_connection.md. v2 = v1 bytes + the `V` hello.
+// Protocol: docs/hardware_connection.md. v2 = v1 bytes + the `V` hello;
+// v3 = v2 + `S t=<µs> …` sample timestamps after a `V3` request.
+//
+// BLE (ESP32 only, opt-in): build with -DSEG_BLE=1 and NimBLE-Arduino 2.x
+// installed. Written against that API but NOT compile-checked in this repo
+// (no ESP32 toolchain here) — README.md → ESP32 + Bluetooth says what was and
+// was not tested. The link plumbing (ble_link.h) is host-tested.
 
 #include "protocol.h"
 #include "coil_controller.h"
 #include "sensor_manager.h"
 #include "seg_driver_core.h"
+
+#if defined(ESP32) && defined(SEG_BLE) && SEG_BLE
+#define SEG_BLE_ENABLED 1
+#include <NimBLEDevice.h>
+#include "ble_link.h"
+#else
+#define SEG_BLE_ENABLED 0
+#endif
 
 #ifndef NOT_AN_INTERRUPT
 #define NOT_AN_INTERRUPT -1
@@ -67,9 +82,78 @@ const unsigned long STREAM_INTERVAL_MS = 10; // 100Hz max
 
 // Explicit prototypes (the IDE generates them; the host test compiles this as C++).
 void processSerial(uint32_t now);
-void sendHello();
+void sendHello(const char* link);
 void reportSafetyEvents();
 void streamState();
+
+// ============================================
+// BLE Nordic UART (ESP32, SEG_BLE=1) — same LineAssembler → driver.onLine path
+// ============================================
+
+#if SEG_BLE_ENABLED
+static const char* NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+static const char* NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";  // host writes
+static const char* NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";  // board notifies
+
+segfw::ByteRing<512> bleRx;
+segfw::LinkState bleLink;
+segfw::LineAssembler bleLine;
+bool bleSkip = false;
+std::atomic<uint16_t> bleMtu{23};
+NimBLECharacteristic* bleTx = nullptr;
+
+class SegServerCallbacks : public NimBLEServerCallbacks {
+  void onConnect(NimBLEServer*, NimBLEConnInfo&) override { bleLink.onConnect(); }
+  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override {
+    // Only a latch here (BLE task); loop() calls driver.linkLost() — coils off
+    // that loop. If this callback is late, the 100 ms watchdog already cut them.
+    bleLink.onDisconnect();
+    bleMtu.store(23);
+    NimBLEDevice::startAdvertising();
+  }
+  void onMTUChange(uint16_t mtu, NimBLEConnInfo&) override { bleMtu.store(mtu); }
+};
+
+class SegRxCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* c, NimBLEConnInfo&) override {
+    NimBLEAttValue v = c->getValue();
+    bleRx.push(v.data(), v.length());
+  }
+};
+
+void bleBegin() {
+  NimBLEDevice::init("SEG-Driver");
+  NimBLEDevice::setMTU(185);
+  NimBLEServer* server = NimBLEDevice::createServer();
+  server->setCallbacks(new SegServerCallbacks());
+  NimBLEService* svc = server->createService(NUS_SERVICE);
+  bleTx = svc->createCharacteristic(NUS_TX, NIMBLE_PROPERTY::NOTIFY);
+  NimBLECharacteristic* rx = svc->createCharacteristic(NUS_RX, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
+  rx->setCallbacks(new SegRxCallbacks());
+  svc->start();
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  adv->addServiceUUID(NUS_SERVICE);
+  adv->start();
+}
+
+void bleNotify(const char* line) {
+  if (!bleTx || !bleLink.connected()) return;
+  char buf[176];
+  int n = snprintf(buf, sizeof(buf), "%s\n", line);
+  if (n <= 0) return;
+  size_t len = (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1;
+  size_t payload = bleMtu.load() > 3 ? bleMtu.load() - 3 : 20;
+  segfw::chunkLine(buf, len, payload, [](const uint8_t* d, size_t k) { bleTx->notify(d, k); });
+}
+
+void processBle(uint32_t now) {
+  if (bleLink.takeLost()) driver.linkLost();
+  segfw::drainLines(bleRx, bleLine, bleSkip, [now](const char* line) {
+    segfw::LineResult r = driver.onLine(line, now);
+    if (r == segfw::LINE_HELLO) sendHello("ble");
+  });
+}
+#endif
 
 // ============================================
 // Interrupt Service Routines
@@ -94,6 +178,9 @@ void setup() {
   Serial.println(F("I SEG Driver initializing..."));
 
   sensorManager.begin(HALL_PINS, NUM_HALLS);
+#if SEG_BLE_ENABLED
+  bleBegin();
+#endif
 
   // Attach hall interrupts where the pin has one; the rest are polled in
   // SensorManager::update().
@@ -104,7 +191,7 @@ void setup() {
     }
   }
 
-  sendHello();
+  sendHello("serial");
   Serial.println(F("I Ready. Waiting for P commands."));
 }
 
@@ -116,8 +203,11 @@ void loop() {
   // One timestamp per loop for both parsing and the watchdog.
   uint32_t now = millis();
 
-  // 1. Read and parse serial commands
+  // 1. Read and parse serial commands (and BLE: a dropped link coasts here)
   processSerial(now);
+#if SEG_BLE_ENABLED
+  processBle(now);
+#endif
 
   // 2. Watchdog, mode, brake bound, commutation, per-coil cap -> pins.
   driver.step(now);
@@ -143,7 +233,7 @@ void processSerial(uint32_t now) {
     if (!line) continue;
     segfw::LineResult r = driver.onLine(line, now);
     if (r == segfw::LINE_HELLO) {
-      sendHello();
+      sendHello("serial");
     } else if (r == segfw::LINE_CONFIG) {
       Serial.print(F("I Config updated: coils="));
       Serial.println(coilController.getNumCoils());
@@ -151,22 +241,38 @@ void processSerial(uint32_t now) {
   }
 }
 
-void sendHello() {
+/** The hello goes back on the link that asked (`link=serial` / `link=ble`). */
+void sendHello(const char* link) {
   char hello[112];
-  driver.safety().formatHello(hello, sizeof(hello), SEG_BOARD, "serial", NUM_HALLS);
+  driver.safety().formatHello(hello, sizeof(hello), SEG_BOARD, link, NUM_HALLS);
+#if SEG_BLE_ENABLED
+  if (strcmp(link, "ble") == 0) {
+    bleNotify(hello);
+    return;
+  }
+#endif
   Serial.println(hello);
 }
+
+#if SEG_BLE_ENABLED
+#define SEG_BLE_NOTIFY(text) bleNotify(text)
+#else
+#define SEG_BLE_NOTIFY(text) ((void)0)
+#endif
 
 void reportSafetyEvents() {
   if (driver.safety().takeWatchdogTrip()) {
     Serial.println(F("E Watchdog: no valid P/C for 100 ms, coils off"));
+    SEG_BLE_NOTIFY("E Watchdog: no valid P/C for 100 ms, coils off");
   }
   if (driver.guard().takeTrip()) {
     Serial.println(F("E Coil held on too long, cooling down"));
+    SEG_BLE_NOTIFY("E Coil held on too long, cooling down");
   }
   if (driver.safety().takeConfigClamped()) {
     Serial.print(F("E CONF asked for more coils than are wired; using "));
     Serial.println(NUM_COILS);
+    SEG_BLE_NOTIFY("E CONF asked for more coils than are wired");
   }
 }
 
@@ -176,7 +282,26 @@ void reportSafetyEvents() {
 
 void streamState() {
   // S{phase},{rpm},{magX},{magY},{magZ},{hallMask},{coilMask},{timestampMs}
+  // v3, after a `V3` request: S t={micros} {the same fields}
+  const unsigned long tUs = micros();
+#if SEG_BLE_ENABLED
+  if (bleLink.connected()) {
+    char line[160];
+    char stamp[20] = "";
+    if (driver.safety().timestamped()) snprintf(stamp, sizeof(stamp), " t=%lu ", tUs);
+    snprintf(line, sizeof(line), "S%s%.2f,%.2f,%.2f,%.2f,%.2f,%u,%lu,%lu", stamp,
+             sensorManager.getPhase(), sensorManager.getRpm(), sensorManager.getMagX(),
+             sensorManager.getMagY(), sensorManager.getMagZ(), (unsigned)sensorManager.getHallMask(),
+             (unsigned long)coilController.getActiveMask(), (unsigned long)millis());
+    bleNotify(line);
+  }
+#endif
   Serial.print('S');
+  if (driver.safety().timestamped()) {
+    Serial.print(F(" t="));
+    Serial.print(tUs);
+    Serial.print(' ');
+  }
   Serial.print(sensorManager.getPhase(), 2);
   Serial.print(',');
   Serial.print(sensorManager.getRpm(), 2);

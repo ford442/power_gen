@@ -79,6 +79,8 @@
   margin: 6px 0;
 }
 .analysis-row label { display: inline-flex; align-items: center; gap: 4px; color: var(--an-ink-2); }
+/* Twin view side plots: intrinsic size (the dashboard styles every canvas 100 % × 100 %). */
+.analysis-twin-canvas { width: auto; height: auto; max-width: 100%; flex: 0 0 auto; }
 .analysis-panel select,
 .analysis-panel button {
   font: inherit;
@@ -109,16 +111,17 @@
 }
 .analysis-columns legend { padding: 0 4px; color: var(--an-ink-3); }
 
-.analysis-plots {
+.analysis-plots,
+.analysis-twin-plots {
   position: relative;
   min-height: 160px;
   margin-top: 6px;
   border-radius: 4px;
 }
 .analysis-plots:focus-visible { outline: 2px solid var(--an-accent); }
-.analysis-plots .uplot { font-family: inherit; color: var(--an-ink-2); }
-.analysis-plots .u-legend { font-size: 0.7rem; color: var(--an-ink-2); }
-.analysis-plots .u-legend .u-series th { font-weight: normal; }
+.analysis-plots .uplot, .analysis-twin-plots .uplot { font-family: inherit; color: var(--an-ink-2); }
+.analysis-plots .u-legend, .analysis-twin-plots .u-legend { font-size: 0.7rem; color: var(--an-ink-2); }
+.analysis-plots .u-legend .u-series th, .analysis-twin-plots .u-legend .u-series th { font-weight: normal; }
 .analysis-plots .u-select { background: rgba(0, 229, 255, 0.12); }
 .analysis-empty { padding: 32px 8px; color: var(--an-ink-3); text-align: center; }
 
@@ -140,6 +143,7 @@
 }
 .analysis-fit:empty { display: none; }
 .analysis-notes,
+.analysis-twin-fit,
 .analysis-expects {
   margin: 4px 0 0;
   padding-left: 0;
@@ -153,7 +157,8 @@
 .analysis-expects .fail .an-mark { color: var(--an-bad); }
 
 .analysis-foot { margin-top: 10px; border-top: 1px solid var(--an-border); padding-top: 8px; }
-.analysis-meta { color: var(--an-ink-3); font-size: 0.68rem; overflow-wrap: anywhere; }
+.analysis-meta,
+.analysis-twin-status { color: var(--an-ink-3); font-size: 0.68rem; overflow-wrap: anywhere; }
 
 @media (max-width: 480px) {
   .analysis-panel { padding: 0; }

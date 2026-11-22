@@ -97,19 +97,24 @@ v2 clamps `numCoils` to the coils actually wired (v1 accepted up to 24 and drove
 unset pin slots) and does not treat `CONF` as a watchdog feed. (v1 matched `CONF`
 by its first letter as a `C` override, so it never applied.)
 
-#### `V` - Hello (v2)
+#### `V` - Hello (v2, v3)
 ```
-V2\n
+V3\n
 ```
 Sent by the host on connect, and up to four more times a second apart until a
 hello arrives (an Uno resets when the port opens and can miss the first). A v1
-sketch ignores it. Never a watchdog feed.
+sketch ignores it. Never a watchdog feed. The digits are the version the host
+speaks: a v3 board starts timestamping its `S` lines only after `V3` (or
+newer); a bare `V` or `V2` keeps the v1 `S` lines, and the request is forgotten
+when the link drops. A v2 board answers any `V…` with its `I v=2` hello and
+keeps v1 lines, so a v3 host needs nothing else to drive it.
 
 ### Arduino → App State Stream
 
 #### `S` - Sensor State
 ```
-S{phase},{rpm},{magX},{magY},{magZ},{hallMask},{coilMask},{timestampMs}\n
+S{phase},{rpm},{magX},{magY},{magZ},{hallMask},{coilMask},{timestampMs}[,{voltageV},{currentA}]\n
+S t={micros} {phase},{rpm},…\n          (v3, after a V3 request)
 ```
 | Field | Type | Description |
 |-------|------|-------------|
@@ -121,8 +126,17 @@ S{phase},{rpm},{magX},{magY},{magZ},{hallMask},{coilMask},{timestampMs}\n
 | hallMask | uint | Bitmask of currently triggered hall sensors |
 | coilMask | uint | Bitmask of currently active coils |
 | timestampMs | uint | Arduino millis() at time of sample |
+| voltageV, currentA | float, optional | Pickup back-EMF and coil current, when the board measures them (the mock does; the sketch has no channel yet). The estimator filters on whichever channels a line carries. |
 
 Streamed at 100–200Hz or on every hall state change.
+
+**v3 timestamps (#257).** `t=` is the board's `micros()` (32-bit, wraps every
+~71.6 min) at the sample. The host's `SampleClock`
+(`src/hardware-protocol-shared.ts`) unwraps it and starts a new clock epoch on
+a backward step (a reset board) or a source change; without `t=` it uses the
+v1 `timestampMs` field, and without that the arrival time. The twin's
+estimator integrates over this board-clock spacing, so USB / BLE delivery
+jitter is not mistaken for model error. A malformed `t=` drops the line.
 
 #### `E` - Error
 ```
@@ -137,14 +151,14 @@ I{message}\n
 ```
 Forwarded to browser console as a log.
 
-**Hello (v2):** an `I` line that starts with `v=`:
+**Hello (v2, v3):** an `I` line that starts with `v=`:
 ```
-I v=2 fw=seg-driver board=uno link=serial coils=6 halls=2 wd=100 brake=128/1000
+I v=3 fw=seg-driver board=uno link=serial coils=6 halls=2 wd=100 brake=128/1000
 ```
 | Key | Meaning |
 |-----|---------|
 | `v` | Line protocol version (`PROTOCOL_VERSION`) |
-| `board` / `link` | Pin map compiled in (`uno` / `mega` / `esp32`) and the link it is answering on |
+| `board` / `link` | Pin map compiled in (`uno` / `mega` / `esp32`) and the link it is answering on (`serial`, or `ble` from an ESP32 built with `SEG_BLE=1`) |
 | `coils` / `halls` | Wired coils and hall sensors — `CONF` cannot exceed `coils` |
 | `wd` | Firmware watchdog, ms (still 100) |
 | `brake` | BRAKE duty cap / time cap, ms |
@@ -250,7 +264,8 @@ More sensors can use pin-change interrupts on other digital pins.
 | Mock link | `src/mock-serial-transport.ts` |
 | Panel | `src/hardware-panel.ts` (left sidebar) |
 | Commutation preview | `src/electromagnet-controller.js` |
-| Hub field | `TelemetryHub` → `hardwareTwin.shadowResidual`, `hardwareTwin.firmwareProtocol` |
+| Hub field | `TelemetryHub` → `hardwareTwin.shadowResidual`, `.estimate` (EKF), `.sampleClock`, `.firmwareProtocol` |
+| Estimator / calibration | `src/twin/` (session twin, host, profile, rig model) over sim_core's `TwinEstimator` / `TwinSysId` — [ADR-0019](./adr/0019-calibrated-twin.md) |
 | Hello parse | `parseFirmwareHello()` in `src/hardware-protocol-shared.ts` → `bridge.firmware` |
 | Contract test | `npm run test:transports` |
 | Firmware lock-on test | `npm run test:firmware-safety` (host C++, by hand, not CI) |
@@ -269,7 +284,10 @@ handlers). The DOM E2E "hardware panel DOM follows the bridge" covers it.
 ### Happy path (mock — CI / demos)
 
 1. Open `/?renderer=webgl2&mockHardware=1` (or WebGPU with the same flag).
-2. Bridge auto-connects `MockSerialTransport` and sets twin mode to **shadow**.
+2. Bridge auto-connects `MockSerialTransport` and sets twin mode to **estimate**
+   (`'shadow'`, the old name, is still accepted). Add `&mockParamError=0.2` to
+   make the mock a rig whose parameters are ±20 % off the catalog, with sensor
+   noise — the case the **Calibrate** button is for.
 3. Click **START** (or `window.segOperator.start()`).
 4. Each frame the hub publishes:
 
@@ -278,22 +296,35 @@ telemetryHub.getSnapshot().hardwareTwin
 // {
 //   connected: true,
 //   mock: true,
-//   twinMode: 'shadow',
+//   twinMode: 'estimate',
 //   sensorRpm, sensorPhase,
 //   shadowResidual: { phaseErrorDeg, rpmError, voltageError, currentError }
+//   estimate: { rpm, rpmSd, currentA, currentSd, innovation: {rpm, current, voltage},
+//               nisPerDof, chi2LoPerDof, chi2HiPerDof, consistent, diagnosis,
+//               updates, calibrated, calibration }   // null without sim_core
 //   connectionState: 'mock' | 'serial' | 'bluetooth' | 'usb',
-//   firmwareProtocol: 2    // from the board's hello; null for a v1 sketch
+//   firmwareProtocol: 3    // from the board's hello; null for a v1 sketch
 // }
 ```
 
-The panel's status row shows the hello under the link (`fw v2 · mock · 8 coils`;
+The panel's status row shows the hello under the link (`fw v3 · mock · 8 coils`;
 hover for the watchdog and brake caps), `fw …` while asking, or
 `no hello (v1 firmware)` once five requests went unanswered.
 
-5. Open **Scientific UI** (`Ctrl+Shift+S`) — **Shadow Twin Residual** chart shows ΔRPM / ΔV / ΔI time series.
-6. Header badge: `Twin mock` / `Twin serial` / `Twin BLE` / `Twin USB` / `Twin off` (`#hw-twin-badge`).
-7. Agent hook: `window.getRendererInfo().hardwareTwin.shadowResidual` (WebGL2).
-8. Playwright: `e2e/app.spec.js` asserts residuals + disconnect coast + scientific chart.
+5. The panel's **Estimator** section shows the EKF's verdict (consistent /
+   sensor noisy / model mismatch / overcautious), ν/σ per channel, NIS/dof
+   against its χ² band, ω̂ and Î ± 3σ, and the Q / R multipliers. **Calibrate**
+   fits J, b, R, L and k_e to the run (driving a 30 s RPM staircase through the
+   bridge first if the run is too quiet), then applies the profile and puts it
+   in the share link (`twinProfile`). **Plots** opens the analysis panel's
+   "Twin (live)" view: ν/σ ± 3, RPM and I ± 3σ bands, NIS/dof, the covariance
+   ellipse and the fit's cost curve.
+6. Open **Scientific UI** (`Ctrl+Shift+S`) — the **Twin Residual** chart shows
+   ν/σ against a ±3 band in estimate mode (raw ΔRPM / ΔV / ΔI otherwise).
+7. Header badge: `Twin mock` / `Twin serial` / `Twin BLE` / `Twin USB` / `Twin off` (`#hw-twin-badge`).
+8. Agent hook: `window.getRendererInfo().hardwareTwin.shadowResidual` (WebGL2).
+9. Playwright: `e2e/app.spec.js` asserts residuals, v3 hello, the estimate, disconnect coast + scientific chart.
+   `npm run test:twin` runs the Calibrate path headless on the ±20 % mock.
 
 Firmware is **not** required for this path.
 
@@ -307,8 +338,8 @@ Firmware is **not** required for this path.
    the prior link and coasts coils first.
 4. Choose twin mode:
    - **Open-loop**: sim phase/RPM → coils; visualize sim
-   - **Closed-loop**: measured HW phase/RPM drive on-screen rollers
-   - **Shadow**: open-loop drive + show Δφ / ΔRPM / ΔV / ΔI vs hardware (`shadowResidual` on hub)
+   - **Closed-loop**: the *filtered* rotor RPM (EKF estimate; the raw sample without sim_core) drives the on-screen rollers
+   - **Estimate** (was Shadow): open-loop drive + the EKF's innovations vs hardware (`estimate` and `shadowResidual` on hub)
 5. Baud **115200**, line-oriented `\n` protocol above. Disconnect always coasts coils.
 
 ### Connection state machine
@@ -343,10 +374,13 @@ Disconnect always sends coast (`P0,0,2`) + coils off (`C0,0,0`) and clears manua
   buffer: past `MAX_LINE_BYTES` the partial line is dropped.
 - Browser host timeout (~200 ms without `update()`) and firmware watchdog (~100 ms without `P`) both coast coils.
 - Magnetometer / hall fusion is firmware-side; the web app trusts the `S` stream.
-- Do not treat mock lag as calibrated metrology — residuals are for twin debugging only.
+- Simulated, not metrology: a calibration profile is the lumped rig model's
+  parameters fitted to one run (ADR-0019 says what it does and does not claim).
+- The estimator and the fit never write a coil command; a calibration run's
+  staircase is a target through `bridge.setTarget`, under every clamp above.
 - Optional `firmware/seg-driver/` is **experimental** and never blocks web-only users.
-  On-board BLE (ESP32 + Nordic UART) is **deferred**, with the reason and the
-  contract a BLE build must meet, in its README.
+  On-board BLE (ESP32 + Nordic UART, `SEG_BLE=1`) is written but **not
+  compile-checked or benched** here; its README says what was tested.
 
 ### Mock / demos / CI
 ```
@@ -356,7 +390,7 @@ or click **Mock**. Streams synthetic `S` lines; accepts `P`/`C`/`CONF`.
 
 ### Live metric
 `S` stream fields populate the panel; magnetometer magnitude feeds scientific B-field context when connected.
-`shadowResidual` is always populated while connected (even in open/closed modes) so dashboards can chart Δ without mode gating.
+`shadowResidual` is always populated while connected (even in open/closed modes) so dashboards can chart Δ without mode gating; so is `estimate` once sim_core is loaded.
 
 ## Sensor Fusion Notes
 

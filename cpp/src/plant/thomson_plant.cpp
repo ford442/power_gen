@@ -45,32 +45,6 @@ ThomsonPlant::ThomsonPlant(ThomsonState& st)
       sqrtLpLr(std::sqrt(lpLr > 1e-24f ? lpLr : 1e-24f)),
       invLambda(1.f / st.lambdaM) {}
 
-void ThomsonPlant::derivs(double t, std::span<const float> x, const ThomsonInput& u,
-                          std::span<float> dxdt) const {
-    // D = Lp·Lr − M² is ~1.5e-9 H² for a ring this small, so the transformer's
-    // 1e-8 floor would swamp it. Guard only against an actual degenerate k.
-    constexpr float kDMin = 1e-13f;
-    const float ips = x[JR::primaryIA], irs = x[JR::ringCurrentA];
-    const float vels = x[JR::velocityMps], hs = x[JR::heightM];
-    const float vps = static_cast<float>(u.vPeakDrive * std::sin(u.phase0 + u.omega * t));
-    const float Lp = s.lPrimaryH, Lr = s.lRingH;
-    const float k = s.k0 * std::exp(-hs * invLambda);
-    const float M = k * sqrtLpLr;
-    const float dMdh = -M * invLambda;
-    float D = lpLr - M * M;
-    if (D < kDMin) D = kDMin;
-    // Motional EMF: the coupling itself changes as the ring moves, so the
-    // same dM/dh that produces the force also loads both circuits.
-    const float motional = dMdh * vels;
-    const float rhsP = vps - s.rPrimaryOhm * ips - motional * irs;
-    const float rhsR = -s.rRingOhm * irs - motional * ips;
-    dxdt[JR::primaryIA] = (Lr * rhsP - M * rhsR) / D;
-    dxdt[JR::ringCurrentA] = (Lp * rhsR - M * rhsP) / D;
-    const float f = ips * irs * dMdh;
-    dxdt[JR::velocityMps] = (f - s.massKg * PhysicsConstants::G - s.dragNsm * vels) / s.massKg;
-    dxdt[JR::heightM] = vels;
-}
-
 void ThomsonPlant::outputs(std::span<const float> x, const ThomsonInput&, std::span<float> y) const {
     const float kEnd = s.k0 * std::exp(-x[JR::heightM] * invLambda);
     // Instantaneous force at the state just stored, so the telemetry row and

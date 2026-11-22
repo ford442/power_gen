@@ -175,6 +175,9 @@ export async function applyLabConfig(c: Partial<LabConfig>): Promise<void> {
     await applyCircuitConfig(c.circuit);
   }
 
+  // Hardware twin calibration profile (#257): the estimator uses it from now on.
+  if (c.twinProfile !== undefined) window.multiVisualizer?.session?.twin?.applyProfile(c.twinProfile);
+
   if (c.experiment) window.lab?.openExperiment?.(c.experiment);
 }
 
@@ -234,7 +237,9 @@ export function captureShareConfig(): Partial<LabConfig> {
     experiment: boot.experiment,
     setpoints,
     // The wired netlist (an example id while it is unedited), else none.
-    circuit: v?.session?.circuitShare?.() ?? undefined
+    circuit: v?.session?.circuitShare?.() ?? undefined,
+    // The twin's calibration profile, if one is in use.
+    twinProfile: v?.session?.twin?.profileText ?? undefined
   };
   return sanitizeFields(raw, true);
 }

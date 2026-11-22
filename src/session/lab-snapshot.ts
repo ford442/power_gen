@@ -134,6 +134,9 @@ export async function captureLabSnapshot(): Promise<PlantSnapshot> {
     operator: captureOperator(),
     speed: session?.speedMult ?? 1
   };
+  // Hardware twin: the filter's state and covariance (#257).
+  const twin = session?.twin.saveSnapshot();
+  if (twin) snap.twin = twin;
 
   const mode = DEVICE_STATE_LAYOUT[focus]?.wasmMode ?? null;
   if (session && backend !== 'js' && mode !== null) {
@@ -211,6 +214,10 @@ export async function restoreLabSnapshot(input: unknown): Promise<boolean> {
     // A worker batch may have been posted while we awaited: drop it too.
     segOperator.epoch++;
     session.plantWorker?.cancel();
+  }
+  // Hardware twin filter: state and covariance resume from the snapshot (#257).
+  if (snap.twin && !session.twin.restoreSnapshot(snap.twin)) {
+    console.warn('[snapshot] twin filter not restored (no estimator, or another layout)');
   }
   // Closed-loop twin: the snapshot's ω wins at this epoch boundary; the next
   // sensor sample (not the last pre-restore one) takes over again.

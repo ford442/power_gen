@@ -7,9 +7,15 @@
 
 // Line protocol version this sketch speaks. v2 keeps every v1 command byte for
 // byte (P / C / CONF in, S / E / I out) and only *adds*: the `V` hello and the
-// `I v=2 ...` reply. A v1 sketch drops `V` as an unknown command, so a v2 host
-// still drives it — and still coasts it — with the v1 lines alone.
-#define PROTOCOL_VERSION 2
+// `I v=N ...` reply. A v1 sketch drops `V` as an unknown command, so a newer
+// host still drives it — and still coasts it — with the v1 lines alone.
+//
+// v3 (#257) adds hardware timestamps: after a host asks with `V3` (or newer),
+// every sample is `S t=<micros()> <the v1 fields>` — the board's own clock, so
+// the host's estimator integrates over the real sample spacing, not USB / BLE
+// arrival jitter. A `V2` or bare `V` request keeps the v1 S lines, so a v2
+// host is unaffected. The request is forgotten when the link drops.
+#define PROTOCOL_VERSION 3
 
 // Control modes
 #define MODE_RUN   0

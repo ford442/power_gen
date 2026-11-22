@@ -22,5 +22,6 @@ Lightweight ADRs for the SEG WebGPU Visualizer. Each file is a short record of a
 | [0016](./0016-node-test-and-eslint.md) | `node:test` as the one test runner; staged `validate`; ESLint in its own TS 6 toolchain |
 | [0017](./0017-field-volume.md) | 3-D magnetostatic field volume from catalog sources (exact kernels, one volume for lines / slice / iso / particles, CPU probe) |
 | [0018](./0018-circuit-lab.md) | Circuit Lab: MNA solver in sim_core (no TS mirror), catalog bench ports, solved energy edges |
+| [0019](./0019-calibrated-twin.md) | Calibrated digital twin: AD Jacobians, EKF estimate mode, output-error sysid with a HAC covariance, shareable `twinProfile`, protocol v3 timestamps |
 
 Status values: **Accepted** · **Superseded** · **Proposed**

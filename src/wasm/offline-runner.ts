@@ -100,8 +100,9 @@ export function runOfflineSegExportInWorker(opts: OfflineSegExportOpts = {}): Pr
     );
     worker.onmessage = (e: MessageEvent<OfflineWorkerResponse>) => {
       worker.terminate();
-      if (e.data?.ok) resolve(e.data);
-      else reject(new Error(e.data?.error || 'Worker failed'));
+      const msg = e.data;
+      if (msg?.ok && !('kind' in msg)) resolve(msg);
+      else reject(new Error(msg && !msg.ok ? msg.error : 'Worker failed'));
     };
     worker.onerror = (err: ErrorEvent) => {
       worker.terminate();

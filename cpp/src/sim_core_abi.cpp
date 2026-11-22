@@ -186,6 +186,222 @@ EMSCRIPTEN_KEEPALIVE uintptr_t circ_scratchPtr(CircuitSim* self, int count) {
     return static_cast<uintptr_t>(self->scratchPtr(count));
 }
 
+EMSCRIPTEN_KEEPALIVE TwinEstimator* twin_new() {
+    return new TwinEstimator();
+}
+
+EMSCRIPTEN_KEEPALIVE void twin_delete(TwinEstimator* self) {
+    delete self;
+}
+
+EMSCRIPTEN_KEEPALIVE int twin_stateCount(TwinEstimator* self) {
+    return self->stateCount();
+}
+
+EMSCRIPTEN_KEEPALIVE int twin_sensorCount(TwinEstimator* self) {
+    return self->sensorCount();
+}
+
+EMSCRIPTEN_KEEPALIVE int twin_paramCount(TwinEstimator* self) {
+    return self->paramCount();
+}
+
+EMSCRIPTEN_KEEPALIVE int twin_setInitial(TwinEstimator* self, int i, double value, double sd) {
+    return (self->setInitial(i, value, sd)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void twin_reset(TwinEstimator* self) {
+    self->reset();
+}
+
+EMSCRIPTEN_KEEPALIVE int twin_setParam(TwinEstimator* self, int i, double value) {
+    return (self->setParam(i, value)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double twin_getParam(TwinEstimator* self, int i) {
+    return self->getParam(i);
+}
+
+EMSCRIPTEN_KEEPALIVE int twin_setProcessNoise(TwinEstimator* self, int i, double q) {
+    return (self->setProcessNoise(i, q)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double twin_getProcessNoise(TwinEstimator* self, int i) {
+    return self->getProcessNoise(i);
+}
+
+EMSCRIPTEN_KEEPALIVE int twin_setSensorSigma(TwinEstimator* self, int c, double sigma) {
+    return (self->setSensorSigma(c, sigma)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double twin_getSensorSigma(TwinEstimator* self, int c) {
+    return self->getSensorSigma(c);
+}
+
+EMSCRIPTEN_KEEPALIVE int twin_predict(TwinEstimator* self, double dt, double vDrive) {
+    return (self->predict(dt, vDrive)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void twin_setMeasurement(TwinEstimator* self, int c, double value) {
+    self->setMeasurement(c, value);
+}
+
+EMSCRIPTEN_KEEPALIVE double twin_update(TwinEstimator* self) {
+    return self->update();
+}
+
+EMSCRIPTEN_KEEPALIVE double twin_time(TwinEstimator* self) {
+    return self->time();
+}
+
+EMSCRIPTEN_KEEPALIVE double twin_state(TwinEstimator* self, int i) {
+    return self->state(i);
+}
+
+EMSCRIPTEN_KEEPALIVE double twin_cov(TwinEstimator* self, int i, int j) {
+    return self->cov(i, j);
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t twin_readoutPtr(TwinEstimator* self) {
+    return static_cast<uintptr_t>(self->readoutPtr());
+}
+
+EMSCRIPTEN_KEEPALIVE int twin_readoutCount(TwinEstimator* self) {
+    return self->readoutCount();
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t twin_snapshotPtr(TwinEstimator* self) {
+    return static_cast<uintptr_t>(self->snapshotPtr());
+}
+
+EMSCRIPTEN_KEEPALIVE int twin_snapshotCount(TwinEstimator* self) {
+    return self->snapshotCount();
+}
+
+EMSCRIPTEN_KEEPALIVE void twin_save(TwinEstimator* self) {
+    self->save();
+}
+
+EMSCRIPTEN_KEEPALIVE int twin_load(TwinEstimator* self) {
+    return (self->load()) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE TwinSysId* sysid_new() {
+    return new TwinSysId();
+}
+
+EMSCRIPTEN_KEEPALIVE void sysid_delete(TwinSysId* self) {
+    delete self;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t sysid_dataPtr(TwinSysId* self, int samples) {
+    return static_cast<uintptr_t>(self->dataPtr(samples));
+}
+
+EMSCRIPTEN_KEEPALIVE int sysid_load(TwinSysId* self, int samples) {
+    return self->load(samples);
+}
+
+EMSCRIPTEN_KEEPALIVE const char* sysid_errorText(TwinSysId* self) {
+    return self->errorText();
+}
+
+EMSCRIPTEN_KEEPALIVE int sysid_setParam(TwinSysId* self, int i, double value) {
+    return (self->setParam(i, value)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int sysid_setFit(TwinSysId* self, int i, int fit) {
+    return (self->setFit(i, fit != 0)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int sysid_setInitialState(TwinSysId* self, int j, double value) {
+    return (self->setInitialState(j, value)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void sysid_setFitInitialState(TwinSysId* self, int fit) {
+    self->setFitInitialState(fit != 0);
+}
+
+EMSCRIPTEN_KEEPALIVE int sysid_setSensorSigma(TwinSysId* self, int c, double sigma) {
+    return (self->setSensorSigma(c, sigma)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void sysid_setMaxIterations(TwinSysId* self, int n) {
+    self->setMaxIterations(n);
+}
+
+EMSCRIPTEN_KEEPALIVE int sysid_start(TwinSysId* self) {
+    return self->start();
+}
+
+EMSCRIPTEN_KEEPALIVE int sysid_iterate(TwinSysId* self) {
+    return self->iterate();
+}
+
+EMSCRIPTEN_KEEPALIVE int sysid_status(TwinSysId* self) {
+    return self->status();
+}
+
+EMSCRIPTEN_KEEPALIVE int sysid_iterations(TwinSysId* self) {
+    return self->iterations();
+}
+
+EMSCRIPTEN_KEEPALIVE double sysid_cost(TwinSysId* self) {
+    return self->cost();
+}
+
+EMSCRIPTEN_KEEPALIVE double sysid_lambda(TwinSysId* self) {
+    return self->lambda();
+}
+
+EMSCRIPTEN_KEEPALIVE int sysid_residualCount(TwinSysId* self) {
+    return self->residualCount();
+}
+
+EMSCRIPTEN_KEEPALIVE double sysid_reducedChi2(TwinSysId* self) {
+    return self->reducedChi2();
+}
+
+EMSCRIPTEN_KEEPALIVE double sysid_condition(TwinSysId* self) {
+    return self->condition();
+}
+
+EMSCRIPTEN_KEEPALIVE double sysid_residualAutocorr(TwinSysId* self) {
+    return self->residualAutocorr();
+}
+
+EMSCRIPTEN_KEEPALIVE uint32_t sysid_warnings(TwinSysId* self) {
+    return self->warnings();
+}
+
+EMSCRIPTEN_KEEPALIVE double sysid_param(TwinSysId* self, int i) {
+    return self->param(i);
+}
+
+EMSCRIPTEN_KEEPALIVE double sysid_initialState(TwinSysId* self, int j) {
+    return self->initialState(j);
+}
+
+EMSCRIPTEN_KEEPALIVE double sysid_covariance(TwinSysId* self, int i, int j) {
+    return self->covariance(i, j);
+}
+
+EMSCRIPTEN_KEEPALIVE double sysid_r2(TwinSysId* self, int c) {
+    return self->r2(c);
+}
+
+EMSCRIPTEN_KEEPALIVE double sysid_rmsNormalized(TwinSysId* self, int c) {
+    return self->rmsNormalized(c);
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t sysid_fitPtr(TwinSysId* self) {
+    return static_cast<uintptr_t>(self->fitPtr());
+}
+
+EMSCRIPTEN_KEEPALIVE int sysid_fitCount(TwinSysId* self) {
+    return self->fitCount();
+}
+
 EMSCRIPTEN_KEEPALIVE FdtdTmzGrid* fdtd_new() {
     return new FdtdTmzGrid();
 }

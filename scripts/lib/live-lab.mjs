@@ -14,6 +14,8 @@
  * module state, so a second backend needs its own process.
  *
  *   const lab = await bootLiveLab({ backend: 'js' | 'wasm', search: '?mockHardware=1' });
+ *   // more of the app, from the same module graph (one singleton set):
+ *   await bootLiveLab({ exports: "export { captureShareConfig } from './src/seg-explainer/lab-url';" });
  *   lab.frame(1 / 60);
  *   await lab.driveUntil(promise, 1 / 60, 10_000);
  */
@@ -77,7 +79,7 @@ function installBrowserStubs(search) {
   globalThis.fetch = async () => ({ ok: false, status: 404 });
 }
 
-export async function bootLiveLab({ backend = 'js', search = '' } = {}) {
+export async function bootLiveLab({ backend = 'js', search = '', exports = '' } = {}) {
   const query = backend === 'wasm'
     ? `?wasmPhysics=1&plantWorker=0${search ? `&${search.replace(/^\?/, '')}` : ''}`
     : search;
@@ -104,6 +106,7 @@ export async function bootLiveLab({ backend = 'js', search = '' } = {}) {
         export { segOperator } from './src/seg-operator-state';
         export { segWasm } from './src/wasm/seg-physics-bridge';
         export { telemetryHub } from './src/telemetry-hub';
+        ${exports}
     `,
     sourcefile: 'live-lab-harness.ts'
   }, {

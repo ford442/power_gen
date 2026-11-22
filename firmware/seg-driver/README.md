@@ -1,4 +1,4 @@
-# SEG driver firmware — line protocol v2 (experimental)
+# SEG driver firmware — line protocol v3 (experimental)
 
 Arduino sketch that drives an electromagnet array from the visualizer's
 hardware twin (`src/hardware-bridge.ts`) and streams hall / magnetometer state
@@ -10,31 +10,35 @@ Protocol reference: [`docs/hardware_connection.md`](../../docs/hardware_connecti
 
 | File | Role |
 |------|------|
-| `seg-driver.ino` | Board glue: pin maps, Serial, sensors, the S stream |
+| `seg-driver.ino` | Board glue: pin maps, Serial (and opt-in BLE on an ESP32), sensors, the S stream |
 | `seg_safety.h` | **Every decision about whether a coil may be on** — parser, watchdog, modes, brake bound, per-coil DC cap. No Arduino dependency |
 | `seg_driver_core.h` | The command → pin path the sketch and the test share |
 | `coil_controller.{h,cpp}` | Commutation geometry and pin writes |
 | `sensor_manager.{h,cpp}` | Hall + QMC5883L/HMC5883L fusion (unchanged from v1) |
+| `ble_link.h` | BLE plumbing with no radio code: RX ring, disconnect latch, MTU chunking (host-tested) |
 | `protocol.h` | Version, modes, safety constants |
 | `test/` | Host test + Arduino shim — never compiled into the sketch |
 
-## Protocol v2
+## Protocol v2 (and v3)
 
 v2 keeps every v1 line byte for byte — `P` / `C` / `CONF` in, `S` / `E` / `I`
 out — and adds one exchange:
 
 ```
-host  → board   V2
-board → host    I v=2 fw=seg-driver board=uno link=serial coils=6 halls=2 wd=100 brake=128/1000
+host  → board   V3            (a v2 host sends V2)
+board → host    I v=3 fw=seg-driver board=uno link=serial coils=6 halls=2 wd=100 brake=128/1000
 ```
 
 The board also prints that line once at boot. Everything else v2 changes is
-*inside* the board: stricter parsing and tighter bounds (next section).
+*inside* the board: stricter parsing and tighter bounds (next section). v3
+(#257) only adds sample timestamps after a `V3` request — see
+[Protocol v3](#protocol-v3-hardware-timestamps).
 
-| | v1 sketch | v2 sketch |
-|---|---|---|
-| **v1 host** (never sends `V`) | as before | works unchanged; the boot hello is an `I` line, which a v1 host logs as info |
-| **v2 host** (sends `V2` on connect) | `V2` is an unknown command, which v1 drops; the host reports *no hello (v1 firmware)* and drives it with v1 lines | hello answered; the host shows `fw v2` and the board's limits |
+| | v1 sketch | v2 sketch | v3 sketch |
+|---|---|---|---|
+| **v1 host** (never sends `V`) | as before | works unchanged; the boot hello is an `I` line, which a v1 host logs as info | same as v2 (no `t=`) |
+| **v2 host** (sends `V2`) | `V2` is an unknown command, which v1 drops; the host reports *no hello (v1 firmware)* and drives it with v1 lines | hello answered; the host shows `fw v2` and the board's limits | hello `v=3`, v1 `S` lines (no `t=`) |
+| **v3 host** (sends `V3`) | as for a v2 host | `I v=2` hello; v1 `S` lines, timed by their `millis()` field | `S t=<µs> …` |
 
 **Disconnect still coasts on every transport, against either sketch.** The host's
 coast is `P0,0,2` then `C0,0,0` — v1 lines, flushed before the link closes
@@ -163,39 +167,62 @@ is the path.
   V_GS ≈ 2.5–3.3 V, or a gate driver. A 5 V-gate part half-on is a heater.
 - Duty within your coils' thermal rating. The DC cap is a backstop, not a rating.
 
-## ESP32 + Bluetooth (Nordic UART) on the board — deferred
+## ESP32 + Bluetooth (Nordic UART) on the board — written, not yet benched
 
 The web side has spoken Nordic UART since WS3 (`src/bluetooth-uart-transport.ts`:
 the service and characteristic UUIDs in `docs/hardware_connection.md`, 20-byte
 write chunks, a 50 ms command period), and `npm run test:transports` pins its
-framing and its coast-on-disconnect against a fake GATT link. **The on-board BLE
-peripheral is not in this sketch, on purpose:**
+framing and its coast-on-disconnect against a fake GATT link. Since #257 the
+sketch has the board side too, **opt-in**: build for an ESP32 with
+`-DSEG_BLE=1` and [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino)
+2.x installed. Without `SEG_BLE` nothing changes — no BLE code is compiled.
 
-1. **Nothing here can build or bench it.** There is no ESP32 toolchain or board
-   in this repo, and firmware is kept out of CI by design. The host test covers
-   the safety core, but not a radio stack's callbacks.
-2. **The ESP32 BLE APIs differ between versions** in ways that break code written
-   for the other one — for example `BLECharacteristic::getValue()` returns
-   `std::string` on Arduino core 2.x and Arduino `String` on 3.x, and NimBLE's
-   callback signatures changed between its 1.x and 2.x. Code written blind would
-   most likely not compile on the reader's setup.
+How it keeps the safety logic in one place:
+
+| Piece | What it does | Tested |
+|-------|--------------|--------|
+| `ble_link.h` `ByteRing` | RX writes (BLE task) → loop(), single-producer / single-consumer. A write that does not fit is dropped *whole* and flagged; loop() then discards the partial line up to its `\n`, so two fragments can never splice into a command. | host (`test:firmware-safety`) |
+| `drainLines()` | ring → the **same** `segfw::LineAssembler` → `driver.onLine(line, now)` as Serial. No BLE-specific command path. | host |
+| `LinkState` | the disconnect callback only latches; the next `loop()` calls **`driver.linkLost()`** — coils off in that loop — and advertising restarts. If the callback is late (BLE supervision timeouts are seconds), the 100 ms watchdog has already cut the coils. | host: disconnect → off the next loop; silent link → off within `WATCHDOG_TIMEOUT_MS` |
+| `chunkLine()` | `S` / `E` / `I` lines notified on TX, chunked to the negotiated MTU − 3 | host |
+| NimBLE glue in `seg-driver.ino` | service + RX / TX characteristics, callbacks, `link=ble` in the hello | **not compile-checked** |
+
+Why the last row is still a caveat — the reasons this was deferred, revisited:
+
+1. **Nothing here can build or bench it.** Still true: there is no ESP32
+   toolchain or board in this repo, and firmware stays out of CI by design. What
+   changed is that everything between the radio's callbacks and the pins is now
+   plain C++ the host test runs (`ble_link.h`); the glue left untested is thin.
+2. **The ESP32 BLE APIs differ between versions.** Still true, so the glue
+   targets one: **NimBLE-Arduino 2.x** (`onConnect(NimBLEServer*,
+   NimBLEConnInfo&)`, `onWrite(NimBLECharacteristic*, NimBLEConnInfo&)`,
+   `NimBLEAttValue`). It does not use the Bluedroid `BLEDevice` API, whose
+   `getValue()` type changed between Arduino core 2.x and 3.x. If your NimBLE
+   is 1.x, the callback signatures will not compile — upgrade rather than edit
+   the safety path.
 3. **A radio path into a coil driver is exactly where "untested but probably
-   fine" is not acceptable** under the lock-on rule above.
+   fine" is not acceptable.** So the rule stands: **do not drive coils over
+   BLE until the bench checks below pass on your board.**
 
-What a BLE build has to do, so whoever has a board can add it without touching
-the safety logic:
+Before using it on a rig:
 
-- Advertise the Nordic UART service; RX (`…0002…`) writes go byte by byte into
-  the **same** `segfw::LineAssembler` → `driver.onLine(line, now)`. No
-  BLE-specific command path.
-- On disconnect, call **`driver.linkLost()`** — coils off in that callback — then
-  restart advertising.
-- Notify `S` / `E` / `I` lines on TX (`…0003…`), chunked to the negotiated MTU.
-- Report `link=ble` in the hello.
+- `npm run test:firmware-safety` (it covers the BLE plumbing: chunked RX,
+  the disconnect latch, the silent-link watchdog, dropped writes).
+- Compile for your ESP32 with `-DSEG_BLE=1`; the hello must say `link=ble`.
+- On the bench, with a current-limited supply: connect, drive, then **walk out
+  of range with coils on** and confirm they drop within 100 ms; repeat with the
+  host tab closed and with the board's BLE reset mid-stream.
 - Leave `WATCHDOG_TIMEOUT_MS` at 100: the host's 20 Hz period (50 ms) already
   fits inside it.
-- Before merging: `npm run test:firmware-safety`, then on the bench — connect,
-  drive, walk out of range with coils on, and confirm they drop within 100 ms.
+
+## Protocol v3: hardware timestamps
+
+After a host sends `V3`, every sample is `S t=<micros()> <the v1 fields>` (both
+links). A `V2` / bare `V` host, or a v1 host that never asks, keeps the v1 `S`
+lines; the request is forgotten on `linkLost()`. The hello says `I v=3 …`.
+`SafetyCore::timestamped()` is the switch; it is never a command path and
+never feeds the watchdog (`test:firmware-safety` → "hello line + v3
+negotiation").
 
 ## Build and flash
 

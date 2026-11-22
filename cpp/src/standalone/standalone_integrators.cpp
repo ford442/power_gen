@@ -14,7 +14,11 @@
 // Prints, per case,
 //
 //   integrators.case <plant> method=<m> frames=… rhs=… ref_rhs=… ratio=…
-//                    steps=… rejected=… err.<state>=… err.max=…
+//                    steps=… rejected=… jac=… n=… err.<state>=… err.max=…
+//
+// `jac` counts ros23 Jacobian builds. Every shared-integrator plant is a
+// DifferentiablePlant, so those are Dual evaluations, not RHS calls: the TS
+// mirror (forward differences) spends n more RHS per Jacobian on the same path.
 //
 // and fails when the plant's *catalog* adaptive method misses its budget:
 // ≥ 10× fewer RHS evaluations than the reference, err.max ≤ 5e-4 (issue
@@ -42,7 +46,7 @@ constexpr double kMaxErr = 5e-4;
 
 struct Trace {
     std::vector<std::array<float, 4>> x;
-    double rhs{0}, steps{0}, rejected{0};
+    double rhs{0}, steps{0}, rejected{0}, jacobians{0};
 };
 
 using Getter = void (*)(const SEGSimulator&, std::array<float, 4>&);
@@ -64,6 +68,7 @@ Trace run(int mode, float drive, int frames, float dt, int integrator, Getter ge
     tr.rhs = sim.getOdeRhsEvals();
     tr.steps = sim.getOdeSteps();
     tr.rejected = sim.getOdeRejected();
+    tr.jacobians = sim.getOdeJacobians();
     return tr;
 }
 
@@ -105,10 +110,10 @@ int compare(const PlantCase& pc, int method, const Trace& ref, double& ratioOut,
     for (int i = 0; i < pc.nState; ++i) errMax = std::max(errMax, err[i]);
     const double ratio = tr.rhs > 0 ? ref.rhs / tr.rhs : 0;
     std::printf("integrators.case %s method=%s frames=%d dt=%.17g drive=%.17g rhs=%.0f ref_rhs=%.0f ratio=%.3f"
-                " steps=%.0f rejected=%.0f",
+                " steps=%.0f rejected=%.0f jac=%.0f n=%d",
                 pc.id, sim_core::integrator_name(static_cast<sim_core::Integrator>(method)), pc.frames,
                 static_cast<double>(pc.dt), static_cast<double>(pc.drive), tr.rhs, ref.rhs, ratio,
-                tr.steps, tr.rejected);
+                tr.steps, tr.rejected, tr.jacobians, pc.nState);
     for (int i = 0; i < pc.nState; ++i) std::printf(" err.%s=%.3e", pc.names[i], err[i]);
     std::printf(" err.max=%.3e\n", errMax);
     ratioOut = ratio;

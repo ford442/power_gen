@@ -125,7 +125,11 @@ describe('TS mirror (src/renderers/shared/integrate.ts)', () => {
         const tr = trace(id, method, frames, dt, drive);
         const { err, ratio } = compare(ref, tr);
         const kv = native.get(`${id}@${method}`);
-        const nativeRhs = Number(kv.rhs);
+        // Native ros23 takes J from one Dual evaluation (core/dual.h, #257);
+        // the TS mirror differences it, n RHS per Jacobian. Same path ⇔ the
+        // TS count matches native RHS + n·jacobians.
+        const nativeRhs = Number(kv.rhs) + (method === 'ros23' ? Number(kv.n) * Number(kv.jac) : 0);
+        assert.ok(Number.isFinite(nativeRhs), `native case line lacks rhs / jac / n: ${JSON.stringify(kv)}`);
         assert.ok(Math.abs(tr.rhs - nativeRhs) <= 0.03 * nativeRhs,
           `TS ${tr.rhs} RHS vs native ${nativeRhs} — the plants left each other's adaptive path`);
         assert.ok(Math.abs(err - Number(kv['err.max'])) <= 0.5 * Number(kv['err.max']) + 1e-6,

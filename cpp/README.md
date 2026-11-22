@@ -96,6 +96,8 @@ buffer packing
 ./build/sim_core_test --mode fdtd        # FDTD TM_z kernel: finite under drive, sponge absorbs
 ./build/sim_core_test --mode circuit     # Circuit Lab MNA goldens: RC, RLC f/Q, ripple, transformer, LC energy, … (#256)
 ./build/sim_core_test --mode circuit-json # the same goldens' netlists + samples as JSON (test:circuit replays them in WASM)
+./build/sim_core_test --mode ad          # dual-number Jacobians vs central differences: homopolar, jumping ring, twin rig (#257)
+./build/sim_core_test --mode twin        # hardware twin: EKF χ² on true / nominal θ, 30 s sysid within 5 %, snapshot (#257, ADR-0019)
 ```
 
 `--mode golden` replays every **dual** device — one with a `wasmMode` *and*
@@ -183,7 +185,8 @@ SAN_REQUIRED=1 npm run wasm:native:san   # fail instead of skip
 and `-Wall -Wextra -Wpedantic -Werror` bar as `make native`, with
 `-fsanitize=address,undefined -fno-sanitize-recover=undefined`, then runs the
 default smoke, `--mode golden`, `--mode jumping-ring`, `--mode energy-network`,
-`--mode integrators` and `--mode fdtd` with leak detection on. Any report is fatal.
+`--mode integrators`, `--mode fdtd`, `--mode circuit`, `--mode ad` and
+`--mode twin` with leak detection on. Any report is fatal.
 
 `scripts/native-san.sh` first compiles **and runs** a tiny probe with each of
 `$SAN_CXX`, `clang++`, `g++`: a distro clang without compiler-rt (common —
@@ -237,7 +240,7 @@ sign clamps), applied after every accepted step. `core/integrate.h` holds:
 | `euler_fixed` | one explicit Euler step | — |
 | `rk4_fixed` | one classical RK4 step, in the expression order the hand-written plants used — porting a plant onto it is bit-identical | — |
 | `dopri5_advance` | adaptive Dormand–Prince 5(4), PI step control, **dense output**: the step that crosses the frame end runs to completion and the frame-end state is interpolated, so a frame boundary never forces a short step | `StepperState{h, errOld}` |
-| `ros23_advance` | Shampine's L-stable Rosenbrock (2,3) (`ode23s`), forward-difference Jacobian (#257 swaps it for duals) | `StepperState{h, errOld}` |
+| `ros23_advance` | Shampine's L-stable Rosenbrock (2,3) (`ode23s`); exact Jacobian by forward-mode AD (`core/dual.h`) for a `DifferentiablePlant`, forward differences otherwise | `StepperState{h, errOld}` |
 
 The method is a catalog field — `physics/devices.json` `"integrator"` plus an
 `"ode"` block (state names in index order, outputs, tolerances) — codegen'd into
@@ -255,7 +258,7 @@ schedule (err = max over frames of |x − ref| / max |ref|, per channel):
 |--------|-----------|--------------------|-------------------|
 | rk4 (reference) | 356,800 | 1× | — |
 | **dopri5 (catalog)** | **33,975** | **10.5×** | 2.5e-4 (ring current; others ≤ 3.1e-5) |
-| ros23 | 78,393 | 4.6× | 1.3e-3 |
+| ros23 (dual Jacobian, #257) | 35,197 + 10,799 Jacobians | 10.1× | 1.3e-3 |
 
 The leakage loop (τ ≈ 0.33 ms) caps any explicit method near h ≈ 1 ms, which
 is why dopri5 tops out around 10–12×; ros23 is accuracy-limited (second
@@ -471,7 +474,8 @@ cpp/
     sim_core_facade.cpp  ← ctor, mode dispatch, cross-mode accessors
     sim_core_abi.cpp     ← GENERATED flat C ABI (cpp/abi.json → npm run codegen:wasm-abi)
     core/
-      plant.h               ← sim_core::Plant / ConstrainedPlant concepts
+      plant.h               ← sim_core::Plant / ConstrainedPlant / DifferentiablePlant / ParametricPlant concepts
+      dual.h                ← forward-mode AD: Dual<T, N> (ros23 Jacobians, EKF / sysid sensitivities)
       integrate.h           ← euler / rk4_fixed / dopri5 / ros23 (docs/INTEGRATORS.md)
     sim_core_standalone.cpp ← native driver: main() + CSV export
     standalone/             ← one TU per --mode family (plant smokes, system smokes, golden, bench, integrators, circuit)
@@ -495,6 +499,12 @@ cpp/
       chores_reduce.cpp     ← GPU-chores CPU reduce fallback
       particles.cpp         ← mode-aware particle seed/step + accessors
       plant_state.cpp       ← compiles generated/plant-state-impl.h (plantSave / plantLoad)
+    twin/                 ← hardware twin (#257, ADR-0019): no external estimation libraries
+      rig_plant.h           ← the catalog rig (seg.twin) as a ParametricPlant
+      linalg.h              ← small fixed-size linear algebra: Cholesky solve / inverse, Jacobi eigenvalues, χ² quantile
+      ekf.h / ekf.cpp       ← EKF (dual RK4 predict, Joseph update, χ² window, diagnosis), TwinEstimator
+      sysid.h / sysid.cpp   ← output-error Levenberg–Marquardt, forward sensitivities, HAC covariance, TwinSysId
+      twin.h                ← the two exported classes + readout / snapshot layouts
     circuit/              ← Circuit Lab MNA solver, CircuitSim (#256, ADR-0018, docs/CIRCUIT.md)
       circuit.h             ← kinds, options, readout layout, CircuitSim
       lu.h/.cpp             ← dense LU: analyse (pivot order + fill) / refactor / reuse

@@ -191,7 +191,7 @@ export function segUpdateElectromagnetCoils(instance: DeviceInstanceLike): void 
 
   const hw = instance.visualizer.hardwareBridge;
   const em = instance.visualizer.emController;
-  const useHardware = hw?.isConnected && (hw.mirrorEnabled || hw.twinMode === 'closed' || hw.twinMode === 'shadow');
+  const useHardware = hw?.isConnected && (hw.mirrorEnabled || hw.twinMode === 'closed' || hw.twinMode === 'estimate');
 
   let numCoils = em?.numCoils || 8;
   let coilMask = 0;

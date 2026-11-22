@@ -12,6 +12,7 @@
 #include "../../../generated/constants.h"
 #include "../../../generated/plant-ode.h"
 
+#include <cmath>
 #include <cstddef>
 #include <span>
 
@@ -66,7 +67,38 @@ struct ThomsonPlant {
 
     explicit ThomsonPlant(ThomsonState& st);
 
-    void derivs(double t, std::span<const float> x, const ThomsonInput& u, std::span<float> dxdt) const;
+    /// The right-hand side on any scalar (float, or a core/dual.h Dual for
+    /// ∂f/∂x — ros23's Jacobian). The float instantiation is the plant's
+    /// arithmetic, term for term (thomson_plant.cpp has the derivation).
+    template <class S>
+    void derivs_t(double t, std::span<const S> x, const ThomsonInput& u, std::span<S> dxdt) const {
+        using std::exp;
+        // D = Lp·Lr − M² is ~1.5e-9 H² for a ring this small, so the transformer's
+        // 1e-8 floor would swamp it. Guard only against an actual degenerate k.
+        constexpr float kDMin = 1e-13f;
+        const S ips = x[ode::primaryIA], irs = x[ode::ringCurrentA];
+        const S vels = x[ode::velocityMps], hs = x[ode::heightM];
+        const float vps = static_cast<float>(u.vPeakDrive * std::sin(u.phase0 + u.omega * t));
+        const float Lp = s.lPrimaryH, Lr = s.lRingH;
+        const S k = s.k0 * exp(-hs * invLambda);
+        const S M = k * sqrtLpLr;
+        const S dMdh = -M * invLambda;
+        S D = lpLr - M * M;
+        if (D < kDMin) D = kDMin;
+        // Motional EMF: the coupling itself changes as the ring moves, so the
+        // same dM/dh that produces the force also loads both circuits.
+        const S motional = dMdh * vels;
+        const S rhsP = vps - s.rPrimaryOhm * ips - motional * irs;
+        const S rhsR = -s.rRingOhm * irs - motional * ips;
+        dxdt[ode::primaryIA] = (Lr * rhsP - M * rhsR) / D;
+        dxdt[ode::ringCurrentA] = (Lp * rhsR - M * rhsP) / D;
+        const S f = ips * irs * dMdh;
+        dxdt[ode::velocityMps] = (f - s.massKg * PhysicsConstants::G - s.dragNsm * vels) / s.massKg;
+        dxdt[ode::heightM] = vels;
+    }
+    void derivs(double t, std::span<const float> x, const ThomsonInput& u, std::span<float> dxdt) const {
+        derivs_t<float>(t, x, u, dxdt);
+    }
     /// y = [forceN, couplingK] at x: the instantaneous force and k(h).
     void outputs(std::span<const float> x, const ThomsonInput& u, std::span<float> y) const;
     void save(std::span<float> x) const;

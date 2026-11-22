@@ -38,6 +38,7 @@ import { tickFrameClock } from '../frame-clock';
 import { segWasm } from '../wasm/seg-physics-bridge';
 import { collectDeviceEnergies, meterLabEnergy, meterScalarFlux, gpuChores } from '../gpu-chores';
 import { buildHardwareTwinTelemetry } from '../visualizer/hardware-twin';
+import { SessionTwin } from '../twin/session-twin';
 import type { HardwareTwinTelemetry } from '../telemetry/types';
 import type { PublishFrameScientific } from '../telemetry/types';
 import {
@@ -125,6 +126,8 @@ export class LabSession {
   hardwareTargetSpeed = 0;
   hardwareShadow = { phaseError: 0, rpmError: 0 };
   hardwareTwinTelemetry: HardwareTwinTelemetry | null = null;
+  /** Estimator, calibration profile and calibration run (#257, twin/session-twin.ts). */
+  twin: SessionTwin;
 
   speedMult = 1;
   segOmega = 0;
@@ -191,6 +194,7 @@ export class LabSession {
     this.hardwareBridge = new HardwareBridge({
       onError: (e: unknown) => console.error('[HardwareBridge]', e)
     });
+    this.twin = new SessionTwin(this.hardwareBridge);
 
     this.prototypePreset = parsePrototypePreset();
     this.anomalousEffectsEnabled = parseAnomalousEffects(this.prototypePreset);
@@ -266,9 +270,10 @@ export class LabSession {
       : (worker ? worker.unavailableReason(useWasm) : PlantWorkerHost.unavailableAtBoot);
 
     if (worker && fallbackReason === null) {
-      worker.step({ devices: this.devices, focus, simSteps, drive, useWasm });
+      worker.step({ devices: this.devices, focus, simSteps, drive, useWasm, beforePost: () => this.applyClosedLoop() });
     } else {
       worker?.cancel();
+      this.applyClosedLoop();
       let stepJs = !useWasm && !replayLocked;
       if (useWasm) {
         try {
@@ -350,6 +355,29 @@ export class LabSession {
     this.closedLoopHeldAt = hw?.isConnected ? hw.lastSensorUpdate : null;
   }
 
+  /**
+   * Closed-loop twin: write the rig's rotor into the SEG plant — the twin's
+   * *filtered* ω (#257), or the raw sample without an estimator. Runs before
+   * the step (the in-loop JS plant and the plant worker integrate from it)
+   * and again after it (the display shows the rig). After a snapshot restore
+   * the snapshot's ω holds until a sensor sample newer than the restore
+   * arrives (see holdClosedLoopForSnapshot). The C++ in-loop SEG plant keeps
+   * its own roller state; the after-step write is what it shows.
+   */
+  private applyClosedLoop(): void {
+    const hw = this.hardwareBridge;
+    if (!hw?.isConnected) return;
+    const held = this.closedLoopHeldAt !== null && hw.lastSensorUpdate <= this.closedLoopHeldAt;
+    if (!held) this.closedLoopHeldAt = null;
+    if (hw.twinMode !== TWIN_MODES.CLOSED || hw.isSensorStale || held) return;
+    const rpm = this.twin.closedLoopRpm() ?? HardwareBridge.sanitizeRpm(hw.actualRpm);
+    const wNorm = Math.min(1, Math.abs(rpm) / 3000);
+    this.segOmega = wNorm;
+    this.corona = Math.max(0, Math.min(1, (wNorm - 0.6) / 0.4));
+    segOperator.physics.segOmega = wNorm;
+    segOperator.physics.corona = this.corona;
+  }
+
   syncHardwareTwin(deltaTime: number): void {
     const hw = this.hardwareBridge;
     if (!hw?.isConnected) {
@@ -363,44 +391,29 @@ export class LabSession {
     const simRpm = HardwareBridge.sanitizeRpm(tel.rpmDisplay || 0);
     const simVoltage = Number.isFinite(tel.voltage) ? tel.voltage : 0;
     const simCurrent = Number.isFinite(tel.current) ? tel.current : 0;
+    // A calibration run commands its staircase instead of the sim (through
+    // setTarget, so every bridge clamp and watchdog still applies).
+    const excite = this.twin.excitationRpm(performance.now());
+    const cmdRpm = excite ?? simRpm;
     if (!hw.manualMode && hw.controlMode === 0) {
-      this.hardwareTargetPhase += simRpm * 6.0 * Math.max(0, deltaTime);
-      this.hardwareTargetSpeed = simRpm;
+      this.hardwareTargetPhase += cmdRpm * 6.0 * Math.max(0, deltaTime);
+      this.hardwareTargetSpeed = cmdRpm;
     }
     const simPhase = ((this.hardwareTargetPhase % 360) + 360) % 360;
 
-    if (
-      hw.twinMode === TWIN_MODES.OPEN
-      || hw.twinMode === TWIN_MODES.SHADOW
-      || hw.twinMode === TWIN_MODES.CLOSED
-    ) {
-      const runMode = segOperator.isRunning ? 0 : 2;
-      if (!hw.manualMode) {
-        hw.setTarget(simPhase, segOperator.isRunning ? simRpm : 0, runMode);
-      }
+    if (!hw.manualMode) {
+      if (excite !== null) hw.setTarget(simPhase, excite, 0);
+      else hw.setTarget(simPhase, segOperator.isRunning ? simRpm : 0, segOperator.isRunning ? 0 : 2);
     }
 
     hw.update({ simPhase, simRpm, simVoltage, simCurrent });
-
-    // After a snapshot restore the snapshot's ω holds until a sensor sample
-    // newer than the restore arrives; the last pre-restore reading must not
-    // overwrite it on the very next frame (see holdClosedLoopForSnapshot).
-    const held = this.closedLoopHeldAt !== null && hw.lastSensorUpdate <= this.closedLoopHeldAt;
-    if (!held) this.closedLoopHeldAt = null;
-    if (hw.twinMode === TWIN_MODES.CLOSED && !hw.isSensorStale && !held) {
-      const hwRpm = HardwareBridge.sanitizeRpm(hw.actualRpm);
-      const wNorm = Math.min(1, Math.abs(hwRpm) / 3000);
-      this.segOmega = wNorm;
-      this.corona = Math.max(0, Math.min(1, (wNorm - 0.6) / 0.4));
-      segOperator.physics.segOmega = wNorm;
-      segOperator.physics.corona = this.corona;
-    }
+    this.applyClosedLoop();
 
     this.hardwareShadow = {
       phaseError: hw.shadow.phaseErrorDeg,
       rpmError: hw.shadow.rpmError
     };
-    this.hardwareTwinTelemetry = buildHardwareTwinTelemetry(hw);
+    this.hardwareTwinTelemetry = buildHardwareTwinTelemetry(hw, this.twin);
   }
 
   updateTachometer(): void {
@@ -563,7 +576,7 @@ export class LabSession {
     try {
       if (labConfig().mockHardware) {
         await this.hardwareBridge.connectMock();
-        this.hardwareBridge.setTwinMode(TWIN_MODES.SHADOW);
+        this.hardwareBridge.setTwinMode(TWIN_MODES.ESTIMATE);
       }
     } catch (_) { /* ignore */ }
   }

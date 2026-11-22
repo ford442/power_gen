@@ -1,6 +1,10 @@
 /**
- * Shadow twin residual time-series — ΔRPM, ΔV, ΔI (sim vs mock/serial).
- * Data from TelemetryHub.hardwareTwin.shadowResidual.
+ * Twin residual time-series. In estimate mode with the estimator running
+ * (#257) it plots the *normalised innovation* ν/σ_ν per channel (RPM, I, V)
+ * against the ±3 band, and the header gives the χ² window verdict — so "model
+ * wrong" (a biased / drifting trace) and "sensor noisy" (white, wide) read
+ * differently. Otherwise it plots the raw sim − hardware ΔRPM, ΔV, ΔI.
+ * Data from TelemetryHub.hardwareTwin.{estimate, shadowResidual}.
  */
 
 import type { HardwareTwinTelemetry } from '../../telemetry/types';
@@ -28,6 +32,9 @@ export class ShadowResidualGauge {
   stateEl: HTMLElement | null;
   width: number = 0;
   height: number = 0;
+  /** Plotting ν/σ_ν (fixed ±3 band) rather than raw residuals. */
+  normalized = false;
+  private labelEl: HTMLElement | null = null;
 
   constructor(containerId: string) {
     this.container = document.getElementById(containerId) as HTMLElement;
@@ -43,6 +50,7 @@ export class ShadowResidualGauge {
     this.vEl = this.container.querySelector('[data-res="v"]');
     this.iEl = this.container.querySelector('[data-res="i"]');
     this.stateEl = this.container.querySelector('[data-state]');
+    this.labelEl = this.container.querySelector('.sci-gauge-label');
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -91,10 +99,19 @@ export class ShadowResidualGauge {
 
     this.connected = true;
     this.connectionState = twin.connectionState || (twin.mock ? 'mock' : 'serial');
+    const est = twin.twinMode === 'estimate' ? twin.estimate : null;
+    const normalized = !!est;
+    if (normalized !== this.normalized) {
+      this.normalized = normalized;
+      this.historyRpm.fill(0);
+      this.historyV.fill(0);
+      this.historyI.fill(0);
+      if (this.labelEl) this.labelEl.textContent = normalized ? 'Twin innovation ν/σ' : 'Shadow Twin Residual';
+    }
     const r = twin.shadowResidual || ({} as HardwareTwinTelemetry['shadowResidual']);
-    const rpmErr = finite(r.rpmError);
-    const vErr = finite(r.voltageError);
-    const iErr = finite(r.currentError);
+    const rpmErr = est ? finite(est.innovation.rpm) : finite(r.rpmError);
+    const vErr = est ? finite(est.innovation.voltage) : finite(r.voltageError);
+    const iErr = est ? finite(est.innovation.current) : finite(r.currentError);
 
     this.historyRpm.push(rpmErr);
     this.historyV.push(vErr);
@@ -103,9 +120,10 @@ export class ShadowResidualGauge {
     this.historyV.shift();
     this.historyI.shift();
 
-    if (this.rpmEl) this.rpmEl.textContent = `${rpmErr >= 0 ? '+' : ''}${rpmErr.toFixed(1)}`;
-    if (this.vEl) this.vEl.textContent = `${vErr >= 0 ? '+' : ''}${vErr.toFixed(2)} V`;
-    if (this.iEl) this.iEl.textContent = `${iErr >= 0 ? '+' : ''}${iErr.toFixed(2)} A`;
+    const sign = (v: number): string => (v >= 0 ? '+' : '');
+    if (this.rpmEl) this.rpmEl.textContent = est ? `${sign(rpmErr)}${rpmErr.toFixed(2)}σ` : `${sign(rpmErr)}${rpmErr.toFixed(1)}`;
+    if (this.vEl) this.vEl.textContent = est ? `${sign(vErr)}${vErr.toFixed(2)}σ` : `${sign(vErr)}${vErr.toFixed(2)} V`;
+    if (this.iEl) this.iEl.textContent = est ? `${sign(iErr)}${iErr.toFixed(2)}σ` : `${sign(iErr)}${iErr.toFixed(2)} A`;
 
     if (this.stateEl) {
       const labels: Record<ConnectionState, string> = {
@@ -115,10 +133,13 @@ export class ShadowResidualGauge {
         usb: 'USB',
         disconnected: 'off'
       };
-      this.stateEl.textContent = labels[this.connectionState] || this.connectionState;
-      // Only the mock is flagged: its residuals are lag, not measurement.
+      const link = labels[this.connectionState] || this.connectionState;
+      this.stateEl.textContent = est
+        ? `${link} · χ²/dof ${est.nisPerDof.toFixed(2)} · ${est.diagnosis}`
+        : link;
+      // The mock is flagged (simulated rig); so is an inconsistent estimate.
       this.stateEl.className = 'sci-gauge-value'
-        + (this.connectionState === 'mock' ? ' warning' : '');
+        + (this.connectionState === 'mock' || (est && !est.consistent) ? ' warning' : '');
     }
 
     this.draw();
@@ -137,12 +158,13 @@ export class ShadowResidualGauge {
     }
 
     const series = [
-      { data: this.historyRpm, color: '#fc6', scale: 120 },
-      { data: this.historyV, color: '#4af', scale: 8 },
-      { data: this.historyI, color: '#f84', scale: 4 }
+      { data: this.historyRpm, color: '#fc6', scale: this.normalized ? 1 : 120 },
+      { data: this.historyV, color: '#4af', scale: this.normalized ? 1 : 8 },
+      { data: this.historyI, color: '#f84', scale: this.normalized ? 1 : 4 }
     ];
 
-    const maxAbs = Math.max(
+    // ν/σ: a fixed ±4.5 range so the ±3 band always sits in the same place.
+    const maxAbs = this.normalized ? 4.5 : Math.max(
       1e-6,
       ...series.flatMap((s) => s.data.map((v) => Math.abs(v) / s.scale))
     );
@@ -157,11 +179,18 @@ export class ShadowResidualGauge {
       ctx.moveTo(0, mid);
       ctx.lineTo(this.width, mid);
       ctx.stroke();
+      if (this.normalized) {
+        // ±3σ band: inside it the residual is what the noise model predicts.
+        const band = (3 / maxAbs) * (laneH * 0.42);
+        ctx.fillStyle = 'rgba(25,158,112,0.14)';
+        ctx.fillRect(0, mid - band, this.width, 2 * band);
+      }
 
       ctx.beginPath();
       s.data.forEach((value, i) => {
         const x = (i / (HISTORY - 1)) * this.width;
-        const y = mid - (value / s.scale / maxAbs) * (laneH * 0.42);
+        const v = Math.max(-maxAbs, Math.min(maxAbs, value / s.scale));
+        const y = mid - (v / maxAbs) * (laneH * 0.42);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });

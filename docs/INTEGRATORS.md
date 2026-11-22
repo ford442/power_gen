@@ -45,7 +45,7 @@ lose resolution.
 | `euler` | one explicit Euler step | — |
 | `rk4` | classical RK4, in the exact expression order the hand-written plants used — porting a plant onto it is **bit-identical** (`--mode golden` did not move by one byte) | — |
 | `dopri5` | adaptive Dormand–Prince 5(4) (Hairer's DOPRI5 coefficients), PI step control (β = 0.04), **dense output** (CONTD5) | `stepH`, `stepErrOld` |
-| `ros23` | Shampine's L-stable Rosenbrock (2,3) — MATLAB's `ode23s` — with a forward-difference Jacobian (n + 1 RHS per step; #257 replaces it with dual-number autodiff) | `stepH`, `stepErrOld` |
+| `ros23` | Shampine's L-stable Rosenbrock (2,3) — MATLAB's `ode23s`. C++: an **exact Jacobian by forward-mode autodiff** (`core/dual.h`, one dual evaluation per step, #257 / ADR-0019); the TS mirror keeps a forward-difference Jacobian (n more RHS per step) | `stepH`, `stepErrOld` |
 
 **Dense output, so a frame boundary does not force a step boundary.** The
 adaptive methods advance the plant over the frame `[0, dt]`. The step that
@@ -120,7 +120,15 @@ step (Hairer's ρ estimate) was tried and removed: it never bound, so the ~10 %
 rejected steps are not the stability edge. The rigid-stop contact phases are
 the likely cause, but that is not profiled.
 ros23 does not have that limit, but it is second order: the 60 Hz drive needs
-small steps for accuracy, and each step also pays for a Jacobian.
+small steps for accuracy, and each step also pays for a Jacobian. Since #257
+that Jacobian is one dual-number evaluation of `derivs` (exact, no RHS calls):
+on the golden schedule ros23 went from 78,393 RHS (forward differences,
+n + 1 per Jacobian) to **35,197 RHS + 10,799 dual Jacobians — 10.1×** fewer
+RHS than the reference, at the same 1.3e-3 worst-channel error. `jac=` in
+`--mode integrators` counts them; `--mode ad` checks every such Jacobian
+against central differences (≤ 1e-3 relative in f32, ≤ 1e-6 in f64).
+A plant is a `DifferentiablePlant` (`core/plant.h`) when its `derivs` is
+templated on the scalar — every plant on the shared integrator is.
 
 ## Parity, both backends
 

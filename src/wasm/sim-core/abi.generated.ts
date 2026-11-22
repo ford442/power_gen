@@ -84,6 +84,60 @@ export interface SimCoreExports {
   circ_readoutPtr(self: number): number;
   circ_readoutCount(self: number): number;
   circ_scratchPtr(self: number, count: number): number;
+  twin_new(): number;
+  twin_delete(self: number): void;
+  twin_stateCount(self: number): number;
+  twin_sensorCount(self: number): number;
+  twin_paramCount(self: number): number;
+  twin_setInitial(self: number, i: number, value: number, sd: number): number;
+  twin_reset(self: number): void;
+  twin_setParam(self: number, i: number, value: number): number;
+  twin_getParam(self: number, i: number): number;
+  twin_setProcessNoise(self: number, i: number, q: number): number;
+  twin_getProcessNoise(self: number, i: number): number;
+  twin_setSensorSigma(self: number, c: number, sigma: number): number;
+  twin_getSensorSigma(self: number, c: number): number;
+  twin_predict(self: number, dt: number, vDrive: number): number;
+  twin_setMeasurement(self: number, c: number, value: number): void;
+  twin_update(self: number): number;
+  twin_time(self: number): number;
+  twin_state(self: number, i: number): number;
+  twin_cov(self: number, i: number, j: number): number;
+  twin_readoutPtr(self: number): number;
+  twin_readoutCount(self: number): number;
+  twin_snapshotPtr(self: number): number;
+  twin_snapshotCount(self: number): number;
+  twin_save(self: number): void;
+  twin_load(self: number): number;
+  sysid_new(): number;
+  sysid_delete(self: number): void;
+  sysid_dataPtr(self: number, samples: number): number;
+  sysid_load(self: number, samples: number): number;
+  sysid_errorText(self: number): number;
+  sysid_setParam(self: number, i: number, value: number): number;
+  sysid_setFit(self: number, i: number, fit: number): number;
+  sysid_setInitialState(self: number, j: number, value: number): number;
+  sysid_setFitInitialState(self: number, fit: number): void;
+  sysid_setSensorSigma(self: number, c: number, sigma: number): number;
+  sysid_setMaxIterations(self: number, n: number): void;
+  sysid_start(self: number): number;
+  sysid_iterate(self: number): number;
+  sysid_status(self: number): number;
+  sysid_iterations(self: number): number;
+  sysid_cost(self: number): number;
+  sysid_lambda(self: number): number;
+  sysid_residualCount(self: number): number;
+  sysid_reducedChi2(self: number): number;
+  sysid_condition(self: number): number;
+  sysid_residualAutocorr(self: number): number;
+  sysid_warnings(self: number): number;
+  sysid_param(self: number, i: number): number;
+  sysid_initialState(self: number, j: number): number;
+  sysid_covariance(self: number, i: number, j: number): number;
+  sysid_r2(self: number, c: number): number;
+  sysid_rmsNormalized(self: number, c: number): number;
+  sysid_fitPtr(self: number): number;
+  sysid_fitCount(self: number): number;
   fdtd_new(): number;
   fdtd_delete(self: number): void;
   fdtd_init(self: number, n: number, pmlCells: number, courant: number, lossMax: number, sourceRadius: number): number;
@@ -384,7 +438,61 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_stepParticles',
   'seg_stepWithPerRingTorques',
   'seg_updateEnergyNetworkFromScratch',
-  'seg_version'
+  'seg_version',
+  'sysid_condition',
+  'sysid_cost',
+  'sysid_covariance',
+  'sysid_dataPtr',
+  'sysid_delete',
+  'sysid_errorText',
+  'sysid_fitCount',
+  'sysid_fitPtr',
+  'sysid_initialState',
+  'sysid_iterate',
+  'sysid_iterations',
+  'sysid_lambda',
+  'sysid_load',
+  'sysid_new',
+  'sysid_param',
+  'sysid_r2',
+  'sysid_reducedChi2',
+  'sysid_residualAutocorr',
+  'sysid_residualCount',
+  'sysid_rmsNormalized',
+  'sysid_setFit',
+  'sysid_setFitInitialState',
+  'sysid_setInitialState',
+  'sysid_setMaxIterations',
+  'sysid_setParam',
+  'sysid_setSensorSigma',
+  'sysid_start',
+  'sysid_status',
+  'sysid_warnings',
+  'twin_cov',
+  'twin_delete',
+  'twin_getParam',
+  'twin_getProcessNoise',
+  'twin_getSensorSigma',
+  'twin_load',
+  'twin_new',
+  'twin_paramCount',
+  'twin_predict',
+  'twin_readoutCount',
+  'twin_readoutPtr',
+  'twin_reset',
+  'twin_save',
+  'twin_sensorCount',
+  'twin_setInitial',
+  'twin_setMeasurement',
+  'twin_setParam',
+  'twin_setProcessNoise',
+  'twin_setSensorSigma',
+  'twin_snapshotCount',
+  'twin_snapshotPtr',
+  'twin_state',
+  'twin_stateCount',
+  'twin_time',
+  'twin_update'
 ];
 
 export interface CircuitSimInstance {
@@ -416,6 +524,80 @@ export interface CircuitSimInstance {
 
 export interface CircuitSimConstructor {
   new (): CircuitSimInstance;
+
+}
+
+export interface TwinEstimatorInstance {
+  /** Address of the C++ object (for diagnostics). */
+  readonly ptr: number;
+  stateCount(): number;
+  sensorCount(): number;
+  paramCount(): number;
+  setInitial(i: number, value: number, sd: number): boolean;
+  reset(): void;
+  setParam(i: number, value: number): boolean;
+  getParam(i: number): number;
+  setProcessNoise(i: number, q: number): boolean;
+  getProcessNoise(i: number): number;
+  setSensorSigma(c: number, sigma: number): boolean;
+  getSensorSigma(c: number): number;
+  predict(dt: number, vDrive: number): boolean;
+  setMeasurement(c: number, value: number): void;
+  update(): number;
+  time(): number;
+  state(i: number): number;
+  cov(i: number, j: number): number;
+  readoutPtr(): number;
+  readoutCount(): number;
+  snapshotPtr(): number;
+  snapshotCount(): number;
+  save(): void;
+  load(): boolean;
+  /** Free the C++ object. Idempotent; the instance is dead afterwards. */
+  delete(): void;
+}
+
+export interface TwinEstimatorConstructor {
+  new (): TwinEstimatorInstance;
+
+}
+
+export interface TwinSysIdInstance {
+  /** Address of the C++ object (for diagnostics). */
+  readonly ptr: number;
+  dataPtr(samples: number): number;
+  load(samples: number): number;
+  errorText(): string;
+  setParam(i: number, value: number): boolean;
+  setFit(i: number, fit: boolean): boolean;
+  setInitialState(j: number, value: number): boolean;
+  setFitInitialState(fit: boolean): void;
+  setSensorSigma(c: number, sigma: number): boolean;
+  setMaxIterations(n: number): void;
+  start(): number;
+  iterate(): number;
+  status(): number;
+  iterations(): number;
+  cost(): number;
+  lambda(): number;
+  residualCount(): number;
+  reducedChi2(): number;
+  condition(): number;
+  residualAutocorr(): number;
+  warnings(): number;
+  param(i: number): number;
+  initialState(j: number): number;
+  covariance(i: number, j: number): number;
+  r2(c: number): number;
+  rmsNormalized(c: number): number;
+  fitPtr(): number;
+  fitCount(): number;
+  /** Free the C++ object. Idempotent; the instance is dead afterwards. */
+  delete(): void;
+}
+
+export interface TwinSysIdConstructor {
+  new (): TwinSysIdInstance;
 
 }
 
@@ -571,6 +753,8 @@ export interface SEGSimulatorConstructor {
 
 export interface SimCoreModule {
   CircuitSim: CircuitSimConstructor;
+  TwinEstimator: TwinEstimatorConstructor;
+  TwinSysId: TwinSysIdConstructor;
   FdtdTmzGrid: FdtdTmzGridConstructor;
   SEGSimulator: SEGSimulatorConstructor;
   /** View over the instance memory; re-read after any call that may grow the heap. */
@@ -703,6 +887,182 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
     }
     scratchPtr(count: number): number {
       return ex.circ_scratchPtr(this.ptr, count) >>> 0;
+    }
+  }
+
+  class TwinEstimatorImpl implements TwinEstimatorInstance {
+    ptr: number;
+    constructor() {
+      this.ptr = ex.twin_new() >>> 0;
+      if (this.ptr === 0) throw new Error('sim_core: TwinEstimator allocation failed');
+    }
+
+    delete(): void {
+      if (this.ptr !== 0) ex.twin_delete(this.ptr);
+      this.ptr = 0;
+    }
+    stateCount(): number {
+      return ex.twin_stateCount(this.ptr);
+    }
+    sensorCount(): number {
+      return ex.twin_sensorCount(this.ptr);
+    }
+    paramCount(): number {
+      return ex.twin_paramCount(this.ptr);
+    }
+    setInitial(i: number, value: number, sd: number): boolean {
+      return ex.twin_setInitial(this.ptr, i, value, sd) !== 0;
+    }
+    reset(): void {
+      ex.twin_reset(this.ptr);
+    }
+    setParam(i: number, value: number): boolean {
+      return ex.twin_setParam(this.ptr, i, value) !== 0;
+    }
+    getParam(i: number): number {
+      return ex.twin_getParam(this.ptr, i);
+    }
+    setProcessNoise(i: number, q: number): boolean {
+      return ex.twin_setProcessNoise(this.ptr, i, q) !== 0;
+    }
+    getProcessNoise(i: number): number {
+      return ex.twin_getProcessNoise(this.ptr, i);
+    }
+    setSensorSigma(c: number, sigma: number): boolean {
+      return ex.twin_setSensorSigma(this.ptr, c, sigma) !== 0;
+    }
+    getSensorSigma(c: number): number {
+      return ex.twin_getSensorSigma(this.ptr, c);
+    }
+    predict(dt: number, vDrive: number): boolean {
+      return ex.twin_predict(this.ptr, dt, vDrive) !== 0;
+    }
+    setMeasurement(c: number, value: number): void {
+      ex.twin_setMeasurement(this.ptr, c, value);
+    }
+    update(): number {
+      return ex.twin_update(this.ptr);
+    }
+    time(): number {
+      return ex.twin_time(this.ptr);
+    }
+    state(i: number): number {
+      return ex.twin_state(this.ptr, i);
+    }
+    cov(i: number, j: number): number {
+      return ex.twin_cov(this.ptr, i, j);
+    }
+    readoutPtr(): number {
+      return ex.twin_readoutPtr(this.ptr) >>> 0;
+    }
+    readoutCount(): number {
+      return ex.twin_readoutCount(this.ptr);
+    }
+    snapshotPtr(): number {
+      return ex.twin_snapshotPtr(this.ptr) >>> 0;
+    }
+    snapshotCount(): number {
+      return ex.twin_snapshotCount(this.ptr);
+    }
+    save(): void {
+      ex.twin_save(this.ptr);
+    }
+    load(): boolean {
+      return ex.twin_load(this.ptr) !== 0;
+    }
+  }
+
+  class TwinSysIdImpl implements TwinSysIdInstance {
+    ptr: number;
+    constructor() {
+      this.ptr = ex.sysid_new() >>> 0;
+      if (this.ptr === 0) throw new Error('sim_core: TwinSysId allocation failed');
+    }
+
+    delete(): void {
+      if (this.ptr !== 0) ex.sysid_delete(this.ptr);
+      this.ptr = 0;
+    }
+    dataPtr(samples: number): number {
+      return ex.sysid_dataPtr(this.ptr, samples) >>> 0;
+    }
+    load(samples: number): number {
+      return ex.sysid_load(this.ptr, samples);
+    }
+    errorText(): string {
+      return cstr(ex.sysid_errorText(this.ptr));
+    }
+    setParam(i: number, value: number): boolean {
+      return ex.sysid_setParam(this.ptr, i, value) !== 0;
+    }
+    setFit(i: number, fit: boolean): boolean {
+      return ex.sysid_setFit(this.ptr, i, fit ? 1 : 0) !== 0;
+    }
+    setInitialState(j: number, value: number): boolean {
+      return ex.sysid_setInitialState(this.ptr, j, value) !== 0;
+    }
+    setFitInitialState(fit: boolean): void {
+      ex.sysid_setFitInitialState(this.ptr, fit ? 1 : 0);
+    }
+    setSensorSigma(c: number, sigma: number): boolean {
+      return ex.sysid_setSensorSigma(this.ptr, c, sigma) !== 0;
+    }
+    setMaxIterations(n: number): void {
+      ex.sysid_setMaxIterations(this.ptr, n);
+    }
+    start(): number {
+      return ex.sysid_start(this.ptr);
+    }
+    iterate(): number {
+      return ex.sysid_iterate(this.ptr);
+    }
+    status(): number {
+      return ex.sysid_status(this.ptr);
+    }
+    iterations(): number {
+      return ex.sysid_iterations(this.ptr);
+    }
+    cost(): number {
+      return ex.sysid_cost(this.ptr);
+    }
+    lambda(): number {
+      return ex.sysid_lambda(this.ptr);
+    }
+    residualCount(): number {
+      return ex.sysid_residualCount(this.ptr);
+    }
+    reducedChi2(): number {
+      return ex.sysid_reducedChi2(this.ptr);
+    }
+    condition(): number {
+      return ex.sysid_condition(this.ptr);
+    }
+    residualAutocorr(): number {
+      return ex.sysid_residualAutocorr(this.ptr);
+    }
+    warnings(): number {
+      return ex.sysid_warnings(this.ptr) >>> 0;
+    }
+    param(i: number): number {
+      return ex.sysid_param(this.ptr, i);
+    }
+    initialState(j: number): number {
+      return ex.sysid_initialState(this.ptr, j);
+    }
+    covariance(i: number, j: number): number {
+      return ex.sysid_covariance(this.ptr, i, j);
+    }
+    r2(c: number): number {
+      return ex.sysid_r2(this.ptr, c);
+    }
+    rmsNormalized(c: number): number {
+      return ex.sysid_rmsNormalized(this.ptr, c);
+    }
+    fitPtr(): number {
+      return ex.sysid_fitPtr(this.ptr) >>> 0;
+    }
+    fitCount(): number {
+      return ex.sysid_fitCount(this.ptr);
     }
   }
 
@@ -1120,6 +1480,8 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
 
   return {
     CircuitSim: CircuitSimImpl,
+    TwinEstimator: TwinEstimatorImpl,
+    TwinSysId: TwinSysIdImpl,
     FdtdTmzGrid: FdtdTmzGridImpl,
     SEGSimulator: SEGSimulatorImpl,
     get HEAPF32(): Float32Array {

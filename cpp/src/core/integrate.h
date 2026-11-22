@@ -11,8 +11,9 @@
 //                  and the frame-end state is interpolated, so a frame
 //                  boundary never forces a short step
 //   ros23_advance  Shampine's L-stable Rosenbrock (2,3) pair (MATLAB ode23s)
-//                  with a finite-difference Jacobian, for loops too stiff for
-//                  an explicit method (#257 swaps the Jacobian for duals)
+//                  for loops too stiff for an explicit method. J = ∂f/∂x is
+//                  exact (core/dual.h) for a DifferentiablePlant, forward
+//                  differences otherwise
 //
 // Mirror: src/renderers/shared/integrate.ts (same algorithms, same constants;
 // test:golden holds the two to each other per integrator).
@@ -330,8 +331,11 @@ StepStats dopri5_advance(const P& p, std::span<float> x, const typename P::input
 // ─────────────────────────────────────────────────────────────
 // Rosenbrock (2,3) — Shampine & Reichelt, "The MATLAB ODE Suite" (1997),
 // the ode23s pair. L-stable second-order step, third-order error estimate,
-// first-same-as-last F2, and its own interpolant. J = ∂f/∂x and T = ∂f/∂t
-// are forward differences (state_size + 1 RHS per step).
+// first-same-as-last F2, and its own interpolant. J = ∂f/∂x comes from one
+// Dual evaluation when the plant is a DifferentiablePlant (core/plant.h) and
+// from forward differences (state_size RHS) otherwise; T = ∂f/∂t is always a
+// forward difference (1 RHS). The TS mirror differences both, so test:golden
+// holds the two at its ros23 ε, not bit for bit.
 // ─────────────────────────────────────────────────────────────
 namespace ros {
 inline constexpr float kD = 0.29289321881345247560f; // 1 / (2 + √2)
@@ -408,15 +412,23 @@ StepStats ros23_advance(const P& p, std::span<float> x, const typename P::input_
         if (!(hh > hMinRel * static_cast<float>(std::max(t, dt)))) { s.ok = false; break; }
         const double hd = static_cast<double>(hh);
         if (!jacFresh) {
-            // Forward-difference J (column j: perturb x_j) and T = ∂f/∂t.
-            for (std::size_t j = 0; j < N; ++j) {
-                const float dj = sqrtEps * std::max(std::fabs(y[j]), tol.atol[j] / std::max(tol.rtol, 1e-12f));
-                ys = y;
-                ys[j] += dj;
-                const float dActual = ys[j] - y[j];
-                detail::f(p, t, ys, u, fT, s);
-                for (std::size_t i = 0; i < N; ++i) J[i * N + j] = (fT[i] - f0[i]) / dActual;
+            if constexpr (DifferentiablePlant<P>) {
+                // J = ∂f/∂x exactly, from one Dual evaluation (core/dual.h) —
+                // #257 §1. Its f is f0 again, so it is not counted as an RHS.
+                jacobian_x(p, t, std::span<const float>(y), u, std::span<float>(fT), std::span<float>(J));
+            } else {
+                // Forward-difference J (column j: perturb x_j).
+                for (std::size_t j = 0; j < N; ++j) {
+                    const float dj = sqrtEps * std::max(std::fabs(y[j]), tol.atol[j] / std::max(tol.rtol, 1e-12f));
+                    ys = y;
+                    ys[j] += dj;
+                    const float dActual = ys[j] - y[j];
+                    detail::f(p, t, ys, u, fT, s);
+                    for (std::size_t i = 0; i < N; ++i) J[i * N + j] = (fT[i] - f0[i]) / dActual;
+                }
             }
+            // T = ∂f/∂t stays a forward difference: time is not a Dual (the
+            // plants take it as double so an AC phase does not drift).
             const double dtT = static_cast<double>(sqrtEps) * std::max(std::fabs(t), dt);
             detail::f(p, t + dtT, y, u, fT, s);
             for (std::size_t i = 0; i < N; ++i) T[i] = static_cast<float>((fT[i] - f0[i]) / dtT);

@@ -21,6 +21,7 @@
 #include "../coil_controller.h"
 #include "../sensor_manager.h"
 #include "../seg_driver_core.h"
+#include "../ble_link.h"
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -422,8 +423,88 @@ static void helloLine() {
   segfw::SafetyCore core(6);
   char buf[112];
   core.formatHello(buf, sizeof(buf), "uno", "serial", 2);
-  CHECK(std::string(buf) == "I v=2 fw=seg-driver board=uno link=serial coils=6 halls=2 wd=100 brake=128/1000",
+  CHECK(std::string(buf) == "I v=3 fw=seg-driver board=uno link=serial coils=6 halls=2 wd=100 brake=128/1000",
         "hello: '%s'", buf);
+  // v3 timestamps only after a host asked for v3 or newer; forgotten on link loss.
+  CHECK(!core.timestamped(), "hello: timestamped before any request");
+  CHECK(core.feedLine("V", 0) == segfw::LINE_HELLO && !core.timestamped(), "hello: bare V must not switch to v3 samples");
+  CHECK(core.feedLine("V2", 0) == segfw::LINE_HELLO && !core.timestamped(), "hello: a v2 host must keep v1 samples");
+  CHECK(core.feedLine("V3", 0) == segfw::LINE_HELLO && core.timestamped(), "hello: V3 should switch on t= samples");
+  CHECK(core.feedLine("V12", 0) == segfw::LINE_HELLO && core.timestamped(), "hello: a newer host gets v3 samples");
+  CHECK(core.feedLine("V3x", 0) == segfw::LINE_HELLO && !core.timestamped(), "hello: malformed V3x must not count as v3");
+  core.feedLine("V3", 0);
+  core.linkLost();
+  CHECK(!core.timestamped(), "hello: the v3 request must not outlive the link");
+  CHECK(!core.fed(), "hello: V must never feed the watchdog");
+}
+
+// BLE (#257 §4): RX writes through ByteRing → LineAssembler → DriverCore, the
+// disconnect latch, and the 100 ms watchdog when no disconnect callback comes.
+static void bleWatchdog() {
+  Bench b;
+  segfw::ByteRing<512> ring;
+  segfw::LinkState link;
+  segfw::LineAssembler lines;
+  bool skip = false;
+  auto write = [&](const char* text) { ring.push(reinterpret_cast<const uint8_t*>(text), strlen(text)); };
+  auto loop = [&](uint32_t ms) {
+    for (uint32_t t = 0; t < ms; t++) {
+      if (link.takeLost()) b.core.linkLost();
+      segfw::drainLines(ring, lines, skip, [&](const char* l) { b.line(l); });
+      b.step();
+    }
+  };
+  link.onConnect();
+  // A P line split across two 20-byte GATT writes still lands as one command.
+  for (int k = 0; k < 10; k++) {
+    write("P300.00,");
+    write("0.0,0\n");
+    loop(16);
+  }
+  CHECK(b.anyOn(), "ble: a chunked P stream did not drive the coils");
+
+  // 1. Disconnect callback: off in the very next loop, not after the watchdog.
+  link.onDisconnect();
+  loop(1);
+  CHECK(!b.anyOn(), "ble: coils still on the loop after the disconnect callback");
+  loop(500);
+  CHECK(!b.anyOn(), "ble: coil came back with no new command after the disconnect");
+  CHECK(!link.connected(), "ble: link still reported connected");
+
+  // 2. Out of range: writes stop, no callback yet (supervision timeout is seconds).
+  link.onConnect();
+  for (int k = 0; k < 10; k++) {
+    write("P300.00,0.0,0\n");
+    loop(16);
+  }
+  CHECK(b.anyOn(), "ble: reconnected host could not drive");
+  uint32_t offAfter = b.stepUntilOff(b.lastCommandMs);
+  CHECK(offAfter <= WATCHDOG_TIMEOUT_MS + 1, "ble: silent link cut after %u ms, want <= %u", (unsigned)offAfter, (unsigned)WATCHDOG_TIMEOUT_MS + 1);
+
+  // 3. A write dropped on a full ring never splices two fragments into a command.
+  segfw::ByteRing<16> tiny;
+  segfw::LineAssembler tinyLines;
+  bool tinySkip = false;
+  int commands = 0;
+  tiny.push(reinterpret_cast<const uint8_t*>("P30"), 3);
+  CHECK(!tiny.push(reinterpret_cast<const uint8_t*>("0.00,0.0,0\nP300.00"), 18), "ble: an oversized write was not refused whole");
+  tiny.push(reinterpret_cast<const uint8_t*>(",0.0,0\n"), 7);
+  segfw::drainLines(tiny, tinyLines, tinySkip, [&](const char*) { commands++; });
+  CHECK(commands == 0, "ble: fragments around a dropped write became %d command(s)", commands);
+  tiny.push(reinterpret_cast<const uint8_t*>("P1,0,2\n"), 7);
+  segfw::drainLines(tiny, tinyLines, tinySkip, [&](const char*) { commands++; });
+  CHECK(commands == 1, "ble: the next whole line after a drop was not delivered");
+
+  // 4. Notify chunking: every byte once, in order, no chunk over the payload.
+  std::string out;
+  size_t biggest = 0;
+  const char* line = "S t=123456 12.34,450.00,1.00,2.00,3.00,1,3,123\n";
+  size_t chunks = segfw::chunkLine(line, strlen(line), 20, [&](const uint8_t* d, size_t n) {
+    out.append(reinterpret_cast<const char*>(d), n);
+    if (n > biggest) biggest = n;
+  });
+  CHECK(out == line && biggest <= 20 && chunks == (strlen(line) + 19) / 20, "ble: chunkLine split wrong (%zu chunks)", chunks);
+  CHECK(b.clean("ble"), "ble: invariant violated");
 }
 
 // Random host: valid and invalid lines, silences, link drops — invariants every ms.
@@ -543,13 +624,22 @@ static void sketchEndToEnd() {
   for (uint8_t p : UNO_COILS) {
     CHECK(shim::isOutput[p] && shim::level[p] == 0, "sketch: coil pin %u not LOW OUTPUT after setup()", (unsigned)p);
   }
-  const std::string hello = "I v=2 fw=seg-driver board=uno link=serial coils=6 halls=2 wd=100 brake=128/1000";
+  const std::string hello = "I v=3 fw=seg-driver board=uno link=serial coils=6 halls=2 wd=100 brake=128/1000";
   CHECK(shim::serialOut.find(hello) != std::string::npos, "sketch: boot hello missing; output was:\n%s", shim::serialOut.c_str());
 
   shim::serialOut.clear();
   shim::serialIn += "V2\n";
-  sketchLoop(1);
+  sketchLoop(20);
   CHECK(shim::serialOut.find(hello) != std::string::npos, "sketch: no hello reply to V2");
+  CHECK(shim::serialOut.find("\r\nS t=") == std::string::npos && shim::serialOut.find("\r\nS") != std::string::npos,
+        "sketch: a v2 host must get v1 S lines");
+
+  // v3 host: timestamped samples (the board's micros()).
+  shim::serialOut.clear();
+  shim::serialIn += "V3\n";
+  sketchLoop(20);
+  CHECK(shim::serialOut.find("\r\nS t=") != std::string::npos, "sketch: no S t= samples after V3; output:\n%s", shim::serialOut.c_str());
+  sketch::driver.linkLost();
 
   // A v1 host never sends V: plain P lines drive it, and every coil commutes.
   uint32_t lit = sketchRotate(2000);
@@ -595,7 +685,8 @@ int main() {
     {"link lost -> off in the same call", linkLostIsImmediate},
     {"watchdog across the millis() wrap", millisWrap},
     {"line assembly", lineAssembler},
-    {"hello line", helloLine},
+    {"hello line + v3 negotiation", helloLine},
+    {"BLE link: chunked RX, disconnect latch, silent-link watchdog, dropped writes", bleWatchdog},
     {"fuzz: 3,000,000 ms of a random host", fuzz},
     {"the sketch end to end (setup/loop over the shim)", sketchEndToEnd},
   };

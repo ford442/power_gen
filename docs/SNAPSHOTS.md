@@ -59,7 +59,13 @@ Pure helpers (`src/session/plant-snapshot.ts`, Node-testable):
     "vdg": { "vdgChargeC": 2e-6, "vdgVoltage": 150000, "vdgSparkAccum": 1, "…": 0 },
     "hall": { "hallCarrierType": 1, "hallFieldCoupledT": -1, "…": 0 }
   },
-  "wasm": { "mode": 10, "values": [8.25, 0.73, "…"] }   // C++ focus plant (_time, _drive, fields), when it owns it
+  "wasm": { "mode": 10, "values": [8.25, 0.73, "…"] },  // C++ focus plant (_time, _drive, fields), when it owns it
+  "twin": {                         // hardware twin filter (#257, ADR-0019), when an estimator runs
+    "version": 1,
+    "values": [1, 2, 5, 3, 14.2, "…"], // TwinEstimator block: [layout v, N, NP, M, t, x, P, θ, q, σ, hMax]
+    "profile": "tp1;h=…",           // calibration profile in use, or null
+    "t": 1843.216                   // board-clock time of the filter's last sample, or null
+  }
 }
 ```
 
@@ -163,19 +169,29 @@ boundary, then the next sensor sample**: a restore that carries the operator
 calls `session.holdClosedLoopForSnapshot()`, which parks the override until
 the bridge reports a sample newer than the restore
 (`hardwareBridge.lastSensorUpdate`). The plant integrates on from the
-snapshot's ω until then; that next sample — the real rotor — wins again, as
-closed loop promises. The hardware panel keeps showing the last reading
-throughout; a disconnect drops the hold. Open and shadow modes are untouched
-(the sim drives the coils, so the snapshot's ω is what they command).
+snapshot's ω until then; that next sample — the real rotor, through the filter
+— wins again, as closed loop promises. The hardware panel keeps showing the
+last reading throughout; a disconnect drops the hold. Open and estimate modes
+are untouched (the sim drives the coils, so the snapshot's ω is what they
+command).
 
-With the plant worker on, the worker's C++ plant takes the snapshot's vector
-at the same boundary; it then integrates from its own ω while the override
-writes the display (the plant-worker gap in [`AGENTS.md`](./AGENTS.md)).
+Since #257 the override is the twin's **filtered** ω (the EKF), not the raw
+sample, and it is applied before the plant worker's post as well as after the
+step — so the worker integrates from it (the old plant-worker gap is closed).
+The snapshot carries the filter too (`twin` block above, ADR-0019 / the
+ADR-0015 amendment): x̂, P, θ, Q and R come back bit for bit with the plant,
+and on the same board clock the filter continues over the true gap since the
+snapshot's last sample (`t`); on another link it continues over one nominal
+sample period. An invalid `twin` block is a warning and is skipped; the rest
+of the snapshot loads.
+
 `npm run test:twin-snapshot` checks the rule on the real `?mockHardware=1`
 transport (MockSerialTransport, its timer stopped and ticked by hand): closed
-loop follows the sensor, a restore holds the snapshot's ω over five frames
-with no new sample, the next sample takes over, open loop is unaffected, and a
-reconnect starts with no stale hold.
+loop follows the filtered estimate, a restore holds the snapshot's ω over five
+frames with no new sample, the next sample takes over from the restored
+filter, a mid-run restore brings back t, x̂ and P bit for bit, open loop is
+unaffected, and a reconnect starts with no stale hold. `npm run test:twin`
+round-trips the block through JSON and `parsePlantSnapshot`.
 
 ## Replay take-over
 
