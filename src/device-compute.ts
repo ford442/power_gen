@@ -10,6 +10,7 @@ import { VDG_V_BREAK } from './devices/quanta/van-de-graaff';
 import { HALL } from './devices/quanta/hall-effect';
 import { RING } from './devices/quanta/jumping-ring';
 import { dropTubeParticleUniforms } from './devices/quanta/drop-tube';
+import { advanceMhdTravel } from './devices/core/mhd-parcels';
 
 interface ComputeGeometryHost {
   particles: GPUBuffer;
@@ -98,9 +99,11 @@ class DeviceComputeManager {
         p1 = Math.min(1, physicsState.peltierCOP ?? 0);
         p2 = Math.min(1, ((physicsState.peltierHotK ?? 300) - 280) / 150);
       } else if (physicsState.deviceId === 'mhd') {
-        p0 = Math.min(1, (physicsState.mhdFlowU ?? 0) / 3.5);
+        // posMhd: centre-line transits (fractional) and the raw Hartmann
+        // number — the profile is evaluated in the shader, not normalised here.
+        p0 = advanceMhdTravel(physicsState, time);
         p1 = Math.min(1, (physicsState.mhdBFieldT ?? 0) / 1.0);
-        p2 = Math.min(1, (physicsState.mhdHartmann ?? 0) / 40);
+        p2 = Math.max(0, physicsState.mhdHartmann ?? 0);
       } else if (physicsState.deviceId === 'transformer') {
         p0 = Math.min(1, Math.abs(physicsState.transformerIpA ?? 0) / 4);
         p1 = Math.min(1, Math.abs(physicsState.transformerIsA ?? 0) / 3);

@@ -92,13 +92,14 @@ native-san:
 	$(SAN_ENV) ./build/sim_core_test_san
 	$(SAN_ENV) ./build/sim_core_test_san --mode golden > build/golden_san.txt
 	$(SAN_ENV) ./build/sim_core_test_san --mode jumping-ring
+	$(SAN_ENV) ./build/sim_core_test_san --mode hartmann > build/hartmann_san.txt
 	$(SAN_ENV) ./build/sim_core_test_san --mode energy-network
 	$(SAN_ENV) ./build/sim_core_test_san --mode integrators > build/integrators_san.txt
 	$(SAN_ENV) ./build/sim_core_test_san --mode circuit > build/circuit_san.txt
 	$(SAN_ENV) ./build/sim_core_test_san --mode fdtd
 	$(SAN_ENV) ./build/sim_core_test_san --mode ad > build/ad_san.txt
 	$(SAN_ENV) ./build/sim_core_test_san --mode twin > build/twin_san.txt
-	@echo "✓  ASan + UBSan clean (default, golden, jumping-ring, energy-network, integrators, circuit, fdtd, ad, twin) — $(SAN_CXX)"
+	@echo "✓  ASan + UBSan clean (default, golden, jumping-ring, hartmann, energy-network, integrators, circuit, fdtd, ad, twin) — $(SAN_CXX)"
 
 # Advisory only: cpp/.clang-tidy keeps WarningsAsErrors empty and this target
 # never fails, until the finding count is near zero (see cpp/README.md).

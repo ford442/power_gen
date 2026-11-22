@@ -1,6 +1,6 @@
 // =============================================================
-// mhd_plant.cpp  –  Hartmann-style MHD channel plant (pure extraction,
-// no logic changes vs sim_core.cpp)
+// mhd_plant.cpp  –  Hartmann MHD duct: lumped mean-speed plant + parcels
+// that advect on the analytic Hartmann profile (mhd_plant.h)
 // =============================================================
 
 #include "../sim_core.h"
@@ -8,28 +8,22 @@
 
 using namespace plant_common;
 
-void mhd_particle_step(SimParticle& p, float flowU, float bField, float dt, float simTime) {
-    // Channel advection along +x with Lorentz-scaled helical swirl; recycle
-    // parcels at the inlet (x = -2.2) once they exit the duct.
-    constexpr float X_OUT = 2.2f;
-    constexpr float HY = 1.2f;  // half-height
-    constexpr float HZ = 0.9f;  // half-depth
-    float uTarget = std::max(0.05f, flowU) * 1.2f;
-    p.vx += (uTarget - p.vx) * 3.f * dt;
-    // Transverse confinement + B-scaled swirl around the flow axis
-    float swirl = bField * 1.4f;
-    float aY = -p.y * 6.f - p.vy * 2.f + swirl * p.z * 2.f
-             + std::sin(p.phase * 37.1f + simTime * 1.3f) * 0.2f;
-    float aZ = -p.z * 6.f - p.vz * 2.f - swirl * p.y * 2.f;
-    p.vy += aY * dt; p.vz += aZ * dt;
-    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-    p.aux = clampf(bField * std::abs(p.vx) * 0.4f, 0.f, 1.f); // induction glow
-    if (p.x > X_OUT || std::abs(p.y) > HY * 1.6f || std::abs(p.z) > HZ * 1.6f) {
-        p.x = -X_OUT + hash1(p.phase + simTime) * 0.3f;
-        p.y = (hash1(p.phase + simTime + 1.f) - 0.5f) * 2.f * HY * 0.8f;
-        p.z = (hash1(p.phase + simTime + 2.f) - 0.5f) * 2.f * HZ * 0.8f;
-        p.vx = uTarget; p.vy = 0.f; p.vz = 0.f;
-    }
+void mhd_particle_step(SimParticle& p, float flowU, float bField, float hartmannNumber, float dt, float /*simTime*/) {
+    // Fully developed Hartmann flow: a parcel keeps its lane (y, z) and
+    // advects along +x at the local speed u(y) = flowU · profile(y/a; Ha).
+    // There is no cross-stream motion — the laminar solution has none — so
+    // parcels released together across the gap spread into the profile.
+    // Scene units per second on the slowed display clock (mhd-parcels.ts).
+    using namespace mhd_scene;
+    const float eta = clampf(p.y / HALF_GAP_U, -1.f, 1.f);
+    const float uMps = std::max(0.f, flowU) * hartmann::profile(eta, hartmannNumber);
+    p.vx = uMps * (LENGTH_U / power_gen::MhdConstants::LENGTH_M) / SLOWDOWN;
+    p.vy = 0.f; p.vz = 0.f;
+    p.x += p.vx * dt;
+    p.aux = clampf(bField * uMps * 0.4f, 0.f, 1.f); // induction glow ∝ local u·B
+    // Re-enter at the inlet on the same lane; a non-finite x re-seeds there too.
+    if (!(p.x <= X_IN + LENGTH_U)) p.x = X_IN + std::fmod(p.x - X_IN, LENGTH_U);
+    if (!(p.x >= X_IN) || !std::isfinite(p.x)) p.x = X_IN;
 }
 
 void SEGSimulator::_stepMHD(float dt) {

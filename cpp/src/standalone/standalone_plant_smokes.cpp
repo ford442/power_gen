@@ -1,5 +1,6 @@
 // =============================================================
 // standalone_plant_smokes.cpp  –  per-plant native smokes (--mode peltier … jumping-ring)
+// + the Hartmann profile report (--mode hartmann)
 // =============================================================
 
 #ifdef SIM_CORE_STANDALONE
@@ -7,7 +8,9 @@
 #include "sim_core.h"
 #include "standalone/standalone_modes.h"
 
+#include <cmath>
 #include <cstdio>
+#include <vector>
 
 int run_peltier_smoke() {
     SEGSimulator sim;
@@ -57,6 +60,71 @@ int run_mhd_smoke() {
         return 1;
     }
     printf("MHD smoke OK (energyLevel=%.3f)\n", sim.getEnergyLevel());
+    return 0;
+}
+
+// --mode hartmann: the analytic profile as C++ evaluates it (parsed by
+// scripts/tests/hartmann.test.mjs against the TS twin), then parcels stepped
+// on it — each must keep its lane and move at exactly u(y).
+int run_hartmann() {
+    const float has[] = { 0.f, 0.02f, 0.24f, 0.25f, 0.3f, 1.f, 3.79f, 5.f, 11.4f, 18.95f, 20.f, 400.f, 1895.f };
+    for (float ha : has) {
+        for (int i = 0; i <= 20; ++i) {
+            const float eta = -1.f + 0.1f * static_cast<float>(i);
+            printf("hartmann.profile %.9g %.9g %.9g %.9g\n",
+                   static_cast<double>(ha), static_cast<double>(eta),
+                   static_cast<double>(hartmann::profile(eta, ha)),
+                   static_cast<double>(hartmann::shape(eta, ha)));
+        }
+        printf("hartmann.wall %.9g %.9g\n", static_cast<double>(ha), static_cast<double>(hartmann::wall_shear(ha)));
+    }
+
+    SEGSimulator sim;
+    sim.setMode(SIM_MODE_MHD);
+    sim.setDrive(0.9f);
+    const float dt = 1.f / 60.f;
+    for (int i = 0; i < 600; ++i) sim.step(dt, 0.f);   // plant at steady state
+    const int count = 400;
+    sim.seedParticles(count);
+    std::vector<SimParticle> before(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) before[static_cast<size_t>(i)] = sim.getParticle(i);
+    const int steps = 6;                                // short: no parcel reaches the outlet
+    for (int i = 0; i < steps; ++i) sim.stepParticles(dt);
+
+    const float flowU = sim.getMhdFlowU();
+    const float ha = sim.getMhdHartmann();
+    const float scale = mhd_scene::LENGTH_U / power_gen::MhdConstants::LENGTH_M / mhd_scene::SLOWDOWN;
+    float maxErr = 0.f, meanU = 0.f;
+    int moved = 0;
+    for (int i = 0; i < count; ++i) {
+        const SimParticle a = before[static_cast<size_t>(i)];
+        const SimParticle b = sim.getParticle(i);
+        if (a.y != b.y || a.z != b.z) { printf("FAIL: parcel %d left its lane\n", i); return 1; }
+        if (std::fabs(a.y) > mhd_scene::HALF_GAP_U || std::fabs(a.z) > mhd_scene::HALF_WIDTH_U) {
+            printf("FAIL: parcel %d seeded outside the duct\n", i);
+            return 1;
+        }
+        const float u = flowU * hartmann::profile(a.y / mhd_scene::HALF_GAP_U, ha);
+        meanU += u;
+        if (b.x < a.x) continue;                        // wrapped at the outlet
+        ++moved;
+        maxErr = std::fmax(maxErr, std::fabs((b.x - a.x) - u * scale * dt * static_cast<float>(steps)));
+    }
+    meanU /= static_cast<float>(count);
+    printf("hartmann.parcels flowU=%.6g Ha=%.6g moved=%d maxErr=%.3g meanU=%.6g\n",
+           static_cast<double>(flowU), static_cast<double>(ha), moved,
+           static_cast<double>(maxErr), static_cast<double>(meanU));
+    if (moved < count * 3 / 4 || maxErr > 2e-4f) {
+        printf("FAIL: parcels do not advect at u(y)\n");
+        return 1;
+    }
+    // Lanes are uniform across the gap, so the parcel-mean speed is the plant's mean.
+    if (std::fabs(meanU - flowU) > 0.08f * flowU) {
+        printf("FAIL: parcel-mean speed %.4g is not the plant mean %.4g\n",
+               static_cast<double>(meanU), static_cast<double>(flowU));
+        return 1;
+    }
+    printf("Hartmann profile OK\n");
     return 0;
 }
 

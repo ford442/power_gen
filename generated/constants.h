@@ -97,7 +97,8 @@ struct MhdConstants {
   static constexpr float FRICTION_K     = 0.8f;
   static constexpr float FLOW_U_MAX_MPS = 5.0f;
   static constexpr float WIDTH_M        = 0.1f;
-  static constexpr float HALF_GAP_M     = 0.05f;
+  static constexpr float HALF_GAP_M     = 0.0005f;
+  static constexpr float LENGTH_M       = 0.4f;
   static constexpr float SIGMA_SM       = 1000000.0f;
   static constexpr float RHO_KG_M3      = 870.0f;
   static constexpr float NU_M2S         = 8e-7f;

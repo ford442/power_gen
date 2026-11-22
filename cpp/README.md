@@ -94,6 +94,7 @@ buffer packing
 ```bash
 ./build/sim_core_test --mode peltier   # thermoelectric stack smoke
 ./build/sim_core_test --mode mhd       # Hartmann channel smoke
+./build/sim_core_test --mode hartmann  # analytic profile table + parcels advect at u(y) (read by test:hartmann)
 ./build/sim_core_test --mode maglev    # Quanta gap ODE smoke
 ./build/sim_core_test --mode homopolar # Faraday disc L–R smoke
 ./build/sim_core_test --mode transformer # coupled-inductor L–M smoke

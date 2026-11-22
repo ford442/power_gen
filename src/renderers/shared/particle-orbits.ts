@@ -5,6 +5,8 @@
  * particle-physics.ts (split out for the 700-line gate).
  */
 
+import { mhdParcelPosition, type MhdParcel } from '../../devices/core/mhd-parcels';
+
 const TAU = Math.PI * 2;
 
 export interface ParticlePhase {
@@ -71,22 +73,16 @@ export function integrateHalbach(
   return [Math.cos(angle) * r, y, Math.sin(angle) * r];
 }
 
-export function integrateMHD(
-  p: ParticlePhase,
-  idx: number,
-  t: number,
-  flowN = 0.4,
-  bN = 0.4
-): [number, number, number] {
-  const phase = p.phase;
-  const drift = (((phase + t * (0.35 + flowN * 0.9)) % 1) + 1) % 1;
-  const x = -2.1 + drift * 4.2;
-  const swirl = bN * 0.55;
-  const y = Math.sin(t * 2.2 + phase * 11.0 + idx * 0.07) * swirl
-    + ((((idx * 0.137) % 1) + 1) % 1 - 0.5) * 0.7;
-  const z = Math.cos(t * 1.8 + phase * 8.0) * swirl * 0.75
-    + ((((idx * 0.191) % 1) + 1) % 1 - 0.5) * 0.5;
-  return [x, y, z];
+/**
+ * Mode 5 — MHD duct timelines in fully developed Hartmann flow. Same closed
+ * form as posMhd in particle-compute.wgsl; both are
+ * devices/core/mhd-parcels.ts `mhdParcelPosition`.
+ * @param travel centre-line transits, fractional part (advanceMhdTravel)
+ * @param hartmann Hartmann number, not normalised
+ * @returns [x, y, z, u/u(0)]
+ */
+export function integrateMHD(idx: number, travel = 0, hartmann = 0): MhdParcel {
+  return mhdParcelPosition(idx, travel, hartmann);
 }
 
 export function integratePeltier(

@@ -91,7 +91,7 @@ void heron_particle_step(SimParticle& p, float vExit, float dt, float simTime);
 void kelvin_particle_step(SimParticle& p, float kelvinE, float dt, float simTime);
 void solar_particle_step(SimParticle& p, float transmittance, float dt, float simTime);
 void peltier_particle_step(SimParticle& p, float deltaTN, float dt, float simTime);
-void mhd_particle_step(SimParticle& p, float flowU, float bField, float dt, float simTime);
+void mhd_particle_step(SimParticle& p, float flowU, float bField, float hartmannNumber, float dt, float simTime);
 
 /// gpu-chores: packed f32 reduce. out[5] = {sum, min, max, sumSq, count}.
 void chores_reduce_f32(const float* data, int count, float out[5]);

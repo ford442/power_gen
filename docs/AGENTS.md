@@ -79,7 +79,7 @@ Client-side **multi-device physics lab**: real-time visualization of research ap
 | `kelvin` | Kelvin’s Thunderstorm | Capacitive plant + droplet viz |
 | `solar` | LEDs + solar + battery | Photon paths + SOC; separate LED/solar TS/WGSL suite exists |
 | `peltier` | Thermoelectric | Two-node ΔT/COP telemetry + heat-map plate tint; WASM Seebeck stack (`?wasmPhysics=1`) with matching JS fallback |
-| `mhd` | MHD channel | Flow-arrow mesh + Hartmann readout; particles advect with `flowU`/`bField`; WASM Hartmann plant (`?wasmPhysics=1`) |
+| `mhd` | MHD channel | Lumped mean-speed plant with Lorentz braking (WASM with `?wasmPhysics=1`, JS fallback). The picture is the **analytic Hartmann profile**: parcels are timelines advected at `u(y)`, plus a profile card against the `B = 0` parabola, on both renderers. No numerical flow solve yet — [`FLUIDS.md`](./FLUIDS.md) |
 | `maglev` | Quanta MagLev (plugin) | Spring–damper gap + Halbach B est.; WASM plant with `?wasmPhysics=1` — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
 | `homopolar` | Quanta Faraday disc (plugin) | L–R + back-EMF; WASM plant with `?wasmPhysics=1` — [`DEVICE_GALLERY.md`](./DEVICE_GALLERY.md) |
 | `halbach-viz` | Quanta Halbach viz (plugin) | CPU RK4 field lines + heatmap (JS); see gallery |
@@ -669,6 +669,7 @@ Manual / agent checks:
 | [`adr/0017-field-volume.md`](./adr/0017-field-volume.md) | Field volume: catalog sources, kernels, consumers, probe keys, WGSL-on-CPU golden |
 | [`CIRCUIT.md`](./CIRCUIT.md) | Circuit Lab: teacher links, wiring view, elements, bench ports, energy books, `circuit.*` experiment keys, SPICE, limits ([ADR-0018](./adr/0018-circuit-lab.md)) |
 | [`EXPERIMENTS.md`](./EXPERIMENTS.md) | Scripted experiments: format, knobs, live vs offline clock, sweeps, tour `run`, reference experiments |
+| [`FLUIDS.md`](./FLUIDS.md) | Fluid and thermal benches: what is solved vs drawn, units and scale, limits (MHD Hartmann profile so far) |
 | [`SNAPSHOTS.md`](./SNAPSHOTS.md) | Plant snapshots: `state` blocks, `plantSave` / `plantLoad`, `window.lab.captureSnapshot`, replay take-over |
 | [`LIGHTING_RIG.md`](./LIGHTING_RIG.md) | Lighting looks + post quality gates |
 | [`GLTF_ASSETS.md`](./GLTF_ASSETS.md) | SceneNode + glTF CAD props |

@@ -1,6 +1,6 @@
 // =============================================================
 // particles.cpp  –  mode-aware particle seeding / stepping + particle
-// accessors (pure extraction, no logic changes vs sim_core.cpp)
+// accessors
 // =============================================================
 
 #include "../sim_core.h"
@@ -40,10 +40,11 @@ void SEGSimulator::seedParticles(int count) {
             p.vx = p.vy = p.vz = 0.f;
             p.aux = rnd(idx, 5.f);
         } else if (_mode == SIM_MODE_MHD) {
-            p.x = (rnd(idx, 1.f) - 0.5f) * 4.2f;
-            p.y = (rnd(idx, 2.f) - 0.5f) * 1.9f;
-            p.z = (rnd(idx, 4.f) - 0.5f) * 1.4f;
-            p.vx = _mhd.flowU; p.vy = 0.f; p.vz = 0.f; p.aux = 0.f;
+            // Lanes fill the drawn duct; each parcel keeps its (y, z) for good.
+            p.x = mhd_scene::X_IN + rnd(idx, 1.f) * mhd_scene::LENGTH_U;
+            p.y = (rnd(idx, 2.f) - 0.5f) * 2.f * mhd_scene::HALF_GAP_U;
+            p.z = (rnd(idx, 4.f) - 0.5f) * 2.f * mhd_scene::HALF_WIDTH_U;
+            p.vx = 0.f; p.vy = 0.f; p.vz = 0.f; p.aux = 0.f;
         } else { // solar
             float a = rnd(idx, 1.f) * PhysicsConstants::TAU;
             p.x = std::cos(a) * 0.8f; p.y = 2.0f; p.z = std::sin(a) * 0.8f;
@@ -91,7 +92,7 @@ void SEGSimulator::stepParticles(float dt) {
                 peltier_particle_step(p, clampf(_peltier.deltaTK / _peltier.deltaTRefK, 0.f, 1.f), dt, _time);
                 break;
             case SIM_MODE_MHD:
-                mhd_particle_step(p, _mhd.flowU, _mhd.bFieldT, dt, _time);
+                mhd_particle_step(p, _mhd.flowU, _mhd.bFieldT, _mhd.hartmann, dt, _time);
                 break;
         }
     }

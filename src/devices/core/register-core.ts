@@ -134,7 +134,7 @@ const mhdPlugin: DevicePlugin = {
     mhdVoltage: { label: 'Voltage', unit: 'V', source: 'sim' },
     mhdCurrent: { label: 'Current', unit: 'A', source: 'sim' },
     mhdPowerW: { label: 'Power', unit: 'W', source: 'sim' }
-  },
-  wantsThermalHaze: true
+  }
+  // No thermal haze: this plant has no temperature, so nothing here shimmers.
 };
 registerDevice(mhdPlugin);

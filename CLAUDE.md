@@ -134,6 +134,7 @@ npm run test:audio    # sonification mapping bounds (silent by default)
 npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switches
 npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement
 npm run test:drop-tube # drop-tube k / end taper / loops vs quadrature, transit vs RK4
+npm run test:hartmann # MHD duct: analytic Hartmann profile (TS vs C++), timeline parcels, Ha range (docs/FLUIDS.md)
 npm run test:field-volume # field kernels vs quadrature; field-probe/-volume WGSL run on the CPU vs the reference (ADR-0017)
 npm run test:circuit  # Circuit Lab: native MNA goldens + their WASM replay (LC energy, RLC Q), SPICE, host, links (ADR-0018)
 npm run generate:gltf # regenerate every placeholder GLB (seg + quanta + lab)

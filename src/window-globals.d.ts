@@ -8,6 +8,7 @@ import type { HardwareBridge } from './hardware-bridge';
 import type { SEGOperatorPanel } from './seg-operator-panel';
 import type { MultiDeviceCamera } from './multi-device-camera';
 import type { FdtdHeatmapOverlay } from './fdtd-heatmap-overlay';
+import type { MhdProfileOverlay } from './mhd-profile-overlay';
 import type { LabAudio } from './audio/lab-audio';
 import type {
   ChargeCouplingReading as ChargeNetworkWindowLink,
@@ -419,6 +420,8 @@ declare global {
 
     /** WebGL2 FDTD CPU micro-grid heatmap (fdtd-heatmap-overlay.ts, ADR-0012). */
     fdtdHeatmapOverlay?: FdtdHeatmapOverlay;
+    /** MHD velocity-profile card (mhd-profile-overlay.ts): Hartmann profile vs the B = 0 parabola. */
+    mhdProfileOverlay?: MhdProfileOverlay;
 
     /** Lab sonification singleton (audio/lab-audio.ts); only live under `?audio=1`. */
     labAudio?: LabAudio;

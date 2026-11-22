@@ -23,6 +23,7 @@ import { buildJumpingRingMesh, RING } from '../../devices/quanta/jumping-ring';
 import { dropTubeMeshFromState } from '../../devices/quanta/drop-tube';
 import { buildPeltierMesh } from '../../devices/core/peltier-mesh';
 import { buildMhdMesh } from '../../devices/core/mhd-mesh';
+import { advanceMhdTravel } from '../../devices/core/mhd-parcels';
 import { stepParticles } from '../shared/particle-physics';
 import { deviceModeIndex } from '../shared/device-physics';
 import { shouldSimulateDevice } from '../shared/device-view';
@@ -153,6 +154,8 @@ export function stepSimulation(viz, deltaTime, speed) {
         peltierCOP: device.physics.peltierCOP,
         mhdFlowU: device.physics.mhdFlowU,
         mhdBFieldT: device.physics.mhdBFieldT,
+        mhdHartmann: device.physics.mhdHartmann,
+        mhdTravel: device.id === 'mhd' ? advanceMhdTravel(device.physics, viz.time) : 0,
         transformerIpA: device.physics.transformerIpA,
         transformerIsA: device.physics.transformerIsA,
         transformerFluxN: device.physics.transformerFluxN,

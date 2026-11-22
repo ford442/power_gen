@@ -265,9 +265,9 @@ export const SEG_GLOSSARY: Record<string, GlossaryEntry> = {
   },
   'hartmann-number': {
     title: 'Hartmann number',
-    body: 'Ha = B a \u221a(\u03c3 / \u03c1\u03bd) compares magnetic to viscous force. Large Ha means thin Hartmann layers and a flat core. Reported for the regime; not fed back into the plant.',
+    body: 'Ha = B a \u221a(\u03c3 / \u03c1\u03bd) compares magnetic to viscous force across the gap. Small Ha is the parabolic profile of ordinary pipe flow; large Ha is a flat core with Hartmann layers a/Ha thick at the walls. It sets the profile the markers in the duct draw. It is not fed back into the plant\u2019s braking.',
     value: `Ha \u2248 ${(MHD.halfGapM * Math.sqrt(MHD.sigmaSm / (MHD.rhoKgM3 * MHD.nuM2s))).toFixed(0)} per tesla`,
-    source: 'devices/core/mhd-mesh.ts'
+    source: 'physics/hartmann.ts'
   },
   'gap-spring': {
     title: 'Virtual gap spring',

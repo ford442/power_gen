@@ -484,7 +484,7 @@ ODE state (`I`, `v`) stays continuous across the wrap.
 | Device | Notes |
 |--------|-------|
 | `peltier` | Two-node ΔT / COP footer gauges; plate heat-map tint from plant; WASM fields mirrored in telemetry schema |
-| `mhd` | Channel flow-arrow mesh; Hartmann readout; particle paths aligned with `flowU` / `bField` |
+| `mhd` | C-magnet mesh around an open slot duct. Parcels are **timelines on the analytic Hartmann profile** `u(y) = Ū·(cosh Ha − cosh(Ha·y/a)) / (cosh Ha − sinh(Ha)/Ha)`, evaluated at the plant's `mhdFlowU` and `mhdHartmann`; a profile card plots it against the `B = 0` parabola (both renderers). Ha ≈ 3.8–19 over the bench's 0.2–1.0 T. The plant is still one lumped mean speed — see [`FLUIDS.md`](./FLUIDS.md#mhd-duct) for what is solved and what is drawn |
 
 ---
 

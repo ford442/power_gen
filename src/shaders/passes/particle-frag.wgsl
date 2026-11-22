@@ -110,6 +110,10 @@
             // Solar: warm yellow photons
             let intensity = 0.55 + 0.45 * device.batteryCharge;
             color = vec3f(1.0, 0.88, 0.28) * intensity;
+          } else if (mode > 4.5 && mode < 5.5) {
+            // MHD: liquid-metal timeline markers, one colour — speed is read from their shape.
+            color = vec3f(0.55, 0.78, 1.0);
+            alpha *= 0.55;
           } else {
             // Peltier TEG: Colors based on thermal regions
             if (phase < 0.4) {

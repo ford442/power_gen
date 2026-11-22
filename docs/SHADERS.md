@@ -178,6 +178,12 @@ constants from `#include "generated/device-catalog.wgsl"` (`MODE_HOMOPOLAR`,
 See [`MODE_MATRIX.md`](MODE_MATRIX.md). Physics uniforms `physics0..3` carry
 per-mode scalars.
 
+Most `pos*` paths are illustrative closed forms of a normalised drive. `posMhd`
+is not: it places timelines on the analytic Hartmann profile, takes the raw
+Hartmann number in `physics2` and the integrated parcel travel in `physics0`,
+and has a position-for-position CPU twin (`mhdParcelPosition`) checked on a
+real GPU by `golden-particles` — [`FLUIDS.md`](FLUIDS.md#mhd-duct).
+
 ## naga vs Chrome (Tint) differences
 
 naga (used offline) is **stricter** than Tint in several places, and Tint is

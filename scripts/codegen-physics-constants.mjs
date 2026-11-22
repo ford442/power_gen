@@ -178,6 +178,7 @@ struct MhdConstants {
   static constexpr float FLOW_U_MAX_MPS = ${f32(mhd.flowUMaxMps)};
   static constexpr float WIDTH_M        = ${f32(mhd.widthM)};
   static constexpr float HALF_GAP_M     = ${f32(mhd.halfGapM)};
+  static constexpr float LENGTH_M       = ${f32(mhd.lengthM)};
   static constexpr float SIGMA_SM       = ${f32(mhd.sigmaSm)};
   static constexpr float RHO_KG_M3      = ${f32(mhd.rhoKgM3)};
   static constexpr float NU_M2S         = ${f32(mhd.nuM2s)};
@@ -502,6 +503,7 @@ export const MHD = {
   flowUMaxMps: ${mhdc.flowUMaxMps},
   widthM: ${mhdc.widthM},
   halfGapM: ${mhdc.halfGapM},
+  lengthM: ${mhdc.lengthM},
   sigmaSm: ${mhdc.sigmaSm},
   rhoKgM3: ${mhdc.rhoKgM3},
   nuM2s: ${mhdc.nuM2s},

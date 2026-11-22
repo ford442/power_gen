@@ -143,6 +143,13 @@ export interface MhdPhysicsExtension {
   mhdCurrent?: number;
   mhdPowerW?: number;
   _wasmPlantActive?: boolean;
+  /**
+   * Parcel travel for the picture: centre-line transits (fractional part) and
+   * the scene time it was last advanced to — devices/core/mhd-parcels.ts.
+   * View state, not plant state: no catalog key, not snapshotted.
+   */
+  _mhdTravel?: number;
+  _mhdTravelClock?: number;
 }
 
 /** Quanta mutual-induction / transformer classroom demo. */

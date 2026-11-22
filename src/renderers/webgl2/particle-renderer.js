@@ -35,6 +35,10 @@ export class ParticleRenderer {
     gl.enableVertexAttribArray(2);
     gl.vertexAttribPointer(3, 1, gl.FLOAT, false, stride, 28);
     gl.enableVertexAttribArray(3);
+    // One record per billboard, not per corner. Without the divisor every
+    // instance read records 0..3 as its four corners, so all the particles of
+    // a bench drew as one sliver stretched between its first four.
+    for (let loc = 0; loc < 4; loc++) gl.vertexAttribDivisor(loc, 1);
     gl.bindVertexArray(null);
   }
 

@@ -1,10 +1,66 @@
 #pragma once
-// Hartmann-style MHD channel: pressure-driven conductive flow retarded by
-// Lorentz braking, inducing a load voltage V = B·u·w.
+// Hartmann MHD duct: pressure-driven conductive flow retarded by Lorentz
+// braking, inducing a load voltage V = B·u·w. The plant is one lumped mean
+// speed; the profile across the gap is the analytic solution below.
 // Classroom numbers: physics/constants.json → generated/constants.h
 // (shared with the TS fallback in devices/core/mhd-mesh.ts).
 
 #include "../../../generated/constants.h"
+
+#include <cmath>
+
+// Fully developed Hartmann flow between insulating walls at y = ±a, field
+// along y (Hartmann 1937). eta = y/a in [-1, 1]; velocities in units of the
+// mean. Written with decaying exponentials so a large Ha cannot overflow;
+// below HARTMANN_SERIES_BELOW the closed form cancels in float and a series in
+// Ha² takes over (Ha → 0 is the Poiseuille parabola). The TS twin is
+// src/physics/hartmann.ts and the WGSL one passes/particle-compute.wgsl;
+// `--mode hartmann` prints this one for scripts/tests/hartmann.test.mjs.
+namespace hartmann {
+
+inline constexpr float SERIES_BELOW = 0.25f;
+
+/// cosh(h·e) / cosh(h) for e in [0, 1], h ≥ 0.
+inline float cosh_ratio(float h, float e) {
+    return std::exp(h * (e - 1.f)) * (1.f + std::exp(-2.f * h * e)) / (1.f + std::exp(-2.f * h));
+}
+
+/// u(eta) / u(0): 1 on the centre line, 0 at the walls.
+inline float shape(float eta, float ha) {
+    const float e = std::fmin(std::fabs(eta), 1.f);
+    const float h = std::fabs(ha);
+    if (!(h >= SERIES_BELOW)) return (1.f - e * e) * (1.f + h * h * e * e / 12.f);
+    const float sech = 2.f * std::exp(-h) / (1.f + std::exp(-2.f * h));
+    return (1.f - cosh_ratio(h, e)) / (1.f - sech);
+}
+
+/// u(eta) / mean: integrates to 1 across the gap.
+inline float profile(float eta, float ha) {
+    const float e = std::fmin(std::fabs(eta), 1.f);
+    const float h = std::fabs(ha);
+    if (!(h >= SERIES_BELOW)) return 1.5f * (1.f - e * e) * (1.f + h * h * (e * e / 12.f - 1.f / 60.f));
+    return (1.f - cosh_ratio(h, e)) / (1.f - std::tanh(h) / h);
+}
+
+/// Wall shear −(a/Ū)·du/dy at y = a: 3 for Poiseuille, → Ha for thin layers.
+inline float wall_shear(float ha) {
+    const float h = std::fabs(ha);
+    if (!(h >= SERIES_BELOW)) return 3.f * (1.f + h * h / 15.f);
+    const float th = std::tanh(h);
+    return h * th / (1.f - th / h);
+}
+
+} // namespace hartmann
+
+// The drawn duct in device-local render units, and the display slow-down —
+// MHD_DUCT / MHD_PARCEL_SLOWDOWN in src/devices/core/mhd-parcels.ts.
+namespace mhd_scene {
+inline constexpr float X_IN = -2.1f;
+inline constexpr float LENGTH_U = 4.2f;
+inline constexpr float HALF_GAP_U = 0.42f;
+inline constexpr float HALF_WIDTH_U = 0.12f;
+inline constexpr float SLOWDOWN = 6.f;
+} // namespace mhd_scene
 
 struct MHDState {
     float flowU{0.f};          // bulk channel velocity, m/s

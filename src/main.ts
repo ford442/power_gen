@@ -46,6 +46,7 @@ import type { TelemetryCsvRow } from './telemetry/telemetry-schema';
 import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
 import { initFdtdHeatmapOverlay } from './fdtd-heatmap-overlay';
 import { initFieldPanel } from './field-panel';
+import { initMhdProfileOverlay } from './mhd-profile-overlay';
 import { LabAudio } from './audio/lab-audio';
 import { initLabAudioBadge } from './audio/lab-audio-badge';
 import { wireChargeCouplingControls } from './charge-coupling-ui';
@@ -288,6 +289,14 @@ function bootApp(): void {
       initFdtdHeatmapOverlay();
     } catch (e) {
       console.warn('[main] FDTD micro-grid heatmap init skipped:', e);
+    }
+
+    try {
+      // Hartmann velocity profile beside the B = 0 parabola — both renderers,
+      // hidden until the MHD duct is focused.
+      initMhdProfileOverlay();
+    } catch (e) {
+      console.warn('[main] MHD profile overlay init skipped:', e);
     }
 
     try {
