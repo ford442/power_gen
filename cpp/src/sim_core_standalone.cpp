@@ -95,7 +95,9 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
             if (std::strcmp(argv[i + 1], "peltier") == 0) return run_peltier_smoke();
+            if (std::strcmp(argv[i + 1], "peltier-textbook") == 0) return run_peltier_textbook();
             if (std::strcmp(argv[i + 1], "mhd") == 0)     return run_mhd_smoke();
+            if (std::strcmp(argv[i + 1], "hartmann") == 0) return run_hartmann();
             if (std::strcmp(argv[i + 1], "maglev") == 0)  return run_maglev_smoke();
             if (std::strcmp(argv[i + 1], "homopolar") == 0) return run_homopolar_smoke();
             if (std::strcmp(argv[i + 1], "transformer") == 0) return run_transformer_smoke();
@@ -115,7 +117,7 @@ int main(int argc, char** argv) {
             if (std::strcmp(argv[i + 1], "circuit-json") == 0) return run_circuit_json();
             if (std::strcmp(argv[i + 1], "ad") == 0) return run_ad();
             if (std::strcmp(argv[i + 1], "twin") == 0) return run_twin();
-            std::fprintf(stderr, "Unknown --mode %s (expected peltier|mhd|maglev|homopolar|transformer|vdg|hall|lorentz-sled|jumping-ring|chores|energy-network|catalog|bench|golden|snapshots|integrators|fdtd|circuit|circuit-json)\n", argv[i + 1]);
+            std::fprintf(stderr, "Unknown --mode %s (expected peltier|peltier-textbook|mhd|hartmann|maglev|homopolar|transformer|vdg|hall|lorentz-sled|jumping-ring|chores|energy-network|catalog|bench|golden|snapshots|integrators|fdtd|circuit|circuit-json)\n", argv[i + 1]);
             return 2;
         }
     }

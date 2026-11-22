@@ -244,15 +244,15 @@ export const SEG_GLOSSARY: Record<string, GlossaryEntry> = {
     body: 'Neighbouring magnets are turned a fixed angle from each other. At the ideal step (360\u00b0/N in the ring) the orientation rotates twice per lap and the field is steered to one side; the drive slider sweeps 0.65\u00d7 to 1.35\u00d7 of it.',
     source: 'physics/magnetic-field.ts buildHalbachSegments'
   },
-  'thermal-two-node': {
-    title: 'Two-node thermal model',
-    body: `A hot plate (${PELTIER.heatCapHotJK} J/K) and a cold plate (${PELTIER.heatCapColdJK} J/K) joined by ${PELTIER.conductanceWK} W/K; only the cold plate is tied to ambient (${PELTIER.sinkWK} W/K). Each plate has a single temperature.`,
+  'thermal-leg': {
+    title: 'Resolved thermoelectric leg',
+    body: `One equivalent leg for the whole module, cut into ${PELTIER.legCells} cells that conduct to each other (${PELTIER.conductanceWK} W/K end to end) and are heated by the current (${PELTIER.rInternalOhm} \u03a9 in all). A cold block and a heat sink close the two ends; the sink sheds heat to the room at ${PELTIER.sinkWK} W/K. Each cell has its own temperature, so the leg has a profile rather than a single number.`,
     unit: 'K',
-    source: 'physics/constants.json peltier'
+    source: 'devices/core/peltier-plant.ts'
   },
   'seebeck-coefficient': {
     title: 'Seebeck voltage',
-    body: 'A temperature difference across a thermoelectric junction pair drives a voltage S \u0394T. The stack multiplies a per-couple coefficient by the number of couples.',
+    body: 'A temperature difference across a thermoelectric junction pair drives a voltage S \u0394T, and a current through it carries heat S I T from one junction to the other. The module multiplies a per-couple coefficient by the number of couples.',
     unit: 'V/K',
     value: `S \u2248 ${(PELTIER.seebeckVK * PELTIER.couples).toFixed(3)} V/K`,
     source: 'physics/constants.json peltier'
@@ -265,9 +265,9 @@ export const SEG_GLOSSARY: Record<string, GlossaryEntry> = {
   },
   'hartmann-number': {
     title: 'Hartmann number',
-    body: 'Ha = B a \u221a(\u03c3 / \u03c1\u03bd) compares magnetic to viscous force. Large Ha means thin Hartmann layers and a flat core. Reported for the regime; not fed back into the plant.',
+    body: 'Ha = B a \u221a(\u03c3 / \u03c1\u03bd) compares magnetic to viscous force across the gap. Small Ha is the parabolic profile of ordinary pipe flow; large Ha is a flat core with Hartmann layers a/Ha thick at the walls. It sets the profile the markers in the duct draw. It is not fed back into the plant\u2019s braking.',
     value: `Ha \u2248 ${(MHD.halfGapM * Math.sqrt(MHD.sigmaSm / (MHD.rhoKgM3 * MHD.nuM2s))).toFixed(0)} per tesla`,
-    source: 'devices/core/mhd-mesh.ts'
+    source: 'physics/hartmann.ts'
   },
   'gap-spring': {
     title: 'Virtual gap spring',

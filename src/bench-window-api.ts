@@ -28,7 +28,7 @@ const MODE_DESCRIPTIONS: Record<string, string> = {
   kelvin: "Kelvin's Thunderstorm: Electrostatic induction with falling water droplets charging conductors.",
   solar: 'LEDs & Solar Cells: LEDs drain a battery while shining on solar panels that recharge it. Watch the charge level change.',
   mhd: 'MHD Generator: Hartmann-channel flow with transverse B. Watch flow U, B-field, Hartmann number, and induced power. Particles advect along the duct with Lorentz swirl (`?wasmPhysics=1` for C++ plant).',
-  peltier: 'Peltier thermoelectric stack: two-node hot/cold junctions. Watch ΔT, COP proxy, and plate heat-map tint. WASM Seebeck plant with `?wasmPhysics=1`; JS fallback otherwise.',
+  peltier: 'Peltier cooler: a current pumps heat from the block to the sink through a resolved 1-D leg. Watch ΔT, heat pumped and COP; add a cold-side load or reverse the current with the setpoint sliders. WASM plant with `?wasmPhysics=1`; JS fallback otherwise.',
   maglev: 'Quanta Magnetics — Magnetic Levitation: Halbach ring stack lifts a conductive floater; eddy-current damping stabilises the gap. Watch air gap, B-field estimate, and lift proxy in telemetry.',
   homopolar: 'Quanta Magnetics — Homopolar Generator: rotating copper disc in an axial magnetic field. Brushed radial path produces EMF ∝ ω×B×r. Watch disc RPM, EMF, current proxy, and B-field in telemetry.',
   'halbach-viz': 'Quanta Magnetics — Halbach Field Visualizer: configurable N-segment ring or linear array. Speed slider adjusts segment count and magnetization angle; field lines and |B| slice heatmap update in real time. Telemetry: peak B, period, dipole force proxy.',

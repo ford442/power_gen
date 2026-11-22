@@ -81,6 +81,16 @@ class DeviceUniformManager {
       emission = 1.2;
       this.batteryCharge = 0.5;
       pad = this.batteryCharge;
+    } else if (this.id === 'peltier') {
+      // As for mhd: the default glow would wash out the temperature tint the
+      // three bodies carry from the plant (peltier-mesh.ts).
+      glowColor = [0.6, 0.6, 0.65];
+      emission = 0.2;
+    } else if (this.id === 'mhd') {
+      // The default cyan glow at emission 2 floods every fragment; here it
+      // would hide the pole colours and the timeline markers in the gap.
+      glowColor = [0.25, 0.55, 0.9];
+      emission = 0.25;
     }
 
     const colorMode = this.visualizer.pipelineCache?.colorTargets.mode;

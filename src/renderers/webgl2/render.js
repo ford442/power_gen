@@ -21,8 +21,11 @@ import { buildHallMesh } from '../../devices/quanta/hall-effect';
 import { buildLorentzSledMesh, LORENTZ } from '../../devices/quanta/lorentz-sled';
 import { buildJumpingRingMesh, RING } from '../../devices/quanta/jumping-ring';
 import { dropTubeMeshFromState } from '../../devices/quanta/drop-tube';
-import { buildPeltierMesh } from '../../devices/core/peltier-mesh';
+import { advancePeltierAir, buildPeltierMesh, peltierMeshTemps } from '../../devices/core/peltier-mesh';
+
+const NO_PELTIER_AIR = [0, 0];
 import { buildMhdMesh } from '../../devices/core/mhd-mesh';
+import { advanceMhdTravel } from '../../devices/core/mhd-parcels';
 import { stepParticles } from '../shared/particle-physics';
 import { deviceModeIndex } from '../shared/device-physics';
 import { shouldSimulateDevice } from '../shared/device-view';
@@ -128,6 +131,7 @@ export function stepSimulation(viz, deltaTime, speed) {
       );
       device.scaledParticleCount = scaledCount;
       totalParticles += scaledCount;
+      const peltierAir = device.id === 'peltier' ? advancePeltierAir(device.physics, viz.time) : NO_PELTIER_AIR;
       stepParticles(device.particles, {
         time: viz.time,
         mode,
@@ -151,8 +155,12 @@ export function stepSimulation(viz, deltaTime, speed) {
         pulseCoilArmatureM: device.physics.pulseCoilArmatureM,
         peltierDeltaT: device.physics.peltierDeltaT,
         peltierCOP: device.physics.peltierCOP,
+        peltierAirSink: peltierAir[0],
+        peltierAirBlock: peltierAir[1],
         mhdFlowU: device.physics.mhdFlowU,
         mhdBFieldT: device.physics.mhdBFieldT,
+        mhdHartmann: device.physics.mhdHartmann,
+        mhdTravel: device.id === 'mhd' ? advanceMhdTravel(device.physics, viz.time) : 0,
         transformerIpA: device.physics.transformerIpA,
         transformerIsA: device.physics.transformerIsA,
         transformerFluxN: device.physics.transformerFluxN,
@@ -294,11 +302,7 @@ if (device.id === 'seg') {
   meshRenderer.drawPluginDevice(
     viewProj,
     pos,
-    buildPeltierMesh(
-      device.physics.peltierHotK,
-      device.physics.peltierColdK,
-      device.physics.peltierDeltaT
-    ).cylinders(),
+    buildPeltierMesh(peltierMeshTemps(device.physics)).cylinders(),
     renderOpts
   );
   } else if (drawMeshes && device.id === 'mhd') {

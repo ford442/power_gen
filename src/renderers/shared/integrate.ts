@@ -17,7 +17,8 @@
  * owned by a cached {@link OdeWork}.
  *
  * Educational lab integrators, not a general ODE suite: small dense systems
- * (≤ 16 states), no event location, constraints applied after each step.
+ * (a few states; the 28-node Peltier leg is the largest), no event location,
+ * constraints applied after each step.
  */
 import type { IntegratorName, PlantOdeSpec } from '../../../generated/plant-ode';
 
@@ -29,6 +30,14 @@ export interface OdePlant<U> {
   derivs(t: number, x: Float64Array, u: U, dxdt: Float64Array): void;
   /** Stops / sign constraints after each accepted step; true when x changed. */
   constrain?(x: Float64Array): boolean;
+  /**
+   * ∂f/∂x at (t, x), row-major (`J[i·n + j] = ∂f_i/∂x_j`), for ros23. Optional:
+   * without it the Jacobian is forward-differenced, n RHS calls each time —
+   * fine for a handful of states, the whole cost for a 28-node chain. The C++
+   * plants get theirs from one Dual evaluation; a plant that supplies this is
+   * the TS counterpart.
+   */
+  jacobian?(t: number, x: Float64Array, u: U, J: Float64Array): void;
 }
 
 export interface StepStats {
@@ -297,7 +306,8 @@ const ROS_D = 1 / (2 + Math.SQRT2);
 const ROS_E32 = 6 + Math.SQRT2;
 const ROS_SAFE = 0.9, ROS_FAC_MIN = 0.2, ROS_FAC_MAX = 5;
 
-function luFactor(a: Float64Array, piv: Int32Array, n: number): boolean {
+/** In-place LU with partial pivoting of the row-major n×n matrix a. False if singular. */
+export function luFactor(a: Float64Array, piv: Int32Array, n: number): boolean {
   for (let k = 0; k < n; k++) {
     let p = k;
     let best = Math.abs(a[k * n + k]);
@@ -324,13 +334,22 @@ function luFactor(a: Float64Array, piv: Int32Array, n: number): boolean {
   return true;
 }
 
-function luSolve(a: Float64Array, piv: Int32Array, b: Float64Array, n: number): void {
+/**
+ * Solve with the factors of {@link luFactor}. That routine swaps whole rows,
+ * earlier columns' multipliers included, so every interchange is applied to b
+ * before the forward substitution (interleaving them is only right when the
+ * factor swaps just the trailing columns — and is wrong here as soon as a
+ * pivot is taken past column 0).
+ */
+export function luSolve(a: Float64Array, piv: Int32Array, b: Float64Array, n: number): void {
   for (let k = 0; k < n; k++) {
     if (piv[k] !== k) {
       const tmp = b[k];
       b[k] = b[piv[k]];
       b[piv[k]] = tmp;
     }
+  }
+  for (let k = 0; k < n; k++) {
     for (let r = k + 1; r < n; r++) b[r] -= a[r * n + k] * b[k];
   }
   for (let k = n - 1; k >= 0; k--) {
@@ -362,18 +381,23 @@ export function ros23Advance<U>(p: OdePlant<U>, x: Float64Array, u: U, dt: numbe
     const hh = Math.min(h, hMax);
     if (!(hh > H_MIN_REL * Math.max(t, dt))) { s.ok = false; break; }
     if (!jacFresh) {
-      for (let j = 0; j < n; j++) {
-        const dj = SQRT_EPS * Math.max(Math.abs(y[j]), tol.atol[j] / Math.max(tol.rtol, 1e-12));
-        ys.set(y);
-        ys[j] += dj;
-        const dActual = ys[j] - y[j];
-        p.derivs(t, ys, u, fT);
-        for (let i = 0; i < n; i++) J[i * n + j] = (fT[i] - f0[i]) / dActual;
+      if (p.jacobian) {
+        p.jacobian(t, y, u, J);
+      } else {
+        for (let j = 0; j < n; j++) {
+          const dj = SQRT_EPS * Math.max(Math.abs(y[j]), tol.atol[j] / Math.max(tol.rtol, 1e-12));
+          ys.set(y);
+          ys[j] += dj;
+          const dActual = ys[j] - y[j];
+          p.derivs(t, ys, u, fT);
+          for (let i = 0; i < n; i++) J[i * n + j] = (fT[i] - f0[i]) / dActual;
+        }
       }
       const dtT = SQRT_EPS * Math.max(Math.abs(t), dt);
       p.derivs(t + dtT, y, u, fT);
       for (let i = 0; i < n; i++) T[i] = (fT[i] - f0[i]) / dtT;
-      s.rhs += n + 1;
+      // A supplied Jacobian costs no RHS calls (as the C++ Dual evaluation does not).
+      s.rhs += (p.jacobian ? 0 : n) + 1;
       s.jacobians++;
       jacFresh = true;
     }

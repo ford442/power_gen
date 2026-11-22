@@ -240,6 +240,7 @@ function wasmKnobs(sim, id) {
   if (id === 'transformer') sim.setTransformerLeakage(true);
   if (id === 'hall') { sim.setHallCarrierMetal(true); sim.setHallFieldCoupledT(0.27); }
   if (id === 'lorentz-sled') sim.setLorentzFieldT(0.41);
+  if (id === 'peltier') { sim.setPeltierLoadW(7.5); sim.setPeltierPolarity(1); }
 }
 
 // ── 2. shipped wasm: round trip all 13 modes ──────────────────────────────

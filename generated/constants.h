@@ -75,20 +75,27 @@ struct TransformerConstants {
 };
 
 struct PeltierConstants {
-  static constexpr float SEEBECK_VK        = 0.00044f;
-  static constexpr float COUPLES           = 127.0f;
-  static constexpr float R_INTERNAL_OHM    = 2.5f;
-  static constexpr float R_LOAD_OHM        = 2.5f;
-  static constexpr float CONDUCTANCE_WK    = 0.5f;
-  static constexpr float HEAT_CAP_HOT_JK   = 40.0f;
-  static constexpr float HEAT_CAP_COLD_JK  = 60.0f;
-  static constexpr float SINK_WK           = 1.6f;
-  static constexpr float HEATER_MAX_W      = 60.0f;
-  static constexpr float AMBIENT_K         = 293.0f;
-  static constexpr float DELTA_T_REF_K     = 80.0f;
-  static constexpr float CLAMP_BELOW_AMBIENT_K     = 5.0f;
-  static constexpr float HOT_CLAMP_ABOVE_AMBIENT_K  = 250.0f;
-  static constexpr float COLD_CLAMP_ABOVE_AMBIENT_K = 150.0f;
+  static constexpr float SEEBECK_VK          = 0.00044f;
+  static constexpr float SEEBECK_SLOPE_VK2   = 0.0f;
+  static constexpr float SEEBECK_REF_K       = 300.0f;
+  static constexpr float COUPLES             = 127.0f;
+  static constexpr float R_INTERNAL_OHM      = 2.5f;
+  static constexpr float CONDUCTANCE_WK      = 0.5f;
+  static constexpr int   LEG_CELLS           = 24;
+  static constexpr float LEG_HEAT_CAP_JK     = 1.2f;
+  static constexpr float PLATE_HEAT_CAP_JK   = 3.4f;
+  static constexpr float COLD_BLOCK_HEAT_CAP_JK = 6.0f;
+  static constexpr float SINK_HEAT_CAP_JK    = 40.0f;
+  static constexpr float BLOCK_CONTACT_WK    = 20.0f;
+  static constexpr float SINK_CONTACT_WK     = 20.0f;
+  static constexpr float SINK_WK             = 4.0f;
+  static constexpr float COLD_LEAK_WK        = 0.0f;
+  static constexpr float I_MAX_A             = 8.0f;
+  static constexpr float LOAD_MAX_W          = 40.0f;
+  static constexpr float AMBIENT_K           = 293.0f;
+  static constexpr float DELTA_T_REF_K       = 80.0f;
+  static constexpr float CLAMP_BELOW_AMBIENT_K = 150.0f;
+  static constexpr float CLAMP_ABOVE_AMBIENT_K = 250.0f;
 };
 
 struct MhdConstants {
@@ -97,7 +104,8 @@ struct MhdConstants {
   static constexpr float FRICTION_K     = 0.8f;
   static constexpr float FLOW_U_MAX_MPS = 5.0f;
   static constexpr float WIDTH_M        = 0.1f;
-  static constexpr float HALF_GAP_M     = 0.05f;
+  static constexpr float HALF_GAP_M     = 0.0005f;
+  static constexpr float LENGTH_M       = 0.4f;
   static constexpr float SIGMA_SM       = 1000000.0f;
   static constexpr float RHO_KG_M3      = 870.0f;
   static constexpr float NU_M2S         = 8e-7f;

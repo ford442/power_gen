@@ -40,6 +40,7 @@ Pure helpers (`src/session/plant-snapshot.ts`, Node-testable):
 {
   "format": "seg-plant-snapshot",
   "version": 1,
+  "plantStateVersion": 2,           // PLANT_STATE_VERSION of the writer; absent in old files = 1
   "layoutHash": 562042932,          // PLANT_STATE_LAYOUT_HASH (0x21801834) of the writer
   "catalogHash": "81caf605beca",    // sha256(physics/devices.json)[:12], informational
   "backend": "js",                  // js | wasm | wasm-worker — who stepped the focus plant
@@ -57,6 +58,7 @@ Pure helpers (`src/session/plant-snapshot.ts`, Node-testable):
   },
   "devices": {                      // every JS device plant, through its layout
     "vdg": { "vdgChargeC": 2e-6, "vdgVoltage": 150000, "vdgSparkAccum": 1, "…": 0 },
+    "peltier": { "peltierNodesK[0]": 241.6, "peltierNodesK[1]": 241.7, "…": 0 },  // an array field, element by element
     "hall": { "hallCarrierType": 1, "hallFieldCoupledT": -1, "…": 0 }
   },
   "wasm": { "mode": 10, "values": [8.25, 0.73, "…"] },  // C++ focus plant (_time, _drive, fields), when it owns it
@@ -71,8 +73,29 @@ Pure helpers (`src/session/plant-snapshot.ts`, Node-testable):
 
 Values are numbers: `bool` → 0/1, `enum` → index into the field's `values`,
 `nullable` → −1 for null (nullable fields are non-negative setpoints), NaN →
-JSON `null`. `restoreSnapshot` ignores devices / keys this build does not
-know, so a snapshot from an older catalog still loads what still exists.
+JSON `null`. An **array field** (a `key` with a `count` in the layout — the
+Peltier leg's 28 node temperatures) is a `number[]` on the plant and is saved
+element by element as `key[0]` … `key[count-1]`, so the values stay flat
+numbers; the packed vector and the C++ cross-load carry it the same way.
+`restoreSnapshot` ignores devices / keys this build does not know, so a
+snapshot from an older catalog still loads what still exists.
+
+### Plant state version
+
+The layout hash says whether a C++ vector is this build's. It cannot say what
+an older snapshot's *keyed* values mean once a plant has changed underneath
+them. `plantStateVersion` (physics/devices.json → `PLANT_STATE_VERSION`) is
+bumped by hand for that, with a migration in
+`src/session/plant-snapshot-migrate.ts`. `parsePlantSnapshot` runs the
+migrations before anything loads the values and reports each as a warning, so
+every caller — the page, the experiment bench, replay keyframes — sees values
+of its own version. A snapshot newer than the reader is read best-effort with
+a warning; nothing is migrated backwards.
+
+| Version | Change | Migration from the version before |
+|---------|--------|-----------------------------------|
+| 1 | Original (#224) | — |
+| 2 | `peltier` became a current-driven cooler with a resolved leg (ADR-0021) | The two plate temperatures are kept. The cold block takes the cold plate's temperature, the sink the hot plate's, the 24 leg cells the straight line between them. The generator-era voltage / current / power / COP are zeroed; the next step recomputes them. A saved C++ vector for that bench is dropped and the migrated keys are cross-loaded instead. |
 
 ## Where the layout comes from
 
@@ -213,7 +236,7 @@ Part of `npm run validate` and the `native-cpp` CI job.
 2. **Shipped WASM** (`src/wasm/sim-core`, in Node): the same for all 13 modes
    through the scratch ABI, plus the hash-mismatch refusal.
 3. **TS plants** (all 16): save → JSON → load into a fresh state → step →
-   every scalar field bit-identical, compared every frame (a missed spark
+   every saved value bit-identical (array fields element by element), compared every frame (a missed spark
    accumulator diverges for one window and then re-converges), at four save
    points per plant.
 4. **Cross-load** JS → C++ over every native golden case: JS runs the case's
@@ -221,15 +244,18 @@ Part of `npm run validate` and the `native-cpp` CI job.
    within the `test:golden` ε (rel 2e-4; the `transformerVp` zero-crossing
    override). Worst key today ~8e-5.
 
-`npm run test:plant-worker` covers the worker message pair;
+`npm run test:peltier` covers array state (keyed, packed, through the C++
+vector) and the version-1 migration. `npm run test:plant-worker` covers the worker message pair;
 `npm run test:twin-snapshot` the closed-loop rule above; one Playwright test
 (`Plant snapshots (#224 §2)`) restores a steady operating point and checks
 telemetry is there at once.
 
 ## Adding a field
 
-Add it to the device's `state` block, run `npm run codegen:catalog`, rebuild
+Add it to the device's `state` block (an array: a `[]` cpp path with a
+`count`, and a `key` if the TS plant holds it too), run `npm run codegen:catalog`, rebuild
 the WASM if a `cpp` path changed (`npm run wasm:build`, the emsdk pinned in
 `config/toolchain.json`), and run
 `npm run test:snapshots`. A field the step reads but the block misses shows up
-there as a divergence.
+there as a divergence. If the change alters what existing keys *mean*, bump
+`plantStateVersion` and write the migration (above).

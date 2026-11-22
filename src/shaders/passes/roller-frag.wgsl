@@ -191,16 +191,25 @@ struct Uniforms {
             baseColor += input.copperColor * input.greenEmissive * 0.85;
           }
         } else if (mode == 4) {
+          // Peltier: each body takes its instance colour, which the plant sets
+          // from that body's temperature (devices/core/peltier-mesh.ts). No
+          // painted hot-below / cold-above gradient: reverse the current and
+          // the colours swap because the temperatures do.
           let grid = fract(cylUV * vec2f(18.0, 10.0));
           let junction = step(0.92, grid.x) + step(0.92, grid.y);
-          decalMask += min(junction, 1.0) * 0.55;
-          baseColor = mix(baseColor, vec3f(0.70, 0.20, 0.14), junction * 0.18);
-          let traceRaw = abs(sin(localPos.x * 9.0 + localPos.y * 6.0 + uniforms.time * 4.0));
-          let traceFw = max(fwidth(traceRaw), 0.01);
-          let trace = 1.0 - smoothstep(0.20 - traceFw, 0.20 + traceFw, traceRaw);
-          baseColor += mix(vec3f(0.90, 0.32, 0.10), vec3f(0.18, 0.58, 1.0), clamp(localPos.y * 0.4 + 0.5, 0.0, 1.0))
-            * trace * pow(energy, 1.35) * 0.30;
-        } else if (mode >= 5) {
+          decalMask += min(junction, 1.0) * 0.25;
+          baseColor = mix(baseColor, input.copperColor, 0.85);
+          // Anodised-metal response: this pass's diffuse term is albedo·π·light,
+          // which washes a pale dielectric out to white and the tint with it.
+          metallic = 0.75;
+          roughness = 0.45;
+        } else if (mode == 5) {
+          // MHD magnet: north / south pole pieces and the steel yoke take their
+          // instance colour. No moving stripes — the flow is the parcels in the
+          // gap (particle-compute.wgsl posMhd), not a pattern on the iron.
+          baseColor = mix(baseColor, input.copperColor, 0.7);
+          metallic = mix(metallic, 0.4, 0.5);
+        } else if (mode >= 6) {
           let channelRaw = abs(sin(localPos.x * 5.0 - localPos.z * 8.5 + uniforms.time * 3.6));
           let channelFw = max(fwidth(channelRaw), 0.01);
           let channel = 1.0 - smoothstep(0.26 - channelFw, 0.26 + channelFw, channelRaw);
@@ -301,10 +310,11 @@ struct Uniforms {
           color += vec3f(0.35, 0.58, 1.0) * fresnel * (0.12 + device.batteryCharge * 0.65);
           color += vec3f(1.0, 0.86, 0.52) * lensSparkle * pow(max(energy, device.batteryCharge), 1.45) * 0.20;
         } else if (mode == 4) {
-          let thermoPulse = 0.5 + 0.5 * sin(uniforms.time * 3.5 + localPos.x * 5.0);
-          color += mix(vec3f(1.0, 0.25, 0.08), vec3f(0.05, 0.55, 1.0), clamp(localPos.y * 0.3 + 0.5, 0.0, 1.0))
-            * energy * thermoPulse * 0.45;
-        } else if (mode >= 5) {
+          // The colour is the reading here, so it must not depend on the rig:
+          // most of the fragment is the body's temperature colour, unlit, the
+          // way a thermal camera shows it; the lit term keeps the shape.
+          color = mix(color, input.copperColor, 0.7);
+        } else if (mode >= 6) {
           let flowRaw = abs(sin(localPos.x * 4.5 - localPos.z * 7.5 + uniforms.time * 5.0));
           let flowFw = max(fwidth(flowRaw), 0.015);
           let flowLine = 1.0 - smoothstep(0.24 - flowFw, 0.24 + flowFw, flowRaw);

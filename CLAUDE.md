@@ -78,7 +78,8 @@ WASM plants: `physics/devices.json` `wasmMode` (codegen `enum SimMode`). Shader
 slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 
 - **SEG** is the highest-fidelity path (layout presets, flux, PBR).
-- **Peltier / MHD** are lighter models — geometry + particles, not full plant parity.
+- **Peltier** is a resolved 1-D thermoelectric cooler (28 nodes, `ros23`). **MHD** is still one
+  lumped speed; its picture is the analytic Hartmann profile, not a flow solve. Both: docs/FLUIDS.md.
 - Overview can enable all; particles/meshes scale with quality and view LOD.
 - **Circuit Lab** (`src/circuit/`, ADR-0018): `pulse-coil`, `homopolar`,
   `transformer` have catalog `ports`. A wired bench is stepped by its port
@@ -134,6 +135,8 @@ npm run test:audio    # sonification mapping bounds (silent by default)
 npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switches
 npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement
 npm run test:drop-tube # drop-tube k / end taper / loops vs quadrature, transit vs RK4
+npm run test:hartmann # MHD duct: analytic Hartmann profile (TS vs C++), timeline parcels, Ha range (docs/FLUIDS.md)
+npm run test:peltier  # Peltier cooler: ΔT_max / I_opt / COP / energy balance on native + WASM + TS, array snapshots, v1 migration (ADR-0021)
 npm run test:field-volume # field kernels vs quadrature; field-probe/-volume WGSL run on the CPU vs the reference (ADR-0017)
 npm run test:circuit  # Circuit Lab: native MNA goldens + their WASM replay (LC energy, RLC Q), SPICE, host, links (ADR-0018)
 npm run generate:gltf # regenerate every placeholder GLB (seg + quanta + lab)

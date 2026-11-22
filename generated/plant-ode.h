@@ -15,6 +15,28 @@
 
 namespace power_gen::ode {
 
+/// Peltier (wasmMode 4, physics/devices.json "peltier").
+struct Peltier {
+    enum State : std::size_t { nodesK = 0 };
+    static constexpr std::size_t nodesK_COUNT = 28;
+    static constexpr std::size_t STATE_SIZE = 28;
+    enum Output : std::size_t { hotK = 0, coldK = 1, deltaTK = 2, voltageV = 3, powerW = 4, cop = 5, qcW = 6, qhW = 7 };
+    static constexpr std::size_t OUTPUT_SIZE = 8;
+    static constexpr sim_core::Integrator INTEGRATOR = sim_core::Integrator::Ros23;
+    static constexpr float RTOL = 0.00001f;
+    static constexpr std::array<float, STATE_SIZE> ATOL = { 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f };
+    static constexpr double H_MAX = 2;
+    static constexpr const char* STATE_NAMES[STATE_SIZE] = { "nodesK[0]", "nodesK[1]", "nodesK[2]", "nodesK[3]", "nodesK[4]", "nodesK[5]", "nodesK[6]", "nodesK[7]", "nodesK[8]", "nodesK[9]", "nodesK[10]", "nodesK[11]", "nodesK[12]", "nodesK[13]", "nodesK[14]", "nodesK[15]", "nodesK[16]", "nodesK[17]", "nodesK[18]", "nodesK[19]", "nodesK[20]", "nodesK[21]", "nodesK[22]", "nodesK[23]", "nodesK[24]", "nodesK[25]", "nodesK[26]", "nodesK[27]" };
+
+    static sim_core::Tolerance<STATE_SIZE> tolerance() {
+        sim_core::Tolerance<STATE_SIZE> t;
+        t.rtol = RTOL;
+        t.atol = ATOL;
+        t.hMax = H_MAX;
+        return t;
+    }
+};
+
 /// Homopolar Generator (wasmMode 7, physics/devices.json "homopolar").
 struct Homopolar {
     enum State : std::size_t { omega = 0, currentA = 1 };

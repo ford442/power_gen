@@ -164,7 +164,7 @@ float SEGSimulator::getEnergyLevel() const {
         case SIM_MODE_KELVIN: return _kelvin.voltageN;
         case SIM_MODE_SOLAR:  return _solar.batteryCharge;
         case SIM_MODE_PELTIER:
-            return clampf(_peltier.deltaTK / _peltier.deltaTRefK, 0.f, 1.f);
+            return clampf(std::fabs(_peltier.deltaTK) / _peltier.deltaTRefK, 0.f, 1.f);
         case SIM_MODE_MHD:
             return clampf(_mhd.flowU / std::max(_mhd.flowUMax, 0.1f), 0.f, 1.f);
         case SIM_MODE_MAGLEV: {

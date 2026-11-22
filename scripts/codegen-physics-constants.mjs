@@ -155,20 +155,27 @@ struct TransformerConstants {
 };
 
 struct PeltierConstants {
-  static constexpr float SEEBECK_VK        = ${f32(pel.seebeckVK)};
-  static constexpr float COUPLES           = ${f32(pel.couples)};
-  static constexpr float R_INTERNAL_OHM    = ${f32(pel.rInternalOhm)};
-  static constexpr float R_LOAD_OHM        = ${f32(pel.rLoadOhm)};
-  static constexpr float CONDUCTANCE_WK    = ${f32(pel.conductanceWK)};
-  static constexpr float HEAT_CAP_HOT_JK   = ${f32(pel.heatCapHotJK)};
-  static constexpr float HEAT_CAP_COLD_JK  = ${f32(pel.heatCapColdJK)};
-  static constexpr float SINK_WK           = ${f32(pel.sinkWK)};
-  static constexpr float HEATER_MAX_W      = ${f32(pel.heaterMaxW)};
-  static constexpr float AMBIENT_K         = ${f32(pel.ambientK)};
-  static constexpr float DELTA_T_REF_K     = ${f32(pel.deltaTRefK)};
-  static constexpr float CLAMP_BELOW_AMBIENT_K     = ${f32(pel.clampBelowAmbientK)};
-  static constexpr float HOT_CLAMP_ABOVE_AMBIENT_K  = ${f32(pel.hotClampAboveAmbientK)};
-  static constexpr float COLD_CLAMP_ABOVE_AMBIENT_K = ${f32(pel.coldClampAboveAmbientK)};
+  static constexpr float SEEBECK_VK          = ${f32(pel.seebeckVK)};
+  static constexpr float SEEBECK_SLOPE_VK2   = ${f32(pel.seebeckSlopeVK2)};
+  static constexpr float SEEBECK_REF_K       = ${f32(pel.seebeckRefK)};
+  static constexpr float COUPLES             = ${f32(pel.couples)};
+  static constexpr float R_INTERNAL_OHM      = ${f32(pel.rInternalOhm)};
+  static constexpr float CONDUCTANCE_WK      = ${f32(pel.conductanceWK)};
+  static constexpr int   LEG_CELLS           = ${pel.legCells};
+  static constexpr float LEG_HEAT_CAP_JK     = ${f32(pel.legHeatCapJK)};
+  static constexpr float PLATE_HEAT_CAP_JK   = ${f32(pel.plateHeatCapJK)};
+  static constexpr float COLD_BLOCK_HEAT_CAP_JK = ${f32(pel.coldBlockHeatCapJK)};
+  static constexpr float SINK_HEAT_CAP_JK    = ${f32(pel.sinkHeatCapJK)};
+  static constexpr float BLOCK_CONTACT_WK    = ${f32(pel.blockContactWK)};
+  static constexpr float SINK_CONTACT_WK     = ${f32(pel.sinkContactWK)};
+  static constexpr float SINK_WK             = ${f32(pel.sinkWK)};
+  static constexpr float COLD_LEAK_WK        = ${f32(pel.coldLeakWK)};
+  static constexpr float I_MAX_A             = ${f32(pel.iMaxA)};
+  static constexpr float LOAD_MAX_W          = ${f32(pel.loadMaxW)};
+  static constexpr float AMBIENT_K           = ${f32(pel.ambientK)};
+  static constexpr float DELTA_T_REF_K       = ${f32(pel.deltaTRefK)};
+  static constexpr float CLAMP_BELOW_AMBIENT_K = ${f32(pel.clampBelowAmbientK)};
+  static constexpr float CLAMP_ABOVE_AMBIENT_K = ${f32(pel.clampAboveAmbientK)};
 };
 
 struct MhdConstants {
@@ -178,6 +185,7 @@ struct MhdConstants {
   static constexpr float FLOW_U_MAX_MPS = ${f32(mhd.flowUMaxMps)};
   static constexpr float WIDTH_M        = ${f32(mhd.widthM)};
   static constexpr float HALF_GAP_M     = ${f32(mhd.halfGapM)};
+  static constexpr float LENGTH_M       = ${f32(mhd.lengthM)};
   static constexpr float SIGMA_SM       = ${f32(mhd.sigmaSm)};
   static constexpr float RHO_KG_M3      = ${f32(mhd.rhoKgM3)};
   static constexpr float NU_M2S         = ${f32(mhd.nuM2s)};
@@ -476,22 +484,29 @@ export const TRANSFORMER = {
   vPrimaryPeak: ${tf.vPrimaryPeak},
 } as const;
 
-/** Two-node thermoelectric stack — mirrored by PeltierState / PeltierConstants in C++. */
+/** Thermoelectric cooler, 1-D resolved leg — mirrored by PeltierState / PeltierConstants in C++. */
 export const PELTIER = {
   seebeckVK: ${pel.seebeckVK},
+  seebeckSlopeVK2: ${pel.seebeckSlopeVK2},
+  seebeckRefK: ${pel.seebeckRefK},
   couples: ${pel.couples},
   rInternalOhm: ${pel.rInternalOhm},
-  rLoadOhm: ${pel.rLoadOhm},
   conductanceWK: ${pel.conductanceWK},
-  heatCapHotJK: ${pel.heatCapHotJK},
-  heatCapColdJK: ${pel.heatCapColdJK},
+  legCells: ${pel.legCells},
+  legHeatCapJK: ${pel.legHeatCapJK},
+  plateHeatCapJK: ${pel.plateHeatCapJK},
+  coldBlockHeatCapJK: ${pel.coldBlockHeatCapJK},
+  sinkHeatCapJK: ${pel.sinkHeatCapJK},
+  blockContactWK: ${pel.blockContactWK},
+  sinkContactWK: ${pel.sinkContactWK},
   sinkWK: ${pel.sinkWK},
-  heaterMaxW: ${pel.heaterMaxW},
+  coldLeakWK: ${pel.coldLeakWK},
+  iMaxA: ${pel.iMaxA},
+  loadMaxW: ${pel.loadMaxW},
   ambientK: ${pel.ambientK},
   deltaTRefK: ${pel.deltaTRefK},
   clampBelowAmbientK: ${pel.clampBelowAmbientK},
-  hotClampAboveAmbientK: ${pel.hotClampAboveAmbientK},
-  coldClampAboveAmbientK: ${pel.coldClampAboveAmbientK},
+  clampAboveAmbientK: ${pel.clampAboveAmbientK},
 } as const;
 
 /** Hartmann MHD channel — mirrored by MHDState / MhdConstants in C++. */
@@ -502,6 +517,7 @@ export const MHD = {
   flowUMaxMps: ${mhdc.flowUMaxMps},
   widthM: ${mhdc.widthM},
   halfGapM: ${mhdc.halfGapM},
+  lengthM: ${mhdc.lengthM},
   sigmaSm: ${mhdc.sigmaSm},
   rhoKgM3: ${mhdc.rhoKgM3},
   nuM2s: ${mhdc.nuM2s},

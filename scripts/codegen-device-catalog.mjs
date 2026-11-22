@@ -244,7 +244,9 @@ function validateState(devices) {
         const isArray = typeof f.cpp === 'string' && f.cpp.includes('[]');
         if (isArray !== (f.count != null)) errors.push(`${where}: count goes with (and only with) a [] cpp path`);
         if (f.count != null && (!Number.isInteger(f.count) || f.count < 1)) errors.push(`${where}: count must be a positive integer`);
-        if (isArray && hasKey) errors.push(`${where}: an array cpp field cannot map to a single key`);
+        // A keyed array is a number[] of `count` on DevicePhysicsState, saved as
+        // `key[0]` … `key[count-1]` (src/session/plant-snapshot.ts).
+        if (isArray && hasKey && (f.type ?? 'number') !== 'number') errors.push(`${where}: a keyed array field must be type number`);
       }
       const type = f.type ?? 'number';
       if (!STATE_TYPES.has(type)) errors.push(`${where}: type must be one of ${[...STATE_TYPES].join(', ')}`);
@@ -416,7 +418,7 @@ ${loadCases}
 `;
 }
 
-function emitDeviceStateTs(layout) {
+function emitDeviceStateTs(layout, plantStateVersion) {
   const hash = layout.hash;
   const catalogHash = sha256(readFileSync(SRC_JSON, 'utf8')).slice(0, 12);
   const rows = layout.rows.map((r) => {
@@ -454,7 +456,11 @@ export interface DeviceStateField {
   type: DeviceStateFieldType;
   /** enum: the value for index 0, 1, … */
   values?: readonly string[];
-  /** Floats this cpp path takes (arrays only). */
+  /**
+   * Floats this cpp path takes (arrays only). With a \`key\`, physicsState
+   * holds a number[] of this length and a snapshot saves it element by
+   * element as \`key[0]\` … \`key[count-1]\`.
+   */
   count?: number;
   /** nullable: what the C++ plant stores for "none". */
   cppNull?: number;
@@ -476,6 +482,15 @@ export const PLANT_STATE_PREFIX = { time: 0, drive: 1, length: ${STATE_CPP_PREFI
 
 /** FNV-1a of every state block — \`PLANT_STATE_LAYOUT_HASH\` in generated/plant-state.h. */
 export const PLANT_STATE_LAYOUT_HASH = 0x${hash.toString(16).padStart(8, '0')};
+
+/**
+ * \`plantStateVersion\` in physics/devices.json: bumped by hand when a plant's
+ * saved state changes *meaning* (not merely layout — the hash covers that), so
+ * a snapshot written before the change can be migrated on load. A snapshot
+ * with no \`plantStateVersion\` is version 1. Migrations:
+ * src/session/plant-snapshot-migrate.ts.
+ */
+export const PLANT_STATE_VERSION = ${plantStateVersion};
 
 /** First 12 hex of sha256(physics/devices.json) — which catalog wrote a snapshot. */
 export const DEVICE_CATALOG_HASH = '${catalogHash}';
@@ -1032,8 +1047,9 @@ ${lines.join('\n')}
 function emitModeMatrix(devices, reserved, layout) {
   const reservedText = reserved.length ? reserved.join(', ') : 'none';
   const stateRows = layout.rows.map((r) => {
-    const keys = r.fields.filter((f) => f.key).length;
-    const shared = r.fields.filter((f) => f.key && f.cpp).length;
+    // Saved values: a keyed array counts once per element (`key[i]`).
+    const keys = r.fields.reduce((n, f) => n + (f.key ? f.count : 0), 0);
+    const shared = r.fields.reduce((n, f) => n + (f.key && f.cpp ? f.count : 0), 0);
     const cpp = r.wasmMode == null ? '—' : `${r.cppSize} floats`;
     return `| \`${r.id}\` | ${keys} | ${cpp} | ${r.wasmMode == null ? '—' : shared} |`;
   });
@@ -1148,6 +1164,10 @@ function main() {
     process.exit(1);
   }
   const layout = stateLayout(devices);
+  const plantStateVersion = data.plantStateVersion ?? 1;
+  if (!Number.isInteger(plantStateVersion) || plantStateVersion < 1) {
+    throw new Error('plantStateVersion must be a positive integer (physics/devices.json top level)');
+  }
 
   const ts = emitTs(data, devices, reserved, wasmCount);
   const h = emitH(devices, reserved, wasmCount);
@@ -1180,7 +1200,7 @@ function main() {
     [join(OUT_DIR, 'device-catalog.ts'), ts],
     [join(OUT_DIR, 'device-catalog.h'), h],
     [join(OUT_DIR, 'device-catalog.wgsl'), wgsl],
-    [join(OUT_DIR, 'device-state.ts'), emitDeviceStateTs(layout)],
+    [join(OUT_DIR, 'device-state.ts'), emitDeviceStateTs(layout, plantStateVersion)],
     [join(OUT_DIR, 'plant-state.h'), emitPlantStateH(layout)],
     [join(OUT_DIR, 'plant-state-impl.h'), emitPlantStateImplH(layout)],
     [join(OUT_DIR, 'plant-ode.h'), emitPlantOdeH(devices)],

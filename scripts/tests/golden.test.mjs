@@ -71,6 +71,19 @@ const PER_KEY_EPS = {
     abs: 5e-3,
     why: 'drive sampled at a zero crossing — compared against the ±25.2 V amplitude, not against itself',
   },
+  // The pumped heat is a difference of two ~50 W terms through a 24 W/K face
+  // conductance. The C++ plant holds temperatures in float32: one ulp at
+  // 270 K is 3e-5 K, i.e. ~1 mW of heat, and the adaptive step's own error
+  // adds a few more. Compared on an absolute scale — 20 mW against tens of
+  // watts of throughput is the same 2e-2 % this file asks elsewhere.
+  'peltier.peltierQcW': {
+    abs: 2e-2,
+    why: 'a small difference of large heat flows, evaluated from float32 temperatures on the C++ side',
+  },
+  'peltier.peltierCOP': {
+    abs: 1e-3,
+    why: 'peltierQcW over the input power: inherits its absolute error',
+  },
 };
 
 /** Per-device: the JS fallback entry points and how to seed / step them. */
@@ -145,6 +158,9 @@ function parseGolden(stdout) {
         kelvinSeedV: Number(kv.get('kelvinSeedV') ?? -1),
         // Shared-integrator override (docs/INTEGRATORS.md) — 'catalog' = none.
         integrator: kv.get('integrator') ?? 'catalog',
+        // Peltier setpoints — the bench defaults when the case does not say.
+        peltierLoadW: Number(kv.get('peltierLoadW') ?? 0),
+        peltierPolarity: Number(kv.get('peltierPolarity') ?? 1),
         values: new Map(),
       });
       continue;
@@ -189,6 +205,11 @@ function seedCoupling(state, kase) {
   if (kase.lorentzFieldT >= 0) state.lorentzFieldT = kase.lorentzFieldT;
   if (kase.kelvinSeedV >= 0) state.kelvinSeedCoupledV = kase.kelvinSeedV;
   if (kase.integrator !== 'catalog') state.integratorOverride = kase.integrator;
+  if (kase.device === 'peltier') {
+    // What setPeltierLoadW / setPeltierPolarity gave the C++ plant.
+    state.peltierLoadW = kase.peltierLoadW;
+    state.peltierPolarity = kase.peltierPolarity;
+  }
 }
 
 // ── 1. native side ───────────────────────────────────────────────────────

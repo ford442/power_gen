@@ -42,13 +42,19 @@ struct GoldenCase {
     // side sets physicsState.integratorOverride to the same method, so every
     // integrator is held to JS ⇄ native parity, not just the default one.
     int         integrator = -1;
+    // Peltier setpoints (catalog `peltierLoad` / `peltierPolarity`): heat fed
+    // into the cold block, W, and the current direction (±1). The defaults
+    // are the bench's own: no load, cooling.
+    float       peltierLoadW = 0.f;
+    float       peltierPolarity = 1.f;
 };
 
 // Frame counts are chosen so each plant has left its initial transient:
 // the thermal stack has opened a gap, the disc and sled have reached
 // terminal speed, and the VdG sphere has sparked at least once.
 static const GoldenCase GOLDEN_CASES[] = {
-    { SIM_MODE_PELTIER,      "peltier",      "peltier",      0.85f, 240, 1.f / 60.f, -1.f, -1.f, -1.f },
+    // 15 s at 4 A: the block is tens of kelvin below ambient and still falling.
+    { SIM_MODE_PELTIER,      "peltier",      "peltier",      0.50f, 900, 1.f / 60.f, -1.f, -1.f, -1.f },
     { SIM_MODE_MHD,          "mhd",          "mhd",          0.90f, 120, 1.f / 60.f, -1.f, -1.f, -1.f },
     { SIM_MODE_MAGLEV,       "maglev",       "maglev",       0.60f, 120, 1.f / 60.f, -1.f, -1.f, -1.f },
     { SIM_MODE_HOMOPOLAR,    "homopolar",    "homopolar",    0.90f, 240, 1.f / 60.f, -1.f, -1.f, -1.f },
@@ -101,6 +107,15 @@ static const GoldenCase GOLDEN_CASES[] = {
     { SIM_MODE_HOMOPOLAR,    "homopolar@rk4",       "homopolar",    0.90f, 240, 1.f / 60.f, -1.f, -1.f, -1.f, 1 },
     { SIM_MODE_HOMOPOLAR,    "homopolar@dopri5",    "homopolar",    0.90f, 240, 1.f / 60.f, -1.f, -1.f, -1.f, 2 },
     { SIM_MODE_HOMOPOLAR,    "homopolar@ros23",     "homopolar",    0.90f, 240, 1.f / 60.f, -1.f, -1.f, -1.f, 3 },
+    // The cooler's two setpoints: a 12 W load on the block, and the current
+    // reversed (the block heats). Then dopri5, held to the stability limit by
+    // the stiff leg. No @rk4 / @euler case: those overrides run 0.5 ms
+    // substeps, and adding ~1 mK increments to ~300 K float32 temperatures
+    // 10,000 times leaves ~20 mK of rounding — the C++ reference's own noise,
+    // well above this test's 2e-4 (see docs/INTEGRATORS.md → Peltier).
+    { SIM_MODE_PELTIER,      "peltier-loaded",      "peltier",      0.60f, 900, 1.f / 60.f, -1.f, -1.f, -1.f, -1, 12.f, 1.f },
+    { SIM_MODE_PELTIER,      "peltier-reversed",    "peltier",      0.25f, 600, 1.f / 60.f, -1.f, -1.f, -1.f, -1, 0.f, -1.f },
+    { SIM_MODE_PELTIER,      "peltier@dopri5",      "peltier",      0.50f, 300, 1.f / 60.f, -1.f, -1.f, -1.f, 2 },
 };
 
 static const char* golden_integrator_name(int m) {
@@ -130,17 +145,22 @@ int run_golden() {
         if (g.hallFieldCoupledT >= 0.f) sim.setHallFieldCoupledT(g.hallFieldCoupledT);
         if (g.lorentzFieldT >= 0.f) sim.setLorentzFieldT(g.lorentzFieldT);
         if (g.kelvinSeedV >= 0.f) sim.setKelvinSeedV(g.kelvinSeedV);
+        sim.setPeltierLoadW(g.peltierLoadW);
+        sim.setPeltierPolarity(g.peltierPolarity);
         sim.setIntegrator(g.integrator);
         for (int i = 0; i < g.frames; ++i) sim.step(g.dt, 0.f);
 
         std::printf("golden.case %s device=%s drive=%.17g frames=%d dt=%.17g"
-                    " hallFieldCoupledT=%.17g lorentzFieldT=%.17g kelvinSeedV=%.17g integrator=%s\n",
+                    " hallFieldCoupledT=%.17g lorentzFieldT=%.17g kelvinSeedV=%.17g integrator=%s"
+                    " peltierLoadW=%.17g peltierPolarity=%.17g\n",
                     g.id, g.device, static_cast<double>(g.drive), g.frames,
                     static_cast<double>(g.dt),
                     static_cast<double>(g.hallFieldCoupledT),
                     static_cast<double>(g.lorentzFieldT),
                     static_cast<double>(g.kelvinSeedV),
-                    golden_integrator_name(g.integrator));
+                    golden_integrator_name(g.integrator),
+                    static_cast<double>(g.peltierLoadW),
+                    static_cast<double>(g.peltierPolarity));
 
         switch (g.mode) {
             case SIM_MODE_KELVIN:
@@ -157,6 +177,8 @@ int run_golden() {
                 bad |= golden_emit(g.id, "peltierVoltage", sim.getPeltierVoltage());
                 bad |= golden_emit(g.id, "peltierCurrent", sim.getPeltierCurrent());
                 bad |= golden_emit(g.id, "peltierPowerW",  sim.getPeltierPowerW());
+                bad |= golden_emit(g.id, "peltierQcW",       sim.getPeltierQcW());
+                bad |= golden_emit(g.id, "peltierQhW",       sim.getPeltierQhW());
                 bad |= golden_emit(g.id, "peltierCOP",     sim.getPeltierCOP());
                 break;
             case SIM_MODE_MHD:

@@ -50,6 +50,9 @@ function knobDevices(knobs: PlantKnobs): SessionDeviceMap {
     },
     kelvin: {
       physicsState: { kelvinSeedCoupledV: knobs.kelvinSeedCoupledV ?? null } as never
+    },
+    peltier: {
+      physicsState: { peltierLoadW: knobs.peltierLoadW ?? 0, peltierPolarity: knobs.peltierPolarity ?? 1 } as never
     }
   };
 }

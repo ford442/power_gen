@@ -3,7 +3,9 @@
  *
  * The pass places each particle on a closed-form path per device mode; the
  * CPU path in renderers/shared/particle-physics.ts integrates a different
- * (velocity-carrying, 32 B) particle, so there is no cell-for-cell twin.
+ * (velocity-carrying, 32 B) particle, so most modes have no cell-for-cell
+ * twin. The MHD duct does — its timelines are the analytic Hartmann profile
+ * (devices/core/mhd-parcels.ts), compared position for position below.
  * What must hold for every one of the catalog's shader modes, at any time
  * and any plant state:
  *
@@ -45,7 +47,10 @@ const PHYSICS_BY_DEVICE = {
   // homopolarAngle in radians, unwrapped.
   homopolar: [[1, 1, 6.2, 0], [0.4, 0.2, 941.7, 0]],
   // transformerFluxN is signed.
-  transformer: [[1, 1, -1, 0.95], [0.2, 0.1, 1, 0.5]]
+  transformer: [[1, 1, -1, 0.95], [0.2, 0.1, 1, 0.5]],
+  // [travel 0..1, B/1 T, Hartmann number (raw), -]: the bench's 0.2 T and 1.0 T,
+  // B = 0, and a slug far past where cosh would overflow in f32.
+  mhd: [[0.37, 0.2, 3.79, 0], [0.9, 1, 18.95, 0], [0.12, 0, 0, 0], [0.5, 1, 1895, 0]]
 };
 
 function seed(count) {
@@ -123,6 +128,80 @@ describe('gpu-golden: particle-compute.wgsl invariants', { skip }, () => {
       console.log(`  farthest particle ${reach.toFixed(2)} of ${BOUND}`);
     });
   }
+
+  it('mhd: posMhd is the analytic Hartmann timeline, position for position (CPU twin mhdParcelPosition)', async () => {
+    const mode = modes.find((d) => d.id === 'mhd').mode;
+    const { mhdParcelPosition, MHD_DUCT } = session.app;
+    // Travel values that put a line at the inlet, mid-duct and about to wrap.
+    const cases = [
+      { travel: 0, ha: 0 }, { travel: 0.37, ha: 0.2 }, { travel: 0.37, ha: 0.25 }, { travel: 0.62, ha: 3.79 },
+      { travel: 0.999, ha: 5 }, { travel: 0.124, ha: 18.95 }, { travel: 0.5, ha: 20 }, { travel: 0.875, ha: 1895 }
+    ];
+    let worst = 0;
+    let spread = 0;
+    for (const { travel, ha } of cases) {
+      const out = await run({ mode, time: 12.5, physics: [travel, 0.6, ha, 0] });
+      const want = [0, 0, 0];
+      let xMin = Infinity;
+      let xMax = -Infinity;
+      for (let i = 0; i < COUNT; i++) {
+        mhdParcelPosition(i, travel, ha, want);
+        const o = i * 4;
+        const d = Math.max(Math.abs(out[o] - want[0]), Math.abs(out[o + 1] - want[1]), Math.abs(out[o + 2] - want[2]));
+        worst = Math.max(worst, d);
+        // 1e-4 of a 4.2-unit duct: f32 exp() against double, nothing else differs.
+        assert.ok(d <= 1e-4, `particle ${i}, travel ${travel}, Ha ${ha}: GPU (${out[o]}, ${out[o + 1]}, ${out[o + 2]}) vs CPU (${want})`);
+        xMin = Math.min(xMin, out[o]);
+        xMax = Math.max(xMax, out[o]);
+      }
+      spread = Math.max(spread, xMax - xMin);
+      assert.ok(xMin >= MHD_DUCT.xIn - 1e-4 && xMax <= MHD_DUCT.xIn + MHD_DUCT.lengthU + 1e-4, `Ha ${ha}: x in [${xMin}, ${xMax}]`);
+    }
+    // The comparison is not of a pile at the inlet: lines reach well down the duct.
+    assert.ok(spread > 0.8 * MHD_DUCT.lengthU, `timelines only span ${spread} units`);
+    assert.deepEqual(session.device.uncaptured, [], 'GPU validation errors');
+    console.log(`  worst |GPU − CPU| = ${worst.toExponential(2)} units`);
+  });
+
+  it('peltier: posPeltier is integratePeltier — air beside the sink (even) and the block (odd), drift from the plant', async () => {
+    const mode = modes.find((d) => d.id === 'peltier').mode;
+    const { integratePeltier } = session.app;
+    const { initial } = await setup();
+    let worst = 0;
+    for (const [sink, block] of [[0, 0], [0.31, 0.77], [0.999, 0.002]]) {
+      const out = await run({ mode, time: 40, physics: [sink, block, 0, 0] });
+      for (let i = 0; i < COUNT; i++) {
+        const o = i * 4;
+        const want = integratePeltier({ phase: initial[o + 3] }, i, 40, sink, block);
+        const d = Math.max(Math.abs(out[o] - want[0]), Math.abs(out[o + 1] - want[1]), Math.abs(out[o + 2] - want[2]));
+        worst = Math.max(worst, d);
+        // f32 fract(idx·0.618) against double: 2e-3 of a 2.6-unit run at the wrap, nothing structural.
+        const wrapped = Math.abs(d - 2.6) < 5e-3;
+        assert.ok(d <= 5e-3 || wrapped, `particle ${i}, drift (${sink}, ${block}): GPU (${out[o]}, ${out[o + 1]}, ${out[o + 2]}) vs CPU (${want})`);
+        assert.ok((i % 2 === 1) === (out[o + 1] > 0), `particle ${i} is beside the wrong body (y = ${out[o + 1]})`);
+        assert.ok(Math.hypot(out[o], out[o + 2]) >= 0.94, `particle ${i} is inside the stack`);
+      }
+    }
+    assert.deepEqual(session.device.uncaptured, [], 'GPU validation errors');
+    console.log(`  worst |GPU − CPU| = ${worst.toExponential(2)} units`);
+  });
+
+  it('mhd: a larger Hartmann number flattens the timeline — more of it keeps up with the centre', async () => {
+    const mode = modes.find((d) => d.id === 'mhd').mode;
+    const { MHD_DUCT } = session.app;
+    // One line (idx % 8 === 0) at τ = 0.75: count parcels within 10 % of its leading edge.
+    const lead = MHD_DUCT.xIn + MHD_DUCT.lengthU * 0.75;
+    const upFront = async (ha) => {
+      const out = await run({ mode, time: 1, physics: [0.75, 0.6, ha, 0] });
+      let n = 0;
+      for (let i = 0; i < COUNT; i += 8) if (out[i * 4] > lead - 0.1 * MHD_DUCT.lengthU * 0.75) n++;
+      return n / (COUNT / 8);
+    };
+    const [parabola, low, high] = [await upFront(0), await upFront(3.79), await upFront(18.95)];
+    // u/u0 > 0.9: |η| < 0.316 for the parabola; nearly the whole gap at Ha 19.
+    assert.ok(Math.abs(parabola - 0.316) < 0.02, `B = 0: ${parabola}`);
+    assert.ok(low > parabola + 0.1 && high > low + 0.3 && high > 0.85, `fractions ${parabola}, ${low}, ${high}`);
+  });
 
   it('LOD 0..3: exactly count >> lod particles are integrated, the rest untouched', async () => {
     const { initial } = await setup();

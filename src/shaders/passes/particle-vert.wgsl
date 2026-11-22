@@ -106,7 +106,17 @@
         
         let devicePos = vec3f(device.posX, device.posY, device.posZ);
         let mode = device.ringIndex;
-        let vel = velocityForParticle(pos, mode, phase, effectType, uniforms.time);
+        var vel = velocityForParticle(pos, mode, phase, effectType, uniforms.time);
+        let mhdParcel = effectType < 0.5 && mode > 4.5 && mode < 5.5;
+        if (mhdParcel) {
+          // MHD duct: the flow is along +x and nowhere else (posMhd, particle-compute.wgsl).
+          vel = vec3f(0.4, 0.0, 0.0);
+        }
+        let peltierAir = effectType < 0.5 && mode > 3.5 && mode < 4.5;
+        if (peltierAir) {
+          // Peltier air parcels drift vertically (posPeltier); the generic path estimate does not apply.
+          vel = vec3f(0.0, 0.3, 0.0);
+        }
         let speed = length(vel);
         let velDir = normalize(vel + vec3f(1e-5, 0.0, 0.0));
         let toCamera = normalize(uniforms.cameraPos - pos - devicePos);
@@ -126,6 +136,13 @@
           size = 0.08;   // Peltier particles
         } else if (mode >= 2.5) {
           size = 0.05;   // small photon dots for Solar
+        }
+
+        if (mhdParcel) {
+          size = 0.026;  // timeline markers: small, so a line of them reads as a line
+        }
+        if (peltierAir) {
+          size = 0.03;
         }
 
         var stretch = 1.0 + speed * 0.8;

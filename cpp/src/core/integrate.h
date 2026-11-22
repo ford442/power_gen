@@ -371,10 +371,19 @@ inline bool lu_factor(std::array<float, N * N>& a, std::array<std::size_t, N>& p
     return true;
 }
 
+/// Solve with the factors of lu_factor. That routine swaps whole rows, the
+/// multipliers of earlier columns included (the LAPACK convention), so every
+/// interchange is applied to b *before* the forward substitution. Interleaving
+/// them — the LINPACK convention, which pairs with swapping only the trailing
+/// columns — is wrong as soon as a pivot is taken past column 0: silent for
+/// the 2-state plants, and for any W = I − h·d·J that stays diagonally
+/// dominant, but not for a stiff chain like the Peltier leg.
 template <std::size_t N>
 inline void lu_solve(const std::array<float, N * N>& a, const std::array<std::size_t, N>& piv, Vec<N>& b) {
     for (std::size_t k = 0; k < N; ++k) {
         if (piv[k] != k) std::swap(b[k], b[piv[k]]);
+    }
+    for (std::size_t k = 0; k < N; ++k) {
         for (std::size_t r = k + 1; r < N; ++r) b[r] -= a[r * N + k] * b[k];
     }
     for (std::size_t k = N; k-- > 0;) {

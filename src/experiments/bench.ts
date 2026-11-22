@@ -38,6 +38,7 @@ import type { SegOperatorTelemetry } from '../telemetry/types';
 import {
   DEVICE_CATALOG_HASH,
   PLANT_STATE_LAYOUT_HASH,
+  PLANT_STATE_VERSION,
   SNAPSHOT_FORMAT,
   SNAPSHOT_VERSION,
   captureOperatorState,
@@ -66,6 +67,8 @@ export interface CppPlant {
   setHallFieldCoupledT(fieldT: number): boolean;
   setKelvinSeedV(seedV: number): boolean;
   setLorentzFieldT(fieldT: number): void;
+  setPeltierLoadW(watts: number): void;
+  setPeltierPolarity(sign: number): void;
   getRollerStateFloatView?(): Float32Array | null;
   /** The C ABI simulator (`SEGSim.raw`), for `plantSave` / `plantLoad`. */
   readonly raw?: SEGSimulatorInstance | null;
@@ -161,6 +164,7 @@ export class ExperimentBench implements PlantView {
     return {
       format: SNAPSHOT_FORMAT,
       version: SNAPSHOT_VERSION,
+      plantStateVersion: PLANT_STATE_VERSION,
       layoutHash: PLANT_STATE_LAYOUT_HASH,
       catalogHash: DEVICE_CATALOG_HASH,
       backend: cppValues ? 'wasm' : 'js',
@@ -180,7 +184,7 @@ export class ExperimentBench implements PlantView {
    * Start from a snapshot: every device it carries that this bench steps, the
    * operator (STARTed again if it was idle — an experiment is a running
    * plant), and the C++ focus plant — exactly from the snapshot's vector when
-   * it was taken on this mode, else cross-loaded from the device's keys.
+   * it was taken on this mode and layout, else cross-loaded from the device's keys.
    * Returns warnings (a C++ plant that refused the vector keeps its own).
    */
   restore(snap: PlantSnapshot): string[] {
@@ -194,7 +198,9 @@ export class ExperimentBench implements PlantView {
     if (this.cppFocus) {
       const mode = WASM_MODE_BY_ID[this.focus];
       const raw = this.cpp!.raw ?? null;
-      const values = snap.wasm?.mode === mode
+      // The snapshot's own vector only when this build wrote that layout;
+      // otherwise (another layout, or a migrated plant) cross-load its keys.
+      const values = snap.wasm?.mode === mode && snap.layoutHash === PLANT_STATE_LAYOUT_HASH
         ? snap.wasm.values
         : cppStateFromKeys(this.focus, snap.devices[this.focus] ?? {}, savePlantState(raw, mode, this.cppModule), {
           time: snap.t,
@@ -263,6 +269,10 @@ export class ExperimentBench implements PlantView {
       }
       case 'lorentz-sled':
         if (phys?.lorentzFieldT != null) cpp.setLorentzFieldT(phys.lorentzFieldT);
+        return false;
+      case 'peltier':
+        cpp.setPeltierLoadW(phys?.peltierLoadW ?? 0);
+        cpp.setPeltierPolarity(phys?.peltierPolarity ?? 1);
         return false;
       default:
         return false;

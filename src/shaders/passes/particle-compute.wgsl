@@ -101,36 +101,62 @@ fn posSolar(phase: f32, t: f32, idx: u32, speedMult: f32) -> vec3f {
   return pos;
 }
 
+/// Mode 4 — Peltier: air beside the two end bodies of the stack (odd idx: the
+/// cold block above, even: the heat sink below). A parcel drifts up beside a
+/// body warmer than the room and down beside a colder one; the drift is
+/// integrated on the CPU from each body's temperature (advancePeltierAir), so
+/// reversing the current reverses it. Illustrative paths — not a convection
+/// solve, and the air does not feed back into the plant.
+///   physics0  sink-side travel, fractional (rises when > 0 over time)
+///   physics1  block-side travel, fractional
+/// 2.5 / 2.6 / 0.95 / 0.5 mirror PELTIER_AIR in devices/core/peltier-mesh.ts;
+/// integratePeltier (particle-orbits.ts) is the CPU twin.
 fn posPeltier(phase: f32, t: f32, idx: u32) -> vec3f {
-  let deltaTN = uniforms.physics0;
-  let hotN = uniforms.physics2;
-  let speed = 0.35 + deltaTN * 0.55;
-  let cycleT = fract(t * speed + phase);
-  let x = (fract(f32(idx) * 0.173 + phase) - 0.5) * 1.8;
-  let z = (fract(f32(idx) * 0.211 + phase * 0.7) - 0.5) * 1.4;
-  // Hot parcels rise from bottom plate; cold sink from top — strength from ΔT
-  let rising = (idx % 2u) == 0u;
-  var y: f32;
-  if (rising) {
-    y = mix(-0.35, 0.55, cycleT) + sin(t * 3.0 + phase * 9.0) * 0.04 * (0.3 + hotN);
-  } else {
-    y = mix(0.55, -0.25, cycleT) - sin(t * 2.5 + phase * 7.0) * 0.03 * (0.3 + deltaTN);
-  }
-  return vec3f(x, y, z);
+  let onBlock = (idx % 2u) == 1u;
+  let travel = select(uniforms.physics0, uniforms.physics1, onBlock);
+  let yBody = select(-2.5, 2.5, onBlock);
+  let a = fract(f32(idx) * 0.618034) * 6.28318;
+  let r = 0.95 + fract(f32(idx) * 0.211 + phase) * 0.5;
+  let u = fract(phase + travel);
+  return vec3f(cos(a) * r, yBody + (u - 0.5) * 2.6, sin(a) * r);
 }
 
-/// Mode 5 — MHD Hartmann channel: advection along +X with B-scaled swirl.
+/// u(eta) / u(0) for fully developed Hartmann flow, eta = y/a in [-1, 1]:
+/// (cosh Ha - cosh(Ha*eta)) / (cosh Ha - 1), written with decaying
+/// exponentials so a large Ha cannot overflow. Below Ha = 0.25 the closed form
+/// cancels in f32 and a series in Ha^2 takes over (Ha -> 0 is the Poiseuille
+/// parabola). Twin of hartmannShape in physics/hartmann.ts, whose
+/// HARTMANN_SERIES_BELOW is the 0.25.
+fn hartmannShape(eta: f32, ha: f32) -> f32 {
+  let e = min(abs(eta), 1.0);
+  let h = abs(ha);
+  if (h < 0.25) {
+    return (1.0 - e * e) * (1.0 + h * h * e * e / 12.0);
+  }
+  let coshRatio = exp(h * (e - 1.0)) * (1.0 + exp(-2.0 * h * e)) / (1.0 + exp(-2.0 * h));
+  let sech = 2.0 * exp(-h) / (1.0 + exp(-2.0 * h));
+  return (1.0 - coshRatio) / (1.0 - sech);
+}
+
+/// Mode 5 — MHD duct: timelines in fully developed Hartmann flow. A line of
+/// markers released across the gap bends into the velocity profile, because
+/// each marker moves at u(y) and nothing moves across the stream — the laminar
+/// solution has no swirl. Eight lines are in the duct at once.
+///   physics0  centre-line transits, fractional part (advanceMhdTravel)
+///   physics2  Hartmann number, not normalised
+/// -2.1 / 4.2 / 0.42 / 0.12 / 8 mirror MHD_DUCT in devices/core/mhd-parcels.ts,
+/// whose mhdParcelPosition is this function's CPU twin (golden-particles).
 fn posMhd(phase: f32, t: f32, idx: u32) -> vec3f {
-  let flowN = uniforms.physics0;
-  let bN = uniforms.physics1;
-  let drift = fract(phase + t * (0.35 + flowN * 0.9));
-  let x = mix(-2.1, 2.1, drift);
-  let swirl = bN * 0.55;
-  let y = sin(t * 2.2 + phase * 11.0 + f32(idx) * 0.07) * swirl
-        + (fract(f32(idx) * 0.137) - 0.5) * 0.7;
-  let z = cos(t * 1.8 + phase * 8.0) * swirl * 0.75
-        + (fract(f32(idx) * 0.191) - 0.5) * 0.5;
-  return vec3f(x, y, z);
+  let travel = uniforms.physics0;
+  let ha = uniforms.physics2;
+  let line = idx % 8u;
+  let lane = f32(idx / 8u) + 0.5;
+  // R2 sequence: lanes fill the cross-section evenly at any particle count.
+  let eta = fract(lane * 0.7548777) * 2.0 - 1.0;
+  let zeta = fract(lane * 0.5698403) * 2.0 - 1.0;
+  let tau = fract(travel + f32(line) / 8.0);
+  let x = -2.1 + 4.2 * tau * hartmannShape(eta, ha);
+  return vec3f(x, eta * 0.42, zeta * 0.12);
 }
 
 fn posMagLev(phase: f32, t: f32, idx: u32) -> vec3f {

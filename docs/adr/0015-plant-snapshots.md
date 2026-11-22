@@ -61,3 +61,21 @@ refused (`load()` false) on a layout mismatch rather than misread, and
 restored bit for bit (`test:twin-snapshot`, `test:twin`, and `--mode twin`
 natively). A malformed block is a parse warning, not an error — the plant
 state still restores. See [`SNAPSHOTS.md`](../SNAPSHOTS.md#hardware-twin-which-ω-wins).
+
+## Amendment (ADR-0021): array state and `plantStateVersion`
+
+Two additions, both because the Peltier bench's state grew from two
+temperatures to twenty-eight and changed meaning:
+
+- A `state` field may be a **keyed array** (`{ "key": "peltierNodesK", "cpp":
+  "nodesK[]", "count": 28 }`). It is a `number[]` on the TS plant and is saved
+  element by element as `key[i]`, so keyed values, the packed vector and the
+  JS ⇄ C++ cross-load all stay flat numbers. Arrays without a key remain
+  C++-only, as SEG's rollers are.
+- **`plantStateVersion`** (physics/devices.json top level) is a hand-bumped
+  integer for changes the layout hash cannot describe: what existing keys
+  mean. `parsePlantSnapshot` migrates older keyed values forward through
+  `src/session/plant-snapshot-migrate.ts`, warns about each step, and drops a
+  saved C++ vector for a bench it rewrote. The hash stays the authority on
+  whether a C++ vector may be loaded at all. See
+  [`SNAPSHOTS.md`](../SNAPSHOTS.md#plant-state-version).

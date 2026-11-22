@@ -92,8 +92,10 @@ buffer packing
 (`getRollerStateFloatCount == 66*4`). Single-mode smoke runs:
 
 ```bash
-./build/sim_core_test --mode peltier   # thermoelectric stack smoke
+./build/sim_core_test --mode peltier   # thermoelectric cooler smoke
+./build/sim_core_test --mode peltier-textbook # ΔT_max, I_opt, COP, energy balance vs the lumped results (read by test:peltier)
 ./build/sim_core_test --mode mhd       # Hartmann channel smoke
+./build/sim_core_test --mode hartmann  # analytic profile table + parcels advect at u(y) (read by test:hartmann)
 ./build/sim_core_test --mode maglev    # Quanta gap ODE smoke
 ./build/sim_core_test --mode homopolar # Faraday disc L–R smoke
 ./build/sim_core_test --mode transformer # coupled-inductor L–M smoke
@@ -119,19 +121,19 @@ a TypeScript fallback plant — from a fixed seed and prints the schedule it
 used plus its catalog telemetry keys:
 
 ```
-golden.case peltier drive=0.85 frames=240 dt=0.016666667…
-golden.value peltier peltierHotK 297.93249511718750
+golden.case peltier device=peltier drive=0.5 frames=900 dt=0.016666667… peltierLoadW=0 peltierPolarity=1
+golden.value peltier peltierHotK 308.90029907226562
 ```
 
 `npm run test:golden` (part of `npm run validate`) steps the TS fallback
-over exactly that schedule and diffs all 91 keys (every shared-integrator plant once per method) — see
+over exactly that schedule and diffs all 120 keys (every shared-integrator plant once per method) — see
 [`docs/PHYSICS_CONSTANTS.md`](../docs/PHYSICS_CONSTANTS.md#js--wasm-golden)
 for the ε and what a failure means. The native run is authoritative for
 drive / frames / dt, so a case is added here, not in the Node script.
 
 Plant modes (SimMode enum): `0=SEG` RK4 rollers, `1=Heron` Bernoulli /
 Swamee–Jain, `2=Kelvin` capacitive + spark, `3=Solar` battery SOC,
-`4=Peltier` simplified 1D Seebeck/Peltier two-node stack (Thomson neglected),
+`4=Peltier` thermoelectric cooler with a resolved 1-D leg (24 cells + 4 end nodes, ros23; Thomson term optional, off by default),
 `5=MHD` Hartmann-style channel flow with Lorentz braking and induced load
 voltage, `6=Maglev` spring–damper gap ODE (mirrors Quanta JS),
 `7=Homopolar` Faraday disc L–R + back-EMF (mirrors Quanta JS),
@@ -498,7 +500,7 @@ cpp/
       heron_plant.h/.cpp    ← HeronState + Bernoulli / Swamee–Jain
       kelvin_plant.h/.cpp   ← KelvinState + capacitive spark
       solar_plant.h/.cpp    ← SolarState + LED/solar battery SOC
-      peltier_plant.h/.cpp  ← PeltierState + thermoelectric stack
+      peltier_plant.h/.cpp  ← PeltierState + PeltierPlant (1-D resolved cooler)
       mhd_plant.h/.cpp      ← MHDState + Hartmann channel
       maglev_plant.h/.cpp   ← MaglevState + gap ODE
       homopolar_plant.h/.cpp ← HomopolarState + Faraday disc
@@ -604,7 +606,7 @@ Recent non-breaking expansions (SEGSimulator API and all prior bindings preserve
 - **Multi-mode plants**: `setMode(0..11)` / `getMode()` (see `wasmMode` in
   `physics/devices.json`). 0 = SEG (full RK4 roller path), 1 = Heron (Bernoulli /
   Swamee–Jain), 2 = Kelvin (capacitive + spark), 3 = Solar (battery SOC),
-  4 = Peltier (two-node Seebeck stack), 5 = MHD (Hartmann channel),
+  4 = Peltier (cooler, resolved 1-D leg), 5 = MHD (Hartmann channel),
   6 = Magnetic Levitation (Quanta gap ODE), 7 = Homopolar Generator (Faraday
   disc L–R), 8 = Mutual Induction / transformer (coupled-inductor L–M),
   9 = Van de Graaff (belt-charge/leakage/spark-gap ODE), 10 = Hall-Effect Bench

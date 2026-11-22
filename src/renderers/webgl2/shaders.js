@@ -354,6 +354,10 @@ void main() {
   if (u_mode > 0.5 && u_mode < 1.5) size = 0.11 * u_particleScale;
   else if (u_mode >= 2.5 && u_mode < 4.5) size = 0.05 * u_particleScale;
   else if (u_mode >= 4.5) size = 0.09 * u_particleScale;
+  // Peltier air parcels: small and sparse.
+  if (u_mode > 3.5 && u_mode < 4.5) size = 0.035 * u_particleScale;
+  // MHD timelines: small markers, so a line of them reads as a line.
+  if (u_mode > 4.5 && u_mode < 5.5) size = 0.026 * u_particleScale;
   if (u_debugParticles > 0.5 && u_debugParticles < 1.5) {
     size = 0.04 + fract(a_phase * 17.0) * 0.12;
   }
@@ -409,8 +413,13 @@ void main() {
     col = vec3(1.0, 0.88, 0.28) * intensity;
     alpha *= 0.7 + intensity * 0.3;
   } else if (u_mode < 4.5) {
-    col = v_aux > 0.5 ? vec3(1.0, 0.95, 0.7) : vec3(1.0, 0.9, 0.2);
-    alpha *= 0.7 + u_battery * 0.3;
+    // Peltier: pale air parcels. Which way they drift says warm or cold.
+    col = vec3(0.86, 0.91, 0.98);
+    alpha *= 0.45;
+  } else if (u_mode < 5.5) {
+    // MHD liquid metal: a_vel.x carries u/u(0), so the slow Hartmann layers read darker than the core.
+    col = mix(vec3(0.30, 0.48, 0.78), vec3(0.82, 0.95, 1.0), clamp(v_speed, 0.0, 1.0));
+    alpha = (1.0 - d * d) * 0.95;
   } else {
     col = vec3(0.75, 0.7, 0.85);
   }

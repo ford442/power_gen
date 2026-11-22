@@ -122,22 +122,29 @@ export const TRANSFORMER = {
   vPrimaryPeak: 28,
 };
 
-/** Two-node thermoelectric stack — mirrored by PeltierState / PeltierConstants in C++. */
+/** Thermoelectric cooler, 1-D resolved leg — mirrored by PeltierState / PeltierConstants in C++. */
 export const PELTIER = {
   seebeckVK: 0.00044,
+  seebeckSlopeVK2: 0,
+  seebeckRefK: 300,
   couples: 127,
   rInternalOhm: 2.5,
-  rLoadOhm: 2.5,
   conductanceWK: 0.5,
-  heatCapHotJK: 40,
-  heatCapColdJK: 60,
-  sinkWK: 1.6,
-  heaterMaxW: 60,
+  legCells: 24,
+  legHeatCapJK: 1.2,
+  plateHeatCapJK: 3.4,
+  coldBlockHeatCapJK: 6,
+  sinkHeatCapJK: 40,
+  blockContactWK: 20,
+  sinkContactWK: 20,
+  sinkWK: 4,
+  coldLeakWK: 0,
+  iMaxA: 8,
+  loadMaxW: 40,
   ambientK: 293,
   deltaTRefK: 80,
-  clampBelowAmbientK: 5,
-  hotClampAboveAmbientK: 250,
-  coldClampAboveAmbientK: 150,
+  clampBelowAmbientK: 150,
+  clampAboveAmbientK: 250,
 };
 
 /** Hartmann MHD channel — mirrored by MHDState / MhdConstants in C++. */
@@ -147,7 +154,8 @@ export const MHD = {
   frictionK: 0.8,
   flowUMaxMps: 5,
   widthM: 0.1,
-  halfGapM: 0.05,
+  halfGapM: 0.0005,
+  lengthM: 0.4,
   sigmaSm: 1000000,
   rhoKgM3: 870,
   nuM2s: 8e-7,

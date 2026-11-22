@@ -14,8 +14,9 @@ plant now implements one concept, and the integrator is a catalog field.
 | Per-plant layout | `generated/plant-ode.h` (`power_gen::ode::JumpingRing::heightM`, `tolerance()`) | `generated/plant-ode.ts` (`JumpingRingState.heightM`, `PLANT_ODE`) |
 | Source | `physics/devices.json` → `integrator` + `ode` | same |
 
-Educational lab integrators for small dense systems (≤ 16 states). They do no
-event location; constraints are applied after each accepted step.
+Educational lab integrators for small dense systems (a few states; the 28-node
+Peltier leg is the largest). They do no event location; constraints are applied
+after each accepted step.
 
 ## The concept
 
@@ -88,6 +89,27 @@ method for benches and goldens. The override is not saved in snapshots.
 |---|---|---|
 | `homopolar` | `euler` | Its historical scheme (one explicit step per frame, ω and I clamped at 0). Ported to prove the concept on the simplest plant; bit-identical. |
 | `jumping-ring` | **`dopri5`** | The stiffest plant. Ported bit-identically on `rk4` first, then switched to dopri5 on purpose (re-baselined below). |
+| `peltier` | **`ros23`** | A 28-state conduction chain (ADR-0021): cell rates ~10³ /s against ~0.1 /s for the heat sink. Written for `ros23` from the start; its `ode.state` is one array field. |
+
+### Peltier: what a stiff chain asked of the integrators
+
+- **LU pivoting.** `W = I − h·d·J` for this plant is not diagonally dominant
+  by columns once `h` passes a few milliseconds, so the factorisation pivots
+  past column 0. `lu_solve` / `luSolve` applied the row interchanges
+  interleaved with the forward substitution while `lu_factor` swaps whole
+  rows; that pairing is wrong for any such pivot. The smaller plants never
+  pivot there, so it had never fired. Both languages now apply every
+  interchange first. `test:integrators` holds it with a matrix whose pivots
+  are all off the diagonal and with a held-end conduction chain.
+- **Jacobian in TS.** `OdePlant.jacobian` is optional; the Peltier plant
+  supplies its exact tridiagonal one. The RHS-count parity check knows which
+  plants do.
+- **Explicit overrides.** `euler` / `rk4` on this plant substep at 0.5 ms (the
+  stability limit is about 1.4 ms). The C++ plant holds temperatures in
+  float32, and adding ~1 mK increments to ~300 K values 10⁴ times leaves
+  ~20 mK of rounding. Those overrides are the cost reference for the budget
+  test and are not golden cases; the native and TS errors are each held to the
+  budget rather than to each other.
 
 ## Numbers
 

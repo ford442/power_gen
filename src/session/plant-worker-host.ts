@@ -116,6 +116,11 @@ function collectKnobs(devices: SessionDeviceMap, focus: string): PlantKnobs {
     const seed = devicePhysics(devices.kelvin)?.kelvinSeedCoupledV;
     knobs.kelvinSeedCoupledV = typeof seed === 'number' && Number.isFinite(seed) ? seed : null;
   }
+  if (focus === 'peltier') {
+    const peltier = devicePhysics(devices.peltier);
+    knobs.peltierLoadW = peltier?.peltierLoadW ?? 0;
+    knobs.peltierPolarity = peltier?.peltierPolarity ?? 1;
+  }
   return knobs;
 }
 

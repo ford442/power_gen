@@ -83,7 +83,7 @@ CSV column names live with the key in
 | `heron` | `heronHead` (m), `heronHeadMax` (m), `heronVExit` (m/s), `heronFlowRateLmin` (L/min), `heronPressureKPa` (kPa) | `heron_head`, … |
 | `kelvin` | `kelvinV` (V), `kelvinVoltageN` (%), `kelvinVbreak` (V), `kelvinE` (V/m), `kelvinSparkTimer` (s) | `kelvin_v`, … |
 | `solar` | `batteryCharge` (%) | `battery_charge` |
-| `peltier` | `peltierHotK` / `peltierColdK` / `peltierDeltaT` (K), `peltierVoltage` (V), `peltierCurrent` (A), `peltierPowerW` (W), `peltierCOP` | `peltier_hot_k`, … |
+| `peltier` | `peltierHotK` (sink-side plate) / `peltierColdK` (load-side plate) / `peltierDeltaT` (K), `peltierVoltage` (V, terminal), `peltierCurrent` (A, signed), `peltierPowerW` (W, electrical **input**), `peltierCOP` (cooling, `Q_c / P_in`), `peltierQcW` / `peltierQhW` (W, heat pumped / rejected) | `peltier_hot_k`, … |
 | `mhd` | `mhdFlowU` (m/s), `mhdBFieldT` (T), `mhdHartmann`, `mhdVoltage` (V), `mhdCurrent` (A), `mhdPowerW` (W) | `mhd_flow_u`, … |
 | `maglev` | `maglevGapMm` (mm), `maglevFieldT` (T), `maglevLiftN` (N), `maglevRpm` (RPM) | `maglev_gap_mm`, … |
 | `pulse-coil` | `pulseCoilCurrentA` (A), `pulseCoilVCap` (V), `pulseCoilBPeakT` (T), `pulseCoilArmatureMm` (mm) | `pulse_coil_current_a`, … |

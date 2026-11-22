@@ -11,6 +11,10 @@
 // standalone_plant_smokes.cpp — one smoke per plant
 int run_peltier_smoke();
 int run_mhd_smoke();
+int run_hartmann();
+
+// standalone_peltier.cpp — the cooler against the textbook lumped results (read by test:peltier)
+int run_peltier_textbook();
 int run_maglev_smoke();
 int run_homopolar_smoke();
 int run_transformer_smoke();

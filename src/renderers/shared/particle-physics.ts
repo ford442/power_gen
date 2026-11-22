@@ -62,8 +62,15 @@ export interface ParticleUniforms {
   /** Peltier (mode 4) / MHD (mode 5) */
   peltierDeltaT?: number;
   peltierCOP?: number;
+  /** Air-parcel drift beside the sink / the cold block, fractional (peltier-mesh.ts advancePeltierAir). */
+  peltierAirSink?: number;
+  peltierAirBlock?: number;
   mhdFlowU?: number;
   mhdBFieldT?: number;
+  /** Hartmann number, not normalised — the profile the parcels follow. */
+  mhdHartmann?: number;
+  /** Centre-line transits, fractional part (devices/core/mhd-parcels.ts). */
+  mhdTravel?: number;
   /** Transformer (mode 10) */
   transformerIpA?: number;
   transformerIsA?: number;
@@ -305,15 +312,13 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
         aux = s.aux;
       }
     } else if (mode < 4.5) {
-      const deltaTN = Math.min(1, Math.abs(u.peltierDeltaT ?? 30) / 80);
-      const hotN = Math.min(1, ((u.peltierDeltaT ?? 30) > 0 ? deltaTN : 0.2));
-      const pos = integratePeltier({ phase }, idx, u.time, deltaTN, hotN);
+      const pos = integratePeltier({ phase }, idx, u.time, u.peltierAirSink ?? 0, u.peltierAirBlock ?? 0);
       px = pos[0]; py = pos[1]; pz = pos[2];
     } else if (mode < 5.5) {
-      const flowN = Math.min(1, (u.mhdFlowU ?? 1) / 3.5);
-      const bN = Math.min(1, (u.mhdBFieldT ?? 0.4) / 1.0);
-      const pos = integrateMHD({ phase }, idx, u.time, flowN, bN);
+      const pos = integrateMHD(idx, u.mhdTravel ?? 0, u.mhdHartmann ?? 0);
       px = pos[0]; py = pos[1]; pz = pos[2];
+      // Normalised speed u/u(0) along the duct: the WebGL2 shader tints by it.
+      vx = pos[3]; vy = 0; vz = 0;
     } else if (mode >= 16.0) {
       const [travelN, vN, aheadN, behindN] = dropTubeParticleUniforms(u);
       const pos = integrateDropTube({ phase }, idx, u.time, travelN, vN, aheadN, behindN);
@@ -370,7 +375,8 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
       const pos = integrateMagLev({ phase }, idx, u.time, gap, field);
       px = pos[0]; py = pos[1]; pz = pos[2];
     } else {
-      const pos = integrateMHD({ phase }, idx, u.time);
+      // Unknown mode: the same fallback as the WGSL pass (posMagLev).
+      const pos = integrateMagLev({ phase }, idx, u.time);
       px = pos[0]; py = pos[1]; pz = pos[2];
     }
 

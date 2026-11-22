@@ -16,7 +16,13 @@
  * Value encoding, all plain numbers so a snapshot is JSON: `bool` 0/1, `enum`
  * the index into `values`, `nullable` −1 for null (nullable fields are
  * non-negative setpoints; any negative value reads back as null). NaN survives
- * as NaN here and as JSON `null` in a file.
+ * as NaN here and as JSON `null` in a file. An array field (the Peltier leg's
+ * node temperatures) is a `number[]` on physicsState and `key[i]` entries in
+ * the keyed values, in the packed vector and against the C++ vector.
+ *
+ * `plantStateVersion` covers what the layout hash cannot: a state whose
+ * *meaning* changed. `parsePlantSnapshot` migrates an older snapshot's keyed
+ * values forward (plant-snapshot-migrate.ts) before anything loads them.
  *
  * No DOM, no wasm: `npm run test:snapshots` runs this in Node. The browser glue
  * (capture / restore the whole lab) is lab-snapshot.ts. Simulated, not
@@ -27,12 +33,18 @@ import {
   DEVICE_STATE_LAYOUT,
   PLANT_STATE_LAYOUT_HASH,
   PLANT_STATE_PREFIX,
+  PLANT_STATE_VERSION,
   type DeviceStateField
 } from '../../generated/device-state';
+import { migratePlantState } from './plant-snapshot-migrate';
 
-export { DEVICE_CATALOG_HASH, DEVICE_STATE_LAYOUT, PLANT_STATE_LAYOUT_HASH, PLANT_STATE_PREFIX };
+export { DEVICE_CATALOG_HASH, DEVICE_STATE_LAYOUT, PLANT_STATE_LAYOUT_HASH, PLANT_STATE_PREFIX, PLANT_STATE_VERSION };
 
-/** One device's saved state: `physicsState` key → encoded number. */
+/**
+ * One device's saved state: `physicsState` key → encoded number. An array
+ * field (`count` in the layout) is saved element by element under
+ * `key[0]` … `key[count-1]`, so the record stays flat numbers.
+ */
 export type DeviceStateValues = Record<string, number>;
 
 /** Loose view of a device plant — any `DevicePhysicsState`, or a test double. */
@@ -59,6 +71,12 @@ export interface OperatorSnapshot {
 export interface PlantSnapshot {
   format: 'seg-plant-snapshot';
   version: 1;
+  /**
+   * `PLANT_STATE_VERSION` the writer was built with (absent in files written
+   * before it existed: version 1). After `parsePlantSnapshot` this is always
+   * the reader's own version — the keyed values have been migrated.
+   */
+  plantStateVersion?: number;
   /** `PLANT_STATE_LAYOUT_HASH` the writer was built with. */
   layoutHash: number;
   /** `DEVICE_CATALOG_HASH` the writer was built with (informational). */
@@ -144,9 +162,19 @@ function keyedFields(deviceId: string): readonly DeviceStateField[] {
   return DEVICE_STATE_LAYOUT[deviceId]?.fields.filter((f) => f.key !== null) ?? [];
 }
 
-/** The `physicsState` keys a device saves, in layout order. */
+/** Name of element `i` of an array field in keyed values. */
+export const arrayElementKey = (key: string, i: number): string => `${key}[${i}]`;
+
+/** Saved-value names of one field: the key itself, or `key[i]` per element of an array. */
+function fieldValueKeys(f: DeviceStateField): string[] {
+  const key = f.key as string;
+  if (f.count === undefined) return [key];
+  return Array.from({ length: f.count }, (_, i) => arrayElementKey(key, i));
+}
+
+/** The value names a device saves, in layout order (an array field expands to `key[i]`). */
 export function deviceStateKeys(deviceId: string): string[] {
-  return keyedFields(deviceId).map((f) => f.key as string);
+  return keyedFields(deviceId).flatMap(fieldValueKeys);
 }
 
 function encode(field: DeviceStateField, raw: unknown): number | undefined {
@@ -183,7 +211,18 @@ export function saveDeviceState(deviceId: string, state: PhysicsStateLike): Devi
   const src = state as Record<string, unknown>;
   const out: DeviceStateValues = {};
   for (const f of keyedFields(deviceId)) {
-    const v = encode(f, src[f.key as string]);
+    const raw = src[f.key as string];
+    if (f.count !== undefined) {
+      // Array field: only a full-length array of numbers is state.
+      const arr = raw as ArrayLike<unknown> | null | undefined;
+      if (!arr || typeof arr !== 'object' || !(arr.length >= f.count)) continue;
+      for (let i = 0; i < f.count; i++) {
+        const v = arr[i];
+        if (typeof v === 'number') out[arrayElementKey(f.key as string, i)] = v;
+      }
+      continue;
+    }
+    const v = encode(f, raw);
     if (v !== undefined) out[f.key as string] = v;
   }
   return out;
@@ -210,21 +249,39 @@ export function loadDeviceState(
   const fields = keyedFields(deviceId);
   const packed = isPacked(values);
   const written: string[] = [];
-  fields.forEach((f, i) => {
+  let slot = 0;
+  /** The saved value for one name: the packed slot (NaN = absent) or the keyed entry. */
+  const take = (name: string): number | undefined => {
+    const v = packed ? (values as ArrayLike<number>)[slot] : (values as DeviceStateValues)[name];
+    slot++;
+    return typeof v === 'number' && !(packed && Number.isNaN(v)) ? v : undefined;
+  };
+  for (const f of fields) {
     const key = f.key as string;
-    let v: number | undefined;
-    if (packed) {
-      v = (values as ArrayLike<number>)[i];
-      if (Number.isNaN(v)) return;
-    } else {
-      v = (values as DeviceStateValues)[key];
+    if (f.count !== undefined) {
+      // Array field: write the elements the snapshot has into the plant's
+      // array, creating it only when one is present.
+      let arr = dst[key] as number[] | undefined;
+      for (let i = 0; i < f.count; i++) {
+        const name = arrayElementKey(key, i);
+        const v = take(name);
+        if (v === undefined) continue;
+        if (!Array.isArray(arr) || arr.length !== f.count) {
+          arr = Array.from({ length: f.count }, (_, k) => (Array.isArray(arr) && typeof arr[k] === 'number' ? arr[k] : NaN));
+          dst[key] = arr;
+        }
+        arr[i] = v;
+        written.push(name);
+      }
+      continue;
     }
-    if (typeof v !== 'number') return;
+    const v = take(key);
+    if (v === undefined) continue;
     const decoded = decode(f, v);
-    if (decoded === undefined) return;
+    if (decoded === undefined) continue;
     dst[key] = decoded;
     written.push(key);
-  });
+  }
   for (const key of DEVICE_STATE_LAYOUT[deviceId]?.clearOnLoad ?? []) dst[key] = null;
   return written;
 }
@@ -253,7 +310,14 @@ export function cppStateFromKeys(
   if (prefix.time !== undefined) out[PLANT_STATE_PREFIX.time] = prefix.time;
   if (prefix.drive !== undefined) out[PLANT_STATE_PREFIX.drive] = prefix.drive;
   for (const f of layout.fields) {
-    if (f.key === null || f.offset < 0 || f.count !== undefined) continue;
+    if (f.key === null || f.offset < 0) continue;
+    if (f.count !== undefined) {
+      for (let i = 0; i < f.count; i++) {
+        const v = keyed[arrayElementKey(f.key, i)];
+        if (typeof v === 'number' && Number.isFinite(v)) out[f.offset + i] = v;
+      }
+      continue;
+    }
     let v = keyed[f.key];
     if (typeof v !== 'number') continue;
     if (f.type === 'nullable' && !(v >= 0)) v = f.cppNull ?? -1;
@@ -269,7 +333,11 @@ export function keysFromCppState(deviceId: string, cpp: ArrayLike<number>): Devi
   const out: DeviceStateValues = {};
   if (!layout || cpp.length !== layout.cppSize) return out;
   for (const f of layout.fields) {
-    if (f.key === null || f.offset < 0 || f.count !== undefined) continue;
+    if (f.key === null || f.offset < 0) continue;
+    if (f.count !== undefined) {
+      for (let i = 0; i < f.count; i++) out[arrayElementKey(f.key, i)] = cpp[f.offset + i];
+      continue;
+    }
     const v = cpp[f.offset];
     out[f.key] = f.type === 'nullable' && (v === (f.cppNull ?? -1) || v < 0) ? -1 : v;
   }
@@ -386,9 +454,20 @@ export function parsePlantSnapshot(input: unknown): { snapshot: PlantSnapshot | 
   if (wasm && layoutHash !== PLANT_STATE_LAYOUT_HASH) {
     warnings.push('layout hash differs from this build: the C++ vector is skipped, devices load by key');
   }
+  // A file written before plantStateVersion existed is version 1.
+  const stateVersion = Math.max(1, Math.floor(finiteOr(o.plantStateVersion, 1)));
+  if (stateVersion > PLANT_STATE_VERSION) {
+    warnings.push(`plant state version ${stateVersion} is newer than ${PLANT_STATE_VERSION}; reading what this build knows`);
+  } else if (stateVersion < PLANT_STATE_VERSION) {
+    // The C++ vector of an older meaning cannot be loaded even if its layout
+    // happened to match: the migrated keys are cross-loaded instead.
+    const migrated = migratePlantState(devices, stateVersion, warnings);
+    if (wasm && migrated.includes(deviceIdForWasmMode(wasm.mode) ?? '')) wasm = undefined;
+  }
   const snapshot: PlantSnapshot = {
     format: SNAPSHOT_FORMAT,
     version: 1,
+    plantStateVersion: PLANT_STATE_VERSION,
     layoutHash,
     catalogHash: typeof o.catalogHash === 'string' ? o.catalogHash : '',
     backend: o.backend === 'wasm' || o.backend === 'wasm-worker' ? o.backend : 'js',

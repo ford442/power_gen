@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <span>
 #include <vector>
@@ -78,10 +79,13 @@ struct PlantCase {
     float drive;
     int frames;
     float dt;
-    int nState;
+    int nState;   // traced channels (≤ 4)
     const char* const* names;
     sim_core::Integrator catalog;
     Getter get;
+    // The ODE's own state count — what one forward-difference Jacobian costs
+    // the TS mirror in RHS calls. 0 = the traced channels are the whole state.
+    int odeStates = 0;
 };
 
 void ring_get(const SEGSimulator& s, std::array<float, 4>& x) {
@@ -89,6 +93,11 @@ void ring_get(const SEGSimulator& s, std::array<float, 4>& x) {
 }
 void disc_get(const SEGSimulator& s, std::array<float, 4>& x) {
     x = { s.getHomopolarOmega(), s.getHomopolarCurrentA(), 0.f, 0.f };
+}
+/// The cooler's four end nodes; the 24 cells between them are slaved to these.
+void peltier_get(const SEGSimulator& s, std::array<float, 4>& x) {
+    const int n = s.getPeltierNodeCount();
+    x = { s.getPeltierNodeK(0), s.getPeltierNodeK(1), s.getPeltierNodeK(n - 2), s.getPeltierNodeK(n - 1) };
 }
 
 int compare(const PlantCase& pc, int method, const Trace& ref, double& ratioOut, double& errOut) {
@@ -110,10 +119,10 @@ int compare(const PlantCase& pc, int method, const Trace& ref, double& ratioOut,
     for (int i = 0; i < pc.nState; ++i) errMax = std::max(errMax, err[i]);
     const double ratio = tr.rhs > 0 ? ref.rhs / tr.rhs : 0;
     std::printf("integrators.case %s method=%s frames=%d dt=%.17g drive=%.17g rhs=%.0f ref_rhs=%.0f ratio=%.3f"
-                " steps=%.0f rejected=%.0f jac=%.0f n=%d",
+                " steps=%.0f rejected=%.0f jac=%.0f n=%d states=%d",
                 pc.id, sim_core::integrator_name(static_cast<sim_core::Integrator>(method)), pc.frames,
                 static_cast<double>(pc.dt), static_cast<double>(pc.drive), tr.rhs, ref.rhs, ratio,
-                tr.steps, tr.rejected, tr.jacobians, pc.nState);
+                tr.steps, tr.rejected, tr.jacobians, pc.nState, pc.odeStates > 0 ? pc.odeStates : pc.nState);
     for (int i = 0; i < pc.nState; ++i) std::printf(" err.%s=%.3e", pc.names[i], err[i]);
     std::printf(" err.max=%.3e\n", errMax);
     ratioOut = ratio;
@@ -163,7 +172,27 @@ struct Growth {
     void load(std::span<const float>) {}
 };
 
+/// A conduction chain between two held ends: x[0] and x[5] never move, the
+/// four cells between relax to the straight line joining them. Stiff (cell
+/// rate ~1e3 /s) and, unlike a diagonal system, W = I − h·d·J needs a pivot
+/// past column 0 as soon as h·d·G > 1 — the case the LU solve got wrong.
+struct HeldChain {
+    struct In {};
+    using input_type = In;
+    static constexpr std::size_t state_size = 6, output_size = 0;
+    void derivs(double, std::span<const float> x, const In&, std::span<float> d) const {
+        const float g = 480.f;
+        d[0] = 0.f;
+        d[5] = 0.f;
+        for (std::size_t i = 1; i <= 4; ++i) d[i] = g * (x[i - 1] - 2.f * x[i] + x[i + 1]);
+    }
+    void outputs(std::span<const float>, const In&, std::span<float>) const {}
+    void save(std::span<float>) const {}
+    void load(std::span<const float>) {}
+};
+
 static_assert(sim_core::Plant<Oscillator> && sim_core::Plant<StiffLinear> && sim_core::Plant<Growth>);
+static_assert(sim_core::Plant<HeldChain>);
 static_assert(sim_core::ConstrainedPlant<ThomsonPlant> && sim_core::ConstrainedPlant<HomopolarPlant>);
 static_assert(!sim_core::ConstrainedPlant<Oscillator>);
 
@@ -222,6 +251,54 @@ int analytic_checks() {
         check(steps[1] * 20 <= steps[0], "stiff.ros23_vs_dopri5.step_ratio", steps[0] / std::max(1.0, steps[1]), 20);
     }
 
+    // LU with partial pivoting: a matrix whose pivots are all off the
+    // diagonal, so every interchange — and their order against the forward
+    // substitution — matters.
+    {
+        constexpr std::size_t N = 6;
+        std::array<float, N * N> a{}, a0{};
+        std::array<float, N> b{}, b0{};
+        std::uint32_t seed = 0x1234567u;
+        auto rnd = [&]() {
+            seed = seed * 1664525u + 1013904223u;
+            return static_cast<float>(seed >> 8) / 16777216.f - 0.5f;
+        };
+        for (std::size_t i = 0; i < N; ++i) {
+            for (std::size_t j = 0; j < N; ++j) a[i * N + j] = rnd() + (j == (i + 2) % N ? 4.f : 0.f);
+            b[i] = rnd();
+        }
+        a0 = a;
+        b0 = b;
+        std::array<std::size_t, N> piv{};
+        const bool ok = sim_core::detail::lu_factor<N>(a, piv);
+        sim_core::detail::lu_solve<N>(a, piv, b);
+        double resid = 0;
+        for (std::size_t i = 0; i < N; ++i) {
+            double r = -static_cast<double>(b0[i]);
+            for (std::size_t j = 0; j < N; ++j) r += static_cast<double>(a0[i * N + j]) * static_cast<double>(b[j]);
+            resid = std::max(resid, std::fabs(r));
+        }
+        check(ok && resid <= 1e-5, "lu.pivot.residual", resid, 1e-5);
+    }
+
+    // ros23 on the held-end chain: the ends stay put and the cells reach the
+    // straight line between them.
+    {
+        HeldChain chain;
+        sim_core::Tolerance<6> tol;
+        tol.rtol = 1e-5f;
+        tol.atol = { 1e-6f, 1e-6f, 1e-6f, 1e-6f, 1e-6f, 1e-6f };
+        sim_core::StepperState st;
+        float x[6] = { 0.f, 0.f, 0.f, 0.f, 0.f, 1.f };
+        sim_core::StepStats total;
+        for (int f = 0; f < 60; ++f) total += sim_core::ros23_advance(chain, std::span<float>(x), HeldChain::In{}, dt, tol, st);
+        double err = std::max(std::fabs(static_cast<double>(x[0])), std::fabs(static_cast<double>(x[5]) - 1.0));
+        for (int i = 1; i <= 4; ++i) err = std::max(err, std::fabs(static_cast<double>(x[i]) - 0.2 * i));
+        check(total.ok && err <= 1e-4, "chain.ros23.err", err, 1e-4);
+        // An L-stable method takes the steps accuracy wants, not ~3/λ of them.
+        check(total.steps <= 400, "chain.ros23.steps", static_cast<double>(total.steps), 400);
+    }
+
     // RK4 is fourth order: halving h cuts the error ~16×.
     {
         Growth g;
@@ -242,12 +319,17 @@ int analytic_checks() {
 int run_integrators() {
     static const char* const kRing[] = { "primaryIA", "ringCurrentA", "velocityMps", "heightM" };
     static const char* const kDisc[] = { "omega", "currentA" };
+    static const char* const kPeltier[] = { "coldBlockK", "coldPlateK", "hotPlateK", "sinkK" };
     // Same schedules as the golden cases (standalone_golden.cpp).
     const PlantCase cases[] = {
         { "jumping-ring", SIM_MODE_JUMPING_RING, 0.85f, 400, 1.f / 90.f, 4, kRing,
           power_gen::ode::JumpingRing::INTEGRATOR, ring_get },
         { "homopolar", SIM_MODE_HOMOPOLAR, 0.90f, 240, 1.f / 60.f, 2, kDisc,
           power_gen::ode::Homopolar::INTEGRATOR, disc_get },
+        // 10 s at 4.8 A from ambient. Reference: RK4 in the plant's 0.5 ms
+        // substeps (the leg is stiff — explicit steps must stay under 1.4 ms).
+        { "peltier", SIM_MODE_PELTIER, 0.60f, 600, 1.f / 60.f, 4, kPeltier,
+          power_gen::ode::Peltier::INTEGRATOR, peltier_get, static_cast<int>(power_gen::ode::Peltier::STATE_SIZE) },
     };
     int bad = analytic_checks();
     for (const PlantCase& pc : cases) {

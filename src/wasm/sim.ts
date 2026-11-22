@@ -267,6 +267,16 @@ export class SEGSim {
     return true;
   }
 
+  /** Cold-block heat load, W (catalog setpoint `peltierLoad`). */
+  setPeltierLoadW(watts: number): void {
+    this._sim?.setPeltierLoadW?.(Number(watts) || 0);
+  }
+
+  /** Current direction: ≥ 0 cools the block, < 0 reverses (catalog setpoint `peltierPolarity`). */
+  setPeltierPolarity(sign: number): void {
+    this._sim?.setPeltierPolarity?.(Number(sign) < 0 ? -1 : 1);
+  }
+
   setLorentzFieldT(fieldT: number): void {
     this._sim?.setLorentzFieldT?.(Number(fieldT) || 0);
   }
@@ -312,6 +322,11 @@ export class SEGSim {
         current: this._sim.getPeltierCurrent?.() ?? 0,
         powerW: this._sim.getPeltierPowerW?.() ?? 0,
         cop: this._sim.getPeltierCOP?.() ?? 0,
+        qcW: this._sim.getPeltierQcW?.() ?? 0,
+        qhW: this._sim.getPeltierQhW?.() ?? 0,
+        // The two end bodies the mesh colours (nodes 0 and N−1, peltier_plant.h).
+        blockK: this._sim.getPeltierNodeK?.(0) ?? 0,
+        sinkK: this._sim.getPeltierNodeK?.((this._sim.getPeltierNodeCount?.() ?? 1) - 1) ?? 0,
         energyLevel: this._sim.getEnergyLevel?.() ?? 0
       };
     }

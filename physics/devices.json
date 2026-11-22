@@ -1,5 +1,7 @@
 {
   "$comment": "Device identity catalog — shaderMode (WGSL/uniforms) and wasmMode (C++ SimMode) are independent namespaces. Do not assume they are equal. Never reuse a retired shaderMode. Edit this file and run npm run codegen:catalog.",
+  "plantStateVersion": 2,
+  "plantStateVersionNotes": "Bump by hand when a saved plant state changes meaning (the layout hash already covers shape), and add a migration to src/session/plant-snapshot-migrate.ts. 1: original (#224). 2: peltier became a current-driven cooler with a resolved leg - snapshots from 1 carry only its two plate temperatures.",
   "reservedWasmModes": [],
   "reservedShaderModes": [11],
   "devices": [
@@ -234,11 +236,44 @@
       "chrome": { "emoji": "🔥", "label": "Peltier", "sort": 5 },
       "shaderMode": 4,
       "wasmMode": 4,
-      "telemetryKeys": ["peltierHotK", "peltierColdK", "peltierDeltaT", "peltierVoltage", "peltierCurrent", "peltierPowerW", "peltierCOP"],
-      "fidelity": "WASM (two-node Seebeck/Peltier stack)",
+      "telemetryKeys": ["peltierHotK", "peltierColdK", "peltierDeltaT", "peltierVoltage", "peltierCurrent", "peltierPowerW", "peltierCOP", "peltierQcW", "peltierQhW"],
+      "fidelity": "WASM (thermoelectric cooler: 1-D leg, 24 cells + 4 end nodes, ros23)",
+      "integrator": "ros23",
+      "ode": {
+        "state": ["nodesK"],
+        "outputs": ["hotK", "coldK", "deltaTK", "voltageV", "powerW", "cop", "qcW", "qhW"],
+        "tolerance": { "rtol": 1e-5, "atol": { "nodesK": 1e-3 }, "hMax": 2 }
+      },
+      "setpoints": [
+        {
+          "id": "peltierLoad",
+          "label": "Cold-side heat load",
+          "min": 0,
+          "max": 40,
+          "step": 0.5,
+          "unit": "W",
+          "digits": 1,
+          "stateKey": "peltierLoadW",
+          "note": "Heat fed into the cold block. The block is otherwise insulated, so 0 W is the textbook zero-load case and ΔT reaches its maximum; every watt of load costs about 2 K."
+        },
+        {
+          "id": "peltierPolarity",
+          "label": "Current direction",
+          "min": -1,
+          "max": 1,
+          "step": 2,
+          "unit": "",
+          "digits": 0,
+          "stateKey": "peltierPolarity",
+          "note": "+1 pumps heat from the block to the sink. −1 reverses the current: the junctions swap roles and the block is heated instead. The drive slider sets the magnitude."
+        }
+      ],
       "state": {
         "plant": "_peltier",
         "fields": [
+          { "key": "peltierNodesK", "cpp": "nodesK[]", "count": 28 },
+          { "key": "peltierLoadW", "cpp": "loadW" },
+          { "key": "peltierPolarity", "cpp": "polarity" },
           { "key": "peltierHotK", "cpp": "hotK" },
           { "key": "peltierColdK", "cpp": "coldK" },
           { "key": "peltierDeltaT", "cpp": "deltaTK" },
@@ -246,18 +281,22 @@
           { "key": "peltierCurrent", "cpp": "currentA" },
           { "key": "peltierPowerW", "cpp": "powerW" },
           { "key": "peltierCOP", "cpp": "cop" },
+          { "key": "peltierQcW", "cpp": "qcW" },
+          { "key": "peltierQhW", "cpp": "qhW" },
+          { "key": "peltierStepH", "cpp": "stepH" },
+          { "key": "peltierStepErrOld", "cpp": "stepErrOld" },
           { "key": "energyLevel", "cpp": null },
           { "cpp": "drive" }
         ]
       },
       "telemetry": {
         "peltierHotK": {
-          "label": "T_h",
+          "label": "T sink side",
           "unit": "K",
           "digits": 1
         },
         "peltierColdK": {
-          "label": "T_c",
+          "label": "T load side",
           "unit": "K",
           "digits": 1
         },
@@ -269,22 +308,32 @@
         "peltierVoltage": {
           "label": "V",
           "unit": "V",
-          "digits": 3
+          "digits": 2
         },
         "peltierCurrent": {
           "label": "I",
           "unit": "A",
-          "digits": 3
+          "digits": 2
         },
         "peltierPowerW": {
-          "label": "P",
+          "label": "P in",
           "unit": "W",
-          "digits": 2
+          "digits": 1
         },
         "peltierCOP": {
           "label": "COP",
           "unit": "",
-          "digits": 3
+          "digits": 2
+        },
+        "peltierQcW": {
+          "label": "Q pumped",
+          "unit": "W",
+          "digits": 2
+        },
+        "peltierQhW": {
+          "label": "Q rejected",
+          "unit": "W",
+          "digits": 1
         }
       }
     },
