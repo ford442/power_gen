@@ -108,14 +108,16 @@ static const GoldenCase GOLDEN_CASES[] = {
     { SIM_MODE_HOMOPOLAR,    "homopolar@dopri5",    "homopolar",    0.90f, 240, 1.f / 60.f, -1.f, -1.f, -1.f, 2 },
     { SIM_MODE_HOMOPOLAR,    "homopolar@ros23",     "homopolar",    0.90f, 240, 1.f / 60.f, -1.f, -1.f, -1.f, 3 },
     // The cooler's two setpoints: a 12 W load on the block, and the current
-    // reversed (the block heats). Then dopri5, held to the stability limit by
-    // the stiff leg. No @rk4 / @euler case: those overrides run 0.5 ms
-    // substeps, and adding ~1 mK increments to ~300 K float32 temperatures
-    // 10,000 times leaves ~20 mK of rounding — the C++ reference's own noise,
-    // well above this test's 2e-4 (see docs/INTEGRATORS.md → Peltier).
+    // reversed (the block heats). No case for an explicit override (@euler,
+    // @rk4, @dopri5): on this stiff leg they take tens of thousands of
+    // sub-millisecond steps, and adding ~1 mK increments to ~300 K float32
+    // temperatures that often leaves tens of mK of rounding — the C++ side's
+    // own noise, well above this test's 2e-4. A @dopri5 case agreed on one
+    // compiler and moved Q_c by 0.06 W (0.2 %) on another that contracts
+    // a·b + c into FMA. test:integrators holds those overrides to the error
+    // budget on each side instead (docs/INTEGRATORS.md → Peltier).
     { SIM_MODE_PELTIER,      "peltier-loaded",      "peltier",      0.60f, 900, 1.f / 60.f, -1.f, -1.f, -1.f, -1, 12.f, 1.f },
     { SIM_MODE_PELTIER,      "peltier-reversed",    "peltier",      0.25f, 600, 1.f / 60.f, -1.f, -1.f, -1.f, -1, 0.f, -1.f },
-    { SIM_MODE_PELTIER,      "peltier@dopri5",      "peltier",      0.50f, 300, 1.f / 60.f, -1.f, -1.f, -1.f, 2 },
 };
 
 static const char* golden_integrator_name(int m) {

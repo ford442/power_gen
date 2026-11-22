@@ -296,7 +296,7 @@ view.
 | Command | Holds |
 |---------|-------|
 | `npm run test:peltier` | the four textbook checks (`ΔT_max`, `I_opt`, COP vs current, `Q_h = Q_c + P_in` to 1e-3) on native, the shipped WASM and TS; the leg alone at fixed plates against the textbook `COP(I)` peak; exact Jacobian; Thomson energy closure; array snapshots; the version-1 migration; mesh colours |
-| `npm run test:golden` | TS ≈ native on five schedules: default, loaded, reversed, `@dopri5` |
+| `npm run test:golden` | TS ≈ native on three schedules, all on `ros23`: default, a 12 W load, reversed current |
 | `npm run test:integrators` | `ros23` ≥ 10× fewer RHS calls than fine-stepped RK4 on the leg; the LU pivoting case this plant exposed |
 | `sim_core_test --mode peltier-textbook` | the same sweep natively, with its own assertions |
 
