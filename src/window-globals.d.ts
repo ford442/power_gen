@@ -124,6 +124,10 @@ export interface MultiVisualizerWindowRef {
 /** Snapshot returned by window.getRendererInfo() (WebGL2 fallback + agent/e2e hooks). */
 export interface RendererInfoSnapshot {
   renderer: string;
+  /** WebGPU only: frames submitted since boot. */
+  frames?: number;
+  /** WebGPU only: copy of `window.__gpuErrors` (webgpu-init/gpu-errors.ts). */
+  gpuErrors?: import('./webgpu-init/gpu-errors').GpuErrorLog;
   fps: number;
   particleCount: number;
   view: string;
@@ -228,7 +232,7 @@ export interface RendererInfoSnapshot {
   shadow?: { active: boolean; allocated: boolean; size: number };
 }
 
-/** Canvas readback returned by window.captureCanvasFrame() (WebGL2 fallback + agent/e2e hooks). */
+/** Canvas readback returned by window.captureCanvasFrame() (both renderers; agent / e2e hooks). */
 export interface CanvasFrameCapture {
   width: number;
   height: number;
@@ -274,14 +278,23 @@ declare global {
 
     /** Focus a simulation mode / device view (main.js, keyboard shortcuts, tours). */
     setMode?(mode: string): void;
-    /** WebGL2-only diagnostic snapshot (agent / e2e hooks); absent on the WebGPU path. */
+    /** Diagnostic snapshot (agent / e2e hooks), both renderers; the optional fields say which fills them. */
     getRendererInfo?(): RendererInfoSnapshot;
+    /**
+     * WebGPU only: every GPU error the session saw, counted — `uncaptured`
+     * stays 0 in a healthy session (webgpu-init/gpu-errors.ts).
+     */
+    __gpuErrors?: import('./webgpu-init/gpu-errors').GpuErrorLog;
     /**
      * WebGPU-only debug / e2e hook: destroy the device as a flagged test loss so
      * the device-lost recovery path runs. Returns false when there is no live device.
      */
     simulateDeviceLost?(): boolean;
-    /** WebGL2-only canvas readback (agent / e2e hooks); absent on the WebGPU path. */
+    /**
+     * Canvas readback as RGBA8 (agent / e2e hooks). WebGL2 reads the
+     * framebuffer; WebGPU renders one frame on demand and copies it in the
+     * same task (visualizer/test-hooks.ts).
+     */
     captureCanvasFrame?(opts?: CaptureCanvasFrameOptions): CanvasFrameCapture;
 
     setTransformerLeakage?: (enabled: boolean) => void;

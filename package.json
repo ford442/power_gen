@@ -37,11 +37,15 @@
     "generate:kelvin-jars-glb": "node scripts/generate-kelvin-jars-glb.mjs",
     "generate:lab-gltf": "npm run generate:heron-vessels-glb && npm run generate:kelvin-jars-glb",
     "generate:gltf": "npm run generate:seg-gltf && npm run generate:quanta-gltf && npm run generate:lab-gltf",
+    "codegen:toolchain": "node scripts/toolchain.mjs --write",
+    "check:toolchain": "node scripts/toolchain.mjs --check",
     "check:wgsl": "bash scripts/check-wgsl.sh",
     "codegen:bindings": "node scripts/codegen-bindings.mjs",
     "check:bindings": "node scripts/check-bindings.mjs",
     "test:e2e": "playwright test",
     "test:e2e:offline": "playwright test -c playwright.preview.config.js",
+    "test:e2e:webgpu": "node scripts/e2e-webgpu.mjs",
+    "e2e:update-baselines": "node scripts/e2e-webgpu.mjs --update-baselines",
     "test:unit": "node --test --test-reporter=spec \"scripts/tests/*.test.mjs\"",
     "test:coverage": "node --enable-source-maps --test --experimental-test-coverage --test-coverage-exclude=\"scripts/**\" \"scripts/tests/*.test.mjs\"",
     "test:chores": "node --test scripts/tests/chores.test.mjs",
@@ -78,6 +82,8 @@
     "test:uniform-ring": "node --test scripts/tests/uniform-ring.test.mjs",
     "test:device-draws": "node --test scripts/tests/device-draws.test.mjs",
     "test:stacked-prs": "node scripts/check-stacked-prs.mjs --self-test",
+    "test:pipelines": "node --test --test-reporter=spec scripts/tests/gpu/pipelines.test.mjs",
+    "test:gpu-golden": "node --test --test-reporter=spec \"scripts/tests/gpu/golden-*.test.mjs\"",
     "validate": "node scripts/validate.mjs",
     "deploy": "npm run build:site && python deploy.py",
     "wasm:build": "bash scripts/build-wasm.sh",
@@ -87,7 +93,8 @@
     "bench:wasm": "node scripts/bench-wasm.mjs",
     "check:post": "node scripts/check-post-contracts.mjs",
     "check:file-size": "node scripts/check-file-size.mjs",
-    "check:entry-chunk": "node scripts/check-entry-chunk.mjs"
+    "check:entry-chunk": "node scripts/check-entry-chunk.mjs",
+    "check:bundle-budget": "node scripts/check-bundle-budget.mjs"
   },
   "keywords": [
     "webgpu",
@@ -98,14 +105,17 @@
   "author": "ford442",
   "license": "MIT",
   "devDependencies": {
-    "@playwright/test": "^1.64.1",
+    "@playwright/test": "1.64.1",
     "@types/w3c-web-serial": "^1.0.8",
     "@types/w3c-web-usb": "^1.0.14",
     "@types/web-bluetooth": "^0.0.21",
     "@webgpu/types": "^0.1.74",
     "esbuild": "^0.28.2",
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.4"
+    "vite": "^8.3.4",
+    "webgpu": "^0.6.2"
   },
   "directories": {
     "doc": "docs"

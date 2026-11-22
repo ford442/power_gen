@@ -3,6 +3,8 @@
  * webgpu-manager.ts; recovery itself (`WebGPUManager.reinit()`) stays on the manager.
  */
 
+import { recordGpuError } from './gpu-errors';
+
 export interface DeviceLostInfo {
   reason?: string;
   message?: string;
@@ -23,6 +25,7 @@ export function attachDeviceHooks(device: GPUDevice, h: DeviceHookHandlers): voi
     h.markLost();
     const reason = info?.reason || 'unknown';
     const message = info?.message || 'GPU device was lost';
+    recordGpuError('lost', `${reason} — ${message}`);
     console.error('[WebGPU] device.lost:', reason, message);
 
     if (h.onDeviceLost) {
@@ -38,6 +41,7 @@ export function attachDeviceHooks(device: GPUDevice, h: DeviceHookHandlers): voi
 
   device.addEventListener('uncapturederror', (event) => {
     const err = event.error;
+    recordGpuError('uncaptured', err?.message || String(err));
     console.error('[WebGPU] uncapturederror:', err?.message || err);
     if (h.onUncapturedError) {
       try {

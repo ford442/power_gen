@@ -13,7 +13,12 @@
  *            the checks, so it overlaps lint (the slowest check)
  *   tests    node:test over scripts/tests/*.test.mjs (the goldens and snapshots
  *            need the native build — test:circuit's ten circuit goldens and
- *            their WASM replay among them) + the entry-chunk build
+ *            their WASM replay among them) + the entry-chunk and
+ *            bundle-budget builds
+ *   gpu      Dawn-in-Node (scripts/tests/gpu/): test:pipelines compiles every
+ *            production pipeline, test:gpu-golden runs the compute passes
+ *            against their CPU twins. Both skip with a notice when Dawn has
+ *            no adapter; REQUIRE_GPU=1 (CI) makes that a failure
  *
  * Every step runs even after another fails, so one red run shows every
  * problem. Ends with a per-step pass/fail + seconds table and exits non-zero
@@ -48,7 +53,7 @@ const STEPS = [
   // Ready steps start in this order, so the long poles come first.
   { stage: 'native', ...npm('wasm:native', CODEGEN) },
   ...['lint', 'typecheck', 'check:constants', 'check:catalog', 'check:lab-config', 'check:wasm-abi', 'check:bindings',
-    'check:file-size', 'check:post', 'check:wgsl', 'test:stacked-prs'].map((n) => ({ stage: 'checks', ...npm(n, CODEGEN) })),
+    'check:file-size', 'check:post', 'check:wgsl', 'check:toolchain', 'test:stacked-prs'].map((n) => ({ stage: 'checks', ...npm(n, CODEGEN) })),
   // Direct `node --test` (not the npm alias) so concurrency is the core count.
   {
     stage: 'tests',
@@ -57,7 +62,11 @@ const STEPS = [
     args: ['--test', `--test-concurrency=${CORES}`, '--test-reporter=spec', 'scripts/tests/*.test.mjs'],
     needs: ['wasm:native']
   },
-  { stage: 'tests', ...npm('check:entry-chunk', CODEGEN) }
+  { stage: 'tests', ...npm('check:entry-chunk', CODEGEN) },
+  { stage: 'tests', ...npm('check:bundle-budget', CODEGEN) },
+  // After the checks' long poles have started: a software rasteriser uses every core.
+  { stage: 'gpu', ...npm('test:pipelines', CODEGEN) },
+  { stage: 'gpu', ...npm('test:gpu-golden', CODEGEN) }
 ];
 
 function run(step) {
@@ -78,8 +87,19 @@ function run(step) {
   });
 }
 
+/**
+ * `[tool] SKIP: reason` lines a step printed while still exiting 0 (no GPU
+ * adapter, no naga). Shown even when the step passes: a skipped gate that
+ * looks green is how coverage quietly disappears.
+ */
+function skipNotices(r) {
+  if (r.code !== 0) return [];
+  return [...new Set(r.out.match(/^\[[\w:-]+\] SKIP: .*$/gm) ?? [])];
+}
+
 function report(r) {
-  const mark = r.code === 0 ? 'ok  ' : 'FAIL';
+  const skips = skipNotices(r);
+  const mark = r.code !== 0 ? 'FAIL' : skips.length ? 'skip' : 'ok  ';
   const line = `[validate] ${mark} ${r.name} (${r.secs.toFixed(1)} s)`;
   const show = r.code !== 0 || VERBOSE;
   if (GHA) {
@@ -91,6 +111,7 @@ function report(r) {
     console.log(line);
   }
   if (show && !GHA && r.out.trim()) process.stdout.write(`${r.out.replace(/^/gm, '  │ ')}\n`);
+  else for (const notice of skips) console.log(`${GHA ? '::warning title=validate: skipped::' : '  │ '}${r.name}: ${notice}`);
 }
 
 /**
@@ -138,11 +159,13 @@ const w = Math.max(...rows.map((r) => r.name.length), 4);
 console.log('\n  stage    step' + ' '.repeat(w - 4) + '  result    secs');
 console.log('  ' + '─'.repeat(w + 26));
 for (const r of rows) {
-  console.log(`  ${r.stage.padEnd(8)} ${r.name.padEnd(w)}  ${(r.code === 0 ? 'pass' : `FAIL(${r.code})`).padEnd(8)} ${r.secs.toFixed(1).padStart(6)}`);
+  const result = r.code !== 0 ? `FAIL(${r.code})` : skipNotices(r).length ? 'skipped' : 'pass';
+  console.log(`  ${r.stage.padEnd(8)} ${r.name.padEnd(w)}  ${result.padEnd(8)} ${r.secs.toFixed(1).padStart(6)}`);
 }
 console.log('  ' + '─'.repeat(w + 26));
 const cpu = rows.reduce((a, r) => a + r.secs, 0);
-console.log(`  ${rows.length - failed.length}/${rows.length} passed · wall ${wall.toFixed(1)} s · sum of steps ${cpu.toFixed(1)} s · ${CORES} cores`);
+const skipped = rows.filter((r) => skipNotices(r).length).length;
+console.log(`  ${rows.length - failed.length}/${rows.length} passed${skipped ? ` (${skipped} skipped — see notices above)` : ''} · wall ${wall.toFixed(1)} s · sum of steps ${cpu.toFixed(1)} s · ${CORES} cores`);
 if (failed.length) {
   console.log(`\n[validate] FAILED: ${failed.map((r) => r.name).join(', ')}`);
   process.exit(1);

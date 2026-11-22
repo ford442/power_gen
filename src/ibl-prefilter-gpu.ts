@@ -23,6 +23,7 @@ import {
 import type { LightingPreset } from './seg-lighting-presets';
 import type { PipelineLayoutCache } from './pipeline-layout';
 import { writeQueueBuffer } from './gpu-buffer-write';
+import { recordGpuError } from './webgpu-init/gpu-errors';
 
 /** Matches `@workgroup_size(8, 8, 1)` in the prefilter shader. */
 const WORKGROUP = 8;
@@ -120,6 +121,7 @@ export class IblPrefilterCompute {
 
       const error = await device.popErrorScope();
       if (error) {
+        recordGpuError('scoped', error.message);
         console.warn(
           '[ibl-prefilter] compute prefilter resources invalid — using the CPU bake:',
           error.message

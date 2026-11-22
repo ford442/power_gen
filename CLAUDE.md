@@ -54,7 +54,8 @@ Details: **docs/LAB_CONFIG.md**.
 | Fallback | `WebGL2MultiDeviceVisualizer` | WebGL2 + GLSL |
 
 Shared CPU physics: `src/renderers/shared/`. Plant host: `src/session/`. Gaps: **docs/WEBGL2.md**.  
-Hooks: `window.currentRenderer`, `window.getRendererInfo()`, `window.captureCanvasFrame()`.
+Hooks (both renderers): `window.currentRenderer`, `window.getRendererInfo()`, `window.captureCanvasFrame()`.  
+WebGPU also: `window.__gpuErrors` (every GPU error, counted), `window.simulateDeviceLost()`, `multiVisualizer.frozenTime`.
 
 ## Language roles (short)
 
@@ -138,7 +139,28 @@ npm run test:circuit  # Circuit Lab: native MNA goldens + their WASM replay (LC 
 npm run generate:gltf # regenerate every placeholder GLB (seg + quanta + lab)
 npm run test:device-draws # mock encoder: transformer flux, pickup coils + rings, bind-group token, camera scratch
 npm run test:stacked-prs # stacked-PR guard decision table (CI: .github/workflows/stacked-prs.yml)
+npm run test:pipelines  # Dawn-in-Node: every production pipeline compiles (Tint + Dawn) × colour mode × depth × MSAA; features / limits audit
+npm run test:gpu-golden # Dawn-in-Node: compute passes vs CPU twins (FDTD, chores reduce, rollers, particles, IBL, cull)
+npm run test:e2e:webgpu # headed Chromium on SwiftShader (xvfb-run added when no display): boot, 16 benches, tiers, device loss, image baselines
+npm run e2e:update-baselines # rewrite e2e/baselines/** (report-only gate; CI: Validate → update_baselines)
+npm run check:toolchain # config/toolchain.json is the only place a tool version is written (codegen:toolchain regenerates the mirrors)
+npm run check:bundle-budget # gzip budgets for the entry / WebGPU / WebGL2 chunks (config/bundle-budget.json)
 ```
+
+**GPU tests:** `test:pipelines` / `test:gpu-golden` need a Vulkan adapter
+(`mesa-vulkan-drivers` gives Lavapipe); without one they skip with a notice
+and `REQUIRE_GPU=1` (CI) fails instead. They live in `scripts/tests/gpu/`,
+drive the app's real `PipelineLayoutCache` and host classes through
+`scripts/lib/gpu-app.mjs`, and are not part of `test:unit`. A new pipeline
+needs its `ensure*` call in `pipelines.test.mjs`; a new compute pass needs a
+golden. Details: **docs/WEBGPU.md → How the GPU is tested** (ADR-0020).
+
+**Image baselines:** a change under `e2e/baselines/` needs the before / after
+image in the PR. They are SwiftShader frames, report-only until stable.
+
+**Tool versions:** emsdk / naga / node / playwright are pinned in
+`config/toolchain.json` and nowhere else — read them with
+`node scripts/toolchain.mjs <tool>`.
 
 **Tests:** new unit tests go in `scripts/tests/<name>.test.mjs` (`node:test`
 `describe`/`it`, `node:assert/strict`) and import TS through
@@ -160,3 +182,5 @@ ADR-0016 has the why.
 - Document non-existent root `main.js` / dual architecture trees.
 - Claim every device has equal physical fidelity.
 - Import `wgsl-include.js` into browser code (Node/CI only; Vite expands `#include`).
+- Import `webgpu` (Dawn-in-Node), `pixelmatch` or `pngjs` under `src/` — test-only (ADR-0020; `lint` fails it).
+- Write a tool version outside `config/toolchain.json` (`check:toolchain` fails it).

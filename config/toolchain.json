@@ -1,0 +1,7 @@
+{
+  "$comment": "The one place a tool version is written (#258 §6). Readers: scripts/toolchain.mjs (CLI + check:toolchain), build-wasm.yml, validate.yml, scripts/check-wgsl.sh, scripts/build-wasm.sh, scripts/sim-core-source-hash.mjs, cpp/README.md (generated table). Mirrors a tool forces on us (.nvmrc for nvm / setup-node, the @playwright/test version in package.json + package-lock.json) are verified by `npm run check:toolchain`; any other hard-coded copy fails it. After editing: npm run codegen:toolchain.",
+  "emsdk": "3.1.61",
+  "naga": "30.0.2",
+  "node": "24",
+  "playwright": "1.64.1"
+}

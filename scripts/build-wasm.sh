@@ -12,7 +12,7 @@
 #   2. EMSDK env var pointing at an emsdk root (sources emsdk_env.sh)
 #   3. $HOME/emsdk/emsdk_env.sh if present
 #
-# emsdk version: cpp/emsdk-version is the one pin (CI's setup-emsdk and
+# emsdk version: config/toolchain.json is the one pin (CI's setup-emsdk and
 # cpp/README.md read it too). A different emcc builds, with a warning —
 # the committed binary should come from the pinned one.
 #
@@ -92,10 +92,10 @@ if ! command -v emcc >/dev/null 2>&1; then
 fi
 
 echo "[build-wasm] emcc: $(emcc --version | head -1)"
-PIN="$(tr -d '[:space:]' < "$ROOT/cpp/emsdk-version")"
+PIN="$(node "$ROOT/scripts/toolchain.mjs" emsdk)"
 HAVE="$(emcc --version | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 if [[ "$HAVE" != "$PIN" ]]; then
-  echo "[build-wasm] warning: emcc $HAVE ≠ pinned $PIN (cpp/emsdk-version)." >&2
+  echo "[build-wasm] warning: emcc $HAVE ≠ pinned $PIN (config/toolchain.json)." >&2
   echo "[build-wasm]          Install it: emsdk install $PIN && emsdk activate $PIN" >&2
 fi
 mkdir -p "$ROOT/src/wasm/sim-core"

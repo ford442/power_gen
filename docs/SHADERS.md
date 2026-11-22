@@ -113,10 +113,13 @@ Flow:
 
 1. `node scripts/extract-wgsl.mjs` → `build/wgsl-check/*.wgsl`
 2. `naga` each module with an entry point
-3. Unexpected failures fail the job; allowlisted Tint-only debt is warned
+3. Any failure fails the job. There is no allowlist: all 50 modules pass the
+   pinned naga, and a naga-only failure gets a portable rewrite (below).
 
-Allowlist: `KNOWN_NAGA_FAILURES` in `scripts/check-wgsl.sh`. Prefer fixing
-shaders over growing the list.
+naga is the fast, portable gate and the stand-in for Firefox / wgpu. Chrome
+compiles with **Tint**, and a module that parses is not yet a pipeline that
+links against its layout: `npm run test:pipelines` covers both on a real Dawn
+device (docs/WEBGPU.md → How the GPU is tested).
 
 ### CPU ↔ WGSL contracts
 
@@ -191,14 +194,14 @@ Known cases in both directions:
 
 When you hit a naga-only failure that Chrome accepts:
 
-1. Prefer a portable rewrite (see field-advect `ringRadius()`).
-2. If blocked, add a **short** allowlist entry with a comment and track removal.
-3. Document the case here.
+1. Rewrite it portably (see field-advect `ringRadius()`).
+2. Document the case here.
 
-Install naga locally:
+Install naga locally — the version is pinned in `config/toolchain.json`
+(`check:wgsl` warns when yours differs; CI installs the pin):
 
 ```bash
-cargo install naga-cli --version 0.19.0 --locked
+cargo install naga-cli --version "$(node scripts/toolchain.mjs naga)" --locked
 ```
 
 ## PBR chunks
