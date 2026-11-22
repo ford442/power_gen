@@ -1,6 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
-import { gotoWebGL2, trackPageErrors, waitForEval } from './helpers.js';
+import { gotoWebGL2, shareHashFields, trackPageErrors, waitForEval } from './helpers.js';
 
 test.describe('SEG WebGL2 smoke', () => {
 
@@ -1557,9 +1557,12 @@ test.describe('Device explainer tours', () => {
       }), key);
       expect(snap.step).toBe(2);
       expect(snap.view).toBe(mode);
-      // The tour writes its own state back, so the link stays shareable.
-      expect(snap.hash).toContain(`mode=${mode}`);
-      expect(snap.hash).toContain('tour=1');
+      // The tour writes its own state back, so the link stays shareable. It
+      // writes it as a compressed `#lab2=` link, a moment after boot: read the
+      // fields out of whichever form the hash is in by now, not its text.
+      const shared = shareHashFields(snap.hash);
+      expect(shared.mode, `hash ${snap.hash}`).toBe(mode);
+      expect([true, 1, '1'], `tour in ${JSON.stringify(shared)}`).toContain(shared.tour);
     });
   }
 

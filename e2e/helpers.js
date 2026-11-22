@@ -1,6 +1,33 @@
 /**
  * Shared Playwright helpers for SEG WebGL2 agent-hook tests.
  */
+import { inflateRawSync } from 'node:zlib';
+
+/**
+ * The fields of a share hash, whichever form it is in: `#lab=v1;k=v;…` as
+ * written, or a `#lab2=` link decoded (docs/LAB_CONFIG.md: `z` + base64url of
+ * raw-deflated JSON, or `j` + base64url of JSON; the fields are under `c`).
+ * Decoded here, not by the app, so the test does not lean on what it tests.
+ * The app rewrites a `#lab=v1` link as `#lab2=` a moment after boot, so a
+ * test that reads `location.hash` can meet either.
+ * @param {string} hash
+ * @returns {Record<string, unknown>}
+ */
+export function shareHashFields(hash) {
+  const v2 = hash.match(/#lab2=([zj])([A-Za-z0-9_-]+)/);
+  if (v2) {
+    const bytes = Buffer.from(v2[2], 'base64url');
+    const json = (v2[1] === 'z' ? inflateRawSync(bytes) : bytes).toString('utf8');
+    return JSON.parse(json).c ?? {};
+  }
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const part of hash.replace(/^#lab=/, '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq > 0) out[part.slice(0, eq)] = part.slice(eq + 1);
+  }
+  return out;
+}
 
 /** @typedef {{ pageErrors: string[] }} PageErrorTracker */
 
