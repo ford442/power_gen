@@ -37,6 +37,10 @@ const ENTRY = `
   export { DEVICE_CATALOG } from './generated/device-catalog.ts';
   export { mhdParcelPosition, MHD_DUCT } from './src/devices/core/mhd-parcels.ts';
   export { integratePeltier } from './src/renderers/shared/particle-orbits.ts';
+  export * as mpm from './src/fluids/mpm-params.ts';
+  export { MpmCpu, mpmTotals } from './src/fluids/mpm-cpu.ts';
+  export { seedMpmBox, writeMpmParticle } from './src/fluids/mpm-seed.ts';
+  export { MpmSolver } from './src/fluids/mpm-solver.ts';
 `;
 
 let app = null;

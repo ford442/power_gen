@@ -31,6 +31,7 @@ export type SchemaBindGroupLayoutName =
   | 'taaResolve'
   | 'depthResolve'
   | 'fdtdCompute'
+  | 'mpm'
   | 'fdtdSlice'
   | 'fieldVolume'
   | 'fieldProbe'
@@ -184,6 +185,12 @@ export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGro
     { binding: 3, visibility: 4, buffer: { type: 'storage' } },
     { binding: 4, visibility: 4, buffer: { type: 'read-only-storage' } },
   ],
+  mpm: [
+    { binding: 0, visibility: 4, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 4, buffer: { type: 'storage' } },
+    { binding: 2, visibility: 4, buffer: { type: 'storage' } },
+    { binding: 3, visibility: 4, buffer: { type: 'storage' } },
+  ],
   fdtdSlice: [
     { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
     { binding: 2, visibility: 2, buffer: { type: 'uniform' } },
@@ -263,6 +270,7 @@ export const BGL_GROUP: Readonly<Record<SchemaBindGroupLayoutName, number>> = {
   taaResolve: 0,
   depthResolve: 0,
   fdtdCompute: 0,
+  mpm: 0,
   fdtdSlice: 1,
   fieldVolume: 0,
   fieldProbe: 0,

@@ -28,6 +28,7 @@ export type BindGroupLayoutName =
   | 'depthResolve'
   | 'fdtdCompute'
   | 'fdtdSlice'
+  | 'mpm'
   | 'fieldVolume'
   | 'fieldProbe'
   | 'fieldStreamlines'

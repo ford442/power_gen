@@ -167,6 +167,9 @@ const cpu = rows.reduce((a, r) => a + r.secs, 0);
 const skipped = rows.filter((r) => skipNotices(r).length).length;
 console.log(`  ${rows.length - failed.length}/${rows.length} passed${skipped ? ` (${skipped} skipped — see notices above)` : ''} · wall ${wall.toFixed(1)} s · sum of steps ${cpu.toFixed(1)} s · ${CORES} cores`);
 if (failed.length) {
-  console.log(`\n[validate] FAILED: ${failed.map((r) => r.name).join(', ')}`);
-  process.exit(1);
+  // Exit from the write's callback: stdout is a pipe on CI, and process.exit()
+  // right after a large write drops whatever has not left it yet — which was
+  // everything past 64 KiB of the failing step's output, i.e. the failure.
+  process.exitCode = 1;
+  process.stdout.write(`\n[validate] FAILED: ${failed.map((r) => r.name).join(', ')}\n`, () => process.exit(1));
 }

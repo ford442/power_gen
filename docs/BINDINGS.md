@@ -249,6 +249,23 @@ Binding 4 is **always bound**, even for a vacuum slice: `params.materialFlags`
 bit 0 decides whether the shader reads it, so there is one pipeline and one bind
 group either way (`?fdtdMaterials=0` clears the flag).
 
+### `mpm` — MLS-MPM liquid substep (ADR-0022)
+
+Shared by the three passes of a substep — `passes/mpm-p2g.wgsl` (`p2g`),
+`mpm-grid.wgsl` (`gridUpdate`), `mpm-g2p.wgsl` (`g2p`) — so a solver holds
+one bind group. Each pass declares only the bindings it uses. The host
+(`src/fluids/mpm-solver.ts`) clears binding 2 with `clearBuffer` before `p2g`.
+
+| Binding | Type | Stages | Resource | Declared by |
+|---------|------|--------|----------|-------------|
+| 0 | uniform | CS | `MpmParams` (80 B, `common/mpm.wgsl`) | all three |
+| 1 | storage (rw) | CS | Particles, `array<MpmParticle>` (80 B each) | `p2g`, `g2p` |
+| 2 | storage (rw) | CS | Fixed-point grid, 4 × i32 per node: mass, momentum xyz — `array<atomic<i32>>` in `p2g`, plain `array<i32>` in `gridUpdate` | `p2g`, `gridUpdate` |
+| 3 | storage (rw) | CS | Velocity grid, `array<vec4f>`: velocity (m/s), mass (particle masses) | `gridUpdate`, `g2p` (reads only) |
+
+`p2g` and `g2p` run at `@workgroup_size(64)` over the particles, `gridUpdate`
+at `@workgroup_size(4, 4, 4)` over the nodes.
+
 ### `fdtdSlice` — FDTD slice panel in the scene pass (ADR-0010, materials ADR-0012)
 
 `passes/fdtd-slice.wgsl`, a six-vertex world-space quad (no vertex buffer)

@@ -105,11 +105,16 @@ method for benches and goldens. The override is not saved in snapshots.
   supplies its exact tridiagonal one. The RHS-count parity check knows which
   plants do.
 - **Explicit overrides.** `euler` / `rk4` on this plant substep at 0.5 ms (the
-  stability limit is about 1.4 ms). The C++ plant holds temperatures in
-  float32, and adding ~1 mK increments to ~300 K values 10⁴ times leaves
-  ~20 mK of rounding. Those overrides are the cost reference for the budget
-  test and are not golden cases; the native and TS errors are each held to the
-  budget rather than to each other.
+  stability limit is about 1.4 ms), and `dopri5` is held to the same limit by
+  its own error control. The C++ plant holds temperatures in float32, and
+  adding ~1 mK increments to ~300 K values 10⁴ times leaves tens of mK of
+  rounding. So none of the three is a golden case on this plant: the native
+  and TS errors are each held to the budget (`test:integrators`), not to each
+  other. A `peltier@dopri5` golden case did exist. It passed at 2e-4 with one
+  compiler and failed with another: built with FMA contraction
+  (`-march=x86-64-v3`, the CI runner's default) the native `Q_c` moves by
+  0.06 W, 0.2 %. Nothing was wrong with either build — the comparison was
+  asking for more than float32 can give an explicit method here.
 
 ## Numbers
 

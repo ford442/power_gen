@@ -1373,7 +1373,7 @@ test.describe('Device explainer tours', () => {
       mode: 'peltier',
       startFn: 'startPeltierTour',
       key: 'peltierTour',
-      firstTitle: /heat in, a little electricity/i
+      firstTitle: /electricity in, heat moved/i
     },
     { mode: 'mhd', startFn: 'startMhdTour', key: 'mhdTour', firstTitle: /flows through a field/i },
     {
