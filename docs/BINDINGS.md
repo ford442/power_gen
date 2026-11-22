@@ -258,13 +258,33 @@ one bind group. Each pass declares only the bindings it uses. The host
 
 | Binding | Type | Stages | Resource | Declared by |
 |---------|------|--------|----------|-------------|
-| 0 | uniform | CS | `MpmParams` (80 B, `common/mpm.wgsl`) | all three |
+| 0 | uniform | CS | `MpmParams` (96 B, `common/mpm.wgsl`) | all three |
 | 1 | storage (rw) | CS | Particles, `array<MpmParticle>` (80 B each) | `p2g`, `g2p` |
 | 2 | storage (rw) | CS | Fixed-point grid, 4 × i32 per node: mass, momentum xyz — `array<atomic<i32>>` in `p2g`, plain `array<i32>` in `gridUpdate` | `p2g`, `gridUpdate` |
 | 3 | storage (rw) | CS | Velocity grid, `array<vec4f>`: velocity (m/s), mass (particle masses) | `gridUpdate`, `g2p` (reads only) |
+| 4 | storage (read) | CS | Boundary, `array<vec4f>` per node: outward normal, signed distance (m). **Always bound**; `params.flags` bit 0 says whether it is read (a solver with no solids binds one dummy node) | `gridUpdate`, `g2p` |
 
 `p2g` and `g2p` run at `@workgroup_size(64)` over the particles, `gridUpdate`
 at `@workgroup_size(4, 4, 4)` over the nodes.
+
+### `mpmIo` — MLS-MPM emitters, sinks, read-back, draw export (ADR-0022)
+
+The once-a-frame passes around the substeps: `passes/mpm-emit.wgsl` (`emit`),
+`mpm-probe.wgsl` (`probe`), `mpm-export.wgsl` (`exportParticles`). Built only
+for a solver created with `io`.
+
+| Binding | Type | Stages | Resource | Declared by |
+|---------|------|--------|----------|-------------|
+| 0 | uniform | CS | `MpmParams` (same buffer as `mpm` binding 0) | all three |
+| 1 | storage (rw) | CS | Particles (same buffer as `mpm` binding 1) | `emit`, `exportParticles` (reads only) |
+| 2 | uniform | CS | `MpmIoParams` (192 B): two emitters, two sinks, the export transform | `emit`, `exportParticles` |
+| 3 | storage (rw) | CS | Counters, `array<atomic<u32>>`: this frame's emission tickets (the host clears this word each frame), emitted total, drained total | `emit`, `probe` |
+| 4 | storage (read) | CS | Velocity grid (same buffer as `mpm` binding 3), for its mass channel | `probe` |
+| 5 | storage (rw) | CS | Profile, `array<u32>`: mass per grid layer × 256, then the two totals | `probe` |
+| 6 | storage (rw) | CS | Draw records, `array<GpuParticle>` (16 B, `common/particle.wgsl`) — what the `particle` layout's binding 4 reads | `exportParticles` |
+
+`emit` and `exportParticles` run at `@workgroup_size(64)` over every slot of
+the budget; `probe` at `@workgroup_size(1)`, one invocation per grid layer.
 
 ### `fdtdSlice` — FDTD slice panel in the scene pass (ADR-0010, materials ADR-0012)
 

@@ -67,7 +67,11 @@ export const MPM_MASS_SCALE_MAX = 1048576;
 export const MPM_J_MAX = 1e4;
 
 /** Uniform block size (common/mpm.wgsl `MpmParams`), bytes. */
-export const MPM_PARAMS_BYTES = 80;
+export const MPM_PARAMS_BYTES = 96;
+/** `MpmParams.flags` bit: the boundary buffer holds a signed-distance field. */
+export const MPM_FLAG_BOUNDARY = 1;
+/** Floats per grid node in the boundary buffer: outward normal xyz, signed distance (m, negative inside a solid). */
+export const MPM_BOUNDARY_FLOATS = 4;
 
 export interface MpmConfig {
   /** Grid nodes per axis. */
@@ -241,9 +245,15 @@ export function validateMpmConfig(c: MpmConfig): string[] {
 
 /**
  * Pack `MpmParams` (common/mpm.wgsl). `particleCount` is how many records the
- * passes visit; a record whose `state` is 0 is skipped.
+ * passes visit; a record whose `state` is 0 is skipped. `flags` is
+ * MPM_FLAG_BOUNDARY when a signed-distance field is bound.
  */
-export function packMpmParams(c: MpmConfig, particleCount: number, out: ArrayBuffer = new ArrayBuffer(MPM_PARAMS_BYTES)): ArrayBuffer {
+export function packMpmParams(
+  c: MpmConfig,
+  particleCount: number,
+  out: ArrayBuffer = new ArrayBuffer(MPM_PARAMS_BYTES),
+  flags = 0
+): ArrayBuffer {
   const d = mpmDerived(c);
   const s = mpmFixedScales(c.maxParticles);
   const u = new Uint32Array(out);
@@ -268,6 +278,10 @@ export function packMpmParams(c: MpmConfig, particleCount: number, out: ArrayBuf
   f[17] = s.momentumScale;
   f[18] = MPM_J_MAX;
   f[19] = MPM_T_MAX;
+  u[20] = flags;
+  u[21] = 0;
+  u[22] = 0;
+  u[23] = 0;
   return out;
 }
 
@@ -306,4 +320,164 @@ export type MpmTier = keyof typeof MPM_TIERS;
 export function mpmMemoryBytes(gridN: readonly [number, number, number], particles: number): number {
   const nodes = gridN[0] * gridN[1] * gridN[2];
   return particles * MPM_PARTICLE_BYTES + nodes * MPM_GRID_CHANNELS * 4 + nodes * 16;
+}
+
+// ---------------------------------------------------------------------------
+// Emitters, sinks and the read-back (passes/mpm-emit.wgsl, mpm-probe.wgsl,
+// mpm-export.wgsl; layout `mpmIo`).
+// ---------------------------------------------------------------------------
+
+export const MPM_MAX_EMITTERS = 2;
+export const MPM_MAX_SINKS = 2;
+/** Uniform block size (common/mpm.wgsl `MpmIoParams`), bytes. */
+export const MPM_IO_PARAMS_BYTES = 192;
+/**
+ * Words in the counter buffer: [0] this frame's emission tickets (cleared by
+ * the host before each emit pass), [1] particles emitted since creation,
+ * [2] particles removed by sinks since creation, [3] spare.
+ */
+export const MPM_COUNTER_WORDS = 4;
+export const MPM_COUNTER = Object.freeze({ tickets: 0, emitted: 1, sunk: 2 });
+/** Fixed point of the layer masses in the probe buffer: counts per particle mass. */
+export const MPM_PROBE_MASS_SCALE = 256;
+/** Words the probe appends after the gridN[1] layer masses: emitted, sunk. */
+export const MPM_PROBE_EXTRA_WORDS = 2;
+
+/** A round nozzle: particles enter through a disc, at rest density, moving along `direction`. */
+export interface MpmEmitter {
+  /** Centre of the disc, m, domain-local. */
+  centre: readonly [number, number, number];
+  /** Unit vector the liquid leaves along. */
+  direction: readonly [number, number, number];
+  radiusM: number;
+  speedMS: number;
+  /**
+   * Divergence: tangent of the half-angle at the rim. A particle at radius r
+   * leaves along direction + radial·spread·r/R. 0 is a parallel jet.
+   */
+  spread: number;
+}
+
+/** An axis-aligned box that removes any liquid inside it. */
+export interface MpmSink {
+  min: readonly [number, number, number];
+  max: readonly [number, number, number];
+}
+
+/** Volume flow of an emitter, m³/s: plug flow through the disc. */
+export function mpmEmitterFlow(e: MpmEmitter): number {
+  return Math.PI * e.radiusM * e.radiusM * e.speedMS;
+}
+
+/**
+ * How many particles each emitter owes after `seconds` more of simulated
+ * time, at rest density. `carry` holds the fractions between frames and is
+ * updated in place, so the long-run count is exact.
+ */
+export function mpmEmitCounts(c: MpmConfig, emitters: readonly MpmEmitter[], seconds: number, carry: number[]): number[] {
+  const v0 = mpmDerived(c).particleVolume;
+  return emitters.map((e, i) => {
+    const owed = (carry[i] ?? 0) + (mpmEmitterFlow(e) * seconds) / v0;
+    const n = Math.floor(owed);
+    carry[i] = owed - n;
+    return n;
+  });
+}
+
+export interface MpmIoFrame {
+  emitters: readonly MpmEmitter[];
+  /** Particles each emitter releases this frame (mpmEmitCounts). */
+  counts: readonly number[];
+  /** Simulated seconds this frame covers: the new liquid fills speed·seconds of jet. */
+  seconds: number;
+  /** Id of this frame's first new particle; the host adds every count to it afterwards. */
+  baseId: number;
+  sinks: readonly MpmSink[];
+  /** Read-back transform for mpm-export.wgsl: scene position = origin + metres · scale. */
+  exportOrigin: readonly [number, number, number];
+  exportScale: number;
+}
+
+/** Pack `MpmIoParams` (common/mpm.wgsl). */
+export function packMpmIoParams(c: MpmConfig, io: MpmIoFrame, out: ArrayBuffer = new ArrayBuffer(MPM_IO_PARAMS_BYTES)): ArrayBuffer {
+  if (io.emitters.length > MPM_MAX_EMITTERS) throw new Error(`packMpmIoParams: ${io.emitters.length} emitters, the limit is ${MPM_MAX_EMITTERS}`);
+  if (io.sinks.length > MPM_MAX_SINKS) throw new Error(`packMpmIoParams: ${io.sinks.length} sinks, the limit is ${MPM_MAX_SINKS}`);
+  const f = new Float32Array(out);
+  const u = new Uint32Array(out);
+  f.fill(0);
+  let base = io.baseId >>> 0;
+  for (let i = 0; i < io.emitters.length; i++) {
+    const e = io.emitters[i];
+    const o = i * 12;
+    const len = Math.hypot(e.direction[0], e.direction[1], e.direction[2]) || 1;
+    f[o] = e.centre[0];
+    f[o + 1] = e.centre[1];
+    f[o + 2] = e.centre[2];
+    f[o + 3] = e.radiusM;
+    f[o + 4] = e.direction[0] / len;
+    f[o + 5] = e.direction[1] / len;
+    f[o + 6] = e.direction[2] / len;
+    f[o + 7] = e.speedMS;
+    u[o + 8] = io.counts[i] ?? 0;
+    u[o + 9] = base;
+    f[o + 10] = e.speedMS * io.seconds;
+    f[o + 11] = e.spread;
+    base = (base + (io.counts[i] ?? 0)) >>> 0;
+  }
+  for (let i = 0; i < io.sinks.length; i++) {
+    const s = io.sinks[i];
+    const o = MPM_MAX_EMITTERS * 12 + i * 8;
+    f[o] = s.min[0];
+    f[o + 1] = s.min[1];
+    f[o + 2] = s.min[2];
+    f[o + 3] = 1;
+    f[o + 4] = s.max[0];
+    f[o + 5] = s.max[1];
+    f[o + 6] = s.max[2];
+  }
+  const o = MPM_MAX_EMITTERS * 12 + MPM_MAX_SINKS * 8;
+  f[o] = io.exportOrigin[0];
+  f[o + 1] = io.exportOrigin[1];
+  f[o + 2] = io.exportOrigin[2];
+  f[o + 3] = io.exportScale;
+  u[o + 4] = c.maxParticles;
+  return out;
+}
+
+/** 32-bit integer hash (lowbias32) — `mpmHash32` in common/mpm.wgsl. */
+export function mpmHash32(n: number): number {
+  let x = n | 0;
+  x = Math.imul(x ^ (x >>> 16), 0x7feb352d);
+  x = Math.imul(x ^ (x >>> 15), 0x846ca68b);
+  x ^= x >>> 16;
+  return x >>> 0;
+}
+
+/** Hash → [0, 1) with 24 bits, exact in f32 — `mpmHash01` in common/mpm.wgsl. */
+export function mpmHash01(n: number): number {
+  return (mpmHash32(n) >>> 8) / 16777216;
+}
+
+/** Position and velocity of the `ticket`-th particle an emitter releases in a frame. */
+export function mpmEmitParticle(e: MpmEmitter, id: number, ticket: number, count: number, lengthM: number): { pos: number[]; vel: number[] } {
+  const len = Math.hypot(e.direction[0], e.direction[1], e.direction[2]) || 1;
+  const d = [e.direction[0] / len, e.direction[1] / len, e.direction[2] / len];
+  // Any unit vector not parallel to d, then Gram–Schmidt: the same construction as the shader.
+  const a = Math.abs(d[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+  let t = [a[1] * d[2] - a[2] * d[1], a[2] * d[0] - a[0] * d[2], a[0] * d[1] - a[1] * d[0]];
+  const tl = Math.hypot(t[0], t[1], t[2]);
+  t = [t[0] / tl, t[1] / tl, t[2] / tl];
+  const b = [d[1] * t[2] - d[2] * t[1], d[2] * t[0] - d[0] * t[2], d[0] * t[1] - d[1] * t[0]];
+  const rho = Math.sqrt(mpmHash01(id * 3 + 1));
+  const theta = 2 * Math.PI * mpmHash01(id * 3 + 2);
+  const along = ((ticket + mpmHash01(id * 3)) / Math.max(1, count)) * lengthM;
+  const cx = Math.cos(theta) * rho;
+  const cy = Math.sin(theta) * rho;
+  const radial = [t[0] * cx + b[0] * cy, t[1] * cx + b[1] * cy, t[2] * cx + b[2] * cy];
+  const dir = [d[0] + radial[0] * e.spread, d[1] + radial[1] * e.spread, d[2] + radial[2] * e.spread];
+  const dl = Math.hypot(dir[0], dir[1], dir[2]);
+  return {
+    pos: [0, 1, 2].map((k) => e.centre[k] + d[k] * along + radial[k] * e.radiusM),
+    vel: dir.map((x) => (x / dl) * e.speedMS)
+  };
 }

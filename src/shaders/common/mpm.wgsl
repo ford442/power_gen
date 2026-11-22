@@ -2,7 +2,7 @@
 // mpm-grid.wgsl and mpm-g2p.wgsl (ADR-0022). SI units: m, s, kg, Pa.
 // CPU side and the reasoning: src/fluids/mpm-params.ts; CPU twin: mpm-cpu.ts.
 
-// 80 bytes — `packMpmParams`.
+// 96 bytes — `packMpmParams`.
 struct MpmParams {
   gridN: vec3u,           // nodes per axis
   particleCount: u32,     // records the passes visit
@@ -20,7 +20,13 @@ struct MpmParams {
   momentumScale: f32,     // counts per unit weight · maxSpeed
   maxJ: f32,
   tMax: f32,              // clamp on a momentum transfer, in maxSpeed
+  flags: u32,             // bit 0: the boundary buffer holds a signed-distance field
+  pad0: u32,
+  pad1: u32,
+  pad2: u32,
 }
+
+const MPM_FLAG_BOUNDARY = 1u;
 
 // 80 bytes — `MPM_P` gives the word offsets.
 struct MpmParticle {
@@ -73,3 +79,53 @@ fn mpmSeedBits(seed: u32) -> u32 {
 fn mpmSeedNext(seed: u32) -> u32 {
   return seed * 747796405u + 2891336453u;
 }
+
+// lowbias32 (`mpmHash32`) and its [0, 1) form with 24 bits (`mpmHash01`).
+fn mpmHash32(n: u32) -> u32 {
+  var x = n;
+  x = (x ^ (x >> 16u)) * 0x7feb352du;
+  x = (x ^ (x >> 15u)) * 0x846ca68bu;
+  return x ^ (x >> 16u);
+}
+
+fn mpmHash01(n: u32) -> f32 {
+  return f32(mpmHash32(n) >> 8u) / 16777216.0;
+}
+
+// ---- emitters, sinks, read-back (layout `mpmIo`) ---------------------------
+
+// 48 bytes.
+struct MpmEmitter {
+  centre: vec3f,          // m, domain-local: centre of the nozzle disc
+  radius: f32,
+  dir: vec3f,             // unit
+  speed: f32,             // m/s
+  count: u32,             // particles to release this frame
+  baseId: u32,            // id of this emitter's first new particle
+  length: f32,            // speed · simulated seconds this frame
+  spread: f32,            // tan of the half-angle at the rim
+}
+
+// 32 bytes. `on` is 0 for an unused slot.
+struct MpmSink {
+  lo: vec3f,
+  on: f32,
+  hi: vec3f,
+  pad: f32,
+}
+
+// 192 bytes — `packMpmIoParams`.
+struct MpmIoParams {
+  emitters: array<MpmEmitter, 2>,
+  sinks: array<MpmSink, 2>,
+  exportOrigin: vec3f,    // scene position = exportOrigin + metres · exportScale
+  exportScale: f32,
+  capacity: u32,
+  pad0: u32,
+  pad1: u32,
+  pad2: u32,
+}
+
+const MPM_COUNTER_TICKETS = 0u;
+const MPM_COUNTER_EMITTED = 1u;
+const MPM_COUNTER_SUNK = 2u;

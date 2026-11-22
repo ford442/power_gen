@@ -140,7 +140,7 @@ Missing features are skipped and logged; init does not fail.
 
 | Limit | Core default | Renderer peak | Requested? |
 |-------|-------------|---------------|-----------|
-| `maxStorageBuffersPerShaderStage` | 8 | 4 (`fdtdSlice` F, `fdtdCompute` C) | No — was 10 before #223, more than any layout used |
+| `maxStorageBuffersPerShaderStage` | 8 | 5 (`mpmIo` C) | No — was 10 before #223, more than any layout used |
 | `maxUniformBuffersPerShaderStage` | 12 | 4 (`segEnhanced` F) | No |
 | `maxSampledTexturesPerShaderStage` | 16 | 5 (`bloomComposite` F) | No |
 | `maxStorageTexturesPerShaderStage` | 4 | 1 (`ssr` C) | No |
@@ -427,6 +427,8 @@ multiply-adds differently) and each file says how its number was measured.
 | `ibl-prefilter-compute` | energy per layer vs the source environment; texel-for-texel vs the CPU bake | 4 % energy; 1 % of peak vs CPU | 3.2 % (24-tap roughness-1 layer); 8e-4 |
 | `overview-cull-compute` | sphere / frustum test from camera parameters, in double | exact | exact, 5 cameras × 32 spheres |
 | `mpm-p2g` / `mpm-grid` / `mpm-g2p` | `MpmCpu` (`src/fluids/mpm-cpu.ts`), same buffers and fixed-point scatter; plus physics: ρ·g·h, momentum, no i32 wrap, determinism | 32 counts on the grid after one substep; 2 % of a cell after 240; ρ·g·h within 5 % | 6 counts; 0.4 % of a cell; 0.5 % in the bulk |
+| `mpm-emit` / `mpm-probe` / `mpm-export`, and the boundary in `mpm-grid` / `mpm-g2p` | `MpmCpu` with the same signed-distance field and emitter frames, particles matched by id | 3 % of a cell in a cup; 1 % of a cell and identical sets from two nozzles; a jet within 10 % of v²/2g | 0.1 % of a cell; 0.02 % of a cell, two GPU runs identical by id; 1.005 |
+| the Heron scene (`golden-heron-liquid`) | the plant's exit speed → `v²/2g`, on three layout presets; particle books | jet top within 10 %; in the box = emitted − drained | 0.995 / 0.983 / 0.937; exact |
 
 Notes on two of them:
 

@@ -11,13 +11,14 @@ the lab uses: **simulated, not a measurement**.
 | Bench | Plant (authoritative numbers) | Picture | Solved in the picture? |
 |-------|-------------------------------|---------|------------------------|
 | `mhd` | One lumped mean speed `Ū` with `σB²`-style braking and wall friction as tuned coefficients; `V = B·Ū·w` | Timelines on the **analytic Hartmann profile** at the plant's `Ū` and `Ha`, plus a profile card | Exact steady solution, evaluated — not a numerical flow solve |
-| `heron` | Head ODE + Bernoulli + Swamee–Jain friction | Closed-form droplet paths (WebGPU), ballistic droplets (WebGL2) | No |
+| `heron` | Head ODE; exit speed from Bernoulli with a discharge coefficient and Darcy–Weisbach pipe friction | Closed-form droplet paths (WebGPU), ballistic droplets (WebGL2). The jet as a simulated liquid exists and is tested, and is not drawn by the app yet | Not yet |
 | `kelvin` | Capacitive charging + spark | Independent droplets; charge does not deflect them | No |
 | `peltier` | **1-D finite-volume leg**: 24 cells + cold block, two plates, heat sink (`ros23`) | Three bodies coloured by their node temperatures; sparse air parcels beside them | The temperatures are the model's. The air is illustrative |
 
-A liquid solver now exists (**MLS-MPM**, below) and is tested on its own. No
-bench runs it yet: `heron` and `kelvin` still draw the closed-form droplets in
-the table until their steps of the epic land.
+A liquid solver now exists (**MLS-MPM**, below) and is tested on its own, and
+so does Heron's fountain as a scene for it ([Heron](#herons-fountain)). The
+app does not run either yet: `heron` and `kelvin` still draw the closed-form
+droplets in the table until that wiring lands.
 
 ## Liquid solver (MLS-MPM)
 
@@ -86,14 +87,44 @@ The `fluid=` flag itself arrives with the first bench that uses the solver.
   fixed-point noise makes free-flying liquid swell slightly (0.35 % in 400
   substeps at the high tier's scales). Recycling through sinks and emitters
   resets both.
-- **Box walls only**, free-slip. Boundaries from the props (signed-distance
-  fields), emitters, sinks and a body-force hook are not in yet.
+- **Solids are analytic primitives** (boxes, cylinders, tubes, open vessels)
+  sampled as a signed-distance field on the grid nodes, free-slip. A wall has
+  to be about two cells thick to hold water. They are not baked from the GLB
+  props: the benches' drawn vessels are instances of one fixed cylinder, and
+  the props are optional decoration. No body-force hook yet.
+- **Emitters are round nozzles in plug flow; sinks are boxes that remove
+  whatever is inside them.** A sink has no rate of its own: in steady state
+  it passes what arrives.
 - **Points, not a surface.** Screen-space surface rendering is a later step.
 - **WebGPU only.** There is no WebGL2 liquid solver and there will not be
   one; `MpmCpu` is a test reference, far too slow to stand in.
 - **The frame cost is unmeasured.** The epic's target is ≤ 2 ms of GPU time
   on an integrated GPU at the default tier. Tests here run on a CPU
   rasteriser, which cannot tell.
+
+### Around the core: solids, nozzles, drains, read-back
+
+| Pass | When | Does |
+|------|------|------|
+| `mpm-emit.wgsl` | once a frame, before the substeps | a live particle inside a sink box becomes an empty slot; empty slots take the frame's new particles |
+| `mpm-probe.wgsl` | when a read-back is wanted | sums the liquid's mass per horizontal layer of the grid, plus the emitted / drained totals, into a buffer of a few hundred bytes |
+| `mpm-export.wgsl` | once a frame, after the substeps | writes the 16-byte records the existing particle pipeline draws, in scene units |
+
+A nozzle owes `Q·t / V₀` particles for the time a frame simulates; fractions
+carry over, so the count is exact in the long run. New particles are placed at
+rest density in the cylinder the jet sweeps that frame, so successive frames
+stack into a continuous stream.
+
+Which empty slot a new particle lands in depends on the order the GPU runs
+the slots in. Nothing else does: a particle's place in the nozzle, its
+velocity and its dither counter are functions of its id. On two runs of the
+same case the liquid is identical particle for particle while most of them sit
+in different slots (`test:gpu-golden` checks exactly that).
+
+The profile is how a bench reads the liquid back without a readback of the
+particles: the top of a jet is the highest layer holding more than a tenth of
+the nozzle's own cross-section, and `emitted − drained` is what is in the box.
+It is copied out asynchronously and never blocks a frame.
 
 ### Fixed point
 
@@ -115,7 +146,81 @@ Integer sums are order-independent, so two runs give the same bytes.
 |---------|-------|
 | `npm run test:mpm` | the CPU reference: overflow bound for any budget and the worst-case fill; WGSL struct layouts; mass, momentum; free fall at `g`; ρ·g·h within 5 % at default- and high-tier scales; viscous decay at `2νk²`; walls |
 | `npm run test:gpu-golden` (`golden-mpm`) | the WGSL passes on a real GPU against that reference: grid after one substep, 240 substeps of a dropped block within 2 % of a cell, momentum, ρ·g·h within 5 %, the default budget on one node without a wrap, two runs byte-identical, all three tiers allocate and step |
-| `npm run test:pipelines` | the three pipelines compile against the `mpm` layout |
+| `npm run test:mpm-io` | solids, emitters and sinks on the CPU reference: signed distances, the baked field, the uniform against its WGSL struct, a cup that holds water, a drain that empties it, a jet at `v²/2g`, the budget running out |
+| `npm run test:gpu-golden` (`golden-mpm-io`) | the same on a real GPU: a block dropped into a cup (GPU ≈ CPU to 0.001 cells, nothing inside the solid), two nozzles (GPU ≈ CPU by particle id; two runs identical by id), sink counts, the profile, the draw export, a jet at 1.005 × `v²/2g` |
+| `npm run test:pipelines` | the six pipelines compile against the `mpm` and `mpmIo` layouts |
+
+## Heron's fountain
+
+### The plant
+
+One state, the driving head `H`, with the exit speed from an energy balance
+over the supply pipe and the nozzle:
+
+```text
+dH/dt = pumpRate·drive − drainCoeff·v            0 ≤ H ≤ H_max (preset)
+H = v²/2g · ( 1/C_d² + f·(L/D)·(A_n/A_p)² )      f: Swamee–Jain at the pipe's Reynolds number
+Q = A_n·v          p = ρ·g·H          jet (ideal) = v²/2g
+```
+
+`cpp/src/plant/heron_plant.cpp` and `computeHeronHydraulics`
+(`src/heron-layout.ts`) are the same arithmetic, and `test:golden` holds them
+to each other on two presets.
+
+**This replaced a plant that did not work.** The JS plant took the friction
+loss at the *ideal* exit speed over the whole pipe, `f·(L/D)·H`. With the
+presets' `L/D` of 40–145 that is 2–7 times the head, so the exit speed, the
+flow and the energy level were identically zero at every head, on every
+preset, and the head sat on its ceiling. The C++ plant used a different
+formula (15 % of that loss) and its own built-in pipe (12 mm), ignored the
+layout preset, and reported about 1.6 m/s and 11 L/min whichever one was
+selected. Nothing compared the two. Now the friction is at the pipe's own
+speed (continuity through the nozzle), the active preset is sent to the C++
+plant (`setHeronLayout`), and there is a golden case.
+
+Numbers at the head ceiling, `classic` preset: `v` = 3.26 m/s, `Q` =
+246 L/min, ideal jet 0.54 m. The discharge coefficient (0.30–0.38 across the
+presets) dominates; pipe friction takes 0.9 % off the exit speed on `classic`
+and up to 6.7 % on `spiral`, the longest and narrowest pipe.
+
+### Units and scale
+
+| Quantity | Value | Source |
+|----------|-------|--------|
+| Metres per scene unit | 0.64 | `physics/constants.json` → `heron.metresPerSceneUnit` |
+| Gravity | 9.80665 m/s² | `physical.G` — no separate scene gravity |
+| Liquid time scale | 1/6 (shown at one sixth of real speed) | `heron.liquidTimeScale` |
+
+Every preset's declared head over the drawn span of its vessel stack comes to
+0.62–0.67 m per scene unit, so one figure serves all five. The C++ droplets
+(`heron_particle_step`) used `g × 0.35` as a "scene-scaled" gravity with the
+exit speed taken as scene units per second; they are now SI divided by this
+scale, so a droplet launched at `v` rises `v²/2g` metres.
+
+### The jet as a liquid
+
+`src/fluids/heron-liquid.ts` builds the scene from a layout preset: a box
+0.7 m wide around the nozzle, tall enough for the riser and 1.2 × the tallest
+jet the preset can make; the nozzle as a round emitter at the plant's exit
+speed; and the box floor as the basin — a perforated tray that drains
+whatever settles on it.
+
+| Choice | Why |
+|--------|-----|
+| **One sixth speed** | The solver is explicit. At this scale a real-time step gives the liquid a sound speed of about 1 m/s, slower than the jet. A sixth of real time keeps it at 2.7 × the fastest jet with 2–6 substeps a frame. The plant still runs in real time, so after a change of drive the jet takes its rise time × 6 to follow. |
+| **The basin does not fill** | The falling water lands up to 0.3 m off the axis. A basin wide enough to catch it holds far more than the particle budget if it is allowed to fill, and a small one that could fill is missed by most of the water. So the tray drains through its whole floor. |
+| **The vessels are not particles** | Their levels are the plant's head. |
+
+Measured on a GPU (`test:gpu-golden`, low tier, at 80 % of each preset's head
+ceiling): the jet's top is 0.995 (`classic`), 0.983 (`compact`) and 0.937
+(`tower`) of `v²/2g`. The tower's cell is 34 mm, 7 % of its jet, which is
+most of that last figure. In every run the particles in the box equal
+emitted minus drained, exactly.
+
+**Not done yet:** the app does not create this solver. The frame-graph pass,
+the `fluid=` flag, the measured `heronJetHeightM` channel (it reads 0, "not
+measured", until then), the reference experiment and the WebGL2 notice are
+the next change.
 
 ## MHD duct
 

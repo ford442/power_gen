@@ -29,6 +29,7 @@ export type BindGroupLayoutName =
   | 'fdtdCompute'
   | 'fdtdSlice'
   | 'mpm'
+  | 'mpmIo'
   | 'fieldVolume'
   | 'fieldProbe'
   | 'fieldStreamlines'

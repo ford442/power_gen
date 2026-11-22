@@ -80,8 +80,11 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 - **SEG** is the highest-fidelity path (layout presets, flux, PBR).
 - **Peltier** is a resolved 1-D thermoelectric cooler (28 nodes, `ros23`). **MHD** is still one
   lumped speed; its picture is the analytic Hartmann profile, not a flow solve. Both: docs/FLUIDS.md.
-- **Liquid:** an MLS-MPM solver exists (`src/fluids/`, `passes/mpm-*.wgsl`, ADR-0022) and is
-  tested on CPU and GPU, but no bench runs it yet — Heron and Kelvin still draw closed-form droplets.
+- **Liquid:** an MLS-MPM solver exists (`src/fluids/`, `passes/mpm-*.wgsl`, ADR-0022), and so does
+  Heron's fountain as a scene for it (`heron-liquid.ts`). Both are tested on CPU and GPU; the app
+  does not create either yet — Heron and Kelvin still draw closed-form droplets.
+- **Heron's plant** is Bernoulli + Darcy–Weisbach, the same in TS and C++ (`test:golden`); the C++
+  plant needs the layout preset sent to it (`setHeronLayout`). 0.64 m per scene unit, SI gravity.
 - Overview can enable all; particles/meshes scale with quality and view LOD.
 - **Circuit Lab** (`src/circuit/`, ADR-0018): `pulse-coil`, `homopolar`,
   `transformer` have catalog `ports`. A wired bench is stepped by its port
@@ -139,6 +142,7 @@ npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus an
 npm run test:drop-tube # drop-tube k / end taper / loops vs quadrature, transit vs RK4
 npm run test:hartmann # MHD duct: analytic Hartmann profile (TS vs C++), timeline parcels, Ha range (docs/FLUIDS.md)
 npm run test:mpm      # MLS-MPM liquid: CPU reference — i32 overflow bound, mass / momentum, free fall at g, ρ·g·h, viscous decay (ADR-0022; the WGSL runs in test:gpu-golden)
+npm run test:mpm-io   # …and what a bench adds: signed-distance solids, emitters, sinks, the height profile, a jet at v²/2g
 npm run test:peltier  # Peltier cooler: ΔT_max / I_opt / COP / energy balance on native + WASM + TS, array snapshots, v1 migration (ADR-0021)
 npm run test:field-volume # field kernels vs quadrature; field-probe/-volume WGSL run on the CPU vs the reference (ADR-0017)
 npm run test:circuit  # Circuit Lab: native MNA goldens + their WASM replay (LC energy, RLC Q), SPICE, host, links (ADR-0018)

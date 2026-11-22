@@ -200,7 +200,10 @@ describe('mpm-params: config and layouts', () => {
     };
     for (const [name, value] of Object.entries(want)) assert.equal(f[at[name]], Math.fround(value), `MpmParams.${name}`);
     assert.deepEqual([...f.subarray(at.gravity, at.gravity + 3)], cfg.gravity.map(Math.fround));
-    assert.equal(Object.keys(want).length + 3, Object.keys(at).length, 'a struct field this test does not cover');
+    assert.equal(u[at.flags], 0);
+    assert.equal(new Uint32Array(M.packMpmParams(cfg, 1, undefined, M.MPM_FLAG_BOUNDARY))[at.flags], M.MPM_FLAG_BOUNDARY);
+    // gridN, particleCount, gravity, flags and three pads are the fields not in `want`.
+    assert.equal(Object.keys(want).length + 7, Object.keys(at).length, 'a struct field this test does not cover');
     assert.equal(new Uint32Array(M.packMpmParams(cfg, 1e9))[at.particleCount], 40000, 'particleCount is capped at the budget');
   });
 

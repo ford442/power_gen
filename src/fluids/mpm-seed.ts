@@ -2,7 +2,7 @@
  * MLS-MPM particle seeding — deterministic by construction: a lattice, and a
  * hash-seeded jitter when one is asked for. No Math.random anywhere.
  */
-import { MPM_P, MPM_PARTICLE_FLOATS, type MpmConfig } from './mpm-params.js';
+import { MPM_P, MPM_PARTICLE_FLOATS, mpmHash01, mpmHash32, type MpmConfig } from './mpm-params.js';
 
 export interface MpmBoxSeed {
   /** Box corners, m, domain-local. */
@@ -16,19 +16,6 @@ export interface MpmBoxSeed {
   seed?: number;
 }
 
-/** 32-bit integer hash. */
-export function mpmHash32(n: number): number {
-  let x = n | 0;
-  x = Math.imul(x ^ (x >>> 16), 0x7feb352d);
-  x = Math.imul(x ^ (x >>> 15), 0x846ca68b);
-  x ^= x >>> 16;
-  return x >>> 0;
-}
-
-/** 32-bit integer hash → [0, 1). */
-export function mpmHash01(n: number): number {
-  return mpmHash32(n) / 4294967296;
-}
 
 /**
  * Write one live particle record at rest volume. `seed` starts the counter

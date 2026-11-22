@@ -38,9 +38,12 @@ const ENTRY = `
   export { mhdParcelPosition, MHD_DUCT } from './src/devices/core/mhd-parcels.ts';
   export { integratePeltier } from './src/renderers/shared/particle-orbits.ts';
   export * as mpm from './src/fluids/mpm-params.ts';
-  export { MpmCpu, mpmTotals } from './src/fluids/mpm-cpu.ts';
+  export { MpmCpu, mpmTotals, mpmLayerProfile, mpmProfileTop, mpmProfileMass } from './src/fluids/mpm-cpu.ts';
+  export { bakeMpmBoundary, mpmSolidDistance } from './src/fluids/mpm-boundary.ts';
   export { seedMpmBox, writeMpmParticle } from './src/fluids/mpm-seed.ts';
   export { MpmSolver } from './src/fluids/mpm-solver.ts';
+  export * as heronLiquid from './src/fluids/heron-liquid.ts';
+  export { getHeronLayout, computeHeronHydraulics } from './src/heron-layout.ts';
 `;
 
 let app = null;

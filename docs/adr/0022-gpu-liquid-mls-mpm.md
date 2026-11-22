@@ -1,6 +1,6 @@
 # ADR-0022: GPU liquid — an MLS-MPM solver in WebGPU compute
 
-- **Status:** Accepted (solver core; no bench uses it yet)
+- **Status:** Accepted (solver core, boundaries, emitters and sinks; Heron's scene is built and tested, the app does not run it yet)
 - **Date:** 2026-11
 - **Context issue:** fluids and heat epic, step 3
 
@@ -61,8 +61,13 @@ instead of points — is the following steps.
    never passes 4 m/s gets finer momentum than one that allows a cell per
    substep.
 6. **Walls are slip nodes** on the box: nothing flows into a wall, tangential
-   motion is free. Boundaries from signed-distance fields and a body-force
-   hook are added with the benches that need them.
+   motion is free. Solids inside it are a signed-distance field sampled on
+   the grid nodes (`mpm-boundary.ts`): the grid pass removes velocity into a
+   solid at nodes inside one, and g2p puts a particle that ends a step inside
+   back on the surface. The field is evaluated from analytic primitives, not
+   baked from GLB triangles: the drawn vessels are instances of one fixed
+   cylinder and the props are optional decoration, so a mesh bake would have
+   had nothing reliable to bake from.
 7. **One layout, one bind group.** `mpm` has four bindings (params, particles,
    fixed-point grid, velocity grid); each pass declares the ones it uses.
    `MpmSolver` (`src/fluids/mpm-solver.ts`) owns the buffers and encodes
@@ -74,6 +79,17 @@ instead of points — is the following steps.
 9. **Particle state is not plant state.** It is not in a snapshot and not on
    the telemetry hub; a restore re-seeds it. Emission is seeded and substeps
    are fixed, so the same inputs give the same picture.
+10. **Emitters and sinks run on the GPU, once a frame** (`mpm-emit.wgsl`).
+    Empty slots take tickets from an atomic counter. Which slot gets which
+    ticket is a race; what a ticket makes is not — a particle is a function
+    of its id — and nothing downstream depends on slot order. Two runs agree
+    particle for particle.
+11. **A bench reads the liquid back as a height profile** (`mpm-probe.wgsl`):
+    mass per horizontal layer plus the emitted and drained totals, a few
+    hundred bytes copied out asynchronously. The epic suggested reusing
+    `chores-reduce-f32` for a max-height reduce. The profile was preferred: a
+    maximum is one stray droplet, while the highest layer above a threshold is
+    the jet, and the same read gives the mass in the box.
 
 ## What the step size costs
 

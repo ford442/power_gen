@@ -150,7 +150,14 @@
     },
     "mpm": {
       "pipelines": [["mpm-p2g.wgsl"], ["mpm-grid.wgsl"], ["mpm-g2p.wgsl"]],
-      "entries": [[0, "C", "uniform"], [1, "C", "storage"], [2, "C", "storage"], [3, "C", "storage"]]
+      "entries": [[0, "C", "uniform"], [1, "C", "storage"], [2, "C", "storage"], [3, "C", "storage"], [4, "C", "storage-ro"]]
+    },
+    "mpmIo": {
+      "pipelines": [["mpm-emit.wgsl"], ["mpm-probe.wgsl"], ["mpm-export.wgsl"]],
+      "entries": [
+        [0, "C", "uniform"], [1, "C", "storage"], [2, "C", "uniform"], [3, "C", "storage"], [4, "C", "storage-ro"],
+        [5, "C", "storage"], [6, "C", "storage"]
+      ]
     },
     "fdtdSlice": {
       "group": 1,
