@@ -24,12 +24,13 @@ const m = await bundleTs({
     export * as H from './src/physics/hartmann.ts';
     export * as P from './src/devices/core/mhd-parcels.ts';
     export * as O from './src/mhd-profile-overlay.ts';
+    export * as D from './src/physics/mhd-duct.ts';
     export { createMhdPhysicsState, stepMhdPhysics } from './src/devices/core/mhd-mesh.ts';
     export { MHD } from './generated/physics-constants.ts';
   `,
   sourcefile: 'hartmann-entry.ts'
 });
-const { H, P, O, MHD } = m;
+const { H, P, O, D, MHD } = m;
 
 /** The formula as the textbooks print it (overflows past Ha ≈ 700; fine here). */
 const textbook = (eta, ha) => (Math.cosh(ha) - Math.cosh(ha * eta)) / (Math.cosh(ha) - Math.sinh(ha) / ha);
@@ -283,11 +284,115 @@ describe('4. the plant reports a Hartmann number in the range the picture can sh
   });
 
   it('the slot duct is laminar where the solution is used: Re/Ha < 250', () => {
-    for (const drive of [0.1, 0.25, 0.5, 1]) {
+    let worst = 0;
+    for (let drive = 0.02; drive <= 1.0001; drive += 0.02) {
       const s = haAt(drive);
       const re = (s.mhdFlowU * MHD.halfGapM) / MHD.nuM2s;
+      worst = Math.max(worst, re / s.mhdHartmann);
       assert.ok(re / s.mhdHartmann < 250, `drive ${drive}: Re ${re.toFixed(0)}, Ha ${s.mhdHartmann.toFixed(1)}`);
     }
+    console.log(`  largest Re/Ha over the drive range: ${worst.toFixed(0)}`);
+  });
+});
+
+describe('4b. the mean flow\'s balance is derived, not tuned (physics/mhd-duct.ts)', () => {
+  const settle = (drive, p = MHD) => {
+    const s = { u: 0 };
+    for (let i = 0; i < 240; i++) s.u = D.mhdStepSpeed(s.u, 1 / 60, drive, p);
+    return s.u;
+  };
+
+  it('the fluid\'s resistance is geometry, w/(σ·2a·L), and the load is matched to it', () => {
+    assert.ok(Math.abs(D.mhdInternalOhm() - 0.1 / (1e6 * 1e-3 * 0.4)) < 1e-12, `R_i ${D.mhdInternalOhm()}`);
+    assert.ok(Math.abs(D.mhdInternalOhm() - 2.5e-4) < 1e-12);
+    assert.equal(MHD.rLoadOhm, D.mhdInternalOhm(), 'matched load: where a generator delivers most');
+    for (const gone of ['lorentzK', 'frictionK', 'rInternalOhm']) assert.equal(gone in MHD, false, `${gone} is still a constant`);
+  });
+
+  it('friction is the profile\'s wall shear: 3ν/a² at B = 0, ν·Ha/a² for thin layers', () => {
+    const k = MHD.nuM2s / MHD.halfGapM ** 2;
+    assert.ok(Math.abs(D.mhdFrictionRate(0) - 3 * k) < 1e-12);
+    assert.ok(Math.abs(D.mhdFrictionRate(400) / (k * 400) - 1) < 3e-3);
+    // …and it is the slope the profile really has at the wall: −ν·u′(a)/a per unit mean speed.
+    for (const ha of [0.1, 3.79, 11.4, 18.95]) {
+      const h = 1e-6;
+      const slope = (H.hartmannProfile(1 - h, ha) - H.hartmannProfile(1, ha)) / h;
+      assert.ok(Math.abs(D.mhdFrictionRate(ha) / (k * slope) - 1) < 1e-4, `Ha ${ha}: rate ${D.mhdFrictionRate(ha)}, profile slope gives ${k * slope}`);
+    }
+  });
+
+  it('braking is the force on the load current: none on open circuit, σB²/ρ on a short, half of that matched', () => {
+    const full = (MHD.sigmaSm * 0.6 * 0.6) / MHD.rhoKgM3;
+    assert.ok(D.mhdBrakingRate(0.6, { ...MHD, rLoadOhm: 1e9 }) < 1e-9 * full);
+    assert.ok(Math.abs(D.mhdBrakingRate(0.6, { ...MHD, rLoadOhm: 0 }) - full) < 1e-9 * full);
+    assert.ok(Math.abs(D.mhdBrakingRate(0.6) - full / 2) < 1e-9 * full);
+    // B·I·w on the mass between the electrodes is the same number.
+    const u = 1.3;
+    const out = D.mhdOutputs(u, 0.6);
+    assert.ok(Math.abs((0.6 * out.currentA * MHD.widthM) / D.mhdFluidMassKg() - D.mhdBrakingRate(0.6) * u) < 1e-9 * full);
+  });
+
+  it('at rest in a steady state the pump\'s power is wall friction plus the circuit\'s I·V_oc, to rounding', () => {
+    for (const drive of [0.1, 0.3, 0.6, 1]) {
+      const u = settle(drive);
+      const b = D.mhdFieldT(drive);
+      const mass = D.mhdFluidMassKg();
+      const out = D.mhdOutputs(u, b);
+      const pump = drive * MHD.pumpAccelMs2 * u * mass;
+      const friction = D.mhdFrictionRate(D.mhdHartmannNumber(b)) * u * u * mass;
+      const circuit = out.currentA * out.openV;
+      assert.ok(Math.abs(pump - friction - circuit) < 1e-9 * pump, `drive ${drive}: pump ${pump} W, friction ${friction} W, circuit ${circuit} W`);
+      // The circuit's share is Joule heat in the fluid plus the load's power.
+      assert.ok(Math.abs(circuit - out.currentA ** 2 * D.mhdInternalOhm() - out.powerW) < 1e-9 * pump);
+      assert.ok(Math.abs(u - D.mhdSettledSpeed(drive)) < 1e-12);
+    }
+    const u = settle(1);
+    const out = D.mhdOutputs(u, 1);
+    console.log(`  full drive: ${u.toFixed(2)} m/s, V_oc ${out.openV.toFixed(3)} V, ${out.currentA.toFixed(0)} A, ${out.powerW.toFixed(1)} W in the load of ${(MHD.pumpAccelMs2 * u * D.mhdFluidMassKg()).toFixed(1)} W pumped`);
+    assert.ok(u > 1.2 && u < 1.7);
+    assert.ok(out.openV > 0.1 && out.openV < 0.2 && out.currentA > 200 && out.currentA < 350);
+  });
+
+  it('the step is exact: any step size, and two halves make a whole', () => {
+    const rate = D.mhdDecayRate(D.mhdFieldT(0.8));
+    assert.ok(rate > 300, `rate ${rate} /s: a 60 Hz Euler step would overshoot`);
+    const target = D.mhdSettledSpeed(0.8);
+    for (const dt of [1 / 240, 1 / 60, 1 / 20, 1, 30]) {
+      const u = D.mhdStepSpeed(0.4, dt, 0.8);
+      const exact = target + (0.4 - target) * Math.exp(-rate * dt);
+      assert.ok(Math.abs(u - exact) < 1e-12, `dt ${dt}: ${u} vs ${exact}`);
+      assert.ok(u >= 0.4 && u <= target + 1e-12, `dt ${dt}: ${u} outside [start, settled]`);
+    }
+    const whole = D.mhdStepSpeed(0.4, 1 / 500, 0.8);
+    const halves = D.mhdStepSpeed(D.mhdStepSpeed(0.4, 1 / 1000, 0.8), 1 / 1000, 0.8);
+    assert.ok(Math.abs(whole - halves) < 1e-12);
+    assert.ok(Math.abs(D.mhdStepSpeed(0.4, -1, 0.8) - 0.4) < 1e-12, 'a negative step does nothing');
+    assert.equal(D.mhdStepSpeed(0, 1 / 60, 0), 0, 'no pump, no flow');
+  });
+
+  it('raising the field at a fixed pump slows the flow, and a heavier load current slows it more', () => {
+    const at = (b, rLoadOhm = MHD.rLoadOhm) => MHD.pumpAccelMs2 / D.mhdDecayRate(b, { ...MHD, rLoadOhm });
+    assert.ok(at(0.2) > at(0.6) && at(0.6) > at(1));
+    assert.ok(at(0.6, 1e9) > at(0.6) && at(0.6) > at(0.6, 0));
+  });
+
+  it('the C++ plant derives the same rates (sim_core_test --mode hartmann)', { skip: !nativeExists }, () => {
+    let rows = 0;
+    for (const line of native.stdout.split('\n')) {
+      const r = /^mhdduct\.rates (\S+) (\S+) (\S+) (\S+)$/.exec(line);
+      const i = /^mhdduct\.internal (\S+)$/.exec(line);
+      if (i) {
+        rows++;
+        assert.ok(Math.abs(Number(i[1]) / D.mhdInternalOhm() - 1) < 1e-6, `R_i: C++ ${i[1]}, TS ${D.mhdInternalOhm()}`);
+      }
+      if (!r) continue;
+      rows++;
+      const [b, ha, friction, braking] = r.slice(1).map(Number);
+      assert.ok(Math.abs(ha - D.mhdHartmannNumber(b)) <= 2e-6 * Math.max(1, ha), `B ${b}: Ha C++ ${ha}, TS ${D.mhdHartmannNumber(b)}`);
+      assert.ok(Math.abs(friction / D.mhdFrictionRate(D.mhdHartmannNumber(b)) - 1) < 5e-6, `B ${b}: friction C++ ${friction}, TS ${D.mhdFrictionRate(D.mhdHartmannNumber(b))}`);
+      assert.ok(Math.abs(braking - D.mhdBrakingRate(b)) <= 5e-6 * Math.max(1e-6, D.mhdBrakingRate(b)), `B ${b}: braking C++ ${braking}, TS ${D.mhdBrakingRate(b)}`);
+    }
+    assert.equal(rows, 6, 'mhdduct lines in the native report');
   });
 });
 

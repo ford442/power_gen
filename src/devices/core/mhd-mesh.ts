@@ -8,6 +8,7 @@ import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
 import { MHD } from '../../../generated/physics-constants';
 import { MATERIAL_STEEL_BASE, MATERIAL_STRUCTURAL } from '../material-roles';
 import { MHD_DUCT } from './mhd-parcels';
+import { mhdFieldT, mhdHartmannNumber, mhdOutputs, mhdStepSpeed } from '../../physics/mhd-duct';
 import { writeMeshCylinders } from '../update-helpers';
 import type { DeviceInstanceLike, DevicePlugin } from '../types';
 import type { DevicePhysicsState } from '../../renderers/shared/device-physics';
@@ -57,24 +58,23 @@ export function buildMhdMesh(_flowU = 0.5, bFieldT = 0.4, hartmann = 1): { cylin
   };
 }
 
+/**
+ * The JS plant: the pump against the profile's own wall friction and the
+ * Lorentz force on the current the load draws (physics/mhd-duct.ts — the
+ * same balance as `_stepMHD` in C++).
+ */
 export const stepMhdPhysics: NonNullable<DevicePlugin['stepPhysics']> = (state, dt, drive) => {
   const m = MHD_PARAMS;
-  const bFieldT = m.bFieldBaseT + m.bFieldSpanT * drive;
-  let flowU = state.mhdFlowU ?? 0;
-  const accel = drive * m.pumpAccelMs2 - (m.lorentzK * bFieldT * bFieldT + m.frictionK) * flowU;
-  flowU = Math.max(0, Math.min(m.flowUMaxMps * 2, flowU + accel * dt));
-  const vOpen = bFieldT * flowU * m.widthM;
-  const currentA = vOpen / (m.rInternalOhm + m.rLoadOhm);
-  const voltageV = currentA * m.rLoadOhm;
-  const powerW = currentA * voltageV;
-  const hartmann = bFieldT * m.halfGapM * Math.sqrt(m.sigmaSm / (m.rhoKgM3 * m.nuM2s));
+  const bFieldT = mhdFieldT(drive, m);
+  const flowU = mhdStepSpeed(state.mhdFlowU ?? 0, dt, drive, m);
+  const out = mhdOutputs(flowU, bFieldT, m);
 
   state.mhdFlowU = flowU;
   state.mhdBFieldT = bFieldT;
-  state.mhdHartmann = hartmann;
-  state.mhdVoltage = voltageV;
-  state.mhdCurrent = currentA;
-  state.mhdPowerW = powerW;
+  state.mhdHartmann = mhdHartmannNumber(bFieldT, m);
+  state.mhdVoltage = out.voltageV;
+  state.mhdCurrent = out.currentA;
+  state.mhdPowerW = out.powerW;
   state.energyLevel = Math.min(1, flowU / m.flowUMaxMps);
 };
 

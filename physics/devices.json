@@ -384,7 +384,7 @@
       "shaderMode": 5,
       "wasmMode": 5,
       "telemetryKeys": ["mhdFlowU", "mhdBFieldT", "mhdHartmann", "mhdVoltage", "mhdCurrent", "mhdPowerW"],
-      "fidelity": "WASM (Hartmann channel)",
+      "fidelity": "WASM (mean flow: Hartmann wall friction + circuit braking, derived); profile: analytic Hartmann",
       "state": {
         "plant": "_mhd",
         "fields": [
@@ -422,7 +422,7 @@
         "mhdCurrent": {
           "label": "I",
           "unit": "A",
-          "digits": 3
+          "digits": 1
         },
         "mhdPowerW": {
           "label": "P",

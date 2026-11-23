@@ -192,8 +192,6 @@ struct HeronConstants {
 
 struct MhdConstants {
   static constexpr float PUMP_ACCEL_MS2 = ${f32(mhd.pumpAccelMs2)};
-  static constexpr float LORENTZ_K      = ${f32(mhd.lorentzK)};
-  static constexpr float FRICTION_K     = ${f32(mhd.frictionK)};
   static constexpr float FLOW_U_MAX_MPS = ${f32(mhd.flowUMaxMps)};
   static constexpr float WIDTH_M        = ${f32(mhd.widthM)};
   static constexpr float HALF_GAP_M     = ${f32(mhd.halfGapM)};
@@ -201,7 +199,6 @@ struct MhdConstants {
   static constexpr float SIGMA_SM       = ${f32(mhd.sigmaSm)};
   static constexpr float RHO_KG_M3      = ${f32(mhd.rhoKgM3)};
   static constexpr float NU_M2S         = ${f32(mhd.nuM2s)};
-  static constexpr float R_INTERNAL_OHM = ${f32(mhd.rInternalOhm)};
   static constexpr float R_LOAD_OHM     = ${f32(mhd.rLoadOhm)};
   static constexpr float B_FIELD_BASE_T = ${f32(mhd.bFieldBaseT)};
   static constexpr float B_FIELD_SPAN_T = ${f32(mhd.bFieldSpanT)};
@@ -539,8 +536,6 @@ export const PELTIER = {
 /** Hartmann MHD channel — mirrored by MHDState / MhdConstants in C++. */
 export const MHD = {
   pumpAccelMs2: ${mhdc.pumpAccelMs2},
-  lorentzK: ${mhdc.lorentzK},
-  frictionK: ${mhdc.frictionK},
   flowUMaxMps: ${mhdc.flowUMaxMps},
   widthM: ${mhdc.widthM},
   halfGapM: ${mhdc.halfGapM},
@@ -548,7 +543,6 @@ export const MHD = {
   sigmaSm: ${mhdc.sigmaSm},
   rhoKgM3: ${mhdc.rhoKgM3},
   nuM2s: ${mhdc.nuM2s},
-  rInternalOhm: ${mhdc.rInternalOhm},
   rLoadOhm: ${mhdc.rLoadOhm},
   bFieldBaseT: ${mhdc.bFieldBaseT},
   bFieldSpanT: ${mhdc.bFieldSpanT},

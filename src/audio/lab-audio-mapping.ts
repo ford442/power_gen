@@ -45,6 +45,8 @@ export const COIL_HUM = Object.freeze({
 export const FLOW_NOISE = Object.freeze({
   /** Flow speed mapped to the top of the filter sweep. */
   flowFullMps: 3,
+  /** Load current mapped to "doing full work": the duct's at full drive into its matched load. */
+  currentFullA: 300,
   baseHz: 260,
   spanHz: 900,
   q: 1.1,
@@ -140,7 +142,7 @@ export interface FlowParams {
  */
 export function flowNoiseParams(flowMps: unknown, currentA: unknown): FlowParams {
   const f = norm01(Math.abs(finite(flowMps, 0)), FLOW_NOISE.flowFullMps);
-  const i = norm01(Math.abs(finite(currentA, 0)), 1);
+  const i = norm01(Math.abs(finite(currentA, 0)), FLOW_NOISE.currentFullA);
   return {
     frequency: clampHz(FLOW_NOISE.baseHz + FLOW_NOISE.spanHz * f),
     gain: clampGain(FLOW_NOISE.maxGain * f * (0.45 + 0.55 * i), FLOW_NOISE.maxGain),

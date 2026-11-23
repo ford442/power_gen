@@ -48,9 +48,11 @@ const FRAMES_AFTER = 90;
 /**
  * TS plants are saved at several points of a run: a field that only matters
  * mid-event (a spark accumulator, a pulse timer) is zero at most instants, so
- * one save point can miss it.
+ * one save point can miss it. Frame 2 is there for a plant that has settled
+ * by frame 23 — the MHD duct's flow relaxes at hundreds per second — and
+ * would otherwise be loaded only at rest, where a load proves nothing.
  */
-const TS_SAVE_AT = [23, 90, 241, 607];
+const TS_SAVE_AT = [2, 23, 90, 241, 607];
 
 // Same tolerance (and the same single override) as tests/golden.test.mjs.
 const REL_EPS = 2e-4;

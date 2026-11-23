@@ -126,7 +126,7 @@ describe('2. voices', () => {
 
   it('flow bed: two inputs, so the cross terms too', () => {
     const still = m.flowNoiseParams(0, 0);
-    const fast = m.flowNoiseParams(m.FLOW_NOISE.flowFullMps, 1);
+    const fast = m.flowNoiseParams(m.FLOW_NOISE.flowFullMps, m.FLOW_NOISE.currentFullA);
     const fastNoLoad = m.flowNoiseParams(m.FLOW_NOISE.flowFullMps, 0);
     assert.ok(still.gain === 0, `flow bed is silent with no flow: ${still.gain}`);
     assert.ok(fast.gain > 0.05, `flow bed is audible at full flow and load: ${fast.gain}`);

@@ -163,9 +163,7 @@ export const PELTIER = {
 
 /** Hartmann MHD channel — mirrored by MHDState / MhdConstants in C++. */
 export const MHD = {
-  pumpAccelMs2: 6,
-  lorentzK: 2.5,
-  frictionK: 0.8,
+  pumpAccelMs2: 920,
   flowUMaxMps: 5,
   widthM: 0.1,
   halfGapM: 0.0005,
@@ -173,8 +171,7 @@ export const MHD = {
   sigmaSm: 1000000,
   rhoKgM3: 870,
   nuM2s: 8e-7,
-  rInternalOhm: 0.05,
-  rLoadOhm: 0.05,
+  rLoadOhm: 0.00025,
   bFieldBaseT: 0.2,
   bFieldSpanT: 0.8,
 };

@@ -27,16 +27,19 @@ void mhd_particle_step(SimParticle& p, float flowU, float bField, float hartmann
 }
 
 void SEGSimulator::_stepMHD(float dt) {
-    // Pressure-driven channel flow with Lorentz braking (σB²u/ρ) and wall
-    // friction; induced load voltage V = B·u·w through a resistive divider.
+    // Pump against the profile's own wall friction and the Lorentz force on
+    // the current the load draws (mhd_plant.h → mhd_duct); V_oc = B·u·w
+    // across the fluid's resistance and the load.
     MHDState& m = _mhd;
     m.bFieldT = m.bFieldBaseT + m.bFieldSpanT * m.drive;
-    float accel = m.drive * m.pumpAccel
-                - (m.lorentzK * m.bFieldT * m.bFieldT + m.frictionK) * m.flowU;
-    m.flowU = clampf(m.flowU + accel * dt, 0.f, m.flowUMax * 2.f);
+    m.hartmann = mhd_duct::hartmann_number(m, m.bFieldT);
+    // dU/dt = A − k·U with k up to several hundred per second: stepped exactly
+    // (the rates are constant over a step), which no step size can destabilise.
+    const float rate = mhd_duct::friction_rate(m, m.hartmann) + mhd_duct::braking_rate(m, m.bFieldT);
+    const float settled = m.drive * m.pumpAccel / rate;
+    m.flowU = clampf(settled + (m.flowU - settled) * std::exp(-rate * std::max(dt, 0.f)), 0.f, m.flowUMax * 2.f);
     float vOpen = m.bFieldT * m.flowU * m.widthM;
-    m.currentA = vOpen / (m.rInternalOhm + m.rLoadOhm);
+    m.currentA = vOpen / (mhd_duct::internal_ohm(m) + m.rLoadOhm);
     m.voltageV = m.currentA * m.rLoadOhm;
     m.powerW   = m.currentA * m.voltageV;
-    m.hartmann = m.bFieldT * m.halfGapM * std::sqrt(m.sigmaSm / (m.rhoKgM3 * m.nuM2s));
 }

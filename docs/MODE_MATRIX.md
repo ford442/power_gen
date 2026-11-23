@@ -25,7 +25,7 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 | `kelvin` | 2 | 2 (`SIM_MODE_KELVIN`) | `kelvinV` (V), `kelvinVoltageN` (%), `kelvinVbreak` (V), `kelvinE` (V/m), `kelvinSparkTimer` (s), `kelvinLandedShare` (%) | WASM (capacitive + spark); drops: SI, charged, in the rings' field (MLS-MPM on WebGPU, CPU on WebGL2) |
 | `solar` | 3 | 3 (`SIM_MODE_SOLAR`) | `batteryCharge` (%) | WASM (battery SOC) |
 | `peltier` | 4 | 4 (`SIM_MODE_PELTIER`) | `peltierHotK` (K), `peltierColdK` (K), `peltierDeltaT` (K), `peltierVoltage` (V), `peltierCurrent` (A), `peltierPowerW` (W), `peltierCOP`, `peltierQcW` (W), `peltierQhW` (W) | WASM (thermoelectric cooler: 1-D leg, 24 cells + 4 end nodes, ros23) |
-| `mhd` | 5 | 5 (`SIM_MODE_MHD`) | `mhdFlowU` (m/s), `mhdBFieldT` (T), `mhdHartmann`, `mhdVoltage` (V), `mhdCurrent` (A), `mhdPowerW` (W) | WASM (Hartmann channel) |
+| `mhd` | 5 | 5 (`SIM_MODE_MHD`) | `mhdFlowU` (m/s), `mhdBFieldT` (T), `mhdHartmann`, `mhdVoltage` (V), `mhdCurrent` (A), `mhdPowerW` (W) | WASM (mean flow: Hartmann wall friction + circuit braking, derived); profile: analytic Hartmann |
 | `maglev` | 6 | 6 (`SIM_MODE_MAGLEV`) | `maglevGapMm` (mm), `maglevFieldT` (T), `maglevLiftN` (N), `maglevRpm` (RPM) | WASM (spring–damper gap ODE), JS fallback mirrors it |
 | `pulse-coil` | 7 | none (`wasmMode: null`) | `pulseCoilCurrentA` (A), `pulseCoilVCap` (V), `pulseCoilBPeakT` (T), `pulseCoilArmatureMm` (mm) | JS-only (fallback-physics for pulseCoilBPeakT) |
 | `homopolar` | 8 | 7 (`SIM_MODE_HOMOPOLAR`) | `homopolarRpm` (RPM), `homopolarEmfV` (V), `homopolarCurrentA` (A), `homopolarFieldT` (T) | WASM (Faraday disc L–R + back-EMF) |
