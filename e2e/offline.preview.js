@@ -44,8 +44,10 @@ test('first visit precaches the build; offline reload still boots WebGL2', async
   /** @type {string[]} */
   const consoleErrors = [];
   page.on('console', (m) => {
-    // The one known noise: headless Chrome's favicon probe (404 online, fails offline).
-    if (m.type() === 'error' && !/favicon/.test(m.location().url ?? '')) consoleErrors.push(m.text());
+    // Known noise: headless Chrome's favicon probe (404 online, fails offline),
+    // and this test's own fetch of a file that is not precached, which is
+    // meant to fail while offline.
+    if (m.type() === 'error' && !/favicon|not-precached-/.test(m.location().url ?? '')) consoleErrors.push(m.text());
   });
 
   await gotoWebGL2(page);
@@ -76,6 +78,10 @@ test('first visit precaches the build; offline reload still boots WebGL2', async
   const cdp = await context.newCDPSession(page);
   const { installabilityErrors } = await cdp.send('Page.getInstallabilityErrors');
   expect(installabilityErrors, JSON.stringify(installabilityErrors)).toEqual([]);
+  // Detach before going offline: while a second DevTools session is attached,
+  // Chromium 157 keeps `navigator.onLine` true under setOffline(true) — the
+  // network is blocked all the same, but the page is told it is online.
+  await cdp.detach();
 
   await context.setOffline(true);
   try {
@@ -85,10 +91,13 @@ test('first visit precaches the build; offline reload still boots WebGL2', async
     const offline = await page.evaluate(async (wasm) => ({
       controlled: !!navigator.serviceWorker.controller,
       online: navigator.onLine,
+      // Not in the precache, so it can only come from the network: it must
+      // fail, or the two 200s below prove nothing about the cache.
+      network: await fetch(`./not-precached-${Date.now()}.txt`).then((r) => `HTTP ${r.status}`, () => 'unreachable'),
       wasmHead: (await fetch(`./${wasm}`, { method: 'HEAD' })).status,
       manifest: (await fetch('./manifest.webmanifest')).status
     }), wasmUrl);
-    expect(offline).toEqual({ controlled: true, online: false, wasmHead: 200, manifest: 200 });
+    expect(offline).toEqual({ controlled: true, online: false, network: 'unreachable', wasmHead: 200, manifest: 200 });
     // The lazy classroom chunk (and its recorder hook) loads from the cache too.
     await waitForEval(page, () => typeof window.recordBench === 'function', { timeout: 120_000 });
   } finally {
