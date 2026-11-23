@@ -116,6 +116,27 @@ uniform float u_metallic;
 uniform float u_roughness;
 uniform float u_wireframe;
 
+// IR view (\`?thermal=1\`): the ramp of src/thermal/ir-view.ts and shaders/common/ir-view.wgsl.
+// u_thermal: 0 off, 1 + t the whole bench at t on the ramp, 3 the vertex colour is already the ramp.
+uniform float u_thermal;
+const vec3 IR_RAMP[6] = vec3[6](
+  vec3(0.0, 0.0, 0.1),
+  vec3(0.35, 0.02, 0.5),
+  vec3(0.78, 0.12, 0.36),
+  vec3(0.98, 0.48, 0.08),
+  vec3(1.0, 0.85, 0.25),
+  vec3(1.0, 1.0, 0.95)
+);
+vec3 irRamp(float t) {
+  float x = clamp(t, 0.0, 1.0) * 5.0;
+  int i = int(min(floor(x), 4.0));
+  return mix(IR_RAMP[i], IR_RAMP[i + 1], x - float(i));
+}
+vec3 irShade(vec3 instanceColor, float nDotV) {
+  vec3 c = u_thermal < 2.5 ? irRamp(u_thermal - 1.0) : instanceColor;
+  return c * (0.72 + 0.28 * clamp(nDotV, 0.0, 1.0));
+}
+
 float hash31(vec3 p) {
   return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
 }
@@ -178,6 +199,11 @@ void main() {
   N = normalize(N + vec3(micro - 0.5) * 0.08);
   vec3 albedo = v_color;
   float rough = clamp(u_roughness + (micro - 0.5) * 0.08, 0.04, 1.0);
+  if (u_thermal > 0.5) {
+    // The colour is the temperature: unlit, no tone curve.
+    fragColor = vec4(irShade(v_color, max(dot(N, V), 0.0)), 1.0);
+    return;
+  }
   vec3 col = evalPBR(N, V, albedo, u_metallic, rough);
   col += albedo * u_emissive * 2.4;
   if (u_wireframe > 0.5) col = mix(col, vec3(0.0, 1.0, 0.8), 0.35);
@@ -229,6 +255,27 @@ uniform vec3 u_rimColor;
 uniform float u_emissive;
 uniform float u_metallic;
 uniform float u_roughness;
+
+// IR view (\`?thermal=1\`): the ramp of src/thermal/ir-view.ts and shaders/common/ir-view.wgsl.
+// u_thermal: 0 off, 1 + t the whole bench at t on the ramp, 3 the vertex colour is already the ramp.
+uniform float u_thermal;
+const vec3 IR_RAMP[6] = vec3[6](
+  vec3(0.0, 0.0, 0.1),
+  vec3(0.35, 0.02, 0.5),
+  vec3(0.78, 0.12, 0.36),
+  vec3(0.98, 0.48, 0.08),
+  vec3(1.0, 0.85, 0.25),
+  vec3(1.0, 1.0, 0.95)
+);
+vec3 irRamp(float t) {
+  float x = clamp(t, 0.0, 1.0) * 5.0;
+  int i = int(min(floor(x), 4.0));
+  return mix(IR_RAMP[i], IR_RAMP[i + 1], x - float(i));
+}
+vec3 irShade(vec3 instanceColor, float nDotV) {
+  vec3 c = u_thermal < 2.5 ? irRamp(u_thermal - 1.0) : instanceColor;
+  return c * (0.72 + 0.28 * clamp(nDotV, 0.0, 1.0));
+}
 const float ROLLER_HEIGHT = 2.8;
 const float ROLLER_SEGMENTS = 8.0;
 const float ROLLER_GROOVE_WIDTH = 0.045;
@@ -319,6 +366,11 @@ void main() {
   vec3 ibl = mix(vec3(0.12, 0.11, 0.09), vec3(0.48, 0.58, 0.74), upBlend);
   ibl *= fresnelSchlick(NdotV, f0) * (1.0 - roughness * roughness) * 0.68;
   vec3 rim = u_rimColor * pow(1.0 - NdotV, 3.2) * 0.45;
+  if (u_thermal > 0.5) {
+    // The colour is the temperature: unlit, no tone curve.
+    fragColor = vec4(irShade(v_color, NdotV), 1.0);
+    return;
+  }
   vec3 col = diff + spec + ibl + rim + albedo * 0.10;
   col += baseColor * u_emissive * 2.8;
   col = col / (col + vec3(0.82));

@@ -78,6 +78,8 @@ export interface VisualizerHostFields {
   _mhdSliceInit?: Promise<void> | null;
   /** The plant drive of the frame being rendered (what `session.stepPlant` used). */
   plantDrive?: number;
+  /** `?thermal=1`: every bench is drawn in the IR view (thermal/ir-view.ts). Read once at boot. */
+  thermalView?: boolean;
   /** `?fluid=` choice (read once from LabConfig on first use). */
   fluidChoice?: FluidChoice;
   /** What the lab mode asks of the liquid while `fluid` is `auto` (lab-mode.ts `LabModePreset.fluid`). */

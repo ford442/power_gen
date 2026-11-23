@@ -32,6 +32,7 @@ npm run dev          # http://localhost:5173/  (https: false; localhost is fine 
 | WASM plant | `?wasmPhysics=1` |
 | Mock hardware | `?mockHardware=1` (add `&mockParamError=0.2` for a ±20 % rig to **Calibrate** against — ADR-0019) |
 | Lab audio | `?audio=1` (silent until your first click/keypress; header badge mutes) |
+| IR view | `?thermal=1` — every bench in false colour by temperature; only Peltier, pulse-coil and drop-tube have a thermal model (docs/FLUIDS.md → IR view) |
 | Circuit Lab | `?circuit=transformer-bridge-rc` (with `&mode=transformer`); examples in `src/circuit/examples.ts`, docs/CIRCUIT.md |
 | Showroom / Lab / Twin | `?labMode=showroom\|lab\|twin` (header buttons; remembered). Explicit flags win: kiosk `?labMode=showroom&look=drama&audio=1`, class `?labMode=lab&class=1`, bench `?labMode=twin` |
 
@@ -152,6 +153,7 @@ npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switche
 npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement
 npm run test:drop-tube # drop-tube k / end taper / loops vs quadrature, transit vs RK4
 npm run test:hartmann # MHD duct: analytic Hartmann profile (TS vs C++), timeline parcels, Ha range (docs/FLUIDS.md)
+npm run test:ir-view  # IR view: the ramp's three copies, lumped bodies from the catalog, which bench has a model, every mesh shader's switch
 npm run test:mhd-slice # MHD lattice-Boltzmann slice, CPU twin: Hartmann profile at Ha 0/5/20, wall friction = the plant's, electrodes, loads, wall jets (the WGSL runs in test:gpu-golden)
 npm run test:mpm      # MLS-MPM liquid: CPU reference — i32 overflow bound, mass / momentum, free fall at g, ρ·g·h, viscous decay (ADR-0022; the WGSL runs in test:gpu-golden)
 npm run test:mpm-io   # …and what a bench adds: signed-distance solids, emitters, sinks, the height profile, a jet at v²/2g

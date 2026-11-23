@@ -20,7 +20,9 @@ struct Uniforms {
         baseColor: vec3f,
         prototypePreset: f32,
         glowColor: vec3f,
-        emission: f32
+        emission: f32,
+        /// x: the IR view's code for this bench (common/ir-view.wgsl); 0 = off.
+        thermal: vec4f
       }
 
       struct MaterialEntry {
@@ -48,6 +50,7 @@ struct Uniforms {
       #include "common/pbr-brdf.wgsl"
       #include "common/pbr-eval.wgsl"
       #include "common/shadow-pcf.wgsl"
+      #include "common/ir-view.wgsl"
 
       // LightingConfig comes from the chunk above; the PBR helpers take it as a
       // parameter, so this binding can follow them.
@@ -322,6 +325,13 @@ struct Uniforms {
 
         let contactAO = 0.52 + 0.48 * smoothstep(0.0, 2.4, abs(input.worldPos.y - devicePos.y));
         color *= contactAO;
+
+        // IR view: the colour is the temperature, whatever the bench's own shading said.
+        if (irOn(material.thermal.x)) {
+          color = irShade(material.thermal.x, input.copperColor, NdotV);
+          metallic = 0.0;
+          roughness = 1.0;
+        }
 
         // HDR scene output — tonemap + bloom handled in post composite pass
         var out: FragOut;

@@ -42,6 +42,8 @@ import { resolveScaledParticleCount } from '../../devices/particle-budgets';
 import { segLayoutRingsForDraw } from '../shared/url-params';
 import { segOperator } from '../../seg-operator-state';
 import { stepJsDevicePlant } from '../../session/apply-wasm-plant';
+import { IR_CODE_OFF, irDeviceCode, stepIrView } from '../../thermal/ir-view';
+import { labConfig } from '../../config/lab-config';
 
 /** Scene height of the Heron nozzle mouth for the active layout preset (its `flow.apexY`). */
 let heronNozzleCache = { preset: '', y: 6.1 };
@@ -278,6 +280,8 @@ export function renderFrame(viz, timestamp) {
     getViewMeshLod(viz.currentView, viz.profiler?.qualityLevel ?? 1)
   );
   viz._overviewMeshDetail = meshDetail;
+  viz.thermalView ??= labConfig().thermal;
+  const thermalView = viz.thermalView;
 
   for (const device of Object.values(viz.devices)) {
     if (!shouldSimulateDevice(
@@ -289,6 +293,9 @@ export function renderFrame(viz, timestamp) {
       cullOpts
     )) continue;
     const pos = device.config.position;
+    // IR view (`?thermal=1`): the bench's lumped body follows the plant, and its meshes are drawn by temperature.
+    if (thermalView) stepIrView(device.id, device.physics, deltaTime * speed);
+    meshRenderer.setThermal(thermalView ? irDeviceCode(device.id, device.physics) : IR_CODE_OFF);
     const tint = device.config.color || [0.5, 0.8, 1.0];
     const mode = deviceModeIndex(device.id);
     const scaledCount = device.scaledParticleCount || device.particleCount;
@@ -325,7 +332,7 @@ if (device.id === 'seg') {
   meshRenderer.drawPluginDevice(
     viewProj,
     pos,
-    buildPeltierMesh(peltierMeshTemps(device.physics)).cylinders(),
+    buildPeltierMesh(peltierMeshTemps(device.physics), { ir: thermalView }).cylinders(),
     renderOpts
   );
   } else if (drawMeshes && device.id === 'mhd') {

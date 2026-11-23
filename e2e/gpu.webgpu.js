@@ -380,4 +380,30 @@ test.describe('WebGPU on SwiftShader', () => {
     await expectNoGpuErrors(page, 'after releasing the slice');
     expect(errors, 'console errors / uncaught exceptions').toEqual([]);
   });
+
+  test('9. IR view (?thermal=1): every bench draws in false colour with no validation error, and the legend reads the plant', async ({ page }) => {
+    const errors = trackErrors(page);
+    await bootWebgpu(page, 'thermal=1');
+    await pinQualityTier(page, 'low');
+    await expect(page.locator('#ir-legend')).toContainText('IR view', { timeout: 30_000 });
+    await expectNoGpuErrors(page, 'IR view, overview');
+    // Peltier is the bench with temperatures of its own: start it and let the block cool.
+    await focusView(page, 'peltier');
+    await page.getByText('SPIN-UP', { exact: false }).first().click();
+    await waitForEval(page, () => {
+      const p = /** @type {any} */ (window.multiVisualizer).devices.peltier.physicsState;
+      return Array.isArray(p.peltierNodesK) || ArrayBuffer.isView(p.peltierNodesK) ? p.peltierNodesK[0] < 292.5 : false;
+    }, { timeout: 120_000 });
+    await expect(page.locator('#ir-legend')).toContainText(/cold block [+−]\d+ °C, heat sink \+\d+ °C/, { timeout: 30_000 });
+    await expectNoGpuErrors(page, 'IR view, Peltier');
+    // A bench with no thermal model says so rather than showing a made-up one.
+    await focusView(page, 'kelvin');
+    await expect(page.locator('#ir-legend')).toContainText('no thermal model', { timeout: 30_000 });
+    // The pulse coil's winding is a lumped body the view keeps beside the plant's state.
+    await focusView(page, 'pulse-coil');
+    await waitForEval(page, () => typeof (/** @type {any} */ (window.multiVisualizer).devices['pulse-coil'].physicsState._irBodyK) === 'number', { timeout: 60_000 });
+    await expect(page.locator('#ir-legend')).toContainText('I²R', { timeout: 30_000 });
+    await expectNoGpuErrors(page, 'IR view, pulse coil');
+    expect(errors, 'console errors / uncaught exceptions').toEqual([]);
+  });
 });

@@ -141,7 +141,6 @@ safe side of that. A tier asked for by hand is left alone at any frame rate.
 - **Emitters are round nozzles in plug flow; sinks are boxes that remove
   whatever is inside them.** A sink has no rate of its own: in steady state
   it passes what arrives.
-- **Points, not a surface.** Screen-space surface rendering is a later step.
 - **WebGPU only.** There is no WebGL2 liquid solver and there will not be
   one; `MpmCpu` is a test reference, far too slow to stand in.
 - **The frame cost is unmeasured.** The epic's target is ≤ 2 ms of GPU time
@@ -818,8 +817,9 @@ Temperatures are kelvin throughout; nothing is normalised in the plant. The
 three drawn bodies (sink below, module, block above) are one instance cylinder
 each and are coloured by node 27, the mean of the two plates, and node 0: blue
 60 K below ambient, grey at ambient, red 80 K above. Reverse the current and
-the colours swap because the temperatures do. The leg's own profile is in the
-state but not drawn yet (the IR view step of the epic).
+the colours swap because the temperatures do. `?thermal=1` replaces this tint
+with the [IR view](#ir-view)'s ramp and scale. The leg's own profile is in the
+state and still not drawn: the module is one body at the mean of its plates.
 
 The air parcels beside the two end bodies drift up beside a warm body and down
 beside a cold one at a rate ∝ √|ΔT|. They are **illustrative**: a hand-written
@@ -850,6 +850,54 @@ view.
 | `npm run test:golden` | TS ≈ native on three schedules, all on `ros23`: default, a 12 W load, reversed current |
 | `npm run test:integrators` | `ros23` ≥ 10× fewer RHS calls than fine-stepped RK4 on the leg; the LU pivoting case this plant exposed |
 | `sim_core_test --mode peltier-textbook` | the same sweep natively, with its own assertions |
+
+## IR view
+
+`?thermal=1` — `src/thermal/ir-view.ts` (the model, the ramp),
+`thermal/ir-legend.ts`, `shaders/common/ir-view.wgsl`. Both renderers.
+
+Every bench is drawn in false colour by temperature, unlit, on one fixed
+scale: −40 °C … +80 °C, the room (20 °C) near the middle. A legend carries
+the ramp, the scale, and one line on where the focused bench's temperature
+comes from.
+
+| Bench | Where its temperature comes from |
+|-------|----------------------------------|
+| `peltier` | The plant's own nodes: heat sink, the module (mean of its plates), cold block — body by body |
+| `pulse-coil` | One lumped winding heated by `I²R`. Its copper follows from the catalog: 48 turns of radius 45 mm are 13.6 m of wire, and 0.18 Ω makes that 0.15 kg (60 J/K). It loses 0.25 W/K to the room |
+| `drop-tube` | The tube wall (0.34 kg of copper) heated by what the eddy brake dissipates, `F·v` |
+| every other bench | **The room.** They have no thermal model, and the view does not invent one; the legend says so |
+
+- **The drop tube shows nothing, and that is the result.** A whole drop is
+  `m·g·h` — about 50 mJ — into 130 J/K: 0.4 mK. The legend gives the number
+  and says it is below what a camera resolves.
+- **The pulse coil warms over minutes**, as a real winding does: a few watts
+  into a body with a four-minute time constant. It is real time; there is no
+  fast-forward.
+- **The two lumped bodies are view-side state**, like the MHD timelines'
+  travel: integrated from what the plant publishes while the view is on, not
+  plant state, not in a snapshot, and they start at the room each time. The
+  heat loss is a round 10 W/(m²·K) of free convection, not a measurement.
+- **The switch is a per-bench material input.** Each bench's material block
+  ends in a `thermal` vec4 whose first component is the code the mesh shaders
+  read: 0 off, 1 + t the whole bench at `t` on the ramp, 3 "each instance
+  carries its own ramp colour" (Peltier). On WebGL2 it is the `u_thermal`
+  uniform.
+- **On WebGPU the ramp is written into the HDR scene at half level** so the
+  tone curve does not bleach its hot half; it was matched to the legend by
+  eye. It still passes through the look's grading, so read numbers off the
+  legend's line, not off a colour picker.
+- **Particles are dimmed to an eighth on WebGPU** (they are visible light, not
+  heat) and left as they are on WebGL2. glTF props are not recoloured.
+- **Not done:** the Peltier leg's 24-cell profile as a gradient along the
+  module, and a decision on Peltier's illustrative air parcels (the epic
+  asked for a buoyancy solve or their removal). They are still there, still
+  labelled illustrative.
+
+| Command | Holds |
+|---------|-------|
+| `npm run test:ir-view` | the ramp's three copies (TS, WGSL, GLSL) point for point; the scale; the winding's and the tube's mass and heat capacity from the catalog; the exact lumped step; which bench gets which source; the legend's words; every mesh shader's material block ending in the switch |
+| `npm run test:e2e:webgpu` / `npm run test:e2e` | `?thermal=1` boots with no GPU or page error on both renderers; the legend reads the Peltier plant, names the pulse coil's `I²R`, and says "no thermal model" on a bench without one; off by default |
 
 ## WebGL2
 

@@ -2,8 +2,12 @@ struct CoreMaterialUniforms {
         baseColor: vec3f,
         emission: f32,
         coreColor: vec3f,
-        glowIntensity: f32
+        glowIntensity: f32,
+        /// x: the IR view's code for this bench (common/ir-view.wgsl); 0 = off.
+        thermal: vec4f
       }
+
+      #include "common/ir-view.wgsl"
       
       @binding(3) @group(0) var<uniform> material: CoreMaterialUniforms;
       
@@ -22,7 +26,12 @@ struct CoreMaterialUniforms {
         let baseColor = material.baseColor;
         let glowColor = material.coreColor * material.glowIntensity;
         
-        let color = baseColor * (0.3 + diff * 0.7) + glowColor;
-        
+        var color = baseColor * (0.3 + diff * 0.7) + glowColor;
+
+        // IR view: the colour is the temperature; the core's glow is not heat.
+        if (irOn(material.thermal.x)) {
+          color = irShade(material.thermal.x, irRamp(material.thermal.x - 1.0), diff);
+        }
+
         return vec4f(color, 1.0);
       }

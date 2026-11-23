@@ -8,8 +8,12 @@ struct Uniforms {
         baseColor: vec3f,
         pad1: f32,
         glowColor: vec3f,
-        emission: f32
+        emission: f32,
+        /// x: the IR view's code for this bench (common/ir-view.wgsl); 0 = off.
+        thermal: vec4f
       }
+
+      #include "common/ir-view.wgsl"
 
       struct DeviceUniforms {
         renderMode: f32,
@@ -64,6 +68,11 @@ struct Uniforms {
         // Per-coil time-based shimmer using traveling wave + low-frequency wobble.
         let shimmer = 1.0 + (0.08 + energy * 0.12) * sin(uniforms.time * 2.4 + input.coilIndex * 0.35);
         color = color * (1.0 + (shimmer - 1.0) * activeLevel);
+
+        // IR view: the colour is the temperature; the coils' glow is not heat.
+        if (irOn(material.thermal.x)) {
+          color = irShade(material.thermal.x, irRamp(material.thermal.x - 1.0), max(dot(normal, viewDir), 0.0));
+        }
 
         return vec4f(color, 1.0);
       }

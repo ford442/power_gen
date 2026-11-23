@@ -1,3 +1,4 @@
+import { stepIrView } from '../thermal/ir-view';
 import {
   createDevicePhysicsState,
   stepDevicePhysics,
@@ -104,7 +105,9 @@ export const DeviceUpdateMixin = {
     if (typeof this._computeEnergyLevel === 'function') {
       this._computeEnergyLevel(deltaTime);
     }
-    this.uniformManager.updateUniforms(this.energyLevel);
+    // IR view (`?thermal=1`): the bench's lumped body follows the plant before its code is written.
+    if (this.visualizer.thermalView) stepIrView(this.id, this.physicsState, deltaTime);
+    this.uniformManager.updateUniforms(this.energyLevel, this.physicsState);
     // Named helpers are bound in DeviceInstance; skip if a minified bundle dropped them.
     if (typeof this.updateDeviceFlowPaths === 'function') {
       this.updateDeviceFlowPaths(deltaTime);

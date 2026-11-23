@@ -87,7 +87,23 @@ profile for a thermal view to draw.
   the C++ plant: one ulp at 270 K through a 24 W/K junction is ~1 mW. The
   1e-3 energy-balance check carries a 5 mW floor on the single-precision
   backends for that reason.
-- The IR view (a false-colour ramp on every bench from a per-device
-  temperature) is a later step of the epic and will get its own ADR section
-  here when it lands. Until then the three Peltier bodies carry a temperature
-  colour of their own.
+- The IR view landed as the last step of the epic: see the section below.
+
+## The IR view (`?thermal=1`)
+
+**Decision.** A false-colour view of every bench's temperature, driven by one
+per-bench material input, on both renderers. Where a bench has no thermal
+model it is drawn at room temperature and the legend says so.
+
+| Choice | Why |
+|--------|-----|
+| A code in the bench's material block (`thermal.x`; `u_thermal` on WebGL2), read by every mesh shader | The blocks were already 48 bytes with 16 spare and already bound by every mesh pipeline. No layout, no instance format and no pipeline changed; a bench that is not in the view pays one comparison per fragment. |
+| One temperature per bench, except Peltier | Peltier is the only bench whose plant resolves temperatures in space; its three bodies carry their own ramp colour as instance colour, which the instances already had. |
+| Lumped bodies for the pulse coil and the drop tube kept beside the plant, not in it | Their heating follows from quantities the plants already publish (`I`, `F·v`), and their constants from the catalog. Putting them in the plants would bump the snapshot layout of two benches for a number only this view reads. |
+| A fixed scale, not auto-ranging | Auto-ranging would paint the drop tube's 0.4 mK as dramatically as the Peltier's 50 K. A fixed scale lets a bench show nothing when nothing is there. |
+| Every other bench at the room | The alternative is a plausible-looking temperature from an energy level or a glow. That is the kind of picture this epic set out to remove. |
+
+**Not done.** The leg's 24-cell profile as a gradient (it needs an axial
+coordinate the instance format does not carry), recolouring glTF props, and
+the epic's either/or on Peltier's air parcels — a buoyancy solve or their
+removal. The parcels remain, illustrative, and that decision is open.

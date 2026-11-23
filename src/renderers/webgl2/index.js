@@ -61,6 +61,8 @@ export class WebGL2MultiDeviceVisualizer {
     this.profiler = undefined;
     /** Last overview mesh LOD (read by devices/device-render.ts). @type {string | undefined} */
     this._overviewMeshDetail = undefined;
+    /** @type {boolean | undefined} `?thermal=1`: the IR view (thermal/ir-view.ts). Read once, on the first frame. */
+    this.thermalView = undefined;
 
     /** @type {Record<string, WebGL2DeviceState>} */
     this.devices = {};

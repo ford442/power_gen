@@ -24,6 +24,7 @@ WebGPU; it does **not** implement every WebGPU visual feature.
 | Heron layout presets | Yes |
 | Particle count slider | Yes (`setParticleCount`) |
 | MHD Hartmann profile | Yes — the same timelines as WebGPU (`mhdParcelPosition`, the CPU twin of `posMhd`) and the same profile card; markers are tinted by `u/u(0)` ([`FLUIDS.md`](./FLUIDS.md#mhd-duct)) |
+| IR view (`?thermal=1`) | Yes — the same ramp, scale, legend and sources (`u_thermal` on the mesh and roller programs). Particles are not dimmed here |
 | MHD lattice-Boltzmann slice | **No** — WebGPU compute. The bench note reads "Flow solver needs WebGPU"; the plant (derived friction and braking) and the profile card are the same on both renderers |
 | `?wasmPhysics=1` plant | Yes — SEG/Heron/Kelvin/Solar via `segWasm` |
 | Overview energy pipes | Yes — simplified **line-strip Bézier** arcs; shared `EnergyNetwork` budget clamp when `?energyCoupling=1` |

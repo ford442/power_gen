@@ -5,7 +5,9 @@
         baseColor: vec3f,
         pad1: f32,
         glowColor: vec3f,
-        emission: f32
+        emission: f32,
+        /// x: the IR view's code for this bench (common/ir-view.wgsl); 0 = off.
+        thermal: vec4f
       }
       
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -149,6 +151,11 @@
         let glow = material.glowColor * material.emission * (0.35 + energy * 0.85);
         color = color + glow;
         color = color * alpha;
+
+        // IR view: particles are visible light, not heat — left as a faint trace.
+        if (material.thermal.x > 0.5) {
+          return vec4f(color * 0.12, alpha * 0.12);
+        }
 
         return vec4f(color, alpha);
       }

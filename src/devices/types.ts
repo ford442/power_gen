@@ -197,6 +197,8 @@ export interface VisualizerLike {
   kelvinLiquid?: { draw(): { buffer: GPUBuffer; count: number } | null } | null;
   /** The plant drive of the frame being rendered (0..1). */
   plantDrive?: number;
+  /** `?thermal=1`: every bench is drawn in the IR view (thermal/ir-view.ts). */
+  thermalView?: boolean;
   time: number;
   profiler?: {
     qualityLevel: number;
@@ -358,7 +360,7 @@ export interface DeviceInstanceLike {
   };
   uniformManager: {
     /** Per-frame material refresh (solar battery emission). */
-    updateUniforms: (energyLevel: number) => void;
+    updateUniforms: (energyLevel: number, physicsState?: object | null) => void;
     /** Solar only — mirrors instance.batteryCharge into the packed uniform. */
     batteryCharge?: number;
     updateGaugeBuffer?: (position: ArrayLike<number>, ringIndex: number) => void;
