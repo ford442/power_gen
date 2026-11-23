@@ -56,7 +56,7 @@ const ENTRY = `
   export { MhdSliceCpu } from './src/fluids/mhd-slice-cpu.ts';
   export { MhdSliceSolver } from './src/fluids/mhd-slice-solver.ts';
   export { MHD_SLICE_SHADERS } from './src/fluids/mhd-slice-shaders.ts';
-  export { ensureMhdSlicePipelines } from './src/pipeline-layout/factories/mhd-slice-pipelines.ts';
+  export { ensureMhdSlicePipelines, ensureMhdSliceDrawPipeline } from './src/pipeline-layout/factories/mhd-slice-pipelines.ts';
   export { hartmannProfile } from './src/physics/hartmann.ts';
   export { MHD } from './generated/physics-constants.ts';
 `;

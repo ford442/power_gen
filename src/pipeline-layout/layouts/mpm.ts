@@ -37,6 +37,10 @@ export function registerMhdSliceLayouts(r: LayoutRegistrar): void {
   // passes/mhd-slice-lbm.wgsl, mhd-slice-phi.wgsl.
   r.bgl('mhdSlice', BGL.mhdSlice);
   r.pl('mhdSlice', ['mhdSlice']);
+
+  // passes/mhd-slice-draw.wgsl: the panel in the scene pass; group 0 is the frame group.
+  r.bgl('mhdSliceDraw', BGL.mhdSliceDraw);
+  r.pl('mhdSliceDraw', ['frame', 'mhdSliceDraw']);
 }
 
 /**

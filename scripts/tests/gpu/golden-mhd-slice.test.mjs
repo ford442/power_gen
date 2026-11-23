@@ -7,7 +7,7 @@
  *     (L2 under 2 %), at the mean speed the analysis gives
  *   - mass on the lattice holds to 1e-5 over 1000 steps
  *   - the mid-plane, step for step against the CPU twin: moments, potential,
- *     electrode voltages and currents
+ *     electrode voltages and currents, and the current's stream function
  *   - open circuit in a uniform field reads B·ū·w within 3 %
  */
 import assert from 'node:assert/strict';
@@ -108,8 +108,11 @@ describe('gpu-golden: MHD slice — the mid-plane against its CPU twin', { skip 
     const cpu = new app.MhdSliceCpu(cfg);
     cpu.step(300);
     const solver = await app.MhdSliceSolver.create(device, cache, app.MHD_SLICE_SHADERS, cfg);
-    await run(solver, 300);
+    await run(solver, 299);
+    // The last step with the stream function behind it, as the app encodes a frame.
     const enc = device.createCommandEncoder();
+    solver.encodeSteps(enc, 1, { streamFunction: true });
+    cpu.streamFunction();
     assert.equal(solver.requestReadout(enc), true);
     device.queue.submit([enc.finish()]);
     const readout = await solver.resolveReadout();
@@ -118,9 +121,12 @@ describe('gpu-golden: MHD slice — the mid-plane against its CPU twin', { skip 
     solver.destroy();
     assert.deepEqual(session.device.uncaptured, [], 'GPU validation errors');
 
-    const worst = { u: 0, phi: 0 };
+    const worst = { u: 0, phi: 0, psi: 0 };
     let phiScale = 0;
+    let psiScale = 0;
     for (let c = 0; c < cfg.nx * cfg.ny; c++) {
+      worst.psi = Math.max(worst.psi, Math.abs(m[c * 4 + 3] - cpu.macro[c * 4 + 3]));
+      psiScale = Math.max(psiScale, Math.abs(cpu.macro[c * 4 + 3]));
       worst.u = Math.max(worst.u, Math.abs(m[c * 4] - cpu.macro[c * 4]), Math.abs(m[c * 4 + 1] - cpu.macro[c * 4 + 1]));
       worst.phi = Math.max(worst.phi, Math.abs(phi[c] - cpu.phi[c]));
       phiScale = Math.max(phiScale, Math.abs(cpu.phi[c]));
@@ -128,6 +134,7 @@ describe('gpu-golden: MHD slice — the mid-plane against its CPU twin', { skip 
     console.log(`  worst |GPU − CPU|: velocity ${worst.u.toExponential(2)} of an inlet ${cfg.inletU.toFixed(3)}, potential ${worst.phi.toExponential(2)} of ${phiScale.toFixed(3)}`);
     assert.ok(worst.u < 2e-4 * cfg.inletU, `velocity differs by ${worst.u}`);
     assert.ok(worst.phi < 2e-4 * phiScale, `potential differs by ${worst.phi}`);
+    assert.ok(psiScale > 0 && worst.psi < 1e-3 * psiScale, `stream function differs by ${worst.psi} of ${psiScale}`);
     const v = cpu.voltages();
     const i = cpu.currents();
     assert.equal(readout.voltages.length, cfg.segments);

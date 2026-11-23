@@ -80,7 +80,9 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 - **SEG** is the highest-fidelity path (layout presets, flux, PBR).
 - **Peltier** is a resolved 1-D thermoelectric cooler (28 nodes, `ros23`). **MHD** is one
   mean speed whose friction and braking are derived from the analytic Hartmann profile and the
-  circuit (`physics/mhd-duct.ts`); the picture is that profile, not a flow solve. Both: docs/FLUIDS.md.
+  circuit (`physics/mhd-duct.ts`). Its parcels draw that profile; on WebGPU in focus a lattice-Boltzmann
+  slice of the duct's mid-plane (`fluids/mhd-slice*.ts`, `passes/mhd-slice-*.wgsl`, potential + four
+  electrode pairs) is drawn as a panel — lazy chunk, lifetime `mhd-slice`, same `?fluid=` gate. Both: docs/FLUIDS.md.
 - **Liquid:** an MLS-MPM solver (`src/fluids/`, `passes/mpm-*.wgsl`, ADR-0022). Heron's jet runs
   on it — WebGPU, Heron in focus, `?fluid=auto|off|low|high` — through
   `visualizer/heron-liquid-pass.ts` (frame-graph lifetime `heron-liquid`; overview allocates none).

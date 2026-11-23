@@ -62,6 +62,9 @@ const WEBGPU_LAZY = [
   { prefix: 'src/visualizer/heron-liquid-runtime.ts', why: 'liquid pass runtime — dynamic import()' },
   { prefix: 'src/visualizer/kelvin-liquid-runtime.ts', why: 'Kelvin drops runtime — kelvin-liquid-pass.ts imports it on first Kelvin focus' },
   { prefix: 'src/shaders/passes/mpm-', why: 'liquid solver shaders — travel with the runtime' },
+  { prefix: 'src/visualizer/mhd-slice-runtime.ts', why: 'MHD slice runtime — mhd-slice-pass.ts imports it on first MHD focus' },
+  { prefix: 'src/pipeline-layout/factories/mhd-slice-pipelines.ts', why: 'MHD slice pipelines — built by the runtime, not a cache method' },
+  { prefix: 'src/shaders/passes/mhd-slice-', why: 'MHD slice shaders — travel with the runtime' },
   { prefix: 'src/visualizer/fluid-surface-pass.ts', why: 'liquid surface pass — part of the liquid runtime' },
   { prefix: 'src/pipeline-layout/factories/fluid-surface-pipelines.ts', why: 'liquid surface pipelines — built by the surface pass, not a cache method' },
   { prefix: 'src/shaders/passes/fluid-', why: 'liquid surface shaders — travel with the runtime' }

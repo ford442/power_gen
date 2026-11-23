@@ -254,7 +254,7 @@ orders the WebGPU frame. `src/visualizer/render-encode.ts` is the pass list;
 the bodies are in `render-passes.ts`. WebGL2 does not use it (ADR-0001).
 
 ```
-compute → field-volume → heron-liquid → kelvin-liquid → shadow → scene (1× | 4× MSAA) → depth-resolve → fluid-surface → taa → ssr → bloom → composite → history
+compute → field-volume → heron-liquid → kelvin-liquid → mhd-slice → shadow → scene (1× | 4× MSAA) → depth-resolve → fluid-surface → taa → ssr → bloom → composite → history
 ```
 
 Each pass declares `reads` / `writes` (static or a function of the frame
@@ -301,8 +301,10 @@ overview never compiles or encodes them.
   with the `fluidSurface` lifetime (two depth targets, a thickness target, a
   scene copy), from the `medium` tier up. `kelvin-liquid` is the same solver
   on Kelvin's scene (lifetime `kelvinLiquid`, a 46 × 50 × 22 grid and 2048
-  drops), in Kelvin focus only, drawn as particles. None of them exists in
-  overview. `getRendererInfo().fluid` and `.kelvinLiquid` report them —
+  drops), in Kelvin focus only, drawn as particles. `mhd-slice` is the MHD
+  duct's lattice-Boltzmann slice (lifetime `mhdSlice`, 256 × 40 cells, about
+  1 MB), in MHD focus only; its panel is drawn in the scene pass. None of them
+  exists in overview. `getRendererInfo().fluid` and `.kelvinLiquid` report them —
   [`FLUIDS.md`](./FLUIDS.md).
 - **Field volume** (ADR-0017). `field-volume` is its own compute pass (so
   `?gpuTiming=1` times it apart from `compute`) writing the `fieldVolume`

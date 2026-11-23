@@ -19,7 +19,7 @@
 @group(0) @binding(1) var<storage, read> columns: array<vec4f>;
 @group(0) @binding(2) var<storage, read> fIn: array<f32>;
 @group(0) @binding(3) var<storage, read_write> fOut: array<f32>;
-/// Per cell: ux, uy, rho, 0.
+/// Per cell: ux, uy, rho, and (written by mhd-slice-phi.wgsl once a frame) the current's stream function.
 @group(0) @binding(4) var<storage, read_write> moments: array<vec4f>;
 @group(0) @binding(5) var<storage, read_write> phi: array<f32>;
 /// Column mean forces, then a voltage and a current per electrode pair.

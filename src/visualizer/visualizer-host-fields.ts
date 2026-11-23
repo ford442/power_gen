@@ -15,6 +15,7 @@ import type { FdtdSlicePass } from '../devices/quanta/fdtd-slice-pass';
 import type { FieldVolumePass } from './field-volume-pass';
 import type { FluidCeiling, FluidChoice, FluidPreset, HeronLiquidPass } from './heron-liquid-pass';
 import type { KelvinLiquidPass } from './kelvin-liquid-pass';
+import type { MhdSlicePass } from './mhd-slice-pass';
 import type { FieldReadout, FieldViewState } from './field-volume-drive';
 import type { getPostQualityGates } from '../post-processing-config';
 import type { BloomChain, BloomChainPipelines } from './bloom-chain';
@@ -72,6 +73,9 @@ export interface VisualizerHostFields {
   /** Kelvin's drops on the solver: lazily built the same way; null if the build failed. */
   kelvinLiquid?: KelvinLiquidPass | null;
   _kelvinLiquidInit?: Promise<void> | null;
+  /** The MHD duct's lattice-Boltzmann slice: lazily built the same way; null if the build failed. */
+  mhdSlice?: MhdSlicePass | null;
+  _mhdSliceInit?: Promise<void> | null;
   /** The plant drive of the frame being rendered (what `session.stepPlant` used). */
   plantDrive?: number;
   /** `?fluid=` choice (read once from LabConfig on first use). */

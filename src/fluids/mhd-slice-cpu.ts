@@ -28,7 +28,7 @@ export class MhdSliceCpu {
   /** Distributions, 9 per cell; `f` is current. */
   f: Float32Array;
   private g: Float32Array;
-  /** Moments per cell: ux, uy, ρ, 0. */
+  /** Moments per cell: ux, uy, ρ, and the current's stream function once `streamFunction` has run. */
   readonly macro: Float32Array;
   readonly phi: Float32Array;
   /** Column means, then a voltage and a current per segment. */
@@ -235,6 +235,34 @@ export class MhdSliceCpu {
       state[nx + MHD_SLICE_MAX_SEGMENTS + k] = current;
     }
     for (let i = 0; i < nx; i++) state[i] = mean[i];
+  }
+
+  /**
+   * The current's stream function, into the moments' spare component (the
+   * WGSL `streamFunction`): on the bottom wall, the current that has entered
+   * through it so far; up each column, the current along the flow.
+   */
+  streamFunction(): void {
+    const { nx, ny, macro, phi, state } = this;
+    const wall = (i: number): number => {
+      const seg = this.col(i, 2);
+      return seg >= 0 ? 2 * (-0.5 * state[nx + seg] - phi[i]) : 0;
+    };
+    let entered = 0;
+    for (let i = 0; i < nx; i++) {
+      const here = wall(i);
+      let psi = -(entered + 0.5 * here);
+      entered += here;
+      const iw = Math.max(i - 1, 0);
+      const ie = Math.min(i + 1, nx - 1);
+      let last = 0;
+      for (let j = 0; j < ny; j++) {
+        const jx = -(phi[j * nx + ie] - phi[j * nx + iw]) / (ie - iw) - macro[(j * nx + i) * 4 + 1] * this.col(i, 0);
+        psi += 0.5 * (last + jx);
+        last = jx;
+        macro[(j * nx + i) * 4 + 3] = psi;
+      }
+    }
   }
 
   /** Σ of every distribution: the mass on the lattice. */

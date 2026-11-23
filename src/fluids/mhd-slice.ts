@@ -128,7 +128,7 @@ export function mhdSliceLayout(p: MhdDuctParams = MHD, nx: number = MHD_SLICE_GR
   const { segments, gapCells } = MHD_SLICE_ELECTRODES;
   const cells = Math.floor((poleCells - (segments - 1) * gapCells) / segments);
   const slack = poleCells - (segments * cells + (segments - 1) * gapCells);
-  const electrodes = [];
+  const electrodes: { start: number; cells: number }[] = [];
   for (let k = 0; k < segments; k++) electrodes.push({ start: poleStart + Math.floor(slack / 2) + k * (cells + gapCells), cells });
   return { poleStart, poleEnd: poleStart + poleCells, electrodes };
 }
@@ -293,3 +293,72 @@ export function mhdSliceSegmentOhm(cells: number, p: MhdDuctParams = MHD, grid: 
   const layout = mhdSliceLayout(p, grid.nx, grid.ny);
   return mhdInternalOhm(p) * ((layout.poleEnd - layout.poleStart) / cells);
 }
+
+// ---------------------------------------------------------------------------
+// The picture (passes/mhd-slice-draw.wgsl).
+// ---------------------------------------------------------------------------
+
+/** `MhdSliceDraw` in passes/mhd-slice-draw.wgsl. */
+export const MHD_SLICE_DRAW_BYTES = 64;
+/**
+ * The panel, bench-local scene units: standing in front of the lower pole
+ * pieces, parallel to the duct. Its width is the slice's 0.64 m at the
+ * bench's 10.5 units per metre along the flow, so the electrodes on it line
+ * up with the duct above; the duct's 0.1 m width is drawn to the same scale.
+ * (A bench's config rotation turns its focus camera, not its meshes, so the
+ * panel is not turned either.)
+ */
+export const MHD_SLICE_PANEL = Object.freeze({
+  center: [0, -2.15, 1.3] as readonly number[],
+  halfWidth: 3.36,
+  halfHeight: 0.625,
+  /** Share of the height under the duct given to the speed legend. */
+  legend: 0.16
+});
+/** The picture runs this many times slower than the plant (a transit of the slice takes 0.4 s). */
+export const MHD_SLICE_SLOWDOWN = 10;
+/** The top of the speed ramp, over the inflow: the wall jets reach about 1.3. */
+export const MHD_SLICE_SPEED_FULL = 1.6;
+/** Current lines the generator's full current is drawn as, per electrode pair. */
+export const MHD_SLICE_LINES_PER_PAIR = 6;
+
+export interface MhdSliceDrawInput {
+  /** The bench's position, world. */
+  devicePos: ArrayLike<number>;
+  opacity?: number;
+}
+
+/** Pack the panel's uniform block for a slice. */
+export function packMhdSliceDraw(c: MhdSliceConfig, o: MhdSliceDrawInput, out: Float32Array = new Float32Array(MHD_SLICE_DRAW_BYTES / 4)): Float32Array {
+  const P = MHD_SLICE_PANEL;
+  const inlet = Math.max(c.inletU, 1e-4);
+  // Open-circuit volts across the width, lattice units: ū·ny. Half of it is a matched pair's voltage.
+  const openV = inlet * c.ny;
+  // The current one ideal pair collects from its length at a matched load, as the stream function counts it.
+  let cells = 0;
+  for (let i = 0; i < c.nx; i++) cells = Math.max(cells, c.columns[i * 4 + 3]);
+  if (!(cells > 0)) cells = c.nx / 4;
+  out[0] = (o.devicePos[0] ?? 0) + P.center[0];
+  out[1] = (o.devicePos[1] ?? 0) + P.center[1];
+  out[2] = (o.devicePos[2] ?? 0) + P.center[2];
+  out[3] = MHD_SLICE_SPEED_FULL * inlet;
+  out[4] = P.halfWidth;
+  out[5] = 0;
+  out[6] = 0;
+  out[7] = (0.5 * inlet * cells) / MHD_SLICE_LINES_PER_PAIR;
+  out[8] = 0;
+  out[9] = P.halfHeight;
+  out[10] = 0;
+  out[11] = o.opacity ?? 1;
+  out[12] = openV;
+  out[13] = P.legend;
+  out[14] = 0;
+  out[15] = 0;
+  return out;
+}
+
+/** Lattice steps a displayed second is worth, at the picture's slow-down. */
+export function mhdSliceStepsPerSecond(p: MhdDuctParams = MHD, ny: number = MHD_SLICE_GRID.ny): number {
+  return 1 / (mhdSliceUnits(1, p, ny).stepS * MHD_SLICE_SLOWDOWN);
+}
+

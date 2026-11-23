@@ -18,6 +18,7 @@ const M = await bundleTs({
     export * as H from './src/physics/hartmann.ts';
     export * as D from './src/physics/mhd-duct.ts';
     export { MHD } from './generated/physics-constants.ts';
+    export { mhdSliceNoteText } from './src/mhd-slice-note.ts';
   `,
   sourcefile: 'mhd-slice-entry.ts'
 });
@@ -237,6 +238,22 @@ describe('mhd slice: the mid-plane — electrodes, loads and the field\'s edges 
     assert.ok(Math.abs(meanSpeed(s, GRID.nx >> 1) / s.config.inletU - 1) < 0.05);
   });
 
+  it('the stream function: what has entered through the wall, and current lines that end on the electrodes', () => {
+    loaded.streamFunction();
+    const psi = (i, j) => loaded.macro[(j * loaded.nx + i) * 4 + 3];
+    const total = loaded.currents().reduce((a, x) => a + x, 0);
+    // Past the last electrode, everything the loads carry has crossed every row.
+    const end = layout.poleEnd + 6;
+    assert.ok(Math.abs(psi(end, 0) / -total - 1) < 0.03, `ψ on the wall ${psi(end, 0)}, −ΣI ${-total}`);
+    assert.ok(Math.abs(psi(end, GRID.ny - 1) / -total - 1) < 0.08, `ψ at the far wall ${psi(end, GRID.ny - 1)}`);
+    // Upstream of the field nothing has.
+    assert.ok(Math.abs(psi(3, GRID.ny >> 1)) < 0.02 * total);
+    // Under a pair the current runs wall to wall: ψ falls steadily along the electrode.
+    const e = layout.electrodes[1];
+    const mid = GRID.ny >> 1;
+    for (let i = e.start + 1; i < e.start + e.cells; i++) assert.ok(psi(i, mid) < psi(i - 1, mid), `column ${i}`);
+  });
+
   it('configure keeps the state and refuses another grid; reset starts over', () => {
     const s = run({}, 50);
     const before = s.voltages()[1];
@@ -252,3 +269,45 @@ describe('mhd slice: the mid-plane — electrodes, loads and the field\'s edges 
 function s2(n) {
   return n >> 1;
 }
+
+describe('mhd slice: the picture', () => {
+  it('the panel is the slice to the bench\'s scale, under the magnet', () => {
+    const c = M.mhdSliceConfig({ bFieldT: 0.6, flowU: 1.86 });
+    const d = M.packMhdSliceDraw(c, { devicePos: [-15, 0, -15] });
+    assert.equal(d.length * 4, M.MHD_SLICE_DRAW_BYTES);
+    // 10.5 scene units per metre along the flow, as the drawn duct (4.2 units for 0.4 m).
+    assert.ok(Math.abs(2 * d[4] - 0.64 * 10.5) < 1e-6, `panel width ${2 * d[4]}`);
+    assert.deepEqual([d[5], d[6], d[8], d[10]], [0, 0, 0, 0], 'upright, parallel to the duct');
+    const ductHeight = 2 * d[9] * (1 - M.MHD_SLICE_PANEL.legend);
+    assert.ok(Math.abs(ductHeight - 0.1 * 10.5) < 1e-6, `duct drawn ${ductHeight} units wide`);
+    assert.ok(Math.abs(d[0] + 15) < 1e-6 && d[1] < -0.8 - d[9] + 1e-6 && d[2] > -15 + 0.8, 'below the duct, in front of the pole pieces');
+    // The ramp tops out above the wall jets; a matched pair is drawn as six current lines.
+    assert.ok(Math.abs(d[3] - M.MHD_SLICE_SPEED_FULL * c.inletU) < 1e-7);
+    const cells = M.mhdSliceLayout().electrodes[0].cells;
+    assert.ok(Math.abs(d[7] * M.MHD_SLICE_LINES_PER_PAIR - 0.5 * c.inletU * cells) < 1e-6);
+    assert.ok(Math.abs(d[12] - c.inletU * c.ny) < 1e-6, 'full brightness at the open-circuit voltage');
+    // At rest nothing divides by zero.
+    const rest = M.packMhdSliceDraw(M.mhdSliceConfig({ bFieldT: 0.2, flowU: 0 }), { devicePos: [0, 0, 0] });
+    assert.ok(rest.every(Number.isFinite) && rest[3] > 0 && rest[7] > 0 && rest[12] > 0);
+  });
+
+  it('shown ten times slower than the plant: about 21 lattice steps a frame at 60 fps', () => {
+    assert.ok(Math.abs(M.mhdSliceStepsPerSecond() - 1250) < 1e-6);
+    assert.equal(M.MHD_SLICE_SLOWDOWN, 10);
+  });
+
+  it('the note says what the panel is, what reaches the loads, and what WebGL2 lacks', () => {
+    const running = { build: 'ready', allocated: true, active: true, steps: 900, totalAmps: 196.2 };
+    const on = M.mhdSliceNoteText({ renderer: 'webgpu', slice: running, plantAmps: 223.7 });
+    assert.match(on, /lattice-Boltzmann/);
+    assert.match(on, /196 A reaches the loads of the 224 A/);
+    assert.match(on, /side layers drawn far thicker than real/);
+    assert.match(on, /simulated, not a measurement$/);
+    assert.doesNotMatch(M.mhdSliceNoteText({ renderer: 'webgpu', slice: { ...running, totalAmps: null }, plantAmps: 223.7 }), /reaches the loads/);
+    assert.doesNotMatch(M.mhdSliceNoteText({ renderer: 'webgpu', slice: running, plantAmps: 0 }), /reaches the loads/);
+    assert.match(M.mhdSliceNoteText({ renderer: 'webgpu', slice: { ...running, steps: 0, allocated: false } }), /starting/);
+    assert.match(M.mhdSliceNoteText({ renderer: 'webgpu', slice: { build: 'ready', allocated: false, active: false, steps: 0, totalAmps: null } }), /solver off/);
+    assert.match(M.mhdSliceNoteText({ renderer: 'webgl2' }), /needs WebGPU/);
+  });
+});
+

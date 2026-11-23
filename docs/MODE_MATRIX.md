@@ -90,8 +90,10 @@ A `fluid` block puts a bench's liquid on the MLS-MPM solver
 WebGPU only, and only while that bench is in focus — overview allocates
 none of it. `fluid=auto|off|low|high` picks the tier; `auto` follows the
 profiler and steps down, never back up. Budgets are a node budget (grid³,
-shaped to the bench by its scene) and particle slots. Every other bench's
-"fluid" is a picture of its plant, not a solver.
+shaped to the bench by its scene) and particle slots. The MHD duct's
+lattice-Boltzmann slice is a solver of its own, with one size and no
+particles, and is not in this table ([`FLUIDS.md`](FLUIDS.md#the-slice)).
+Every other bench's "fluid" is a picture of its plant.
 
 | Device `id` | Solver — what is simulated | Grid nodes / particles | Drawn as | WebGL2 instead | Idealised |
 |---|---|---|---|---|---|

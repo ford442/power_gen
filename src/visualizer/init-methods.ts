@@ -7,6 +7,7 @@
 import { fieldVolumeInfo, installFieldVolumeDebug } from './field-volume-drive';
 import { heronLiquidInfo } from './heron-liquid-pass';
 import { kelvinLiquidInfo } from './kelvin-liquid-pass';
+import { mhdSliceInfo } from './mhd-slice-pass';
 import { DEPTH_FORMAT, WebGPUManager } from '../webgpu-manager';
 import { PipelineLayoutCache } from '../pipeline-layout-cache';
 import { PerformanceProfiler } from '../performance-profiler';
@@ -106,6 +107,7 @@ export async function initVisualizer(this: Host): Promise<void> {
       fieldVolume: fieldVolumeInfo(this),
       fluid: heronLiquidInfo(this),
       kelvinLiquid: kelvinLiquidInfo(this),
+      mhdSlice: mhdSliceInfo(this),
       frameGraph: this._frameGraph
         ? {
             passes: this._frameGraph.passNames(),
@@ -267,6 +269,9 @@ export async function recoverFromDeviceLoss(
     this.kelvinLiquid?.destroy();
     this.kelvinLiquid = undefined;
     this._kelvinLiquidInit = null;
+    this.mhdSlice?.destroy();
+    this.mhdSlice = undefined;
+    this._mhdSliceInit = null;
     this.liquidOwner = null;
     this.overviewCull?.destroy();
     this.overviewCull = null;

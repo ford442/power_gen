@@ -10,7 +10,7 @@ the lab uses: **simulated, not a measurement**.
 
 | Bench | Plant (authoritative numbers) | Picture | Solved in the picture? |
 |-------|-------------------------------|---------|------------------------|
-| `mhd` | The mean speed `Ū`, with wall friction and Lorentz braking **derived** from the Hartmann profile and the circuit; `V_oc = B·Ū·w` | Timelines on the **analytic Hartmann profile** at the plant's `Ū` and `Ha`, plus a profile card | Exact steady solution, evaluated — not a numerical flow solve |
+| `mhd` | The mean speed `Ū`, with wall friction and Lorentz braking **derived** from the Hartmann profile and the circuit; `V_oc = B·Ū·w`. On WebGPU in focus, a **lattice-Boltzmann slice** of the duct's mid-plane with the electric potential and four electrode pairs | Timelines on the **analytic Hartmann profile** at the plant's `Ū` and `Ha`, plus a profile card; the slice as a panel (speed, current lines) | Exact steady solution, evaluated — not a numerical flow solve |
 | `heron` | Head ODE; exit speed from Bernoulli with a discharge coefficient and Darcy–Weisbach pipe friction | **WebGPU, in focus:** the jet as a simulated liquid (MLS-MPM), fed at the plant's exit speed, drawn as particles. WebGL2: ballistic droplets in SI, each on its own. WebGPU overview or `fluid=off`: stand-in droplets on a fixed path, labelled as such | The jet and its fall, yes. The vessels and the basin's own water, no |
 | `kelvin` | Capacitive charging + spark; the droplet current scaled by the share of drops that land | Two streams of drops, one per Rayleigh–Plateau drop, each with the charge its ring induces, in the field of the rings and collectors. **WebGPU, in focus:** on the liquid solver. **WebGL2, in focus:** the same law on the CPU. Elsewhere: a train of drops under gravity alone | The drops' paths and what lands, yes. Break-up, air and the spark's channel, no |
 | `peltier` | **1-D finite-volume leg**: 24 cells + cold block, two plates, heat sink (`ros23`) | Three bodies coloured by their node temperatures; sparse air parcels beside them | The temperatures are the model's. The air is illustrative |
@@ -675,7 +675,29 @@ Limits, beyond the plant's:
   they have formed; the flow between them is taken as uniform across the gap.
 - **The field's edge is a tanh over four cells (1 cm)**, not a computed
   fringe field, and it has no component along the flow.
-- **Not yet drawn.** The solver is tested; the bench does not run it yet.
+
+**In the app** (`visualizer/mhd-slice-{pass,runtime}.ts`, WebGPU, MHD in
+focus): a panel under the magnet, parallel to the duct and to its scale along
+the flow — the duct seen from above.
+
+- **Colour** is speed, from nothing to 1.6 × the inflow (the strip under the
+  duct is the ramp).
+- **Lines** are the current's own paths: contours of its stream function,
+  six to a matched pair's full current, so their spacing is the current
+  density. They run wall to wall under the electrodes and close on
+  themselves past the downstream pole edge.
+- **Bars** on the two walls are the electrode pairs, lit by their voltage;
+  **dashed brackets** are where the field is half its peak.
+- The note beside it gives the current that reaches the loads next to the
+  plant's one ideal pair.
+
+Shown ten times slower than the plant (about 21 lattice steps a frame; a slow
+frame shows a slower picture, at most 32 steps). The same gate as the liquid
+benches: `fluid=off`, the `critical` quality tier and Twin mode turn it off.
+Frame-graph lifetime `mhd-slice`, about 1 MB, nothing in overview. On WebGL2
+there is no slice; the note says so, and the profile card is unchanged.
+
+The picture is not fed back: the plant keeps its one ideal electrode pair.
 
 ### Units and scale
 
@@ -742,7 +764,8 @@ developed laminar duct flow has no swirl.
 | `npm run test:hartmann` | profile vs the textbook form, limits, unit mean, wall shear; C++ twin vs TS; parcels keep lanes and move at `u(y)`; `Ha` range and `Re/Ha` for the catalog constants; overlay curves; the derived balance: friction against the profile's slope at the wall, braking against `B·I·w`, pump power = friction + `I·V_oc`, the exact step at any step size, C++ rates against TS |
 | `npm run test:golden` | the two plants agree on speed, voltage, current and power |
 | `npm run test:mhd-slice` | the slice's CPU twin: uniform block and velocity set against the WGSL; the grid to scale; the Hartmann profile at `Ha` = 0, 5, 20; the lattice's wall friction against the plant's; open and loaded electrodes, Ohm's law on each load, the wall jets with and without the field |
-| `npm run test:gpu-golden` (`golden-mhd-slice`) | the WGSL on a GPU: the profile at `Ha` = 0, 5, 20 (L2 under 2 %), mass to 1e-5 per 1000 steps, the mid-plane against the CPU twin step for step, open-circuit volts against `B·ū·w` within 3 % |
+| `npm run test:gpu-golden` (`golden-mhd-slice`) | the WGSL on a GPU: the profile at `Ha` = 0, 5, 20 (L2 under 2 %), mass to 1e-5 per 1000 steps, the mid-plane against the CPU twin step for step (stream function included), open-circuit volts against `B·ū·w` within 3 % |
+| `npm run test:e2e:webgpu` | in the app: the slice's passes dispatch and its panel draws in MHD focus with no validation error, the electrodes are read back, and nothing of it exists in overview |
 | `npm run test:gpu-golden` (`golden-particles`) | `posMhd` on a real GPU against `mhdParcelPosition`, position for position; a larger `Ha` flattens the line |
 | `sim_core_test --mode hartmann` | native profile table and the stateful parcel step |
 

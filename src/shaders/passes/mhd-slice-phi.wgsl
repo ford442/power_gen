@@ -13,6 +13,8 @@
 //                       balance).
 //   reduceElectrodes  — per electrode pair, the current through it and its
 //                       voltage moved towards load * current.
+//   streamFunction    — once a frame, for the picture: the current's stream
+//                       function, into the moments' spare component.
 //
 // Bindings: docs/BINDINGS.md → `mhdSlice`.
 // =============================================================
@@ -113,4 +115,36 @@ fn reduceElectrodes(@builtin(global_invocation_id) gid: vec3u) {
   let r = mhdSegLoad(k);
   state[nx + k] = v + params.circuitGain * (r * current - v) / (1.0 + r * cells);
   state[nx + MHD_MAX_SEGMENTS + k] = current;
+}
+
+/// Current leaving the bottom wall into the fluid at column i: none through an insulator.
+fn wallCurrent(i: u32) -> f32 {
+  let seg = columns[i].z;
+  if (seg < 0.0) { return 0.0; }
+  return 2.0 * (-0.5 * state[params.nx + u32(seg)] - phi[i]);
+}
+
+/// The current's stream function, for the picture: psi with j = (d psi/dz, -d psi/dx),
+/// so its contours are the current's own lines. One invocation per column:
+/// psi on the bottom wall is the current that has entered through it up to
+/// here, and from there it is the current along the flow summed up the
+/// column. Built column by column so an error stays where it is made. Left in
+/// the moments' spare component; run once a frame, after the last step.
+@compute @workgroup_size(64)
+fn streamFunction(@builtin(global_invocation_id) gid: vec3u) {
+  let nx = params.nx;
+  let i = gid.x;
+  if (i >= nx) { return; }
+  var psi = -0.5 * wallCurrent(i);
+  for (var k = 0u; k < i; k++) { psi -= wallCurrent(k); }
+  let iw = u32(max(i32(i) - 1, 0));
+  let ie = min(i + 1u, nx - 1u);
+  var last = 0.0;
+  for (var j = 0u; j < params.ny; j++) {
+    // Current along the flow at this cell: -d(phi)/dx - uz * b.
+    let jx = -(phi[j * nx + ie] - phi[j * nx + iw]) / f32(ie - iw) - moments[j * nx + i].y * columns[i].x;
+    psi += 0.5 * (last + jx);
+    last = jx;
+    moments[j * nx + i].w = psi;
+  }
 }

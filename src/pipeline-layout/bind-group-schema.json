@@ -19,7 +19,8 @@
         ["energy-pipe-vert.wgsl", "energy-pipe-frag.wgsl"],
         ["seg-anomaly-walls.wgsl"],
         ["fdtd-slice.wgsl"],
-        ["fluid-composite.wgsl"]
+        ["fluid-composite.wgsl"],
+        ["mhd-slice-draw.wgsl"]
       ],
       "entries": [
         [0, "VF", "uniform"], [4, "V", "uniform"], [5, "F", "uniform"], [6, "F", "storage-ro"], [7, "F", "texture-array"],
@@ -154,6 +155,7 @@
       "entries": [[0, "C", "uniform"], [1, "C", "storage"], [2, "C", "storage"], [3, "C", "storage"], [4, "C", "storage-ro"]]
     },
     "mhdSlice": { "pipelines": [["mhd-slice-lbm.wgsl"], ["mhd-slice-phi.wgsl"]], "entries": [[0, "C", "uniform"], [1, "C", "storage-ro"], [2, "C", "storage-ro"], [3, "C", "storage"], [4, "C", "storage"], [5, "C", "storage"], [6, "C", "storage"]] },
+    "mhdSliceDraw": { "group": 1, "pipelines": [["mhd-slice-draw.wgsl"]], "entries": [[1, "VF", "uniform"], [2, "F", "uniform"], [3, "F", "storage-ro"], [4, "F", "storage-ro"], [6, "F", "storage-ro"]] },
     "mpmIo": {
       "pipelines": [["mpm-emit.wgsl"], ["mpm-probe.wgsl"], ["mpm-export.wgsl"]],
       "entries": [

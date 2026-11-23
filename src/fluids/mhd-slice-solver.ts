@@ -177,10 +177,19 @@ export class MhdSliceSolver {
     }
   }
 
-  /** Encode `n` steps in a compute pass of their own. */
-  encodeSteps(encoder: GPUCommandEncoder, n = 1): void {
+  /**
+   * Encode `n` steps in a compute pass of their own. `streamFunction` adds
+   * the pass that leaves the current's stream function in the moments' spare
+   * component, for the picture.
+   */
+  encodeSteps(encoder: GPUCommandEncoder, n = 1, o: { streamFunction?: boolean } = {}): void {
     const pass = encoder.beginComputePass({ label: 'mhd-slice' });
     this.encode(pass, n);
+    if (o.streamFunction && (this.cfg.flags & MHD_SLICE_FLAG_POTENTIAL) !== 0) {
+      pass.setBindGroup(0, this.bindGroups[this.current]);
+      pass.setPipeline(this.pipelines.streamFunction);
+      pass.dispatchWorkgroups(Math.ceil(this.nx / MHD_SLICE_REDUCE_WORKGROUP));
+    }
     pass.end();
   }
 

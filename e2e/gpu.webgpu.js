@@ -44,7 +44,12 @@ const MUST_DRAW = {
   // The same solver steps Kelvin's drops (a small grid, a few dozen particles).
   kelvin: ['rollerPipeline', 'particlePipeline', 'fieldLinePipeline',
     'compute:mpm-emit-pipeline', 'compute:mpm-p2g-pipeline', 'compute:mpm-grid-pipeline', 'compute:mpm-g2p-pipeline', 'compute:mpm-export-pipeline'],
-  solar: ['rollerPipeline', 'particlePipeline', 'fieldLinePipeline']
+  solar: ['rollerPipeline', 'particlePipeline', 'fieldLinePipeline'],
+  // The duct's lattice-Boltzmann slice: its step, the potential's sweeps, the
+  // reductions, the stream function, and the panel in the scene pass.
+  mhd: ['particlePipeline', 'mhd-slice-draw-pipeline',
+    'compute:mhd-slice-step-pipeline', 'compute:mhd-slice-sor-red-pipeline', 'compute:mhd-slice-sor-black-pipeline',
+    'compute:mhd-slice-reduce-columns-pipeline', 'compute:mhd-slice-reduce-electrodes-pipeline', 'compute:mhd-slice-stream-function-pipeline']
 };
 /** Every bench: its mesh, its particles, the particle compute, the post chain. */
 const EVERY_BENCH = ['particlePipeline', 'compute:compute-particle-pipeline', 'bloomPrefilter', 'bloomDownsample', 'bloomUpsample', 'bloomComposite'];
@@ -322,6 +327,57 @@ test.describe('WebGPU on SwiftShader', () => {
     expect(after?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['kelvin-liquid']));
     expect(after?.kelvinLiquid?.bytes).toBe(0);
     await expectNoGpuErrors(page, 'after releasing the drops');
+    expect(errors, 'console errors / uncaught exceptions').toEqual([]);
+  });
+
+  test('8. MHD slice: runs in MHD focus, reads its electrodes, and is released in overview', async ({ page }) => {
+    const errors = trackErrors(page);
+    await bootWebgpu(page);
+    await pinQualityTier(page, 'low');
+    // Overview first: nothing of the slice exists.
+    const idle = await rendererInfo(page);
+    expect(idle?.mhdSlice?.allocated, 'MHD slice allocated in overview').toBe(false);
+    expect(idle?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['mhd-slice']));
+
+    await focusView(page, 'mhd');
+    // Start the pump: the slice's inflow is the plant's speed.
+    await page.getByText('SPIN-UP', { exact: false }).first().click();
+    // Lazily built; then the electrodes are read back every dozen frames.
+    await waitForEval(page, () => {
+      const m = window.getRendererInfo?.()?.mhdSlice;
+      return !!m && m.allocated && m.steps > 200 && Array.isArray(m.volts) && m.totalAmps > 0;
+    }, { timeout: 240_000 });
+
+    const info = await rendererInfo(page);
+    const m = info?.mhdSlice;
+    expect(info?.frameGraph?.allocated ?? []).toEqual(expect.arrayContaining(['mhd-slice']));
+    expect(info?.frameGraph?.ran ?? []).toEqual(expect.arrayContaining(['mhd-slice']));
+    // The liquid benches' resources are not this one's.
+    expect(info?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['heron-liquid', 'kelvin-liquid', 'fluid-surface']));
+    expect(m.grid).toEqual([256, 40]);
+    expect(m.bytes).toBeGreaterThan(0);
+    expect(m.bytes).toBeLessThan(2 * 1024 * 1024);
+    expect(m.volts).toHaveLength(4);
+    for (const v of [...m.volts, ...m.amps]) expect(Number.isFinite(v), `electrode readout ${v}`).toBe(true);
+    // The plant is the authority: the slice delivers a current of its sign and no more than its ideal pair.
+    const plant = await page.evaluate(() => {
+      const p = /** @type {any} */ (window.multiVisualizer).devices.mhd.physicsState;
+      return { amps: p.mhdCurrent, u: p.mhdFlowU };
+    });
+    expect(plant.u).toBeGreaterThan(0);
+    expect(m.totalAmps).toBeLessThan(1.3 * plant.amps);
+    expect(await page.locator('#mhd-slice-note').textContent()).toMatch(/lattice-Boltzmann/);
+    await expectNoGpuErrors(page, 'MHD slice running');
+
+    // Back to overview: the solver goes.
+    await focusView(page, 'overview');
+    await renderFrames(page, 3);
+    expect((await rendererInfo(page))?.mhdSlice?.active, 'MHD slice stepping in overview').toBe(false);
+    await waitForEval(page, () => window.getRendererInfo?.()?.mhdSlice?.allocated === false, { timeout: 180_000 });
+    const after = await rendererInfo(page);
+    expect(after?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['mhd-slice']));
+    expect(after?.mhdSlice?.bytes).toBe(0);
+    await expectNoGpuErrors(page, 'after releasing the slice');
     expect(errors, 'console errors / uncaught exceptions').toEqual([]);
   });
 });

@@ -198,6 +198,7 @@ export function encodeScene(host: Host, encoder: GPUCommandEncoder, ctx: FrameCt
 
   // Transparent panel: after the opaque device meshes it is depth-tested against.
   ctx.fdtdSlice?.draw(pass, msaa);
+  ctx.mhdSlice?.draw(pass, msaa);
 
   // Field-volume lines and particle trails for the focused bench (ADR-0017).
   const field = ctx.fieldVolume;

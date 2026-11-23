@@ -270,7 +270,8 @@ at `@workgroup_size(4, 4, 4)` over the nodes.
 ### `mhdSlice` — MHD duct slice (lattice-Boltzmann + potential)
 
 `passes/mhd-slice-lbm.wgsl` (`step`) and `mhd-slice-phi.wgsl` (`sorRed`,
-`sorBlack`, `reduceColumns`, `reduceElectrodes`). One layout, two bind groups
+`sorBlack`, `reduceColumns`, `reduceElectrodes`, and once a frame
+`streamFunction`). One layout, two bind groups
 with bindings 2 and 3 swapped (`src/fluids/mhd-slice-solver.ts`). Each pass
 declares only what it uses.
 
@@ -280,9 +281,22 @@ declares only what it uses.
 | 1 | storage (read) | CS | Per column, `vec4f`: field shape, wall drag per step, electrode segment (−1 none), cells in the segment | all |
 | 2 | storage (read) | CS | Distributions read this step, 9 `f32` per cell | `step` |
 | 3 | storage (rw) | CS | Distributions written this step | `step` |
-| 4 | storage (rw) | CS | Moments per cell, `vec4f`: ux, uy, ρ, 0 | `step` writes; the others read |
+| 4 | storage (rw) | CS | Moments per cell, `vec4f`: ux, uy, ρ, and the current's stream function | `step` writes; `streamFunction` writes `.w`; the others read |
 | 5 | storage (rw) | CS | Potential, `f32` per cell | `step` reads; `sor*` write; `reduce*` read |
 | 6 | storage (rw) | CS | Mean force per column, then a voltage and a current per electrode pair | `reduce*` write; `step`, `sor*` read |
+
+### `mhdSliceDraw` — MHD duct slice, the panel (group 1)
+
+`passes/mhd-slice-draw.wgsl`, in the scene pass; group 0 is the frame group.
+It reads the solver's own buffers.
+
+| Binding | Type | Stage | Contents |
+|---------|------|-------|----------|
+| 1 | uniform | VS + FS | `MhdSliceDraw` (64 B): panel centre and half-extents, the top of the speed ramp, the stream-function step between two current lines, the voltage drawn at full brightness |
+| 2 | uniform | FS | `MhdSliceParams` (`mhdSlice` binding 0) |
+| 3 | storage (read) | FS | Columns (`mhdSlice` binding 1) |
+| 4 | storage (read) | FS | Moments (`mhdSlice` binding 4): speed from `.xy`, the stream function from `.w` |
+| 6 | storage (read) | FS | State (`mhdSlice` binding 6): the electrode voltages |
 
 ### `mpmIo` — MLS-MPM emitters, sinks, read-back, draw export (ADR-0022)
 

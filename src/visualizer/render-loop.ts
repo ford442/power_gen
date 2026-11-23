@@ -3,6 +3,7 @@
 import { updateFieldVolume } from './field-volume-drive';
 import { updateHeronLiquid } from './heron-liquid-pass';
 import { updateKelvinLiquid } from './kelvin-liquid-pass';
+import { updateMhdSlice } from './mhd-slice-pass';
 import { explainerState } from '../seg-explainer/explainer-state';
 import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
@@ -342,8 +343,11 @@ export const renderLoopMethods: ThisType<Host> & {
     // claims `liquidOwner` only for its own bench, and Heron's clears it first.)
     const kelvinLiquid = updateKelvinLiquid(this, qualityTier, deltaTime * speed, this.plantDrive ?? 0);
 
+    // The MHD duct's lattice-Boltzmann slice: MHD in focus, the same gate.
+    const mhdSlice = updateMhdSlice(this, qualityTier, deltaTime * speed);
+
     renderEncodeMethods._encodeFrame.call(
-      this, profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume, heronLiquid, kelvinLiquid
+      this, profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume, heronLiquid, kelvinLiquid, mhdSlice
     );
   }
 };

@@ -49,6 +49,7 @@ import { initFieldPanel } from './field-panel';
 import { initMhdProfileOverlay } from './mhd-profile-overlay';
 import { initHeronLiquidNote } from './heron-liquid-note';
 import { initKelvinDropsNote } from './kelvin-drops-note';
+import { initMhdSliceNote } from './mhd-slice-note';
 import { LabAudio } from './audio/lab-audio';
 import { initLabAudioBadge } from './audio/lab-audio-badge';
 import { wireChargeCouplingControls } from './charge-coupling-ui';
@@ -299,6 +300,7 @@ function bootApp(): void {
       initMhdProfileOverlay();
       initHeronLiquidNote();
       initKelvinDropsNote();
+      initMhdSliceNote();
     } catch (e) {
       console.warn('[main] MHD profile overlay init skipped:', e);
     }

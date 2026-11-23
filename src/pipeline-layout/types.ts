@@ -31,6 +31,7 @@ export type BindGroupLayoutName =
   | 'mpm'
   | 'mpmIo'
   | 'mhdSlice'
+  | 'mhdSliceDraw'
   | 'fluidSplat'
   | 'fluidFilter'
   | 'fluidComposite'
