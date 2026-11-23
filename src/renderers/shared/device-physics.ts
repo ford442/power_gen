@@ -68,6 +68,8 @@ export interface BaseDevicePhysicsState {
    * measured: the plant assumes everything lands, as it always did.
    */
   kelvinCollectionEff?: number | null;
+  /** The share the plant was charged with on its last step: `kelvinCollectionEff`, or 1 while not measured. */
+  kelvinLandedShare: number;
   batteryCharge: number;
   rollerHeft: number;
   solarN2: number;
@@ -382,6 +384,7 @@ export function createDevicePhysicsState(
     kelvinVbreak: ValidatedConstants.KELVIN_CONSTANTS.E_BREAKDOWN.value * gap,
     kelvinE: 0,
     kelvinVoltageN: 0,
+    kelvinLandedShare: 1,
     batteryCharge: deviceId === 'solar' ? 0.5 : 0.5,
     rollerHeft: roller.inertia / inertiaSolidCu,
     solarN2: ValidatedConstants.SILICON_REFRACTIVE_INDEX,
@@ -482,6 +485,7 @@ export function stepDevicePhysics(
     const seed = kelvinSeedV(state);
     // Only the charge that lands charges the collectors (1 unless the liquid measured less).
     const landed = kelvinCollectionEff(state);
+    state.kelvinLandedShare = landed;
     state.kelvinV += (drive * landed * (chargeRate + feedback * (state.kelvinV + seed)) - leak * state.kelvinV) * dt;
     state.kelvinV = Math.max(0, state.kelvinV);
     if (state.kelvinV >= state.kelvinVbreak && state.kelvinSparkTimer <= 0) {

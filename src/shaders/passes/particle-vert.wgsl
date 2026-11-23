@@ -157,6 +157,10 @@
         }
         if (liquid) {
           size = 0.034;  // about two particle spacings at the default tier: a jet reads as a jet
+          if (mode > 1.5 && mode < 2.5) {
+            // Kelvin: a particle is one drop, 3.3 mm in radius at 0.048 m a unit.
+            size = 0.07;
+          }
         }
 
         var stretch = 1.0 + speed * 0.8;

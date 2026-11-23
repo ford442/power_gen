@@ -53,6 +53,7 @@ Do **not** expect these under WebGL2:
 | **Field volume** (ADR-0017): volume field lines, slice arrows / LIC, \|B\| isosurfaces, charged particles | `visualizer/field-volume-pass.ts` — **skipped**; the field panel's probe readout and a CPU \|B\| slice (32² exact samples, same colour ramp) stand in (`intentionalGaps`) |
 | **glTF CAD props** (housing, coil former, …) | `setup-gltf.ts` / `prop-registry.ts` — **skipped** (see below) |
 | **Liquid solver** (MLS-MPM, ADR-0022) — Heron's jet as a liquid, and its screen-space surface | `fluids/*`, `visualizer/heron-liquid-pass.ts`, `visualizer/fluid-surface-pass.ts` — **WebGPU only** (compute + atomics). Heron's droplets here are ballistic in SI (plant exit speed, `g` over the bench scale, no drag, no interaction), the bench says so in a note, and `heronJetHeightM` reads 0 ("not measured") — [`FLUIDS.md`](./FLUIDS.md) |
+| **Kelvin's drops on the solver** | `visualizer/kelvin-liquid-pass.ts` — WebGPU only, but nothing is lost: the drops never touch, so `physics/kelvin-dropper.ts` steps the same law on the CPU here (gravity and `q·E/m` from the rings and collectors), counts what lands and feeds the plant — [`FLUIDS.md`](./FLUIDS.md) → Kelvin |
 
 ### FDTD wave slice → CPU micro-grid readout
 

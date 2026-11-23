@@ -163,6 +163,41 @@ describe('gpu-golden: particle-compute.wgsl invariants', { skip }, () => {
     console.log(`  worst |GPU − CPU| = ${worst.toExponential(2)} units`);
   });
 
+  it('kelvin: posKelvin is the stand-in drop train, position for position (CPU twin kelvinStandInDrop)', async () => {
+    const mode = modes.find((d) => d.id === 'kelvin').mode;
+    const { kelvinStandInDrop, kelvinDrops, KELVIN_APPARATUS, KELVIN_COLLECTOR_MOUTH_Y, KELVIN_FALL_M } = session.app;
+    // Drops in the air from both tips: the Rayleigh–Plateau rate × the fall from the tip at the jet's speed.
+    const G = 9.80665;
+    const expectedInAir = (jet) => 2 * kelvinDrops(jet / 0.6).rateHz * ((Math.sqrt(jet * jet + 2 * G * KELVIN_FALL_M) - jet) / G);
+    let worst = 0;
+    let flying = 0;
+    for (const { time, jet } of [{ time: 0, jet: 0.6 }, { time: 3.7, jet: 0.6 }, { time: 41.25, jet: 0.3 }, { time: 9.1, jet: 0.05 }, { time: 5, jet: 0 }, { time: 5, jet: 0.006 }]) {
+      const out = await run({ mode, time, physics: [0.5, 0, jet, 0] });
+      const want = [0, 0, 0];
+      let inAir = 0;
+      for (let i = 0; i < COUNT; i++) {
+        kelvinStandInDrop(i, time, jet, want);
+        const o = i * 4;
+        // A drop within a hair of landing can be parked on one side and still falling on the other.
+        const edge = Math.abs(out[o + 1] - want[1]) > 1 && Math.min(out[o + 1], want[1]) === KELVIN_APPARATUS.collectorY
+          && Math.max(out[o + 1], want[1]) < KELVIN_COLLECTOR_MOUTH_Y + 0.05;
+        const d = Math.max(Math.abs(out[o] - want[0]), Math.abs(out[o + 1] - want[1]), Math.abs(out[o + 2] - want[2]));
+        if (!edge) {
+          worst = Math.max(worst, d);
+          // 2e-3 of an 8-unit fall: f32 on both sides, a sqrt and a floor apart.
+          assert.ok(d <= 2e-3, `particle ${i}, t ${time}, jet ${jet}: GPU (${out[o]}, ${out[o + 1]}, ${out[o + 2]}) vs CPU (${want})`);
+        }
+        if (out[o + 1] > KELVIN_COLLECTOR_MOUTH_Y) inAir++;
+      }
+      if (jet >= 0.3) assert.ok(Math.abs(inAir - expectedInAir(jet)) <= 2, `${inAir} drops in the air at ${jet} m/s; rate × fall time gives ${expectedInAir(jet).toFixed(1)}`);
+      if (jet < 0.012) assert.equal(inAir, 0, 'drops fall from a weeping tip');
+      flying += inAir;
+    }
+    assert.ok(flying > 40);
+    assert.deepEqual(session.device.uncaptured, [], 'GPU validation errors');
+    console.log(`  worst |GPU − CPU| = ${worst.toExponential(2)} units`);
+  });
+
   it('peltier: posPeltier is integratePeltier — air beside the sink (even) and the block (odd), drift from the plant', async () => {
     const mode = modes.find((d) => d.id === 'peltier').mode;
     const { integratePeltier } = session.app;

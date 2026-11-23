@@ -9,7 +9,6 @@ import {
   HERON_LAYOUT_PRESETS
 } from '../../heron-layout';
 import {
-  buildKelvinInstances,
   buildKelvinBucketInstances,
   buildKelvinRingInstances,
   buildKelvinTubeInstances,
@@ -360,7 +359,7 @@ export class MeshRenderer {
         emissive: 0.08
       });
     } else if (deviceId === 'kelvin') {
-      instances = [...buildKelvinInstances(), ...buildKelvinBucketInstances()];
+      instances = buildKelvinBucketInstances();
       extraDraws.push({
         mesh: this.kelvinRing,
         instances: buildKelvinRingInstances(),

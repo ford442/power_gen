@@ -44,6 +44,9 @@ const ENTRY = `
   export { MpmSolver } from './src/fluids/mpm-solver.ts';
   export { MPM_SHADERS } from './src/fluids/mpm-shaders.ts';
   export * as heronLiquid from './src/fluids/heron-liquid.ts';
+  export * as kelvinLiquid from './src/fluids/kelvin-liquid.ts';
+  export { kelvinDrops, kelvinStandInDrop, stepKelvinDrops } from './src/physics/kelvin-dropper.ts';
+  export { KELVIN_APPARATUS, KELVIN_COLLECTOR_MOUTH_Y, KELVIN_FALL_M } from './src/kelvin-layout.ts';
   export * as fluidSurface from './src/fluids/fluid-surface.ts';
   export { FLUID_SURFACE_SHADERS } from './src/fluids/fluid-surface-shaders.ts';
   export { ensureFluidSurfacePipelines } from './src/pipeline-layout/factories/fluid-surface-pipelines.ts';

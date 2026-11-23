@@ -116,6 +116,11 @@ struct WasmSegDefaults {
 
 struct KelvinConstants {
   static constexpr float E_BREAKDOWN_VM = ${f32(k.eBreakdownVm)};
+  /// Metres per scene unit on the Kelvin bench. Drop gravity is SI divided by
+  /// this; there is no separate scene gravity.
+  static constexpr float METRES_PER_SCENE_UNIT = ${f32(k.metresPerSceneUnit)};
+  static constexpr float LIQUID_TIME_SCALE     = ${f32(k.liquidTimeScale)};
+  static constexpr float JET_SPEED_MAX_MS      = ${f32(k.jetSpeedMaxMS)};
 };
 
 struct VdgConstants {
@@ -415,6 +420,16 @@ export const KELVIN_CONSTANTS = {
   DROPLET_CHARGE_C: ${k.dropletChargeC},
   E_BREAKDOWN_VM: ${k.eBreakdownVm},
   BUCKET_DISTANCE_M: ${k.bucketDistanceM},
+  /** Metres per scene unit on the Kelvin bench: drop paths, gravity, the liquid box. */
+  METRES_PER_SCENE_UNIT: ${k.metresPerSceneUnit},
+  /** Simulated seconds per displayed second for the drops (docs/FLUIDS.md → Kelvin). */
+  LIQUID_TIME_SCALE: ${k.liquidTimeScale},
+  /** Drip tip bore, m, and the jet's speed at full drive, m/s. */
+  NOZZLE_DIAMETER_M: ${k.nozzleDiameterM},
+  JET_SPEED_MAX_MS: ${k.jetSpeedMaxMS},
+  /** Water–air surface tension, N/m: the Rayleigh limit on a drop's charge. */
+  SURFACE_TENSION_NM: ${k.surfaceTensionNm},
+  WATER_DENSITY: ${k.waterDensity},
 } as const;
 
 export const HERON_CONSTANTS = {

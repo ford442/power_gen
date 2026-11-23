@@ -7,6 +7,7 @@
 
 import { ValidatedConstants } from '../../ValidatedConstants';
 import { HERON_CONSTANTS, PHYSICAL_CONSTANTS } from '../../../generated/physics-constants';
+import { stepKelvinDrops, type KelvinDropTally } from '../../physics/kelvin-dropper';
 import { simRandom } from '../../telemetry/deterministic-rng.js';
 import { VDG_V_BREAK } from '../../devices/quanta/van-de-graaff';
 import { HALL } from '../../devices/quanta/hall-effect';
@@ -27,7 +28,6 @@ import {
   integrateDropTube
 } from './particle-orbits';
 
-const GRAV = 9.81;
 const TAU = Math.PI * 2;
 
 export type DeviceSeedId = 'seg' | 'maglev' | 'homopolar' | 'solar' | 'peltier' | string;
@@ -42,8 +42,14 @@ export interface ParticleUniforms {
   heronVExit: number;
   /** Scene height of the Heron nozzle mouth (the layout's `flow.apexY`); the classic preset's when absent. */
   heronNozzleY?: number;
-  kelvinE: number;
-  kelvinVoltageN: number;
+  /** @deprecated the old "upward acceleration" fudge; the drops read `kelvinVolts`. */
+  kelvinE?: number;
+  kelvinVoltageN?: number;
+  /** Kelvin: the plant's drive (the tips' flow) and what the rings stand at, V (plant voltage + coupled seed). */
+  kelvinDrive?: number;
+  kelvinVolts?: number;
+  /** Kelvin: running totals of drops landed / missed, added to by each step. */
+  kelvinTally?: KelvinDropTally;
   solarN2: number;
   corona: number;
   simClock: number;
@@ -185,18 +191,6 @@ function spawnHeron(idx: number, u: ParticleUniforms): SpawnParticle {
   };
 }
 
-function spawnKelvin(idx: number, u: ParticleUniforms): SpawnParticle {
-  const side = (idx & 1) === 1 ? 1 : -1;
-  const jitterX = (rnd(idx, 1, u.simClock) - 0.5) * 0.18;
-  const jitterZ = (rnd(idx, 2, u.simClock) - 0.5) * 0.18;
-  return {
-    pos: [side * 2.5 + jitterX, 5.0 + rnd(idx, 4, u.simClock) * 0.4, jitterZ],
-    phase: rnd(idx, 3, u.simClock),
-    vel: [0, -0.25, 0],
-    aux: side * (0.25 + 0.75 * u.kelvinVoltageN)
-  };
-}
-
 function spawnSolar(idx: number, u: ParticleUniforms): SpawnParticle {
   const ledIdx = idx % 6;
   const ledX = (ledIdx - 2.5) * 1.6;
@@ -226,6 +220,20 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
   const count = Math.min(u.particleCount, particles.length / 8);
   const dt = u.dt;
   const mode = u.mode;
+
+  if (mode >= 1.5 && mode < 2.5) {
+    // Kelvin: the dropper's drops — gravity and the field of its four
+    // conductors, in SI (physics/kelvin-dropper.ts). The whole buffer at once:
+    // a tip shares its release rate among the drops waiting in it.
+    stepKelvinDrops(particles, count, {
+      dt,
+      drive: u.kelvinDrive ?? 0,
+      volts: u.kelvinVolts ?? 0,
+      simClock: u.simClock,
+      tally: u.kelvinTally
+    });
+    return;
+  }
 
   for (let idx = 0; idx < count; idx++) {
     const base = idx * 8;
@@ -314,31 +322,6 @@ export function stepParticles(particles: Float32Array, u: ParticleUniforms): voi
           px = 0; py = nozzleY - HERON_PARK_DROP; pz = 0;
           vx = 0; vy = 0; vz = 0;
         }
-      }
-    } else if (mode < 2.5) {
-      const q = aux;
-      const stokes = 2.0;
-      const aE = u.kelvinE * Math.abs(q);
-      let ax = -vx * stokes;
-      let ay = -GRAV + aE - vy * stokes;
-      let az = -vz * stokes;
-      if (aE > GRAV * 0.85) {
-        const s = aE - GRAV * 0.85;
-        ax += (rnd(idx, 5, u.simClock) - 0.5) * s * 2.2;
-        az += (rnd(idx, 6, u.simClock) - 0.5) * s * 2.2;
-      }
-      vx += ax * dt;
-      vy += ay * dt;
-      vz += az * dt;
-      px += vx * dt;
-      py += vy * dt;
-      pz += vz * dt;
-      if (py < -2.4 || Math.abs(px) > 8.0 || py > 9.0) {
-        const s = spawnKelvin(idx, u);
-        px = s.pos[0]; py = s.pos[1]; pz = s.pos[2];
-        particles[base + 3] = s.phase;
-        vx = s.vel[0]; vy = s.vel[1]; vz = s.vel[2];
-        aux = s.aux;
       }
     } else if (mode < 3.5) {
       px += vx * dt;

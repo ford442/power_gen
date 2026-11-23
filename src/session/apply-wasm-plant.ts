@@ -57,6 +57,8 @@ export interface WasmModePlant {
   voltageN?: number;
   E?: number;
   sparkTimer?: number;
+  /** Kelvin: the share of the drops' charge the plant was charged with (1 = all). */
+  landedShare?: number;
   battery?: number;
   hotK?: number;
   coldK?: number;
@@ -233,6 +235,7 @@ export function applyModePlantToDevices(
     kelvin.kelvinVoltageN = plant.voltageN ?? 0;
     kelvin.kelvinE = plant.E ?? 0;
     kelvin.kelvinSparkTimer = plant.sparkTimer ?? 0;
+    kelvin.kelvinLandedShare = plant.landedShare ?? 1;
     kelvin.energyLevel = kelvin.kelvinVoltageN;
     return;
   }

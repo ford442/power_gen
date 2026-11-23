@@ -169,8 +169,8 @@
       "chrome": { "emoji": "⚡", "label": "Kelvin Thunderstorm", "sort": 2 },
       "shaderMode": 2,
       "wasmMode": 2,
-      "telemetryKeys": ["kelvinV", "kelvinVoltageN", "kelvinVbreak", "kelvinE", "kelvinSparkTimer"],
-      "fidelity": "WASM (capacitive + spark)",
+      "telemetryKeys": ["kelvinV", "kelvinVoltageN", "kelvinVbreak", "kelvinE", "kelvinSparkTimer", "kelvinLandedShare"],
+      "fidelity": "WASM (capacitive + spark); drops: SI, charged, in the rings' field (MLS-MPM on WebGPU, CPU on WebGL2)",
       "state": {
         "plant": "_kelvin",
         "fields": [
@@ -211,6 +211,12 @@
           "label": "spark",
           "unit": "s",
           "digits": 3
+        },
+        "kelvinLandedShare": {
+          "label": "Drops landing",
+          "unit": "%",
+          "scale": 100,
+          "digits": 0
         }
       }
     },

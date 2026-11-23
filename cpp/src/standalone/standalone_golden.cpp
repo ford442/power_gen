@@ -217,6 +217,7 @@ int run_golden() {
                 bad |= golden_emit(g.id, "kelvinVbreak",     sim.getKelvinVbreak());
                 bad |= golden_emit(g.id, "kelvinE",          sim.getKelvinE());
                 bad |= golden_emit(g.id, "kelvinSparkTimer", sim.getKelvinSparkTimer());
+                bad |= golden_emit(g.id, "kelvinLandedShare", sim.getKelvinCollectionEfficiency());
                 break;
             case SIM_MODE_PELTIER:
                 bad |= golden_emit(g.id, "peltierHotK",    sim.getPeltierHotK());

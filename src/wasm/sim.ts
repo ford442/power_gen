@@ -328,6 +328,7 @@ export class SEGSim {
         mode: 'kelvin',
         voltage: this._sim.getKelvinVoltage?.() ?? 0,
         voltageN: this._sim.getKelvinVoltageN?.() ?? 0,
+        landedShare: this._sim.getKelvinCollectionEfficiency?.() ?? 1,
         E: this._sim.getKelvinE?.() ?? 0,
         sparkTimer: this._sim.getKelvinSparkTimer?.() ?? 0
       };

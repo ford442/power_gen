@@ -1,6 +1,6 @@
 # ADR-0022: GPU liquid — an MLS-MPM solver in WebGPU compute
 
-- **Status:** Accepted (solver core, boundaries, emitters and sinks; Heron's fountain runs on it in the app, drawn as a screen-space surface from the `medium` tier; Kelvin not yet)
+- **Status:** Accepted (solver core, boundaries, emitters and sinks; Heron's fountain runs on it in the app, drawn as a screen-space surface from the `medium` tier; Kelvin's charged drops run on it too, as particles — docs/FLUIDS.md → Kelvin's dropper)
 - **Date:** 2026-11
 - **Context issue:** fluids and heat epic, step 3
 

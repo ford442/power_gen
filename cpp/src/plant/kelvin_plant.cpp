@@ -9,21 +9,32 @@
 using namespace plant_common;
 
 void kelvin_particle_step(SimParticle& p, float kelvinE, float dt, float simTime) {
-    constexpr float g = PhysicsConstants::G * 0.4f;
-    constexpr float stokes = 1.2f;
-    // Gravity − Stokes + Coulomb upward accel
-    p.vy += (-g + kelvinE * p.aux - stokes * p.vy) * dt;
-    p.vx *= (1.f - 0.4f * dt);
-    p.vz *= (1.f - 0.4f * dt);
-    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-    if (p.y < -3.f || p.y > 6.f) {
+    // Drops in SI, held in scene units: gravity is divided by the bench's
+    // metres per scene unit and the time by its display scale, so a drop falls
+    // the 0.385 m from a drip tip to a collector's mouth in the 0.28 s it takes.
+    // No drag, no separate scene gravity (this was g * 0.4 with a Stokes term),
+    // and no field: the charged streams are the liquid picture's
+    // (src/physics/kelvin-dropper.ts). The geometry is KELVIN_APPARATUS in
+    // src/kelvin-layout.ts.
+    (void)kelvinE;
+    (void)simTime;
+    constexpr float toScene = 1.f / power_gen::KelvinConstants::METRES_PER_SCENE_UNIT;
+    constexpr float timeScale = power_gen::KelvinConstants::LIQUID_TIME_SCALE;
+    constexpr float g = PhysicsConstants::G * toScene;
+    constexpr float columnX = 2.5f, tipY = 5.87f, mouthY = -2.15f;
+    const float h = dt * timeScale;
+    p.vy -= g * h;
+    p.x += p.vx * h; p.y += p.vy * h; p.z += p.vz * h;
+    if (p.y < mouthY || p.y > tipY + 0.01f) {
+        // Landed (or not yet released): leave the tip again, at the jet's speed.
         float side = (hash1(p.phase) > 0.5f) ? 1.f : -1.f;
-        p.x = side * 1.2f + (hash1(p.phase + 1.f) - 0.5f) * 0.3f;
-        p.y = 3.5f;
-        p.z = (hash1(p.phase + 2.f) - 0.5f) * 0.4f;
-        p.vx = 0.f; p.vy = -0.5f; p.vz = 0.f;
-        // Charge at pinch-off
-        p.aux = side * (0.4f + 0.6f * hash1(p.phase + simTime));
+        p.x = side * columnX;
+        p.y = tipY;
+        p.z = 0.f;
+        p.vx = 0.f;
+        p.vy = -power_gen::KelvinConstants::JET_SPEED_MAX_MS * toScene;
+        p.vz = 0.f;
+        p.aux = side;
     }
 }
 

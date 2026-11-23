@@ -45,6 +45,16 @@ export const KELVIN_CONSTANTS = {
   DROPLET_CHARGE_C: 1e-9,
   E_BREAKDOWN_VM: 3000000,
   BUCKET_DISTANCE_M: 6,
+  /** Metres per scene unit on the Kelvin bench: drop paths, gravity, the liquid box. */
+  METRES_PER_SCENE_UNIT: 0.048,
+  /** Simulated seconds per displayed second for the drops (docs/FLUIDS.md → Kelvin). */
+  LIQUID_TIME_SCALE: 1,
+  /** Drip tip bore, m, and the jet's speed at full drive, m/s. */
+  NOZZLE_DIAMETER_M: 0.0035,
+  JET_SPEED_MAX_MS: 0.6,
+  /** Water–air surface tension, N/m: the Rayleigh limit on a drop's charge. */
+  SURFACE_TENSION_NM: 0.072,
+  WATER_DENSITY: 1000,
 };
 
 export const HERON_CONSTANTS = {

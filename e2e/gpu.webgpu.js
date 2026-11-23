@@ -41,7 +41,9 @@ const MUST_DRAW = {
   // emit, substep and export passes all have to dispatch.
   heron: ['rollerPipeline', 'particlePipeline', 'fieldLinePipeline',
     'compute:mpm-emit-pipeline', 'compute:mpm-p2g-pipeline', 'compute:mpm-grid-pipeline', 'compute:mpm-g2p-pipeline', 'compute:mpm-export-pipeline'],
-  kelvin: ['rollerPipeline', 'particlePipeline', 'fieldLinePipeline'],
+  // The same solver steps Kelvin's drops (a small grid, a few dozen particles).
+  kelvin: ['rollerPipeline', 'particlePipeline', 'fieldLinePipeline',
+    'compute:mpm-emit-pipeline', 'compute:mpm-p2g-pipeline', 'compute:mpm-grid-pipeline', 'compute:mpm-g2p-pipeline', 'compute:mpm-export-pipeline'],
   solar: ['rollerPipeline', 'particlePipeline', 'fieldLinePipeline']
 };
 /** Every bench: its mesh, its particles, the particle compute, the post chain. */
@@ -261,6 +263,65 @@ test.describe('WebGPU on SwiftShader', () => {
     const jetAfter = await page.evaluate(() => /** @type {any} */ (window.multiVisualizer).devices.heron.physicsState.heronJetHeightM);
     expect(jetAfter, 'the measured-jet channel reads "not measured" without a solver').toBe(0);
     await expectNoGpuErrors(page, 'after releasing the liquid');
+    expect(errors, 'console errors / uncaught exceptions').toEqual([]);
+  });
+  test('7. Kelvin drops: run on the solver in Kelvin focus, count what lands, and are released in overview', async ({ page }) => {
+    const errors = trackErrors(page);
+    await bootWebgpu(page);
+    await pinQualityTier(page, 'low');
+    // Overview first: nothing of Kelvin's liquid exists.
+    const idle = await rendererInfo(page);
+    expect(idle?.kelvinLiquid?.allocated, 'Kelvin drops allocated in overview').toBe(false);
+    expect(idle?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['kelvin-liquid']));
+
+    await focusView(page, 'kelvin');
+    // Open the tips.
+    await page.getByText('SPIN-UP', { exact: false }).first().click();
+    await page.evaluate(() => {
+      const d = /** @type {HTMLInputElement} */ (document.querySelector('#driveControl'));
+      d.value = '100';
+      d.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // Lazily built; then a drop takes a quarter of a second to fall.
+    await waitForEval(page, () => {
+      const k = window.getRendererInfo?.()?.kelvinLiquid;
+      return !!k && k.allocated && k.emitted > 30 && k.landed + k.missed > 12;
+    }, { timeout: 240_000 });
+
+    const info = await rendererInfo(page);
+    const k = info?.kelvinLiquid;
+    expect(info?.frameGraph?.allocated ?? []).toEqual(expect.arrayContaining(['kelvin-liquid']));
+    expect(info?.frameGraph?.ran ?? []).toEqual(expect.arrayContaining(['kelvin-liquid']));
+    // The other liquid bench's resources are not this one's.
+    expect(info?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['heron-liquid', 'fluid-surface']));
+    for (const key of ['live', 'emitted', 'landed', 'missed', 'bytes', 'substeps']) {
+      expect(Number.isFinite(k?.[key]), `kelvinLiquid.${key} = ${k?.[key]}`).toBe(true);
+    }
+    expect(k.live, 'drops in the box = let go − taken').toBe(k.emitted - k.landed - k.missed);
+    expect(k.live).toBeGreaterThanOrEqual(0);
+    expect(k.timeScale, 'the drops run on the plant\'s clock').toBe(1);
+    // What landed is on the plant's state and on the hub, as a share.
+    const plant = await page.evaluate(() => {
+      const p = /** @type {any} */ (window.multiVisualizer).devices.kelvin.physicsState;
+      return { measured: p.kelvinCollectionEff, charged: p.kelvinLandedShare, v: p.kelvinV };
+    });
+    expect(plant.charged).toBeGreaterThanOrEqual(0);
+    expect(plant.charged).toBeLessThanOrEqual(1);
+    if (plant.measured !== null) expect(plant.measured).toBeGreaterThan(0);
+    expect(Number.isFinite(plant.v)).toBe(true);
+    await expectNoGpuErrors(page, 'Kelvin drops running');
+
+    // Back to overview: the plant is told nothing is measuring, and the solver goes.
+    await focusView(page, 'overview');
+    await renderFrames(page, 3);
+    const out = await page.evaluate(() => /** @type {any} */ (window.multiVisualizer).devices.kelvin.physicsState.kelvinCollectionEff);
+    expect(out, 'the landing share is "not measured" out of focus').toBeNull();
+    expect((await rendererInfo(page))?.kelvinLiquid?.active, 'Kelvin drops stepping in overview').toBe(false);
+    await waitForEval(page, () => window.getRendererInfo?.()?.kelvinLiquid?.allocated === false, { timeout: 180_000 });
+    const after = await rendererInfo(page);
+    expect(after?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['kelvin-liquid']));
+    expect(after?.kelvinLiquid?.bytes).toBe(0);
+    await expectNoGpuErrors(page, 'after releasing the drops');
     expect(errors, 'console errors / uncaught exceptions').toEqual([]);
   });
 });

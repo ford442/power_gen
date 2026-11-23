@@ -11,6 +11,7 @@ import { HALL } from './devices/quanta/hall-effect';
 import { RING } from './devices/quanta/jumping-ring';
 import { dropTubeParticleUniforms } from './devices/quanta/drop-tube';
 import { advanceMhdTravel } from './devices/core/mhd-parcels';
+import { KELVIN_CONSTANTS } from '../generated/physics-constants';
 import { advancePeltierAir } from './devices/core/peltier-mesh';
 
 interface ComputeGeometryHost {
@@ -90,9 +91,10 @@ class DeviceComputeManager {
         p0 = physicsState.heronHead / Math.max(0.01, physicsState.heronHeadMax);
         p1 = physicsState.heronVExit / 8;
       } else if (physicsState.deviceId === 'kelvin') {
+        // posKelvin: the stand-in train reads the jet speed at the tips (m/s).
         p0 = physicsState.kelvinVoltageN;
         p1 = physicsState.kelvinSparkTimer > 0 ? 1 : 0;
-        p2 = physicsState.kelvinE;
+        p2 = KELVIN_CONSTANTS.JET_SPEED_MAX_MS * Math.min(1, Math.max(0, this.pipelineManager.visualizer?.plantDrive ?? 0));
       } else if (physicsState.deviceId === 'solar') {
         p0 = physicsState.batteryCharge;
       } else if (physicsState.deviceId === 'peltier') {

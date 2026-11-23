@@ -48,6 +48,7 @@ import { initFdtdHeatmapOverlay } from './fdtd-heatmap-overlay';
 import { initFieldPanel } from './field-panel';
 import { initMhdProfileOverlay } from './mhd-profile-overlay';
 import { initHeronLiquidNote } from './heron-liquid-note';
+import { initKelvinDropsNote } from './kelvin-drops-note';
 import { LabAudio } from './audio/lab-audio';
 import { initLabAudioBadge } from './audio/lab-audio-badge';
 import { wireChargeCouplingControls } from './charge-coupling-ui';
@@ -297,6 +298,7 @@ function bootApp(): void {
       // hidden until the MHD duct is focused.
       initMhdProfileOverlay();
       initHeronLiquidNote();
+      initKelvinDropsNote();
     } catch (e) {
       console.warn('[main] MHD profile overlay init skipped:', e);
     }

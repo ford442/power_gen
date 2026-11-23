@@ -194,6 +194,9 @@ export interface VisualizerLike {
   liquidOwner?: string | null;
   /** The liquid pass: its export is drawn through the bench's particle pipeline. */
   heronLiquid?: { draw(): { buffer: GPUBuffer; count: number } | null } | null;
+  kelvinLiquid?: { draw(): { buffer: GPUBuffer; count: number } | null } | null;
+  /** The plant drive of the frame being rendered (0..1). */
+  plantDrive?: number;
   time: number;
   profiler?: {
     qualityLevel: number;

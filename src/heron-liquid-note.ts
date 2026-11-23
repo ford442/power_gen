@@ -77,6 +77,10 @@ export interface HeronLiquidNoteOptions {
   subscribe?: (fn: (snap: TelemetrySnapshot) => void) => () => void;
   read?: () => HeronLiquidNoteState;
   now?: () => number;
+  /** Another bench's note on the same card: its view id, its element id and its own text (kelvin-drops-note.ts). */
+  owner?: string;
+  rootId?: string;
+  text?: () => string;
 }
 
 export class HeronLiquidNote {
@@ -89,6 +93,9 @@ export class HeronLiquidNote {
   private readonly read: () => HeronLiquidNoteState;
   private readonly now: () => number;
   private readonly unsubscribe: () => void;
+  private readonly owner: string;
+  private readonly rootId: string;
+  private readonly compose: () => string;
 
   constructor(opts: HeronLiquidNoteOptions = {}) {
     this.read = opts.read ?? (() => ({
@@ -96,12 +103,15 @@ export class HeronLiquidNote {
       fluid: (window.getRendererInfo?.() as { fluid?: HeronLiquidNoteFluid } | null | undefined)?.fluid ?? null
     }));
     this.now = opts.now ?? (() => performance.now());
+    this.owner = opts.owner ?? HERON_LIQUID_NOTE_OWNER;
+    this.rootId = opts.rootId ?? 'heron-liquid-note';
+    this.compose = opts.text ?? (() => heronLiquidNoteText(this.read()));
     const subscribe = opts.subscribe ?? ((fn) => telemetryHub.subscribe(fn));
     this.unsubscribe = subscribe((snap) => this.onSnapshot(snap));
   }
 
   private onSnapshot(snap: TelemetrySnapshot): void {
-    const open = snap.view === HERON_LIQUID_NOTE_OWNER;
+    const open = snap.view === this.owner;
     if (open !== this.active) {
       this.active = open;
       this.last = -Infinity;
@@ -111,7 +121,7 @@ export class HeronLiquidNote {
     const t = this.now();
     if (t - this.last < REFRESH_MS) return;
     this.last = t;
-    const text = heronLiquidNoteText(this.read());
+    const text = this.compose();
     if (text === this.text && this.root) return;
     this.text = text;
     if (typeof document === 'undefined') return;
@@ -122,20 +132,21 @@ export class HeronLiquidNote {
 
   private mount(): void {
     const root = document.createElement('div');
-    root.id = 'heron-liquid-note';
+    root.id = this.rootId;
+    root.className = 'bench-liquid-note';
     root.setAttribute('role', 'note');
     if (!document.getElementById('heron-liquid-note-styles')) {
       const styles = document.createElement('style');
       styles.id = 'heron-liquid-note-styles';
       styles.textContent = `
         /* Bottom-left, above #corner-bl's mode label — where the MHD bench puts its card. */
-        #heron-liquid-note {
+        .bench-liquid-note {
           position: absolute; left: 12px; bottom: 34px; z-index: 5; max-width: 340px;
           background: rgba(2, 10, 18, 0.88); border: 1px solid #0ff3; border-radius: 5px;
           padding: 5px 8px; pointer-events: none;
           font-size: 0.62rem; color: #9fb4c8; line-height: 1.35;
         }
-        #heron-liquid-note[hidden] { display: none; }
+        .bench-liquid-note[hidden] { display: none; }
       `;
       document.head.appendChild(styles);
     }

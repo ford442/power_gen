@@ -4,6 +4,7 @@
  * Depends on: canvas, camera state, visualizer instance (for devicesEnabled, debugPanel, currentView)
  */
 import { heronFocusCamera } from './heron-layout';
+import { kelvinFocusCamera } from './kelvin-layout';
 import { getMergedDeviceConfig } from './devices/device-registry';
 import type { CameraState } from './camera-controller';
 
@@ -38,9 +39,10 @@ export class MultiDeviceCamera {
     const devicePos = config.position;
     // Heron's apparatus changes height with its layout preset, and the jet
     // stands above it: its view is fitted to the preset rather than fixed.
+    // Kelvin's is fitted to the dropper, from the collectors to the supply beam.
     const fitted = deviceId === 'heron'
       ? heronFocusCamera((this.visualizer as { heronLayoutPreset?: string }).heronLayoutPreset)
-      : null;
+      : deviceId === 'kelvin' ? kelvinFocusCamera() : null;
     const offset = fitted?.cameraOffset ?? config.cameraOffset;
     if (!devicePos || !offset) return;
     const rotY = config.rotation?.[1] ?? 0;

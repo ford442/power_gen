@@ -267,7 +267,9 @@ export const DeviceRenderMixin = {
 
     // A bench whose liquid the solver is stepping draws the solver's export:
     // same pipeline, same 16-byte records, another buffer and count (ADR-0022).
-    const liquid = this.visualizer.liquidOwner === this.id ? this.visualizer.heronLiquid?.draw() ?? null : null;
+    const liquid = this.visualizer.liquidOwner === this.id
+      ? (this.id === 'kelvin' ? this.visualizer.kelvinLiquid : this.visualizer.heronLiquid)?.draw() ?? null
+      : null;
     const particleBuffer = liquid ? liquid.buffer : this.particles;
     const particleBindGroup = this._cacheBg(`part:${this.id}`, 'particle', [
       { binding: 1, resource: this._deviceUniformResource() },

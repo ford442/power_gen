@@ -12,24 +12,28 @@ export const kelvinComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy'
   return instance.voltageEnergyLevel;
 };
 
-export const kelvinUpdateFlowPaths: NonNullable<DevicePlugin['updateFlowPaths']> = (instance, ctx) => {
-  const { count, time, writePath } = ctx;
-  const voltN = instance.physicsState?.kelvinVoltageN ?? instance.voltageEnergyLevel!;
-  const spark = (instance.physicsState?.kelvinSparkTimer ?? 0) > 0 ? 1 : 0;
-  for (let i = 0; i < count; i++) {
-    const side = i % 2 === 0 ? -2.5 : 2.5;
-    const phase = i / count;
-    const u = (time * 0.22 + phase * 0.8) % 1;
-    const y = 5.5 - u * 9.2;
-    const wobble = Math.sin(time * 6 + phase * 31) * (0.05 + voltN * 0.18);
-    const lift = voltN > 0.7 ? Math.sin(time * 8 + phase * 17) * voltN * 0.35 : 0;
-    const branch = spark > 0 ? (Math.random() - 0.5) * 1.2 : 0;
-    writePath(i, side + wobble + branch, y + lift, wobble * 0.5, voltN * 0.85 + spark * 0.4, 0.35 + voltN * 0.65);
-  }
+/**
+ * The flow-path markers were the bench's drops before it had any: 72 points
+ * sliding down the two columns at a made-up speed, with a made-up wobble for
+ * "levitation". The columns now carry real drops — the solver's in focus, the
+ * stand-in train elsewhere (docs/FLUIDS.md → Kelvin) — so the markers are
+ * written dark and parked inside the collectors. The spark effects below
+ * stay: they draw the discharge, which nothing else does.
+ */
+export const kelvinUpdateFlowPaths: NonNullable<DevicePlugin['updateFlowPaths']> = (_instance, ctx) => {
+  const { count, writePath } = ctx;
+  for (let i = 0; i < count; i++) writePath(i, i % 2 === 0 ? -2.5 : 2.5, -3.4, 0, 0, 0);
   return true;
 };
 
+/**
+ * The discharge. These sprites used to run all the time, thicker with
+ * voltage — streaks along the columns standing for "charge". The columns now
+ * carry the drops themselves, so the sprites are kept for what nothing else
+ * draws: the spark, while the plant says one is live.
+ */
 export const kelvinUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
+  if (!((instance.physicsState?.kelvinSparkTimer ?? 0) > 0)) return true;
   const { budget, energy, gate, pushParticle } = ctx;
   const voltageProxy = Math.max(0.0, Math.min(1.0, instance.voltageEnergyLevel! * 0.7 + Math.pow(energy, 1.2) * 0.5));
   const sparkGate = Math.pow(gate(voltageProxy, 0.24, 0.60), 1.4);

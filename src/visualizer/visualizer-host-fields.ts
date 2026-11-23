@@ -14,6 +14,7 @@ import type { IblPrefilterCompute } from '../ibl-prefilter-gpu';
 import type { FdtdSlicePass } from '../devices/quanta/fdtd-slice-pass';
 import type { FieldVolumePass } from './field-volume-pass';
 import type { FluidCeiling, FluidChoice, FluidPreset, HeronLiquidPass } from './heron-liquid-pass';
+import type { KelvinLiquidPass } from './kelvin-liquid-pass';
 import type { FieldReadout, FieldViewState } from './field-volume-drive';
 import type { getPostQualityGates } from '../post-processing-config';
 import type { BloomChain, BloomChainPipelines } from './bloom-chain';
@@ -68,6 +69,11 @@ export interface VisualizerHostFields {
   /** Heron's liquid (ADR-0022): lazily built like fdtdSlice; null if the build failed. */
   heronLiquid?: HeronLiquidPass | null;
   _heronLiquidInit?: Promise<void> | null;
+  /** Kelvin's drops on the solver: lazily built the same way; null if the build failed. */
+  kelvinLiquid?: KelvinLiquidPass | null;
+  _kelvinLiquidInit?: Promise<void> | null;
+  /** The plant drive of the frame being rendered (what `session.stepPlant` used). */
+  plantDrive?: number;
   /** `?fluid=` choice (read once from LabConfig on first use). */
   fluidChoice?: FluidChoice;
   /** What the lab mode asks of the liquid while `fluid` is `auto` (lab-mode.ts `LabModePreset.fluid`). */

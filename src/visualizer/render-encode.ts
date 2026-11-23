@@ -28,6 +28,7 @@ import type { ShadowFit } from './shadow-map';
 import type { FieldVolumePass } from './field-volume-pass';
 import { fieldVolumeLifetime } from './field-volume-drive';
 import { fluidSurfaceLifetime, heronLiquidLifetime, type HeronLiquidPass } from './heron-liquid-pass';
+import { kelvinLiquidLifetime, type KelvinLiquidPass } from './kelvin-liquid-pass';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { DeviceInstance } from '../device-instance.js';
 import type { PerformanceProfiler } from '../performance-profiler';
@@ -74,6 +75,7 @@ export interface FrameCtx {
   fieldVolume: FieldVolumePass | null;
   /** Heron's liquid when its gate is open this frame (ADR-0022). */
   heronLiquid: HeronLiquidPass | null;
+  kelvinLiquid: KelvinLiquidPass | null;
   overview: boolean;
   postGates: ReturnType<typeof getPostQualityGates>;
   /** 4× MSAA scene: `high` tier + focus (`'ultra'` is never assigned by auto-quality). */
@@ -99,7 +101,7 @@ export interface FrameCtx {
 function frameContext(
   host: Host,
   base: Pick<FrameCtx, 'profiler' | 'globalUniforms' | 'gpuContext' | 'cull' | 'cullActive'
-    | 'isDeviceVisible' | 'fdtdSlice' | 'fieldVolume' | 'heronLiquid'>
+    | 'isDeviceVisible' | 'fdtdSlice' | 'fieldVolume' | 'heronLiquid' | 'kelvinLiquid'>
 ): FrameCtx {
   const { profiler } = base;
   const overview = host.isOverviewMode();
@@ -197,6 +199,8 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
     .addResource('fieldVolume', { lifetime: fieldVolumeLifetime(host) })
     // Particles + two grids of the liquid solver: Heron in focus only.
     .addResource('heronLiquid', { lifetime: heronLiquidLifetime(host) })
+    // The same solver for Kelvin's drops (a small grid, a few dozen particles): Kelvin in focus only.
+    .addResource('kelvinLiquid', { lifetime: kelvinLiquidLifetime(host) })
     // Two depth targets, a thickness target and a scene copy: only while a liquid is drawn as a surface.
     .addResource('fluidSurface', { lifetime: fluidSurfaceLifetime(host) })
     .addResource('bloom')
@@ -221,6 +225,12 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
     writes: ['heronLiquid'],
     encode: (encoder, _res, ctx) => ctx.heronLiquid!.encode(encoder)
   });
+  graph.addPass('kelvin-liquid', {
+    enabled: (ctx) => !!ctx.kelvinLiquid,
+    reads: ['simBuffers'],
+    writes: ['kelvinLiquid'],
+    encode: (encoder, _res, ctx) => ctx.kelvinLiquid!.encode(encoder)
+  });
   // Before the scene: receivers sample the map through the frame group.
   graph.addPass('shadow', {
     enabled: (ctx) => ctx.shadow,
@@ -236,7 +246,8 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
       'simBuffers',
       ...(ctx.shadow ? ['shadowMap'] : []),
       ...(ctx.fieldVolume ? ['fieldVolume'] : []),
-      ...(ctx.heronLiquid ? ['heronLiquid'] : [])
+      ...(ctx.heronLiquid ? ['heronLiquid'] : []),
+      ...(ctx.kelvinLiquid ? ['kelvinLiquid'] : [])
     ],
     // MSAA resolves colour + G-buffer into the single-sample targets; depth
     // has no resolveTarget, so the plain depth is not written on those frames.
@@ -329,7 +340,8 @@ export const renderEncodeMethods: ThisType<Host> & {
     isDeviceVisible: (device: RenderDevice) => boolean,
     fdtdSlice: ReturnType<Host['updateFdtdSlice']>,
     fieldVolume?: FieldVolumePass | null,
-    heronLiquid?: HeronLiquidPass | null
+    heronLiquid?: HeronLiquidPass | null,
+    kelvinLiquid?: KelvinLiquidPass | null
   ): void;
 } = {
   renderAnomalyWalls(
@@ -459,9 +471,9 @@ export const renderEncodeMethods: ThisType<Host> & {
   },
 
   /** One frame: settle gates, run the graph, submit, schedule the timestamp readback. */
-  _encodeFrame(profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume = null, heronLiquid = null) {
+  _encodeFrame(profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume = null, heronLiquid = null, kelvinLiquid = null) {
     const ctx = frameContext(this, {
-      profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume, heronLiquid
+      profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume, heronLiquid, kelvinLiquid
     });
     const graph = (this._frameGraph ??= buildFrameGraph(this));
     const encoder = this.device.createCommandEncoder({ label: 'frame' });

@@ -28,7 +28,8 @@ const NO_PELTIER_AIR = [0, 0];
 import { buildMhdMesh } from '../../devices/core/mhd-mesh';
 import { advanceMhdTravel } from '../../devices/core/mhd-parcels';
 import { stepParticles } from '../shared/particle-physics';
-import { deviceModeIndex } from '../shared/device-physics';
+import { deviceModeIndex, kelvinSeedV } from '../shared/device-physics';
+import { KelvinEfficiency } from '../../physics/kelvin-dropper';
 import { shouldSimulateDevice } from '../shared/device-view';
 import {
   getOverviewCullOpts,
@@ -149,8 +150,9 @@ export function stepSimulation(viz, deltaTime, speed) {
         segOmega: device.physics.segOmega,
         heronVExit: device.physics.heronVExit,
         heronNozzleY: device.id === 'heron' ? heronNozzleY(viz) : undefined,
-        kelvinE: device.physics.kelvinE,
-        kelvinVoltageN: device.physics.kelvinVoltageN,
+        kelvinDrive: device.id === 'kelvin' ? drive : 0,
+        kelvinVolts: device.id === 'kelvin' ? device.physics.kelvinV + kelvinSeedV(device.physics) : 0,
+        kelvinTally: device.id === 'kelvin' ? (device.kelvinTally ??= { landed: 0, missed: 0 }) : undefined,
         solarN2: device.physics.solarN2,
         corona: device.physics.corona,
         maglevGap: device.physics.maglevGap,
@@ -192,6 +194,17 @@ export function stepSimulation(viz, deltaTime, speed) {
         simClock: viz.simClock,
         speedMult: speed
       });
+      if (device.id === 'kelvin') {
+        // What landed, back to the plant — while the bench is in focus, as on
+        // WebGPU (docs/FLUIDS.md → Kelvin). Elsewhere it is "not measured".
+        if (viz.currentView === 'kelvin' && device.kelvinTally) {
+          device.kelvinEfficiency ??= new KelvinEfficiency();
+          device.physics.kelvinCollectionEff = device.kelvinEfficiency.update(viz.time, device.kelvinTally.landed, device.kelvinTally.missed);
+        } else {
+          device.kelvinEfficiency?.reset();
+          device.physics.kelvinCollectionEff = null;
+        }
+      }
     }
   }
 

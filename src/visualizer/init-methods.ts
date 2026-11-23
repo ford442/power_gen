@@ -6,6 +6,7 @@
 // prototype (see ADR-0016; #244 was a WebGPU boot break from that pattern).
 import { fieldVolumeInfo, installFieldVolumeDebug } from './field-volume-drive';
 import { heronLiquidInfo } from './heron-liquid-pass';
+import { kelvinLiquidInfo } from './kelvin-liquid-pass';
 import { DEPTH_FORMAT, WebGPUManager } from '../webgpu-manager';
 import { PipelineLayoutCache } from '../pipeline-layout-cache';
 import { PerformanceProfiler } from '../performance-profiler';
@@ -104,6 +105,7 @@ export async function initVisualizer(this: Host): Promise<void> {
       })(),
       fieldVolume: fieldVolumeInfo(this),
       fluid: heronLiquidInfo(this),
+      kelvinLiquid: kelvinLiquidInfo(this),
       frameGraph: this._frameGraph
         ? {
             passes: this._frameGraph.passNames(),
@@ -262,6 +264,9 @@ export async function recoverFromDeviceLoss(
     this.heronLiquid?.destroy();
     this.heronLiquid = undefined;
     this._heronLiquidInit = null;
+    this.kelvinLiquid?.destroy();
+    this.kelvinLiquid = undefined;
+    this._kelvinLiquidInit = null;
     this.liquidOwner = null;
     this.overviewCull?.destroy();
     this.overviewCull = null;

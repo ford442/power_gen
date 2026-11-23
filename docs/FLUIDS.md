@@ -12,12 +12,11 @@ the lab uses: **simulated, not a measurement**.
 |-------|-------------------------------|---------|------------------------|
 | `mhd` | One lumped mean speed `Ū` with `σB²`-style braking and wall friction as tuned coefficients; `V = B·Ū·w` | Timelines on the **analytic Hartmann profile** at the plant's `Ū` and `Ha`, plus a profile card | Exact steady solution, evaluated — not a numerical flow solve |
 | `heron` | Head ODE; exit speed from Bernoulli with a discharge coefficient and Darcy–Weisbach pipe friction | **WebGPU, in focus:** the jet as a simulated liquid (MLS-MPM), fed at the plant's exit speed, drawn as particles. WebGL2: ballistic droplets in SI, each on its own. WebGPU overview or `fluid=off`: stand-in droplets on a fixed path, labelled as such | The jet and its fall, yes. The vessels and the basin's own water, no |
-| `kelvin` | Capacitive charging + spark | Independent droplets; charge does not deflect them | No |
+| `kelvin` | Capacitive charging + spark; the droplet current scaled by the share of drops that land | Two streams of drops, one per Rayleigh–Plateau drop, each with the charge its ring induces, in the field of the rings and collectors. **WebGPU, in focus:** on the liquid solver. **WebGL2, in focus:** the same law on the CPU. Elsewhere: a train of drops under gravity alone | The drops' paths and what lands, yes. Break-up, air and the spark's channel, no |
 | `peltier` | **1-D finite-volume leg**: 24 cells + cold block, two plates, heat sink (`ros23`) | Three bodies coloured by their node temperatures; sparse air parcels beside them | The temperatures are the model's. The air is illustrative |
 
-The liquid solver (**MLS-MPM**, below) runs on one bench so far:
-[Heron's fountain](#herons-fountain). `kelvin` still draws the independent
-droplets in the table.
+The liquid solver (**MLS-MPM**, below) runs on two benches:
+[Heron's fountain](#herons-fountain) and [Kelvin's dropper](#kelvins-dropper).
 
 ## Liquid solver (MLS-MPM)
 
@@ -402,6 +401,133 @@ layout preset rebuilds it; it is then empty until the jet rises again.
 | `npm run test:gpu-golden` (`golden-fluid-surface`, `golden-mpm-io`) | the app's own surface pass on a GPU: a sphere's front at its centre distance minus its radius (3.8004 for 3.8), its disc the size the projection says, thickness integrating to the particle's volume (0.999); sub-pixel spheres held at 1.5 px with their volume (0.999); both filter passes against the CPU twin texel for texel (9e-9); pixels without liquid untouched to the bit; liquid hidden behind a wall and drawn in front of one; thicker liquid absorbing red before blue. The export's bulk / spray / under-a-surface types against the CPU density twin, particle for particle |
 | `npm run test:e2e:webgpu` | in the app: the liquid passes dispatch in Heron focus with no validation error and finite numbers, the measured jet reaches the hub; at the low tier no surface pass and none of its targets, from `medium` its four pipelines draw; overview holds no fluid resources and releases them after leaving the bench |
 
+## Kelvin's dropper
+
+`src/physics/kelvin-dropper.ts` (the drops' physics, shared by both
+renderers), `src/fluids/kelvin-liquid.ts` (the solver's scene),
+`src/kelvin-layout.ts` (where the parts are).
+
+### What is drawn, and at what scale
+
+Each column is a drip tip hanging from the supply beam, an induction ring
+just under it, a clear fall and a collector can; each ring is wired to the
+opposite collector. Until this epic each column also had three solid cans
+stacked along the stream, which the decorative droplets fell straight
+through, and the rings stood above them. They are gone.
+
+| Quantity | Value | Source |
+|----------|-------|--------|
+| Metres per scene unit | 0.048 | `physics/constants.json` → `kelvin.metresPerSceneUnit` |
+| Fall, tip to collector mouth | 0.385 m (0.28 s) | `KELVIN_APPARATUS` |
+| Columns apart / ring radius | 0.24 m / 4.8 cm | `KELVIN_APPARATUS` |
+| Drip tip bore, jet speed at full drive | 3.5 mm, 0.6 m/s | `kelvin.nozzleDiameterM`, `jetSpeedMaxMS` |
+| Time scale | 1 (real time) | `kelvin.liquidTimeScale` |
+
+### The model
+
+- **Break-up is Rayleigh–Plateau, taken analytically.** A jet of diameter `d`
+  goes unstable fastest at a wavelength of 4.508 `d`, and each wavelength
+  closes into one drop: radius 0.945 `d` = 3.3 mm, 0.15 g, 38 a second per tip
+  at full drive. A drop is one particle of that volume, released at that
+  rate. Nothing pinches off on the grid — at these sizes it could not.
+- **Charge.** A drop forms at the centre of its induction ring and takes the
+  charge of a sphere of its radius at the ring's potential, `4πε₀·r·V`, up to
+  the **Rayleigh limit** `8π·√(ε₀·γ·r³)` = 3.8 nC, beyond which a drop flies
+  apart. The limit is reached near 10 kV; from there on every drop carries
+  2.5·10⁻⁵ C/kg whatever the voltage. `V` is the plant's `kelvinV` plus any
+  seed from the charge bus (ADR-0013).
+- **Field.** Four conductors at the plant's potential (see
+  [Charge](#charge)): the left ring at `+V`, the right at `−V`, and each
+  collector's rim, as a ring of its radius, at the potential of the *opposite*
+  ring — the cross-connection. So a stream is attracted back to its own ring
+  and repelled by its own collector. A ring's `kq` is `V·R`, which makes the
+  potential at its centre `V`.
+- **Motion.** Gravity and `q·E/m`. On WebGPU the drops are lone particles of
+  the solver, for which it is exact; on WebGL2 `stepKelvinDrops` integrates
+  the same law in 1 ms substeps. The two agree on what lands (below).
+
+### What it shows
+
+With the plant held at a fixed potential, full drive, 5 s of flow:
+
+| Potential | Landed / missed, solver on a GPU | CPU twin of the solver | WebGL2's CPU drops |
+|-----------|----------------------------------|------------------------|--------------------|
+| 0 V | all, in their own collectors | same | same |
+| 50 kV | 356 / 0 | 356 / 0 | 845 / 0 (12 s) |
+| 60 kV | 126 / 228 | 127 / 227 | 502 / 343 |
+| 68 kV | 0 / 350 | 0 / 350 | 31 / 814 |
+
+Every drop lands up to 50 kV; from about 54 kV the streams are thrown off
+their collectors, and by 66 kV none land. That window sits on the plant's
+60 kV breakdown **because the tip bore was chosen to put it there**: with a
+2 mm bore the drops are lighter for their charge, are lost from 30 kV, and
+from 50 kV do not even leave their own induction ring — the bench would
+never spark. The mechanism is real (it is what limits a real dropper's
+voltage); the number it happens at is a choice.
+
+### Back to the plant
+
+The share of drops landing over the last three seconds is written to the
+plant as `kelvinCollectionEff`, and the plant scales its whole droplet
+current — base rate and induction feedback — by it
+(`setKelvinCollectionEfficiency` in C++, the same term in TS). The plant
+publishes what it was charged with as **`kelvinLandedShare`**.
+
+- It is measured **only while the bench is in focus**, on either renderer.
+  Elsewhere, and in every headless run, it is "not measured" and the plant
+  assumes everything lands, as it always did: `x · 1` is exact, and the golden
+  cases have not moved.
+- At full drive the plant sweeps from 54 kV to breakdown in about a twentieth
+  of a second, a fifth of a drop's fall, so hardly a drop is caught in the
+  window: 41 sparks a minute with the feedback or without it. **At low drive
+  the plant dwells there**, and a slower jet is thrown off sooner. Over a
+  minute on the plant and the CPU drops (`test:kelvin-liquid`):
+
+  | Drive | Sparks, share fed back | Sparks, everything landing | Share landing |
+  |-------|------------------------|----------------------------|---------------|
+  | 100 % | 41 | 41 | 1.00 |
+  | 50 % | 17 | 18 | 0.97 |
+  | 25 % | 3 | 6 | 0.70 |
+  | 20 % | **0** — stalls near 52 kV | 3 | 0.69 |
+
+  So at a trickle the bench no longer sparks: it sits under breakdown with
+  its streams splayed, which is what limits a real dropper.
+- The plant's charging rate is a classroom compression: about twenty times
+  what drops at the Rayleigh limit could carry at this flow. The drops' charge
+  follows the plant's *voltage* through the induction law, not its current.
+  The landing share is a ratio and is not affected.
+
+### Limits
+
+- **No break-up, no merging, no air, no drop-drop forces.** A drop is a point
+  mass from the moment it leaves the tip.
+- **The conductors are rings of charge at a potential**, not a solved
+  boundary-value problem: no image charges, no field from the wires, the tips
+  or the collectors' walls. The potential at a tip comes out 0.74 `V`, and the
+  drop is still charged as if at `V`.
+- **A drop that lands in the other collector counts as landed.** It should
+  count against: it carries the wrong sign. The share is a count, not a charge.
+- **The collectors do not fill.** A drop is taken at the mouth.
+- **On WebGPU the drops fall behind the plant under about 15 fps** (the
+  solver's substeps per frame are capped), and then see more of the plant's
+  swing than they should and miss more. WebGL2's CPU drops keep the clock at
+  any frame rate.
+- **The spark** is the plant's event; its sprites are drawn while the plant
+  says one is live. Nothing here models the discharge channel.
+- **Stand-in drops** (WebGPU overview, `fluid=off`, `critical` tier): the
+  Rayleigh–Plateau train under gravity alone (`posKelvin`), which shows the
+  rate and the fall and nothing of the field.
+
+### Tests
+
+| Command | Holds |
+|---------|-------|
+| `npm run test:golden` | the plant with a landing share of 0.4: TS ≈ native C++ (2,587 V at 1.5 s against 10,516 V with everything landing) |
+| `npm run test:kelvin-liquid` | Rayleigh–Plateau drop and rate; the Rayleigh limit and where it is reached; the scene against the drawn bench; the cross-connection's signs; the landing share against potential on the solver's CPU twin and on WebGL2's CPU drops, at 60 and 15 fps; the read-back window; the stand-in train and the shader's mirrored constants; the note's text |
+| `npm run test:mpm-io` | the solver's part: ring field, energy of a charged drop, per-sink counts ([Charge](#charge)) |
+| `npm run test:gpu-golden` (`golden-kelvin-liquid`, `golden-particles`) | the bench's own scene on a GPU: the counts in the table above, within six drops of the CPU twin (measured: one); the stand-in train against its TS twin (10⁻⁶ units), and as many drops in flight as the rate × the fall time |
+| `npm run test:e2e:webgpu` | in the app: the solver steps Kelvin's drops in focus with no validation error, counts what lands, tells the plant; nothing of it exists in overview |
+
 ## MHD duct
 
 ### The model
@@ -588,7 +714,9 @@ view.
 ## WebGL2
 
 There is no liquid solver on WebGL2 and there will not be one: no compute, no
-atomics. Heron's droplets there are ballistic in SI (`stepParticles`, mode 1 in
+atomics. Kelvin does not need it: its drops never touch, so the CPU steps the
+same law (`stepKelvinDrops`) and the bench behaves as on WebGPU, landing
+share and all. Heron's droplets there are ballistic in SI (`stepParticles`, mode 1 in
 `renderers/shared/particle-physics.ts`): launched at the plant's exit speed,
 `g = 9.80665` over the bench's 0.64 m per scene unit, no drag, so each rises
 `v²/2g`. They do not see each other. The nozzle releases a waiting droplet at

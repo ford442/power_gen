@@ -36,6 +36,11 @@ struct WasmSegDefaults {
 
 struct KelvinConstants {
   static constexpr float E_BREAKDOWN_VM = 3000000.0f;
+  /// Metres per scene unit on the Kelvin bench. Drop gravity is SI divided by
+  /// this; there is no separate scene gravity.
+  static constexpr float METRES_PER_SCENE_UNIT = 0.048f;
+  static constexpr float LIQUID_TIME_SCALE     = 1.0f;
+  static constexpr float JET_SPEED_MAX_MS      = 0.6f;
 };
 
 struct VdgConstants {

@@ -86,8 +86,11 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
   That file is only the gate: the solver, `fluids/*` and the shaders are `heron-liquid-runtime.ts`,
   a chunk fetched on first Heron focus — keep them out of the WebGPU chunk (`check:entry-chunk`).
   It is shown at 1/6 speed, and drawn as a screen-space surface from the `medium` quality tier
-  (`fluid-surface-pass.ts`, `passes/fluid-*.wgsl`; spray stays particles). Kelvin still draws
-  independent droplets.
+  (`fluid-surface-pass.ts`, `passes/fluid-*.wgsl`; spray stays particles).
+- **Kelvin's drops** are charged and feel the rings and collectors (`physics/kelvin-dropper.ts`,
+  `kelvin-layout.ts`): on the solver on WebGPU, the same law on the CPU on WebGL2, in focus. The
+  share that lands scales the plant's charging (`kelvinCollectionEff` in, `kelvinLandedShare` out;
+  not measured = 1, so headless runs and goldens are unchanged). Real time, 0.048 m per scene unit.
 - **Heron's plant** is Bernoulli + Darcy–Weisbach, the same in TS and C++ (`test:golden`); the C++
   plant needs the layout preset sent to it (`setHeronLayout`). 0.64 m per scene unit, SI gravity.
 - Overview can enable all; particles/meshes scale with quality and view LOD.
@@ -149,6 +152,7 @@ npm run test:hartmann # MHD duct: analytic Hartmann profile (TS vs C++), timelin
 npm run test:mpm      # MLS-MPM liquid: CPU reference — i32 overflow bound, mass / momentum, free fall at g, ρ·g·h, viscous decay (ADR-0022; the WGSL runs in test:gpu-golden)
 npm run test:mpm-io   # …and what a bench adds: signed-distance solids, emitters, sinks, the height profile, a jet at v²/2g
 npm run test:heron-liquid # Heron's liquid scene per preset × tier, fluid= tier choice, focus gate, focus camera
+npm run test:kelvin-liquid # Kelvin dropper: Rayleigh–Plateau drops, Rayleigh limit, the scene vs the drawn bench, landing share vs potential (solver twin + CPU drops)
 npm run test:fluid-surface # liquid surface: uniform block vs WGSL, narrow-range filter CPU twin, optics per look (the passes run in test:gpu-golden)
 npm run test:peltier  # Peltier cooler: ΔT_max / I_opt / COP / energy balance on native + WASM + TS, array snapshots, v1 migration (ADR-0021)
 npm run test:field-volume # field kernels vs quadrature; field-probe/-volume WGSL run on the CPU vs the reference (ADR-0017)

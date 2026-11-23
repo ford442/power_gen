@@ -36,6 +36,8 @@ export interface DeviceTelemetrySnap {
   kelvinVbreak: number;
   kelvinSparkTimer: number;
   kelvinE: number;
+  /** Share of the droplets' charge that lands in the collectors, 0..1 (1 while not measured). */
+  kelvinLandedShare: number;
   batteryCharge: number;
   maglevGapMm: number;
   maglevFieldT: number;

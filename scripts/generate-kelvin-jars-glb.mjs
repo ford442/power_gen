@@ -11,10 +11,11 @@
  * buckets stand on nothing. A single header tank with two spouts, and jars on
  * insulating pillars, put both on screen without touching the plant.
  *
- * Dimensions track `buildKelvinInstances` / `buildKelvinBucketInstances` /
- * `buildKelvinRingInstances` / `buildKelvinTubeInstances` in
- * src/device-mesh-layouts.ts — columns at x = ±2.5, cans at y = 4.8 / 1.5 /
- * -2.5, buckets at -3.4, induction rings at 5.6, support beam at 6.4.
+ * Dimensions track `KELVIN_APPARATUS` (src/kelvin-layout.ts), which the
+ * procedural meshes in src/device-mesh-layouts.ts and the liquid scene read —
+ * columns at x = ±2.5, collector cans at -3.4, induction rings at 5.6, drip
+ * tips ending at 5.87, support beam at 6.4. (The three solid cans that were
+ * stacked along each stream until the fluids epic are gone.)
  * **Device-local render units, not metres**: the shared instance cylinder is
  * r = 0.8, h = 2.5 and the induction torus is major 1.0 / minor 0.14
  * (setup-geometry.ts), so the bench is drawn at a size that reads next to its

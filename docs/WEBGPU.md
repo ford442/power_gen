@@ -254,7 +254,7 @@ orders the WebGPU frame. `src/visualizer/render-encode.ts` is the pass list;
 the bodies are in `render-passes.ts`. WebGL2 does not use it (ADR-0001).
 
 ```
-compute → field-volume → heron-liquid → shadow → scene (1× | 4× MSAA) → depth-resolve → fluid-surface → taa → ssr → bloom → composite → history
+compute → field-volume → heron-liquid → kelvin-liquid → shadow → scene (1× | 4× MSAA) → depth-resolve → fluid-surface → taa → ssr → bloom → composite → history
 ```
 
 Each pass declares `reads` / `writes` (static or a function of the frame
@@ -299,8 +299,11 @@ overview never compiles or encodes them.
   `fluid-surface` is the screen-space surface over the resolved scene colour
   — it reads and writes `sceneColor`, so TAA, SSR and bloom see the liquid —
   with the `fluidSurface` lifetime (two depth targets, a thickness target, a
-  scene copy), from the `medium` tier up. Neither exists in overview.
-  `getRendererInfo().fluid` reports both — [`FLUIDS.md`](./FLUIDS.md).
+  scene copy), from the `medium` tier up. `kelvin-liquid` is the same solver
+  on Kelvin's scene (lifetime `kelvinLiquid`, a 46 × 50 × 22 grid and 2048
+  drops), in Kelvin focus only, drawn as particles. None of them exists in
+  overview. `getRendererInfo().fluid` and `.kelvinLiquid` report them —
+  [`FLUIDS.md`](./FLUIDS.md).
 - **Field volume** (ADR-0017). `field-volume` is its own compute pass (so
   `?gpuTiming=1` times it apart from `compute`) writing the `fieldVolume`
   lifetime — the n³ texture plus line / particle buffers (≈ 3 MB at 64³,
@@ -436,6 +439,8 @@ multiply-adds differently) and each file says how its number was measured.
 | `mpm-p2g` / `mpm-grid` / `mpm-g2p` | `MpmCpu` (`src/fluids/mpm-cpu.ts`), same buffers and fixed-point scatter; plus physics: ρ·g·h, momentum, no i32 wrap, determinism | 32 counts on the grid after one substep; 2 % of a cell after 240; ρ·g·h within 5 % | 6 counts; 0.4 % of a cell; 0.5 % in the bulk |
 | `mpm-emit` / `mpm-probe` / `mpm-export`, and the boundary in `mpm-grid` / `mpm-g2p` | `MpmCpu` with the same signed-distance field and emitter frames, particles matched by id | 3 % of a cell in a cup; 1 % of a cell and identical sets from two nozzles; a jet within 10 % of v²/2g | 0.1 % of a cell; 0.02 % of a cell, two GPU runs identical by id; 1.005 |
 | the Heron scene (`golden-heron-liquid`) | the plant's exit speed → `v²/2g`, on three layout presets; particle books | jet top within 10 %; in the box = emitted − drained | 0.995 / 0.983 / 0.937; exact |
+| the Kelvin scene (`golden-kelvin-liquid`): charge at the emitter, the conductors' field in `mpm-g2p`, per-sink counts in `mpm-probe` | `MpmCpu` on the same scene, drop for drop; the potentials the tip bore was chosen for | landed / missed within 6 drops of the CPU twin; over 97 % land at 50 kV, under 3 % at 68 kV | 356/0 vs 356/0, 126/228 vs 127/227, 0/350 vs 0/350 |
+| `particle-compute` `posKelvin` (the stand-in train out of focus) | `kelvinStandInDrop` (`src/physics/kelvin-dropper.ts`) | 2e-3 units of an 8-unit fall; drops in flight = rate × fall time ± 2 | 9.5e-7 |
 | `fluid-splat` / `fluid-filter` / `fluid-composite` (render passes, through the app's `FluidSurfacePass`) | analytic sphere depth, disc and volume; `fluidFilterImage` (`src/fluids/fluid-surface.ts`); the cleared scene | front within 0.2 % of a radius; volume within 3 %; filter 2e-6 of the depth range; untouched pixels bit-identical | 0.0004 units; 0.999; 9e-9; exact |
 
 Notes on two of them:
