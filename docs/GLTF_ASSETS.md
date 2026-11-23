@@ -173,7 +173,7 @@ new packer.
 procedural meshes are laid out in device-local *render* units, because the shared
 instance cylinder is r = 0.8, h = 2.5 (`deviceCylinder`) and carries no
 per-instance scale. Each generator names the TS constants it tracks
-(`PRESET_DEFS.classic`, `buildKelvinInstances`, `RING_SCENE`) — copy the numbers
+(`PRESET_DEFS.classic`, `KELVIN_APPARATUS`, `RING_SCENE`) — copy the numbers
 from there, and never re-derive a render-unit bench from its SI constants.
 
 `npm run test:props` is the guard: every registry entry's URL must exist, parse
@@ -196,7 +196,7 @@ external tools such as cgltf / gltfpack are not.
    | `heron`, `kelvin`, `jumping-ring` | **device-local render units** (the shared instance cylinder is r = 0.8, h = 2.5) | the bench's own procedural origin |
 
    For a render-unit bench, copy the numbers from the TS layout it has to line up
-   with (`PRESET_DEFS.classic`, `buildKelvinInstances`, `RING_SCENE`) rather than
+   with (`PRESET_DEFS.classic`, `KELVIN_APPARATUS`, `RING_SCENE`) rather than
    converting from the SI constants — the two are deliberately separate.
 2. Export **glTF 2.0 Binary (.glb)** with:
    - Triangulated meshes

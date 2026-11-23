@@ -1,9 +1,11 @@
 #pragma once
 // Hartmann MHD duct: pressure-driven conductive flow retarded by Lorentz
-// braking, inducing a load voltage V = B·u·w. The plant is one lumped mean
-// speed; the profile across the gap is the analytic solution below.
-// Classroom numbers: physics/constants.json → generated/constants.h
-// (shared with the TS fallback in devices/core/mhd-mesh.ts).
+// braking, inducing a load voltage V = B·u·w. The plant is the mean speed
+// across the gap; the profile is the analytic solution below, and the
+// plant's wall friction and braking are derived from it and from the circuit
+// (namespace mhd_duct) — nothing in the momentum balance is tuned.
+// Numbers: physics/constants.json → generated/constants.h (shared with the
+// TS twin, src/physics/mhd-duct.ts).
 
 #include "../../../generated/constants.h"
 
@@ -69,18 +71,52 @@ struct MHDState {
     float bFieldBaseT{power_gen::MhdConstants::B_FIELD_BASE_T};
     float bFieldSpanT{power_gen::MhdConstants::B_FIELD_SPAN_T};
     float pumpAccel{power_gen::MhdConstants::PUMP_ACCEL_MS2};  // drive=1 pressure-gradient accel, m/s²
-    float lorentzK{power_gen::MhdConstants::LORENTZ_K};        // effective σB²/ρ braking, 1/(s·T²)
-    float frictionK{power_gen::MhdConstants::FRICTION_K};      // viscous/wall losses, 1/s
     float widthM{power_gen::MhdConstants::WIDTH_M};            // electrode spacing
     float halfGapM{power_gen::MhdConstants::HALF_GAP_M};       // channel half-gap (Hartmann length)
+    float lengthM{power_gen::MhdConstants::LENGTH_M};          // electrode length along the flow
     float sigmaSm{power_gen::MhdConstants::SIGMA_SM};          // conductivity, S/m (liquid-metal-ish)
     float rhoKgM3{power_gen::MhdConstants::RHO_KG_M3};         // working-fluid density
     float nuM2s{power_gen::MhdConstants::NU_M2S};              // kinematic viscosity
     float rLoadOhm{power_gen::MhdConstants::R_LOAD_OHM};
-    float rInternalOhm{power_gen::MhdConstants::R_INTERNAL_OHM};
-    float hartmann{0.f};       // derived Ha = B·d·sqrt(σ/(ρν))
+    float hartmann{0.f};       // derived Ha = B·a·sqrt(σ/(ρν))
     float voltageV{0.f};       // derived load voltage
     float currentA{0.f};       // derived
     float powerW{0.f};         // derived electrical output
     float drive{0.f};          // 0..1 pump/field drive
 };
+
+// The mean flow's momentum balance, gap-averaged over the Hartmann profile:
+//
+//   dU/dt = drive·pump − (friction(Ha) + braking(B))·U
+//
+// Both rates follow from the profile and the circuit; the profile keeps its
+// Hartmann shape whatever the load, so they hold at any current.
+namespace mhd_duct {
+
+/// Hartmann number, B·a·√(σ/ρν).
+inline float hartmann_number(const MHDState& m, float bFieldT) {
+    return bFieldT * m.halfGapM * std::sqrt(m.sigmaSm / (m.rhoKgM3 * m.nuM2s));
+}
+
+/// The fluid's resistance between the electrodes, w / (σ·2a·L), Ω.
+inline float internal_ohm(const MHDState& m) {
+    return m.widthM / (m.sigmaSm * 2.f * m.halfGapM * m.lengthM);
+}
+
+/// Wall friction, 1/s: the profile's shear on the two Hartmann walls per unit
+/// mass of the slot, (ν/a²)·Φ(Ha). 3ν/a² at B = 0 (Poiseuille), ν·Ha/a² for
+/// thin Hartmann layers.
+inline float friction_rate(const MHDState& m, float ha) {
+    return m.nuM2s / (m.halfGapM * m.halfGapM) * hartmann::wall_shear(ha);
+}
+
+/// Lorentz braking, 1/s: the force B·I·w on the current the circuit draws,
+/// per unit mass between the electrodes — (σB²/ρ)·R_i/(R_i + R_load). Zero
+/// on open circuit, σB²/ρ on a short.
+inline float braking_rate(const MHDState& m, float bFieldT) {
+    const float ri = internal_ohm(m);
+    return m.sigmaSm * bFieldT * bFieldT / m.rhoKgM3 * ri / (ri + m.rLoadOhm);
+}
+
+} // namespace mhd_duct
+

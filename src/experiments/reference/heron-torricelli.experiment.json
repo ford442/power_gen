@@ -1,0 +1,20 @@
+{
+  "id": "heron-torricelli",
+  "title": "Heron's jet vs head (Torricelli, and what the nozzle costs)",
+  "description": "Torricelli: water leaving a vessel under a head H can rise H again, v²/2g = H. Raise the drive slowly so the head sweeps from a few centimetres to its ceiling, and plot the jet's ideal height v²/2g against the head. It is a straight line through the origin — but its slope is 0.12, not 1: this nozzle's discharge coefficient (0.35) leaves the jet C_d² of the head, and pipe friction takes about another 2 %. On WebGPU with the liquid solver running, heronJetHeightM is the height of the simulated jet read back from the liquid, to compare with the ideal one; it lags the plant, because the liquid is shown at one sixth speed. Without a liquid solver it reads 0, 'not measured'. Simulated, not metrology.",
+  "config": { "mode": "heron", "wasmPhysics": true, "seed": 42 },
+  "steps": [
+    { "at": 0, "set": { "drive": 0.05 } },
+    { "at": 2, "ramp": { "drive": [0.05, 0.44] }, "over": 60 },
+    { "at": 2, "record": ["heronHead", "heronVExit", "heronJetIdealM", "heronJetHeightM", "heronFlowRateLmin"], "hz": 10, "until": 62 },
+    { "at": 62, "expect": [
+      { "fit": { "x": "heronHead", "y": "heronJetIdealM", "model": "proportional", "r2": { "gt": 0.9995 }, "slope": { "approx": 0.1203, "rel": 0.03 } } },
+      { "stat": { "key": "heronHead", "of": "p2p", "gt": 3.0 } },
+      { "stat": { "key": "heronVExit", "of": "max", "gt": 2.5 } }
+    ] }
+  ],
+  "plots": [
+    { "x": "heronHead", "y": "heronJetIdealM", "fit": "linear" },
+    { "x": "heronHead", "y": "heronJetHeightM" }
+  ]
+}

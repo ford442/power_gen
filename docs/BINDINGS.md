@@ -258,13 +258,98 @@ one bind group. Each pass declares only the bindings it uses. The host
 
 | Binding | Type | Stages | Resource | Declared by |
 |---------|------|--------|----------|-------------|
-| 0 | uniform | CS | `MpmParams` (80 B, `common/mpm.wgsl`) | all three |
+| 0 | uniform | CS | `MpmParams` (224 B, `common/mpm.wgsl`): the solver's numbers, then up to four `MpmConductor` (32 B each) whose field charged particles feel in `g2p` | all three |
 | 1 | storage (rw) | CS | Particles, `array<MpmParticle>` (80 B each) | `p2g`, `g2p` |
 | 2 | storage (rw) | CS | Fixed-point grid, 4 × i32 per node: mass, momentum xyz — `array<atomic<i32>>` in `p2g`, plain `array<i32>` in `gridUpdate` | `p2g`, `gridUpdate` |
 | 3 | storage (rw) | CS | Velocity grid, `array<vec4f>`: velocity (m/s), mass (particle masses) | `gridUpdate`, `g2p` (reads only) |
+| 4 | storage (read) | CS | Boundary, `array<vec4f>` per node: outward normal, signed distance (m). **Always bound**; `params.flags` bit 0 says whether it is read (a solver with no solids binds one dummy node) | `gridUpdate`, `g2p` |
 
 `p2g` and `g2p` run at `@workgroup_size(64)` over the particles, `gridUpdate`
 at `@workgroup_size(4, 4, 4)` over the nodes.
+
+### `mhdSlice` — MHD duct slice (lattice-Boltzmann + potential)
+
+`passes/mhd-slice-lbm.wgsl` (`step`) and `mhd-slice-phi.wgsl` (`sorRed`,
+`sorBlack`, `reduceColumns`, `reduceElectrodes`, and once a frame
+`streamFunction`). One layout, two bind groups
+with bindings 2 and 3 swapped (`src/fluids/mhd-slice-solver.ts`). Each pass
+declares only what it uses.
+
+| Binding | Type | Stage | Contents | Used by |
+|---------|------|-------|----------|---------|
+| 0 | uniform | CS | `MhdSliceParams` (80 B, `common/mhd-slice.wgsl`) | all |
+| 1 | storage (read) | CS | Per column, `vec4f`: field shape, wall drag per step, electrode segment (−1 none), cells in the segment | all |
+| 2 | storage (read) | CS | Distributions read this step, 9 `f32` per cell | `step` |
+| 3 | storage (rw) | CS | Distributions written this step | `step` |
+| 4 | storage (rw) | CS | Moments per cell, `vec4f`: ux, uy, ρ, and the current's stream function | `step` writes; `streamFunction` writes `.w`; the others read |
+| 5 | storage (rw) | CS | Potential, `f32` per cell | `step` reads; `sor*` write; `reduce*` read |
+| 6 | storage (rw) | CS | Mean force per column, then a voltage and a current per electrode pair | `reduce*` write; `step`, `sor*` read |
+
+### `mhdSliceDraw` — MHD duct slice, the panel (group 1)
+
+`passes/mhd-slice-draw.wgsl`, in the scene pass; group 0 is the frame group.
+It reads the solver's own buffers.
+
+| Binding | Type | Stage | Contents |
+|---------|------|-------|----------|
+| 1 | uniform | VS + FS | `MhdSliceDraw` (64 B): panel centre and half-extents, the top of the speed ramp, the stream-function step between two current lines, the voltage drawn at full brightness |
+| 2 | uniform | FS | `MhdSliceParams` (`mhdSlice` binding 0) |
+| 3 | storage (read) | FS | Columns (`mhdSlice` binding 1) |
+| 4 | storage (read) | FS | Moments (`mhdSlice` binding 4): speed from `.xy`, the stream function from `.w` |
+| 6 | storage (read) | FS | State (`mhdSlice` binding 6): the electrode voltages |
+
+### `mpmIo` — MLS-MPM emitters, sinks, read-back, draw export (ADR-0022)
+
+The once-a-frame passes around the substeps: `passes/mpm-emit.wgsl` (`emit`),
+`mpm-probe.wgsl` (`probe`), `mpm-export.wgsl` (`exportParticles`). Built only
+for a solver created with `io`.
+
+| Binding | Type | Stages | Resource | Declared by |
+|---------|------|--------|----------|-------------|
+| 0 | uniform | CS | `MpmParams` (same buffer as `mpm` binding 0) | all three |
+| 1 | storage (rw) | CS | Particles (same buffer as `mpm` binding 1) | `emit`, `exportParticles` (reads only) |
+| 2 | uniform | CS | `MpmIoParams` (272 B): two emitters, four sinks, the export transform, whether a surface pass draws the bulk, the spray threshold, the charge each emitter's particles carry | `emit`, `exportParticles` |
+| 3 | storage (rw) | CS | Counters, `array<atomic<u32>>` (8 words): this frame's emission tickets (the host clears this word each frame), emitted total, drained total, then drained per sink | `emit`, `probe` |
+| 4 | storage (read) | CS | Velocity grid (same buffer as `mpm` binding 3), for its mass channel | `probe`, `exportParticles` (the density that tells spray from liquid) |
+| 5 | storage (rw) | CS | Profile, `array<u32>`: mass per grid layer × 256, then the emitted and drained totals and the drained count of each sink | `probe` |
+| 6 | storage (rw) | CS | Draw records, `array<GpuParticle>` (16 B, `common/particle.wgsl`) — what the `particle` layout's binding 4 reads | `exportParticles` |
+
+`emit` and `exportParticles` run at `@workgroup_size(64)` over every slot of
+the budget; `probe` at `@workgroup_size(1)`, one invocation per grid layer.
+
+### `fluidSplat`, `fluidFilter`, `fluidComposite` — screen-space liquid surface (ADR-0022)
+
+Three layouts for the five passes of `fluid-surface` (`docs/FLUIDS.md` → The
+surface). All three bind the same 224-byte `FluidSurfaceParams`
+(`common/fluid-surface.wgsl`, `packFluidSurfaceParams`); two copies of it
+exist, one per filter direction.
+
+`fluidSplat` — `passes/fluid-splat.wgsl` (`vsSplat` + `fsDepth` or `fsThickness`):
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | uniform | VS + FS | `FluidSurfaceParams` |
+| 1 | storage (read) | VS | The solver's draw records, `array<GpuParticle>` (`mpmIo` binding 6) |
+
+`fluidFilter` — `passes/fluid-filter.wgsl`, run once along x and once along y:
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | uniform | FS | `FluidSurfaceParams` (the copy for this direction) |
+| 1 | texture (depth) | FS | The liquid depth target being read; the pass writes the other one as its depth attachment |
+
+`fluidComposite` — group 1 of `passes/fluid-composite.wgsl`; group 0 is
+`frame` (it reads the lighting, binding 5, and the prefiltered environment,
+7 and 8):
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | uniform | FS | `FluidSurfaceParams` |
+| 1 | texture (depth) | FS | Filtered liquid depth: distance along the view axis over the far plane, 1 = no liquid |
+| 2 | texture | FS | Liquid thickness (`r16float`, scene units) |
+| 3 | texture | FS | Copy of the scene colour, for refraction |
+| 4 | texture (depth) | FS | Scene depth — the resolved one on an MSAA frame |
+| 5 | sampler | FS | Linear (the post stack's) |
 
 ### `fdtdSlice` — FDTD slice panel in the scene pass (ADR-0010, materials ADR-0012)
 

@@ -32,6 +32,7 @@ npm run dev          # http://localhost:5173/  (https: false; localhost is fine 
 | WASM plant | `?wasmPhysics=1` |
 | Mock hardware | `?mockHardware=1` (add `&mockParamError=0.2` for a ±20 % rig to **Calibrate** against — ADR-0019) |
 | Lab audio | `?audio=1` (silent until your first click/keypress; header badge mutes) |
+| IR view | `?thermal=1` — every bench in false colour by temperature; only Peltier, pulse-coil and drop-tube have a thermal model (docs/FLUIDS.md → IR view) |
 | Circuit Lab | `?circuit=transformer-bridge-rc` (with `&mode=transformer`); examples in `src/circuit/examples.ts`, docs/CIRCUIT.md |
 | Showroom / Lab / Twin | `?labMode=showroom\|lab\|twin` (header buttons; remembered). Explicit flags win: kiosk `?labMode=showroom&look=drama&audio=1`, class `?labMode=lab&class=1`, bench `?labMode=twin` |
 
@@ -78,10 +79,24 @@ WASM plants: `physics/devices.json` `wasmMode` (codegen `enum SimMode`). Shader
 slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 
 - **SEG** is the highest-fidelity path (layout presets, flux, PBR).
-- **Peltier** is a resolved 1-D thermoelectric cooler (28 nodes, `ros23`). **MHD** is still one
-  lumped speed; its picture is the analytic Hartmann profile, not a flow solve. Both: docs/FLUIDS.md.
-- **Liquid:** an MLS-MPM solver exists (`src/fluids/`, `passes/mpm-*.wgsl`, ADR-0022) and is
-  tested on CPU and GPU, but no bench runs it yet — Heron and Kelvin still draw closed-form droplets.
+- **Peltier** is a resolved 1-D thermoelectric cooler (28 nodes, `ros23`). **MHD** is one
+  mean speed whose friction and braking are derived from the analytic Hartmann profile and the
+  circuit (`physics/mhd-duct.ts`). Its parcels draw that profile; on WebGPU in focus a lattice-Boltzmann
+  slice of the duct's mid-plane (`fluids/mhd-slice*.ts`, `passes/mhd-slice-*.wgsl`, potential + four
+  electrode pairs) is drawn as a panel — lazy chunk, lifetime `mhd-slice`, same `?fluid=` gate. Both: docs/FLUIDS.md.
+- **Liquid:** an MLS-MPM solver (`src/fluids/`, `passes/mpm-*.wgsl`, ADR-0022). Heron's jet runs
+  on it — WebGPU, Heron in focus, `?fluid=auto|off|low|high` — through
+  `visualizer/heron-liquid-pass.ts` (frame-graph lifetime `heron-liquid`; overview allocates none).
+  That file is only the gate: the solver, `fluids/*` and the shaders are `heron-liquid-runtime.ts`,
+  a chunk fetched on first Heron focus — keep them out of the WebGPU chunk (`check:entry-chunk`).
+  It is shown at 1/6 speed, and drawn as a screen-space surface from the `medium` quality tier
+  (`fluid-surface-pass.ts`, `passes/fluid-*.wgsl`; spray stays particles).
+- **Kelvin's drops** are charged and feel the rings and collectors (`physics/kelvin-dropper.ts`,
+  `kelvin-layout.ts`): on the solver on WebGPU, the same law on the CPU on WebGL2, in focus. The
+  share that lands scales the plant's charging (`kelvinCollectionEff` in, `kelvinLandedShare` out;
+  not measured = 1, so headless runs and goldens are unchanged). Real time, 0.048 m per scene unit.
+- **Heron's plant** is Bernoulli + Darcy–Weisbach, the same in TS and C++ (`test:golden`); the C++
+  plant needs the layout preset sent to it (`setHeronLayout`). 0.64 m per scene unit, SI gravity.
 - Overview can enable all; particles/meshes scale with quality and view LOD.
 - **Circuit Lab** (`src/circuit/`, ADR-0018): `pulse-coil`, `homopolar`,
   `transformer` have catalog `ports`. A wired bench is stepped by its port
@@ -122,7 +137,7 @@ npm run test:experiments:live # same files on the live runner: headless LabSessi
 npm run test:snapshots   # plant snapshots: native + shipped WASM + TS save→load→step bit-identical, JS→C++ cross-load
 npm run test:twin-snapshot # closed-loop twin: snapshot ω wins at the restore, the next ?mockHardware=1 sample after
 npm run test:twin       # EKF χ²-consistent, sysid within 5 % from 30 s, one Calibrate on the ±20 % mock, profile via #lab2= (ADR-0019)
-npm run check:entry-chunk # vite build → entry closure has no uPlot / experiments / analysis panel / recorder / embed
+npm run check:entry-chunk # vite build → entry closure has no uPlot / experiments / analysis panel / recorder / embed; WebGPU chunk has no liquid solver
 npm run test:embed      # embed postMessage validator, origin allowlist, hz clamp, classroom channel
 npm run test:frame-clock # UI frame clock: hz throttle, unsubscribe, LabSession.publishFrame tick
 npm run test:uniform-ring # per-draw uniform ring, key-light shadow fit, render-bundle replay
@@ -138,7 +153,14 @@ npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switche
 npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement
 npm run test:drop-tube # drop-tube k / end taper / loops vs quadrature, transit vs RK4
 npm run test:hartmann # MHD duct: analytic Hartmann profile (TS vs C++), timeline parcels, Ha range (docs/FLUIDS.md)
+npm run test:ir-view  # IR view: the ramp's three copies, lumped bodies from the catalog, which bench has a model, every mesh shader's switch
+npm run test:mhd-slice # MHD lattice-Boltzmann slice, CPU twin: Hartmann profile at Ha 0/5/20, wall friction = the plant's, electrodes, loads, wall jets (the WGSL runs in test:gpu-golden)
 npm run test:mpm      # MLS-MPM liquid: CPU reference — i32 overflow bound, mass / momentum, free fall at g, ρ·g·h, viscous decay (ADR-0022; the WGSL runs in test:gpu-golden)
+npm run test:mpm-io   # …and what a bench adds: signed-distance solids, emitters, sinks, the height profile, a jet at v²/2g
+npm run test:heron-liquid # Heron's liquid scene per preset × tier, fluid= tier choice, focus gate, focus camera
+npm run test:catalog-fluid # catalog `fluid` blocks: validation, tier fall-back, budgets inside the solver's, scenes sized from them
+npm run test:kelvin-liquid # Kelvin dropper: Rayleigh–Plateau drops, Rayleigh limit, the scene vs the drawn bench, landing share vs potential (solver twin + CPU drops)
+npm run test:fluid-surface # liquid surface: uniform block vs WGSL, narrow-range filter CPU twin, optics per look (the passes run in test:gpu-golden)
 npm run test:peltier  # Peltier cooler: ΔT_max / I_opt / COP / energy balance on native + WASM + TS, array snapshots, v1 migration (ADR-0021)
 npm run test:field-volume # field kernels vs quadrature; field-probe/-volume WGSL run on the CPU vs the reference (ADR-0017)
 npm run test:circuit  # Circuit Lab: native MNA goldens + their WASM replay (LC energy, RLC Q), SPICE, host, links (ADR-0018)

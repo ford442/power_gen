@@ -264,6 +264,15 @@
         { "name": "getHeronVExit", "ret": "f32" },
         { "name": "getHeronFlowLmin", "ret": "f32" },
         { "name": "getHeronPressureKPa", "ret": "f32" },
+        { "name": "getHeronHeadMax", "ret": "f32" },
+        {
+          "name": "setHeronLayout",
+          "ret": "void",
+          "args": [
+            ["headMaxM", "f32"], ["pipeLengthM", "f32"], ["pipeDiameterM", "f32"], ["nozzleDiameterM", "f32"],
+            ["dischargeCoeff", "f32"], ["roughness", "f32"], ["pumpRate", "f32"], ["drainCoeff", "f32"]
+          ]
+        },
         { "name": "getKelvinVoltage", "ret": "f32" },
         { "name": "getKelvinVoltageN", "ret": "f32" },
         { "name": "getKelvinE", "ret": "f32" },
@@ -271,6 +280,8 @@
         { "name": "getKelvinVbreak", "ret": "f32" },
         { "name": "getKelvinSeedV", "ret": "f32" },
         { "name": "setKelvinSeedV", "ret": "void", "args": [["seedV", "f32"]] },
+        { "name": "getKelvinCollectionEfficiency", "ret": "f32" },
+        { "name": "setKelvinCollectionEfficiency", "ret": "void", "args": [["eff", "f32"]] },
         { "name": "getSolarBattery", "ret": "f32" },
         { "name": "getPeltierHotK", "ret": "f32" },
         { "name": "getPeltierColdK", "ret": "f32" },

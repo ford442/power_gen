@@ -112,6 +112,17 @@
           // MHD duct: the flow is along +x and nowhere else (posMhd, particle-compute.wgsl).
           vel = vec3f(0.4, 0.0, 0.0);
         }
+        // Effect types 9–11: a particle of the liquid solver (mpm-export.wgsl).
+        // Its position is the solver's; there is no closed-form path behind it,
+        // so it is drawn round and camera-facing. `phase` is its speed over
+        // maxSpeed. 9 is liquid drawn as particles, 10 is spray (thin liquid,
+        // always drawn here), 11 is liquid the surface pass draws instead
+        // (passes/fluid-splat.wgsl): its quad is collapsed below.
+        let liquid = effectType > 8.5 && effectType < 10.5;
+        let underSurface = effectType > 10.5 && effectType < 11.5;
+        if (liquid) {
+          vel = vec3f(0.0, 1e-4, 0.0);
+        }
         let peltierAir = effectType < 0.5 && mode > 3.5 && mode < 4.5;
         if (peltierAir) {
           // Peltier air parcels drift vertically (posPeltier); the generic path estimate does not apply.
@@ -144,6 +155,13 @@
         if (peltierAir) {
           size = 0.03;
         }
+        if (liquid) {
+          size = 0.034;  // about two particle spacings at the default tier: a jet reads as a jet
+          if (mode > 1.5 && mode < 2.5) {
+            // Kelvin: a particle is one drop, 3.3 mm in radius at 0.048 m a unit.
+            size = 0.07;
+          }
+        }
 
         var stretch = 1.0 + speed * 0.8;
         if (effectType > 0.5 && effectType < 1.5) {
@@ -169,16 +187,23 @@
           size *= 0.6;
         }
         
+        if (liquid) {
+          stretch = 1.0;
+        }
         let worldPos = pos + devicePos + 
                        right * quadPos.x * size + 
                        velDir * quadPos.y * size * stretch;
         
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
+        if (underSurface) {
+          // Behind the far plane: clipped.
+          output.position = vec4f(0.0, 0.0, 2.0, 1.0);
+        }
         output.particlePhase = phase;
         output.uv = quadPos * 0.5 + 0.5;
         output.effectType = effectType;
-        output.speed = speed;
+        output.speed = select(speed, phase, liquid);
         output.life = fract(uniforms.time * 0.5 + phase);
         
         return output;

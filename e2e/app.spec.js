@@ -1,6 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
-import { gotoWebGL2, trackPageErrors, waitForEval } from './helpers.js';
+import { gotoWebGL2, shareHashFields, trackPageErrors, waitForEval } from './helpers.js';
 
 test.describe('SEG WebGL2 smoke', () => {
 
@@ -1557,9 +1557,12 @@ test.describe('Device explainer tours', () => {
       }), key);
       expect(snap.step).toBe(2);
       expect(snap.view).toBe(mode);
-      // The tour writes its own state back, so the link stays shareable.
-      expect(snap.hash).toContain(`mode=${mode}`);
-      expect(snap.hash).toContain('tour=1');
+      // The tour writes its own state back, so the link stays shareable. It
+      // writes it as a compressed `#lab2=` link, a moment after boot: read the
+      // fields out of whichever form the hash is in by now, not its text.
+      const shared = shareHashFields(snap.hash);
+      expect(shared.mode, `hash ${snap.hash}`).toBe(mode);
+      expect([true, 1, '1'], `tour in ${JSON.stringify(shared)}`).toContain(shared.tour);
     });
   }
 
@@ -2868,3 +2871,35 @@ async function embedProtocolFlow(page, baseURL) {
   expect(await lab.evaluate(() => window.multiVisualizer?.currentView)).toBe('hall');
   expect(pageErrors).toEqual([]);
 }
+
+// IR view (fluids epic, step 8): false colour by temperature on the fallback
+// renderer too — the same ramp, the same legend, the same sources.
+test.describe('IR view (?thermal=1)', () => {
+  test('boots clean on WebGL2; the legend reads the Peltier plant and admits which benches have no model', async ({ page }) => {
+    const { pageErrors } = trackPageErrors(page);
+    await gotoWebGL2(page, 'thermal=1');
+    await expect(page.locator('#ir-legend')).toContainText('IR view', { timeout: 30_000 });
+    await page.evaluate(() => window.setMode('peltier'));
+    await page.getByText('SPIN-UP', { exact: false }).first().click();
+    await waitForEval(page, () => {
+      const d = /** @type {any} */ (window.multiVisualizer).devices.peltier;
+      const p = d.physicsState ?? d.physics;
+      return !!p?.peltierNodesK && p.peltierNodesK[0] < 292.5;
+    }, { timeout: 60_000 });
+    await expect(page.locator('#ir-legend')).toContainText(/cold block [+−]\d+ °C, heat sink \+\d+ °C/, { timeout: 30_000 });
+    await page.evaluate(() => window.setMode('heron'));
+    await expect(page.locator('#ir-legend')).toContainText('no thermal model', { timeout: 30_000 });
+    // The switch reaches the mesh programs: both carry the uniform.
+    const viz = await page.evaluate(() => /** @type {any} */ (window.multiVisualizer).thermalView);
+    expect(viz).toBe(true);
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('off by default: no legend, and the meshes keep their own shading', async ({ page }) => {
+    await gotoWebGL2(page);
+    await page.evaluate(() => window.setMode('peltier'));
+    await page.waitForTimeout(1500);
+    expect(await page.locator('#ir-legend').count()).toBe(0);
+    expect(await page.evaluate(() => !!(/** @type {any} */ (window.multiVisualizer).thermalView))).toBe(false);
+  });
+});

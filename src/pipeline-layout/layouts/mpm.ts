@@ -2,16 +2,64 @@ import type { LayoutRegistrar } from '../types.js';
 import { BGL } from '../generated/bind-group-layouts.js';
 
 /**
- * MLS-MPM liquid solver (ADR-0022). One layout for the three passes of a
- * substep, so a solver holds one bind group: params, particles, the
- * fixed-point grid p2g scatters into, and the velocity grid.
+ * MLS-MPM liquid solver (ADR-0022).
  *
- * Each pass declares only the bindings it uses. Binding 2 is
- * `array<atomic<i32>>` in mpm-p2g.wgsl and a plain `array<i32>` in
- * mpm-grid.wgsl — the same buffer, read after the scatter has finished.
+ * `mpm` — the three passes of a substep, so a solver holds one bind group for
+ * them: params, particles, the fixed-point grid p2g scatters into, the
+ * velocity grid, and the boundary's signed-distance field. Each pass declares
+ * only the bindings it uses. Binding 2 is `array<atomic<i32>>` in
+ * mpm-p2g.wgsl and a plain `array<i32>` in mpm-grid.wgsl — the same buffer,
+ * read after the scatter has finished. Binding 4 is always bound;
+ * `params.flags` says whether it holds a field (a solver without solids binds
+ * a one-node dummy).
+ *
+ * `mpmIo` — the once-a-frame passes around the substeps: emitters and sinks,
+ * the height profile read-back, and the export to the 16-byte records the
+ * particle pipeline draws. The velocity grid is read-only here.
  */
 export function registerMpmLayouts(r: LayoutRegistrar): void {
   // passes/mpm-p2g.wgsl, mpm-grid.wgsl, mpm-g2p.wgsl.
   r.bgl('mpm', BGL.mpm);
   r.pl('mpm', ['mpm']);
+
+  // passes/mpm-emit.wgsl, mpm-probe.wgsl, mpm-export.wgsl.
+  r.bgl('mpmIo', BGL.mpmIo);
+  r.pl('mpmIo', ['mpmIo']);
+}
+
+/**
+ * MHD duct slice (docs/FLUIDS.md → MHD duct → The slice): the lattice-
+ * Boltzmann step and the potential / circuit passes share one layout, so a
+ * solver holds two bind groups — the distribution buffers swapped. Binding 2
+ * is the distributions read this step, 3 the ones written.
+ */
+export function registerMhdSliceLayouts(r: LayoutRegistrar): void {
+  // passes/mhd-slice-lbm.wgsl, mhd-slice-phi.wgsl.
+  r.bgl('mhdSlice', BGL.mhdSlice);
+  r.pl('mhdSlice', ['mhdSlice']);
+
+  // passes/mhd-slice-draw.wgsl: the panel in the scene pass; group 0 is the frame group.
+  r.bgl('mhdSliceDraw', BGL.mhdSliceDraw);
+  r.pl('mhdSliceDraw', ['frame', 'mhdSliceDraw']);
+}
+
+/**
+ * Screen-space liquid surface (ADR-0022, docs/FLUIDS.md → The surface).
+ *
+ * `fluidSplat` — sphere impostors from the solver's draw export, into the
+ * liquid's own depth target and, additively, its thickness target.
+ * `fluidFilter` — one direction of the narrow-range depth filter: reads one
+ * depth target, writes the other.
+ * `fluidComposite` — group 1 of the pass that shades the surface over the
+ * scene colour; group 0 is the scene's frame group (camera, lighting, IBL).
+ */
+export function registerFluidSurfaceLayouts(r: LayoutRegistrar): void {
+  r.bgl('fluidSplat', BGL.fluidSplat);
+  r.pl('fluidSplat', ['fluidSplat']);
+
+  r.bgl('fluidFilter', BGL.fluidFilter);
+  r.pl('fluidFilter', ['fluidFilter']);
+
+  r.bgl('fluidComposite', BGL.fluidComposite);
+  r.pl('fluidComposite', ['frame', 'fluidComposite']);
 }

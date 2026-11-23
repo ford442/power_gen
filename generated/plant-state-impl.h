@@ -40,7 +40,8 @@ int SEGSimulator::plantSave(int mode) {
             s[4] = _kelvin.voltageN;
             s[5] = _kelvin.E;
             s[6] = _kelvin.seedV;
-            s[7] = _kelvin.drive;
+            s[7] = _kelvin.collectEff;
+            s[8] = _kelvin.drive;
             break;
         case SIM_MODE_SOLAR:
             s[2] = _solar.batteryCharge;
@@ -178,7 +179,8 @@ bool SEGSimulator::plantLoad(int mode, int count, uint32_t layoutHash) {
             _kelvin.voltageN = s[4];
             _kelvin.E = s[5];
             _kelvin.seedV = s[6];
-            _kelvin.drive = s[7];
+            _kelvin.collectEff = s[7];
+            _kelvin.drive = s[8];
             break;
         case SIM_MODE_SOLAR:
             _solar.batteryCharge = s[2];

@@ -26,6 +26,7 @@
  * experiment can start from a saved operating point (`"snapshot"` in its
  * definition) and a bench's state can be handed to the live lab.
  */
+import { getHeronLayout } from '../heron-layout';
 import '../devices/register-plugins';
 import { WASM_MODE_BY_ID } from '../../generated/device-catalog';
 import { OPERATOR_STATUS, SEGOperatorState } from '../seg-operator-state';
@@ -66,9 +67,11 @@ export interface CppPlant {
   setHallCarrierMetal(metal: boolean): void;
   setHallFieldCoupledT(fieldT: number): boolean;
   setKelvinSeedV(seedV: number): boolean;
+  setKelvinCollectionEfficiency?(eff: number): boolean;
   setLorentzFieldT(fieldT: number): void;
   setPeltierLoadW(watts: number): void;
   setPeltierPolarity(sign: number): void;
+  setHeronLayout(layout: ReturnType<typeof getHeronLayout>): void;
   getRollerStateFloatView?(): Float32Array | null;
   /** The C ABI simulator (`SEGSim.raw`), for `plantSave` / `plantLoad`. */
   readonly raw?: SEGSimulatorInstance | null;
@@ -265,6 +268,8 @@ export class ExperimentBench implements PlantView {
       case 'kelvin': {
         const v = phys?.kelvinSeedCoupledV;
         const wants = typeof v === 'number' && Number.isFinite(v);
+        const landed = phys?.kelvinCollectionEff;
+        cpp.setKelvinCollectionEfficiency?.(typeof landed === 'number' && Number.isFinite(landed) ? landed : -1);
         return !cpp.setKelvinSeedV(wants ? v : -1) && wants;
       }
       case 'lorentz-sled':
@@ -273,6 +278,9 @@ export class ExperimentBench implements PlantView {
       case 'peltier':
         cpp.setPeltierLoadW(phys?.peltierLoadW ?? 0);
         cpp.setPeltierPolarity(phys?.peltierPolarity ?? 1);
+        return false;
+      case 'heron':
+        cpp.setHeronLayout(getHeronLayout(phys?.heronLayoutId));
         return false;
       default:
         return false;

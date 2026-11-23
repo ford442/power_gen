@@ -9,8 +9,14 @@
 import { getDeviceModeIndex } from './devices/device-registry';
 import { writeQueueBuffer } from './gpu-buffer-write';
 import { authoredColor } from './seg-lighting-presets';
+import { irDeviceCode, type IrViewState } from './thermal/ir-view';
+import { labConfig } from './config/lab-config';
 import type { DeviceInstanceConfig } from './device-instance';
 import type { VisualizerLike } from './devices/types';
+
+/** Every material block a mesh shader binds: two vec4 of the pipeline's own, then the IR view's. */
+const MATERIAL_BLOCK_BYTES = 48;
+const MATERIAL_THERMAL_OFFSET = 32;
 
 class DeviceUniformManager {
   device: GPUDevice;
@@ -105,10 +111,10 @@ class DeviceUniformManager {
     // Setup core material buffer for SEG
     if (this.id === 'seg' && this.config.core) {
       this.coreMaterialBuffer = this.device.createBuffer({
-        size: 32,
+        size: MATERIAL_BLOCK_BYTES,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-core-material`, 32, GPUBufferUsage.UNIFORM);
+      this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-core-material`, MATERIAL_BLOCK_BYTES, GPUBufferUsage.UNIFORM);
 
       const core = this.config.core;
       // baseColor (3) + emission (1) + coreColor (3) + glowIntensity (1)
@@ -129,25 +135,42 @@ class DeviceUniformManager {
       this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-coil-instances`, 24 * 3 * 48, GPUBufferUsage.STORAGE);
 
       this.coilMaterialBuffer = this.device.createBuffer({
-        size: 32,
+        size: MATERIAL_BLOCK_BYTES,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-coil-material`, 32, GPUBufferUsage.UNIFORM);
+      this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-coil-material`, MATERIAL_BLOCK_BYTES, GPUBufferUsage.UNIFORM);
       const coilMatData = new Float32Array([0.75, 0.45, 0.25, 0, 1.0, 0.55, 0.0, 2.5]);
       writeQueueBuffer(this.device, this.coilMaterialBuffer, coilMatData);
 
       this.ringMaterialBuffer = this.device.createBuffer({
-        size: 32,
+        size: MATERIAL_BLOCK_BYTES,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       });
-      this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-ring-material`, 32, GPUBufferUsage.UNIFORM);
+      this.visualizer.profiler?.trackBuffer?.(`device-${this.id}-ring-material`, MATERIAL_BLOCK_BYTES, GPUBufferUsage.UNIFORM);
       const ringMatData = new Float32Array([0.85, 0.48, 0.25, 0, 0.0, 1.2, 0.6, 1.8]);
       writeQueueBuffer(this.device, this.ringMaterialBuffer, ringMatData);
     }
   }
 
-  /** Per-frame material update — only solar's emission follows its battery. */
-  updateUniforms(energyLevel = 0.0): void {
+  /**
+   * The IR view's code for this bench (thermal/ir-view.ts), into the last
+   * vec4 of every material block its meshes read. Written every frame the
+   * view is on; the blocks are zero there otherwise, which is "off".
+   */
+  private writeThermal(state: IrViewState | null | undefined): void {
+    this.visualizer.thermalView ??= labConfig().thermal;
+    if (!this.visualizer.thermalView) return;
+    this._thermal[0] = irDeviceCode(this.id, state);
+    for (const buffer of [this.materialUniformBuffer, this.coreMaterialBuffer, this.coilMaterialBuffer, this.ringMaterialBuffer]) {
+      if (buffer) this.device.queue.writeBuffer(buffer, MATERIAL_THERMAL_OFFSET, this._thermal);
+    }
+  }
+
+  private readonly _thermal = new Float32Array(4);
+
+  /** Per-frame material update — solar's emission follows its battery; the IR view's code follows the plant. */
+  updateUniforms(energyLevel = 0.0, physicsState?: IrViewState | null): void {
+    this.writeThermal(physicsState);
     if (this.id !== 'solar') return;
     const baseColor = authoredColor(
       this.config.color ?? [0.7, 0.7, 0.75],

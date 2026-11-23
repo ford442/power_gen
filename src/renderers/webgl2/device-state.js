@@ -17,6 +17,14 @@ export class WebGL2DeviceState {
     this.particles = new Float32Array(this.particleCount * 8);
     /** Particle count after quality / view LOD scaling (set each frame by render.js). @type {number | undefined} */
     this.scaledParticleCount = undefined;
+    /**
+     * Kelvin only: drops landed in a collector / missed since the streams
+     * started, and the share of them over the last seconds (render.js).
+     * @type {{ landed: number, missed: number } | undefined}
+     */
+    this.kelvinTally = undefined;
+    /** @type {import('../../physics/kelvin-dropper').KelvinEfficiency | undefined} */
+    this.kelvinEfficiency = undefined;
     const heronLayout = id === 'heron'
       ? (visualizer?.heronLayout || getHeronLayout(visualizer?.heronLayoutPreset))
       : null;

@@ -259,12 +259,38 @@ export class SEGSim {
     return true;
   }
 
+  /**
+   * Kelvin: share of the droplets' charge that lands in the collectors, 0..1;
+   * negative (or non-finite) = not measured, the plant's own 1. False when the
+   * binary predates the knob.
+   */
+  setKelvinCollectionEfficiency(eff: number): boolean {
+    if (typeof this._sim?.setKelvinCollectionEfficiency !== 'function') return false;
+    const v = Number(eff);
+    this._sim.setKelvinCollectionEfficiency(Number.isFinite(v) ? v : -1);
+    return true;
+  }
+
   /** Lab charge coupling (ADR-0013); false when the binary predates the knob. */
   setKelvinSeedV(seedV: number): boolean {
     if (typeof this._sim?.setKelvinSeedV !== 'function') return false;
     const v = Number(seedV);
     this._sim.setKelvinSeedV(Number.isFinite(v) ? v : -1);
     return true;
+  }
+
+  /**
+   * The Heron layout preset's hydraulics (src/heron-layout.ts). The C++ plant
+   * defaults to `classic`; without this call every preset would step as that one.
+   */
+  setHeronLayout(layout: {
+    headMaxM: number; pipeLengthM: number; pipeDiameterM: number; nozzleDiameterM?: number;
+    dischargeCoeff?: number; roughness?: number; pumpRate?: number; drainCoeff?: number;
+  }): void {
+    this._sim?.setHeronLayout?.(
+      layout.headMaxM, layout.pipeLengthM, layout.pipeDiameterM, layout.nozzleDiameterM ?? 0.04,
+      layout.dischargeCoeff ?? 0.35, layout.roughness ?? 0.02, layout.pumpRate ?? 2.2, layout.drainCoeff ?? 0.30
+    );
   }
 
   /** Cold-block heat load, W (catalog setpoint `peltierLoad`). */
@@ -302,6 +328,7 @@ export class SEGSim {
         mode: 'kelvin',
         voltage: this._sim.getKelvinVoltage?.() ?? 0,
         voltageN: this._sim.getKelvinVoltageN?.() ?? 0,
+        landedShare: this._sim.getKelvinCollectionEfficiency?.() ?? 1,
         E: this._sim.getKelvinE?.() ?? 0,
         sparkTimer: this._sim.getKelvinSparkTimer?.() ?? 0
       };

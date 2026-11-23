@@ -170,8 +170,18 @@ ADR-0022) share `common/mpm.wgsl`. `scripts/tests/mpm.test.mjs` holds
 passes themselves run on Dawn against the CPU reference
 (`scripts/tests/gpu/golden-mpm.test.mjs`).
 
+The liquid's surface (`fluid-splat.wgsl`, `fluid-filter.wgsl`,
+`fluid-composite.wgsl`) shares `common/fluid-surface.wgsl`: the one uniform
+block, the effect types the solver's export writes, and the convention of the
+liquid's depth targets (linear distance over the far plane). The composite
+also includes the PBR chunks for the environment and the highlight, so it
+declares the frame group's IBL bindings ahead of them, as `seg-enhanced-frag`
+does. `scripts/tests/fluid-surface.test.mjs` holds the block to its struct and
+the filter to its CPU twin; `golden-fluid-surface` runs all three on Dawn.
+
 ```bash
 npm run test:mpm            # scripts/tests/mpm.test.mjs (ADR-0022)
+npm run test:fluid-surface  # scripts/tests/fluid-surface.test.mjs
 ```
 
 The FDTD wave slice has its own check: `FdtdParams` / `FdtdSliceParams` byte

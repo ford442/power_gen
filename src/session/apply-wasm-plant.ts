@@ -4,6 +4,8 @@
  */
 import { segOperator } from '../seg-operator-state';
 import { segWasm } from '../wasm/seg-physics-bridge';
+import { getHeronLayout } from '../heron-layout';
+import { PHYSICAL_CONSTANTS } from '../../generated/physics-constants';
 import {
   stepDevicePhysicsBatch,
   type DevicePhysicsState,
@@ -55,6 +57,8 @@ export interface WasmModePlant {
   voltageN?: number;
   E?: number;
   sparkTimer?: number;
+  /** Kelvin: the share of the drops' charge the plant was charged with (1 = all). */
+  landedShare?: number;
   battery?: number;
   hotK?: number;
   coldK?: number;
@@ -214,7 +218,13 @@ export function applyModePlantToDevices(
     heron.heronVExit = plant.vExit ?? heron.heronVExit;
     heron.heronFlowRateLmin = plant.flowLmin ?? 0;
     heron.heronPressureKPa = plant.pressureKPa ?? 0;
-    heron.energyLevel = Math.min(1, heron.heronVExit / 4);
+    heron.heronJetIdealM = (heron.heronVExit * heron.heronVExit) / (2 * PHYSICAL_CONSTANTS.G);
+    // Same normalisation as the JS plant: the exit speed over the preset's
+    // frictionless ceiling C_d·√(2·g·H_max).
+    const layout = getHeronLayout(heron.heronLayoutId);
+    heron.heronHeadMax = layout.headMaxM;
+    const vRef = Math.sqrt(2 * PHYSICAL_CONSTANTS.G * layout.headMaxM) * (layout.dischargeCoeff ?? 0.35);
+    heron.energyLevel = Math.min(1, heron.heronVExit / Math.max(vRef, 0.5));
     return;
   }
   if (focus === 'kelvin') {
@@ -225,6 +235,7 @@ export function applyModePlantToDevices(
     kelvin.kelvinVoltageN = plant.voltageN ?? 0;
     kelvin.kelvinE = plant.E ?? 0;
     kelvin.kelvinSparkTimer = plant.sparkTimer ?? 0;
+    kelvin.kelvinLandedShare = plant.landedShare ?? 1;
     kelvin.energyLevel = kelvin.kelvinVoltageN;
     return;
   }
@@ -398,6 +409,9 @@ export function syncWasmFocusKnobs(devices: SessionDeviceMap, focus: string): vo
     const seedV = devicePhysics(devices.kelvin)?.kelvinSeedCoupledV;
     const wantsSeed = typeof seedV === 'number' && Number.isFinite(seedV);
     const accepted = segWasm.setKelvinSeedV?.(wantsSeed ? seedV : -1) ?? false;
+    // What the liquid picture measured landing in the collectors; absent = everything.
+    const landed = devicePhysics(devices.kelvin)?.kelvinCollectionEff;
+    segWasm.setKelvinCollectionEfficiency?.(typeof landed === 'number' && Number.isFinite(landed) ? landed : -1);
     _kelvinSeedIgnoredByWasm = wantsSeed && !accepted;
     if (_kelvinSeedIgnoredByWasm && !_warnedKelvinSeedUnsupported) {
       _warnedKelvinSeedUnsupported = true;
@@ -439,6 +453,11 @@ export function syncWasmFocusKnobs(devices: SessionDeviceMap, focus: string): vo
     const peltier = devicePhysics(devices.peltier);
     segWasm.setPeltierLoadW?.(peltier?.peltierLoadW ?? 0);
     segWasm.setPeltierPolarity?.(peltier?.peltierPolarity ?? 1);
+  }
+  if (focus === 'heron') {
+    // The layout preset's pipe, nozzle and head ceiling: the C++ plant has
+    // only the classic numbers built in.
+    segWasm.setHeronLayout?.(getHeronLayout(devicePhysics(devices.heron)?.heronLayoutId));
   }
   if (focus === 'lorentz-sled') {
     // Local bench slider or FieldNetwork setpoint — both land in lorentzFieldT,

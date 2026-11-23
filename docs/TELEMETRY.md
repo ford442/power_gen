@@ -80,8 +80,8 @@ CSV column names live with the key in
 
 | Device | Keys (unit) | CSV columns |
 |---|---|---|
-| `heron` | `heronHead` (m), `heronHeadMax` (m), `heronVExit` (m/s), `heronFlowRateLmin` (L/min), `heronPressureKPa` (kPa) | `heron_head`, … |
-| `kelvin` | `kelvinV` (V), `kelvinVoltageN` (%), `kelvinVbreak` (V), `kelvinE` (V/m), `kelvinSparkTimer` (s) | `kelvin_v`, … |
+| `heron` | `heronHead` (m), `heronHeadMax` (m), `heronVExit` (m/s), `heronFlowRateLmin` (L/min), `heronPressureKPa` (kPa), `heronJetIdealM` (m, v²/2g), `heronJetHeightM` (m, read back from the liquid solver; 0 = not measured) | `heron_head`, … |
+| `kelvin` | `kelvinV` (V), `kelvinVoltageN` (%), `kelvinVbreak` (V), `kelvinE` (V/m), `kelvinSparkTimer` (s), `kelvinLandedShare` (% of the drops landing in the collectors — what the plant is charged with; 100 while nothing measures it) | `kelvin_v`, … |
 | `solar` | `batteryCharge` (%) | `battery_charge` |
 | `peltier` | `peltierHotK` (sink-side plate) / `peltierColdK` (load-side plate) / `peltierDeltaT` (K), `peltierVoltage` (V, terminal), `peltierCurrent` (A, signed), `peltierPowerW` (W, electrical **input**), `peltierCOP` (cooling, `Q_c / P_in`), `peltierQcW` / `peltierQhW` (W, heat pumped / rejected) | `peltier_hot_k`, … |
 | `mhd` | `mhdFlowU` (m/s), `mhdBFieldT` (T), `mhdHartmann`, `mhdVoltage` (V), `mhdCurrent` (A), `mhdPowerW` (W) | `mhd_flow_u`, … |

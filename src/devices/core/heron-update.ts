@@ -12,6 +12,10 @@ export const heronComputeRawEnergy: NonNullable<DevicePlugin['computeRawEnergy']
   return instance.flowEnergyLevel;
 };
 
+/** True while the liquid solver is drawing this bench's water (ADR-0022). */
+const liquidRuns = (instance: { id?: string; visualizer?: { liquidOwner?: string | null } }): boolean =>
+  !!instance.visualizer && instance.visualizer.liquidOwner === 'heron';
+
 export const heronUpdateFlowPaths: NonNullable<DevicePlugin['updateFlowPaths']> = (instance, ctx) => {
   const { count, time, energy, writePath } = ctx;
   const headN = instance.physicsState
@@ -48,6 +52,10 @@ export const heronUpdateFlowPaths: NonNullable<DevicePlugin['updateFlowPaths']> 
 };
 
 export const heronUpdateEffects: NonNullable<DevicePlugin['updateEffects']> = (instance, ctx) => {
+  // The mist clusters and impact ripples are stand-ins for a liquid. When the
+  // solver is drawing the real one they are not pushed: there is spray and
+  // splash in it already, and theirs is not where it is.
+  if (liquidRuns(instance)) return true;
   const { budget, gate, pushParticle } = ctx;
   const flowGate = Math.pow(gate(instance.flowEnergyLevel!, 0.18, 0.58), 1.2);
   const impactGate = Math.pow(gate(instance.flowEnergyLevel!, 0.55, 0.90), 1.6);

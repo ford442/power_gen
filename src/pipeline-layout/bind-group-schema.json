@@ -18,7 +18,9 @@
         ["coil-vert.wgsl", "coil-frag.wgsl"],
         ["energy-pipe-vert.wgsl", "energy-pipe-frag.wgsl"],
         ["seg-anomaly-walls.wgsl"],
-        ["fdtd-slice.wgsl"]
+        ["fdtd-slice.wgsl"],
+        ["fluid-composite.wgsl"],
+        ["mhd-slice-draw.wgsl"]
       ],
       "entries": [
         [0, "VF", "uniform"], [4, "V", "uniform"], [5, "F", "uniform"], [6, "F", "storage-ro"], [7, "F", "texture-array"],
@@ -150,7 +152,32 @@
     },
     "mpm": {
       "pipelines": [["mpm-p2g.wgsl"], ["mpm-grid.wgsl"], ["mpm-g2p.wgsl"]],
-      "entries": [[0, "C", "uniform"], [1, "C", "storage"], [2, "C", "storage"], [3, "C", "storage"]]
+      "entries": [[0, "C", "uniform"], [1, "C", "storage"], [2, "C", "storage"], [3, "C", "storage"], [4, "C", "storage-ro"]]
+    },
+    "mhdSlice": { "pipelines": [["mhd-slice-lbm.wgsl"], ["mhd-slice-phi.wgsl"]], "entries": [[0, "C", "uniform"], [1, "C", "storage-ro"], [2, "C", "storage-ro"], [3, "C", "storage"], [4, "C", "storage"], [5, "C", "storage"], [6, "C", "storage"]] },
+    "mhdSliceDraw": { "group": 1, "pipelines": [["mhd-slice-draw.wgsl"]], "entries": [[1, "VF", "uniform"], [2, "F", "uniform"], [3, "F", "storage-ro"], [4, "F", "storage-ro"], [6, "F", "storage-ro"]] },
+    "mpmIo": {
+      "pipelines": [["mpm-emit.wgsl"], ["mpm-probe.wgsl"], ["mpm-export.wgsl"]],
+      "entries": [
+        [0, "C", "uniform"], [1, "C", "storage"], [2, "C", "uniform"], [3, "C", "storage"], [4, "C", "storage-ro"],
+        [5, "C", "storage"], [6, "C", "storage"]
+      ]
+    },
+    "fluidSplat": {
+      "pipelines": [["fluid-splat.wgsl"]],
+      "entries": [[0, "VF", "uniform"], [1, "V", "storage-ro"]]
+    },
+    "fluidFilter": {
+      "pipelines": [["fluid-filter.wgsl"]],
+      "entries": [[0, "F", "uniform"], [1, "F", "texture-depth"]]
+    },
+    "fluidComposite": {
+      "group": 1,
+      "pipelines": [["fluid-composite.wgsl"]],
+      "entries": [
+        [0, "F", "uniform"], [1, "F", "texture-depth"], [2, "F", "texture"], [3, "F", "texture"], [4, "F", "texture-depth"],
+        [5, "F", "sampler"]
+      ]
     },
     "fdtdSlice": {
       "group": 1,

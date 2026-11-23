@@ -599,6 +599,14 @@ EMSCRIPTEN_KEEPALIVE float seg_getHeronPressureKPa(SEGSimulator* self) {
     return self->getHeronPressureKPa();
 }
 
+EMSCRIPTEN_KEEPALIVE float seg_getHeronHeadMax(SEGSimulator* self) {
+    return self->getHeronHeadMax();
+}
+
+EMSCRIPTEN_KEEPALIVE void seg_setHeronLayout(SEGSimulator* self, float headMaxM, float pipeLengthM, float pipeDiameterM, float nozzleDiameterM, float dischargeCoeff, float roughness, float pumpRate, float drainCoeff) {
+    self->setHeronLayout(headMaxM, pipeLengthM, pipeDiameterM, nozzleDiameterM, dischargeCoeff, roughness, pumpRate, drainCoeff);
+}
+
 EMSCRIPTEN_KEEPALIVE float seg_getKelvinVoltage(SEGSimulator* self) {
     return self->getKelvinVoltage();
 }
@@ -625,6 +633,14 @@ EMSCRIPTEN_KEEPALIVE float seg_getKelvinSeedV(SEGSimulator* self) {
 
 EMSCRIPTEN_KEEPALIVE void seg_setKelvinSeedV(SEGSimulator* self, float seedV) {
     self->setKelvinSeedV(seedV);
+}
+
+EMSCRIPTEN_KEEPALIVE float seg_getKelvinCollectionEfficiency(SEGSimulator* self) {
+    return self->getKelvinCollectionEfficiency();
+}
+
+EMSCRIPTEN_KEEPALIVE void seg_setKelvinCollectionEfficiency(SEGSimulator* self, float eff) {
+    self->setKelvinCollectionEfficiency(eff);
 }
 
 EMSCRIPTEN_KEEPALIVE float seg_getSolarBattery(SEGSimulator* self) {

@@ -1,6 +1,6 @@
 # ADR-0022: GPU liquid — an MLS-MPM solver in WebGPU compute
 
-- **Status:** Accepted (solver core; no bench uses it yet)
+- **Status:** Accepted (solver core, boundaries, emitters and sinks; Heron's fountain runs on it in the app, drawn as a screen-space surface from the `medium` tier; Kelvin's charged drops run on it too, as particles — docs/FLUIDS.md → Kelvin's dropper)
 - **Date:** 2026-11
 - **Context issue:** fluids and heat epic, step 3
 
@@ -61,8 +61,13 @@ instead of points — is the following steps.
    never passes 4 m/s gets finer momentum than one that allows a cell per
    substep.
 6. **Walls are slip nodes** on the box: nothing flows into a wall, tangential
-   motion is free. Boundaries from signed-distance fields and a body-force
-   hook are added with the benches that need them.
+   motion is free. Solids inside it are a signed-distance field sampled on
+   the grid nodes (`mpm-boundary.ts`): the grid pass removes velocity into a
+   solid at nodes inside one, and g2p puts a particle that ends a step inside
+   back on the surface. The field is evaluated from analytic primitives, not
+   baked from GLB triangles: the drawn vessels are instances of one fixed
+   cylinder and the props are optional decoration, so a mesh bake would have
+   had nothing reliable to bake from.
 7. **One layout, one bind group.** `mpm` has four bindings (params, particles,
    fixed-point grid, velocity grid); each pass declares the ones it uses.
    `MpmSolver` (`src/fluids/mpm-solver.ts`) owns the buffers and encodes
@@ -74,6 +79,28 @@ instead of points — is the following steps.
 9. **Particle state is not plant state.** It is not in a snapshot and not on
    the telemetry hub; a restore re-seeds it. Emission is seeded and substeps
    are fixed, so the same inputs give the same picture.
+10. **Emitters and sinks run on the GPU, once a frame** (`mpm-emit.wgsl`).
+    Empty slots take tickets from an atomic counter. Which slot gets which
+    ticket is a race; what a ticket makes is not — a particle is a function
+    of its id — and nothing downstream depends on slot order. Two runs agree
+    particle for particle.
+11. **A bench reads the liquid back as a height profile** (`mpm-probe.wgsl`):
+    mass per horizontal layer plus the emitted and drained totals, a few
+    hundred bytes copied out asynchronously. The epic suggested reusing
+    `chores-reduce-f32` for a max-height reduce. The profile was preferred: a
+    maximum is one stray droplet, while the highest layer above a threshold is
+    the jet, and the same read gives the mass in the box.
+
+12. **The liquid is drawn as a screen-space surface**, not meshed: sphere
+    impostors into a linear depth target and an additive thickness target, a
+    narrow-range filter on the depth, and a composite over the scene colour
+    with refraction, Beer–Lambert absorption and Fresnel reflection of the
+    scene's own environment. Marching cubes on the solver's grid was the
+    alternative: it gives a real mesh that shadows and SSR could use, but at
+    64³ its triangles are the size of the cells, and a jet two or three cells
+    across comes out faceted; the screen-space surface is as fine as the
+    pixels. Particles in liquid thinner than 15 % of rest density are spray
+    and stay points. Details and limits: `docs/FLUIDS.md` → The surface.
 
 ## What the step size costs
 
@@ -136,6 +163,14 @@ choice.
   measured with `?gpuTiming=1` on real hardware once a bench runs it.
 - A new compute pass family: `mpm` in `bind-group-schema.json`,
   `ensureMpmPipelines`, `test:pipelines` compiles it for every colour mode.
+- **The solver is a chunk of its own** (104 kB, 25 kB gzip: the host, the
+  boundary bake, the bench scene, the surface pass and nine shaders — the
+  surface's composite carries the PBR chunks and is half of it). With the
+  solver alone inside, the WebGPU chunk was 138 kB gzip against a budget of
+  135; outside, 126.5. The bench's
+  gate imports it the first frame it opens, so a visit that never brings a
+  liquid bench into focus does not download it. `check:entry-chunk` holds the
+  split.
 
 ## Tests
 
@@ -143,4 +178,5 @@ choice.
 |---------|-------|
 | `npm run test:mpm` | scales cannot overflow for any budget; the worst-case fill on the CPU; uniform and particle layouts against the WGSL structs; mass exact and momentum conserved through the transfers; free fall at `g`; a column at ρ·g·h within 5 % at default- and high-tier scales; the viscous decay rate; walls; fixed point against float accumulation |
 | `npm run test:gpu-golden` (`golden-mpm`) | the three WGSL passes on Dawn against `MpmCpu`: the grid after one substep to a few counts, 240 substeps of a dropped block to 2 % of a cell; momentum; a column at ρ·g·h within 5 %; the default budget on one node without a wrap; two runs byte-identical; each tier allocates and steps |
-| `npm run test:pipelines` | the three pipelines compile on Tint + Dawn against the `mpm` layout |
+| `npm run test:pipelines` | the solver's pipelines compile on Tint + Dawn against the `mpm` / `mpmIo` layouts, the surface's four against `fluidSplat` / `fluidFilter` / `fluidComposite`, in every colour mode |
+| `npm run test:fluid-surface`, `test:gpu-golden` (`golden-fluid-surface`) | the surface: see `docs/FLUIDS.md` → Heron → Tests |

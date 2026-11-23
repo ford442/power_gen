@@ -77,6 +77,8 @@ export interface LabConfig {
   fdtd: boolean;
   fdtdMaterials: boolean;
   fdtdDrive: 'coil' | 'transformer';
+  fluid: 'auto' | 'off' | 'low' | 'high';
+  thermal: boolean;
   fieldVolume: boolean;
   fieldSlice: 'off' | 'x' | 'y' | 'z';
   fieldSliceMode: 'heat' | 'arrows' | 'lic';
@@ -146,6 +148,8 @@ const ROWS: readonly LabFieldRow[] = [
   { key: 'fdtd', type: 'bool', default: true },
   { key: 'fdtdMaterials', type: 'bool', default: true },
   { key: 'fdtdDrive', type: 'enum', default: "coil", values: ["coil","transformer"] },
+  { key: 'fluid', type: 'enum', default: "auto", values: ["auto","off","low","high"], aliases: {"0":"off"} },
+  { key: 'thermal', type: 'bool', default: false },
   { key: 'fieldVolume', type: 'bool', default: true },
   { key: 'fieldSlice', type: 'enum', default: "off", values: ["off","x","y","z"], share: true, live: true },
   { key: 'fieldSliceMode', type: 'enum', default: "arrows", values: ["heat","arrows","lic"], share: true, live: true },
@@ -179,4 +183,4 @@ export const LAB_CONFIG_DEFAULTS = Object.fromEntries(
 ) as unknown as Readonly<LabConfig>;
 
 /** Hash of the field specs — versions `.lab.json` and #lab2= payloads. */
-export const LAB_CONFIG_SCHEMA_HASH = '124d47b68d36';
+export const LAB_CONFIG_SCHEMA_HASH = '3b36d361f775';

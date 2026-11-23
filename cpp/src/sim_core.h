@@ -187,6 +187,12 @@ public:
     float getHeronVExit() const { return _heron.vExit; }
     float getHeronFlowLmin() const { return _heron.flowLmin; }
     float getHeronPressureKPa() const { return _heron.pressureKPa; }
+    float getHeronHeadMax() const { return _heron.headMax; }
+    /// The active layout preset's hydraulics (src/heron-layout.ts PRESET_DEFS):
+    /// head ceiling, supply pipe, nozzle, discharge coefficient, relative
+    /// roughness, and the head ODE's pump and drain rates.
+    void setHeronLayout(float headMaxM, float pipeLengthM, float pipeDiameterM, float nozzleDiameterM,
+                        float dischargeCoeff, float roughness, float pumpRate, float drainCoeff);
     float getKelvinVoltage() const { return _kelvin.voltage; }
     float getKelvinVoltageN() const { return _kelvin.voltageN; }
     float getKelvinE() const { return _kelvin.E; }
@@ -194,6 +200,9 @@ public:
     float getKelvinVbreak() const { return _kelvin.vBreak; }
     float getKelvinSeedV() const { return _kelvin.seedV; }
     void  setKelvinSeedV(float seedV);
+    // Share of the droplets' charge that reaches the collectors (0..1; < 0 = not measured = 1).
+    float getKelvinCollectionEfficiency() const { return _kelvin.collectEff; }
+    void  setKelvinCollectionEfficiency(float eff);
     float getSolarBattery() const { return _solar.batteryCharge; }
     float getPeltierHotK() const { return _peltier.hotK; }
     float getPeltierColdK() const { return _peltier.coldK; }

@@ -189,15 +189,15 @@ export const SEG_GLOSSARY: Record<string, GlossaryEntry> = {
   },
   'bernoulli-exit': {
     title: 'Bernoulli exit speed',
-    body: 'Ideal jet speed from a head h is \u221a(2 g h). The model subtracts pipe head loss and multiplies by the nozzle discharge coefficient, so the exit speed never exceeds the ideal figure.',
+    body: 'Ideal jet speed from a head h is \u221a(2 g h). The model shares the head between the nozzle, through its discharge coefficient C_d, and friction in the supply pipe, so the exit speed never exceeds the ideal figure. A jet leaving at v rises v\u00b2/2g.',
     unit: 'm/s',
-    value: 'v = C_d \u221a(2 g (h \u2212 h_loss))',
+    value: 'h = v\u00b2/2g \u00b7 (1/C_d\u00b2 + f (L/D)(A_n/A_p)\u00b2)',
     source: 'heron-layout.ts computeHeronHydraulics'
   },
   'swamee-jain': {
     title: 'Swamee\u2013Jain friction',
-    body: 'An explicit fit for the Darcy friction factor at a given Reynolds number and relative roughness. Head loss is h_loss = f (L/D) v\u00b2/2g, so longer or thinner pipe costs more head.',
-    value: 'h_loss = f (L/D) v\u00b2/2g',
+    body: 'An explicit fit for the Darcy friction factor at a given Reynolds number and relative roughness. Head loss is h_loss = f (L/D) v_pipe\u00b2/2g at the speed in the pipe, which is the nozzle speed times the area ratio A_n/A_p, so longer or thinner pipe costs more head.',
+    value: 'h_loss = f (L/D) v_pipe\u00b2/2g',
     source: 'heron-layout.ts swameeJainFriction'
   },
   'capacitor-discharge': {
@@ -259,13 +259,13 @@ export const SEG_GLOSSARY: Record<string, GlossaryEntry> = {
   },
   'hartmann-braking': {
     title: 'Hartmann braking',
-    body: `A conducting fluid moving across B generates current, and that current feels a force opposing the flow. The model lumps it as ${MHD.lorentzK} B\u00b2 u against the pump, so the brake grows with the square of the field.`,
-    value: 'du/dt = pump \u2212 (k B\u00b2 + f) u',
-    source: 'devices/core/mhd-mesh.ts'
+    body: 'A conducting fluid moving across B drives a current through the load, and that current feels a force opposing the flow: (\u03c3B\u00b2/\u03c1) u times the share of the circuit\u2019s resistance that is the fluid\u2019s own. The brake grows with the square of the field, is zero on open circuit and largest on a short. Wall friction is the Hartmann profile\u2019s own shear, which also grows with the field as the layers thin.',
+    value: 'du/dt = pump \u2212 (\u03c3B\u00b2/\u03c1 \u00b7 R\u1d62/(R\u1d62+R\u2097) + \u03bd\u03a6(Ha)/a\u00b2) u',
+    source: 'physics/mhd-duct.ts'
   },
   'hartmann-number': {
     title: 'Hartmann number',
-    body: 'Ha = B a \u221a(\u03c3 / \u03c1\u03bd) compares magnetic to viscous force across the gap. Small Ha is the parabolic profile of ordinary pipe flow; large Ha is a flat core with Hartmann layers a/Ha thick at the walls. It sets the profile the markers in the duct draw. It is not fed back into the plant\u2019s braking.',
+    body: 'Ha = B a \u221a(\u03c3 / \u03c1\u03bd) compares magnetic to viscous force across the gap. Small Ha is the parabolic profile of ordinary pipe flow; large Ha is a flat core with Hartmann layers a/Ha thick at the walls. It sets the profile the markers in the duct draw, and through the profile\u2019s wall shear the friction the plant\u2019s flow works against.',
     value: `Ha \u2248 ${(MHD.halfGapM * Math.sqrt(MHD.sigmaSm / (MHD.rhoKgM3 * MHD.nuM2s))).toFixed(0)} per tesla`,
     source: 'physics/hartmann.ts'
   },

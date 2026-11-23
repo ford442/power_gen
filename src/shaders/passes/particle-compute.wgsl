@@ -58,24 +58,44 @@ fn posHeron(phase: f32, t: f32, idx: u32) -> vec3f {
   return pos;
 }
 
+// Kelvin's dropper, as drawn and at its scale. Mirrored from
+// src/kelvin-layout.ts (KELVIN_APPARATUS) and physics/constants.json `kelvin`;
+// scripts/tests/kelvin-liquid.test.mjs holds the two together.
+const KELVIN_COLUMN_X: f32 = 2.5;
+const KELVIN_TIP_Y: f32 = 5.87;
+const KELVIN_MOUTH_Y: f32 = -2.15;
+const KELVIN_COLLECTOR_Y: f32 = -3.4;
+const KELVIN_M_PER_UNIT: f32 = 0.048;
+const KELVIN_TIME_SCALE: f32 = 1.0;
+const KELVIN_NOZZLE_D: f32 = 0.0035;
+const KELVIN_RP_WAVELENGTH: f32 = 4.508;
+const KELVIN_MIN_JET_MS: f32 = 0.012;
+const KELVIN_G: f32 = 9.80665;
+
+/// Kelvin, with no solver running (overview, fluid=off, critical tier): the
+/// train of drops a tip makes with no charge on anything. One drop every
+/// Rayleigh–Plateau period, falling under gravity alone from the tip to its
+/// collector's mouth, at the bench's time scale. Stateless, so it cannot
+/// show the field's effect; the solver does that in focus.
+///   physics2  jet speed at the tips, m/s
+/// A slot the train has no use for, and a drop that has landed, sit inside
+/// the collector. CPU twin: kelvinStandInDrop (src/physics/kelvin-dropper.ts).
 fn posKelvin(phase: f32, t: f32, idx: u32) -> vec3f {
-  let voltN = uniforms.physics0;
-  let spark = uniforms.physics1;
-  let qE = uniforms.physics2;
-  let cycleT = fract(t * (0.28 + voltN * 0.12) + phase);
-  let side   = select(-1.0, 1.0, (idx & 1u) == 1u);
-  let wobble = sin(t * 4.0 + phase * 20.0) * (0.06 + voltN * 0.12);
-  let levitate = select(0.0, sin(t * 9.0 + phase * 24.0) * voltN * 0.45, voltN > 0.72);
-  var pos: vec3f;
-  if (cycleT < 0.82) {
-    let k = cycleT / 0.82;
-    pos = vec3f(side * 2.5 + wobble, 5.5 - k * 8.8 + levitate + qE * 0.02, wobble * 0.4);
-  } else {
-    let k = (cycleT - 0.82) / 0.18;
-    let scatter = spark * sin(phase * 62.83 + t * 22.0) * 0.9;
-    pos = vec3f(side * 2.5 * (1.0 - k * 1.9) + scatter, -3.2 + k * 1.4, scatter * 0.5);
-  }
-  return pos;
+  let v0 = uniforms.physics2;
+  let side = select(-1.0, 1.0, (idx & 1u) == 1u);
+  let parked = vec3f(side * KELVIN_COLUMN_X, KELVIN_COLLECTOR_Y, 0.0);
+  if (!(v0 >= KELVIN_MIN_JET_MS)) { return parked; }
+  let fall = (KELVIN_TIP_Y - KELVIN_MOUTH_Y) * KELVIN_M_PER_UNIT;
+  let flight = (sqrt(v0 * v0 + 2.0 * KELVIN_G * fall) - v0) / KELVIN_G;
+  let period = KELVIN_RP_WAVELENGTH * KELVIN_NOZZLE_D / v0;
+  let slots = ceil(flight / period) + 1.0;
+  let k = f32(idx / 2u);
+  if (k >= slots) { return parked; }
+  let cycle = slots * period;
+  let at = t * KELVIN_TIME_SCALE + k * period;
+  let tau = at - floor(at / cycle) * cycle;
+  if (tau > flight) { return parked; }
+  return vec3f(side * KELVIN_COLUMN_X, KELVIN_TIP_Y - (v0 * tau + 0.5 * KELVIN_G * tau * tau) / KELVIN_M_PER_UNIT, 0.0);
 }
 
 fn ledHexPos(ledIdx: u32) -> vec3f {

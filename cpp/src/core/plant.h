@@ -123,12 +123,29 @@ concept ParametricPlant = DifferentiablePlant<P> && requires(const P& cp, P& mp,
     { cp.outputs_p(xd, xd, u, outd) } -> std::same_as<void>;
 };
 
-/// f(t, x, u) and J = ∂f/∂x (row-major, J[i·N + j] = ∂f_i/∂x_j) from one
-/// Dual evaluation. Float in, float out — the precision the integrators run at.
+/// A plant may write ∂f/∂x out itself: `jacobian(t, x, u, J)`, row-major.
+/// Worth it for a large sparse one — a Dual over N states carries N partials
+/// through every operation, and for the 28-node Peltier leg that instantiation
+/// alone was 11 KB of the release binary for a tridiagonal answer.
+/// `--mode ad` holds whichever a plant uses to central differences.
+template <class P>
+concept AnalyticJacobianPlant = Plant<P> && requires(const P& cp, double t, const typename P::input_type& u,
+                                                     std::span<const float> x, std::span<float> J) {
+    { cp.jacobian(t, x, u, J) } -> std::same_as<void>;
+};
+
+/// f(t, x, u) and J = ∂f/∂x (row-major, J[i·N + j] = ∂f_i/∂x_j): the plant's
+/// own `jacobian` when it has one, else one Dual evaluation. Float in, float
+/// out — the precision the integrators run at.
 template <DifferentiablePlant P>
 inline void jacobian_x(const P& p, double t, std::span<const float> x, const typename P::input_type& u,
                        std::span<float> f, std::span<float> J) {
     constexpr std::size_t N = P::state_size;
+    if constexpr (AnalyticJacobianPlant<P>) {
+        p.derivs(t, x, u, f);
+        p.jacobian(t, x, u, J);
+        return;
+    }
     using D = Dual<float, N>;
     std::array<D, N> xd{}, fd{};
     for (std::size_t j = 0; j < N; ++j) xd[j] = D::variable(x[j], j);

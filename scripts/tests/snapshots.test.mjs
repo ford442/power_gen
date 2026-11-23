@@ -48,9 +48,11 @@ const FRAMES_AFTER = 90;
 /**
  * TS plants are saved at several points of a run: a field that only matters
  * mid-event (a spark accumulator, a pulse timer) is zero at most instants, so
- * one save point can miss it.
+ * one save point can miss it. Frame 2 is there for a plant that has settled
+ * by frame 23 — the MHD duct's flow relaxes at hundreds per second — and
+ * would otherwise be loaded only at rest, where a load proves nothing.
  */
-const TS_SAVE_AT = [23, 90, 241, 607];
+const TS_SAVE_AT = [2, 23, 90, 241, 607];
 
 // Same tolerance (and the same single override) as tests/golden.test.mjs.
 const REL_EPS = 2e-4;
@@ -121,7 +123,7 @@ const PLANTS = {
  * diverges instead of matching by luck (a fresh state has the defaults).
  */
 const KNOBS = {
-  kelvin: { kelvinSeedCoupledV: 9000 },
+  kelvin: { kelvinSeedCoupledV: 9000, kelvinCollectionEff: 0.6 },
   transformer: { transformerLeakage: true },
   hall: { hallCarrierType: 'metal', hallFieldCoupledT: 0.27 },
   'lorentz-sled': { lorentzFieldT: 0.41 },
@@ -236,7 +238,7 @@ const bitsEqual = (x, y) =>
 function wasmKnobs(sim, id) {
   sim.setDrive(DRIVE);
   if (id === 'seg') sim.setRingLoadTorques(0.004, 0.009, 0.013);
-  if (id === 'kelvin') sim.setKelvinSeedV(9000);
+  if (id === 'kelvin') { sim.setKelvinSeedV(9000); sim.setKelvinCollectionEfficiency(0.6); }
   if (id === 'transformer') sim.setTransformerLeakage(true);
   if (id === 'hall') { sim.setHallCarrierMetal(true); sim.setHallFieldCoupledT(0.27); }
   if (id === 'lorentz-sled') sim.setLorentzFieldT(0.41);
@@ -305,6 +307,7 @@ for (const line of (golden.stdout || '').split('\n')) {
     hallFieldCoupledT: Number(kv.hallFieldCoupledT ?? -1),
     lorentzFieldT: Number(kv.lorentzFieldT ?? -1),
     kelvinSeedV: Number(kv.kelvinSeedV ?? -1),
+    kelvinCollect: Number(kv.kelvinCollect ?? -1),
   });
 }
 
@@ -329,6 +332,7 @@ describe('cross-load JS → C++ over the native golden schedules', () => {
       if (kase.hallFieldCoupledT >= 0) state.hallFieldCoupledT = kase.hallFieldCoupledT;
       if (kase.lorentzFieldT >= 0) state.lorentzFieldT = kase.lorentzFieldT;
       if (kase.kelvinSeedV >= 0) state.kelvinSeedCoupledV = kase.kelvinSeedV;
+      if (kase.kelvinCollect >= 0) state.kelvinCollectionEff = kase.kelvinCollect;
       for (let i = 0; i < kase.frames; i++) plant.step(state, kase.dt, kase.drive);
 
       const sim = new mod.SEGSimulator();

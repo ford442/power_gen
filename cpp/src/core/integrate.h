@@ -422,8 +422,9 @@ StepStats ros23_advance(const P& p, std::span<float> x, const typename P::input_
         const double hd = static_cast<double>(hh);
         if (!jacFresh) {
             if constexpr (DifferentiablePlant<P>) {
-                // J = ∂f/∂x exactly, from one Dual evaluation (core/dual.h) —
-                // #257 §1. Its f is f0 again, so it is not counted as an RHS.
+                // J = ∂f/∂x exactly: the plant's own, or one Dual evaluation
+                // (core/dual.h, #257 §1). Its f is f0 again, so it is not
+                // counted as an RHS.
                 jacobian_x(p, t, std::span<const float>(y), u, std::span<float>(fT), std::span<float>(J));
             } else {
                 // Forward-difference J (column j: perturb x_j).

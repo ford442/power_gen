@@ -45,6 +45,16 @@ export const KELVIN_CONSTANTS = {
   DROPLET_CHARGE_C: 1e-9,
   E_BREAKDOWN_VM: 3000000,
   BUCKET_DISTANCE_M: 6,
+  /** Metres per scene unit on the Kelvin bench: drop paths, gravity, the liquid box. */
+  METRES_PER_SCENE_UNIT: 0.048,
+  /** Simulated seconds per displayed second for the drops (docs/FLUIDS.md → Kelvin). */
+  LIQUID_TIME_SCALE: 1,
+  /** Drip tip bore, m, and the jet's speed at full drive, m/s. */
+  NOZZLE_DIAMETER_M: 0.0035,
+  JET_SPEED_MAX_MS: 0.6,
+  /** Water–air surface tension, N/m: the Rayleigh limit on a drop's charge. */
+  SURFACE_TENSION_NM: 0.072,
+  WATER_DENSITY: 1000,
 } as const;
 
 export const HERON_CONSTANTS = {
@@ -54,6 +64,10 @@ export const HERON_CONSTANTS = {
   SMOOTHING_LENGTH: 0.012,
   GRAVITY: 9.80665,
   ATMOSPHERIC_PRESSURE: 101325,
+  /** Metres per scene unit on the Heron bench: jet heights, particle gravity, the liquid box. */
+  METRES_PER_SCENE_UNIT: 0.64,
+  /** Simulated seconds per displayed second for the jet and pool (docs/FLUIDS.md). */
+  LIQUID_TIME_SCALE: 0.16666667,
 } as const;
 
 export const LED_SOLAR_CORE = {
@@ -149,9 +163,7 @@ export const PELTIER = {
 
 /** Hartmann MHD channel — mirrored by MHDState / MhdConstants in C++. */
 export const MHD = {
-  pumpAccelMs2: 6,
-  lorentzK: 2.5,
-  frictionK: 0.8,
+  pumpAccelMs2: 920,
   flowUMaxMps: 5,
   widthM: 0.1,
   halfGapM: 0.0005,
@@ -159,8 +171,7 @@ export const MHD = {
   sigmaSm: 1000000,
   rhoKgM3: 870,
   nuM2s: 8e-7,
-  rInternalOhm: 0.05,
-  rLoadOhm: 0.05,
+  rLoadOhm: 0.00025,
   bFieldBaseT: 0.2,
   bFieldSpanT: 0.8,
 } as const;

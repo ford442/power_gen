@@ -10,6 +10,7 @@ import {
   TUBE_MESH_RADIUS,
   type HeronMeshBundle
 } from './heron-layout';
+import { KELVIN_APPARATUS, KELVIN_COLLECTOR_MOUTH_Y } from './kelvin-layout';
 import {
   MATERIAL_COPPER,
   MATERIAL_COIL_FORMER,
@@ -87,57 +88,56 @@ export function buildHeronTubeInstances(presetId: string = HERON_LAYOUT_PRESETS.
   return buildHeronMesh(presetId).tubes;
 }
 
-/** Kelvin's Thunderstorm: 6 drip-can cylinders (3 per side). */
-export function buildKelvinInstances(): InstanceArray {
-  const copper = [0.82, 0.50, 0.28];
-  const can = [0.70, 0.74, 0.80];
-  const leftX = -2.5;
-  const rightX = 2.5;
-  return [
-    packInstance([leftX, 4.8, 0], MATERIAL_COPPER, [0, 0, 0, 1], can, 0.08),
-    packInstance([leftX, 1.5, 0], MATERIAL_COPPER, [0, 0, 0, 1], copper, 0.12),
-    packInstance([leftX, -2.5, 0], MATERIAL_COPPER, [0, 0, 0, 1], copper, 0.18),
-    packInstance([rightX, 4.8, 0], MATERIAL_COPPER, [0, 0, 0, 1], can, 0.08),
-    packInstance([rightX, 1.5, 0], MATERIAL_COPPER, [0, 0, 0, 1], copper, 0.12),
-    packInstance([rightX, -2.5, 0], MATERIAL_COPPER, [0, 0, 0, 1], copper, 0.18)
-  ];
-}
+/**
+ * Kelvin's Thunderstorm. Dimensions: KELVIN_APPARATUS (src/kelvin-layout.ts),
+ * which the liquid scene reads too, so the drops fall where this is drawn.
+ *
+ * Until the fluids epic each column also had three solid cans stacked along
+ * the stream, which the decorative droplets fell straight through. They are
+ * gone: a dropper is a drip tip, an induction ring under it, a clear fall
+ * and a collector, and that is now what is drawn.
+ */
 
 /** Kelvin induction rings (torus instances). ringIndex 100 signals ring geometry in fragment shader. */
 export function buildKelvinRingInstances(): InstanceArray {
   const ringColor = [0.90, 0.55, 0.20];
+  const { columnX, ringY } = KELVIN_APPARATUS;
   return [
-    packInstance([-2.5, 5.6, 0], MATERIAL_KELVIN_RING, [0, 0, 0, 1], ringColor, 0.25),
-    packInstance([2.5, 5.6, 0], MATERIAL_KELVIN_RING, [0, 0, 0, 1], ringColor, 0.25)
+    packInstance([-columnX, ringY, 0], MATERIAL_KELVIN_RING, [0, 0, 0, 1], ringColor, 0.25),
+    packInstance([columnX, ringY, 0], MATERIAL_KELVIN_RING, [0, 0, 0, 1], ringColor, 0.25)
   ];
 }
 
-/** Collection buckets at base of Kelvin columns. */
+/** Collector cans at the base of the Kelvin columns: what the drops fall into. */
 export function buildKelvinBucketInstances(): InstanceArray {
   const bucket = [0.55, 0.58, 0.64];
+  const { columnX, collectorY } = KELVIN_APPARATUS;
   return [
-    packInstance([-2.5, -3.4, 0], MATERIAL_COPPER, [0, 0, 0, 1], bucket, 0.1),
-    packInstance([2.5, -3.4, 0], MATERIAL_COPPER, [0, 0, 0, 1], bucket, 0.1)
+    packInstance([-columnX, collectorY, 0], MATERIAL_COPPER, [0, 0, 0, 1], bucket, 0.1),
+    packInstance([columnX, collectorY, 0], MATERIAL_COPPER, [0, 0, 0, 1], bucket, 0.1)
   ];
 }
 
 /**
  * Kelvin wiring: the signature CROSS connection — each induction ring is wired
- * to the OPPOSITE collection bucket (positive feedback loop), plus drip
- * nozzles under the header tank and a top support beam.
+ * to the OPPOSITE collector (positive feedback loop) — plus the drip tips
+ * hanging from the supply beam, ending just above the rings.
  */
 export function buildKelvinTubeInstances(): InstanceArray {
   const copperWire = [0.85, 0.52, 0.24];
   const steel = [0.60, 0.63, 0.68];
+  const { columnX, beamY, tipY, ringY, ringWire, wireZ } = KELVIN_APPARATUS;
+  const ringFoot = ringY - ringWire - 0.26;
+  const collectorShoulder = KELVIN_COLLECTOR_MOUTH_Y - 0.85;
   return [
-    // Cross wires: left ring → right bucket, right ring → left bucket
-    ...tubeSegments([-2.5, 5.2, 0.55], [2.5, -3.0, 0.55], copperWire, 0.16),
-    ...tubeSegments([2.5, 5.2, -0.55], [-2.5, -3.0, -0.55], copperWire, 0.16),
-    // Drip nozzles from header cans down through the induction rings
-    ...tubeSegments([-2.5, 4.2, 0], [-2.5, 3.0, 0], steel, 0.05),
-    ...tubeSegments([2.5, 4.2, 0], [2.5, 3.0, 0], steel, 0.05),
-    // Top support beam joining the two columns
-    ...tubeSegments([-2.5, 6.4, 0], [2.5, 6.4, 0], steel, 0.03)
+    // Cross wires: left ring → right collector, right ring → left collector
+    ...tubeSegments([-columnX, ringFoot, wireZ], [columnX, collectorShoulder, wireZ], copperWire, 0.16),
+    ...tubeSegments([columnX, ringFoot, -wireZ], [-columnX, collectorShoulder, -wireZ], copperWire, 0.16),
+    // Drip tips from the supply beam down into the induction rings
+    ...tubeSegments([-columnX, beamY, 0], [-columnX, tipY, 0], steel, 0.05),
+    ...tubeSegments([columnX, beamY, 0], [columnX, tipY, 0], steel, 0.05),
+    // Supply beam joining the two columns
+    ...tubeSegments([-columnX, beamY, 0], [columnX, beamY, 0], steel, 0.03)
   ];
 }
 
@@ -223,7 +223,7 @@ export const DEVICE_MESH_LAYOUTS: Record<string, DeviceMeshLayout> = {
     tubes: () => buildHeronMesh(HERON_LAYOUT_PRESETS.classic).tubes
   },
   kelvin: {
-    cylinders: () => [...buildKelvinInstances(), ...buildKelvinBucketInstances()],
+    cylinders: buildKelvinBucketInstances,
     rings: buildKelvinRingInstances,
     tubes: buildKelvinTubeInstances
   },

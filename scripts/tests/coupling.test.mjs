@@ -36,7 +36,7 @@ const ENTRY = `
 export * from './src/renderers/shared/charge-network.ts';
 export { FieldNetwork, FIELD_COUPLING_EDGES, readFieldCouplingPref } from './src/renderers/shared/field-network.ts';
 export { ENERGY_PIPE_EDGES, PIPE_COLORS, readEnergyCouplingPref } from './src/renderers/shared/energy-network.ts';
-export { createDevicePhysicsState, stepDevicePhysics, kelvinSeedV } from './src/renderers/shared/device-physics.ts';
+export { createDevicePhysicsState, stepDevicePhysics, kelvinSeedV, kelvinCollectionEff } from './src/renderers/shared/device-physics.ts';
 export { VDG, CHARGE_COUPLING, HALL, ENERGY_NETWORK_NAMEPLATES, PULSE_COIL_CORE } from './generated/physics-constants.ts';
 `;
 
@@ -159,6 +159,40 @@ describe('Kelvin plant honours the seed, and only through induction', () => {
     assert.ok(m.kelvinSeedV(s) === s.kelvinVbreak, 'the plant clamps an oversized seed at its own V_break');
     s.kelvinSeedCoupledV = -1;
     assert.ok(m.kelvinSeedV(s) === 0, 'a negative seed clears to 0');
+  });
+});
+
+describe('Kelvin plant: only the charge that lands charges the collectors', () => {
+  const run = (landed, drive = 0.5, frames = 90) => {
+    const s = kelvinState();
+    if (landed !== undefined) s.kelvinCollectionEff = landed;
+    for (let i = 0; i < frames; i++) m.stepDevicePhysics(s, 1 / 60, drive);
+    return s.kelvinV;
+  };
+
+  it('not measured, null and 1 are bit-identical: the plant as it always was', () => {
+    assert.ok(run(undefined) === run(null), 'null must be "not measured"');
+    assert.ok(run(undefined) === run(1), 'an efficiency of 1 must not move the plant');
+    assert.ok(run(undefined) === run(-1), 'a negative value means "not measured"');
+    assert.ok(run(undefined) === run(Number.NaN), 'NaN means "not measured"');
+  });
+
+  it('less landing, less voltage; nothing landing, no charging at all', () => {
+    const full = run(1), half = run(0.5), none = run(0);
+    assert.ok(half < full && half > 0, `V at 1.5 s: ${full} with everything landing, ${half} with half`);
+    // The feedback term makes it more than proportional: half the charge is under half the voltage.
+    assert.ok(half < 0.5 * full, 'the induction feedback is scaled too, not just the base rate');
+    assert.ok(none === 0, `with nothing landing V stays 0 (got ${none})`);
+    // Values above 1 are clamped: the collectors cannot receive more than was let go.
+    assert.ok(run(3) === full);
+  });
+
+  it('kelvinCollectionEff clamps to 0..1', () => {
+    const s = kelvinState();
+    for (const [given, want] of [[0.4, 0.4], [0, 0], [1, 1], [7, 1], [-0.2, 1], [null, 1], [undefined, 1], [Number.POSITIVE_INFINITY, 1]]) {
+      s.kelvinCollectionEff = given;
+      assert.ok(m.kelvinCollectionEff(s) === want, `${given} → ${m.kelvinCollectionEff(s)}, expected ${want}`);
+    }
   });
 });
 

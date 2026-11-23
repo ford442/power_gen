@@ -1,6 +1,9 @@
 // Per-frame simulation update. GPU encode (scene + bloom) lives in
 // render-encode.ts — split out to keep this file under the 700-line cap.
 import { updateFieldVolume } from './field-volume-drive';
+import { updateHeronLiquid } from './heron-liquid-pass';
+import { updateKelvinLiquid } from './kelvin-liquid-pass';
+import { updateMhdSlice } from './mhd-slice-pass';
 import { explainerState } from '../seg-explainer/explainer-state';
 import { getViewMeshLod, getDeviceParticleScale, getOverviewCullOpts, getMeshDrawDetail, getViewParticleLod } from '../renderers/shared/view-lod.js';
 import { shouldSimulateDevice } from '../renderers/shared/device-view.js';
@@ -65,11 +68,11 @@ export const renderLoopMethods: ThisType<Host> & {
     // Logarithmic mapping: 0→0.05×, 50→1.0×, 100→20× (base 400)
     const speed = 0.05 * Math.pow(400, rawSpeed / 100);
     this.speedMult = speed;
-    this.session.stepPlant(deltaTime, speed, {
+    this.plantDrive = this.session.stepPlant(deltaTime, speed, {
       qualityLevel: profiler.qualityLevel,
       frameTimeMs: profiler.lastFrameTimeMs,
       gpuTimeMs: profiler.lastGpuTimeMs
-    });
+    }).drive;
     profiler.recordPlant(this.session.plantStats);
     profiler.beginFrameCpu();
     this.segOmega = this.session.segOmega;
@@ -334,9 +337,17 @@ export const renderLoopMethods: ThisType<Host> & {
     profiler.fdtdActive = !!fdtdSlice;
     // Field volume (ADR-0017): focused field bench, medium tier and up.
     const fieldVolume = updateFieldVolume(this, qualityTier);
+    // Heron's jet as a liquid (ADR-0022): Heron in focus, `fluid` allowing it.
+    const heronLiquid = updateHeronLiquid(this, qualityTier, deltaTime * speed);
+    // Kelvin's drops on the same solver: Kelvin in focus. (After Heron's: each
+    // claims `liquidOwner` only for its own bench, and Heron's clears it first.)
+    const kelvinLiquid = updateKelvinLiquid(this, qualityTier, deltaTime * speed, this.plantDrive ?? 0);
+
+    // The MHD duct's lattice-Boltzmann slice: MHD in focus, the same gate.
+    const mhdSlice = updateMhdSlice(this, qualityTier, deltaTime * speed);
 
     renderEncodeMethods._encodeFrame.call(
-      this, profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume
+      this, profiler, globalUniforms, gpuContext, cull, cullActive, isDeviceVisible, fdtdSlice, fieldVolume, heronLiquid, kelvinLiquid, mhdSlice
     );
   }
 };

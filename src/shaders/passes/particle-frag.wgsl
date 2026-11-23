@@ -5,7 +5,9 @@
         baseColor: vec3f,
         pad1: f32,
         glowColor: vec3f,
-        emission: f32
+        emission: f32,
+        /// x: the IR view's code for this bench (common/ir-view.wgsl); 0 = off.
+        thermal: vec4f
       }
       
       @binding(0) @group(0) var<uniform> uniforms: Uniforms;
@@ -37,7 +39,19 @@
         let phase = input.particlePhase;
         var color: vec3f;
 
-        if (effectType > 6.5 && effectType < 7.5) {
+        if (effectType > 8.5 && effectType < 10.5) {
+          // Liquid-solver particle (mpm-export.wgsl): a soft water droplet,
+          // whiter where the liquid is fast — the jet's core and the spray.
+          // No glow: it is water, not an emitter. Spray (type 10) is thin
+          // liquid, which scatters more light than it lets through: whiter.
+          let spray = effectType > 9.5;
+          let core = exp(-dist * dist * 9.0);
+          let fast = clamp(input.speed * 2.5, 0.0, 1.0);
+          let white = select(fast * 0.75 + 0.15, 0.85, spray);
+          let water = mix(vec3f(0.10, 0.36, 0.78), vec3f(0.80, 0.92, 1.0), white);
+          let a = core * 0.55;
+          return vec4f(water * a, a);
+        } else if (effectType > 6.5 && effectType < 7.5) {
           // Solar refraction caustic photons at panel interface.
           let core = exp(-dist * dist * 20.0);
           let halo = exp(-dist * dist * 7.0) * 0.45;
@@ -137,6 +151,11 @@
         let glow = material.glowColor * material.emission * (0.35 + energy * 0.85);
         color = color + glow;
         color = color * alpha;
+
+        // IR view: particles are visible light, not heat — left as a faint trace.
+        if (material.thermal.x > 0.5) {
+          return vec4f(color * 0.12, alpha * 0.12);
+        }
 
         return vec4f(color, alpha);
       }

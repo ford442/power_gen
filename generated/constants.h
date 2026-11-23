@@ -36,6 +36,11 @@ struct WasmSegDefaults {
 
 struct KelvinConstants {
   static constexpr float E_BREAKDOWN_VM = 3000000.0f;
+  /// Metres per scene unit on the Kelvin bench. Drop gravity is SI divided by
+  /// this; there is no separate scene gravity.
+  static constexpr float METRES_PER_SCENE_UNIT = 0.048f;
+  static constexpr float LIQUID_TIME_SCALE     = 1.0f;
+  static constexpr float JET_SPEED_MAX_MS      = 0.6f;
 };
 
 struct VdgConstants {
@@ -98,10 +103,15 @@ struct PeltierConstants {
   static constexpr float CLAMP_ABOVE_AMBIENT_K = 250.0f;
 };
 
+struct HeronConstants {
+  /// Metres per scene unit on the Heron bench. Particle gravity and launch
+  /// speed are SI divided by this; there is no separate scene gravity.
+  static constexpr float METRES_PER_SCENE_UNIT = 0.64f;
+  static constexpr float LIQUID_TIME_SCALE     = 0.16666667f;
+};
+
 struct MhdConstants {
-  static constexpr float PUMP_ACCEL_MS2 = 6.0f;
-  static constexpr float LORENTZ_K      = 2.5f;
-  static constexpr float FRICTION_K     = 0.8f;
+  static constexpr float PUMP_ACCEL_MS2 = 920.0f;
   static constexpr float FLOW_U_MAX_MPS = 5.0f;
   static constexpr float WIDTH_M        = 0.1f;
   static constexpr float HALF_GAP_M     = 0.0005f;
@@ -109,8 +119,7 @@ struct MhdConstants {
   static constexpr float SIGMA_SM       = 1000000.0f;
   static constexpr float RHO_KG_M3      = 870.0f;
   static constexpr float NU_M2S         = 8e-7f;
-  static constexpr float R_INTERNAL_OHM = 0.05f;
-  static constexpr float R_LOAD_OHM     = 0.05f;
+  static constexpr float R_LOAD_OHM     = 0.00025f;
   static constexpr float B_FIELD_BASE_T = 0.2f;
   static constexpr float B_FIELD_SPAN_T = 0.8f;
 };

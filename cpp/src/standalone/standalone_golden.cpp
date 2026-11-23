@@ -8,6 +8,7 @@
 #include "standalone/standalone_modes.h"
 
 #include <cstdio>
+#include <cstring>
 
 // --mode golden: replay every dual (JS fallback + C++ plant) device from a
 // fixed seed and print its catalog telemetry keys, so scripts/test-js-wasm-
@@ -47,6 +48,11 @@ struct GoldenCase {
     // are the bench's own: no load, cooling.
     float       peltierLoadW = 0.f;
     float       peltierPolarity = 1.f;
+    // Heron layout preset (a row of HERON_LAYOUTS); null for other devices.
+    const char* heronLayout = nullptr;
+    // Kelvin: share of the droplets' charge that lands (setKelvinCollectionEfficiency).
+    // Negative = not measured, the plant's own 1 (every case but one).
+    float       kelvinCollect = -1.f;
 };
 
 // Frame counts are chosen so each plant has left its initial transient:
@@ -99,6 +105,9 @@ static const GoldenCase GOLDEN_CASES[] = {
     // would not accidentally agree.
     { SIM_MODE_KELVIN,       "kelvin",        "kelvin",      0.50f,  90, 1.f / 60.f, -1.f, -1.f, -1.f },
     { SIM_MODE_KELVIN,       "kelvin-seeded", "kelvin",      0.50f,  90, 1.f / 60.f, -1.f, -1.f, 12000.f },
+    // 40 % of the charge landing: V at 1.5 s is well under the full-collection
+    // case's, so a plant that ignored the efficiency would not agree.
+    { SIM_MODE_KELVIN,       "kelvin-collect", "kelvin",     0.50f,  90, 1.f / 60.f, -1.f, -1.f, -1.f, -1, 0.f, 1.f, nullptr, 0.4f },
     // Every method on every shared-integrator plant (docs/INTEGRATORS.md),
     // over the same schedule as the plant's default case.
     { SIM_MODE_JUMPING_RING, "jumping-ring@rk4",    "jumping-ring", 0.85f, 400, 1.f / 90.f, -1.f, -1.f, -1.f, 1 },
@@ -118,6 +127,22 @@ static const GoldenCase GOLDEN_CASES[] = {
     // budget on each side instead (docs/INTEGRATORS.md → Peltier).
     { SIM_MODE_PELTIER,      "peltier-loaded",      "peltier",      0.60f, 900, 1.f / 60.f, -1.f, -1.f, -1.f, -1, 12.f, 1.f },
     { SIM_MODE_PELTIER,      "peltier-reversed",    "peltier",      0.25f, 600, 1.f / 60.f, -1.f, -1.f, -1.f, -1, 0.f, -1.f },
+    // Heron: a partial head on the classic preset (the pump balances the
+    // drain below the ceiling), and the tower preset at full drive, where the
+    // head sits on its ceiling. The tower's numbers are repeated in
+    // HERON_LAYOUTS below; the TS side takes them from src/heron-layout.ts,
+    // so the two tables are held to each other here.
+    { SIM_MODE_HERON,        "heron",               "heron",        0.30f, 600, 1.f / 60.f, -1.f, -1.f, -1.f, -1, 0.f, 1.f, "classic" },
+    { SIM_MODE_HERON,        "heron-tower",         "heron",        1.00f, 600, 1.f / 60.f, -1.f, -1.f, -1.f, -1, 0.f, 1.f, "tower" },
+};
+
+/// The layout presets the Heron cases run (src/heron-layout.ts PRESET_DEFS):
+/// headMaxM, pipeLengthM, pipeDiameterM, nozzleDiameterM, dischargeCoeff,
+/// roughness, pumpRate, drainCoeff.
+struct HeronLayoutRow { const char* id; float v[8]; };
+static const HeronLayoutRow HERON_LAYOUTS[] = {
+    { "classic", { 4.5f, 4.0f, 0.08f, 0.04f, 0.35f, 0.02f, 2.2f, 0.30f } },
+    { "tower",   { 6.5f, 7.2f, 0.05f, 0.03f, 0.32f, 0.018f, 1.6f, 0.22f } },
 };
 
 static const char* golden_integrator_name(int m) {
@@ -147,14 +172,20 @@ int run_golden() {
         if (g.hallFieldCoupledT >= 0.f) sim.setHallFieldCoupledT(g.hallFieldCoupledT);
         if (g.lorentzFieldT >= 0.f) sim.setLorentzFieldT(g.lorentzFieldT);
         if (g.kelvinSeedV >= 0.f) sim.setKelvinSeedV(g.kelvinSeedV);
+        if (g.kelvinCollect >= 0.f) sim.setKelvinCollectionEfficiency(g.kelvinCollect);
         sim.setPeltierLoadW(g.peltierLoadW);
         sim.setPeltierPolarity(g.peltierPolarity);
+        for (const HeronLayoutRow& row : HERON_LAYOUTS) {
+            if (g.heronLayout && std::strcmp(g.heronLayout, row.id) == 0) {
+                sim.setHeronLayout(row.v[0], row.v[1], row.v[2], row.v[3], row.v[4], row.v[5], row.v[6], row.v[7]);
+            }
+        }
         sim.setIntegrator(g.integrator);
         for (int i = 0; i < g.frames; ++i) sim.step(g.dt, 0.f);
 
         std::printf("golden.case %s device=%s drive=%.17g frames=%d dt=%.17g"
                     " hallFieldCoupledT=%.17g lorentzFieldT=%.17g kelvinSeedV=%.17g integrator=%s"
-                    " peltierLoadW=%.17g peltierPolarity=%.17g\n",
+                    " peltierLoadW=%.17g peltierPolarity=%.17g heronLayout=%s kelvinCollect=%.17g\n",
                     g.id, g.device, static_cast<double>(g.drive), g.frames,
                     static_cast<double>(g.dt),
                     static_cast<double>(g.hallFieldCoupledT),
@@ -162,15 +193,31 @@ int run_golden() {
                     static_cast<double>(g.kelvinSeedV),
                     golden_integrator_name(g.integrator),
                     static_cast<double>(g.peltierLoadW),
-                    static_cast<double>(g.peltierPolarity));
+                    static_cast<double>(g.peltierPolarity),
+                    g.heronLayout ? g.heronLayout : "-",
+                    static_cast<double>(g.kelvinCollect));
 
         switch (g.mode) {
+            case SIM_MODE_HERON: {
+                const float v = sim.getHeronVExit();
+                bad |= golden_emit(g.id, "heronHead",         sim.getHeronHead());
+                bad |= golden_emit(g.id, "heronHeadMax",      sim.getHeronHeadMax());
+                bad |= golden_emit(g.id, "heronVExit",        v);
+                bad |= golden_emit(g.id, "heronFlowRateLmin", sim.getHeronFlowLmin());
+                bad |= golden_emit(g.id, "heronPressureKPa",  sim.getHeronPressureKPa());
+                bad |= golden_emit(g.id, "heronJetIdealM",    v * v / (2.f * PhysicsConstants::G));
+                // Read back from the liquid solver when one runs; no plant
+                // simulates the liquid, so here it is the "not measured" 0.
+                bad |= golden_emit(g.id, "heronJetHeightM",   0.f);
+                break;
+            }
             case SIM_MODE_KELVIN:
                 bad |= golden_emit(g.id, "kelvinV",          sim.getKelvinVoltage());
                 bad |= golden_emit(g.id, "kelvinVoltageN",   sim.getKelvinVoltageN());
                 bad |= golden_emit(g.id, "kelvinVbreak",     sim.getKelvinVbreak());
                 bad |= golden_emit(g.id, "kelvinE",          sim.getKelvinE());
                 bad |= golden_emit(g.id, "kelvinSparkTimer", sim.getKelvinSparkTimer());
+                bad |= golden_emit(g.id, "kelvinLandedShare", sim.getKelvinCollectionEfficiency());
                 break;
             case SIM_MODE_PELTIER:
                 bad |= golden_emit(g.id, "peltierHotK",    sim.getPeltierHotK());

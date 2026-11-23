@@ -9,7 +9,6 @@ import {
   HERON_LAYOUT_PRESETS
 } from '../../heron-layout';
 import {
-  buildKelvinInstances,
   buildKelvinBucketInstances,
   buildKelvinRingInstances,
   buildKelvinTubeInstances,
@@ -36,13 +35,14 @@ export class MeshRenderer {
     this.locs = getUniformLocations(gl, this.program, [
       'u_viewProj', 'u_model', 'u_devicePos', 'u_lightPos', 'u_lightColor',
       'u_fillDir', 'u_fillColor', 'u_rimColor',
-      'u_cameraPos', 'u_emissive', 'u_metallic', 'u_roughness', 'u_wireframe', 'u_debugMode'
+      'u_cameraPos', 'u_emissive', 'u_metallic', 'u_roughness', 'u_wireframe', 'u_debugMode', 'u_thermal'
     ]);
     this.rollerLocs = getUniformLocations(gl, this.rollerProgram, [
       'u_viewProj', 'u_devicePos', 'u_lightPos', 'u_cameraPos',
       'u_fillDir', 'u_fillColor', 'u_rimColor',
-      'u_emissive', 'u_metallic', 'u_roughness', 'u_scaleXZ', 'u_scaleY'
+      'u_emissive', 'u_metallic', 'u_roughness', 'u_scaleXZ', 'u_scaleY', 'u_thermal'
     ]);
+    this._thermal = -1;
 
     this.cylinder = uploadMesh(gl, generateCylinder(0.35, 0.9, 20));
     this.deviceCylinder = uploadMesh(gl, generateCylinder(0.8, 2.5, 32));
@@ -53,6 +53,21 @@ export class MeshRenderer {
     this.statorDisc = uploadMesh(gl, generateDisc(2.2, 2.5, 0.08, 48));
     this.detailedRoller = uploadMeshWithUV(gl, buildDetailedRollerMesh());
     this.lighting = null;
+  }
+
+  /**
+   * The IR view's code for the bench drawn next (thermal/ir-view.ts): 0 off.
+   * Uniforms belong to the program, so it holds for every draw until changed.
+   * @param {number} code
+   */
+  setThermal(code) {
+    if (code === this._thermal) return;
+    this._thermal = code;
+    const gl = this.gl;
+    gl.useProgram(this.program);
+    gl.uniform1f(this.locs.u_thermal, code);
+    gl.useProgram(this.rollerProgram);
+    gl.uniform1f(this.rollerLocs.u_thermal, code);
   }
 
   /** @param {ReturnType<typeof import('../../seg-lighting-presets').getLightingPreset>} preset */
@@ -360,7 +375,7 @@ export class MeshRenderer {
         emissive: 0.08
       });
     } else if (deviceId === 'kelvin') {
-      instances = [...buildKelvinInstances(), ...buildKelvinBucketInstances()];
+      instances = buildKelvinBucketInstances();
       extraDraws.push({
         mesh: this.kelvinRing,
         instances: buildKelvinRingInstances(),

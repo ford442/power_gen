@@ -11,6 +11,7 @@
 
 /** @typedef {import('./index.js').WebGL2MultiDeviceVisualizer} WebGL2MultiDeviceVisualizer */
 
+import { getHeronLayout } from '../../heron-layout';
 import { buildMagLevMesh } from '../../devices/quanta/magnetic-levitation';
 import { buildHomopolarMesh } from '../../devices/quanta/homopolar-generator';
 import { buildHalbachVizMesh, halbachConfigFromState } from '../../devices/quanta/halbach-viz';
@@ -27,7 +28,8 @@ const NO_PELTIER_AIR = [0, 0];
 import { buildMhdMesh } from '../../devices/core/mhd-mesh';
 import { advanceMhdTravel } from '../../devices/core/mhd-parcels';
 import { stepParticles } from '../shared/particle-physics';
-import { deviceModeIndex } from '../shared/device-physics';
+import { deviceModeIndex, kelvinSeedV } from '../shared/device-physics';
+import { KelvinEfficiency } from '../../physics/kelvin-dropper';
 import { shouldSimulateDevice } from '../shared/device-view';
 import {
   getOverviewCullOpts,
@@ -40,6 +42,16 @@ import { resolveScaledParticleCount } from '../../devices/particle-budgets';
 import { segLayoutRingsForDraw } from '../shared/url-params';
 import { segOperator } from '../../seg-operator-state';
 import { stepJsDevicePlant } from '../../session/apply-wasm-plant';
+import { IR_CODE_OFF, irDeviceCode, stepIrView } from '../../thermal/ir-view';
+import { labConfig } from '../../config/lab-config';
+
+/** Scene height of the Heron nozzle mouth for the active layout preset (its `flow.apexY`). */
+let heronNozzleCache = { preset: '', y: 6.1 };
+function heronNozzleY(viz) {
+  const preset = viz?.heronLayoutPreset || 'classic';
+  if (heronNozzleCache.preset !== preset) heronNozzleCache = { preset, y: getHeronLayout(preset).flow.apexY };
+  return heronNozzleCache.y;
+}
 
 /** Build flat [x,z,...] roller positions from SEG layout + spin. */
 function layoutRollerPositions(layout, time, speedMult, segOmega) {
@@ -139,8 +151,10 @@ export function stepSimulation(viz, deltaTime, speed) {
         dt: subDt,
         segOmega: device.physics.segOmega,
         heronVExit: device.physics.heronVExit,
-        kelvinE: device.physics.kelvinE,
-        kelvinVoltageN: device.physics.kelvinVoltageN,
+        heronNozzleY: device.id === 'heron' ? heronNozzleY(viz) : undefined,
+        kelvinDrive: device.id === 'kelvin' ? drive : 0,
+        kelvinVolts: device.id === 'kelvin' ? device.physics.kelvinV + kelvinSeedV(device.physics) : 0,
+        kelvinTally: device.id === 'kelvin' ? (device.kelvinTally ??= { landed: 0, missed: 0 }) : undefined,
         solarN2: device.physics.solarN2,
         corona: device.physics.corona,
         maglevGap: device.physics.maglevGap,
@@ -182,6 +196,17 @@ export function stepSimulation(viz, deltaTime, speed) {
         simClock: viz.simClock,
         speedMult: speed
       });
+      if (device.id === 'kelvin') {
+        // What landed, back to the plant — while the bench is in focus, as on
+        // WebGPU (docs/FLUIDS.md → Kelvin). Elsewhere it is "not measured".
+        if (viz.currentView === 'kelvin' && device.kelvinTally) {
+          device.kelvinEfficiency ??= new KelvinEfficiency();
+          device.physics.kelvinCollectionEff = device.kelvinEfficiency.update(viz.time, device.kelvinTally.landed, device.kelvinTally.missed);
+        } else {
+          device.kelvinEfficiency?.reset();
+          device.physics.kelvinCollectionEff = null;
+        }
+      }
     }
   }
 
@@ -255,6 +280,8 @@ export function renderFrame(viz, timestamp) {
     getViewMeshLod(viz.currentView, viz.profiler?.qualityLevel ?? 1)
   );
   viz._overviewMeshDetail = meshDetail;
+  viz.thermalView ??= labConfig().thermal;
+  const thermalView = viz.thermalView;
 
   for (const device of Object.values(viz.devices)) {
     if (!shouldSimulateDevice(
@@ -266,6 +293,9 @@ export function renderFrame(viz, timestamp) {
       cullOpts
     )) continue;
     const pos = device.config.position;
+    // IR view (`?thermal=1`): the bench's lumped body follows the plant, and its meshes are drawn by temperature.
+    if (thermalView) stepIrView(device.id, device.physics, deltaTime * speed);
+    meshRenderer.setThermal(thermalView ? irDeviceCode(device.id, device.physics) : IR_CODE_OFF);
     const tint = device.config.color || [0.5, 0.8, 1.0];
     const mode = deviceModeIndex(device.id);
     const scaledCount = device.scaledParticleCount || device.particleCount;
@@ -302,7 +332,7 @@ if (device.id === 'seg') {
   meshRenderer.drawPluginDevice(
     viewProj,
     pos,
-    buildPeltierMesh(peltierMeshTemps(device.physics)).cylinders(),
+    buildPeltierMesh(peltierMeshTemps(device.physics), { ir: thermalView }).cylinders(),
     renderOpts
   );
   } else if (drawMeshes && device.id === 'mhd') {

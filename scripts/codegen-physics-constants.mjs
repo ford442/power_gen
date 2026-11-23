@@ -116,6 +116,11 @@ struct WasmSegDefaults {
 
 struct KelvinConstants {
   static constexpr float E_BREAKDOWN_VM = ${f32(k.eBreakdownVm)};
+  /// Metres per scene unit on the Kelvin bench. Drop gravity is SI divided by
+  /// this; there is no separate scene gravity.
+  static constexpr float METRES_PER_SCENE_UNIT = ${f32(k.metresPerSceneUnit)};
+  static constexpr float LIQUID_TIME_SCALE     = ${f32(k.liquidTimeScale)};
+  static constexpr float JET_SPEED_MAX_MS      = ${f32(k.jetSpeedMaxMS)};
 };
 
 struct VdgConstants {
@@ -178,10 +183,15 @@ struct PeltierConstants {
   static constexpr float CLAMP_ABOVE_AMBIENT_K = ${f32(pel.clampAboveAmbientK)};
 };
 
+struct HeronConstants {
+  /// Metres per scene unit on the Heron bench. Particle gravity and launch
+  /// speed are SI divided by this; there is no separate scene gravity.
+  static constexpr float METRES_PER_SCENE_UNIT = ${f32(data.heron.metresPerSceneUnit)};
+  static constexpr float LIQUID_TIME_SCALE     = ${f32(data.heron.liquidTimeScale)};
+};
+
 struct MhdConstants {
   static constexpr float PUMP_ACCEL_MS2 = ${f32(mhd.pumpAccelMs2)};
-  static constexpr float LORENTZ_K      = ${f32(mhd.lorentzK)};
-  static constexpr float FRICTION_K     = ${f32(mhd.frictionK)};
   static constexpr float FLOW_U_MAX_MPS = ${f32(mhd.flowUMaxMps)};
   static constexpr float WIDTH_M        = ${f32(mhd.widthM)};
   static constexpr float HALF_GAP_M     = ${f32(mhd.halfGapM)};
@@ -189,7 +199,6 @@ struct MhdConstants {
   static constexpr float SIGMA_SM       = ${f32(mhd.sigmaSm)};
   static constexpr float RHO_KG_M3      = ${f32(mhd.rhoKgM3)};
   static constexpr float NU_M2S         = ${f32(mhd.nuM2s)};
-  static constexpr float R_INTERNAL_OHM = ${f32(mhd.rInternalOhm)};
   static constexpr float R_LOAD_OHM     = ${f32(mhd.rLoadOhm)};
   static constexpr float B_FIELD_BASE_T = ${f32(mhd.bFieldBaseT)};
   static constexpr float B_FIELD_SPAN_T = ${f32(mhd.bFieldSpanT)};
@@ -329,6 +338,7 @@ const KELVIN_E_BREAKDOWN: f32 = ${wgslF32(k.eBreakdownVm)};
 const HERON_RHO_0: f32 = ${wgslF32(h.restDensity)};
 const HERON_GAS_CONST: f32 = ${wgslF32(h.gasConstant)};
 const HERON_GAMMA: f32 = ${wgslF32(h.gamma)};
+const HERON_METRES_PER_SCENE_UNIT: f32 = ${wgslF32(h.metresPerSceneUnit)};
 
 const LED_WALL_PLUG_EFF: f32 = ${wgslF32(ls.wallPlugEfficiency)};
 const SOLAR_SI_EFFICIENCY: f32 = ${wgslF32(ls.siEfficiency)};
@@ -407,6 +417,16 @@ export const KELVIN_CONSTANTS = {
   DROPLET_CHARGE_C: ${k.dropletChargeC},
   E_BREAKDOWN_VM: ${k.eBreakdownVm},
   BUCKET_DISTANCE_M: ${k.bucketDistanceM},
+  /** Metres per scene unit on the Kelvin bench: drop paths, gravity, the liquid box. */
+  METRES_PER_SCENE_UNIT: ${k.metresPerSceneUnit},
+  /** Simulated seconds per displayed second for the drops (docs/FLUIDS.md → Kelvin). */
+  LIQUID_TIME_SCALE: ${k.liquidTimeScale},
+  /** Drip tip bore, m, and the jet's speed at full drive, m/s. */
+  NOZZLE_DIAMETER_M: ${k.nozzleDiameterM},
+  JET_SPEED_MAX_MS: ${k.jetSpeedMaxMS},
+  /** Water–air surface tension, N/m: the Rayleigh limit on a drop's charge. */
+  SURFACE_TENSION_NM: ${k.surfaceTensionNm},
+  WATER_DENSITY: ${k.waterDensity},
 } as const;
 
 export const HERON_CONSTANTS = {
@@ -416,6 +436,10 @@ export const HERON_CONSTANTS = {
   SMOOTHING_LENGTH: ${h.smoothingLengthM},
   GRAVITY: ${p.G},
   ATMOSPHERIC_PRESSURE: ${h.atmosphericPressurePa},
+  /** Metres per scene unit on the Heron bench: jet heights, particle gravity, the liquid box. */
+  METRES_PER_SCENE_UNIT: ${h.metresPerSceneUnit},
+  /** Simulated seconds per displayed second for the jet and pool (docs/FLUIDS.md). */
+  LIQUID_TIME_SCALE: ${h.liquidTimeScale},
 } as const;
 
 export const LED_SOLAR_CORE = {
@@ -512,8 +536,6 @@ export const PELTIER = {
 /** Hartmann MHD channel — mirrored by MHDState / MhdConstants in C++. */
 export const MHD = {
   pumpAccelMs2: ${mhdc.pumpAccelMs2},
-  lorentzK: ${mhdc.lorentzK},
-  frictionK: ${mhdc.frictionK},
   flowUMaxMps: ${mhdc.flowUMaxMps},
   widthM: ${mhdc.widthM},
   halfGapM: ${mhdc.halfGapM},
@@ -521,7 +543,6 @@ export const MHD = {
   sigmaSm: ${mhdc.sigmaSm},
   rhoKgM3: ${mhdc.rhoKgM3},
   nuM2s: ${mhdc.nuM2s},
-  rInternalOhm: ${mhdc.rInternalOhm},
   rLoadOhm: ${mhdc.rLoadOhm},
   bFieldBaseT: ${mhdc.bFieldBaseT},
   bFieldSpanT: ${mhdc.bFieldSpanT},

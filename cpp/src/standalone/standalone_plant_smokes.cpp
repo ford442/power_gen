@@ -79,6 +79,18 @@ int run_hartmann() {
         printf("hartmann.wall %.9g %.9g\n", static_cast<double>(ha), static_cast<double>(hartmann::wall_shear(ha)));
     }
 
+    // The plant's derived rates (mhd_duct) for the TS twin, src/physics/mhd-duct.ts.
+    {
+        const MHDState duct;
+        printf("mhdduct.internal %.9g\n", static_cast<double>(mhd_duct::internal_ohm(duct)));
+        const float fields[] = { 0.f, 0.2f, 0.36f, 0.6f, 1.f };
+        for (float b : fields) {
+            const float ha = mhd_duct::hartmann_number(duct, b);
+            printf("mhdduct.rates %.9g %.9g %.9g %.9g\n", static_cast<double>(b), static_cast<double>(ha),
+                   static_cast<double>(mhd_duct::friction_rate(duct, ha)), static_cast<double>(mhd_duct::braking_rate(duct, b)));
+        }
+    }
+
     SEGSimulator sim;
     sim.setMode(SIM_MODE_MHD);
     sim.setDrive(0.9f);

@@ -87,6 +87,12 @@ describe('presets', () => {
     const { showroom: s, lab: l } = lm.LAB_MODE_PRESETS;
     assert.ok(!s.residualGauges && !l.residualGauges && !s.coastOnLeave && !l.coastOnLeave, 'leaks into showroom/lab');
   });
+  it('the liquid: showroom asks for the most, twin for none, lab leaves it to auto', () => {
+    const { showroom: s, lab: l, twin: t } = lm.LAB_MODE_PRESETS;
+    assert.ok(s.fluid === 'high' && l.fluid === null && t.fluid === 'off', `${s.fluid} ${l.fluid} ${t.fluid}`);
+    assert.ok(lm.planLabMode('showroom', {}).fluid === 'high');
+    assert.ok(lm.planLabMode('showroom', { fluid: 'off' }).fluid === null, 'an explicit fluid= is not overridden');
+  });
   it('only showroom holds the post stack', () => {
     const { lab: l, twin: t } = lm.LAB_MODE_PRESETS;
     assert.ok(l.postFloor === null && t.postFloor === null, 'floor leaks');

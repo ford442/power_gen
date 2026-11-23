@@ -73,9 +73,13 @@ export interface PlantKnobs {
   lorentzFieldT?: number;
   /** Kelvin charge-bus seed (V). Null clears it. Absent outside Kelvin focus. */
   kelvinSeedCoupledV?: number | null;
+  /** Kelvin collection efficiency from the liquid picture, 0..1. Null = not measured. */
+  kelvinCollectionEff?: number | null;
   /** Peltier setpoints: cold-block load (W) and current direction (±1). */
   peltierLoadW?: number;
   peltierPolarity?: number;
+  /** Heron layout preset id: the worker's C++ plant needs its pipe and nozzle numbers. */
+  heronLayoutId?: string;
 }
 
 export interface PlantWorkerInit {

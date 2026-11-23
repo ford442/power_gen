@@ -183,6 +183,8 @@ export interface SimCoreExports {
   seg_getHeronVExit(self: number): number;
   seg_getHeronFlowLmin(self: number): number;
   seg_getHeronPressureKPa(self: number): number;
+  seg_getHeronHeadMax(self: number): number;
+  seg_setHeronLayout(self: number, headMaxM: number, pipeLengthM: number, pipeDiameterM: number, nozzleDiameterM: number, dischargeCoeff: number, roughness: number, pumpRate: number, drainCoeff: number): void;
   seg_getKelvinVoltage(self: number): number;
   seg_getKelvinVoltageN(self: number): number;
   seg_getKelvinE(self: number): number;
@@ -190,6 +192,8 @@ export interface SimCoreExports {
   seg_getKelvinVbreak(self: number): number;
   seg_getKelvinSeedV(self: number): number;
   seg_setKelvinSeedV(self: number, seedV: number): void;
+  seg_getKelvinCollectionEfficiency(self: number): number;
+  seg_setKelvinCollectionEfficiency(self: number, eff: number): void;
   seg_getSolarBattery(self: number): number;
   seg_getPeltierHotK(self: number): number;
   seg_getPeltierColdK(self: number): number;
@@ -343,6 +347,7 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_getHallVoltage',
   'seg_getHeronFlowLmin',
   'seg_getHeronHead',
+  'seg_getHeronHeadMax',
   'seg_getHeronPressureKPa',
   'seg_getHeronVExit',
   'seg_getHomopolarAngle',
@@ -352,6 +357,7 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_getHomopolarOmega',
   'seg_getHomopolarRpm',
   'seg_getIntegrator',
+  'seg_getKelvinCollectionEfficiency',
   'seg_getKelvinE',
   'seg_getKelvinSeedV',
   'seg_getKelvinSparkTimer',
@@ -440,7 +446,9 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_setDrive',
   'seg_setHallCarrierMetal',
   'seg_setHallFieldCoupledT',
+  'seg_setHeronLayout',
   'seg_setIntegrator',
+  'seg_setKelvinCollectionEfficiency',
   'seg_setKelvinSeedV',
   'seg_setLorentzFieldT',
   'seg_setMode',
@@ -672,6 +680,8 @@ export interface SEGSimulatorInstance {
   getHeronVExit(): number;
   getHeronFlowLmin(): number;
   getHeronPressureKPa(): number;
+  getHeronHeadMax(): number;
+  setHeronLayout(headMaxM: number, pipeLengthM: number, pipeDiameterM: number, nozzleDiameterM: number, dischargeCoeff: number, roughness: number, pumpRate: number, drainCoeff: number): void;
   getKelvinVoltage(): number;
   getKelvinVoltageN(): number;
   getKelvinE(): number;
@@ -679,6 +689,8 @@ export interface SEGSimulatorInstance {
   getKelvinVbreak(): number;
   getKelvinSeedV(): number;
   setKelvinSeedV(seedV: number): void;
+  getKelvinCollectionEfficiency(): number;
+  setKelvinCollectionEfficiency(eff: number): void;
   getSolarBattery(): number;
   getPeltierHotK(): number;
   getPeltierColdK(): number;
@@ -1240,6 +1252,12 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
     getHeronPressureKPa(): number {
       return ex.seg_getHeronPressureKPa(this.ptr);
     }
+    getHeronHeadMax(): number {
+      return ex.seg_getHeronHeadMax(this.ptr);
+    }
+    setHeronLayout(headMaxM: number, pipeLengthM: number, pipeDiameterM: number, nozzleDiameterM: number, dischargeCoeff: number, roughness: number, pumpRate: number, drainCoeff: number): void {
+      ex.seg_setHeronLayout(this.ptr, headMaxM, pipeLengthM, pipeDiameterM, nozzleDiameterM, dischargeCoeff, roughness, pumpRate, drainCoeff);
+    }
     getKelvinVoltage(): number {
       return ex.seg_getKelvinVoltage(this.ptr);
     }
@@ -1260,6 +1278,12 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
     }
     setKelvinSeedV(seedV: number): void {
       ex.seg_setKelvinSeedV(this.ptr, seedV);
+    }
+    getKelvinCollectionEfficiency(): number {
+      return ex.seg_getKelvinCollectionEfficiency(this.ptr);
+    }
+    setKelvinCollectionEfficiency(eff: number): void {
+      ex.seg_setKelvinCollectionEfficiency(this.ptr, eff);
     }
     getSolarBattery(): number {
       return ex.seg_getSolarBattery(this.ptr);

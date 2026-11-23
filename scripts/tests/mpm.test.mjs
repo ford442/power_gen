@@ -30,22 +30,32 @@ const G = 9.80665;
 const I32_MAX = 2147483647;
 const F = M.MPM_PARTICLE_FLOATS;
 
-/** Byte size of a WGSL struct of scalars and vec3s, by the WGSL layout rules. */
+/**
+ * Byte size and field offsets of a WGSL struct of scalars, vec3s and
+ * `array<Struct, N>` members, by the WGSL layout rules.
+ */
 function wgslStructBytes(source, name) {
   const body = source.match(new RegExp(`struct ${name} \\{([^}]*)\\}`))?.[1];
   assert.ok(body, `struct ${name} not found`);
   let offset = 0;
   let align = 1;
   const fields = [];
-  for (const m of body.matchAll(/(\w+)\s*:\s*(\w+)\s*,/g)) {
-    const [size, a] = { f32: [4, 4], u32: [4, 4], i32: [4, 4], vec3f: [12, 16], vec3u: [12, 16], vec4f: [16, 16] }[m[2]] ?? [];
-    assert.ok(size, `${name}.${m[1]}: type ${m[2]} is not one this check knows`);
+  for (const m of body.matchAll(/^\s*(\w+)\s*:\s*(?:array<(\w+),\s*(\d+)>|(\w+))\s*,/gm)) {
+    let size, a;
+    if (m[2]) {
+      const element = wgslStructBytes(source, m[2]);
+      a = element.align;
+      size = element.bytes * Number(m[3]);
+    } else {
+      [size, a] = { f32: [4, 4], u32: [4, 4], i32: [4, 4], vec3f: [12, 16], vec3u: [12, 16], vec4f: [16, 16] }[m[4]] ?? [];
+      assert.ok(size, `${name}.${m[1]}: type ${m[4]} is not one this check knows`);
+    }
     offset = Math.ceil(offset / a) * a;
     fields.push({ name: m[1], offset });
     offset += size;
     align = Math.max(align, a);
   }
-  return { bytes: Math.ceil(offset / align) * align, fields };
+  return { bytes: Math.ceil(offset / align) * align, fields, align };
 }
 
 /** Gravity eased in over `ramp` steps (no acoustic ring), then held. */
@@ -183,6 +193,35 @@ describe('mpm-params: config and layouts', () => {
     for (const [name, word] of Object.entries(M.MPM_P)) assert.equal(at[name], word, `MpmParticle.${name}`);
   });
 
+  it('conductors are packed where the WGSL struct reads them, and at most four', () => {
+    const cfg = M.mpmWaterConfig([16, 16, 16], 0.01, 1e-4, 512);
+    const conductor = wgslStructBytes(wgsl, 'MpmConductor');
+    assert.equal(conductor.bytes, 32);
+    assert.equal(Number(wgsl.match(/const MPM_MAX_CONDUCTORS = (\d+);/)[1]), M.MPM_MAX_CONDUCTORS);
+    assert.equal(Number(wgsl.match(/const MPM_RING_POINTS = (\d+);/)[1]), M.MPM_RING_POINTS);
+    const at = Object.fromEntries(wgslStructBytes(wgsl, 'MpmParams').fields.map((x) => [x.name, x.offset / 4]));
+    const k = Object.fromEntries(conductor.fields.map((x) => [x.name, x.offset / 4]));
+    const list = [
+      { centre: [0.1, 0.2, 0.3], radiusM: 0.04, kq: 1500, softM: 0.002 },
+      { centre: [0.4, 0.5, 0.6], radiusM: 0, kq: -900, softM: 0.01 }
+    ];
+    const buf = M.packMpmParams(cfg, 7, undefined, 0, list);
+    const f = new Float32Array(buf);
+    assert.equal(new Uint32Array(buf)[at.conductorCount], 2);
+    list.forEach((c, i) => {
+      const o = at.conductors + i * 8;
+      assert.deepEqual([f[o + k.centre], f[o + k.centre + 1], f[o + k.centre + 2]], c.centre.map(Math.fround));
+      assert.equal(f[o + k.radius], Math.fround(c.radiusM));
+      assert.equal(f[o + k.kq], c.kq);
+      assert.equal(f[o + k.soft], Math.fround(c.softM));
+    });
+    // None given: the count is 0 and a reused buffer is wiped.
+    const again = M.packMpmParams(cfg, 7, buf);
+    assert.equal(new Uint32Array(again)[at.conductorCount], 0);
+    assert.ok(new Float32Array(again).subarray(at.conductors).every((v) => v === 0));
+    assert.throws(() => M.packMpmParams(cfg, 7, undefined, 0, new Array(5).fill(list[0])), /conductors/);
+  });
+
   it('packMpmParams writes each field where the WGSL struct reads it', () => {
     const cfg = M.mpmWaterConfig([16, 24, 32], 0.0125, 2.5e-4, 40000, { viscosityPaS: 0.3, gravity: [0.5, -9.5, 0.25], maxSpeedMS: 6 });
     const buf = M.packMpmParams(cfg, 12345);
@@ -200,7 +239,12 @@ describe('mpm-params: config and layouts', () => {
     };
     for (const [name, value] of Object.entries(want)) assert.equal(f[at[name]], Math.fround(value), `MpmParams.${name}`);
     assert.deepEqual([...f.subarray(at.gravity, at.gravity + 3)], cfg.gravity.map(Math.fround));
-    assert.equal(Object.keys(want).length + 3, Object.keys(at).length, 'a struct field this test does not cover');
+    assert.equal(u[at.flags], 0);
+    assert.equal(new Uint32Array(M.packMpmParams(cfg, 1, undefined, M.MPM_FLAG_BOUNDARY))[at.flags], M.MPM_FLAG_BOUNDARY);
+    // gridN, particleCount, gravity, flags, two pads, and the conductor count and
+    // array (the test above) are the fields not in `want`.
+    assert.equal(u[at.conductorCount], 0);
+    assert.equal(Object.keys(want).length + 8, Object.keys(at).length, 'a struct field this test does not cover');
     assert.equal(new Uint32Array(M.packMpmParams(cfg, 1e9))[at.particleCount], 40000, 'particleCount is capped at the budget');
   });
 

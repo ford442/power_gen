@@ -2,7 +2,9 @@
 //
 // Fixed-point momentum / mass → velocity, plus gravity, then the box: nodes
 // 0, 1 and n−2, n−1 on each axis are wall nodes, where nothing flows into the
-// wall and tangential motion is free. Velocities are clamped to maxSpeed.
+// wall and tangential motion is free. With MPM_FLAG_BOUNDARY set, a node
+// inside a solid of the signed-distance field (binding 4) likewise loses the
+// velocity component into that solid. Velocities are clamped to maxSpeed.
 // Writes velocity (m/s) and mass (in particle masses) for every node, so the
 // float grid never needs clearing.
 //
@@ -16,6 +18,7 @@
 @group(0) @binding(0) var<uniform> params: MpmParams;
 @group(0) @binding(2) var<storage, read_write> gridFixed: array<i32>;
 @group(0) @binding(3) var<storage, read_write> gridVel: array<vec4f>;
+@group(0) @binding(4) var<storage, read> boundary: array<vec4f>;
 
 @compute @workgroup_size(4, 4, 4)
 fn gridUpdate(@builtin(global_invocation_id) gid: vec3u) {
@@ -31,6 +34,12 @@ fn gridUpdate(@builtin(global_invocation_id) gid: vec3u) {
       + params.gravity * params.dt;
     v = select(v, max(v, vec3f(0.0)), gid <= vec3u(1u));
     v = select(v, min(v, vec3f(0.0)), gid + vec3u(2u) >= params.gridN);
+    if ((params.flags & MPM_FLAG_BOUNDARY) != 0u) {
+      let b = boundary[n];
+      if (b.w < 0.0) {
+        v -= b.xyz * min(dot(v, b.xyz), 0.0);
+      }
+    }
     v = clamp(v, vec3f(-params.maxSpeed), vec3f(params.maxSpeed));
   }
   gridVel[n] = vec4f(v, mass);

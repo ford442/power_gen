@@ -265,11 +265,17 @@ export const DeviceRenderMixin = {
       renderPass.draw(4, this.geometry.flowPathCount);
     }
 
+    // A bench whose liquid the solver is stepping draws the solver's export:
+    // same pipeline, same 16-byte records, another buffer and count (ADR-0022).
+    const liquid = this.visualizer.liquidOwner === this.id
+      ? (this.id === 'kelvin' ? this.visualizer.kelvinLiquid : this.visualizer.heronLiquid)?.draw() ?? null
+      : null;
+    const particleBuffer = liquid ? liquid.buffer : this.particles;
     const particleBindGroup = this._cacheBg(`part:${this.id}`, 'particle', [
       { binding: 1, resource: this._deviceUniformResource() },
       { binding: 3, resource: { buffer: this.materialUniformBuffer } },
-      { binding: 4, resource: { buffer: this.particles } }
-    ], 'particle-bg');
+      { binding: 4, resource: { buffer: particleBuffer } }
+    ], 'particle-bg', particleBuffer);
 
     renderPass.setPipeline(this.particlePipeline);
     renderPass.setBindGroup(1, particleBindGroup, offset);
@@ -278,7 +284,9 @@ export const DeviceRenderMixin = {
     // culled devices resolve to instanceCount 0 without a CPU round trip.
     const cull = this.visualizer.overviewCull;
     const argsOffset = cull?.active ? cull.drawArgsOffset(this.id) : -1;
-    if (cull?.drawArgsBuffer && argsOffset >= 0) {
+    if (liquid) {
+      renderPass.draw(4, liquid.count);
+    } else if (cull?.drawArgsBuffer && argsOffset >= 0) {
       renderPass.drawIndirect(cull.drawArgsBuffer, argsOffset);
     } else {
       renderPass.draw(4, scaledCount);

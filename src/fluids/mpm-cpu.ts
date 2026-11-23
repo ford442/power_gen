@@ -11,10 +11,12 @@
  * (docs/FLUIDS.md) and this is far too slow to stand in for one.
  */
 import {
-  MPM_GRID_CHANNELS, MPM_J_MAX, MPM_P, MPM_PARTICLE_FLOATS, MPM_T_MAX,
-  mpmDerived, mpmDither, mpmFixedScales, mpmSeedBits, mpmSeedNext, roundTiesEven, validateMpmConfig,
-  type MpmConfig
+  MPM_BOUNDARY_FLOATS, MPM_GRID_CHANNELS, MPM_J_MAX, MPM_MAX_SINKS, MPM_P, MPM_PARTICLE_FLOATS, MPM_PROBE_MASS_SCALE, MPM_T_MAX,
+  mpmDerived, mpmDither, mpmEmitParticle, mpmFieldAt, mpmFixedScales, mpmHash32, mpmSeedBits, mpmSeedNext, roundTiesEven,
+  validateMpmConfig,
+  type MpmConductor, type MpmConfig, type MpmEmitter, type MpmSink
 } from './mpm-params.js';
+import { sampleMpmBoundary } from './mpm-boundary.js';
 
 export interface MpmCpuOptions {
   /**
@@ -41,6 +43,15 @@ export class MpmCpu {
   count = 0;
   steps = 0;
   readonly fixedPoint: boolean;
+  /** Signed-distance field on the nodes (mpm-boundary.ts), or null for the bare box. */
+  boundary: Float32Array | null = null;
+  /** Particles released by `emit` / removed by sinks since creation. */
+  emitted = 0;
+  sunk = 0;
+  /** `sunk` by sink slot. */
+  readonly sunkBy: number[] = new Array<number>(MPM_MAX_SINKS).fill(0);
+  /** Conductors charged particles feel (passes/mpm-g2p.wgsl `fieldAt`). */
+  conductors: readonly MpmConductor[] = [];
 
   constructor(config: MpmConfig, options: MpmCpuOptions = {}) {
     const errors = validateMpmConfig(config);
@@ -63,6 +74,60 @@ export class MpmCpu {
     // Byte copy: the seed word is an integer and must not pass through a float.
     new Uint8Array(this.particles.buffer).set(new Uint8Array(records.buffer, records.byteOffset, records.byteLength));
     this.count = n;
+  }
+
+  /** Solids as a baked signed-distance field (`bakeMpmBoundary`); null removes them. */
+  setBoundary(field: Float32Array | null): void {
+    if (field && field.length !== mpmDerived(this.config).nodes * MPM_BOUNDARY_FLOATS) throw new Error('MpmCpu: boundary field does not match the grid');
+    this.boundary = field;
+  }
+
+  /**
+   * passes/mpm-emit.wgsl, once per frame before the substeps: sinks empty the
+   * slots of the liquid inside them, and empty slots take the frame's new
+   * particles. The GPU hands tickets to empty slots in whatever order it runs
+   * them; this takes them in slot order. The particles made are the same set.
+   */
+  emit(io: { emitters: readonly MpmEmitter[]; counts: readonly number[]; seconds: number; baseId: number; sinks: readonly MpmSink[] }): void {
+    const P = this.particles;
+    const total = io.counts.reduce((a, n) => a + n, 0);
+    const bases: number[] = [];
+    let base = io.baseId >>> 0;
+    for (const n of io.counts) {
+      bases.push(base);
+      base = (base + n) >>> 0;
+    }
+    this.count = this.config.maxParticles;
+    let ticket = 0;
+    for (let p = 0; p < this.count; p++) {
+      const o = p * MPM_PARTICLE_FLOATS;
+      if (P[o + MPM_P.state] !== 0) {
+        for (const s of io.sinks) {
+          if (P[o] >= s.min[0] && P[o] <= s.max[0] && P[o + 1] >= s.min[1] && P[o + 1] <= s.max[1] && P[o + 2] >= s.min[2] && P[o + 2] <= s.max[2]) {
+            P[o + MPM_P.state] = 0;
+            this.sunk++;
+            this.sunkBy[io.sinks.indexOf(s)]++;
+            break;
+          }
+        }
+        continue;
+      }
+      if (ticket >= total) continue;
+      let e = 0;
+      let local = ticket;
+      while (local >= io.counts[e]) local -= io.counts[e++];
+      const id = (bases[e] + local) >>> 0;
+      const made = mpmEmitParticle(io.emitters[e], id, local, io.counts[e], io.emitters[e].speedMS * io.seconds);
+      P.fill(0, o, o + MPM_PARTICLE_FLOATS);
+      P[o] = made.pos[0]; P[o + 1] = made.pos[1]; P[o + 2] = made.pos[2];
+      P[o + MPM_P.j] = 1;
+      P[o + 4] = made.vel[0]; P[o + 5] = made.vel[1]; P[o + 6] = made.vel[2];
+      P[o + MPM_P.state] = 1;
+      P[o + MPM_P.charge] = io.emitters[e].chargeC ?? 0;
+      this.particleBits[o + MPM_P.seed] = mpmHash32(id);
+      this.emitted++;
+      ticket++;
+    }
   }
 
   step(n = 1): void {
@@ -189,6 +254,7 @@ export class MpmCpu {
     const vmax = c.maxSpeedMS;
     const toVel = (vmax * massScale) / momentumScale;
     const gdt = [c.gravity[0] * c.dt, c.gravity[1] * c.dt, c.gravity[2] * c.dt];
+    const B = this.boundary;
     for (let z = 0; z < nz; z++) {
       for (let y = 0; y < ny; y++) {
         for (let x = 0; x < nx; x++) {
@@ -208,6 +274,13 @@ export class MpmCpu {
             if (y >= ny - 2 && vy > 0) vy = 0;
             if (z <= 1 && vz < 0) vz = 0;
             if (z >= nz - 2 && vz > 0) vz = 0;
+            // A node inside a solid: no velocity into it.
+            if (B && B[n * 4 + 3] < 0) {
+              const vn = Math.min(vx * B[n * 4] + vy * B[n * 4 + 1] + vz * B[n * 4 + 2], 0);
+              vx -= B[n * 4] * vn;
+              vy -= B[n * 4 + 1] * vn;
+              vz -= B[n * 4 + 2] * vn;
+            }
             vx = clamp(vx, -vmax, vmax);
             vy = clamp(vy, -vmax, vmax);
             vz = clamp(vz, -vmax, vmax);
@@ -235,6 +308,9 @@ export class MpmCpu {
     const wy = [0, 0, 0];
     const wz = [0, 0, 0];
     const k4 = 4 / h;
+    const sdf = [0, 0, 0, 0];
+    const field = [0, 0, 0];
+    const particleMass = mpmDerived(c).particleMass;
     for (let p = 0; p < this.count; p++) {
       const o = p * MPM_PARTICLE_FLOATS;
       if (P[o + MPM_P.state] === 0) continue;
@@ -277,10 +353,33 @@ export class MpmCpu {
       const div = (b00 + b11 + b22) * k4;
       P[o + MPM_P.j] = clamp(P[o + MPM_P.j] * Math.exp(c.dt * div), minJ, MPM_J_MAX);
       this.particleBits[o + MPM_P.seed] = mpmSeedNext(this.particleBits[o + MPM_P.seed]);
+      const charge = P[o + MPM_P.charge];
+      if (charge !== 0 && this.conductors.length > 0) {
+        // q·E/m, as the shader adds it: after the gather, before the move.
+        mpmFieldAt(this.conductors, P[o], P[o + 1], P[o + 2], field);
+        const k = (charge / particleMass) * c.dt;
+        vx = clamp(vx + field[0] * k, -c.maxSpeedMS, c.maxSpeedMS);
+        vy = clamp(vy + field[1] * k, -c.maxSpeedMS, c.maxSpeedMS);
+        vz = clamp(vz + field[2] * k, -c.maxSpeedMS, c.maxSpeedMS);
+      }
       P[o + 4] = vx; P[o + 5] = vy; P[o + 6] = vz;
-      P[o] = clamp(P[o] + vx * c.dt, lo, hiX);
-      P[o + 1] = clamp(P[o + 1] + vy * c.dt, lo, hiY);
-      P[o + 2] = clamp(P[o + 2] + vz * c.dt, lo, hiZ);
+      let px = P[o] + vx * c.dt;
+      let py = P[o + 1] + vy * c.dt;
+      let pz = P[o + 2] + vz * c.dt;
+      if (this.boundary) {
+        // Ended the step inside a solid: back to its surface, along the normal.
+        sampleMpmBoundary(c, this.boundary, px, py, pz, sdf);
+        const len = Math.hypot(sdf[0], sdf[1], sdf[2]);
+        if (sdf[3] < 0 && len > 1e-6) {
+          const k = sdf[3] / len;
+          px -= sdf[0] * k;
+          py -= sdf[1] * k;
+          pz -= sdf[2] * k;
+        }
+      }
+      P[o] = clamp(px, lo, hiX);
+      P[o + 1] = clamp(py, lo, hiY);
+      P[o + 2] = clamp(pz, lo, hiZ);
     }
   }
 }
@@ -338,3 +437,54 @@ export function mpmTotals(config: MpmConfig, particles: Float32Array, count: num
   t.volume *= d.particleVolume;
   return t;
 }
+
+/**
+ * Grid mass at a position over the rest mass of a node — `densityRatio` in
+ * mpm-export.wgsl, which uses it to tell spray from liquid. `gridVel` is the
+ * velocity grid (velocity xyz, mass in particle masses).
+ */
+export function mpmDensityRatio(config: MpmConfig, gridVel: Float32Array, pos: readonly [number, number, number]): number {
+  const F = Math.fround;
+  const [nx, ny, nz] = config.gridN;
+  const h = F(config.cellM);
+  const base = [0, 0, 0];
+  const w: number[][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const n = [nx, ny, nz];
+  for (let a = 0; a < 3; a++) {
+    const g = F(F(pos[a]) / h);
+    base[a] = Math.min(Math.max(Math.floor(F(g - 0.5)), 0), n[a] - 3);
+    const f = F(g - base[a]);
+    const x0 = F(1.5 - f), x1 = F(f - 1), x2 = F(f - 0.5);
+    w[0][a] = F(0.5 * x0 * x0);
+    w[1][a] = F(0.75 - x1 * x1);
+    w[2][a] = F(0.5 * x2 * x2);
+  }
+  let mass = 0;
+  for (let k = 0; k < 3; k++) {
+    for (let j = 0; j < 3; j++) {
+      for (let i = 0; i < 3; i++) {
+        const node = ((base[2] + k) * ny + base[1] + j) * nx + base[0] + i;
+        mass = F(mass + F(F(F(w[i][0] * w[j][1]) * w[k][2]) * gridVel[node * 4 + 3]));
+      }
+    }
+  }
+  const d = mpmDerived(config);
+  return mass / F(F(F(F(config.restDensity * h) * h) * h) / F(d.particleMass));
+}
+
+/** The probe's layer masses from a velocity grid (velocity xyz, mass) — the CPU twin of mpm-probe.wgsl. */
+export function mpmLayerProfile(config: MpmConfig, gridVel: Float32Array): Float32Array {
+  const [nx, ny, nz] = config.gridN;
+  const out = new Float32Array(ny);
+  for (let y = 0; y < ny; y++) {
+    let mass = 0;
+    for (let z = 0; z < nz; z++) {
+      const row = (z * ny + y) * nx;
+      for (let x = 0; x < nx; x++) mass += gridVel[(row + x) * 4 + 3];
+    }
+    out[y] = roundTiesEven(mass * MPM_PROBE_MASS_SCALE) / MPM_PROBE_MASS_SCALE;
+  }
+  return out;
+}
+
+export { mpmProfileTop, mpmProfileMass, type MpmProfile } from './mpm-params.js';

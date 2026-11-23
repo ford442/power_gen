@@ -7,6 +7,7 @@ import { packInstance, type InstanceArray } from '../../device-mesh-layouts';
 import { PELTIER } from '../../../generated/physics-constants';
 import { MATERIAL_STEEL_BASE, MATERIAL_STRUCTURAL, MATERIAL_QUANTA_COIL } from '../material-roles';
 import { writeMeshCylinders } from '../update-helpers';
+import { irColour } from '../../thermal/ir-view';
 import type { DeviceInstanceLike } from '../types';
 
 export { PELTIER };
@@ -100,7 +101,8 @@ export function advancePeltierAir(state: PeltierAirState, time: number): [number
 
 /**
  * Temperature → colour: blue 60 K below ambient, neutral grey at ambient, red
- * 80 K above. A stand-in for a thermal camera until the IR view lands.
+ * 80 K above: the bench's everyday tint. `?thermal=1` replaces it with the IR
+ * view's ramp and scale (thermal/ir-view.ts).
  */
 export function peltierTempColor(tempK: number): [number, number, number] {
   const d = tempK - PELTIER.ambientK;
@@ -120,18 +122,20 @@ export function peltierTempColor(tempK: number): [number, number, number] {
  * (top). With the current reversed the block turns red and the sink side
  * cools — the colours follow the plant, not a fixed hot-below-cold picture.
  */
-export function buildPeltierMesh(temps: PeltierMeshTemps = peltierMeshTemps()): { cylinders: () => InstanceArray } {
+export function buildPeltierMesh(temps: PeltierMeshTemps = peltierMeshTemps(), o: { ir?: boolean } = {}): { cylinders: () => InstanceArray } {
   const upright = [0, 0, 0, 1];
-  const glow = (k: number): number => 0.04 + 0.3 * Math.min(1, Math.abs(k - PELTIER.ambientK) / PELTIER.deltaTRefK);
+  // In the IR view (`?thermal=1`) each body carries its colour on the view's own ramp and scale, unlit.
+  const colour = (k: number): number[] => (o.ir ? irColour(k) : peltierTempColor(k));
+  const glow = (k: number): number => (o.ir ? 0 : 0.04 + 0.3 * Math.min(1, Math.abs(k - PELTIER.ambientK) / PELTIER.deltaTRefK));
   return {
     cylinders: () => [
-      packInstance([0, -CYL_H, 0], MATERIAL_STEEL_BASE, upright, peltierTempColor(temps.sinkK), glow(temps.sinkK)),
-      packInstance([0, 0, 0], MATERIAL_QUANTA_COIL, upright, peltierTempColor(temps.moduleK), glow(temps.moduleK)),
-      packInstance([0, CYL_H, 0], MATERIAL_STRUCTURAL, upright, peltierTempColor(temps.blockK), glow(temps.blockK))
+      packInstance([0, -CYL_H, 0], MATERIAL_STEEL_BASE, upright, colour(temps.sinkK), glow(temps.sinkK)),
+      packInstance([0, 0, 0], MATERIAL_QUANTA_COIL, upright, colour(temps.moduleK), glow(temps.moduleK)),
+      packInstance([0, CYL_H, 0], MATERIAL_STRUCTURAL, upright, colour(temps.blockK), glow(temps.blockK))
     ]
   };
 }
 
 export function peltierUpdateMesh(instance: DeviceInstanceLike): void {
-  writeMeshCylinders(instance, buildPeltierMesh(peltierMeshTemps(instance.physicsState)));
+  writeMeshCylinders(instance, buildPeltierMesh(peltierMeshTemps(instance.physicsState), { ir: !!instance.visualizer.thermalView }));
 }

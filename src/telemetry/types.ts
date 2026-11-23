@@ -29,11 +29,15 @@ export interface DeviceTelemetrySnap {
   heronVExit: number;
   heronFlowRateLmin: number;
   heronPressureKPa: number;
+  heronJetIdealM: number;
+  heronJetHeightM: number;
   kelvinV: number;
   kelvinVoltageN: number;
   kelvinVbreak: number;
   kelvinSparkTimer: number;
   kelvinE: number;
+  /** Share of the droplets' charge that lands in the collectors, 0..1 (1 while not measured). */
+  kelvinLandedShare: number;
   batteryCharge: number;
   maglevGapMm: number;
   maglevFieldT: number;

@@ -115,12 +115,15 @@ function collectKnobs(devices: SessionDeviceMap, focus: string): PlantKnobs {
   } else if (focus === 'kelvin') {
     const seed = devicePhysics(devices.kelvin)?.kelvinSeedCoupledV;
     knobs.kelvinSeedCoupledV = typeof seed === 'number' && Number.isFinite(seed) ? seed : null;
+    const landed = devicePhysics(devices.kelvin)?.kelvinCollectionEff;
+    knobs.kelvinCollectionEff = typeof landed === 'number' && Number.isFinite(landed) ? landed : null;
   }
   if (focus === 'peltier') {
     const peltier = devicePhysics(devices.peltier);
     knobs.peltierLoadW = peltier?.peltierLoadW ?? 0;
     knobs.peltierPolarity = peltier?.peltierPolarity ?? 1;
   }
+  if (focus === 'heron') knobs.heronLayoutId = devicePhysics(devices.heron)?.heronLayoutId;
   return knobs;
 }
 

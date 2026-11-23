@@ -4,6 +4,7 @@
  */
 
 import { ValidatedConstants } from '../../ValidatedConstants';
+import { PHYSICAL_CONSTANTS } from '../../../generated/physics-constants';
 import { extendPhysicsState, getDeviceModeIndex, stepPluginPhysics } from '../../devices/device-registry.js';
 import {
   computeHeronHydraulics,
@@ -41,6 +42,14 @@ export interface BaseDevicePhysicsState {
   heronFlowRateLmin: number;
   heronPressureKPa: number;
   heronReynolds: number;
+  /** v²/2g for the current exit speed, m: how high a jet leaving at heronVExit rises with no losses in flight. */
+  heronJetIdealM: number;
+  /**
+   * Height of the simulated jet above the nozzle, m, read back from the
+   * liquid solver. 0 when no liquid solver is running (WebGL2, `fluid=off`,
+   * headless plants): 0 means "not measured", not "no jet".
+   */
+  heronJetHeightM: number;
   kelvinV: number;
   kelvinSparkTimer: number;
   kelvinSparkDur: number;
@@ -53,6 +62,14 @@ export interface BaseDevicePhysicsState {
    * undefined (the default) is the isolated bench. Simulated estimate — ADR-0013.
    */
   kelvinSeedCoupledV?: number | null;
+  /**
+   * Share of the droplets' charge that reaches the collectors, 0..1, as the
+   * liquid picture measures it (docs/FLUIDS.md → Kelvin). null / absent = not
+   * measured: the plant assumes everything lands, as it always did.
+   */
+  kelvinCollectionEff?: number | null;
+  /** The share the plant was charged with on its last step: `kelvinCollectionEff`, or 1 while not measured. */
+  kelvinLandedShare: number;
   batteryCharge: number;
   rollerHeft: number;
   solarN2: number;
@@ -359,12 +376,15 @@ export function createDevicePhysicsState(
     heronFlowRateLmin: 0,
     heronPressureKPa: 0,
     heronReynolds: 0,
+    heronJetIdealM: 0,
+    heronJetHeightM: 0,
     kelvinV: 0,
     kelvinSparkTimer: 0,
     kelvinSparkDur: 0.18,
     kelvinVbreak: ValidatedConstants.KELVIN_CONSTANTS.E_BREAKDOWN.value * gap,
     kelvinE: 0,
     kelvinVoltageN: 0,
+    kelvinLandedShare: 1,
     batteryCharge: deviceId === 'solar' ? 0.5 : 0.5,
     rollerHeft: roller.inertia / inertiaSolidCu,
     solarN2: ValidatedConstants.SILICON_REFRACTIVE_INDEX,
@@ -383,6 +403,17 @@ export function kelvinSeedV(state: Pick<BaseDevicePhysicsState, 'kelvinSeedCoupl
   const v = state.kelvinSeedCoupledV;
   if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return 0;
   return Math.min(v, state.kelvinVbreak);
+}
+
+/**
+ * Collection efficiency in effect on a Kelvin plant: what the liquid measured,
+ * clamped to 0..1, or 1 when nothing was. Mirrors
+ * `SEGSimulator::setKelvinCollectionEfficiency`.
+ */
+export function kelvinCollectionEff(state: Pick<BaseDevicePhysicsState, 'kelvinCollectionEff'>): number {
+  const v = state.kelvinCollectionEff;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return 1;
+  return Math.min(v, 1);
 }
 
 /**
@@ -442,7 +473,8 @@ export function stepDevicePhysics(
     state.heronFlowRateLmin = hydro.flowLmin;
     state.heronPressureKPa = hydro.pressureKPa;
     state.heronReynolds = hydro.Re;
-    const vRef = Math.sqrt(2 * 9.81 * layout.headMaxM) * (layout.dischargeCoeff ?? 0.35);
+    state.heronJetIdealM = (hydro.vExit * hydro.vExit) / (2 * PHYSICAL_CONSTANTS.G);
+    const vRef = Math.sqrt(2 * PHYSICAL_CONSTANTS.G * layout.headMaxM) * (layout.dischargeCoeff ?? 0.35);
     state.energyLevel = Math.min(1, state.heronVExit / Math.max(vRef, 0.5));
   } else if (state.deviceId === 'kelvin') {
     const chargeRate = 8000;
@@ -451,7 +483,10 @@ export function stepDevicePhysics(
     // The inductor sees its own terminal voltage plus any coupled seed (ADR-0013);
     // with no water flowing (drive 0) the seed does nothing. Mirrors _stepKelvin.
     const seed = kelvinSeedV(state);
-    state.kelvinV += (drive * (chargeRate + feedback * (state.kelvinV + seed)) - leak * state.kelvinV) * dt;
+    // Only the charge that lands charges the collectors (1 unless the liquid measured less).
+    const landed = kelvinCollectionEff(state);
+    state.kelvinLandedShare = landed;
+    state.kelvinV += (drive * landed * (chargeRate + feedback * (state.kelvinV + seed)) - leak * state.kelvinV) * dt;
     state.kelvinV = Math.max(0, state.kelvinV);
     if (state.kelvinV >= state.kelvinVbreak && state.kelvinSparkTimer <= 0) {
       state.kelvinV *= 0.02;

@@ -33,17 +33,27 @@
     "nSiliconLedSolar": 3.97
   },
   "kelvin": {
+    "comment": "metresPerSceneUnit: the dropper is drawn at 0.048 m per scene unit, so the drip tips are 0.385 m above the collectors' mouths, the columns 0.24 m apart and the induction rings 4.8 cm in radius - a classroom dropper. liquidTimeScale: 1 - the drops run on the plant's own clock. They fall the 0.385 m in 0.28 s and would be easier to watch slowed down, but the potential they fall through is the plant's, and drops shown at a quarter speed would see it swing four times faster than they should (and miss more); the sim-rate slider slows plant and drops together. nozzleDiameterM / jetSpeedMaxMS: the drip tip's bore and the jet speed at full drive; Rayleigh-Plateau break-up gives the drop (radius 0.945 d = 3.3 mm, one every 4.51 d of jet = 38 a second). surfaceTensionNm sets the Rayleigh limit on a drop's charge, 8 pi sqrt(eps0 gamma r^3) = 3.8 nC, which the induced charge reaches near 10 kV: 2.5e-5 C/kg from there on. The bore is chosen so that the streams start to miss their collectors just under the plant's 60 kV breakdown - every drop lands up to 50 kV, half at 60 kV, none by 66 kV (docs/FLUIDS.md -> Kelvin); a 2 mm bore would lose them at 30 kV and the bench would never spark. The plant's own charging rate is a classroom compression: it is some twenty times what drops at that limit could carry at this flow.",
     "bucketCapacitanceF": 4.01e-11,
     "dropletChargeC": 1e-9,
     "eBreakdownVm": 3000000,
-    "bucketDistanceM": 6.0
+    "bucketDistanceM": 6.0,
+    "metresPerSceneUnit": 0.048,
+    "liquidTimeScale": 1,
+    "nozzleDiameterM": 0.0035,
+    "jetSpeedMaxMS": 0.6,
+    "surfaceTensionNm": 0.072,
+    "waterDensity": 1000
   },
   "heron": {
+    "comment": "metresPerSceneUnit: the bench is drawn at 0.64 m per scene unit — the head each layout preset declares over the drawn span of its vessel stack is 0.62–0.67 m/unit for all five. Jet heights, particle gravity and the liquid box all use it; there is no separate 'scene gravity'. liquidTimeScale: simulated seconds per displayed second for the jet and pool — an explicit solver at this scale is only weakly compressible at sub-millisecond steps, so the liquid is shown at one sixth speed (docs/FLUIDS.md → Heron, ADR-0022).",
     "restDensity": 1000,
     "gasConstant": 560571,
     "gamma": 7,
     "smoothingLengthM": 0.012,
-    "atmosphericPressurePa": 101325
+    "atmosphericPressurePa": 101325,
+    "metresPerSceneUnit": 0.64,
+    "liquidTimeScale": 0.16666667
   },
   "vdg": {
     "comment": "Classroom Van de Graaff lumped ODE — not an HV engineering design. C = 4πε₀r; V_break = kelvin.eBreakdownVm × gapM.",
@@ -108,19 +118,16 @@
     "clampAboveAmbientK": 250
   },
   "mhd": {
-    "comment": "Hartmann MHD duct: pressure-driven liquid-metal flow braked by Lorentz drag, V = B*u*w through a resistive divider. Converged set: the C++ plant numbers (NaK-like working fluid). The duct is a thin slot - half-gap 0.5 mm between the insulating Hartmann walls, 0.1 m between the electrodes - so the 1-D Hartmann solution holds (aspect 100:1) and Ha = B*a*sqrt(sigma/(rho*nu)) spans about 3.8 to 19 over the bench's 0.2 to 1.0 T, the range where the velocity profile visibly changes from near-parabolic to a flat core. halfGapM was 0.05 until the fluids epic: that made Ha 380 to 1900, a slug at every field setting, so the profile had nothing to show. halfGapM, sigmaSm, rhoKgM3 and nuM2s feed only the reported Ha and the drawn profile; the lumped braking (lorentzK, frictionK) is still tuned, not derived. lengthM is the electrode length along the flow; it scales parcel transit time in the picture and enters no plant equation. The pre-codegen JS fallback ran a different set (pumpAccel 4.5, lorentzK 0.85, sigma 7.1e5, rho 6400, w 0.12, halfGap 0.04, nu 1.2e-6, rInternal 0.08, rLoad 0.25) - retired.",
-    "pumpAccelMs2": 6,
-    "lorentzK": 2.5,
-    "frictionK": 0.8,
+    "comment": "Hartmann MHD duct: pressure-driven liquid-metal flow (NaK-like) in a thin slot, V_oc = B*u*w between electrodes on the two side walls. The slot's half-gap is 0.5 mm between the insulating Hartmann walls and 0.1 m between the electrodes, so the 1-D Hartmann solution holds (aspect 100:1) and Ha = B*a*sqrt(sigma/(rho*nu)) spans about 3.8 to 19 over the bench's 0.2 to 1.0 T. NOTHING IN THE MOMENTUM BALANCE IS TUNED (fluids epic, step 7): wall friction is the Hartmann profile's own wall shear, (nu/a^2)*Phi(Ha)*u with Phi = Ha^2*tanh(Ha)/(Ha - tanh(Ha)) (3 at B = 0, the Poiseuille value); the fluid's resistance between the electrodes is geometry, R_i = w/(sigma*2a*L) = 0.25 mOhm; and the Lorentz braking is the force on the current the circuit draws, (sigma*B^2/rho)*R_i/(R_i + R_load)*u. Before this the plant carried lorentzK 2.5 and frictionK 0.8, tuned, and an rInternalOhm of 0.05 that was 200 times the fluid's. The derived rates are 44 to 640 per second, so the plant step is the exact exponential of the linear equation, not Euler. What is still chosen: the pump (pumpAccelMs2, the pressure drop it holds across the generator per unit mass and length: 920 m/s^2 is 800 kPa/m, 320 kPa over lengthM) and the load (rLoadOhm, matched to R_i, where a generator delivers most). With them the bench runs at 1.2 to 2 m/s, about 0.14 V open-circuit and 290 A at full drive: low voltage and a large current, as liquid-metal generators are. lengthM is the electrode length along the flow and the length under the pole faces.",
+    "pumpAccelMs2": 920,
     "flowUMaxMps": 5,
     "widthM": 0.1,
     "halfGapM": 0.0005,
     "lengthM": 0.4,
-    "sigmaSm": 1.0e6,
+    "sigmaSm": 1000000.0,
     "rhoKgM3": 870,
-    "nuM2s": 8.0e-7,
-    "rInternalOhm": 0.05,
-    "rLoadOhm": 0.05,
+    "nuM2s": 8e-07,
+    "rLoadOhm": 0.00025,
     "bFieldBaseT": 0.2,
     "bFieldSpanT": 0.8
   },

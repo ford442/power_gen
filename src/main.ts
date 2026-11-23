@@ -47,6 +47,9 @@ import { drawPulseCoilOscilloscope } from './devices/quanta/pulse-coil.js';
 import { initFdtdHeatmapOverlay } from './fdtd-heatmap-overlay';
 import { initFieldPanel } from './field-panel';
 import { initMhdProfileOverlay } from './mhd-profile-overlay';
+import { initHeronLiquidNote } from './heron-liquid-note';
+import { initKelvinDropsNote } from './kelvin-drops-note';
+import { initMhdSliceNote } from './mhd-slice-note';
 import { LabAudio } from './audio/lab-audio';
 import { initLabAudioBadge } from './audio/lab-audio-badge';
 import { wireChargeCouplingControls } from './charge-coupling-ui';
@@ -295,6 +298,11 @@ function bootApp(): void {
       // Hartmann velocity profile beside the B = 0 parabola — both renderers,
       // hidden until the MHD duct is focused.
       initMhdProfileOverlay();
+      initHeronLiquidNote();
+      initKelvinDropsNote();
+      initMhdSliceNote();
+      // The IR view's legend: fetched only when the view is on.
+      if (labConfig().thermal) void import('./thermal/ir-legend').then((m) => m.initIrLegend());
     } catch (e) {
       console.warn('[main] MHD profile overlay init skipped:', e);
     }

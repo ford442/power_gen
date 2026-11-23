@@ -74,9 +74,13 @@ export interface SegWasmBridge {
   setHallCarrierMetal(metal: boolean): void;
   setHallFieldCoupledT(fieldT: number): boolean;
   setKelvinSeedV(seedV: number): boolean;
+  /** Kelvin: what lands in the collectors, 0..1; negative = not measured (see SEGSim). */
+  setKelvinCollectionEfficiency(eff: number): boolean;
   setLorentzFieldT(fieldT: number): void;
   setPeltierLoadW(watts: number): void;
   setPeltierPolarity(sign: number): void;
+  /** The active Heron layout preset's hydraulics (see SEGSim.setHeronLayout). */
+  setHeronLayout(layout: Parameters<SEGSim['setHeronLayout']>[0]): void;
   getModePlant(): unknown;
   /** This thread's C ABI simulator (null before init / without WASM) — see SEGSim.raw. */
   rawSim(): SEGSimulatorInstance | null;
@@ -261,6 +265,10 @@ export const segWasm: SegWasmBridge = {
     _instance?.setPeltierPolarity?.(Number(sign) < 0 ? -1 : 1);
   },
 
+  setHeronLayout(layout) {
+    _instance?.setHeronLayout?.(layout);
+  },
+
   setLorentzFieldT(fieldT: number) {
     _instance?.setLorentzFieldT?.(Number(fieldT) || 0);
   },
@@ -292,6 +300,12 @@ export const segWasm: SegWasmBridge = {
   setKelvinSeedV(seedV: number): boolean {
     const v = Number(seedV);
     return _instance?.setKelvinSeedV(Number.isFinite(v) ? v : -1) ?? false;
+  },
+
+  /** Kelvin collection efficiency from the liquid picture; negative clears it to "everything lands". */
+  setKelvinCollectionEfficiency(eff: number): boolean {
+    const v = Number(eff);
+    return _instance?.setKelvinCollectionEfficiency(Number.isFinite(v) ? v : -1) ?? false;
   },
 
   getModePlant() {

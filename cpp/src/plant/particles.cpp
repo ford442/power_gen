@@ -28,7 +28,7 @@ void SEGSimulator::seedParticles(int count) {
         } else if (_mode == SIM_MODE_HERON) {
             float a = rnd(idx, 1.f) * PhysicsConstants::TAU;
             p.x = std::cos(a) * 0.2f; p.y = 1.2f + rnd(idx, 2.f); p.z = std::sin(a) * 0.2f;
-            p.vx = 0.f; p.vy = _heron.vExit; p.vz = 0.f; p.aux = 1.5f;
+            p.vx = 0.f; p.vy = _heron.vExit / power_gen::HeronConstants::METRES_PER_SCENE_UNIT; p.vz = 0.f; p.aux = 1.5f;
         } else if (_mode == SIM_MODE_KELVIN) {
             float side = (rnd(idx, 1.f) > 0.5f) ? 1.f : -1.f;
             p.x = side * 1.2f; p.y = 3.5f - rnd(idx, 2.f) * 2.f; p.z = 0.f;

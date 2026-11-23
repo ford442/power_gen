@@ -38,9 +38,27 @@ const ENTRY = `
   export { mhdParcelPosition, MHD_DUCT } from './src/devices/core/mhd-parcels.ts';
   export { integratePeltier } from './src/renderers/shared/particle-orbits.ts';
   export * as mpm from './src/fluids/mpm-params.ts';
-  export { MpmCpu, mpmTotals } from './src/fluids/mpm-cpu.ts';
+  export { MpmCpu, mpmTotals, mpmLayerProfile, mpmProfileTop, mpmProfileMass, mpmDensityRatio } from './src/fluids/mpm-cpu.ts';
+  export { bakeMpmBoundary, mpmSolidDistance } from './src/fluids/mpm-boundary.ts';
   export { seedMpmBox, writeMpmParticle } from './src/fluids/mpm-seed.ts';
   export { MpmSolver } from './src/fluids/mpm-solver.ts';
+  export { MPM_SHADERS } from './src/fluids/mpm-shaders.ts';
+  export * as heronLiquid from './src/fluids/heron-liquid.ts';
+  export * as kelvinLiquid from './src/fluids/kelvin-liquid.ts';
+  export { kelvinDrops, kelvinStandInDrop, stepKelvinDrops } from './src/physics/kelvin-dropper.ts';
+  export { KELVIN_APPARATUS, KELVIN_COLLECTOR_MOUTH_Y, KELVIN_FALL_M } from './src/kelvin-layout.ts';
+  export * as fluidSurface from './src/fluids/fluid-surface.ts';
+  export { FLUID_SURFACE_SHADERS } from './src/fluids/fluid-surface-shaders.ts';
+  export { ensureFluidSurfacePipelines } from './src/pipeline-layout/factories/fluid-surface-pipelines.ts';
+  export { FluidSurfacePass } from './src/visualizer/fluid-surface-pass.ts';
+  export { getHeronLayout, computeHeronHydraulics } from './src/heron-layout.ts';
+  export * as mhdSlice from './src/fluids/mhd-slice.ts';
+  export { MhdSliceCpu } from './src/fluids/mhd-slice-cpu.ts';
+  export { MhdSliceSolver } from './src/fluids/mhd-slice-solver.ts';
+  export { MHD_SLICE_SHADERS } from './src/fluids/mhd-slice-shaders.ts';
+  export { ensureMhdSlicePipelines, ensureMhdSliceDrawPipeline } from './src/pipeline-layout/factories/mhd-slice-pipelines.ts';
+  export { hartmannProfile } from './src/physics/hartmann.ts';
+  export { MHD } from './generated/physics-constants.ts';
 `;
 
 let app = null;
