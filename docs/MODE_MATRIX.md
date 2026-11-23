@@ -42,13 +42,13 @@ invent a plant by silently reclaiming pulse-coil's shader slot 7.
 Each device's `state` block lists what a plant snapshot saves (see
 [`SNAPSHOTS.md`](SNAPSHOTS.md)). The C++ vector is `[_time, _drive, …]`
 followed by the block's `cpp` fields; layout hash
-`0x7316415e` (`PLANT_STATE_LAYOUT_HASH`).
+`0x16681daf` (`PLANT_STATE_LAYOUT_HASH`).
 
 | Device `id` | TS keys | C++ `plantStateSize` | Keys shared with C++ |
 |---|---|---|---|
 | `seg` | 4 | 137 floats | 0 |
 | `heron` | 7 | 8 floats | 5 |
-| `kelvin` | 6 | 8 floats | 5 |
+| `kelvin` | 7 | 9 floats | 6 |
 | `solar` | 2 | 4 floats | 1 |
 | `peltier` | 42 | 44 floats | 41 |
 | `mhd` | 7 | 9 floats | 6 |

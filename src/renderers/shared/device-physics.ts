@@ -62,6 +62,12 @@ export interface BaseDevicePhysicsState {
    * undefined (the default) is the isolated bench. Simulated estimate — ADR-0013.
    */
   kelvinSeedCoupledV?: number | null;
+  /**
+   * Share of the droplets' charge that reaches the collectors, 0..1, as the
+   * liquid picture measures it (docs/FLUIDS.md → Kelvin). null / absent = not
+   * measured: the plant assumes everything lands, as it always did.
+   */
+  kelvinCollectionEff?: number | null;
   batteryCharge: number;
   rollerHeft: number;
   solarN2: number;
@@ -397,6 +403,17 @@ export function kelvinSeedV(state: Pick<BaseDevicePhysicsState, 'kelvinSeedCoupl
 }
 
 /**
+ * Collection efficiency in effect on a Kelvin plant: what the liquid measured,
+ * clamped to 0..1, or 1 when nothing was. Mirrors
+ * `SEGSimulator::setKelvinCollectionEfficiency`.
+ */
+export function kelvinCollectionEff(state: Pick<BaseDevicePhysicsState, 'kelvinCollectionEff'>): number {
+  const v = state.kelvinCollectionEff;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return 1;
+  return Math.min(v, 1);
+}
+
+/**
  * Step a device's JS plant over one frame's session substeps — the `simSteps`
  * and `drive` that `LabSession.stepPlant` returns. Both backends call this for
  * every JS-stepped device, so the JS plants ride the same clock as the
@@ -463,7 +480,9 @@ export function stepDevicePhysics(
     // The inductor sees its own terminal voltage plus any coupled seed (ADR-0013);
     // with no water flowing (drive 0) the seed does nothing. Mirrors _stepKelvin.
     const seed = kelvinSeedV(state);
-    state.kelvinV += (drive * (chargeRate + feedback * (state.kelvinV + seed)) - leak * state.kelvinV) * dt;
+    // Only the charge that lands charges the collectors (1 unless the liquid measured less).
+    const landed = kelvinCollectionEff(state);
+    state.kelvinV += (drive * landed * (chargeRate + feedback * (state.kelvinV + seed)) - leak * state.kelvinV) * dt;
     state.kelvinV = Math.max(0, state.kelvinV);
     if (state.kelvinV >= state.kelvinVbreak && state.kelvinSparkTimer <= 0) {
       state.kelvinV *= 0.02;

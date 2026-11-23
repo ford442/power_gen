@@ -14,4 +14,10 @@ struct KelvinState {
     // induction the dropper amplifies. 0 = isolated bench, the default and what
     // the goldens exercise; V + 0 is exact, so the default path is unchanged.
     float seedV{0.f};
+    // Share of the droplets' charge that reaches the collectors, 0..1. Near
+    // breakdown a real dropper's streams splay and miss; the liquid picture
+    // measures what lands and feeds it back here (docs/FLUIDS.md → Kelvin).
+    // 1 = everything lands: the default, what the plant always assumed, and
+    // what the goldens exercise — x * 1 is exact, so that path is unchanged.
+    float collectEff{1.f};
 };

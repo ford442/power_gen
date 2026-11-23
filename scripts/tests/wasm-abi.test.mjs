@@ -132,6 +132,7 @@ const METHOD_ARGS = {
   setMode: [0],
   setDrive: [0.5],
   setKelvinSeedV: [100],
+  setKelvinCollectionEfficiency: [0.5],
   setTransformerLeakage: [true],
   setHallCarrierMetal: [false],
   setHallFieldCoupledT: [0.5],

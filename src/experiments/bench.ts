@@ -67,6 +67,7 @@ export interface CppPlant {
   setHallCarrierMetal(metal: boolean): void;
   setHallFieldCoupledT(fieldT: number): boolean;
   setKelvinSeedV(seedV: number): boolean;
+  setKelvinCollectionEfficiency?(eff: number): boolean;
   setLorentzFieldT(fieldT: number): void;
   setPeltierLoadW(watts: number): void;
   setPeltierPolarity(sign: number): void;
@@ -267,6 +268,8 @@ export class ExperimentBench implements PlantView {
       case 'kelvin': {
         const v = phys?.kelvinSeedCoupledV;
         const wants = typeof v === 'number' && Number.isFinite(v);
+        const landed = phys?.kelvinCollectionEff;
+        cpp.setKelvinCollectionEfficiency?.(typeof landed === 'number' && Number.isFinite(landed) ? landed : -1);
         return !cpp.setKelvinSeedV(wants ? v : -1) && wants;
       }
       case 'lorentz-sled':

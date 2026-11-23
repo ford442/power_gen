@@ -280,6 +280,8 @@
         { "name": "getKelvinVbreak", "ret": "f32" },
         { "name": "getKelvinSeedV", "ret": "f32" },
         { "name": "setKelvinSeedV", "ret": "void", "args": [["seedV", "f32"]] },
+        { "name": "getKelvinCollectionEfficiency", "ret": "f32" },
+        { "name": "setKelvinCollectionEfficiency", "ret": "void", "args": [["eff", "f32"]] },
         { "name": "getSolarBattery", "ret": "f32" },
         { "name": "getPeltierHotK", "ret": "f32" },
         { "name": "getPeltierColdK", "ret": "f32" },

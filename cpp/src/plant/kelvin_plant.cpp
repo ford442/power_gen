@@ -34,13 +34,22 @@ void SEGSimulator::setKelvinSeedV(float seedV) {
     _kelvin.seedV = (seedV >= 0.f) ? clampf(seedV, 0.f, _kelvin.vBreak) : 0.f;
 }
 
+// What lands in the collectors, as a share of what the nozzles let go. A
+// negative value (or NaN) means "not measured" and restores 1. Mirrors
+// kelvinCollectionEff in renderers/shared/device-physics.ts.
+void SEGSimulator::setKelvinCollectionEfficiency(float eff) {
+    _kelvin.collectEff = (eff >= 0.f) ? clampf(eff, 0.f, 1.f) : 1.f;
+}
+
 void SEGSimulator::_stepKelvin(float dt) {
     KelvinState& k = _kelvin;
     constexpr float chargeRate = 8000.f, feedback = 2.f, leak = 0.3f;
     // The inductor sees its own terminal voltage plus any coupled seed; the
     // seed biases what the droplets carry, it is not a second charge source,
-    // so with no water flowing (drive 0) it does nothing.
-    k.voltage += (k.drive * (chargeRate + feedback * (k.voltage + k.seedV)) - leak * k.voltage) * dt;
+    // so with no water flowing (drive 0) it does nothing. Only the charge that
+    // lands charges the collectors: the whole droplet current scales with
+    // collectEff.
+    k.voltage += (k.drive * k.collectEff * (chargeRate + feedback * (k.voltage + k.seedV)) - leak * k.voltage) * dt;
     k.voltage = std::max(0.f, k.voltage);
     if (k.voltage >= k.vBreak && k.sparkTimer <= 0.f) {
         k.voltage *= 0.02f;

@@ -192,6 +192,8 @@ export interface SimCoreExports {
   seg_getKelvinVbreak(self: number): number;
   seg_getKelvinSeedV(self: number): number;
   seg_setKelvinSeedV(self: number, seedV: number): void;
+  seg_getKelvinCollectionEfficiency(self: number): number;
+  seg_setKelvinCollectionEfficiency(self: number, eff: number): void;
   seg_getSolarBattery(self: number): number;
   seg_getPeltierHotK(self: number): number;
   seg_getPeltierColdK(self: number): number;
@@ -355,6 +357,7 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_getHomopolarOmega',
   'seg_getHomopolarRpm',
   'seg_getIntegrator',
+  'seg_getKelvinCollectionEfficiency',
   'seg_getKelvinE',
   'seg_getKelvinSeedV',
   'seg_getKelvinSparkTimer',
@@ -445,6 +448,7 @@ export const SIM_CORE_ABI_EXPORTS: readonly string[] = [
   'seg_setHallFieldCoupledT',
   'seg_setHeronLayout',
   'seg_setIntegrator',
+  'seg_setKelvinCollectionEfficiency',
   'seg_setKelvinSeedV',
   'seg_setLorentzFieldT',
   'seg_setMode',
@@ -685,6 +689,8 @@ export interface SEGSimulatorInstance {
   getKelvinVbreak(): number;
   getKelvinSeedV(): number;
   setKelvinSeedV(seedV: number): void;
+  getKelvinCollectionEfficiency(): number;
+  setKelvinCollectionEfficiency(eff: number): void;
   getSolarBattery(): number;
   getPeltierHotK(): number;
   getPeltierColdK(): number;
@@ -1272,6 +1278,12 @@ export function bindSimCore(ex: SimCoreExports): SimCoreModule {
     }
     setKelvinSeedV(seedV: number): void {
       ex.seg_setKelvinSeedV(this.ptr, seedV);
+    }
+    getKelvinCollectionEfficiency(): number {
+      return ex.seg_getKelvinCollectionEfficiency(this.ptr);
+    }
+    setKelvinCollectionEfficiency(eff: number): void {
+      ex.seg_setKelvinCollectionEfficiency(this.ptr, eff);
     }
     getSolarBattery(): number {
       return ex.seg_getSolarBattery(this.ptr);

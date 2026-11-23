@@ -165,6 +165,8 @@ function parseGolden(stdout) {
         peltierLoadW: Number(kv.get('peltierLoadW') ?? 0),
         peltierPolarity: Number(kv.get('peltierPolarity') ?? 1),
         heronLayout: kv.get('heronLayout') ?? 'classic',
+        // Kelvin: share of the droplet charge that lands — negative means "not measured" (1).
+        kelvinCollect: Number(kv.get('kelvinCollect') ?? -1),
         values: new Map(),
       });
       continue;
@@ -208,6 +210,7 @@ function seedCoupling(state, kase) {
   if (kase.hallFieldCoupledT >= 0) state.hallFieldCoupledT = kase.hallFieldCoupledT;
   if (kase.lorentzFieldT >= 0) state.lorentzFieldT = kase.lorentzFieldT;
   if (kase.kelvinSeedV >= 0) state.kelvinSeedCoupledV = kase.kelvinSeedV;
+  if (kase.kelvinCollect >= 0) state.kelvinCollectionEff = kase.kelvinCollect;
   if (kase.integrator !== 'catalog') state.integratorOverride = kase.integrator;
   if (kase.device === 'peltier') {
     // What setPeltierLoadW / setPeltierPolarity gave the C++ plant.

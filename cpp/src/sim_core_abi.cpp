@@ -635,6 +635,14 @@ EMSCRIPTEN_KEEPALIVE void seg_setKelvinSeedV(SEGSimulator* self, float seedV) {
     self->setKelvinSeedV(seedV);
 }
 
+EMSCRIPTEN_KEEPALIVE float seg_getKelvinCollectionEfficiency(SEGSimulator* self) {
+    return self->getKelvinCollectionEfficiency();
+}
+
+EMSCRIPTEN_KEEPALIVE void seg_setKelvinCollectionEfficiency(SEGSimulator* self, float eff) {
+    self->setKelvinCollectionEfficiency(eff);
+}
+
 EMSCRIPTEN_KEEPALIVE float seg_getSolarBattery(SEGSimulator* self) {
     return self->getSolarBattery();
 }

@@ -200,6 +200,9 @@ public:
     float getKelvinVbreak() const { return _kelvin.vBreak; }
     float getKelvinSeedV() const { return _kelvin.seedV; }
     void  setKelvinSeedV(float seedV);
+    // Share of the droplets' charge that reaches the collectors (0..1; < 0 = not measured = 1).
+    float getKelvinCollectionEfficiency() const { return _kelvin.collectEff; }
+    void  setKelvinCollectionEfficiency(float eff);
     float getSolarBattery() const { return _solar.batteryCharge; }
     float getPeltierHotK() const { return _peltier.hotK; }
     float getPeltierColdK() const { return _peltier.coldK; }

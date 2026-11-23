@@ -28,7 +28,10 @@ constexpr float SNAP_DT = 1.f / 60.f;
 void move_knobs(SEGSimulator& sim, int mode) {
     sim.setDrive(0.73f);
     if (mode == SIM_MODE_SEG) sim.setRingLoadTorques(0.004f, 0.009f, 0.013f);
-    if (mode == SIM_MODE_KELVIN) sim.setKelvinSeedV(9000.f);
+    if (mode == SIM_MODE_KELVIN) {
+        sim.setKelvinSeedV(9000.f);
+        sim.setKelvinCollectionEfficiency(0.6f);
+    }
     if (mode == SIM_MODE_TRANSFORMER) sim.setTransformerLeakage(true);
     if (mode == SIM_MODE_HALL) {
         sim.setHallCarrierMetal(true);

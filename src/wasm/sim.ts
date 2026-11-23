@@ -259,6 +259,18 @@ export class SEGSim {
     return true;
   }
 
+  /**
+   * Kelvin: share of the droplets' charge that lands in the collectors, 0..1;
+   * negative (or non-finite) = not measured, the plant's own 1. False when the
+   * binary predates the knob.
+   */
+  setKelvinCollectionEfficiency(eff: number): boolean {
+    if (typeof this._sim?.setKelvinCollectionEfficiency !== 'function') return false;
+    const v = Number(eff);
+    this._sim.setKelvinCollectionEfficiency(Number.isFinite(v) ? v : -1);
+    return true;
+  }
+
   /** Lab charge coupling (ADR-0013); false when the binary predates the knob. */
   setKelvinSeedV(seedV: number): boolean {
     if (typeof this._sim?.setKelvinSeedV !== 'function') return false;

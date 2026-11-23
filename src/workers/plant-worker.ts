@@ -49,7 +49,10 @@ function knobDevices(knobs: PlantKnobs): SessionDeviceMap {
       physicsState: (knobs.lorentzFieldT != null ? { lorentzFieldT: knobs.lorentzFieldT } : {}) as never
     },
     kelvin: {
-      physicsState: { kelvinSeedCoupledV: knobs.kelvinSeedCoupledV ?? null } as never
+      physicsState: {
+        kelvinSeedCoupledV: knobs.kelvinSeedCoupledV ?? null,
+        kelvinCollectionEff: knobs.kelvinCollectionEff ?? null
+      } as never
     },
     peltier: {
       physicsState: { peltierLoadW: knobs.peltierLoadW ?? 0, peltierPolarity: knobs.peltierPolarity ?? 1 } as never

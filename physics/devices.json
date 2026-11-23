@@ -179,6 +179,7 @@
           { "key": "kelvinVoltageN", "cpp": "voltageN" },
           { "key": "kelvinE", "cpp": "E" },
           { "key": "kelvinSeedCoupledV", "cpp": "seedV", "type": "nullable", "cppNull": 0 },
+          { "key": "kelvinCollectionEff", "cpp": "collectEff", "type": "nullable", "cppNull": 1 },
           { "key": "energyLevel", "cpp": null },
           { "cpp": "drive" }
         ]

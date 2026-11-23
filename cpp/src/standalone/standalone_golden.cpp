@@ -50,6 +50,9 @@ struct GoldenCase {
     float       peltierPolarity = 1.f;
     // Heron layout preset (a row of HERON_LAYOUTS); null for other devices.
     const char* heronLayout = nullptr;
+    // Kelvin: share of the droplets' charge that lands (setKelvinCollectionEfficiency).
+    // Negative = not measured, the plant's own 1 (every case but one).
+    float       kelvinCollect = -1.f;
 };
 
 // Frame counts are chosen so each plant has left its initial transient:
@@ -102,6 +105,9 @@ static const GoldenCase GOLDEN_CASES[] = {
     // would not accidentally agree.
     { SIM_MODE_KELVIN,       "kelvin",        "kelvin",      0.50f,  90, 1.f / 60.f, -1.f, -1.f, -1.f },
     { SIM_MODE_KELVIN,       "kelvin-seeded", "kelvin",      0.50f,  90, 1.f / 60.f, -1.f, -1.f, 12000.f },
+    // 40 % of the charge landing: V at 1.5 s is well under the full-collection
+    // case's, so a plant that ignored the efficiency would not agree.
+    { SIM_MODE_KELVIN,       "kelvin-collect", "kelvin",     0.50f,  90, 1.f / 60.f, -1.f, -1.f, -1.f, -1, 0.f, 1.f, nullptr, 0.4f },
     // Every method on every shared-integrator plant (docs/INTEGRATORS.md),
     // over the same schedule as the plant's default case.
     { SIM_MODE_JUMPING_RING, "jumping-ring@rk4",    "jumping-ring", 0.85f, 400, 1.f / 90.f, -1.f, -1.f, -1.f, 1 },
@@ -166,6 +172,7 @@ int run_golden() {
         if (g.hallFieldCoupledT >= 0.f) sim.setHallFieldCoupledT(g.hallFieldCoupledT);
         if (g.lorentzFieldT >= 0.f) sim.setLorentzFieldT(g.lorentzFieldT);
         if (g.kelvinSeedV >= 0.f) sim.setKelvinSeedV(g.kelvinSeedV);
+        if (g.kelvinCollect >= 0.f) sim.setKelvinCollectionEfficiency(g.kelvinCollect);
         sim.setPeltierLoadW(g.peltierLoadW);
         sim.setPeltierPolarity(g.peltierPolarity);
         for (const HeronLayoutRow& row : HERON_LAYOUTS) {
@@ -178,7 +185,7 @@ int run_golden() {
 
         std::printf("golden.case %s device=%s drive=%.17g frames=%d dt=%.17g"
                     " hallFieldCoupledT=%.17g lorentzFieldT=%.17g kelvinSeedV=%.17g integrator=%s"
-                    " peltierLoadW=%.17g peltierPolarity=%.17g heronLayout=%s\n",
+                    " peltierLoadW=%.17g peltierPolarity=%.17g heronLayout=%s kelvinCollect=%.17g\n",
                     g.id, g.device, static_cast<double>(g.drive), g.frames,
                     static_cast<double>(g.dt),
                     static_cast<double>(g.hallFieldCoupledT),
@@ -187,7 +194,8 @@ int run_golden() {
                     golden_integrator_name(g.integrator),
                     static_cast<double>(g.peltierLoadW),
                     static_cast<double>(g.peltierPolarity),
-                    g.heronLayout ? g.heronLayout : "-");
+                    g.heronLayout ? g.heronLayout : "-",
+                    static_cast<double>(g.kelvinCollect));
 
         switch (g.mode) {
             case SIM_MODE_HERON: {

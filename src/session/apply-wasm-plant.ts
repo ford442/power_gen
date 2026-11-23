@@ -406,6 +406,9 @@ export function syncWasmFocusKnobs(devices: SessionDeviceMap, focus: string): vo
     const seedV = devicePhysics(devices.kelvin)?.kelvinSeedCoupledV;
     const wantsSeed = typeof seedV === 'number' && Number.isFinite(seedV);
     const accepted = segWasm.setKelvinSeedV?.(wantsSeed ? seedV : -1) ?? false;
+    // What the liquid picture measured landing in the collectors; absent = everything.
+    const landed = devicePhysics(devices.kelvin)?.kelvinCollectionEff;
+    segWasm.setKelvinCollectionEfficiency?.(typeof landed === 'number' && Number.isFinite(landed) ? landed : -1);
     _kelvinSeedIgnoredByWasm = wantsSeed && !accepted;
     if (_kelvinSeedIgnoredByWasm && !_warnedKelvinSeedUnsupported) {
       _warnedKelvinSeedUnsupported = true;
