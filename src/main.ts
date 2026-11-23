@@ -50,7 +50,6 @@ import { initMhdProfileOverlay } from './mhd-profile-overlay';
 import { initHeronLiquidNote } from './heron-liquid-note';
 import { initKelvinDropsNote } from './kelvin-drops-note';
 import { initMhdSliceNote } from './mhd-slice-note';
-import { initIrLegend } from './thermal/ir-legend';
 import { LabAudio } from './audio/lab-audio';
 import { initLabAudioBadge } from './audio/lab-audio-badge';
 import { wireChargeCouplingControls } from './charge-coupling-ui';
@@ -302,7 +301,8 @@ function bootApp(): void {
       initHeronLiquidNote();
       initKelvinDropsNote();
       initMhdSliceNote();
-      initIrLegend();
+      // The IR view's legend: fetched only when the view is on.
+      if (labConfig().thermal) void import('./thermal/ir-legend').then((m) => m.initIrLegend());
     } catch (e) {
       console.warn('[main] MHD profile overlay init skipped:', e);
     }
