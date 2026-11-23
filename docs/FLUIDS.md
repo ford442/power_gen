@@ -10,7 +10,7 @@ the lab uses: **simulated, not a measurement**.
 
 | Bench | Plant (authoritative numbers) | Picture | Solved in the picture? |
 |-------|-------------------------------|---------|------------------------|
-| `mhd` | One lumped mean speed `Ū` with `σB²`-style braking and wall friction as tuned coefficients; `V = B·Ū·w` | Timelines on the **analytic Hartmann profile** at the plant's `Ū` and `Ha`, plus a profile card | Exact steady solution, evaluated — not a numerical flow solve |
+| `mhd` | The mean speed `Ū`, with wall friction and Lorentz braking **derived** from the Hartmann profile and the circuit; `V_oc = B·Ū·w` | Timelines on the **analytic Hartmann profile** at the plant's `Ū` and `Ha`, plus a profile card | Exact steady solution, evaluated — not a numerical flow solve |
 | `heron` | Head ODE; exit speed from Bernoulli with a discharge coefficient and Darcy–Weisbach pipe friction | **WebGPU, in focus:** the jet as a simulated liquid (MLS-MPM), fed at the plant's exit speed, drawn as particles. WebGL2: ballistic droplets in SI, each on its own. WebGPU overview or `fluid=off`: stand-in droplets on a fixed path, labelled as such | The jet and its fall, yes. The vessels and the basin's own water, no |
 | `kelvin` | Capacitive charging + spark; the droplet current scaled by the share of drops that land | Two streams of drops, one per Rayleigh–Plateau drop, each with the charge its ring induces, in the field of the rings and collectors. **WebGPU, in focus:** on the liquid solver. **WebGL2, in focus:** the same law on the CPU. Elsewhere: a train of drops under gravity alone | The drops' paths and what lands, yes. Break-up, air and the spark's channel, no |
 | `peltier` | **1-D finite-volume leg**: 24 cells + cold block, two plates, heat sink (`ros23`) | Three bodies coloured by their node temperatures; sparse air parcels beside them | The temperatures are the model's. The air is illustrative |
@@ -555,16 +555,39 @@ publishes what it was charged with as **`kelvinLandedShare`**.
 
 ### The model
 
-The plant (`cpp/src/plant/mhd_plant.cpp`, TS mirror `devices/core/mhd-mesh.ts`)
+The plant (`cpp/src/plant/mhd_plant.cpp`, TS twin `src/physics/mhd-duct.ts`)
 integrates one state, the mean speed `Ū`:
 
 ```text
-dŪ/dt = drive·pump − (lorentzK·B² + frictionK)·Ū        B = 0.2 T + 0.8 T·drive
-V_oc  = B·Ū·w                                          Ha = B·a·√(σ / ρν)
+dŪ/dt = drive·pump − (friction + braking)·Ū            B = 0.2 T + 0.8 T·drive
+friction = (ν/a²)·Φ(Ha)        Φ = Ha²·tanh Ha / (Ha − tanh Ha)
+braking  = (σB²/ρ)·R_i/(R_i + R_load)                  R_i = w/(σ·2a·L)
+V_oc = B·Ū·w      I = V_oc/(R_i + R_load)              Ha = B·a·√(σ / ρν)
 ```
 
-`lorentzK` and `frictionK` are tuned classroom coefficients. They are **not**
-derived from the profile below; that is a later step of the epic.
+**Neither rate is tuned.** Both are the gap average of the solution below:
+
+- **Friction** is the profile's own shear on the two Hartmann walls per unit
+  mass of the slot. `Φ` is 3 at `B = 0` (Poiseuille) and tends to `Ha` for thin
+  layers: 16 /s at 0.2 T, 64 /s at 1 T.
+- **Braking** is the force `B·I·w` on the current the circuit draws, per unit
+  mass between the electrodes. Averaging `σ(E + u×B)×B` over the gap gives it
+  for any profile, and the profile keeps its Hartmann shape whatever the load
+  (a uniform `E` only shifts the driving term), so it holds at any current.
+  Zero on open circuit, `σB²/ρ` on a short.
+- **The fluid's resistance** is geometry: 0.25 mΩ between the electrodes.
+
+Until step 7 of the epic the plant carried `lorentzK` = 2.5 and `frictionK`
+= 0.8, tuned, and an internal resistance of 0.05 Ω — 200 times the fluid's.
+
+What is still chosen is the pump and the load. The pump holds 800 kPa/m
+(320 kPa across the electrodes; `pumpAccelMs2` = 920). The load is matched to
+`R_i`, where a generator delivers most. At full drive that gives 1.44 m/s,
+0.144 V open-circuit and 288 A: 20.7 W in the load of 46 W pumped. Low
+voltage and a large current is what a liquid-metal generator is.
+
+The rates are 44–640 /s, so a plant step is the exact exponential of the
+linear equation, in both languages. Euler at 60 Hz would overshoot.
 
 The profile across the gap is the fully developed laminar solution for a duct
 much wider than its gap, with insulating walls at `y = ±a` and a uniform field
@@ -594,18 +617,17 @@ cancels in single precision.
 |----------|-------|--------|
 | Half-gap `a` (between the Hartmann walls, along `B`) | 0.5 mm | `physics/constants.json` → `mhd.halfGapM` |
 | Electrode spacing `w` | 0.1 m | `mhd.widthM` |
-| Electrode length along the flow | 0.4 m | `mhd.lengthM` (picture only) |
+| Electrode length along the flow | 0.4 m | `mhd.lengthM` |
+| Fluid's resistance between the electrodes / load | 0.25 mΩ / 0.25 mΩ | derived / `mhd.rLoadOhm` |
 | Working fluid | `σ` = 10⁶ S/m, `ρ` = 870 kg/m³, `ν` = 8·10⁻⁷ m²/s (NaK-like) | `mhd.*` |
 | Hartmann number | ≈ 18.95 per tesla → **3.8 at 0.2 T, 19 at 1.0 T** | derived |
-| `Re/Ha` at steady state | < 250 over the drive range | `test:hartmann` |
+| `Re/Ha` at steady state | at most 173 over the drive range | `test:hartmann` |
 
 The duct is a thin slot on purpose. The gap was 5 cm until this epic, which
 made `Ha` 380–1900: a slug at every field setting, with nothing for the
 profile to show. At 0.5 mm the aspect ratio is 100:1, so the 1-D solution is
 the right one, `Re/Ha` stays below the Hartmann-layer transition (≈ 380), and
-`Ha` spans the range where the profile visibly changes. `halfGapM`, `σ`, `ρ`
-and `ν` enter the plant only through the reported `Ha`; the plant's dynamics
-did not move.
+`Ha` spans the range where the profile visibly changes.
 
 The **drawn** duct is not to scale: the 1 mm gap is drawn 0.84 render units
 tall against a 4.2-unit length, hundreds of times taller than it is. Parcel
@@ -638,8 +660,11 @@ developed laminar duct flow has no swirl.
 - **1-D.** No side (Shercliff) layers at the electrodes, no fringing field at
   the duct ends, no end-current loops, no M-shaped profiles.
 - **Insulating Hartmann walls**, laminar flow.
-- **The plant does not use it.** Braking and friction are still lumped and
-  tuned; the profile is drawn from `Ha`, the plant is not computed from it.
+- **The plant assumes the profile has formed.** Its friction is the steady
+  profile's. A start-up has more wall shear until the profile develops
+  (`a²/ν` ≈ 0.3 s at `B` = 0, milliseconds under a strong field).
+- **One electrode pair, uniform field.** No current leaking round the ends of
+  the electrodes, which costs a real generator part of its output.
 - A timeline is re-released as a whole when its centre reaches the outlet, so
   the slow wall markers of an old line vanish mid-duct. That is the
   stroboscope, not the fluid.
@@ -648,7 +673,8 @@ developed laminar duct flow has no swirl.
 
 | Command | Holds |
 |---------|-------|
-| `npm run test:hartmann` | profile vs the textbook form, limits, unit mean, wall shear; C++ twin vs TS; parcels keep lanes and move at `u(y)`; `Ha` range and `Re/Ha` for the catalog constants; overlay curves |
+| `npm run test:hartmann` | profile vs the textbook form, limits, unit mean, wall shear; C++ twin vs TS; parcels keep lanes and move at `u(y)`; `Ha` range and `Re/Ha` for the catalog constants; overlay curves; the derived balance: friction against the profile's slope at the wall, braking against `B·I·w`, pump power = friction + `I·V_oc`, the exact step at any step size, C++ rates against TS |
+| `npm run test:golden` | the two plants agree on speed, voltage, current and power |
 | `npm run test:gpu-golden` (`golden-particles`) | `posMhd` on a real GPU against `mhdParcelPosition`, position for position; a larger `Ha` flattens the line |
 | `sim_core_test --mode hartmann` | native profile table and the stateful parcel step |
 

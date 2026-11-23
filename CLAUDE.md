@@ -78,8 +78,9 @@ WASM plants: `physics/devices.json` `wasmMode` (codegen `enum SimMode`). Shader
 slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
 
 - **SEG** is the highest-fidelity path (layout presets, flux, PBR).
-- **Peltier** is a resolved 1-D thermoelectric cooler (28 nodes, `ros23`). **MHD** is still one
-  lumped speed; its picture is the analytic Hartmann profile, not a flow solve. Both: docs/FLUIDS.md.
+- **Peltier** is a resolved 1-D thermoelectric cooler (28 nodes, `ros23`). **MHD** is one
+  mean speed whose friction and braking are derived from the analytic Hartmann profile and the
+  circuit (`physics/mhd-duct.ts`); the picture is that profile, not a flow solve. Both: docs/FLUIDS.md.
 - **Liquid:** an MLS-MPM solver (`src/fluids/`, `passes/mpm-*.wgsl`, ADR-0022). Heron's jet runs
   on it — WebGPU, Heron in focus, `?fluid=auto|off|low|high` — through
   `visualizer/heron-liquid-pass.ts` (frame-graph lifetime `heron-liquid`; overview allocates none).
