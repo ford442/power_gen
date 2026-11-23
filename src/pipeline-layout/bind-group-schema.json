@@ -153,6 +153,7 @@
       "pipelines": [["mpm-p2g.wgsl"], ["mpm-grid.wgsl"], ["mpm-g2p.wgsl"]],
       "entries": [[0, "C", "uniform"], [1, "C", "storage"], [2, "C", "storage"], [3, "C", "storage"], [4, "C", "storage-ro"]]
     },
+    "mhdSlice": { "pipelines": [["mhd-slice-lbm.wgsl"], ["mhd-slice-phi.wgsl"]], "entries": [[0, "C", "uniform"], [1, "C", "storage-ro"], [2, "C", "storage-ro"], [3, "C", "storage"], [4, "C", "storage"], [5, "C", "storage"], [6, "C", "storage"]] },
     "mpmIo": {
       "pipelines": [["mpm-emit.wgsl"], ["mpm-probe.wgsl"], ["mpm-export.wgsl"]],
       "entries": [

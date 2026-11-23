@@ -138,7 +138,8 @@ async function buildSession(session, depthFormat) {
         () => cache.ensureFieldRenderPipelines(field),
         () => cache.ensureFieldRenderPipelines(field, msaa),
         () => cache.ensureMpmPipelines(app.MPM_SHADERS),
-        () => app.ensureFluidSurfacePipelines(cache, app.FLUID_SURFACE_SHADERS)
+        () => app.ensureFluidSurfacePipelines(cache, app.FLUID_SURFACE_SHADERS),
+        () => app.ensureMhdSlicePipelines(cache, app.MHD_SLICE_SHADERS)
       ];
       rec.ensureCalls = jobs.length;
       // A factory can also reject before it creates anything (a missing

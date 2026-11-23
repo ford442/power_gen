@@ -150,6 +150,7 @@ npm run test:props    # per-device glTF CAD: budgets, winding, per-bench switche
 npm run test:lab-mode # labMode preset precedence + catalog setpoints + focus announcement
 npm run test:drop-tube # drop-tube k / end taper / loops vs quadrature, transit vs RK4
 npm run test:hartmann # MHD duct: analytic Hartmann profile (TS vs C++), timeline parcels, Ha range (docs/FLUIDS.md)
+npm run test:mhd-slice # MHD lattice-Boltzmann slice, CPU twin: Hartmann profile at Ha 0/5/20, wall friction = the plant's, electrodes, loads, wall jets (the WGSL runs in test:gpu-golden)
 npm run test:mpm      # MLS-MPM liquid: CPU reference — i32 overflow bound, mass / momentum, free fall at g, ρ·g·h, viscous decay (ADR-0022; the WGSL runs in test:gpu-golden)
 npm run test:mpm-io   # …and what a bench adds: signed-distance solids, emitters, sinks, the height profile, a jet at v²/2g
 npm run test:heron-liquid # Heron's liquid scene per preset × tier, fluid= tier choice, focus gate, focus camera

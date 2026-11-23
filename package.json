@@ -74,6 +74,7 @@
     "test:heron-liquid": "node --test scripts/tests/heron-liquid.test.mjs",
     "test:fluid-surface": "node --test scripts/tests/fluid-surface.test.mjs",
     "test:kelvin-liquid": "node --test scripts/tests/kelvin-liquid.test.mjs",
+    "test:mhd-slice": "node --test scripts/tests/mhd-slice.test.mjs",
     "test:catalog-fluid": "node --test scripts/tests/catalog-fluid.test.mjs",
     "test:lab-mode": "node --test scripts/tests/lab-mode.test.mjs",
     "test:lab-url": "node --test scripts/tests/lab-url.test.mjs",

@@ -611,6 +611,72 @@ All three evaluate it with decaying exponentials (no overflow at any `Ha`) and
 switch to a two-term series in `Ha²` below `Ha = 0.25`, where the closed form
 cancels in single precision.
 
+### The slice
+
+`src/fluids/mhd-slice.ts` (sizes, units, the uniform block),
+`mhd-slice-cpu.ts` (the CPU twin), `mhd-slice-solver.ts` (the WebGPU host),
+`passes/mhd-slice-lbm.wgsl` and `mhd-slice-phi.wgsl`.
+
+A D2Q9 lattice-Boltzmann solver — two-relaxation-time collision, Guo forcing,
+half-way bounce-back walls — used two ways.
+
+**Across the gap**, field in the plane, periodic along the flow: its steady
+state is the Hartmann profile. This is what the kernel is tested on, and it
+is where the plant's friction is checked numerically: the wall friction the
+lattice has is `(ν/a²)·Φ(Ha)` within 1 % at `Ha` = 5 and 3 % at 20.
+
+| `Ha` | Nodes across | Profile, L2 error | Mean speed / analysis |
+|------|--------------|-------------------|-----------------------|
+| 0 | 64 | 1·10⁻⁵ | 0.995 |
+| 5 | 64 | 9·10⁻⁵ | 1.000 |
+| 20 | 64 | 8·10⁻⁴ (the layer is 1.6 cells thick) | 1.001 |
+
+**The mid-plane**, half-way between the Hartmann walls: x along the flow, z
+between the electrodes, field out of the plane. 256 × 40 square cells of
+2.5 mm — the duct's 0.1 m width and 0.64 m of its length, with the pole faces
+and four electrode pairs over the middle 0.4 m.
+
+- The velocity is the gap average. Friction on the Hartmann walls is the
+  linear drag `(ν/a²)·Φ(Ha(x))`, the plant's own term, column by column as
+  the field rises and falls.
+- The Lorentz force is `σ(−∇φ + u×B)×B`, with the potential `φ` solved on the
+  same grid from `∇·j = 0` (red-black over-relaxation, two sweeps a step).
+- The side walls are insulating except on the electrode segments, which are
+  equipotentials at `±V/2`. Each pair's `V` is moved every step towards its
+  load times the current it collects; the generator's load is shared out to
+  the pairs by length.
+- **The plant stays the authority on how fast the duct runs.** Its mean speed
+  is the slice's inflow, and the mean drag in each cross-section is balanced
+  by a body force — the pressure gradient the pump supplies — so the lattice
+  carries only the pressure that redistributes the flow.
+
+What it shows that the plant's one number cannot (1 T, 1.44 m/s, matched
+loads):
+
+| | Plant (one ideal pair, uniform field) | Slice |
+|---|---|---|
+| Open-circuit volts | 0.144 | 0.140 on the two middle pairs, 0.117 on the end pairs |
+| Current | 288 A | 241 A — the rest circulates round the ends of the electrodes |
+| Profile entering the field | flat | thrown to the side walls: 1.7 m/s near them, 1.4 m/s on the centre line |
+
+With the whole slice under the poles — no ends — every pair reads `B·ū·w`
+within 2 %.
+
+Limits, beyond the plant's:
+
+- **Its lateral viscosity is the lattice's, not the fluid's**: 2.6·10⁻³ m²/s,
+  three thousand times NaK's. The real side layers are a tenth of a
+  millimetre; here they are two or three cells. The core, the potential and
+  the currents do not depend on it; the width of the wall jets does.
+- **Speeds are good to about 4 %.** The lattice's own friction on the side
+  walls is not in the balance the body force makes, so the density falls
+  2–4 % along the duct and the speed rises to match.
+- **Quasi-two-dimensional.** The Hartmann layers are a drag term, valid when
+  they have formed; the flow between them is taken as uniform across the gap.
+- **The field's edge is a tanh over four cells (1 cm)**, not a computed
+  fringe field, and it has no component along the flow.
+- **Not yet drawn.** The solver is tested; the bench does not run it yet.
+
 ### Units and scale
 
 | Quantity | Value | Source |
@@ -675,6 +741,8 @@ developed laminar duct flow has no swirl.
 |---------|-------|
 | `npm run test:hartmann` | profile vs the textbook form, limits, unit mean, wall shear; C++ twin vs TS; parcels keep lanes and move at `u(y)`; `Ha` range and `Re/Ha` for the catalog constants; overlay curves; the derived balance: friction against the profile's slope at the wall, braking against `B·I·w`, pump power = friction + `I·V_oc`, the exact step at any step size, C++ rates against TS |
 | `npm run test:golden` | the two plants agree on speed, voltage, current and power |
+| `npm run test:mhd-slice` | the slice's CPU twin: uniform block and velocity set against the WGSL; the grid to scale; the Hartmann profile at `Ha` = 0, 5, 20; the lattice's wall friction against the plant's; open and loaded electrodes, Ohm's law on each load, the wall jets with and without the field |
+| `npm run test:gpu-golden` (`golden-mhd-slice`) | the WGSL on a GPU: the profile at `Ha` = 0, 5, 20 (L2 under 2 %), mass to 1e-5 per 1000 steps, the mid-plane against the CPU twin step for step, open-circuit volts against `B·ū·w` within 3 % |
 | `npm run test:gpu-golden` (`golden-particles`) | `posMhd` on a real GPU against `mhdParcelPosition`, position for position; a larger `Ha` flattens the line |
 | `sim_core_test --mode hartmann` | native profile table and the stateful parcel step |
 

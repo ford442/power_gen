@@ -15,7 +15,7 @@ import { registerDeviceMeshLayouts } from './layouts/device-mesh.js';
 import { registerPostLayouts } from './layouts/post.js';
 import { registerFdtdLayouts } from './layouts/fdtd.js';
 import { registerFieldLayouts } from './layouts/field.js';
-import { registerFluidSurfaceLayouts, registerMpmLayouts } from './layouts/mpm.js';
+import { registerFluidSurfaceLayouts, registerMhdSliceLayouts, registerMpmLayouts } from './layouts/mpm.js';
 import {
   ensureDevicePipelines as ensureDevicePipelinesImpl,
   ensureShadowCasterPipelines as ensureShadowCasterPipelinesImpl,
@@ -148,6 +148,7 @@ export class PipelineLayoutCache implements LayoutRegistrar {
     registerFieldLayouts(this);
     registerMpmLayouts(this);
     registerFluidSurfaceLayouts(this);
+    registerMhdSliceLayouts(this);
   }
 
   getLayout(name: BindGroupLayoutName): GPUBindGroupLayout {

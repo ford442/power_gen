@@ -32,6 +32,7 @@ export type SchemaBindGroupLayoutName =
   | 'depthResolve'
   | 'fdtdCompute'
   | 'mpm'
+  | 'mhdSlice'
   | 'mpmIo'
   | 'fluidSplat'
   | 'fluidFilter'
@@ -196,6 +197,15 @@ export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGro
     { binding: 3, visibility: 4, buffer: { type: 'storage' } },
     { binding: 4, visibility: 4, buffer: { type: 'read-only-storage' } },
   ],
+  mhdSlice: [
+    { binding: 0, visibility: 4, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 4, buffer: { type: 'read-only-storage' } },
+    { binding: 2, visibility: 4, buffer: { type: 'read-only-storage' } },
+    { binding: 3, visibility: 4, buffer: { type: 'storage' } },
+    { binding: 4, visibility: 4, buffer: { type: 'storage' } },
+    { binding: 5, visibility: 4, buffer: { type: 'storage' } },
+    { binding: 6, visibility: 4, buffer: { type: 'storage' } },
+  ],
   mpmIo: [
     { binding: 0, visibility: 4, buffer: { type: 'uniform' } },
     { binding: 1, visibility: 4, buffer: { type: 'storage' } },
@@ -301,6 +311,7 @@ export const BGL_GROUP: Readonly<Record<SchemaBindGroupLayoutName, number>> = {
   depthResolve: 0,
   fdtdCompute: 0,
   mpm: 0,
+  mhdSlice: 0,
   mpmIo: 0,
   fluidSplat: 0,
   fluidFilter: 0,

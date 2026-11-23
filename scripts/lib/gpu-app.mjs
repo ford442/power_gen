@@ -52,6 +52,13 @@ const ENTRY = `
   export { ensureFluidSurfacePipelines } from './src/pipeline-layout/factories/fluid-surface-pipelines.ts';
   export { FluidSurfacePass } from './src/visualizer/fluid-surface-pass.ts';
   export { getHeronLayout, computeHeronHydraulics } from './src/heron-layout.ts';
+  export * as mhdSlice from './src/fluids/mhd-slice.ts';
+  export { MhdSliceCpu } from './src/fluids/mhd-slice-cpu.ts';
+  export { MhdSliceSolver } from './src/fluids/mhd-slice-solver.ts';
+  export { MHD_SLICE_SHADERS } from './src/fluids/mhd-slice-shaders.ts';
+  export { ensureMhdSlicePipelines } from './src/pipeline-layout/factories/mhd-slice-pipelines.ts';
+  export { hartmannProfile } from './src/physics/hartmann.ts';
+  export { MHD } from './generated/physics-constants.ts';
 `;
 
 let app = null;

@@ -28,6 +28,18 @@ export function registerMpmLayouts(r: LayoutRegistrar): void {
 }
 
 /**
+ * MHD duct slice (docs/FLUIDS.md → MHD duct → The slice): the lattice-
+ * Boltzmann step and the potential / circuit passes share one layout, so a
+ * solver holds two bind groups — the distribution buffers swapped. Binding 2
+ * is the distributions read this step, 3 the ones written.
+ */
+export function registerMhdSliceLayouts(r: LayoutRegistrar): void {
+  // passes/mhd-slice-lbm.wgsl, mhd-slice-phi.wgsl.
+  r.bgl('mhdSlice', BGL.mhdSlice);
+  r.pl('mhdSlice', ['mhdSlice']);
+}
+
+/**
  * Screen-space liquid surface (ADR-0022, docs/FLUIDS.md → The surface).
  *
  * `fluidSplat` — sphere impostors from the solver's draw export, into the
