@@ -704,6 +704,7 @@ as the graphics/content epic once the plant stays maintainable.
 ## Extension points
 
 - **New apparatus:** catalog row in `physics/devices.json` + plugin + plant (if `wasmMode` set). Do not add a fourth magic map.
+- **New liquid bench:** a `fluid` block on its catalog entry (budgets per solver tier, draw mode, what WebGL2 draws instead, what is idealised — `scripts/lib/catalog-fluid.mjs`, [`FLUIDS.md`](./FLUIDS.md)); a scene in `src/fluids/<bench>-liquid.ts` sized from `DEVICE_FLUIDS`; a gate + lazy runtime pair in `src/visualizer/` with its own frame-graph lifetime; a golden for the scene. `scripts/tests/catalog-fluid.test.mjs` fails a block no pass owns.
 - **New operator slider for a bench:** a `setpoints[]` row on its catalog entry (no `index.html` edit); make the plant read the `stateKey` (null/NaN = unset), add the field to `renderers/shared/device-physics.ts`, and cover it in `scripts/tests/lab-mode.test.mjs`.
 - **New shader pass:** `.wgsl` in `passes/` + layout name in `pipeline-layout/` + BINDINGS row + `check:wgsl` (+ `check:post` if CPU struct).
 - **New plant mode in WASM:** next `reservedWasmModes` slot in the catalog, then `cpp/src/sim_core.*`. Bridge `setMode` takes a device **id**, not `shaderMode`.

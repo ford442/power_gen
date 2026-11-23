@@ -16,6 +16,7 @@ import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { ResourceLifetime } from './frame-graph';
 import type { MpmTier } from '../fluids/mpm-params';
 import type { HeronLiquidPass } from './heron-liquid-runtime';
+import { DEVICE_FLUIDS } from '../../generated/device-fluids.js';
 import { labConfig } from '../config/lab-config';
 import { getHeronLayout } from '../heron-layout';
 
@@ -212,7 +213,7 @@ export function updateHeronLiquid(host: Host, qualityTier: string, frameDt: numb
     vExitMS: state.heronVExit ?? 0,
     frameDt,
     nozzleScene: nozzleScene(host),
-    surface: liquidSurfaceWanted(qualityTier),
+    surface: DEVICE_FLUIDS.heron.draw === 'surface' && liquidSurfaceWanted(qualityTier),
     origin: [device.position[0], device.position[1], device.position[2]]
   });
   state.heronJetHeightM = pass.jetHeightM;

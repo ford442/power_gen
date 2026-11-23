@@ -17,10 +17,11 @@
  * Pure: no GPU, no DOM. The frame-graph pass (visualizer/heron-liquid-pass.ts)
  * and the tests both build their scene here.
  */
+import { DEVICE_FLUIDS } from '../../generated/device-fluids.js';
 import { HERON_CONSTANTS, PHYSICAL_CONSTANTS } from '../../generated/physics-constants.js';
 import type { MpmSolid } from './mpm-boundary.js';
 import {
-  MPM_TIERS, mpmDerived, mpmWaterConfig, validateMpmConfig,
+  mpmDerived, mpmWaterConfig, validateMpmConfig,
   type MpmConfig, type MpmEmitter, type MpmSink, type MpmTier
 } from './mpm-params.js';
 
@@ -95,7 +96,8 @@ export function heronIdealJetHeight(vExitMS: number): number {
  */
 export function heronLiquidScene(layout: HeronLiquidLayout, tier: MpmTier = 'default'): HeronLiquidScene {
   const g = PHYSICAL_CONSTANTS.G;
-  const budget = MPM_TIERS[tier];
+  // What the bench asks of the tier: its `fluid` block in physics/devices.json.
+  const budget = DEVICE_FLUIDS.heron.tiers[tier];
   const nozzleD = layout.nozzleDiameterM ?? 0.04;
   const jetMaxMS = heronJetMax(layout);
   const jetMaxHeightM = heronIdealJetHeight(jetMaxMS);
@@ -110,7 +112,7 @@ export function heronLiquidScene(layout: HeronLiquidLayout, tier: MpmTier = 'def
   const flightS = (2 * jetMaxMS) / g + Math.sqrt((2 * riserM) / g) + 0.1;
   let h = nozzleD / CELLS_ACROSS_NOZZLE[tier];
   h = Math.max(h, Math.cbrt((flowMax * flightS * 8) / (0.5 * budget.particles)));
-  for (let i = 0; i < 4; i++) h = Math.max(h, Math.cbrt((widthM(h) ** 2 * heightM(h)) / budget.gridN ** 3));
+  for (let i = 0; i < 4; i++) h = Math.max(h, Math.cbrt((widthM(h) ** 2 * heightM(h)) / budget.grid ** 3));
   const nx = Math.ceil(widthM(h) / h);
   const ny = Math.ceil(heightM(h) / h);
 

@@ -83,6 +83,21 @@ Without `sim_core.wasm` the wiring view opens read-only with a
 | `homopolar` | `out` (Disc brushes) | rim + / axle − | `homopolar-emf` | EMF k·ω (k = ½ B r²) in series with the disc's own R and L; the circuit's current brakes the disc with torque k·ī |
 | `transformer` | `sec` (Secondary winding) | s + / s − | `transformer-secondary` | The bench's 60 Hz generator (28 V pk × drive) through R_p into L_p, coupled (k, leakage toggle) to L_s + R_s; your circuit replaces the 12 Ω load |
 
+## Liquid solvers
+
+A `fluid` block puts a bench's liquid on the MLS-MPM solver
+([ADR-0022](adr/0022-gpu-liquid-mls-mpm.md), [`FLUIDS.md`](FLUIDS.md)):
+WebGPU only, and only while that bench is in focus — overview allocates
+none of it. `fluid=auto|off|low|high` picks the tier; `auto` follows the
+profiler and steps down, never back up. Budgets are a node budget (grid³,
+shaped to the bench by its scene) and particle slots. Every other bench's
+"fluid" is a picture of its plant, not a solver.
+
+| Device `id` | Solver — what is simulated | Grid nodes / particles | Drawn as | WebGL2 instead | Idealised |
+|---|---|---|---|---|---|
+| `heron` | `mpm` — the jet above the nozzle, its cap and its fall to the tray | `low` 32³ / 15,000<br>`default` 64³ / 40,000<br>`high` 96³ / 120,000 | screen-space surface from the `medium` quality tier; particles below it, and for spray | ballistic droplets under SI gravity, each rising v²/2g | weakly compressible, shown at 1/6 speed; the tray drains instead of filling; no surface tension; the vessels' levels stay the plant's |
+| `kelvin` | `mpm` — the two streams of charged drops between the drip tips and the collectors | 32³ / 2,048 at every tier | particles | the same drops on the CPU: gravity and q·E in 1 ms steps | one particle per Rayleigh–Plateau drop: no pinch-off, merging or drop–drop force; the conductors are rings of charge at the plant's potential; real time |
+
 ## How to add a device
 
 1. Add a row to `physics/devices.json` (new unused `shaderMode`; `wasmMode` next reserved or `null`), including a `telemetry` entry (label / unit / digits) for every `telemetryKeys` entry, and a `state` block listing every field the plant's step reads before it writes.

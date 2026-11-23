@@ -111,6 +111,18 @@
       "wasmMode": 1,
       "telemetryKeys": ["heronHead", "heronHeadMax", "heronVExit", "heronFlowRateLmin", "heronPressureKPa", "heronJetIdealM", "heronJetHeightM"],
       "fidelity": "WASM (Bernoulli + Darcy–Weisbach); jet and pool: MLS-MPM liquid on WebGPU",
+      "fluid": {
+        "solver": "mpm",
+        "what": "the jet above the nozzle, its cap and its fall to the tray",
+        "tiers": {
+          "low": { "grid": 32, "particles": 15000 },
+          "default": { "grid": 64, "particles": 40000 },
+          "high": { "grid": 96, "particles": 120000 }
+        },
+        "draw": "surface",
+        "fallback": "ballistic droplets under SI gravity, each rising v²/2g",
+        "model": "weakly compressible, shown at 1/6 speed; the tray drains instead of filling; no surface tension; the vessels' levels stay the plant's"
+      },
       "state": {
         "plant": "_heron",
         "fields": [
@@ -171,6 +183,16 @@
       "wasmMode": 2,
       "telemetryKeys": ["kelvinV", "kelvinVoltageN", "kelvinVbreak", "kelvinE", "kelvinSparkTimer", "kelvinLandedShare"],
       "fidelity": "WASM (capacitive + spark); drops: SI, charged, in the rings' field (MLS-MPM on WebGPU, CPU on WebGL2)",
+      "fluid": {
+        "solver": "mpm",
+        "what": "the two streams of charged drops between the drip tips and the collectors",
+        "tiers": {
+          "low": { "grid": 32, "particles": 2048 }
+        },
+        "draw": "particles",
+        "fallback": "the same drops on the CPU: gravity and q·E in 1 ms steps",
+        "model": "one particle per Rayleigh–Plateau drop: no pinch-off, merging or drop–drop force; the conductors are rings of charge at the plant's potential; real time"
+      },
       "state": {
         "plant": "_kelvin",
         "fields": [

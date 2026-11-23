@@ -57,6 +57,29 @@ The grid column is a node budget; a bench shapes its own box inside it
 (Heron's `classic` preset is 61³ with 12.5 mm cells at the default tier, the
 `tower` preset 49 × 111 × 49 with 15.7 mm cells).
 
+These are the most a tier may hold (`MPM_TIERS`). **What a bench asks for is
+its `fluid` block in `physics/devices.json`** — solver, what of the bench is
+simulated, a budget per tier, whether it is drawn as a surface, what WebGL2
+draws instead, and what is idealised:
+
+```json
+"fluid": {
+  "solver": "mpm",
+  "what": "the two streams of charged drops between the drip tips and the collectors",
+  "tiers": { "low": { "grid": 32, "particles": 2048 } },
+  "draw": "particles",
+  "fallback": "the same drops on the CPU: gravity and q·E in 1 ms steps",
+  "model": "one particle per Rayleigh–Plateau drop: …"
+}
+```
+
+A tier that is left out takes the next lower one's budget. `codegen:catalog`
+checks the block, emits `generated/device-fluids.ts` (`DEVICE_FLUIDS`, which
+the scenes size themselves from) and the
+[Liquid solvers](MODE_MATRIX.md#liquid-solvers) table. Scale and time scale
+are physics and stay in `physics/constants.json`. Heron takes the full tiers;
+Kelvin one small size at every tier.
+
 `fluid=auto` (the default) takes the **default** tier at the `high` quality
 tier, the **low** tier at `medium` and `low`, and nothing at `critical`.
 `fluid=low` / `fluid=high` force a tier; `fluid=off` (or `0`) is no solver.

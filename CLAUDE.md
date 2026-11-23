@@ -152,6 +152,7 @@ npm run test:hartmann # MHD duct: analytic Hartmann profile (TS vs C++), timelin
 npm run test:mpm      # MLS-MPM liquid: CPU reference — i32 overflow bound, mass / momentum, free fall at g, ρ·g·h, viscous decay (ADR-0022; the WGSL runs in test:gpu-golden)
 npm run test:mpm-io   # …and what a bench adds: signed-distance solids, emitters, sinks, the height profile, a jet at v²/2g
 npm run test:heron-liquid # Heron's liquid scene per preset × tier, fluid= tier choice, focus gate, focus camera
+npm run test:catalog-fluid # catalog `fluid` blocks: validation, tier fall-back, budgets inside the solver's, scenes sized from them
 npm run test:kelvin-liquid # Kelvin dropper: Rayleigh–Plateau drops, Rayleigh limit, the scene vs the drawn bench, landing share vs potential (solver twin + CPU drops)
 npm run test:fluid-surface # liquid surface: uniform block vs WGSL, narrow-range filter CPU twin, optics per look (the passes run in test:gpu-golden)
 npm run test:peltier  # Peltier cooler: ΔT_max / I_opt / COP / energy balance on native + WASM + TS, array snapshots, v1 migration (ADR-0021)

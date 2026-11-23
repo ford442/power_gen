@@ -73,6 +73,7 @@ export const MPM_MAX_CONDUCTORS = 4;
 // The conductors' field lives in physics/ring-field.ts: the WebGL2 fallback's
 // drops feel the same rings without the solver.
 export { COULOMB_K, MPM_RING_POINTS, mpmFieldAt, mpmPotentialAt, type MpmConductor } from '../physics/ring-field.js';
+import type { FluidTier } from '../../generated/device-fluids.js';
 import type { MpmConductor } from '../physics/ring-field.js';
 /** `MpmParams.flags` bit: the boundary buffer holds a signed-distance field. */
 export const MPM_FLAG_BOUNDARY = 1;
@@ -326,13 +327,18 @@ export function mpmDither(bits: number, out: number[]): void {
   out[2] = (((bits >>> 20) & 1023) + 0.5) / 1024 - 0.5;
 }
 
-/** Quality tiers (`fluid=auto|off|low|high`): grid and particle budget. */
-export const MPM_TIERS = Object.freeze({
+/**
+ * The most a solver tier (`fluid=auto|off|low|high`) may hold: what the
+ * fixed-point scales, the memory figures and the goldens are sized for. What
+ * a bench actually asks for is its `fluid` block in physics/devices.json
+ * (`DEVICE_FLUIDS`), which `test:catalog-fluid` holds inside these.
+ */
+export const MPM_TIERS: Readonly<Record<FluidTier, { readonly gridN: number; readonly particles: number }>> = Object.freeze({
   low: Object.freeze({ gridN: 32, particles: 15000 }),
   default: Object.freeze({ gridN: 64, particles: 40000 }),
   high: Object.freeze({ gridN: 96, particles: 120000 })
 });
-export type MpmTier = keyof typeof MPM_TIERS;
+export type MpmTier = FluidTier;
 
 /** GPU bytes a solver of this size holds: particles + fixed-point grid + velocity grid. */
 export function mpmMemoryBytes(gridN: readonly [number, number, number], particles: number): number {

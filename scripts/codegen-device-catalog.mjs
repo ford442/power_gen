@@ -11,6 +11,7 @@
  *   generated/plant-state-impl.h     (SEGSimulator::plantSave / plantLoad bodies)
  *   generated/field-sources.ts       (fieldSources blocks, ADR-0017 — scripts/lib/catalog-field-sources.mjs)
  *   generated/circuit-ports.ts       (ports blocks, ADR-0018 — scripts/lib/catalog-ports.mjs)
+ *   generated/device-fluids.ts       (fluid blocks, ADR-0022 — scripts/lib/catalog-fluid.mjs)
  *   generated/twin-rig.{h,ts}        (seg.twin: rig states / params / sensors, ADR-0019 — scripts/lib/catalog-twin.mjs)
  *   src/shaders/generated/device-catalog.wgsl
  *   src/shaders/generated/field-sources.wgsl (FIELD_KIND_* ids)
@@ -29,6 +30,7 @@ import { emitPlantOdeH, emitPlantOdeTs, validateOde } from './lib/catalog-ode.mj
 import { emitTwinH, emitTwinTs, validateTwin } from './lib/catalog-twin.mjs';
 import { emitFieldSourcesTs, emitFieldSourcesWgsl, validateFieldSources } from './lib/catalog-field-sources.mjs';
 import { emitCircuitPortsTs, emitPortsMatrix, validatePorts } from './lib/catalog-ports.mjs';
+import { emitDeviceFluidsTs, emitFluidMatrix, validateFluid } from './lib/catalog-fluid.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -1101,6 +1103,7 @@ followed by the block's \`cpp\` fields; layout hash
 ${stateRows.join('\n')}
 
 ${emitPortsMatrix(devices)}
+${emitFluidMatrix(devices)}
 ## How to add a device
 
 1. Add a row to \`physics/devices.json\` (new unused \`shaderMode\`; \`wasmMode\` next reserved or \`null\`), including a \`telemetry\` entry (label / unit / digits) for every \`telemetryKeys\` entry, and a \`state\` block listing every field the plant's step reads before it writes.
@@ -1157,7 +1160,8 @@ function main() {
     ...validateOde(devices),
     ...validateTwin(devices),
     ...validateFieldSources(devices, fieldBuilderNames()),
-    ...validatePorts(devices, portDriverNames())
+    ...validatePorts(devices, portDriverNames()),
+    ...validateFluid(devices)
   ];
   if (stateErrors.length) {
     for (const e of stateErrors) console.error(`[catalog] ${e}`);
@@ -1209,6 +1213,7 @@ function main() {
     [join(OUT_DIR, 'twin-rig.ts'), emitTwinTs(devices)],
     [join(OUT_DIR, 'field-sources.ts'), emitFieldSourcesTs(devices)],
     [join(OUT_DIR, 'circuit-ports.ts'), emitCircuitPortsTs(devices, HEADER_TS)],
+    [join(OUT_DIR, 'device-fluids.ts'), emitDeviceFluidsTs(devices, HEADER_TS)],
     [FIELD_SHADER_OUT, emitFieldSourcesWgsl()],
     [SHADER_OUT, wgsl],
     [MODE_MATRIX, md],

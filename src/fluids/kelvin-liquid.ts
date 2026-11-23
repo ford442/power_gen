@@ -15,6 +15,7 @@
  *
  * Everything here is SI and local to the solver's box. Pure: no GPU, no DOM.
  */
+import { DEVICE_FLUIDS } from '../../generated/device-fluids.js';
 import { KELVIN_CONSTANTS } from '../../generated/physics-constants.js';
 import { KELVIN_APPARATUS, KELVIN_COLLECTOR_MOUTH_Y } from '../kelvin-layout.js';
 import {
@@ -22,7 +23,7 @@ import {
 } from '../physics/kelvin-dropper.js';
 import {
   mpmWaterConfig, validateMpmConfig,
-  type MpmConductor, type MpmConfig, type MpmEmitter, type MpmSink
+  type MpmConductor, type MpmConfig, type MpmEmitter, type MpmSink, type MpmTier
 } from './mpm-params.js';
 
 // The drops' own physics is shared with the WebGL2 fallback's CPU drops.
@@ -36,10 +37,13 @@ export const KELVIN_METRES_PER_SCENE_UNIT: number = KELVIN_CONSTANTS.METRES_PER_
 /** Simulated seconds per displayed second: 1 — the drops fall through the plant's potential on the plant's clock. */
 export const KELVIN_LIQUID_TIME_SCALE: number = KELVIN_CONSTANTS.LIQUID_TIME_SCALE;
 
-/** Nodes the box is built for. Drops do not meet, so a coarse grid costs nothing in accuracy. */
-const GRID_NODE_BUDGET = 32 ** 3;
-/** Slots for drops in the box at once: ~17 in the air at full drive, more while some hover at their rings. */
-export const KELVIN_MAX_DROPS = 2048;
+/**
+ * The bench's budgets are its `fluid` block in physics/devices.json: one size
+ * at every tier. Drops do not meet, so a coarse grid costs nothing in
+ * accuracy; ~17 drops are in the air at full drive, more while some hover at
+ * their rings.
+ */
+export const KELVIN_MAX_DROPS: number = DEVICE_FLUIDS.kelvin.tiers.low.particles;
 
 export interface KelvinLiquidScene {
   config: MpmConfig;
@@ -67,12 +71,13 @@ export interface KelvinLiquidScene {
 }
 
 /**
- * Size the box, the grid and the step. One scene for every solver tier: drops
- * that do not touch are exact on any grid, so there is nothing a finer one
- * would buy. A particle is given the Rayleigh–Plateau drop's volume, so one
- * particle is one drop.
+ * Size the box, the grid and the step. The catalog gives every solver tier
+ * the same budget: drops that do not touch are exact on any grid, so there is
+ * nothing a finer one would buy. A particle is given the Rayleigh–Plateau
+ * drop's volume, so one particle is one drop.
  */
-export function kelvinLiquidScene(nozzleDiameterM: number = KELVIN_CONSTANTS.NOZZLE_DIAMETER_M): KelvinLiquidScene {
+export function kelvinLiquidScene(nozzleDiameterM: number = KELVIN_CONSTANTS.NOZZLE_DIAMETER_M, tier: MpmTier = 'low'): KelvinLiquidScene {
+  const budget = DEVICE_FLUIDS.kelvin.tiers[tier];
   const a = KELVIN_APPARATUS;
   const m = KELVIN_METRES_PER_SCENE_UNIT;
   const drops = kelvinDrops(1, nozzleDiameterM);
@@ -82,7 +87,7 @@ export function kelvinLiquidScene(nozzleDiameterM: number = KELVIN_CONSTANTS.NOZ
   const bottomY = KELVIN_COLLECTOR_MOUTH_Y - 0.9;
   const topY = a.tipY + 0.5;
   const size = [2 * halfX * m, (topY - bottomY) * m, 2 * halfZ * m];
-  const h = Math.cbrt((size[0] * size[1] * size[2]) / GRID_NODE_BUDGET);
+  const h = Math.cbrt((size[0] * size[1] * size[2]) / budget.grid ** 3);
   const gridN: [number, number, number] = [Math.ceil(size[0] / h) + 4, Math.ceil(size[1] / h) + 4, Math.ceil(size[2] / h) + 4];
   // The step: a drop at 4 m/s (a fall plus a kick from a ring) crosses under half a cell.
   const maxSpeedMS = 6;
@@ -90,7 +95,7 @@ export function kelvinLiquidScene(nozzleDiameterM: number = KELVIN_CONSTANTS.NOZ
   // (Up to 16 a frame: the grid is small, and the drops keep the plant's clock.)
   const substepsPerFrame = Math.min(16, Math.max(1, Math.ceil(KELVIN_LIQUID_TIME_SCALE / 60 / dtWanted - 1e-9)));
   const dt = KELVIN_LIQUID_TIME_SCALE / 60 / substepsPerFrame;
-  const config = mpmWaterConfig(gridN, h, dt, KELVIN_MAX_DROPS, {
+  const config = mpmWaterConfig(gridN, h, dt, budget.particles, {
     restDensity: KELVIN_CONSTANTS.WATER_DENSITY,
     maxSpeedMS,
     // One particle = one drop: this many drop volumes make a cell.
