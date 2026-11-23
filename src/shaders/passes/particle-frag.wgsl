@@ -37,13 +37,16 @@
         let phase = input.particlePhase;
         var color: vec3f;
 
-        if (effectType > 8.5 && effectType < 9.5) {
+        if (effectType > 8.5 && effectType < 10.5) {
           // Liquid-solver particle (mpm-export.wgsl): a soft water droplet,
           // whiter where the liquid is fast — the jet's core and the spray.
-          // No glow: it is water, not an emitter.
+          // No glow: it is water, not an emitter. Spray (type 10) is thin
+          // liquid, which scatters more light than it lets through: whiter.
+          let spray = effectType > 9.5;
           let core = exp(-dist * dist * 9.0);
           let fast = clamp(input.speed * 2.5, 0.0, 1.0);
-          let water = mix(vec3f(0.10, 0.36, 0.78), vec3f(0.80, 0.92, 1.0), fast * 0.75 + 0.15);
+          let white = select(fast * 0.75 + 0.15, 0.85, spray);
+          let water = mix(vec3f(0.10, 0.36, 0.78), vec3f(0.80, 0.92, 1.0), white);
           let a = core * 0.55;
           return vec4f(water * a, a);
         } else if (effectType > 6.5 && effectType < 7.5) {

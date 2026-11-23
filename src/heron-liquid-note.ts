@@ -30,6 +30,8 @@ export interface HeronLiquidNoteFluid {
   live: number;
   timeScale: number;
   substeps: number;
+  /** The bulk is drawn by the screen-space surface pass (else as particles). */
+  surface?: boolean;
 }
 
 export interface HeronLiquidNoteState {
@@ -57,8 +59,10 @@ export function heronLiquidNoteText(s: HeronLiquidNoteState): string {
   }
   if (f.build === 'failed') return 'Liquid solver unavailable on this GPU — stand-in droplets on a fixed path, not a liquid.';
   if (f.allocated && f.active && f.substeps > 0 && f.grid) {
-    return `Liquid: MLS-MPM, ${f.grid.join('×')} grid, ${f.live.toLocaleString('en-US')} particles · shown at ${speedLabel(f.timeScale)} speed · `
-      + 'the basin is a drain · simulated, not a measurement';
+    // The surface's colour is a dye's: water's own absorption would not show in a jet this thin.
+    const drawn = f.surface ? 'drawn as a surface, tinted like dyed water' : 'drawn as particles';
+    return `Liquid: MLS-MPM, ${f.grid.join('×')} grid, ${f.live.toLocaleString('en-US')} particles · ${drawn} · `
+      + `shown at ${speedLabel(f.timeScale)} speed · the basin is a drain · simulated, not a measurement`;
   }
   if (f.active) return 'Liquid solver starting…';
   if (f.choice === 'auto' && f.ceiling === 'off') {

@@ -77,6 +77,16 @@ export function liquidCeilingAfter(running: MpmTier | null, allowed: MpmTier | n
   return TIER_OF_RANK[Math.min(TIER_RANK[ceiling], next)];
 }
 
+/**
+ * True when the bulk of the liquid should be drawn as a screen-space surface
+ * rather than as particles: `medium` and up. At `low` and `critical` the
+ * five extra passes and four full-resolution targets are not worth it, and
+ * the liquid stays particles.
+ */
+export function liquidSurfaceWanted(qualityTier: string): boolean {
+  return qualityTier === 'medium' || qualityTier === 'high' || qualityTier === 'ultra';
+}
+
 /** True when the liquid may run this frame. */
 export function heronLiquidGateOpen(o: { choice: FluidChoice; currentView: string | null | undefined; qualityTier: string } & LiquidTierOptions): boolean {
   return o.currentView === HERON_LIQUID_OWNER && liquidTierFor(o.choice, o.qualityTier, o) !== null;
@@ -105,6 +115,22 @@ export interface HeronLiquidInfo {
   drained: number;
   jetHeightM: number;
   substeps: number;
+  /** The bulk is drawn by the screen-space surface pass this frame (else as particles). */
+  surface: boolean;
+  /** Pixels of the surface pass's targets, or null while they are released; their bytes. */
+  surfaceSize: number[] | null;
+  surfaceBytes: number;
+}
+
+/** The surface pass's targets, as a lifetime that follows whichever pass the host currently has. */
+export function fluidSurfaceLifetime(host: Host): ResourceLifetime {
+  const inner = (): ResourceLifetime | null => host.heronLiquid?.surfaceLifetime() ?? null;
+  return {
+    name: 'fluid-surface',
+    isAllocated: () => inner()?.isAllocated() ?? false,
+    ensure: () => inner()?.ensure(),
+    release: () => inner()?.release()
+  };
 }
 
 /** The frame-graph lifetime: follows whichever pass the host currently has. */
@@ -185,7 +211,9 @@ export function updateHeronLiquid(host: Host, qualityTier: string, frameDt: numb
     layoutId: state.heronLayoutId || 'classic',
     vExitMS: state.heronVExit ?? 0,
     frameDt,
-    nozzleScene: nozzleScene(host)
+    nozzleScene: nozzleScene(host),
+    surface: liquidSurfaceWanted(qualityTier),
+    origin: [device.position[0], device.position[1], device.position[2]]
   });
   state.heronJetHeightM = pass.jetHeightM;
   if (pass.draw()) host.liquidOwner = HERON_LIQUID_OWNER;
@@ -216,6 +244,9 @@ export function heronLiquidInfo(host: Host): HeronLiquidInfo {
     emitted: profile?.emitted ?? 0,
     drained: profile?.sunk ?? 0,
     jetHeightM: pass?.jetHeightM ?? 0,
-    substeps: solver?.substeps ?? 0
+    substeps: solver?.substeps ?? 0,
+    surface: !!pass?.surfaceOn,
+    surfaceSize: pass?.surface?.size ?? null,
+    surfaceBytes: pass?.surface?.bytes ?? 0
   };
 }

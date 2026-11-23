@@ -26,3 +26,24 @@ export function registerMpmLayouts(r: LayoutRegistrar): void {
   r.bgl('mpmIo', BGL.mpmIo);
   r.pl('mpmIo', ['mpmIo']);
 }
+
+/**
+ * Screen-space liquid surface (ADR-0022, docs/FLUIDS.md → The surface).
+ *
+ * `fluidSplat` — sphere impostors from the solver's draw export, into the
+ * liquid's own depth target and, additively, its thickness target.
+ * `fluidFilter` — one direction of the narrow-range depth filter: reads one
+ * depth target, writes the other.
+ * `fluidComposite` — group 1 of the pass that shades the surface over the
+ * scene colour; group 0 is the scene's frame group (camera, lighting, IBL).
+ */
+export function registerFluidSurfaceLayouts(r: LayoutRegistrar): void {
+  r.bgl('fluidSplat', BGL.fluidSplat);
+  r.pl('fluidSplat', ['fluidSplat']);
+
+  r.bgl('fluidFilter', BGL.fluidFilter);
+  r.pl('fluidFilter', ['fluidFilter']);
+
+  r.bgl('fluidComposite', BGL.fluidComposite);
+  r.pl('fluidComposite', ['frame', 'fluidComposite']);
+}

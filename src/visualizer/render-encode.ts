@@ -27,7 +27,7 @@ import {
 import type { ShadowFit } from './shadow-map';
 import type { FieldVolumePass } from './field-volume-pass';
 import { fieldVolumeLifetime } from './field-volume-drive';
-import { heronLiquidLifetime, type HeronLiquidPass } from './heron-liquid-pass';
+import { fluidSurfaceLifetime, heronLiquidLifetime, type HeronLiquidPass } from './heron-liquid-pass';
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { DeviceInstance } from '../device-instance.js';
 import type { PerformanceProfiler } from '../performance-profiler';
@@ -197,6 +197,8 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
     .addResource('fieldVolume', { lifetime: fieldVolumeLifetime(host) })
     // Particles + two grids of the liquid solver: Heron in focus only.
     .addResource('heronLiquid', { lifetime: heronLiquidLifetime(host) })
+    // Two depth targets, a thickness target and a scene copy: only while a liquid is drawn as a surface.
+    .addResource('fluidSurface', { lifetime: fluidSurfaceLifetime(host) })
     .addResource('bloom')
     .addResource('canvas');
 
@@ -248,6 +250,15 @@ export function buildFrameGraph(host: Host): FrameGraph<FrameCtx> {
     reads: ['depthMsaa'],
     writes: ['depthResolved'],
     encode: (encoder, res) => encodeDepthResolve(host, encoder, res)
+  });
+  // The liquid as a surface, over the resolved scene colour: after the scene
+  // (it refracts it and is hidden by its depth), before TAA, SSR and bloom
+  // (so they treat it as part of the scene).
+  graph.addPass('fluid-surface', {
+    enabled: (ctx) => !!ctx.heronLiquid?.surfaceOn,
+    reads: (ctx) => ['heronLiquid', 'sceneColor', ctx.depth],
+    writes: ['fluidSurface', 'sceneColor'],
+    encode: (encoder, res, ctx) => ctx.heronLiquid!.encodeSurface(encoder, ctx.msaa, res)
   });
   // Before SSR and bloom, so everything downstream sees the stabilised image.
   graph.addPass('taa', {

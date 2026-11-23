@@ -75,6 +75,10 @@ export class MpmSolver {
   /** Draw export: scene position = exportOrigin + metres · exportScale. */
   exportOrigin: [number, number, number] = [0, 0, 0];
   exportScale = 1;
+  /** A surface pass draws the bulk liquid this frame (mpm-export.wgsl writes type 11 for it). */
+  exportSurface = false;
+  /** Density over rest density under which a particle is exported as spray; 0 = never. */
+  sprayBelow = 0;
   /** The latest profile to come back, or null before the first. */
   profile: MpmProfile | null = null;
 
@@ -285,7 +289,9 @@ export class MpmSolver {
       baseId: this.nextId,
       sinks: this.sinks,
       exportOrigin: this.exportOrigin,
-      exportScale: this.exportScale
+      exportScale: this.exportScale,
+      surface: this.exportSurface,
+      sprayBelow: this.sprayBelow
     }, this.ioScratch));
     this.nextId = (this.nextId + counts.reduce((a, n) => a + n, 0)) >>> 0;
     this.uploadParams();

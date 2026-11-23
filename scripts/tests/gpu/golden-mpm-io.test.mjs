@@ -238,6 +238,61 @@ describe('gpu-golden: mpm boundary, emit, probe, export vs MpmCpu', { skip }, ()
     solver.destroy();
   });
 
+  it('the export says who draws each particle: bulk liquid, spray, and bulk under a surface pass', async () => {
+    const { app } = session;
+    const F = app.mpm.MPM_PARTICLE_FLOATS;
+    const cfg = app.mpm.mpmWaterConfig([20, 20, 20], 0.01, 1e-4, 8192, { gravity: [0, 0, 0] });
+    // A block 8 cells on a side at rest, and three particles on their own.
+    const block = app.seedMpmBox(cfg, { min: [0.04, 0.04, 0.04], max: [0.12, 0.12, 0.12] });
+    const n = block.length / F;
+    const lone = [[0.16, 0.16, 0.16], [0.03, 0.17, 0.05], [0.165, 0.04, 0.03]];
+    const records = new Float32Array(block.length + lone.length * F);
+    new Uint8Array(records.buffer).set(new Uint8Array(block.buffer, block.byteOffset, block.byteLength));
+    lone.forEach((pos, i) => app.writeMpmParticle(records, n + i, pos));
+    const solver = await makeSolver(cfg, { io: true });
+    solver.writeParticles(records);
+    const threshold = app.fluidSurface.FLUID_SPRAY_BELOW;
+
+    const kinds = async (surface, sprayBelow) => {
+      solver.exportSurface = surface;
+      solver.sprayBelow = sprayBelow;
+      submit((enc) => solver.encodeFrame(enc, 1));
+      const drawn = new Float32Array(await readBuffer(session.device, solver.drawBuffer));
+      const particles = await readParticles(solver);
+      const gridVel = new Float32Array(await readBuffer(session.device, solver.gridVelBuffer));
+      const count = { 9: 0, 10: 0, 11: 0 };
+      let mismatched = 0;
+      for (let p = 0; p < n + lone.length; p++) {
+        const kind = Math.floor(drawn[p * 4 + 3]);
+        count[kind]++;
+        if (sprayBelow <= 0) continue;
+        // The shader's verdict against the CPU twin on the very grid it read.
+        const ratio = app.mpmDensityRatio(cfg, gridVel, [particles[p * F], particles[p * F + 1], particles[p * F + 2]]);
+        if (Math.abs(ratio - sprayBelow) < 1e-4) continue;
+        if ((kind === 10) !== (ratio < sprayBelow)) mismatched++;
+      }
+      return { count, mismatched };
+    };
+
+    // No threshold: nothing is spray, whoever draws.
+    assert.deepEqual((await kinds(false, 0)).count, { 9: n + 3, 10: 0, 11: 0 });
+    assert.deepEqual((await kinds(true, 0)).count, { 9: 0, 10: 0, 11: n + 3 });
+    // With it: the three loners are spray; the block is liquid — also on its faces and corners.
+    const plain = await kinds(false, threshold);
+    assert.deepEqual(plain.count, { 9: n, 10: 3, 11: 0 });
+    assert.equal(plain.mismatched, 0);
+    const surfaced = await kinds(true, threshold);
+    assert.deepEqual(surfaced.count, { 9: 0, 10: 3, 11: n });
+    assert.equal(surfaced.mismatched, 0);
+    // A higher threshold takes the block's edges and corners too (512 of its
+    // particles here), exactly where the CPU twin says.
+    const skin = await kinds(true, 0.6);
+    assert.ok(skin.count[10] > 100 && skin.count[11] > 1000, JSON.stringify(skin.count));
+    assert.equal(skin.mismatched, 0);
+    assert.deepEqual(session.device.uncaptured, [], 'GPU validation errors');
+    solver.destroy();
+  });
+
   it('a jet stands v²/2g tall, within 10 %, and the books balance', async () => {
     const { app } = session;
     const h = 0.005;

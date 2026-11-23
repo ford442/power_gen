@@ -277,14 +277,48 @@ for a solver created with `io`.
 |---------|------|--------|----------|-------------|
 | 0 | uniform | CS | `MpmParams` (same buffer as `mpm` binding 0) | all three |
 | 1 | storage (rw) | CS | Particles (same buffer as `mpm` binding 1) | `emit`, `exportParticles` (reads only) |
-| 2 | uniform | CS | `MpmIoParams` (192 B): two emitters, two sinks, the export transform | `emit`, `exportParticles` |
+| 2 | uniform | CS | `MpmIoParams` (192 B): two emitters, two sinks, the export transform, whether a surface pass draws the bulk, the spray threshold | `emit`, `exportParticles` |
 | 3 | storage (rw) | CS | Counters, `array<atomic<u32>>`: this frame's emission tickets (the host clears this word each frame), emitted total, drained total | `emit`, `probe` |
-| 4 | storage (read) | CS | Velocity grid (same buffer as `mpm` binding 3), for its mass channel | `probe` |
+| 4 | storage (read) | CS | Velocity grid (same buffer as `mpm` binding 3), for its mass channel | `probe`, `exportParticles` (the density that tells spray from liquid) |
 | 5 | storage (rw) | CS | Profile, `array<u32>`: mass per grid layer × 256, then the two totals | `probe` |
 | 6 | storage (rw) | CS | Draw records, `array<GpuParticle>` (16 B, `common/particle.wgsl`) — what the `particle` layout's binding 4 reads | `exportParticles` |
 
 `emit` and `exportParticles` run at `@workgroup_size(64)` over every slot of
 the budget; `probe` at `@workgroup_size(1)`, one invocation per grid layer.
+
+### `fluidSplat`, `fluidFilter`, `fluidComposite` — screen-space liquid surface (ADR-0022)
+
+Three layouts for the five passes of `fluid-surface` (`docs/FLUIDS.md` → The
+surface). All three bind the same 224-byte `FluidSurfaceParams`
+(`common/fluid-surface.wgsl`, `packFluidSurfaceParams`); two copies of it
+exist, one per filter direction.
+
+`fluidSplat` — `passes/fluid-splat.wgsl` (`vsSplat` + `fsDepth` or `fsThickness`):
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | uniform | VS + FS | `FluidSurfaceParams` |
+| 1 | storage (read) | VS | The solver's draw records, `array<GpuParticle>` (`mpmIo` binding 6) |
+
+`fluidFilter` — `passes/fluid-filter.wgsl`, run once along x and once along y:
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | uniform | FS | `FluidSurfaceParams` (the copy for this direction) |
+| 1 | texture (depth) | FS | The liquid depth target being read; the pass writes the other one as its depth attachment |
+
+`fluidComposite` — group 1 of `passes/fluid-composite.wgsl`; group 0 is
+`frame` (it reads the lighting, binding 5, and the prefiltered environment,
+7 and 8):
+
+| Binding | Type | Stages | Resource |
+|---------|------|--------|----------|
+| 0 | uniform | FS | `FluidSurfaceParams` |
+| 1 | texture (depth) | FS | Filtered liquid depth: distance along the view axis over the far plane, 1 = no liquid |
+| 2 | texture | FS | Liquid thickness (`r16float`, scene units) |
+| 3 | texture | FS | Copy of the scene colour, for refraction |
+| 4 | texture (depth) | FS | Scene depth — the resolved one on an MSAA frame |
+| 5 | sampler | FS | Linear (the post stack's) |
 
 ### `fdtdSlice` — FDTD slice panel in the scene pass (ADR-0010, materials ADR-0012)
 

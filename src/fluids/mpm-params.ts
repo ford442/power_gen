@@ -396,7 +396,14 @@ export interface MpmIoFrame {
   /** Read-back transform for mpm-export.wgsl: scene position = origin + metres · scale. */
   exportOrigin: readonly [number, number, number];
   exportScale: number;
+  /** A surface pass draws the bulk liquid: export it as effect type 11, not 9. */
+  surface?: boolean;
+  /** Density over rest density under which a particle is exported as spray (type 10); 0 = never. */
+  sprayBelow?: number;
 }
+
+/** Effect types mpm-export.wgsl writes into the integer part of a draw record's phase. */
+export const MPM_EFFECT = Object.freeze({ liquid: 9, spray: 10, surface: 11 });
 
 /** Pack `MpmIoParams` (common/mpm.wgsl). */
 export function packMpmIoParams(c: MpmConfig, io: MpmIoFrame, out: ArrayBuffer = new ArrayBuffer(MPM_IO_PARAMS_BYTES)): ArrayBuffer {
@@ -441,6 +448,8 @@ export function packMpmIoParams(c: MpmConfig, io: MpmIoFrame, out: ArrayBuffer =
   f[o + 2] = io.exportOrigin[2];
   f[o + 3] = io.exportScale;
   u[o + 4] = c.maxParticles;
+  u[o + 5] = io.surface ? 1 : 0;
+  f[o + 6] = Math.max(0, io.sprayBelow ?? 0);
   return out;
 }
 

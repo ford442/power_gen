@@ -254,6 +254,8 @@ describe('heron: the note says what is drawing the water', () => {
     const on = M.heronLiquidNoteText({ renderer: 'webgpu', fluid: running });
     assert.match(on, /MLS-MPM, 61×61×61 grid, 8,421 particles/);
     assert.match(on, /shown at 1\/6 speed/);
+    assert.match(on, /drawn as particles/);
+    assert.match(M.heronLiquidNoteText({ renderer: 'webgpu', fluid: { ...running, surface: true } }), /drawn as a surface, tinted like dyed water/);
     assert.match(on, /not a measurement/);
     assert.match(M.heronLiquidNoteText({ renderer: 'webgpu', fluid: { ...running, choice: 'off', allocated: false, active: false } }), /fluid=off/);
     assert.match(M.heronLiquidNoteText({ renderer: 'webgpu', fluid: { ...running, build: 'failed', allocated: false, active: false } }), /unavailable/);

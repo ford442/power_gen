@@ -11,17 +11,24 @@
  * nozzle with the plant's exit speed, and reads back the height of the jet
  * above the nozzle. Nothing is allocated until the frame graph asks
  * (lifetime `heron-liquid`).
+ *
+ * It also owns the screen-space surface pass (fluid-surface-pass.ts) that
+ * draws the bulk of the liquid at the quality tiers that can afford it; the
+ * solver's export then marks which particles that pass draws and which stay
+ * points (spray).
  */
 import type { MultiDeviceVisualizer } from '../multi-device-visualizer.js';
 import type { MpmPipelines } from '../pipeline-layout/pipeline-layout-cache.js';
-import type { ResourceLifetime } from './frame-graph';
+import type { PassResources, ResourceLifetime } from './frame-graph';
+import { FluidSurfacePass } from './fluid-surface-pass';
 import { getHeronLayout } from '../heron-layout';
+import { FLUID_SPRAY_BELOW, fluidSurfaceGeometry } from '../fluids/fluid-surface';
 import { bakeMpmBoundary } from '../fluids/mpm-boundary';
 import { mpmProfileTop, type MpmTier } from '../fluids/mpm-params';
 import { MPM_SHADERS } from '../fluids/mpm-shaders';
 import { MpmSolver } from '../fluids/mpm-solver';
 import {
-  heronEmitters, heronLiquidPlacement, heronLiquidScene, heronRiserM,
+  HERON_METRES_PER_SCENE_UNIT, heronEmitters, heronLiquidPlacement, heronLiquidScene, heronRiserM,
   type HeronLiquidScene
 } from '../fluids/heron-liquid';
 
@@ -40,6 +47,15 @@ export class HeronLiquidPass {
   layoutId: string | null = null;
   /** Jet height above the nozzle from the last read-back, m; 0 before the first. */
   jetHeightM = 0;
+  /** The screen-space surface pass, or null if its pipelines could not be built. */
+  surface: FluidSurfacePass | null = null;
+  /**
+   * True while the draw records are the ones exported for the surface pass
+   * (bulk liquid as effect type 11). Follows the export, not the wish: it
+   * only changes on a frame that runs the export.
+   */
+  surfaceOn = false;
+  private origin: readonly [number, number, number] = [0, 0, 0];
   private pipelines: MpmPipelines | null = null;
   private wantTier: MpmTier = 'default';
   private wantLayout = 'classic';
@@ -53,8 +69,22 @@ export class HeronLiquidPass {
     const cache = this.host.pipelineCache;
     if (!cache) return false;
     this.pipelines = await cache.ensureMpmPipelines(MPM_SHADERS);
+    // The surface is an extra: without it the liquid is drawn as particles.
+    const surface = new FluidSurfacePass(this.device, this.host);
+    try {
+      this.surface = (await surface.init()) ? surface : null;
+    } catch (err) {
+      console.warn('[heron-liquid] surface pass unavailable — the liquid is drawn as particles', err);
+      surface.destroy();
+      this.surface = null;
+    }
     this.ready = true;
     return true;
+  }
+
+  /** Targets of the surface pass: allocated only on frames that pass runs. */
+  surfaceLifetime(): ResourceLifetime | null {
+    return this.surface ? this.surface.lifetime() : null;
   }
 
   lifetime(): ResourceLifetime {
@@ -96,6 +126,7 @@ export class HeronLiquidPass {
   idle(): void {
     this.active = false;
     this.substepsNow = 0;
+    this.surfaceOn = false;
   }
 
   /**
@@ -103,15 +134,27 @@ export class HeronLiquidPass {
    * solver; the frame graph allocates the new one before the next encode.
    * @returns true when the frame-graph pass should run
    */
-  update(o: { tier: MpmTier; layoutId: string; vExitMS: number; frameDt: number; nozzleScene: readonly [number, number, number] }): boolean {
+  update(o: {
+    tier: MpmTier;
+    layoutId: string;
+    vExitMS: number;
+    frameDt: number;
+    nozzleScene: readonly [number, number, number];
+    /** Draw the bulk of the liquid as a surface if the pass can run. */
+    surface?: boolean;
+    /** Bench position in the scene (the export is bench-local). */
+    origin?: readonly [number, number, number];
+  }): boolean {
     this.wantTier = o.tier;
     this.wantLayout = o.layoutId;
     if (this.solver && (this.tier !== o.tier || this.layoutId !== o.layoutId)) this.release();
     this.active = true;
+    if (o.origin) this.origin = o.origin;
     const solver = this.solver;
     const scene = this.scene;
     if (!solver || !scene) {
       this.substepsNow = 0;
+      this.surfaceOn = false;
       return true; // lets the graph allocate; stepping starts next frame
     }
 
@@ -135,6 +178,14 @@ export class HeronLiquidPass {
     const place = heronLiquidPlacement(scene, o.nozzleScene);
     solver.exportOrigin = place.origin;
     solver.exportScale = place.scale;
+    // Who draws the bulk is written into the records by the export, which
+    // only runs on a frame with a substep: the switch waits for one, so the
+    // records and the pass that reads them never disagree.
+    solver.sprayBelow = FLUID_SPRAY_BELOW;
+    if (this.substepsNow > 0) {
+      solver.exportSurface = !!o.surface && !!this.surface?.canRun();
+      this.surfaceOn = solver.exportSurface;
+    }
     return true;
   }
 
@@ -157,8 +208,28 @@ export class HeronLiquidPass {
     return { buffer: solver.drawBuffer, count: solver.config.maxParticles };
   }
 
+  /**
+   * The frame-graph body of the surface pass: splat, filter and shade the
+   * bulk liquid over the scene colour.
+   * @param msaa the scene pass was multisampled
+   */
+  encodeSurface(encoder: GPUCommandEncoder, msaa: boolean, res?: PassResources): boolean {
+    const records = this.draw();
+    const scene = this.scene;
+    if (!this.surfaceOn || !this.surface || !records || !scene) return false;
+    return this.surface.encode(encoder, {
+      buffer: records.buffer,
+      count: records.count,
+      origin: this.origin,
+      geometry: fluidSurfaceGeometry(scene.config, 1 / HERON_METRES_PER_SCENE_UNIT),
+      metresPerUnit: HERON_METRES_PER_SCENE_UNIT
+    }, msaa, res);
+  }
+
   destroy(): void {
     this.release();
+    this.surface?.destroy();
+    this.surface = null;
     this.ready = false;
   }
 }

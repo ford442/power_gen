@@ -60,7 +60,10 @@ const WEBGPU_ROOT = 'multi-device-visualizer.ts';
 const WEBGPU_LAZY = [
   { prefix: 'src/fluids/', why: 'liquid solver (MLS-MPM) — heron-liquid-pass.ts imports its runtime on first Heron focus' },
   { prefix: 'src/visualizer/heron-liquid-runtime.ts', why: 'liquid pass runtime — dynamic import()' },
-  { prefix: 'src/shaders/passes/mpm-', why: 'liquid solver shaders — travel with the runtime' }
+  { prefix: 'src/shaders/passes/mpm-', why: 'liquid solver shaders — travel with the runtime' },
+  { prefix: 'src/visualizer/fluid-surface-pass.ts', why: 'liquid surface pass — part of the liquid runtime' },
+  { prefix: 'src/pipeline-layout/factories/fluid-surface-pipelines.ts', why: 'liquid surface pipelines — built by the surface pass, not a cache method' },
+  { prefix: 'src/shaders/passes/fluid-', why: 'liquid surface shaders — travel with the runtime' }
 ];
 
 function violation(mod, rules = LAZY) {

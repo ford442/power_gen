@@ -121,8 +121,8 @@ struct MpmIoParams {
   exportOrigin: vec3f,    // scene position = exportOrigin + metres · exportScale
   exportScale: f32,
   capacity: u32,
-  pad0: u32,
-  pad1: u32,
+  surface: u32,           // 1: a surface pass draws the bulk liquid (export it as type 11)
+  sprayBelow: f32,        // density over rest density under which a particle is spray; 0 = never
   pad2: u32,
 }
 

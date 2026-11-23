@@ -112,10 +112,14 @@
           // MHD duct: the flow is along +x and nowhere else (posMhd, particle-compute.wgsl).
           vel = vec3f(0.4, 0.0, 0.0);
         }
-        // Effect type 9: a particle of the liquid solver (mpm-export.wgsl). Its
-        // position is the solver's; there is no closed-form path behind it, so it
-        // is drawn round and camera-facing. `phase` is its speed over maxSpeed.
-        let liquid = effectType > 8.5 && effectType < 9.5;
+        // Effect types 9–11: a particle of the liquid solver (mpm-export.wgsl).
+        // Its position is the solver's; there is no closed-form path behind it,
+        // so it is drawn round and camera-facing. `phase` is its speed over
+        // maxSpeed. 9 is liquid drawn as particles, 10 is spray (thin liquid,
+        // always drawn here), 11 is liquid the surface pass draws instead
+        // (passes/fluid-splat.wgsl): its quad is collapsed below.
+        let liquid = effectType > 8.5 && effectType < 10.5;
+        let underSurface = effectType > 10.5 && effectType < 11.5;
         if (liquid) {
           vel = vec3f(0.0, 1e-4, 0.0);
         }
@@ -188,6 +192,10 @@
         
         var output: VertexOutput;
         output.position = uniforms.viewProj * vec4f(worldPos, 1.0);
+        if (underSurface) {
+          // Behind the far plane: clipped.
+          output.position = vec4f(0.0, 0.0, 2.0, 1.0);
+        }
         output.particlePhase = phase;
         output.uv = quadPos * 0.5 + 0.5;
         output.effectType = effectType;

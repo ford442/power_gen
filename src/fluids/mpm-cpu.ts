@@ -421,6 +421,40 @@ export function mpmTotals(config: MpmConfig, particles: Float32Array, count: num
   return t;
 }
 
+/**
+ * Grid mass at a position over the rest mass of a node — `densityRatio` in
+ * mpm-export.wgsl, which uses it to tell spray from liquid. `gridVel` is the
+ * velocity grid (velocity xyz, mass in particle masses).
+ */
+export function mpmDensityRatio(config: MpmConfig, gridVel: Float32Array, pos: readonly [number, number, number]): number {
+  const F = Math.fround;
+  const [nx, ny, nz] = config.gridN;
+  const h = F(config.cellM);
+  const base = [0, 0, 0];
+  const w: number[][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const n = [nx, ny, nz];
+  for (let a = 0; a < 3; a++) {
+    const g = F(F(pos[a]) / h);
+    base[a] = Math.min(Math.max(Math.floor(F(g - 0.5)), 0), n[a] - 3);
+    const f = F(g - base[a]);
+    const x0 = F(1.5 - f), x1 = F(f - 1), x2 = F(f - 0.5);
+    w[0][a] = F(0.5 * x0 * x0);
+    w[1][a] = F(0.75 - x1 * x1);
+    w[2][a] = F(0.5 * x2 * x2);
+  }
+  let mass = 0;
+  for (let k = 0; k < 3; k++) {
+    for (let j = 0; j < 3; j++) {
+      for (let i = 0; i < 3; i++) {
+        const node = ((base[2] + k) * ny + base[1] + j) * nx + base[0] + i;
+        mass = F(mass + F(F(F(w[i][0] * w[j][1]) * w[k][2]) * gridVel[node * 4 + 3]));
+      }
+    }
+  }
+  const d = mpmDerived(config);
+  return mass / F(F(F(F(config.restDensity * h) * h) * h) / F(d.particleMass));
+}
+
 /** The probe's layer masses from a velocity grid (velocity xyz, mass) — the CPU twin of mpm-probe.wgsl. */
 export function mpmLayerProfile(config: MpmConfig, gridVel: Float32Array): Float32Array {
   const [nx, ny, nz] = config.gridN;

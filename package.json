@@ -72,6 +72,7 @@
     "test:mpm": "node --test scripts/tests/mpm.test.mjs",
     "test:mpm-io": "node --test scripts/tests/mpm-io.test.mjs",
     "test:heron-liquid": "node --test scripts/tests/heron-liquid.test.mjs",
+    "test:fluid-surface": "node --test scripts/tests/fluid-surface.test.mjs",
     "test:lab-mode": "node --test scripts/tests/lab-mode.test.mjs",
     "test:lab-url": "node --test scripts/tests/lab-url.test.mjs",
     "test:lab-config": "node --test scripts/tests/lab-config.test.mjs",

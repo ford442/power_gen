@@ -187,8 +187,9 @@ test.describe('WebGPU on SwiftShader', () => {
     await expectNoGpuErrors(page, 'showroom overview');
     expect(errors, 'console errors / uncaught exceptions').toEqual([]);
   });
-  test('6. Heron liquid: runs in Heron focus with finite numbers, and is released in overview', async ({ page }) => {
+  test('6. Heron liquid: runs in Heron focus with finite numbers, as a surface from the medium tier, and is released in overview', async ({ page }) => {
     const errors = trackErrors(page);
+    await installDrawProbe(page);
     await bootWebgpu(page);
     await pinQualityTier(page, 'low');
     await focusView(page, 'heron');
@@ -226,6 +227,27 @@ test.describe('WebGPU on SwiftShader', () => {
     expect(plant.jet).toBeLessThan(1.5 * plant.ideal + 0.05);
     await expectNoGpuErrors(page, 'Heron liquid running');
 
+    // At the low tier the liquid is particles: no surface pass, none of its targets.
+    expect(fluid.surface, 'surface pass at the low quality tier').toBe(false);
+    expect(fluid.surfaceBytes).toBe(0);
+    expect(info?.frameGraph?.ran ?? []).not.toEqual(expect.arrayContaining(['fluid-surface']));
+    expect(info?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['fluid-surface']));
+
+    // From `medium` up the bulk of it is splatted, filtered and shaded as a surface.
+    await pinQualityTier(page, 'medium');
+    await waitForEval(page, () => window.getRendererInfo?.()?.fluid?.surface === true, { timeout: 180_000 });
+    await renderFrames(page, 3);
+    const surfaced = await rendererInfo(page);
+    expect(surfaced?.frameGraph?.ran ?? []).toEqual(expect.arrayContaining(['heron-liquid', 'fluid-surface']));
+    expect(surfaced?.frameGraph?.allocated ?? []).toEqual(expect.arrayContaining(['heron-liquid', 'fluid-surface']));
+    expect(surfaced?.fluid?.surfaceBytes).toBeGreaterThan(0);
+    expect(surfaced?.fluid?.surfaceSize?.every((n) => n > 0)).toBe(true);
+    const surfacePipelines = [
+      'fluid-splat-depth-pipeline', 'fluid-splat-thickness-pipeline', 'fluid-filter-pipeline', 'fluid-composite-pipeline'
+    ];
+    expect(await missingDraws(page, surfacePipelines, 60_000), 'surface pipelines that never drew').toEqual([]);
+    await expectNoGpuErrors(page, 'Heron liquid drawn as a surface');
+
     // Back to overview: nothing steps at once, and the buffers go after the frame graph's hysteresis.
     await focusView(page, 'overview');
     await renderFrames(page, 3);
@@ -233,7 +255,9 @@ test.describe('WebGPU on SwiftShader', () => {
     await waitForEval(page, () => window.getRendererInfo?.()?.fluid?.allocated === false, { timeout: 180_000 });
     const after = await rendererInfo(page);
     expect(after?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['heron-liquid']));
+    expect(after?.frameGraph?.allocated ?? []).not.toEqual(expect.arrayContaining(['fluid-surface']));
     expect(after?.fluid?.bytes).toBe(0);
+    expect(after?.fluid?.surfaceBytes, 'the surface targets outlive the liquid').toBe(0);
     const jetAfter = await page.evaluate(() => /** @type {any} */ (window.multiVisualizer).devices.heron.physicsState.heronJetHeightM);
     expect(jetAfter, 'the measured-jet channel reads "not measured" without a solver').toBe(0);
     await expectNoGpuErrors(page, 'after releasing the liquid');

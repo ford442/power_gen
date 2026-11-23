@@ -18,6 +18,13 @@ Runtime: `setLightingLook('lab')` or debug panel **Lighting look** dropdown.
 
 Exposure and bloom strength sliders in the debug panel adjust `postExposure` and `postBloomStrength` without changing the preset.
 
+A look also sets how a simulated liquid takes light (`FLUID_LOOK_OPTICS`,
+`src/fluids/fluid-surface.ts`): its absorption per metre, the colour it
+scatters back and its surface roughness. `studio` is a blue-tinted liquid,
+`lab` a clearer one with a sharper surface, `drama` a deeper one with a softer
+highlight. It is a dye's absorption, not water's — see
+[`FLUIDS.md`](./FLUIDS.md) → The surface.
+
 ## 3-point + IBL rig
 
 Each preset defines key / fill / rim / ground lights uploaded to `lightingUniformBuffer` (192 bytes) every frame. PBR evaluation is in `src/shaders/generators/pbr-wgsl-chunks.js`:
@@ -100,6 +107,9 @@ texture** at startup (segEnhanced bindings 7–8):
 Scene renders to a linear float offscreen target (`bloomSceneTexture`, label
 `scene-color`; format per the colour pipeline below). Passes:
 
+0. **Liquid surface** (medium tier up, a bench with a liquid in focus) —
+   `passes/fluid-*.wgsl`, composited into the scene colour before everything
+   below, so TAA, SSR and bloom see it ([`FLUIDS.md`](./FLUIDS.md) → The surface)
 0. **TAA resolve** (high/ultra tier, focus mode only) — `passes/taa-resolve.wgsl`
 0. **SSR** (compute, high/ultra tier only) — `passes/ssr-compute.wgsl`
 1. **Bloom** — a mip chain on the default linear path, the old separable blur

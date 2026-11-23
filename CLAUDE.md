@@ -85,7 +85,9 @@ slots are a separate `shaderMode` namespace — see docs/MODE_MATRIX.md.
   `visualizer/heron-liquid-pass.ts` (frame-graph lifetime `heron-liquid`; overview allocates none).
   That file is only the gate: the solver, `fluids/*` and the shaders are `heron-liquid-runtime.ts`,
   a chunk fetched on first Heron focus — keep them out of the WebGPU chunk (`check:entry-chunk`).
-  It is shown at 1/6 speed. Kelvin still draws independent droplets.
+  It is shown at 1/6 speed, and drawn as a screen-space surface from the `medium` quality tier
+  (`fluid-surface-pass.ts`, `passes/fluid-*.wgsl`; spray stays particles). Kelvin still draws
+  independent droplets.
 - **Heron's plant** is Bernoulli + Darcy–Weisbach, the same in TS and C++ (`test:golden`); the C++
   plant needs the layout preset sent to it (`setHeronLayout`). 0.64 m per scene unit, SI gravity.
 - Overview can enable all; particles/meshes scale with quality and view LOD.
@@ -147,6 +149,7 @@ npm run test:hartmann # MHD duct: analytic Hartmann profile (TS vs C++), timelin
 npm run test:mpm      # MLS-MPM liquid: CPU reference — i32 overflow bound, mass / momentum, free fall at g, ρ·g·h, viscous decay (ADR-0022; the WGSL runs in test:gpu-golden)
 npm run test:mpm-io   # …and what a bench adds: signed-distance solids, emitters, sinks, the height profile, a jet at v²/2g
 npm run test:heron-liquid # Heron's liquid scene per preset × tier, fluid= tier choice, focus gate, focus camera
+npm run test:fluid-surface # liquid surface: uniform block vs WGSL, narrow-range filter CPU twin, optics per look (the passes run in test:gpu-golden)
 npm run test:peltier  # Peltier cooler: ΔT_max / I_opt / COP / energy balance on native + WASM + TS, array snapshots, v1 migration (ADR-0021)
 npm run test:field-volume # field kernels vs quadrature; field-probe/-volume WGSL run on the CPU vs the reference (ADR-0017)
 npm run test:circuit  # Circuit Lab: native MNA goldens + their WASM replay (LC energy, RLC Q), SPICE, host, links (ADR-0018)

@@ -33,6 +33,9 @@ export type SchemaBindGroupLayoutName =
   | 'fdtdCompute'
   | 'mpm'
   | 'mpmIo'
+  | 'fluidSplat'
+  | 'fluidFilter'
+  | 'fluidComposite'
   | 'fdtdSlice'
   | 'fieldVolume'
   | 'fieldProbe'
@@ -202,6 +205,22 @@ export const BGL: Readonly<Record<SchemaBindGroupLayoutName, readonly GPUBindGro
     { binding: 5, visibility: 4, buffer: { type: 'storage' } },
     { binding: 6, visibility: 4, buffer: { type: 'storage' } },
   ],
+  fluidSplat: [
+    { binding: 0, visibility: 3, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 1, buffer: { type: 'read-only-storage' } },
+  ],
+  fluidFilter: [
+    { binding: 0, visibility: 2, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 2, texture: { sampleType: 'depth', viewDimension: '2d' } },
+  ],
+  fluidComposite: [
+    { binding: 0, visibility: 2, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: 2, texture: { sampleType: 'depth', viewDimension: '2d' } },
+    { binding: 2, visibility: 2, texture: { sampleType: 'float', viewDimension: '2d' } },
+    { binding: 3, visibility: 2, texture: { sampleType: 'float', viewDimension: '2d' } },
+    { binding: 4, visibility: 2, texture: { sampleType: 'depth', viewDimension: '2d' } },
+    { binding: 5, visibility: 2, sampler: { type: 'filtering' } },
+  ],
   fdtdSlice: [
     { binding: 1, visibility: 3, buffer: { type: 'uniform' } },
     { binding: 2, visibility: 2, buffer: { type: 'uniform' } },
@@ -283,6 +302,9 @@ export const BGL_GROUP: Readonly<Record<SchemaBindGroupLayoutName, number>> = {
   fdtdCompute: 0,
   mpm: 0,
   mpmIo: 0,
+  fluidSplat: 0,
+  fluidFilter: 0,
+  fluidComposite: 1,
   fdtdSlice: 1,
   fieldVolume: 0,
   fieldProbe: 0,

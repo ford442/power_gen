@@ -150,6 +150,67 @@ particles: the top of a jet is the highest layer holding more than a tenth of
 the nozzle's own cross-section, and `emitted − drained` is what is in the box.
 It is copied out asynchronously and never blocks a frame.
 
+### The surface
+
+From the `medium` quality tier up the bulk of a liquid is drawn as a surface,
+not as particles (`src/visualizer/fluid-surface-pass.ts`, `passes/fluid-*.wgsl`,
+part of the liquid chunk). It is a screen-space method: nothing is meshed.
+
+| Step | Pass | What it does |
+|------|------|--------------|
+| 1 | `fluid-splat.wgsl` `fsDepth` | each bulk particle as a sphere impostor into the liquid's own depth target, nearest wins — the front of the liquid |
+| 2 | `fluid-splat.wgsl` `fsThickness` | the same impostors, added up: how much liquid lies along each view ray |
+| 3 | `fluid-filter.wgsl` × 2 | a narrow-range filter (Truong & Yuksel 2018) along x, then y, between two depth targets |
+| 4 | copy | the scene colour as it stands, for refraction |
+| 5 | `fluid-composite.wgsl` | normals from the filtered depth, then refraction of the copy, Beer–Lambert absorption on the thickness, the environment the metal reads (the frame group's IBL) by Schlick's Fresnel term, and the key light's highlight — blended over the scene colour |
+
+It sits in the frame graph as `fluid-surface`, after the scene pass and the
+MSAA depth resolve and before TAA, SSR and bloom, so those treat the liquid as
+part of the scene. Its four full-resolution targets (two `depth32float`, one
+`r16float`, one copy of the scene colour — 9 MB at 800 × 826) are a lifetime
+of their own: allocated the first frame the pass runs, released with the
+graph's hysteresis, never in overview.
+
+- **Depth is linear.** The liquid's depth targets hold distance along the
+  view axis over the far plane, not the projection's z. The filter averages
+  it and the composite takes its differences; both want it linear.
+- **Thickness is a volume.** A splat sphere is one particle spacing in radius
+  (so neighbours close into a surface), 4.2 times a particle's volume. Each
+  chord is scaled by the ratio, so the thickness target integrates to the
+  liquid's volume: 0.999 of it for one sphere on a GPU (`golden-fluid-surface`).
+- **Far away a sphere is smaller than a pixel.** At the fitted Heron view a
+  default-tier particle is 0.8 px in radius. A splat is never drawn under
+  1.5 px and is thinned by the cube of the ratio, so it still stands for its
+  volume (0.999 for a sheet of 0.08 px spheres).
+- **The filter is narrow-range.** A neighbour more than δ (three splat radii)
+  in front is another surface and is left out; one more than δ behind — or no
+  liquid at all — counts as δ behind. A jet in front of a pool is not smeared
+  into it, and a silhouette is rounded back instead of dragged to the far
+  plane. The support is a size in the scene (four radii), capped at 16 px.
+- **Spray stays particles.** The solver's export classifies each particle by
+  the grid mass at its position over rest density (`mpm-export.wgsl`): under
+  0.15 it is spray and is always drawn by the particle pipeline, whiter. A
+  lone particle reads about 0.05; a single layer of them 0.30. So the top of
+  a jet and a broken sheet stay points, as the epic asks. At the default
+  tier most of Heron's *falling* water is spray: the sheet thins as it spreads.
+- **The liquid is dyed.** Water's own absorption (0.4 /m in the red) does not
+  show in a jet centimetres thick; with it the liquid would be visible only
+  by reflection. The looks use a dye's (`FLUID_LOOK_OPTICS`) and the bench's
+  note says so:
+
+  | Look | Absorption /m (R, G, B) | 3 cm transmits | Roughness |
+  |------|-------------------------|----------------|-----------|
+  | `studio` | 16, 5, 1.6 | 62 %, 86 %, 95 % | 0.08 |
+  | `lab` | 8, 2.6, 1.0 | 79 %, 92 %, 97 % | 0.05 |
+  | `drama` | 22, 8, 2.2 | 52 %, 79 %, 94 % | 0.14 |
+
+Limits: one refraction lookup, not a ray through the liquid; no caustics, no
+shadow cast by the liquid; thickness counts liquid behind an opaque object
+that stands behind the liquid's front; under TAA the surface is reprojected
+with the camera only, like every moving thing in the scene. **Not looked at
+on a real GPU**: the structure is checked by the tests below and on a
+software rasteriser, the colours are not tuned.
+
 ### Fixed point
 
 WGSL has no float atomics, so the scatter accumulates `atomic<i32>`. Two
@@ -262,9 +323,9 @@ neither builds up nor runs down.
 
 `src/visualizer/heron-liquid-pass.ts` is the gate and
 `heron-liquid-runtime.ts` the pass that owns the solver. The runtime, the
-solver (`src/fluids/`) and the six shaders (`fluids/mpm-shaders.ts`) are one
-chunk of about 56 kB (12 kB gzip) that the gate imports the first frame it
-opens; the WebGPU chunk every visit downloads holds none of it, and
+solver (`src/fluids/`), its six shaders (`fluids/mpm-shaders.ts`) and the
+surface pass with its three are one chunk of about 104 kB (25 kB gzip) that
+the gate imports the first frame it opens; the WebGPU chunk every visit downloads holds none of it, and
 `check:entry-chunk` fails if it does. The offline shell precaches the chunk
 like any other. The pass is built the first
 frame Heron is in focus with `fluid` allowing it, allocated by the frame graph
@@ -290,9 +351,10 @@ layout preset rebuilds it; it is then empty until the jet rises again.
 
 ### Limits
 
-- **Points, not a surface**: at the low tier (32³-class, 25 mm cells on
-  `classic`) the jet is a sparse column of droplets. The surface pass is a
-  later step.
+- **A surface from the `medium` quality tier up, points below** (see
+  [The surface](#the-surface)). At the low solver tier (32³-class, 25 mm cells
+  on `classic`) the jet is 1.6 cells across: its surface is a thin column
+  with a cap, and the falling water is spray.
 - **The basin is a drain**, and the tray that stands for it is not drawn.
 - **The jet lags the plant** by its rise time × 6; a fast change of drive
   shows as a jet that is briefly too tall or too short for the readout.
@@ -308,7 +370,9 @@ layout preset rebuilds it; it is then empty until the jet rises again.
 | `npm run test:golden` | the plant: TS ≈ native C++ on `classic` at a partial head and `tower` at full drive |
 | `npm run test:heron-liquid` | the scene on all five presets × three tiers: budgets, sound speed against the fastest jet, the nozzle, riser and drain; which tier a `fluid` choice gets, with a lab mode's say and the profiler's step-down; the gate (Heron focus only); the focus camera holding platform and jet; the note's text; the WebGL2 droplets (apex at `v²/2g`, a stream after a spin-up from rest at 60 and 20 fps) |
 | `npm run test:gpu-golden` (`golden-heron-liquid`) | on a GPU: the jet within 10 % of `v²/2g` on three presets, the particle books, a taller jet for a higher head, nothing below a dribble; over 60 s on screen the emitted volume is the plant's `Q·t` within 1 % (36.62 L of 36.62 L on `classic`), every particle is in the box or drained, and the liquid in the air holds steady (−0.03 % between the last two quarters) |
-| `npm run test:e2e:webgpu` | in the app: the liquid passes dispatch in Heron focus with no validation error and finite numbers, the measured jet reaches the hub, overview holds no fluid resources and releases them after leaving the bench |
+| `npm run test:fluid-surface` | the surface without a GPU: the uniform block against its WGSL struct; splat geometry; the narrow-range filter's CPU twin (flat stays flat, bumps under δ are smoothed, a step over δ is not blurred across, a silhouette is rounded by at most δ); scene depth ↔ distance; the looks' optics; which tiers get a surface; spray against liquid on the CPU density twin |
+| `npm run test:gpu-golden` (`golden-fluid-surface`, `golden-mpm-io`) | the app's own surface pass on a GPU: a sphere's front at its centre distance minus its radius (3.8004 for 3.8), its disc the size the projection says, thickness integrating to the particle's volume (0.999); sub-pixel spheres held at 1.5 px with their volume (0.999); both filter passes against the CPU twin texel for texel (9e-9); pixels without liquid untouched to the bit; liquid hidden behind a wall and drawn in front of one; thicker liquid absorbing red before blue. The export's bulk / spray / under-a-surface types against the CPU density twin, particle for particle |
+| `npm run test:e2e:webgpu` | in the app: the liquid passes dispatch in Heron focus with no validation error and finite numbers, the measured jet reaches the hub; at the low tier no surface pass and none of its targets, from `medium` its four pipelines draw; overview holds no fluid resources and releases them after leaving the bench |
 
 ## MHD duct
 
