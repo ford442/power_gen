@@ -23,7 +23,7 @@
 @group(0) @binding(2) var<uniform> io: MpmIoParams;
 @group(0) @binding(3) var<storage, read_write> counters: array<atomic<u32>>;
 
-fn spawn(e: MpmEmitter, ticket: u32) -> MpmParticle {
+fn spawn(e: MpmEmitter, ticket: u32, charge: f32) -> MpmParticle {
   let id = e.baseId + ticket;
   // Any unit vector not parallel to dir, then an orthonormal pair across the disc.
   let a = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(e.dir.y) < 0.9);
@@ -43,7 +43,7 @@ fn spawn(e: MpmEmitter, ticket: u32) -> MpmParticle {
   p.c1 = vec3f(0.0);
   p.seed = mpmHash32(id);
   p.c2 = vec3f(0.0);
-  p.pad = 0.0;
+  p.charge = charge;
   return p;
 }
 
@@ -53,11 +53,13 @@ fn emit(@builtin(global_invocation_id) gid: vec3u) {
   if (index >= io.capacity) { return; }
   let p = particles[index];
   if (p.state != 0.0) {
-    for (var s = 0; s < 2; s++) {
+    for (var s = 0; s < MPM_MAX_SINKS; s++) {
       let k = io.sinks[s];
       if (k.on != 0.0 && all(p.pos >= k.lo) && all(p.pos <= k.hi)) {
         particles[index].state = 0.0;
         atomicAdd(&counters[MPM_COUNTER_SUNK], 1u);
+        // The first sink that holds it takes it: a bench can tell what went where.
+        atomicAdd(&counters[MPM_COUNTER_SINK0 + u32(s)], 1u);
         return;
       }
     }
@@ -68,9 +70,9 @@ fn emit(@builtin(global_invocation_id) gid: vec3u) {
   let ticket = atomicAdd(&counters[MPM_COUNTER_TICKETS], 1u);
   if (ticket >= total) { return; }
   if (ticket < io.emitters[0].count) {
-    particles[index] = spawn(io.emitters[0], ticket);
+    particles[index] = spawn(io.emitters[0], ticket, io.emitterCharge.x);
   } else {
-    particles[index] = spawn(io.emitters[1], ticket - io.emitters[0].count);
+    particles[index] = spawn(io.emitters[1], ticket - io.emitters[0].count, io.emitterCharge.y);
   }
   atomicAdd(&counters[MPM_COUNTER_EMITTED], 1u);
 }

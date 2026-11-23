@@ -11,10 +11,10 @@
  * (docs/FLUIDS.md) and this is far too slow to stand in for one.
  */
 import {
-  MPM_BOUNDARY_FLOATS, MPM_GRID_CHANNELS, MPM_J_MAX, MPM_P, MPM_PARTICLE_FLOATS, MPM_PROBE_MASS_SCALE, MPM_T_MAX,
-  mpmDerived, mpmDither, mpmEmitParticle, mpmFixedScales, mpmHash32, mpmSeedBits, mpmSeedNext, roundTiesEven,
+  MPM_BOUNDARY_FLOATS, MPM_GRID_CHANNELS, MPM_J_MAX, MPM_MAX_SINKS, MPM_P, MPM_PARTICLE_FLOATS, MPM_PROBE_MASS_SCALE, MPM_T_MAX,
+  mpmDerived, mpmDither, mpmEmitParticle, mpmFieldAt, mpmFixedScales, mpmHash32, mpmSeedBits, mpmSeedNext, roundTiesEven,
   validateMpmConfig,
-  type MpmConfig, type MpmEmitter, type MpmSink
+  type MpmConductor, type MpmConfig, type MpmEmitter, type MpmSink
 } from './mpm-params.js';
 import { sampleMpmBoundary } from './mpm-boundary.js';
 
@@ -48,6 +48,10 @@ export class MpmCpu {
   /** Particles released by `emit` / removed by sinks since creation. */
   emitted = 0;
   sunk = 0;
+  /** `sunk` by sink slot. */
+  readonly sunkBy: number[] = new Array<number>(MPM_MAX_SINKS).fill(0);
+  /** Conductors charged particles feel (passes/mpm-g2p.wgsl `fieldAt`). */
+  conductors: readonly MpmConductor[] = [];
 
   constructor(config: MpmConfig, options: MpmCpuOptions = {}) {
     const errors = validateMpmConfig(config);
@@ -102,6 +106,7 @@ export class MpmCpu {
           if (P[o] >= s.min[0] && P[o] <= s.max[0] && P[o + 1] >= s.min[1] && P[o + 1] <= s.max[1] && P[o + 2] >= s.min[2] && P[o + 2] <= s.max[2]) {
             P[o + MPM_P.state] = 0;
             this.sunk++;
+            this.sunkBy[io.sinks.indexOf(s)]++;
             break;
           }
         }
@@ -118,6 +123,7 @@ export class MpmCpu {
       P[o + MPM_P.j] = 1;
       P[o + 4] = made.vel[0]; P[o + 5] = made.vel[1]; P[o + 6] = made.vel[2];
       P[o + MPM_P.state] = 1;
+      P[o + MPM_P.charge] = io.emitters[e].chargeC ?? 0;
       this.particleBits[o + MPM_P.seed] = mpmHash32(id);
       this.emitted++;
       ticket++;
@@ -303,6 +309,8 @@ export class MpmCpu {
     const wz = [0, 0, 0];
     const k4 = 4 / h;
     const sdf = [0, 0, 0, 0];
+    const field = [0, 0, 0];
+    const particleMass = mpmDerived(c).particleMass;
     for (let p = 0; p < this.count; p++) {
       const o = p * MPM_PARTICLE_FLOATS;
       if (P[o + MPM_P.state] === 0) continue;
@@ -345,6 +353,15 @@ export class MpmCpu {
       const div = (b00 + b11 + b22) * k4;
       P[o + MPM_P.j] = clamp(P[o + MPM_P.j] * Math.exp(c.dt * div), minJ, MPM_J_MAX);
       this.particleBits[o + MPM_P.seed] = mpmSeedNext(this.particleBits[o + MPM_P.seed]);
+      const charge = P[o + MPM_P.charge];
+      if (charge !== 0 && this.conductors.length > 0) {
+        // q·E/m, as the shader adds it: after the gather, before the move.
+        mpmFieldAt(this.conductors, P[o], P[o + 1], P[o + 2], field);
+        const k = (charge / particleMass) * c.dt;
+        vx = clamp(vx + field[0] * k, -c.maxSpeedMS, c.maxSpeedMS);
+        vy = clamp(vy + field[1] * k, -c.maxSpeedMS, c.maxSpeedMS);
+        vz = clamp(vz + field[2] * k, -c.maxSpeedMS, c.maxSpeedMS);
+      }
       P[o + 4] = vx; P[o + 5] = vy; P[o + 6] = vz;
       let px = P[o] + vx * c.dt;
       let py = P[o + 1] + vy * c.dt;

@@ -24,6 +24,9 @@ fn probe(@builtin(global_invocation_id) gid: vec3u) {
   if (y == params.gridN.y) {
     profile[y] = atomicLoad(&counters[MPM_COUNTER_EMITTED]);
     profile[y + 1u] = atomicLoad(&counters[MPM_COUNTER_SUNK]);
+    for (var s = 0u; s < u32(MPM_MAX_SINKS); s++) {
+      profile[y + 2u + s] = atomicLoad(&counters[MPM_COUNTER_SINK0 + s]);
+    }
     return;
   }
   if (y > params.gridN.y) { return; }

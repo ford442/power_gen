@@ -53,7 +53,7 @@ export const MPM_PARTICLE_BYTES = MPM_PARTICLE_FLOATS * 4;
  * the pressure P2G last computed for it (Pa, diagnostic), and `seed` — a u32
  * counter, the only word that is not a float.
  */
-export const MPM_P = Object.freeze({ pos: 0, j: 3, vel: 4, state: 7, c0: 8, pressure: 11, c1: 12, seed: 15, c2: 16 });
+export const MPM_P = Object.freeze({ pos: 0, j: 3, vel: 4, state: 7, c0: 8, pressure: 11, c1: 12, seed: 15, c2: 16, charge: 19 });
 
 /** Fixed-point channels per grid node: mass, momentum x / y / z. */
 export const MPM_GRID_CHANNELS = 4;
@@ -67,7 +67,70 @@ export const MPM_MASS_SCALE_MAX = 1048576;
 export const MPM_J_MAX = 1e4;
 
 /** Uniform block size (common/mpm.wgsl `MpmParams`), bytes. */
-export const MPM_PARAMS_BYTES = 96;
+export const MPM_PARAMS_BYTES = 224;
+/** Conductors a solver can hold (`MPM_MAX_CONDUCTORS`), and the point charges a ring is summed as. */
+export const MPM_MAX_CONDUCTORS = 4;
+export const MPM_RING_POINTS = 12;
+/** Coulomb's constant, 1/(4πε₀), V·m/C. */
+export const COULOMB_K = 8.9875517923e9;
+
+/**
+ * A conductor held at a potential, as the liquid's charged particles feel it:
+ * a horizontal ring of charge (axis along y), or a point charge with radius 0.
+ * `kq` is Coulomb's constant times its charge — the potential it makes at a
+ * distance r is kq / r — so a sphere of radius R at potential V has kq = V·R.
+ */
+export interface MpmConductor {
+  /** m, domain-local. */
+  centre: readonly [number, number, number];
+  /** Ring radius, m; 0 = a point. */
+  radiusM: number;
+  /** k·Q, V·m. */
+  kq: number;
+  /** Softening length, m: the wire's radius. Keeps the sum finite on the ring itself. */
+  softM: number;
+}
+
+/**
+ * Field (V/m) of a set of conductors at a point — `fieldAt` in mpm-g2p.wgsl.
+ * A ring is the sum of MPM_RING_POINTS point charges, which is exact on its
+ * axis and within a few percent a ring radius away from the wire.
+ */
+export function mpmFieldAt(conductors: readonly MpmConductor[], x: number, y: number, z: number, out: number[] = [0, 0, 0]): number[] {
+  let ex = 0, ey = 0, ez = 0;
+  for (const c of conductors) {
+    const soft2 = c.softM * c.softM;
+    const points = c.radiusM > 0 ? MPM_RING_POINTS : 1;
+    const share = c.kq / points;
+    for (let i = 0; i < points; i++) {
+      const a = (2 * Math.PI * i) / MPM_RING_POINTS;
+      const rx = x - (c.centre[0] + (c.radiusM > 0 ? Math.cos(a) * c.radiusM : 0));
+      const ry = y - c.centre[1];
+      const rz = z - (c.centre[2] + (c.radiusM > 0 ? Math.sin(a) * c.radiusM : 0));
+      const d2 = rx * rx + ry * ry + rz * rz + soft2;
+      const k = share / (d2 * Math.sqrt(d2));
+      ex += rx * k; ey += ry * k; ez += rz * k;
+    }
+  }
+  out[0] = ex; out[1] = ey; out[2] = ez;
+  return out;
+}
+
+/** Potential (V) of a set of conductors at a point, with the same softening — for energy checks. */
+export function mpmPotentialAt(conductors: readonly MpmConductor[], x: number, y: number, z: number): number {
+  let v = 0;
+  for (const c of conductors) {
+    const points = c.radiusM > 0 ? MPM_RING_POINTS : 1;
+    for (let i = 0; i < points; i++) {
+      const a = (2 * Math.PI * i) / MPM_RING_POINTS;
+      const rx = x - (c.centre[0] + (c.radiusM > 0 ? Math.cos(a) * c.radiusM : 0));
+      const ry = y - c.centre[1];
+      const rz = z - (c.centre[2] + (c.radiusM > 0 ? Math.sin(a) * c.radiusM : 0));
+      v += c.kq / points / Math.sqrt(rx * rx + ry * ry + rz * rz + c.softM * c.softM);
+    }
+  }
+  return v;
+}
 /** `MpmParams.flags` bit: the boundary buffer holds a signed-distance field. */
 export const MPM_FLAG_BOUNDARY = 1;
 /** Floats per grid node in the boundary buffer: outward normal xyz, signed distance (m, negative inside a solid). */
@@ -252,8 +315,10 @@ export function packMpmParams(
   c: MpmConfig,
   particleCount: number,
   out: ArrayBuffer = new ArrayBuffer(MPM_PARAMS_BYTES),
-  flags = 0
+  flags = 0,
+  conductors: readonly MpmConductor[] = []
 ): ArrayBuffer {
+  if (conductors.length > MPM_MAX_CONDUCTORS) throw new Error(`packMpmParams: ${conductors.length} conductors, the limit is ${MPM_MAX_CONDUCTORS}`);
   const d = mpmDerived(c);
   const s = mpmFixedScales(c.maxParticles);
   const u = new Uint32Array(out);
@@ -279,9 +344,19 @@ export function packMpmParams(
   f[18] = MPM_J_MAX;
   f[19] = MPM_T_MAX;
   u[20] = flags;
-  u[21] = 0;
+  u[21] = conductors.length;
   u[22] = 0;
   u[23] = 0;
+  f.fill(0, 24, 24 + MPM_MAX_CONDUCTORS * 8);
+  conductors.forEach((k, i) => {
+    const o = 24 + i * 8;
+    f[o] = k.centre[0];
+    f[o + 1] = k.centre[1];
+    f[o + 2] = k.centre[2];
+    f[o + 3] = k.radiusM;
+    f[o + 4] = k.kq;
+    f[o + 5] = k.softM;
+  });
   return out;
 }
 
@@ -328,20 +403,21 @@ export function mpmMemoryBytes(gridN: readonly [number, number, number], particl
 // ---------------------------------------------------------------------------
 
 export const MPM_MAX_EMITTERS = 2;
-export const MPM_MAX_SINKS = 2;
+export const MPM_MAX_SINKS = 4;
 /** Uniform block size (common/mpm.wgsl `MpmIoParams`), bytes. */
-export const MPM_IO_PARAMS_BYTES = 192;
+export const MPM_IO_PARAMS_BYTES = 272;
 /**
  * Words in the counter buffer: [0] this frame's emission tickets (cleared by
  * the host before each emit pass), [1] particles emitted since creation,
- * [2] particles removed by sinks since creation, [3] spare.
+ * [2] particles removed by sinks since creation, [3..6] the same per sink,
+ * [7] spare.
  */
-export const MPM_COUNTER_WORDS = 4;
-export const MPM_COUNTER = Object.freeze({ tickets: 0, emitted: 1, sunk: 2 });
+export const MPM_COUNTER_WORDS = 8;
+export const MPM_COUNTER = Object.freeze({ tickets: 0, emitted: 1, sunk: 2, sink0: 3 });
 /** Fixed point of the layer masses in the probe buffer: counts per particle mass. */
 export const MPM_PROBE_MASS_SCALE = 256;
-/** Words the probe appends after the gridN[1] layer masses: emitted, sunk. */
-export const MPM_PROBE_EXTRA_WORDS = 2;
+/** Words the probe appends after the gridN[1] layer masses: emitted, sunk, then sunk per sink. */
+export const MPM_PROBE_EXTRA_WORDS = 2 + MPM_MAX_SINKS;
 
 /** A round nozzle: particles enter through a disc, at rest density, moving along `direction`. */
 export interface MpmEmitter {
@@ -356,6 +432,8 @@ export interface MpmEmitter {
    * leaves along direction + radial·spread·r/R. 0 is a parallel jet.
    */
   spread: number;
+  /** Charge each particle leaves with, C. Absent or 0: neutral. Only emitters 0 and 1 can charge. */
+  chargeC?: number;
 }
 
 /** An axis-aligned box that removes any liquid inside it. */
@@ -450,6 +528,8 @@ export function packMpmIoParams(c: MpmConfig, io: MpmIoFrame, out: ArrayBuffer =
   u[o + 4] = c.maxParticles;
   u[o + 5] = io.surface ? 1 : 0;
   f[o + 6] = Math.max(0, io.sprayBelow ?? 0);
+  f[o + 8] = io.emitters[0]?.chargeC ?? 0;
+  f[o + 9] = io.emitters[1]?.chargeC ?? 0;
   return out;
 }
 
@@ -498,6 +578,8 @@ export interface MpmProfile {
   /** Particles released by emitters / removed by sinks since the solver was created. */
   emitted: number;
   sunk: number;
+  /** `sunk` by sink slot: what each one took. A particle inside two sinks goes to the first. */
+  sunkBy: number[];
 }
 
 

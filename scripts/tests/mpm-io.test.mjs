@@ -369,3 +369,187 @@ describe('mpm-cpu: the profile', () => {
     assert.equal(M.mpmProfileMass([1, 2, 3.5]), 6.5);
   });
 });
+
+describe('mpm: charged liquid in the field of conductors', () => {
+  const lone = (cfg, pos, vel, charge) => {
+    const records = new Float32Array(F);
+    M.writeMpmParticle(records, 0, pos, vel);
+    records[M.MPM_P.charge] = charge;
+    const sim = new M.MpmCpu(cfg);
+    sim.setParticles(records);
+    return sim;
+  };
+
+  it('a ring\'s field: exact on its axis, close to a fine quadrature off it, zero net pull at its centre', () => {
+    const ring = { centre: [0.1, 0.2, 0.3], radiusM: 0.04, kq: 1800, softM: 0 };
+    // On the axis: E = kq·y / (y² + R²)^(3/2), along the axis.
+    for (const y of [-0.09, -0.02, 0.01, 0.04, 0.15]) {
+      const e = M.mpmFieldAt([ring], 0.1, 0.2 + y, 0.3);
+      const want = (ring.kq * y) / (y * y + ring.radiusM ** 2) ** 1.5;
+      assert.ok(Math.abs(e[1] - want) < 1e-9 * Math.abs(want) + 1e-9, `axis y=${y}: ${e[1]} vs ${want}`);
+      assert.ok(Math.abs(e[0]) < 1e-6 && Math.abs(e[2]) < 1e-6, `off-axis components ${e[0]}, ${e[2]}`);
+    }
+    assert.ok(Math.hypot(...M.mpmFieldAt([ring], 0.1, 0.2, 0.3)) < 1e-6);
+    // Off the axis, against the same ring cut into 720 pieces.
+    const fine = (x, y, z) => {
+      const e = [0, 0, 0];
+      for (let i = 0; i < 720; i++) {
+        const a = (2 * Math.PI * (i + 0.5)) / 720;
+        const r = [x - (0.1 + Math.cos(a) * 0.04), y - 0.2, z - (0.3 + Math.sin(a) * 0.04)];
+        const d = Math.hypot(...r);
+        for (let k = 0; k < 3; k++) e[k] += (ring.kq / 720) * r[k] / d ** 3;
+      }
+      return e;
+    };
+    let worst = 0;
+    for (const [dx, dy, dz] of [[0.09, 0, 0], [0.07, 0.05, 0.02], [0.02, 0.04, 0.01], [0.01, 0.03, 0], [0.0, -0.05, 0.085], [0.12, 0.1, -0.05]]) {
+      const got = M.mpmFieldAt([ring], 0.1 + dx, 0.2 + dy, 0.3 + dz);
+      const want = fine(0.1 + dx, 0.2 + dy, 0.3 + dz);
+      worst = Math.max(worst, Math.hypot(got[0] - want[0], got[1] - want[1], got[2] - want[2]) / Math.hypot(...want));
+    }
+    // Twelve points: a few percent a ring radius or more from the wire.
+    assert.ok(worst < 0.05, `12-point ring is ${(worst * 100).toFixed(2)} % off the fine ring`);
+    // A point conductor is Coulomb's law; softening caps it at the centre.
+    const point = { centre: [0, 0, 0], radiusM: 0, kq: 900, softM: 0.01 };
+    assert.ok(Math.abs(M.mpmFieldAt([point], 0.3, 0, 0)[0] - 900 / (0.09 + 1e-4) ** 1.5 * 0.3) < 1e-6);
+    assert.equal(Math.hypot(...M.mpmFieldAt([point], 0, 0, 0)), 0);
+    // The field is minus the gradient of the potential.
+    const eps = 1e-5;
+    const e = M.mpmFieldAt([ring, point], 0.17, 0.23, 0.31);
+    const grad = [0, 1, 2].map((k) => {
+      const p = [0.17, 0.23, 0.31], q = [0.17, 0.23, 0.31];
+      p[k] += eps; q[k] -= eps;
+      return -(M.mpmPotentialAt([ring, point], ...p) - M.mpmPotentialAt([ring, point], ...q)) / (2 * eps);
+    });
+    for (let k = 0; k < 3; k++) assert.ok(Math.abs(e[k] - grad[k]) < 1e-4 * Math.hypot(...e), `E[${k}] ${e[k]} vs −∇V ${grad[k]}`);
+  });
+
+  it('a charged drop passing a like-charged conductor: kinetic + q·V + m·g·y is kept, and it is thrown aside', () => {
+    const cfg = M.mpmWaterConfig([24, 48, 24], 0.01, 2.5e-4, 64, { maxSpeedMS: 6 });
+    const d = M.mpmDerived(cfg);
+    // A collector at 20 kV, 3 cm in radius (kq = V·R), and a drop charged to 4e-5 C/kg,
+    // let go 32 cm above it and 5 mm off its axis.
+    const collector = { centre: [0.12, 0.08, 0.12], radiusM: 0, kq: 20000 * 0.03, softM: 0.005 };
+    const q = 4e-5 * d.particleMass;
+    const sim = lone(cfg, [0.125, 0.40, 0.118], [0, 0, 0], q);
+    sim.conductors = [collector];
+    const energy = () => {
+      const P = sim.particles;
+      const v2 = P[4] ** 2 + P[5] ** 2 + P[6] ** 2;
+      return 0.5 * d.particleMass * v2 + q * M.mpmPotentialAt([collector], P[0], P[1], P[2]) + d.particleMass * G * P[1];
+    };
+    const e0 = energy();
+    const scale = d.particleMass * G * 0.3; // what falling 30 cm is worth
+    // Until just before it reaches the floor: a wall takes the normal speed, and the energy with it.
+    let worst = 0;
+    let closest = Infinity;
+    for (let s = 0; s < 1200; s++) {
+      sim.step();
+      const P = sim.particles;
+      assert.ok(P[0] > 0.02 && P[0] < 0.22 && P[1] > 0.02 && P[2] > 0.02 && P[2] < 0.22, `the drop reached a wall at substep ${s}`);
+      worst = Math.max(worst, Math.abs(energy() - e0));
+      closest = Math.min(closest, Math.hypot(P[0] - 0.12, P[1] - 0.08, P[2] - 0.12));
+    }
+    // Symplectic Euler at 0.25 ms, through a field of megavolts per metre: under a percent.
+    assert.ok(worst < 0.01 * scale, `energy moved by ${(worst / scale * 100).toFixed(3)} % of m·g·(0.3 m)`);
+    // Deflected, not absorbed: it came within a centimetre and left 6 cm to the side.
+    assert.ok(closest < 0.015, `closest approach ${closest} m`);
+    assert.ok(sim.particles[0] - 0.125 > 0.05, `ended at x = ${sim.particles[0]}`);
+    // The same drop, uncharged, falls straight.
+    const neutral = lone(cfg, [0.125, 0.40, 0.118], [0, 0, 0], 0);
+    neutral.conductors = [collector];
+    for (let s = 0; s < 1200; s++) neutral.step();
+    assert.ok(Math.abs(neutral.particles[0] - 0.125) < 1e-4, `the neutral drop drifted to x = ${neutral.particles[0]}`);
+  });
+
+  it('q·E = m·g holds a drop where it is; a neutral drop is not moved by any conductor', () => {
+    const cfg = M.mpmWaterConfig([16, 32, 16], 0.01, 2.5e-4, 64);
+    const d = M.mpmDerived(cfg);
+    const below = { centre: [0.08, 0.05, 0.08], radiusM: 0, kq: 600, softM: 0 };
+    const r = 0.15;
+    const q = (d.particleMass * G * r * r) / below.kq;
+    const sim = lone(cfg, [0.08, 0.05 + r, 0.08], [0, 0, 0], q);
+    sim.conductors = [below];
+    for (let s = 0; s < 40; s++) sim.step();
+    // 10 ms of free fall would be 0.5 mm and 0.1 m/s.
+    assert.ok(Math.abs(sim.particles[1] - (0.05 + r)) < 2e-5, `it moved to ${sim.particles[1]}`);
+    assert.ok(Math.abs(sim.particles[5]) < 5e-3, `vy = ${sim.particles[5]}`);
+
+    const a = lone(cfg, [0.07, 0.2, 0.09], [0.1, 0, -0.05], 0);
+    const b = lone(cfg, [0.07, 0.2, 0.09], [0.1, 0, -0.05], 0);
+    b.conductors = [below, { centre: [0.08, 0.25, 0.08], radiusM: 0.03, kq: -4000, softM: 0.002 }];
+    for (let s = 0; s < 200; s++) { a.step(); b.step(); }
+    assert.deepEqual(new Uint32Array(b.particles.buffer, 0, F), new Uint32Array(a.particles.buffer, 0, F));
+  });
+
+  it('each emitter gives its particles its own charge, and each sink counts what it took', () => {
+    const cfg = M.mpmWaterConfig([24, 24, 24], 0.01, 2.5e-4, 2000, { maxSpeedMS: 3 });
+    const emitters = [
+      { centre: [0.07, 0.18, 0.12], direction: [0, -1, 0], radiusM: 0.006, speedMS: 0.5, spread: 0, chargeC: -3e-9 },
+      { centre: [0.17, 0.18, 0.12], direction: [0, -1, 0], radiusM: 0.006, speedMS: 0.5, spread: 0, chargeC: 2e-9 }
+    ];
+    // A can under each nozzle, and the floor between and around them. The floor
+    // slab also covers the cans' footprints: the cans come first and take theirs.
+    const sinks = [
+      { min: [0.04, 0.04, 0.09], max: [0.10, 0.06, 0.15] },
+      { min: [0.14, 0.04, 0.09], max: [0.20, 0.06, 0.15] },
+      { min: [0, 0, 0], max: [0.24, 0.06, 0.24] }
+    ];
+    const sim = new M.MpmCpu(cfg);
+    const carry = [];
+    let base = 0;
+    for (let f = 0; f < 400; f++) {
+      const counts = M.mpmEmitCounts(cfg, emitters, 4 * cfg.dt, carry);
+      sim.emit({ emitters, counts, seconds: 4 * cfg.dt, baseId: base, sinks });
+      base += counts[0] + counts[1];
+      sim.step(4);
+    }
+    const P = sim.particles;
+    let left = 0, right = 0;
+    for (let p = 0; p < cfg.maxParticles; p++) {
+      if (P[p * F + M.MPM_P.state] === 0) continue;
+      const charge = P[p * F + M.MPM_P.charge];
+      if (P[p * F] < 0.12) { left++; assert.equal(charge, Math.fround(-3e-9)); } else { right++; assert.equal(charge, Math.fround(2e-9)); }
+    }
+    assert.ok(left > 5 && right > 5, `${left} and ${right} drops in the air`);
+    assert.ok(sim.emitted > 100);
+    // Neutral-field run: everything lands in its own can, nothing on the floor.
+    assert.equal(sim.sunkBy[0] + sim.sunkBy[1] + sim.sunkBy[2] + sim.sunkBy[3], sim.sunk);
+    assert.ok(sim.sunkBy[0] > 20 && sim.sunkBy[1] > 20, JSON.stringify(sim.sunkBy));
+    assert.equal(sim.sunkBy[2], 0, 'a drop over a can went to the floor sink');
+    assert.equal(sim.sunkBy[3], 0);
+    assert.equal(sim.emitted - sim.sunk, left + right);
+    assert.throws(() => M.packMpmIoParams(cfg, { emitters: [], counts: [], seconds: 0, baseId: 0, sinks: new Array(5).fill(sinks[0]), exportOrigin: [0, 0, 0], exportScale: 1 }), /sinks/);
+  });
+
+  it('like charge on the collector throws the stream off it: fewer drops land as the potential rises', () => {
+    const cfg = M.mpmWaterConfig([32, 40, 32], 0.01, 2.5e-4, 3000, { maxSpeedMS: 4 });
+    const d = M.mpmDerived(cfg);
+    const nozzle = { centre: [0.16, 0.34, 0.16], direction: [0, -1, 0], radiusM: 0.004, speedMS: 0.4, spread: 0.3 };
+    const can = { min: [0.12, 0.04, 0.12], max: [0.20, 0.06, 0.20] };
+    const floor = { min: [0, 0, 0], max: [0.32, 0.06, 0.32] };
+    const landed = (volts) => {
+      // The can's rim as a ring at `volts`, 4 cm in radius; drops at 5e-5 C/kg.
+      const rim = { centre: [0.16, 0.07, 0.16], radiusM: 0.04, kq: volts * 0.04, softM: 0.004 };
+      const sim = new M.MpmCpu(cfg);
+      sim.conductors = [rim];
+      const emitters = [{ ...nozzle, chargeC: 5e-5 * d.particleMass }];
+      const carry = [];
+      let base = 0;
+      for (let f = 0; f < 700; f++) {
+        const counts = M.mpmEmitCounts(cfg, emitters, 4 * cfg.dt, carry);
+        sim.emit({ emitters, counts, seconds: 4 * cfg.dt, baseId: base, sinks: [can, floor] });
+        base += counts[0];
+        sim.step(4);
+      }
+      return { can: sim.sunkBy[0], floor: sim.sunkBy[1], share: sim.sunkBy[0] / Math.max(1, sim.sunk) };
+    };
+    const runs = [0, 25000, 50000, 60000, 70000, 90000].map((v) => ({ volts: v, ...landed(v) }));
+    console.log('  ' + runs.map((r) => `${r.volts / 1000} kV: ${r.can} in the can, ${r.floor} beside it`).join('; '));
+    const [quiet, charged, , , high] = runs;
+    assert.ok(quiet.share > 0.95, `uncharged collector: ${quiet.can} in the can, ${quiet.floor} on the floor`);
+    assert.ok(charged.share <= quiet.share, `25 kV: ${charged.can} / ${charged.floor}`);
+    assert.ok(high.share < 0.25, `70 kV: ${high.can} in the can, ${high.floor} beside it`);
+    assert.ok(high.share < charged.share);
+  });
+});

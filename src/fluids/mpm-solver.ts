@@ -11,10 +11,10 @@
  */
 import type { PipelineLayoutCache, MpmPipelines, MpmShaderSources } from '../pipeline-layout/pipeline-layout-cache.js';
 import {
-  MPM_BOUNDARY_FLOATS, MPM_COUNTER_WORDS, MPM_FLAG_BOUNDARY, MPM_GRID_CHANNELS, MPM_IO_PARAMS_BYTES, MPM_PARAMS_BYTES,
-  MPM_PARTICLE_BYTES, MPM_PARTICLE_FLOATS, MPM_PROBE_EXTRA_WORDS, MPM_PROBE_MASS_SCALE,
+  MPM_BOUNDARY_FLOATS, MPM_COUNTER_WORDS, MPM_FLAG_BOUNDARY, MPM_GRID_CHANNELS, MPM_IO_PARAMS_BYTES, MPM_MAX_CONDUCTORS,
+  MPM_MAX_SINKS, MPM_PARAMS_BYTES, MPM_PARTICLE_BYTES, MPM_PARTICLE_FLOATS, MPM_PROBE_EXTRA_WORDS, MPM_PROBE_MASS_SCALE,
   mpmDerived, mpmEmitCounts, mpmMemoryBytes, packMpmIoParams, packMpmParams, validateMpmConfig,
-  type MpmConfig, type MpmEmitter, type MpmProfile, type MpmSink
+  type MpmConductor, type MpmConfig, type MpmEmitter, type MpmProfile, type MpmSink
 } from './mpm-params.js';
 
 /** Invocations per workgroup of the particle passes (mpm-p2g, mpm-g2p, mpm-emit, mpm-export). */
@@ -75,6 +75,7 @@ export class MpmSolver {
   /** Draw export: scene position = exportOrigin + metres · exportScale. */
   exportOrigin: [number, number, number] = [0, 0, 0];
   exportScale = 1;
+  private conductorList: readonly MpmConductor[] = [];
   /** A surface pass draws the bulk liquid this frame (mpm-export.wgsl writes type 11 for it). */
   exportSurface = false;
   /** Density over rest density under which a particle is exported as spray; 0 = never. */
@@ -240,10 +241,25 @@ export class MpmSolver {
     this.paramsDirty = true;
   }
 
+  /**
+   * The conductors charged particles feel from the next encode on. Their
+   * charges follow the bench's plant, so a bench sets them every frame.
+   */
+  setConductors(conductors: readonly MpmConductor[]): void {
+    if (conductors.length > MPM_MAX_CONDUCTORS) throw new Error(`MpmSolver: ${conductors.length} conductors, the limit is ${MPM_MAX_CONDUCTORS}`);
+    if (conductors.length === 0 && this.conductorList.length === 0) return;
+    this.conductorList = conductors;
+    this.paramsDirty = true;
+  }
+
+  get conductors(): readonly MpmConductor[] {
+    return this.conductorList;
+  }
+
   private uploadParams(): void {
     if (!this.paramsDirty) return;
     const flags = this.hasBoundary ? MPM_FLAG_BOUNDARY : 0;
-    this.device.queue.writeBuffer(this.paramsBuffer, 0, packMpmParams(this.cfg, this.live, this.paramsScratch, flags));
+    this.device.queue.writeBuffer(this.paramsBuffer, 0, packMpmParams(this.cfg, this.live, this.paramsScratch, flags, this.conductorList));
     this.paramsDirty = false;
   }
 
@@ -340,7 +356,7 @@ export class MpmSolver {
       this.profilePending = false;
       const layers = new Float32Array(ny);
       for (let j = 0; j < ny; j++) layers[j] = words[j] / MPM_PROBE_MASS_SCALE;
-      this.profile = { layers, emitted: words[ny], sunk: words[ny + 1] };
+      this.profile = { layers, emitted: words[ny], sunk: words[ny + 1], sunkBy: Array.from(words.subarray(ny + 2, ny + 2 + MPM_MAX_SINKS)) };
       return this.profile;
     }, () => {
       // Destroyed or lost while mapping: there is no profile to report.

@@ -258,7 +258,7 @@ one bind group. Each pass declares only the bindings it uses. The host
 
 | Binding | Type | Stages | Resource | Declared by |
 |---------|------|--------|----------|-------------|
-| 0 | uniform | CS | `MpmParams` (96 B, `common/mpm.wgsl`) | all three |
+| 0 | uniform | CS | `MpmParams` (224 B, `common/mpm.wgsl`): the solver's numbers, then up to four `MpmConductor` (32 B each) whose field charged particles feel in `g2p` | all three |
 | 1 | storage (rw) | CS | Particles, `array<MpmParticle>` (80 B each) | `p2g`, `g2p` |
 | 2 | storage (rw) | CS | Fixed-point grid, 4 × i32 per node: mass, momentum xyz — `array<atomic<i32>>` in `p2g`, plain `array<i32>` in `gridUpdate` | `p2g`, `gridUpdate` |
 | 3 | storage (rw) | CS | Velocity grid, `array<vec4f>`: velocity (m/s), mass (particle masses) | `gridUpdate`, `g2p` (reads only) |
@@ -277,10 +277,10 @@ for a solver created with `io`.
 |---------|------|--------|----------|-------------|
 | 0 | uniform | CS | `MpmParams` (same buffer as `mpm` binding 0) | all three |
 | 1 | storage (rw) | CS | Particles (same buffer as `mpm` binding 1) | `emit`, `exportParticles` (reads only) |
-| 2 | uniform | CS | `MpmIoParams` (192 B): two emitters, two sinks, the export transform, whether a surface pass draws the bulk, the spray threshold | `emit`, `exportParticles` |
-| 3 | storage (rw) | CS | Counters, `array<atomic<u32>>`: this frame's emission tickets (the host clears this word each frame), emitted total, drained total | `emit`, `probe` |
+| 2 | uniform | CS | `MpmIoParams` (272 B): two emitters, four sinks, the export transform, whether a surface pass draws the bulk, the spray threshold, the charge each emitter's particles carry | `emit`, `exportParticles` |
+| 3 | storage (rw) | CS | Counters, `array<atomic<u32>>` (8 words): this frame's emission tickets (the host clears this word each frame), emitted total, drained total, then drained per sink | `emit`, `probe` |
 | 4 | storage (read) | CS | Velocity grid (same buffer as `mpm` binding 3), for its mass channel | `probe`, `exportParticles` (the density that tells spray from liquid) |
-| 5 | storage (rw) | CS | Profile, `array<u32>`: mass per grid layer × 256, then the two totals | `probe` |
+| 5 | storage (rw) | CS | Profile, `array<u32>`: mass per grid layer × 256, then the emitted and drained totals and the drained count of each sink | `probe` |
 | 6 | storage (rw) | CS | Draw records, `array<GpuParticle>` (16 B, `common/particle.wgsl`) — what the `particle` layout's binding 4 reads | `exportParticles` |
 
 `emit` and `exportParticles` run at `@workgroup_size(64)` over every slot of

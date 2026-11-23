@@ -8,6 +8,10 @@
 // a solid of the signed-distance field (binding 4, read trilinearly) is put
 // back on its surface. The dither counter steps once.
 //
+// A charged particle (charge ≠ 0) also feels the field of the conductors in
+// `params` — rings of charge at the potentials the bench's plant gives them:
+// q·E/m is added to its velocity before it moves. Neutral liquid skips it.
+//
 // The velocity grid is bound read-write because the layout is shared with
 // mpm-grid.wgsl; this pass only reads it.
 //
@@ -33,6 +37,30 @@ fn boundaryAt(pos: vec3f) -> vec4f {
     out += boundary[mpmNodeIndex(i0 + o, params.gridN)] * (w3.x * w3.y * w3.z);
   }
   return out;
+}
+
+// Field (V/m) of the conductors at a point — `mpmFieldAt`. A ring is summed
+// as MPM_RING_POINTS point charges, softened by the wire's radius.
+fn fieldAt(pos: vec3f) -> vec3f {
+  var e = vec3f(0.0);
+  for (var c = 0u; c < min(params.conductorCount, u32(MPM_MAX_CONDUCTORS)); c++) {
+    let k = params.conductors[c];
+    let soft2 = k.soft * k.soft;
+    if (k.radius <= 0.0) {
+      let r = pos - k.centre;
+      let d2 = dot(r, r) + soft2;
+      e += r * (k.kq / (d2 * sqrt(d2)));
+      continue;
+    }
+    let share = k.kq / f32(MPM_RING_POINTS);
+    for (var i = 0; i < MPM_RING_POINTS; i++) {
+      let a = 6.283185307179586 * f32(i) / f32(MPM_RING_POINTS);
+      let r = pos - (k.centre + vec3f(cos(a), 0.0, sin(a)) * k.radius);
+      let d2 = dot(r, r) + soft2;
+      e += r * (share / (d2 * sqrt(d2)));
+    }
+  }
+  return e;
 }
 
 @compute @workgroup_size(64)
@@ -68,6 +96,10 @@ fn g2p(@builtin(global_invocation_id) gid: vec3u) {
   let divergence = (b0.x + b1.y + b2.z) * k4;
   p.j = clamp(p.j * exp(params.dt * divergence), params.minJ, params.maxJ);
   p.seed = mpmSeedNext(p.seed);
+  if (p.charge != 0.0 && params.conductorCount > 0u) {
+    v += fieldAt(p.pos) * (p.charge / params.particleMass * params.dt);
+    v = clamp(v, vec3f(-params.maxSpeed), vec3f(params.maxSpeed));
+  }
   p.vel = v;
   var pos = p.pos + v * params.dt;
   if ((params.flags & MPM_FLAG_BOUNDARY) != 0u) {

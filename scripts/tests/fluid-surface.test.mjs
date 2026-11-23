@@ -126,16 +126,16 @@ describe('fluid-surface: the uniform block', () => {
     const cfg = M.mpm.mpmWaterConfig([16, 16, 16], 0.01, 1e-4, 512);
     const base = { emitters: [], counts: [], seconds: 0, baseId: 0, sinks: [], exportOrigin: [0, 0, 0], exportScale: 1 };
     const io = wgsl('common/mpm.wgsl').match(/struct MpmIoParams \{([^}]*)\}/)[1];
-    // capacity, surface, sprayBelow, pad2 are the last four words of the block.
-    assert.match(io, /capacity: u32,\s*surface: u32,[^\n]*\n\s*sprayBelow: f32,[^\n]*\n\s*pad2: u32,/);
-    const words = M.mpm.MPM_IO_PARAMS_BYTES / 4;
+    // capacity, surface, sprayBelow, pad2, then the vec4 of emitter charges end the block.
+    assert.match(io, /capacity: u32,\s*surface: u32,[^\n]*\n\s*sprayBelow: f32,[^\n]*\n\s*pad2: u32,\s*emitterCharge: vec4f,/);
+    const capacityAt = M.mpm.MPM_IO_PARAMS_BYTES / 4 - 8;
     const on = M.mpm.packMpmIoParams(cfg, { ...base, surface: true, sprayBelow: 0.15 });
-    assert.equal(new Uint32Array(on)[words - 4], 512);
-    assert.equal(new Uint32Array(on)[words - 3], 1);
-    assert.ok(Math.abs(new Float32Array(on)[words - 2] - 0.15) < 1e-7);
+    assert.equal(new Uint32Array(on)[capacityAt], 512);
+    assert.equal(new Uint32Array(on)[capacityAt + 1], 1);
+    assert.ok(Math.abs(new Float32Array(on)[capacityAt + 2] - 0.15) < 1e-7);
     const off = M.mpm.packMpmIoParams(cfg, base);
-    assert.equal(new Uint32Array(off)[words - 3], 0);
-    assert.equal(new Float32Array(off)[words - 2], 0);
+    assert.equal(new Uint32Array(off)[capacityAt + 1], 0);
+    assert.equal(new Float32Array(off)[capacityAt + 2], 0);
   });
 });
 

@@ -293,6 +293,99 @@ describe('gpu-golden: mpm boundary, emit, probe, export vs MpmCpu', { skip }, ()
     solver.destroy();
   });
 
+  it('charged droplets: the GPU moves them as the CPU does, keeps their charge, and each sink counts its own', async () => {
+    const { app } = session;
+    const F = app.mpm.MPM_PARTICLE_FLOATS;
+    const cfg = app.mpm.mpmWaterConfig([32, 40, 32], 0.01, 2.5e-4, 3000, { maxSpeedMS: 4 });
+    const m = app.mpm.mpmDerived(cfg).particleMass;
+    // Two drippers with opposite charge over two cans; each can's rim is a
+    // ring at the sign of its own stream (a Kelvin dropper's cross-connection
+    // seen from the drops), at 40 kV: below the threshold, so most still land.
+    const emitters = [
+      { centre: [0.10, 0.34, 0.16], direction: [0, -1, 0], radiusM: 0.004, speedMS: 0.4, spread: 0.3, chargeC: -5e-5 * m },
+      { centre: [0.22, 0.34, 0.16], direction: [0, -1, 0], radiusM: 0.004, speedMS: 0.4, spread: 0.3, chargeC: 5e-5 * m }
+    ];
+    const conductors = [
+      { centre: [0.10, 0.07, 0.16], radiusM: 0.04, kq: -40000 * 0.04, softM: 0.004 },
+      { centre: [0.22, 0.07, 0.16], radiusM: 0.04, kq: 40000 * 0.04, softM: 0.004 },
+      { centre: [0.16, 0.30, 0.16], radiusM: 0, kq: 300, softM: 0.01 }
+    ];
+    const sinks = [
+      { min: [0.06, 0.04, 0.12], max: [0.14, 0.06, 0.20] },
+      { min: [0.18, 0.04, 0.12], max: [0.26, 0.06, 0.20] },
+      { min: [0, 0, 0], max: [0.32, 0.06, 0.32] }
+    ];
+    const frames = 420;
+    const sub = 4;
+
+    const cpu = new app.MpmCpu(cfg);
+    cpu.conductors = conductors;
+    const carry = [];
+    let base = 0;
+    for (let f = 0; f < frames; f++) {
+      const counts = app.mpm.mpmEmitCounts(cfg, emitters, sub * cfg.dt, carry);
+      cpu.emit({ emitters, counts, seconds: sub * cfg.dt, baseId: base, sinks });
+      base += counts[0] + counts[1];
+      cpu.step(sub);
+    }
+
+    const solver = await makeSolver(cfg, { io: true });
+    solver.emitters = emitters;
+    solver.sinks = sinks;
+    solver.setConductors(conductors);
+    for (let f = 0; f < frames - 1; f++) submit((enc) => solver.encodeFrame(enc, sub));
+    submit((enc) => solver.encodeFrame(enc, sub, { probe: true }));
+    const profile = await solver.collectProfile();
+    const particles = await readParticles(solver);
+    assert.deepEqual(session.device.uncaptured, [], 'GPU validation errors');
+
+    // The same drops, in the same places.
+    const vs = compareSets(app, particles, cpu.particles);
+    assert.equal(vs.unmatched, 0, 'a particle exists on one side only');
+    assert.ok(vs.live > 10, `${vs.live} drops in the air`);
+    assert.ok(vs.pos < 0.02 * cfg.cellM, `a drop is ${(vs.pos / cfg.cellM).toFixed(4)} cells from its CPU twin`);
+    assert.ok(vs.vel < 0.02, `velocity differs by ${vs.vel} m/s`);
+    // Charge is what its emitter gave it — the CPU twin's, drop for drop — and nothing else.
+    const onGpu = bySeed(app, particles);
+    const onCpu = bySeed(app, cpu.particles);
+    const charges = new Set([Math.fround(emitters[0].chargeC), Math.fround(emitters[1].chargeC)]);
+    let negative = 0, positive = 0;
+    for (const [seed, o] of onGpu) {
+      const charge = particles[o + app.mpm.MPM_P.charge];
+      assert.ok(charges.has(charge), `a drop carries ${charge}`);
+      assert.equal(charge, cpu.particles[onCpu.get(seed) + app.mpm.MPM_P.charge]);
+      if (charge < 0) negative++; else positive++;
+    }
+    assert.ok(negative > 3 && positive > 3, `${negative} negative and ${positive} positive drops`);
+    // Each sink's own count, and their sum.
+    assert.deepEqual(profile.sunkBy, cpu.sunkBy, 'per-sink counts');
+    assert.equal(profile.sunk, cpu.sunk);
+    assert.equal(profile.sunkBy.reduce((a, n) => a + n, 0), profile.sunk);
+    // The third conductor makes the two sides differ: drops went to more than one sink, and the counts say which.
+    assert.ok(profile.sunk > 30 && profile.sunkBy.filter((n) => n > 10).length >= 2, JSON.stringify(profile.sunkBy));
+    assert.equal(profile.emitted, cpu.emitted);
+
+    // Without the conductors the same charged drops fall straight: the field is what moved them.
+    const still = await makeSolver(cfg, { io: true });
+    still.emitters = emitters;
+    still.sinks = sinks;
+    for (let f = 0; f < 200; f++) submit((enc) => still.encodeFrame(enc, sub));
+    const straight = await readParticles(still);
+    let widest = 0, widestCharged = 0;
+    for (let p = 0; p < cfg.maxParticles; p++) {
+      // Its nozzle, by the sign it left with.
+      const nozzleX = (rec) => (rec[p * F + app.mpm.MPM_P.charge] < 0 ? 0.10 : 0.22);
+      if (straight[p * F + app.mpm.MPM_P.state] !== 0 && straight[p * F + 1] > 0.1) widest = Math.max(widest, Math.abs(straight[p * F] - nozzleX(straight)));
+      if (particles[p * F + app.mpm.MPM_P.state] !== 0 && particles[p * F + 1] > 0.1) widestCharged = Math.max(widestCharged, Math.abs(particles[p * F] - nozzleX(particles)));
+    }
+    assert.deepEqual(session.device.uncaptured, [], 'GPU validation errors');
+    console.log(`  ${vs.live} charged drops: max |GPU − CPU| ${(vs.pos / cfg.cellM).toExponential(2)} cells; sinks ${JSON.stringify(profile.sunkBy)}; `
+      + `stream width ${(widest * 1000).toFixed(1)} mm without the field, ${(widestCharged * 1000).toFixed(1)} mm with it`);
+    assert.ok(widestCharged > widest, 'the field did not widen the streams');
+    solver.destroy();
+    still.destroy();
+  });
+
   it('a jet stands v²/2g tall, within 10 %, and the books balance', async () => {
     const { app } = session;
     const h = 0.005;

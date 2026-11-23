@@ -148,7 +148,35 @@ in different slots (`test:gpu-golden` checks exactly that).
 The profile is how a bench reads the liquid back without a readback of the
 particles: the top of a jet is the highest layer holding more than a tenth of
 the nozzle's own cross-section, and `emitted − drained` is what is in the box.
-It is copied out asynchronously and never blocks a frame.
+It is copied out asynchronously and never blocks a frame. Up to four sinks
+can be set, and the profile carries what each one took (`sunkBy`): a particle
+inside two goes to the first, so a collector listed before the floor gets its
+own count.
+
+### Charge
+
+A particle can carry a charge (C), given by its emitter, and the solver can
+hold up to four **conductors**: horizontal rings of charge, or points, each
+with `kq` — Coulomb's constant times its charge, V·m, so that a sphere of
+radius R at potential V has `kq = V·R`. A bench sets them every frame from its
+plant's potentials. In `mpm-g2p.wgsl` a charged particle gets `q·E/m` added to
+its velocity after the grid gather and before it moves; neutral liquid skips
+the sum entirely.
+
+- A ring is summed as 12 point charges, softened by the wire's radius. That
+  is exact on the ring's axis and within 5 % of a 720-point ring a radius or
+  more from the wire (`test:mpm-io`).
+- A drop let go above a like-charged conductor keeps kinetic + `q·V` + `m·g·y`
+  within 1 % of `m·g·(0.3 m)` through a pass a centimetre from it, in a field
+  of megavolts per metre; `q·E = m·g` holds a drop still.
+- The effect a Kelvin dropper shows: with drops at 5·10⁻⁵ C/kg falling 27 cm
+  into a can whose rim is a like-charged ring, 79 of 79 land at 0 V, 72 at
+  50 kV, 40 at 60 kV and none at 70 kV — the threshold is where `q·V` equals
+  what the fall is worth.
+- The force acts on particles, not through the grid, and charge does not move
+  between particles or onto a wall. That is right for separate drops and for
+  a pool that is drained as it lands; it would be wrong for a charged pool
+  that is kept, whose charge belongs on its surface.
 
 ### The surface
 
